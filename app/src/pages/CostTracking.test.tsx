@@ -140,8 +140,8 @@ describe('CostTracking page', () => {
 
   it('page title bar shows "Usage"', async () => {
     renderCostTracking()
-    // TopBar title prop
-    expect(screen.getByText('Usage')).toBeInTheDocument()
+    // h1 heading
+    expect(screen.getByRole('heading', { name: 'Usage', level: 1 })).toBeInTheDocument()
   })
 
   it('shows time filter buttons', () => {

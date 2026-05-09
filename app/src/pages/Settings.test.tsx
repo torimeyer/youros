@@ -537,30 +537,6 @@ describe('Settings', () => {
     })
   })
 
-  describe("What's working section", () => {
-    it("renders the What's working heading in Settings", async () => {
-      vi.mocked(api.get).mockImplementation((path: string) => {
-        if (path === '/adoption/whats-working') {
-          return Promise.resolve({
-            top_skills: [],
-            recommendations: [],
-            this_week: { agent_runs_completed: 0, top_spec_or_task: null },
-          })
-        }
-        if (path === '/secrets/key-status') {
-          return Promise.resolve({ google_oauth_available: false })
-        }
-        return Promise.resolve({})
-      })
-
-      renderSettings()
-
-      await waitFor(() => {
-        expect(screen.getByTestId('whats-working-section')).toBeInTheDocument()
-      })
-    })
-  })
-
   describe('Budget Caps toggle', () => {
     it('renders the budget caps toggle button', async () => {
       renderSettings()

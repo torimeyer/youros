@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAppStore, PROVIDER_TO_MODEL, type AccentColor } from '../stores/app';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
@@ -13,51 +12,6 @@ import { AtlassianSetupCard, GithubSetupCard } from '../components/OnboardingWiz
 import CustomVerbs from '../components/CustomVerbs';
 
 const DEFAULT_FILES_DIR_HINT = "~/.myos/files";
-
-interface WhatsWorkingSkill {
-  id: string
-  name: string
-  uses_this_week: number
-  prev_week_uses: number
-}
-
-interface WhatsWorkingRecommendation {
-  id: string
-  name: string
-  why: string
-}
-
-interface WhatsWorkingThisWeek {
-  agent_runs_completed: number
-  top_spec_or_task: string | null
-}
-
-interface WhatsWorkingData {
-  top_skills: WhatsWorkingSkill[]
-  recommendations: WhatsWorkingRecommendation[]
-  this_week: WhatsWorkingThisWeek
-}
-
-function wwSkillDelta(skill: WhatsWorkingSkill): { label: string; color: string } | null {
-  if (skill.prev_week_uses === 0 && skill.uses_this_week > 0) {
-    return { label: 'new', color: 'text-slate-400' }
-  }
-  if (skill.prev_week_uses > 0) {
-    const pct = Math.round(((skill.uses_this_week - skill.prev_week_uses) / skill.prev_week_uses) * 100)
-    return {
-      label: pct >= 0 ? `+${pct}%` : `${pct}%`,
-      color: pct > 0 ? 'text-green-400' : pct < 0 ? 'text-red-400' : 'text-slate-400',
-    }
-  }
-  return null
-}
-
-function wwTruncatePriority(text: string): string {
-  const colonIdx = text.indexOf(':')
-  if (colonIdx > 0 && colonIdx <= 80) return text.slice(0, colonIdx)
-  if (text.length <= 80) return text
-  return text.slice(0, 80) + '…'
-}
 
 interface SettingsData {
   dark_mode?: boolean;
@@ -131,7 +85,6 @@ export default function Settings() {
   } = useAppStore();
 
   const { confirm, confirmProps } = useConfirm();
-  const navigate = useNavigate();
 
   const [selectedProvider, setSelectedProvider] = useState('Anthropic');
   // Chat backend preference: "auto" picks the subscription when ready,
@@ -226,11 +179,6 @@ export default function Settings() {
   const [adhdEnabled, setAdhdEnabled] = useState(false);
   const [adhdCheckInSeconds, setAdhdCheckInSeconds] = useState(30);
   const [adhdFocusMode, setAdhdFocusMode] = useState(false);
-
-  // What's working
-  const [whatsWorkingData, setWhatsWorkingData] = useState<WhatsWorkingData | null>(null);
-  const [whatsWorkingLoading, setWhatsWorkingLoading] = useState(true);
-  const [whatsWorkingError, setWhatsWorkingError] = useState(false);
 
   const [activeSection, setActiveSection] = useState('section-connections');
   const [expandedConnection, setExpandedConnection] = useState<string | null>(null);
@@ -392,10 +340,6 @@ export default function Settings() {
     if (pushSupported) {
       isSubscribed().then(setSettingsPushEnabled).catch(() => {});
     }
-    // Fetch What's working data
-    api.get<WhatsWorkingData>('/adoption/whats-working')
-      .then((d) => { setWhatsWorkingData(d); setWhatsWorkingLoading(false); })
-      .catch(() => { setWhatsWorkingError(true); setWhatsWorkingLoading(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1929,130 +1873,6 @@ export default function Settings() {
                   );
                 })}
               </div>
-            </div>
-          </div>
-
-          {/* What's working */}
-          <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
-            <div className={cardClass} data-testid="whats-working-section">
-              <h2 className="text-lg font-semibold text-white mb-2">What's working</h2>
-              <p className="text-slate-400 text-sm mb-6">A quick look at what you've been running this week and what to try next.</p>
-            {whatsWorkingLoading ? (
-              <p className="text-slate-400 text-sm">Loading...</p>
-            ) : whatsWorkingError || !whatsWorkingData?.top_skills ? (
-              <p className="text-slate-400 text-sm">Couldn't load your activity right now. Try refreshing.</p>
-            ) : (
-              <div className="space-y-8">
-                {/* Top skills */}
-                <section aria-labelledby="ww-top-skills-heading">
-                  <h3 id="ww-top-skills-heading" className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
-                    What you used this week
-                  </h3>
-                  {whatsWorkingData.top_skills.length > 0 ? (
-                    <div className="space-y-2">
-                      {whatsWorkingData.top_skills.map((skill) => (
-                        <div
-                          key={skill.id}
-                          data-testid="ww-skill-card"
-                          className="flex items-center justify-between bg-slate-800/50 border border-slate-700/50 rounded-lg px-4 py-3"
-                        >
-                          <div className="flex items-center gap-3">
-                            <Icon name="bolt" className="text-amber-400 text-lg" />
-                            <span className="text-sm font-medium text-slate-100">{skill.name}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {(() => {
-                              const delta = wwSkillDelta(skill)
-                              return delta ? (
-                                <span className={`text-xs ${delta.color} bg-slate-700/50 px-2 py-0.5 rounded-full`}>
-                                  {delta.label}
-                                </span>
-                              ) : null
-                            })()}
-                            <span className="text-xs text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded-full">
-                              {skill.uses_this_week}x this week
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {[
-                        { id: 'builtin-builder', name: 'Builder', icon: 'engineering', desc: 'Build something new' },
-                        { id: 'builtin-brainstorm', name: 'Brainstorm', icon: 'lightbulb', desc: 'Explore ideas and approaches' },
-                        { id: 'builtin-research', name: 'Research', icon: 'search', desc: 'Look into a topic or question' },
-                      ].map((card) => (
-                        <button
-                          key={card.id}
-                          type="button"
-                          aria-label={`Start a ${card.name} agent`}
-                          onClick={() => navigate(`/agents?template=${card.id}`)}
-                          className="w-full text-left flex items-start gap-3 bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
-                        >
-                          <Icon name={card.icon} className="text-sky-400 text-lg mt-0.5 shrink-0" />
-                          <div>
-                            <p className="text-sm font-medium text-slate-100">{card.name}</p>
-                            <p className="text-xs text-slate-400 mt-0.5">{card.desc}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </section>
-
-                {/* Recommendations */}
-                {whatsWorkingData.recommendations.length > 0 && (
-                  <section aria-labelledby="ww-recs-heading">
-                    <h3 id="ww-recs-heading" className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
-                      What to try next
-                    </h3>
-                    <div className="space-y-2">
-                      {whatsWorkingData.recommendations.map((rec) => (
-                        <button
-                          key={rec.id}
-                          type="button"
-                          aria-label={`Start a ${rec.name} agent`}
-                          onClick={() => navigate(`/agents?template=${rec.id}`)}
-                          className="w-full text-left flex items-start gap-3 bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
-                        >
-                          <Icon name="lightbulb" className="text-sky-400 text-lg mt-0.5 shrink-0" />
-                          <div>
-                            <p className="text-sm font-medium text-slate-100">{rec.name}</p>
-                            <p className="text-xs text-slate-400 mt-0.5">Because {rec.why}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                )}
-
-                {/* This week summary */}
-                <section aria-labelledby="ww-week-heading">
-                  <h3 id="ww-week-heading" className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
-                    This week
-                  </h3>
-                  <div className="bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-4 space-y-3">
-                    <div className="flex items-center gap-3">
-                      <Icon name="check_circle" className="text-green-400 text-lg shrink-0" />
-                      <span className="text-sm text-slate-300">
-                        {whatsWorkingData.this_week.agent_runs_completed === 0
-                          ? 'No agent runs finished this week yet.'
-                          : `${whatsWorkingData.this_week.agent_runs_completed} agent run${whatsWorkingData.this_week.agent_runs_completed === 1 ? '' : 's'} finished`}
-                      </span>
-                    </div>
-                    {whatsWorkingData.this_week.top_spec_or_task && (
-                      <div className="flex items-center gap-3">
-                        <Icon name="flag" className="text-amber-400 text-lg shrink-0" />
-                        <span className="text-sm text-slate-300">
-                          Top priority: {wwTruncatePriority(whatsWorkingData.this_week.top_spec_or_task!)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </section>
-              </div>
-            )}
             </div>
           </div>
         </div>

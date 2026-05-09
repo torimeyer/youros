@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import TopBar from '../components/TopBar'
 import Icon from '../components/Icon'
 import TimeFilter, { type TimePeriod } from '../components/TimeFilter'
@@ -48,6 +48,186 @@ function SuggestionTips({ savings, totalTokens }: { savings: SavingsData; totalT
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+interface WhatsWorkingSkill {
+  id: string
+  name: string
+  uses_this_week: number
+  prev_week_uses: number
+}
+
+interface WhatsWorkingRecommendation {
+  id: string
+  name: string
+  why: string
+}
+
+interface WhatsWorkingThisWeek {
+  agent_runs_completed: number
+  agent_runs_failed: number
+  top_spec_or_task: string | null
+}
+
+interface WhatsWorkingData {
+  top_skills: WhatsWorkingSkill[]
+  recommendations: WhatsWorkingRecommendation[]
+  this_week: WhatsWorkingThisWeek
+}
+
+function wwSkillDelta(skill: WhatsWorkingSkill): { label: string; color: string } | null {
+  if (skill.prev_week_uses === 0 && skill.uses_this_week > 0) {
+    return { label: 'new', color: 'text-slate-400' }
+  }
+  if (skill.prev_week_uses > 0) {
+    const pct = Math.round(((skill.uses_this_week - skill.prev_week_uses) / skill.prev_week_uses) * 100)
+    return {
+      label: pct >= 0 ? `+${pct}%` : `${pct}%`,
+      color: pct > 0 ? 'text-green-400' : pct < 0 ? 'text-red-400' : 'text-slate-400',
+    }
+  }
+  return null
+}
+
+function wwTruncatePriority(text: string): string {
+  const colonIdx = text.indexOf(':')
+  if (colonIdx > 0 && colonIdx <= 80) return text.slice(0, colonIdx)
+  if (text.length <= 80) return text
+  return text.slice(0, 80) + '…'
+}
+
+function WhatsWorkingPanel({
+  data,
+  loading,
+  error,
+  navigate,
+  cardClass,
+}: {
+  data: WhatsWorkingData | null
+  loading: boolean
+  error: boolean
+  navigate: (path: string) => void
+  cardClass: string
+}) {
+  return (
+    <div className={cardClass} data-testid="whats-working-section">
+      <h2 className="text-lg font-semibold text-white mb-2">What's working</h2>
+      <p className="text-slate-400 text-sm mb-6">A quick look at what you've been running this week and what to try next.</p>
+      {loading ? (
+        <p className="text-slate-400 text-sm">Loading...</p>
+      ) : error || !data?.top_skills ? (
+        <p className="text-slate-400 text-sm">Couldn't load your activity right now. Try refreshing.</p>
+      ) : (
+        <div className="space-y-8">
+          <section aria-labelledby="ww-top-skills-heading">
+            <h3 id="ww-top-skills-heading" className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
+              What you used this week
+            </h3>
+            {data.top_skills.length > 0 ? (
+              <div className="space-y-2">
+                {data.top_skills.map((skill) => (
+                  <div
+                    key={skill.id}
+                    data-testid="ww-skill-card"
+                    className="flex items-center justify-between bg-slate-800/50 border border-slate-700/50 rounded-lg px-4 py-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Icon name="bolt" className="text-amber-400 text-lg" />
+                      <span className="text-sm font-medium text-slate-100">{skill.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {(() => {
+                        const delta = wwSkillDelta(skill)
+                        return delta ? (
+                          <span className={`text-xs ${delta.color} bg-slate-700/50 px-2 py-0.5 rounded-full`}>
+                            {delta.label}
+                          </span>
+                        ) : null
+                      })()}
+                      <span className="text-xs text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded-full">
+                        {skill.uses_this_week}x this week
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {[
+                  { id: 'builtin-builder', name: 'Builder', icon: 'engineering', desc: 'Build something new' },
+                  { id: 'builtin-brainstorm', name: 'Brainstorm', icon: 'lightbulb', desc: 'Explore ideas and approaches' },
+                  { id: 'builtin-research', name: 'Research', icon: 'search', desc: 'Look into a topic or question' },
+                ].map((card) => (
+                  <button
+                    key={card.id}
+                    type="button"
+                    aria-label={`Start a ${card.name} agent`}
+                    onClick={() => navigate(`/agents?template=${card.id}`)}
+                    className="w-full text-left flex items-start gap-3 bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
+                  >
+                    <Icon name={card.icon} className="text-sky-400 text-lg mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-slate-100">{card.name}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{card.desc}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {data.recommendations.length > 0 && (
+            <section aria-labelledby="ww-recs-heading">
+              <h3 id="ww-recs-heading" className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
+                What to try next
+              </h3>
+              <div className="space-y-2">
+                {data.recommendations.map((rec) => (
+                  <button
+                    key={rec.id}
+                    type="button"
+                    aria-label={`Start a ${rec.name} agent`}
+                    onClick={() => navigate(`/agents?template=${rec.id}`)}
+                    className="w-full text-left flex items-start gap-3 bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
+                  >
+                    <Icon name="lightbulb" className="text-sky-400 text-lg mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-slate-100">{rec.name}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Because {rec.why}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section aria-labelledby="ww-week-heading">
+            <h3 id="ww-week-heading" className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
+              This week
+            </h3>
+            <div className="bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <Icon name="check_circle" className="text-green-400 text-lg shrink-0" />
+                <span className="text-sm text-slate-300">
+                  {data.this_week.agent_runs_completed === 0
+                    ? 'No agent runs finished this week yet.'
+                    : `${data.this_week.agent_runs_completed} agent run${data.this_week.agent_runs_completed === 1 ? '' : 's'} finished${(data.this_week.agent_runs_failed ?? 0) > 0 ? `, ${data.this_week.agent_runs_failed} failed` : ''}`}
+                </span>
+              </div>
+              {data.this_week.top_spec_or_task && (
+                <div className="flex items-center gap-3">
+                  <Icon name="flag" className="text-amber-400 text-lg shrink-0" />
+                  <span className="text-sm text-slate-300">
+                    Top priority: {wwTruncatePriority(data.this_week.top_spec_or_task)}
+                  </span>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   )
 }
@@ -648,6 +828,11 @@ export default function CostTracking() {
   // indicator without blanking the existing data.
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [activeTab, setActiveTab] = useState<'spending' | 'whats-working'>('spending')
+  const navigate = useNavigate()
+  const [wwData, setWwData] = useState<WhatsWorkingData | null>(null)
+  const [wwLoading, setWwLoading] = useState(true)
+  const [wwError, setWwError] = useState(false)
   // fetchId increments on every period change. The effect captures its
   // own snapshot; if a newer fetch fires before an older one resolves,
   // the older one discards its stale response instead of overwriting state.
@@ -726,6 +911,12 @@ export default function CostTracking() {
     }
   }, [period])
 
+  useEffect(() => {
+    api.get<WhatsWorkingData>('/adoption/whats-working')
+      .then((d) => { setWwData(d); setWwLoading(false) })
+      .catch(() => { setWwError(true); setWwLoading(false) })
+  }, [])
+
   // Derived values are memoized on the data reference so a filter swap (which
   // only replaces `data` with a cached object) does not re-run the reducers
   // and filters on every render pass. Same input produces reference-equal
@@ -803,9 +994,9 @@ export default function CostTracking() {
 
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4 sm:mb-6">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold mb-1">AI Spending</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold mb-1">Usage</h1>
             <p className="text-slate-400">
               Track usage across agents and chat
             </p>
@@ -819,7 +1010,25 @@ export default function CostTracking() {
             {refreshing ? 'Updating...' : 'Refresh'}
           </button>
         </div>
+        {/* Tabs */}
+        <div className="flex gap-1 border-b border-slate-800 mb-6 sm:mb-8">
+          <button
+            data-testid="tab-spending"
+            onClick={() => setActiveTab('spending')}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'spending' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white'}`}
+          >
+            AI Spending
+          </button>
+          <button
+            data-testid="tab-whats-working"
+            onClick={() => setActiveTab('whats-working')}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'whats-working' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white'}`}
+          >
+            What's Working
+          </button>
+        </div>
 
+        <div className={activeTab !== 'spending' ? 'hidden' : ''}>
         {/* AI Summary */}
         {data && data.event_count > 0 && (
           <div className={`${cardClass} mb-6 border-l-4 border-blue-500`}>
@@ -1244,6 +1453,16 @@ export default function CostTracking() {
               </div>
             </div>
           </>
+        )}
+        </div>
+        {activeTab === 'whats-working' && (
+          <WhatsWorkingPanel
+            data={wwData}
+            loading={wwLoading}
+            error={wwError}
+            navigate={navigate}
+            cardClass={cardClass}
+          />
         )}
       </div>
     </div>
