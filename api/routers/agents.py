@@ -4459,6 +4459,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             """
             _had_any_byte = False
             _had_model_output = False
+            _had_text_output = False  # True only when assistant text is written to transcript
             _last_any_byte_at = [time.monotonic()]
             _first_any_byte_at = [time.monotonic()]  # set once; Phase 2 uses this
             _last_model_output_at = [time.monotonic()]
@@ -4543,6 +4544,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                                             text = block.get("text", "")
                                             if text:
                                                 _had_model_output = True
+                                                _had_text_output = True
                                                 _last_model_output_at[0] = time.monotonic()
                                                 try:
                                                     tfh.write(text.encode("utf-8", errors="replace"))
@@ -4566,6 +4568,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                                     except Exception:
                                         pass
                                     _had_model_output = True
+                                    _had_text_output = True
                                     _last_model_output_at[0] = time.monotonic()
                     # Flush any partial line left in the buffer
                     if _json_buf.strip():
@@ -4578,6 +4581,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                                         text = block.get("text", "")
                                         if text:
                                             _had_model_output = True
+                                            _had_text_output = True
                                             try:
                                                 tfh.write(text.encode("utf-8", errors="replace"))
                                                 tfh.flush()
@@ -4594,10 +4598,12 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                             except Exception:
                                 pass
                             _had_model_output = True
-                # All stdout consumed. If no model output arrived write a diagnostic note so:
-                #   1. transcript_bytes > 0 → ghost-detection won't fire a false positive.
-                #   2. The user sees a useful message instead of the opaque
-                #      "registered externally" stub from mark_agent_complete.
+                            _had_text_output = True
+                # All stdout consumed. Write a diagnostic note when:
+                #   - No model output at all → "no stdout output" (existing behaviour).
+                #   - Had tool calls but no text → new: "tools only, no text summary".
+                # Both cases keep transcript_bytes > 0 so ghost-detection doesn't fire,
+                # and give the user a useful explanation instead of a silent heartbeat log.
                 try:
                     if not _had_model_output:
                         _rc = getattr(p, "returncode", None)
@@ -4609,6 +4615,23 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                             )
                         logger.warning(
                             "spawn.empty_transcript name=%s rc=%s",
+                            name, _rc,
+                        )
+                    elif not _had_text_output:
+                        # Agent ran tool calls but never emitted assistant text.
+                        # The transcript shows only heartbeats — add a note so
+                        # the user understands why and where to find results.
+                        _rc = getattr(p, "returncode", None)
+                        _rc_str = str(_rc) if _rc is not None else "unknown"
+                        with open(str(tpath), "a") as fh:
+                            fh.write(
+                                f"\nAgent '{name}' completed via tool calls (rc={_rc_str})"
+                                f" without emitting a text summary.\n"
+                                f"Results may be in agent memory:"
+                                f" GET /api/agents/{name}/memory\n"
+                            )
+                        logger.info(
+                            "spawn.tools_only_transcript name=%s rc=%s",
                             name, _rc,
                         )
                 except Exception:
