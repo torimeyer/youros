@@ -69,6 +69,7 @@ interface SettingsData {
   model?: string;
   notifications?: Record<string, boolean>;
   quiet_hours?: boolean;
+  shortcuts?: Record<string, string>;
   [key: string]: unknown;
 }
 
@@ -94,6 +95,24 @@ const featureDisplayNames: Record<string, string> = {
   'Cost Tracking': 'Usage',
 };
 
+
+function Toggle({ checked, onChange, testId, disabled, label }: { checked: boolean; onChange: () => void; testId?: string; disabled?: boolean; label?: string; }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-pressed={checked}
+      aria-label={label}
+      data-testid={testId}
+      disabled={disabled}
+      onClick={onChange}
+      className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${checked ? 'bg-blue-500' : 'bg-slate-700'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+    >
+      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${checked ? 'translate-x-5' : ''}`} />
+    </button>
+  );
+}
 
 // --- Enterprise Setup Wizard ---
 export default function Settings() {
@@ -156,7 +175,9 @@ export default function Settings() {
   const [suggestions, setSuggestions] = useState<{ text: string; checked: boolean }[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState<string | null>(null);
-  const [showAllKeys, setShowAllKeys] = useState(false);
+  const [editingShortcut, setEditingShortcut] = useState<string | null>(null);
+  const [customShortcuts, setCustomShortcuts] = useState<Record<string, string>>({});
+  const [chimeEnabled, setChimeEnabled] = useState(false);
   const [keySaveStatus, setKeySaveStatus] = useState<string | null>(null);
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
@@ -267,6 +288,10 @@ export default function Settings() {
           );
         }
         if (data.quiet_hours !== undefined) setQuietHours(data.quiet_hours);
+        if ((data as any).shortcuts) setCustomShortcuts((data as any).shortcuts);
+        if (data.notifications && typeof (data.notifications as any).chime === 'boolean') {
+          setChimeEnabled((data.notifications as any).chime);
+        }
         if ((data as any).auto_template_matching !== undefined) {
           setAutoTemplateMatching((data as any).auto_template_matching);
         }
@@ -524,6 +549,44 @@ export default function Settings() {
     const next = !quietHours;
     setQuietHours(next);
     api.patch('/settings', { quiet_hours: next }).catch(() => {});
+  };
+
+  const handleChimeToggle = () => {
+    const next = !chimeEnabled;
+    setChimeEnabled(next);
+    if (next) {
+      try {
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.4);
+      } catch { /* AudioContext not available */ }
+    }
+    const notifObj: Record<string, boolean> = {};
+    notifications.forEach((n) => {
+      notifObj[n.label] = n.enabled;
+    });
+    api.patch('/settings', { notifications: { ...notifObj, chime: next } }).catch(() => {});
+  };
+
+  const handleShortcutEdit = (label: string, keys: string) => {
+    const updated = { ...customShortcuts, [label]: keys };
+    setCustomShortcuts(updated);
+    setEditingShortcut(null);
+    api.patch('/settings', { shortcuts: updated }).catch(() => {});
+  };
+
+  const handleShortcutReset = (label: string) => {
+    const updated = { ...customShortcuts };
+    delete updated[label];
+    setCustomShortcuts(updated);
+    api.patch('/settings', { shortcuts: updated }).catch(() => {});
   };
 
   const handleAutoTemplateMatchingToggle = () => {
@@ -862,7 +925,7 @@ export default function Settings() {
 
 
           {/* ── 2. Appearance ───────────────────────── */}
-          <div id="section-appearance" className={`grid grid-cols-1 md:grid-cols-2 gap-6 items-start${activeSection !== 'section-preferences' ? ' hidden' : ''}`}>
+          <div id="section-appearance" className={`space-y-6${activeSection !== 'section-preferences' ? ' hidden' : ''}`}>
           <div className={cardClass}>
             <h2 className="text-lg font-semibold mb-5">Appearance</h2>
 
@@ -959,16 +1022,7 @@ export default function Settings() {
               >
                 <Icon name={featureIcons[f.label] || 'extension'} className="text-slate-400" size={18} />
                 <span className="flex-1 text-sm text-slate-300">{featureDisplayNames[f.label] || f.label}</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={f.enabled}
-                  aria-label={featureDisplayNames[f.label] || f.label}
-                  onClick={() => handleFeatureToggle(index)}
-                  className={`relative inline-flex items-center w-10 h-5 rounded-full transition-colors shrink-0 ${f.enabled ? 'bg-blue-500' : 'bg-slate-600'}`}
-                >
-                  <span className={`inline-block w-4 h-4 rounded-full bg-white shadow-sm transform transition-transform ${f.enabled ? 'translate-x-[20px]' : 'translate-x-0.5'}`} />
-                </button>
+                <Toggle checked={f.enabled} onChange={() => handleFeatureToggle(index)} label={featureDisplayNames[f.label] || f.label} />
               </div>
             ))}
           </div>
@@ -977,15 +1031,7 @@ export default function Settings() {
           <div className="mt-6 pt-6 border-t border-slate-800">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-slate-200">Show budget caps</span>
-              <button
-                data-testid="budget-caps-toggle"
-                onClick={() => setShowBudgetCaps(!showBudgetCaps)}
-                className={`relative w-11 h-6 rounded-full transition-colors ${showBudgetCaps ? 'bg-blue-500' : 'bg-slate-700'}`}
-                aria-pressed={showBudgetCaps}
-                aria-label="Toggle budget caps visibility"
-              >
-                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${showBudgetCaps ? 'translate-x-5' : ''}`} />
-              </button>
+              <Toggle checked={showBudgetCaps} onChange={() => setShowBudgetCaps(!showBudgetCaps)} testId="budget-caps-toggle" />
             </div>
             <p className="text-xs text-slate-500 mt-2">Shows budget cap columns in Usage. Off by default since caps are not real spend.</p>
           </div>
@@ -1005,14 +1051,7 @@ export default function Settings() {
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => setPowerUserMode(!powerUserMode)}
-                className={`relative w-11 h-6 rounded-full transition-colors ${powerUserMode ? 'bg-blue-500' : 'bg-slate-700'}`}
-                aria-pressed={powerUserMode}
-                aria-label="Toggle power user mode"
-              >
-                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${powerUserMode ? 'translate-x-5' : ''}`} />
-              </button>
+              <Toggle checked={powerUserMode} onChange={() => setPowerUserMode(!powerUserMode)} testId="power-user-toggle" />
             </div>
             <p className="text-xs text-slate-500 mt-2">Shows advanced agent tabs (Delegate and Shared Workspace) in the Agents page.</p>
           </div>
@@ -1217,234 +1256,7 @@ export default function Settings() {
           </div>
           </div>
 
-          {/* ── 3. Notifications & Focus ────────────────────── */}
-          <div id="section-notifications-focus" className={activeSection !== 'section-notifications-focus' ? 'hidden' : 'space-y-6'}>
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Notifications</p>
-          <div className={cardClass}>
-            <h2 className="text-lg font-semibold mb-5">Notifications</h2>
-            <div className="space-y-3">
-              {notifications.map((n, index) => (
-                <div key={n.label} className="flex items-center justify-between py-2">
-                  <span className="text-sm text-slate-300">{n.label}</span>
-                  <button
-                    onClick={() => handleNotificationToggle(index)}
-                    className={`w-10 h-6 rounded-full relative transition-colors ${
-                      n.enabled ? 'accent-bg' : 'bg-slate-700'
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                        n.enabled ? 'left-5' : 'left-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-              ))}
-            </div>
-            {pushSupported && (
-              <div className="mt-5 pt-4 border-t border-slate-800">
-                <div className="flex items-center justify-between">
-                  <div className="pr-3">
-                    <p className="text-sm text-slate-300">Push notifications</p>
-                    <p className="text-xs text-slate-500">Get alerts even when the browser tab is closed</p>
-                  </div>
-                  <button
-                    type="button"
-                    data-testid="push-toggle"
-                    onClick={handlePushToggle}
-                    disabled={pushToggling}
-                    className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
-                      settingsPushEnabled ? 'accent-bg' : 'bg-slate-700'
-                    } ${pushToggling ? 'opacity-50' : ''}`}
-                  >
-                    <span
-                      className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                        settingsPushEnabled ? 'left-5' : 'left-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            )}
-            <div className="mt-5 pt-4 border-t border-slate-800">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-300">Quiet Hours</p>
-                  <p className="text-xs text-slate-500">10pm - 7am</p>
-                </div>
-                <button
-                  onClick={handleQuietHoursToggle}
-                  className={`w-10 h-6 rounded-full relative transition-colors ${
-                    quietHours ? 'accent-bg' : 'bg-slate-700'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                      quietHours ? 'left-5' : 'left-1'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-            <div className="mt-5 pt-4 border-t border-slate-800">
-              <h3 className="text-sm font-semibold text-slate-200 mb-3">Smart suggestions</h3>
-              <div className="flex items-center justify-between">
-                <div className="pr-3">
-                  <p className="text-sm text-slate-300">Pick the right agent automatically</p>
-                  <p className="text-xs text-slate-500">
-                    When you ask a question, myOS chooses the best built-in or saved agent for the job.
-                  </p>
-                </div>
-                <button
-                  data-testid="auto-template-toggle"
-                  onClick={handleAutoTemplateMatchingToggle}
-                  className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
-                    autoTemplateMatching ? 'accent-bg' : 'bg-slate-700'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                      autoTemplateMatching ? 'left-5' : 'left-1'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-            <div className="mt-5 pt-4 border-t border-slate-800">
-              <h3 className="text-sm font-semibold text-slate-200 mb-3">Daily habits</h3>
-              <div className="flex items-center justify-between">
-                <div className="pr-3">
-                  <p className="text-sm text-slate-300">Briefing</p>
-                  <p className="text-xs text-slate-500">
-                    Show a short summary of your day on the dashboard. Available at any hour.
-                  </p>
-                </div>
-                <button
-                  data-testid="briefing-toggle"
-                  onClick={handleBriefingToggle}
-                  className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
-                    briefingEnabled ? 'accent-bg' : 'bg-slate-700'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                      briefingEnabled ? 'left-5' : 'left-1'
-                    }`}
-                  />
-                </button>
-              </div>
-              <div className="flex items-center justify-between mt-4">
-                <div className="pr-3">
-                  <p className="text-sm text-slate-300">Chat Memory</p>
-                  <p className="text-xs text-slate-500">
-                    Let the AI remember what you talked about in your previous chat tab.
-                  </p>
-                </div>
-                <button
-                  data-testid="chat-memory-toggle"
-                  onClick={handleChatMemoryToggle}
-                  className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
-                    chatMemoryEnabled ? 'accent-bg' : 'bg-slate-700'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                      chatMemoryEnabled ? 'left-5' : 'left-1'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-          </div>
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Focus mode</p>
-          <div className={cardClass}>
-            <div className="flex items-center gap-3 mb-2">
-              <h2 className="text-lg font-semibold">ADHD Mode</h2>
-              <button
-                data-testid="adhd-toggle"
-                onClick={handleAdhdToggle}
-                className={`w-10 h-6 rounded-full relative transition-colors ${
-                  adhdEnabled ? 'accent-bg' : 'bg-slate-700'
-                }`}
-              >
-                <span
-                  className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                    adhdEnabled ? 'left-5' : 'left-1'
-                  }`}
-                />
-              </button>
-            </div>
-            <p className="text-sm text-slate-400 mb-5">
-              Designed to keep you in flow. Get regular check-ins while agents work, see where you left off when you come back, and get one clear recommendation instead of a list of choices.
-            </p>
-
-            <div className={`space-y-5 ${adhdEnabled ? '' : 'opacity-40 pointer-events-none'}`}>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <p className="text-sm text-slate-300">Check-in notifications</p>
-                    <p className="text-xs text-slate-500">
-                      How often to show you what your agents are doing
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <input
-                    type="range"
-                    min={10}
-                    max={120}
-                    step={5}
-                    value={adhdCheckInSeconds}
-                    onChange={(e) => handleAdhdIntervalChange(Number(e.target.value))}
-                    className="flex-1 accent-blue-500"
-                    data-testid="adhd-interval-slider"
-                  />
-                  <span className="text-sm text-slate-300 w-16 text-right font-mono">
-                    {adhdCheckInSeconds}s
-                  </span>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-slate-800">
-                <div className="flex items-center justify-between">
-                  <div className="pr-3">
-                    <p className="text-sm text-slate-300">Welcome back summary</p>
-                    <p className="text-xs text-slate-500">
-                      When you return after being away for 5+ minutes, show you exactly where you left off
-                    </p>
-                  </div>
-                  <div className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" title="Always on when ADHD mode is active" />
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-slate-800">
-                <div className="flex items-center justify-between">
-                  <div className="pr-3">
-                    <p className="text-sm text-slate-300">Reduce choices</p>
-                    <p className="text-xs text-slate-500">
-                      Show one recommendation instead of a list of options. Less deciding, more doing.
-                    </p>
-                  </div>
-                  <button
-                    data-testid="adhd-focus-toggle"
-                    onClick={handleAdhdFocusModeToggle}
-                    className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
-                      adhdFocusMode ? 'accent-bg' : 'bg-slate-700'
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                        adhdFocusMode ? 'left-5' : 'left-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-          </div>
-
-          <div className={activeSection !== 'section-ai-chat' ? 'hidden' : 'space-y-6'}>
+          <div className={activeSection !== 'section-connections' ? 'hidden' : 'space-y-6'}>
           <div className={cardClass} data-testid="chat-backend-section">
           <h2 className="text-lg font-semibold mb-1">Chat backend</h2>
           <p className="text-sm text-slate-400 mb-4">
@@ -1522,7 +1334,7 @@ export default function Settings() {
           </div>
 
           {/* ── 4. AI Provider (shown with AI & Chat tab) ── */}
-          <div id="section-ai-provider" className={`space-y-6${activeSection !== 'section-ai-chat' ? ' hidden' : ''}`}>
+          <div id="section-ai-provider" className={`space-y-6${activeSection !== 'section-connections' ? ' hidden' : ''}`}>
           <div className={cardClass} data-testid="ai-provider-section">
             <h2 className="text-lg font-semibold mb-1">AI Provider</h2>
             <p className="text-sm text-slate-400 mb-4">
@@ -1599,10 +1411,6 @@ export default function Settings() {
 
           {/* ── Connections Tab ──────────────────────── */}
           <div id="section-connections" className={`space-y-6${activeSection !== 'section-connections' ? ' hidden' : ''}`}>
-          <div>
-            <h2 className="text-2xl font-bold mb-2">Connections</h2>
-            <p className="text-sm text-slate-400 mb-6">Sign in to the apps myOS works with.</p>
-          </div>
           <div className="space-y-4">
             {/* Google pill */}
             <button
@@ -1937,50 +1745,194 @@ export default function Settings() {
           </div>
           )}
 
-          {/* ── Preferences Tab ────────────────────────── */}
-          <div id="section-preferences" className={activeSection !== 'section-preferences' ? 'hidden' : 'space-y-6'}>
-          <h2 className="text-2xl font-bold mb-6">Preferences</h2>
+          {/* ── Preferences Tab extra cards ────────────────────────── */}
+          {/* Notifications */}
+          <div id="section-notifications" className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+            <div className={cardClass}>
+              <h2 className="text-lg font-semibold mb-5">Notifications</h2>
+              {pushSupported && (
+                <div className="flex items-center justify-between py-2">
+                  <div className="pr-3">
+                    <p className="text-sm text-slate-300">Desktop notifications</p>
+                    <p className="text-xs text-slate-500">Get alerts even when the browser tab is closed</p>
+                  </div>
+                  <Toggle checked={settingsPushEnabled} onChange={handlePushToggle} testId="push-toggle" disabled={pushToggling} />
+                </div>
+              )}
+              <div className="flex items-center justify-between py-2">
+                <div className="pr-3">
+                  <p className="text-sm text-slate-300">Chime sound</p>
+                  <p className="text-xs text-slate-500">Play a short sound when a notification arrives</p>
+                </div>
+                <Toggle checked={chimeEnabled} onChange={handleChimeToggle} testId="chime-toggle" />
+              </div>
+              <div className="mt-4 pt-4 border-t border-slate-800">
+                <p className="text-xs font-medium text-slate-400 mb-3">What triggers notifications</p>
+                <div className="space-y-3">
+                  {notifications.map((n, index) => (
+                    <div key={n.label} className="flex items-center justify-between py-1">
+                      <span className="text-sm text-slate-300">{n.label}</span>
+                      <Toggle checked={n.enabled} onChange={() => handleNotificationToggle(index)} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-slate-800 flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-slate-300">Quiet Hours</p>
+                  <p className="text-xs text-slate-500">10pm – 7am</p>
+                </div>
+                <Toggle checked={quietHours} onChange={handleQuietHoursToggle} testId="quiet-hours-toggle" />
+              </div>
+            </div>
+          </div>
+
+          {/* AI behavior */}
+          <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+            <div className={cardClass}>
+              <h2 className="text-lg font-semibold mb-5">AI behavior</h2>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="pr-3">
+                    <p className="text-sm text-slate-300">Pick the right agent automatically</p>
+                    <p className="text-xs text-slate-500">When you ask a question, myOS chooses the best built-in or saved agent for the job.</p>
+                  </div>
+                  <Toggle checked={autoTemplateMatching} onChange={handleAutoTemplateMatchingToggle} testId="auto-template-toggle" />
+                </div>
+                <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+                  <div className="pr-3">
+                    <p className="text-sm text-slate-300">Daily briefing</p>
+                    <p className="text-xs text-slate-500">Show a short summary of your day on the dashboard.</p>
+                  </div>
+                  <Toggle checked={briefingEnabled} onChange={handleBriefingToggle} testId="briefing-toggle" />
+                </div>
+                <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+                  <div className="pr-3">
+                    <p className="text-sm text-slate-300">Chat memory</p>
+                    <p className="text-xs text-slate-500">Let the AI remember what you talked about in your previous chat.</p>
+                  </div>
+                  <Toggle checked={chatMemoryEnabled} onChange={handleChatMemoryToggle} testId="chat-memory-toggle" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Focus */}
+          <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+            <div className={cardClass}>
+              <div className="flex items-center gap-3 mb-2">
+                <h2 className="text-lg font-semibold">Focus mode</h2>
+                <Toggle checked={adhdEnabled} onChange={handleAdhdToggle} testId="adhd-toggle" />
+              </div>
+              <p className="text-sm text-slate-400 mb-5">Get regular check-ins while agents work, see where you left off when you come back, and get one clear recommendation instead of a list.</p>
+              <div className={`space-y-5 ${adhdEnabled ? '' : 'opacity-40 pointer-events-none'}`}>
+                <div>
+                  <p className="text-sm text-slate-300 mb-1">Check-in interval</p>
+                  <p className="text-xs text-slate-500 mb-3">How often to show you what your agents are doing</p>
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="range"
+                      min={10}
+                      max={120}
+                      step={5}
+                      value={adhdCheckInSeconds}
+                      onChange={(e) => handleAdhdIntervalChange(Number(e.target.value))}
+                      className="flex-1 accent-blue-500"
+                      data-testid="adhd-interval-slider"
+                    />
+                    <span className="text-sm text-slate-300 w-16 text-right font-mono">{adhdCheckInSeconds}s</span>
+                  </div>
+                </div>
+                <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+                  <div className="pr-3">
+                    <p className="text-sm text-slate-300">Welcome back summary</p>
+                    <p className="text-xs text-slate-500">When you return after 5+ minutes, show you where you left off</p>
+                  </div>
+                  <div className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" title="Always on when focus mode is active" />
+                </div>
+                <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+                  <div className="pr-3">
+                    <p className="text-sm text-slate-300">Reduce choices</p>
+                    <p className="text-xs text-slate-500">Show one recommendation instead of a list. Less deciding, more doing.</p>
+                  </div>
+                  <Toggle checked={adhdFocusMode} onChange={handleAdhdFocusModeToggle} testId="adhd-focus-toggle" />
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* ── Shortcuts ────────────────────────── */}
           <div id="section-shortcuts" className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
-          <div className={cardClass}>
-            <h2 className="text-lg font-semibold mb-5">Shortcuts</h2>
-          <div className="space-y-3">
-            {shortcuts.map((s) => (
-              <div key={s.label} className="flex items-center justify-between py-2">
-                <span className="text-sm text-slate-300">{s.label}</span>
-                <kbd className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-md text-xs text-slate-300 font-mono">
-                  {s.keys}
-                </kbd>
+            <div className={cardClass}>
+              <h2 className="text-lg font-semibold mb-5">Shortcuts</h2>
+              <p className="text-xs text-slate-500 mb-4">Click any key badge to change it.</p>
+              <div className="space-y-1">
+                {allShortcuts.map((s) => {
+                  const currentKey = customShortcuts[s.label] ?? s.keys;
+                  const isEditing = editingShortcut === s.label;
+                  const isCustom = !!customShortcuts[s.label];
+                  return (
+                    <div key={s.label} className="flex items-center justify-between py-2">
+                      <span className="text-sm text-slate-300">{s.label}</span>
+                      <div className="flex items-center gap-2">
+                        {isCustom && !isEditing && (
+                          <button
+                            type="button"
+                            onClick={() => handleShortcutReset(s.label)}
+                            className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                            title="Reset to default"
+                          >
+                            ×
+                          </button>
+                        )}
+                        {isEditing ? (
+                          <kbd
+                            className="px-2.5 py-1 bg-slate-700 border border-blue-500 rounded-md text-xs text-blue-300 font-mono min-w-[72px] text-center"
+                            onKeyDown={(e) => {
+                              e.preventDefault();
+                              if (e.key === 'Escape') { setEditingShortcut(null); return; }
+                              const parts: string[] = [];
+                              if (e.metaKey) parts.push('⌘');
+                              if (e.ctrlKey) parts.push('⌃');
+                              if (e.altKey) parts.push('⌥');
+                              if (e.shiftKey) parts.push('⇧');
+                              const k = e.key;
+                              if (!['Meta','Control','Alt','Shift'].includes(k)) {
+                                parts.push(k.length === 1 ? k.toUpperCase() : k);
+                              }
+                              if (parts.length > 1 || (parts.length === 1 && !['⌘','⌃','⌥','⇧'].includes(parts[0]))) {
+                                handleShortcutEdit(s.label, parts.join(''));
+                              }
+                            }}
+                            tabIndex={0}
+                            // eslint-disable-next-line jsx-a11y/no-autofocus
+                            autoFocus
+                            onBlur={() => setEditingShortcut(null)}
+                          >
+                            Press keys…
+                          </kbd>
+                        ) : (
+                          <kbd
+                            className={`px-2.5 py-1 rounded-md text-xs font-mono cursor-pointer transition-colors hover:border-slate-500 ${isCustom ? 'bg-slate-800 border border-blue-500/50 text-blue-300' : 'bg-slate-800 border border-slate-700 text-slate-300'}`}
+                            onClick={() => setEditingShortcut(s.label)}
+                            title="Click to edit"
+                          >
+                            {currentKey}
+                          </kbd>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
-          <button
-            onClick={() => setShowAllKeys(!showAllKeys)}
-            className="mt-4 text-sm text-blue-400 hover:text-blue-300 transition-colors"
-          >
-            {showAllKeys ? 'Show Less' : 'View All Keys'}
-          </button>
-          {showAllKeys && (
-            <div className="mt-3 pt-3 border-t border-slate-800 space-y-3">
-              {allShortcuts.slice(shortcuts.length).map((s) => (
-                <div key={s.label} className="flex items-center justify-between py-1">
-                  <span className="text-sm text-slate-300">{s.label}</span>
-                  <kbd className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-md text-xs text-slate-300 font-mono">
-                    {s.keys}
-                  </kbd>
-                </div>
-              ))}
             </div>
-          )}
-          </div>
           </div>
 
           {/* What's working */}
-          <div data-testid="whats-working-section">
-            <h2 className="text-lg font-semibold text-white mb-4">What's working</h2>
-            <p className="text-slate-400 text-sm mb-6">A quick look at what you've been running this week and what to try next.</p>
+          <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+            <div className={cardClass} data-testid="whats-working-section">
+              <h2 className="text-lg font-semibold text-white mb-2">What's working</h2>
+              <p className="text-slate-400 text-sm mb-6">A quick look at what you've been running this week and what to try next.</p>
             {whatsWorkingLoading ? (
               <p className="text-slate-400 text-sm">Loading...</p>
             ) : whatsWorkingError || !whatsWorkingData?.top_skills ? (
@@ -2097,6 +2049,7 @@ export default function Settings() {
                 </section>
               </div>
             )}
+            </div>
           </div>
         </div>
       </div>
