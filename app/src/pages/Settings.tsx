@@ -200,19 +200,6 @@ export default function Settings() {
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [syncLoading, setSyncLoading] = useState(false);
 
-  // Shared links state
-  interface ShareRecord {
-    token: string;
-    share_type: string;
-    title: string;
-    created_at: string;
-    expires_at: string;
-    expired: boolean;
-  }
-  const [shares, setShares] = useState<ShareRecord[]>([]);
-  const [sharesLoading, setSharesLoading] = useState(false);
-  const [revokingToken, setRevokingToken] = useState<string | null>(null);
-
   // ADHD mode
   const [adhdEnabled, setAdhdEnabled] = useState(false);
   const [adhdCheckInSeconds, setAdhdCheckInSeconds] = useState(30);
@@ -223,7 +210,6 @@ export default function Settings() {
   const [whatsWorkingLoading, setWhatsWorkingLoading] = useState(true);
   const [whatsWorkingError, setWhatsWorkingError] = useState(false);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeSection, setActiveSection] = useState('section-connections');
   const [expandedConnection, setExpandedConnection] = useState<string | null>(null);
 
@@ -430,34 +416,6 @@ export default function Settings() {
     { name: 'Anthropic', model: 'Claude' },
     { name: 'Google Gemini', model: 'Gemini' },
   ];
-
-  const fetchShares = async () => {
-    setSharesLoading(true);
-    try {
-      const res = await api.get<{ shares: ShareRecord[] }>('/shares');
-      setShares(res.shares ?? []);
-    } catch {
-      // ignore
-    } finally {
-      setSharesLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchShares();
-  }, []);
-
-  const revokeShare = async (token: string) => {
-    setRevokingToken(token);
-    try {
-      await api.delete(`/shares/${token}`);
-      setShares((prev) => prev.filter((s) => s.token !== token));
-    } catch {
-      // ignore
-    } finally {
-      setRevokingToken(null);
-    }
-  };
 
   const handleChangeFilesDir = async () => {
     const next = filesDirInput.trim();
@@ -674,52 +632,6 @@ export default function Settings() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const handleImport = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-      await api.put('/settings', parsed);
-      // Reload to pick up new settings
-      window.location.reload();
-    } catch {
-      // Invalid JSON or API error
-    }
-    // Reset the input so the same file can be selected again
-    e.target.value = '';
-  };
-
-  const handleExport = async () => {
-    try {
-      const data = await api.get<SettingsData>('/settings');
-      // Strip sensitive fields before exporting
-      const safe = { ...data } as Record<string, unknown>;
-      delete safe.anthropic_api_key;
-      delete safe.gemini_api_key;
-      delete safe.gemini_oauth_access_token;
-      delete safe.gemini_oauth_refresh_token;
-      delete safe.gemini_auth_method;
-      const blob = new Blob([JSON.stringify(safe, null, 2)], {
-        type: 'application/json',
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'myos-settings.json';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
-      // handle error silently
-    }
-  };
 
   const handleSetupSync = async () => {
     const url = syncRepoInput.trim();

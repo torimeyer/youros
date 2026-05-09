@@ -22,7 +22,7 @@ import Jira from './pages/Jira'
 import Confluence from './pages/Confluence'
 import Upgrade from './pages/Upgrade'
 import Releases from './pages/Releases'
-import Adoption from './pages/Adoption'
+
 import Workflows from './pages/Workflows'
 import WorkflowBuilder from './pages/WorkflowBuilder'
 import Drive from './pages/Drive'

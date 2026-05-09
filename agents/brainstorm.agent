@@ -10,5 +10,6 @@ TOOL file:read
 TOOL file:write
 MCP ostk
 LIMIT tokens 100000
+LIMIT quick_mode true
 # BOOT was: ostk boot (stripped by ostk migrate — →1416 retired)
 PIN default
