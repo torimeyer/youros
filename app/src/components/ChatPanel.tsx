@@ -15,6 +15,8 @@ import {
   type RoadmapToTasksResponse,
 } from '../lib/roadmapChatCommand'
 import { isPeerChatIntent } from '../lib/peerChatIntentDetector'
+import { detectIMessageSendIntent } from '../lib/imessageIntentDetector'
+import { IMessageConfirmBubble } from './IMessageConfirmBubble'
 import AttachmentPicker, { type AttachmentFile } from './AttachmentPicker'
 import { PeerChatTurnsPicker } from './PeerChatTurnsPicker'
 
@@ -253,7 +255,7 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
   )
 }
 
-function ThinkingDots() {
+function ThinkingDots({ etaSeconds }: { etaSeconds?: number | null } = {}) {
   return (
     <span
       data-testid="thinking-dots"
@@ -264,7 +266,7 @@ function ThinkingDots() {
         <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
         <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
       </span>
-      <span>Thinking</span>
+      <span data-testid="thinking-label">{etaSeconds != null ? `Thinking · ~${etaSeconds}s` : 'Thinking'}</span>
     </span>
   )
 }
@@ -565,6 +567,14 @@ export function ChatPanel() {
   // When the user submits a peer-chat intent prompt, we defer dispatch here
   // and show the turns picker first. Cleared after the user picks turns.
   const [pendingPeerChatText, setPendingPeerChatText] = useState<string | null>(null)
+  const [imessagePending, setImessagePending] = useState<{
+    phrase: string
+    originalInput: string
+    resolving: boolean
+    resolvedId?: string
+    resolvedName?: string
+    messageText?: string
+  } | null>(null)
 
   // In-chat Claude model tier switcher (→1065). Persists for the session.
   const [claudeTier, setClaudeTier] = useState<ClaudeTier>(() => {
@@ -645,6 +655,15 @@ export function ChatPanel() {
   // the dead-backend timer from firing after the server has started
   // responding but before text tokens have landed.
   const receivedAnyServerEventRef = useRef(false)
+  // ETA tracking for the countdown shown during AI response generation.
+  // turnStartRef: timestamp when the current send fired.
+  // turnDurationHistoryRef: rolling last-5 completed turn durations (ms).
+  // etaMs: estimated total duration for this turn, set on each send.
+  // etaSeconds: countdown display value, ticked via setInterval.
+  const turnStartRef = useRef<number | null>(null)
+  const turnDurationHistoryRef = useRef<number[]>([])
+  const [etaMs, setEtaMs] = useState<number | null>(null)
+  const [etaSeconds, setEtaSeconds] = useState<number | null>(null)
   // Deduplicate lastMessage processing. The useEffect depends on
   // [lastMessage, currentModel]. When sendMessage sets currentModel the
   // effect re-runs with the stale lastMessage from the previous turn,
@@ -1201,6 +1220,14 @@ export function ChatPanel() {
         return updated
       })
       setIsStreaming(false)
+      // Record turn duration for the ETA rolling average; clear countdown.
+      if (turnStartRef.current !== null) {
+        const elapsed = Date.now() - turnStartRef.current
+        const hist = turnDurationHistoryRef.current
+        turnDurationHistoryRef.current = [...hist, elapsed].slice(-5)
+        turnStartRef.current = null
+      }
+      setEtaMs(null)
       setCurrentModel(null)
       setStepProgress(null)
       // Defensive cleanup. The complete phase usually arrives just
@@ -1272,6 +1299,7 @@ export function ChatPanel() {
       if (!hasOtherModelStreaming) {
         setIsStreaming(false)
         setPlaceholderAwaitingServer(false)
+        setEtaMs(null)
         setCurrentModel(null)
         setMultiAiStatus(null)
         currentBubbleIdRef.current = null
@@ -1336,6 +1364,24 @@ export function ChatPanel() {
     return () => clearTimeout(deadTimer)
   }, [placeholderAwaitingServer, isStreaming, disconnect])
 
+  // Countdown ticker: ticks every 250ms while a turn is in flight,
+  // computing remaining seconds from the send timestamp and etaMs.
+  // Holds at 1 rather than going to 0 or negative.
+  useEffect(() => {
+    if (etaMs === null || (!isStreaming && !placeholderAwaitingServer)) {
+      setEtaSeconds(null)
+      return
+    }
+    setEtaSeconds(Math.max(1, Math.ceil(etaMs / 1000)))
+    const id = setInterval(() => {
+      const start = turnStartRef.current
+      if (start === null) return
+      const elapsed = Date.now() - start
+      setEtaSeconds(Math.max(1, Math.ceil((etaMs - elapsed) / 1000)))
+    }, 250)
+    return () => clearInterval(id)
+  }, [etaMs, isStreaming, placeholderAwaitingServer])
+
   // Reset all per-turn streaming state when the active tab changes.
   // Without this, switching tabs carries over multiAiStatus ("Claude is
   // speaking round X of Y"), isStreaming, stepProgress, etc. from the
@@ -1353,6 +1399,9 @@ export function ChatPanel() {
     currentBubbleIdRef.current = null
     bubbleIdByModelRef.current.clear()
     receivedAnyServerEventRef.current = false
+    setEtaMs(null)
+    turnStartRef.current = null
+    turnDurationHistoryRef.current = []
   }, [activeTabId])
 
   // Hydrate chat history from the server on first mount. The server is
@@ -1659,6 +1708,12 @@ export function ChatPanel() {
     }
   }
 
+  const computeEta = () => {
+    const hist = turnDurationHistoryRef.current
+    if (hist.length === 0) return 15000
+    return hist.reduce((a, b) => a + b, 0) / hist.length
+  }
+
   const sendMessage = (text: string) => {
     // Handle /giphy command
     if (text.trim().toLowerCase().startsWith('/giphy')) {
@@ -1735,6 +1790,8 @@ export function ChatPanel() {
     // reference, so the dedup guard in the useEffect skips it. The new
     // turn's first real WebSocket event will be a different object.
     receivedAnyServerEventRef.current = false
+    turnStartRef.current = Date.now()
+    setEtaMs(computeEta())
 
     // Build the messages payload. Include the model field on assistant
     // messages so the backend can detect multi-model conversations and
@@ -1844,6 +1901,41 @@ export function ChatPanel() {
     }
   }
 
+  const handleImessageSend = async () => {
+    if (!imessagePending?.resolvedId || !imessagePending?.messageText) return
+    const { resolvedId, messageText, resolvedName } = imessagePending
+    setImessagePending(null)
+    const confirmId = genId()
+    setMessages(prev => [...prev, {
+      id: confirmId,
+      role: 'assistant' as const,
+      content: `Sending to ${resolvedName} via iMessage...`,
+    }])
+    try {
+      await api.post('/imessage/send', { recipient: resolvedId, text: messageText })
+      setMessages(prev => prev.map(m =>
+        m.id === confirmId
+          ? { ...m, content: `Sent to ${resolvedName} via iMessage.` }
+          : m
+      ))
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : 'Please try again.'
+      setMessages(prev => prev.map(m =>
+        m.id === confirmId
+          ? { ...m, content: `Could not send the iMessage. ${detail}` }
+          : m
+      ))
+    }
+  }
+
+  const handleImessageDismiss = () => {
+    const originalInput = imessagePending?.originalInput
+    setImessagePending(null)
+    if (originalInput) {
+      sendMessage(originalInput)
+    }
+  }
+
   // Re-send the last user turn after a WebSocket-level error.
   //
   // After a mid-turn socket drop the last bubble carries isError=true
@@ -1883,6 +1975,8 @@ export function ChatPanel() {
     setShowGiphy(false)
     setReplyingTo(null)
     receivedAnyServerEventRef.current = false
+    turnStartRef.current = Date.now()
+    setEtaMs(computeEta())
 
     // Send messages with GIF URLs so the AI can see them
     const apiMessages = updatedMessages.map(m => ({
@@ -1910,6 +2004,30 @@ export function ChatPanel() {
     if (isPeerChatIntent(input)) {
       setPendingPeerChatText(input.trim())
       setInput('')
+      return
+    }
+    // Check for iMessage send intent before dispatching to AI.
+    const imessageIntent = detectIMessageSendIntent(input.trim())
+    if (imessageIntent) {
+      const originalText = input.trim()
+      setImessagePending({ phrase: imessageIntent.phrase, originalInput: originalText, resolving: true })
+      setInput('')
+      api.get<{ identifier: string; display_name: string; message_text: string }>(
+        `/imessage/resolve-contact?phrase=${encodeURIComponent(imessageIntent.phrase)}`
+      ).then(res => {
+        setImessagePending({
+          phrase: imessageIntent.phrase,
+          originalInput: originalText,
+          resolving: false,
+          resolvedId: res.identifier,
+          resolvedName: res.display_name,
+          messageText: res.message_text,
+        })
+      }).catch(() => {
+        // No contact found — fall through to normal AI chat.
+        setImessagePending(null)
+        sendMessage(originalText)
+      })
       return
     }
     sendMessage(input)
@@ -2377,7 +2495,7 @@ export function ChatPanel() {
                           </button>
                         )}
                         {globalIdx === messages.length - 1 && !multiAiStatus && (isStreaming || placeholderAwaitingServer) && !msg.toolCalls?.length && !activeStreamingBubbleIds.has(msg.id) && (
-                          <ThinkingDots />
+                          <ThinkingDots etaSeconds={etaSeconds} />
                         )}
                         {/* Parallel broadcast case: every bubble with an
                             active turn_start but no tokens yet gets its
@@ -2572,6 +2690,15 @@ export function ChatPanel() {
             pendingId={peerChatPending?.pendingId ?? ''}
             participants={peerChatPending?.participants ?? ['claude', 'gemini']}
             onPick={peerChatPending ? handlePeerChatTurnsPick : handlePreSelectTurns}
+          />
+        )}
+        {imessagePending && (
+          <IMessageConfirmBubble
+            resolving={imessagePending.resolving}
+            displayName={imessagePending.resolvedName ?? ''}
+            messageText={imessagePending.messageText ?? ''}
+            onSend={handleImessageSend}
+            onDismiss={handleImessageDismiss}
           />
         )}
         <div ref={messagesEndRef} />

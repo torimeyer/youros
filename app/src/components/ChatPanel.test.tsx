@@ -3064,4 +3064,93 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('ETA countdown during AI response (→1080)', () => {
+    it('shows ~15s on first send with no turn history (cold start)', () => {
+      vi.useFakeTimers()
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'Hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Advance one interval tick so the countdown useEffect fires and
+      // setEtaSeconds(15) propagates through to the render.
+      act(() => { vi.advanceTimersByTime(250) })
+      rerender(<ChatPanel />)
+
+      const label = screen.getByTestId('thinking-label')
+      expect(label.textContent).toContain('~15s')
+    })
+
+    it('uses observed turn duration for the next send after a completed turn', () => {
+      vi.useFakeTimers()
+      const { rerender } = render(<ChatPanel />)
+
+      // First turn: simulate a 5-second response.
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'First message' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      act(() => { vi.advanceTimersByTime(5000) })
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+
+      // Second turn: ETA should be based on the 5s observed history.
+      fireEvent.change(input, { target: { value: 'Second message' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      act(() => { vi.advanceTimersByTime(250) })
+      rerender(<ChatPanel />)
+
+      const label = screen.getByTestId('thinking-label')
+      expect(label.textContent).toContain('~5s')
+    })
+
+    it('clears the ETA countdown when done fires so ThinkingDots disappears', () => {
+      vi.useFakeTimers()
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'Hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      act(() => { vi.advanceTimersByTime(250) })
+      rerender(<ChatPanel />)
+
+      // ETA is showing while streaming.
+      expect(screen.getByTestId('thinking-label').textContent).toContain('~15s')
+
+      // Done fires: isStreaming becomes false, etaMs/etaSeconds clear.
+      mockLastMessage = { type: 'done' }
+      act(() => { vi.advanceTimersByTime(500) })
+      rerender(<ChatPanel />)
+
+      // ThinkingDots should no longer be in the DOM.
+      expect(screen.queryByTestId('thinking-dots')).toBeNull()
+    })
+
+    it('holds countdown at ~1s and never shows ~0s or negative', () => {
+      vi.useFakeTimers()
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'Hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Send a server event so the 10s dead-backend timer does not fire
+      // and clear isStreaming before we reach the 14750ms mark.
+      mockLastMessage = { type: 'thinking' }
+      rerender(<ChatPanel />)
+
+      // Advance to 14750ms: remaining = 15000 - 14750 = 250ms.
+      // ceil(250/1000) = 1 → clamped to 1 by Math.max.
+      act(() => { vi.advanceTimersByTime(14750) })
+      rerender(<ChatPanel />)
+      expect(screen.getByTestId('thinking-label').textContent).toBe('Thinking · ~1s')
+
+      // Advance well past the ETA — must still show ~1s, never ~0s.
+      act(() => { vi.advanceTimersByTime(10000) })
+      rerender(<ChatPanel />)
+      expect(screen.getByTestId('thinking-label').textContent).toBe('Thinking · ~1s')
+    })
+  })
+
 })
