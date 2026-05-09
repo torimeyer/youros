@@ -101,7 +101,7 @@ export default function HealthCheckView() {
   const [fixStates, setFixStates] = useState<Record<string, FixState>>({});
   // Fix-all state
   const [fixAllRunning, setFixAllRunning] = useState(false);
-  const [fixAllMessage, setFixAllMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const [fixAllMessage, setFixAllMessage] = useState<{ text: string; ok: boolean; details?: Array<{ issue_type: string; task_id: string; fixed: boolean; details?: string }> } | null>(null);
   // Confirm modal for fix-all
   const [showFixAllConfirm, setShowFixAllConfirm] = useState(false);
 
@@ -221,6 +221,7 @@ export default function HealthCheckView() {
         setFixAllMessage({
           text: `Fixed ${fixed} issue${fixed === 1 ? "" : "s"}${skipped > 0 ? `, skipped ${skipped}` : ""}.`,
           ok: true,
+          details: res.details?.filter((d) => d.fixed),
         });
       }
       // Re-run the health check to reflect changes (keep fix-all message visible)
@@ -430,15 +431,34 @@ export default function HealthCheckView() {
       {/* Fix-all feedback banner */}
       {fixAllMessage && (
         <div
-          className={`rounded-lg px-4 py-2.5 flex items-center gap-2 text-sm ${
+          className={`rounded-lg px-4 py-3 text-sm ${
             fixAllMessage.ok
               ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
               : "bg-red-500/10 border border-red-500/30 text-red-300"
           }`}
           data-testid="fix-all-message"
         >
-          <Icon name={fixAllMessage.ok ? "check_circle" : "error"} className="text-base flex-shrink-0" />
-          {fixAllMessage.text}
+          <div className="flex items-center gap-2">
+            <Icon name={fixAllMessage.ok ? "check_circle" : "error"} className="text-base flex-shrink-0" />
+            {fixAllMessage.text}
+          </div>
+          {fixAllMessage.details && fixAllMessage.details.length > 0 && (
+            <ul className="mt-2 space-y-0.5 pl-6">
+              {fixAllMessage.details.map((d, i) => {
+                const label = d.details
+                  ? d.details.length > 72
+                    ? d.details.slice(0, 72) + "…"
+                    : d.details
+                  : (issueTypeLabels[d.issue_type] ?? d.issue_type) + " fixed";
+                return (
+                  <li key={i} className="text-xs text-emerald-400/80 flex items-start gap-1.5">
+                    <span className="font-mono text-emerald-400/60 shrink-0">#{d.task_id}</span>
+                    <span>{label}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       )}
 
