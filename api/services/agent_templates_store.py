@@ -1839,6 +1839,7 @@ class AgentTemplatesStore:
             "builtin": False,
             "user_inputs": data.get("user_inputs", []),
             "produces_doc": bool(data.get("produces_doc", False)),
+            "attached_files": [],
         }
         overrides.append(new_template)
         self._save(overrides)
@@ -1883,6 +1884,17 @@ class AgentTemplatesStore:
         if target and target.get("source") == "custom":
             self._remove_custom_agentfile(target.get("name", ""))
         return True
+
+    def update_attached_files(self, template_id: str, files: list[str]) -> Optional[dict]:
+        """Set the attached_files list on a custom template record."""
+        overrides = self._load_overrides()
+        for i, t in enumerate(overrides):
+            if t.get("id") == template_id:
+                t["attached_files"] = [str(f) for f in files]
+                overrides[i] = t
+                self._save(overrides)
+                return t
+        return None
 
     # ---- Agentfile helpers for custom templates ----
 

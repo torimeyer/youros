@@ -4051,6 +4051,23 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         template_instructions = build_template_instructions(template_config)
         if template_instructions:
             prompt_with_memory = prompt_with_memory + "\n\n---\n\n" + template_instructions
+
+        # Inject attached files as leading context (→1070)
+        try:
+            from routers.agent_uploads import build_files_context
+            from services.agent_templates_store import agent_templates_store as _ats
+            _tpl_rec = _ats.get_by_name_or_alias(body.template)
+            if _tpl_rec is None:
+                # Fall back to ID-based lookup when name resolution fails
+                _tpl_rec = _ats.get_by_id(body.template)
+            if _tpl_rec and _tpl_rec.get("attached_files"):
+                _file_ctx = build_files_context(
+                    _tpl_rec["id"], _tpl_rec["attached_files"]
+                )
+                if _file_ctx:
+                    prompt_with_memory = _file_ctx + "\n\n---\n\n" + prompt_with_memory
+        except Exception:
+            pass  # file injection is best-effort; never block a spawn
     else:
         agent_config = get_agent_config(body.name)
         quality_instructions = build_quality_gate_instructions(agent_config)

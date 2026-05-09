@@ -17,6 +17,7 @@ import { renderMarkdown } from "../lib/markdown";
 import { hasSpeakerPrefixes, parseTranscript } from "../lib/transcript";
 import { Button, EmptyState, Card } from "../components/ui";
 import AgentInsights from "../components/AgentInsights";
+import AgentTemplateFileUpload from "../components/AgentTemplateFileUpload";
 import { formatTokenBudget, formatTokenBudgetApprox } from "../lib/budgetDisplay";
 
 
@@ -1716,6 +1717,7 @@ interface PMAgentTemplate {
   builtin: boolean;
   source?: 'builtin' | 'marketplace' | 'custom' | string;
   user_inputs?: UserInput[];
+  attached_files?: string[];
 }
 
 interface PMTemplatesResponse {
@@ -1918,6 +1920,7 @@ function PMTemplateEditorForm({
   const [icon, setIcon] = useState(initial?.icon ?? "smart_toy");
   const [model, setModel] = useState(initial?.model ?? "sonnet");
   const [budget, setBudget] = useState(initial?.budget ?? 2.0);
+  const [attachedFiles, setAttachedFiles] = useState<string[]>(initial?.attached_files ?? []);
 
   const handleSave = () => {
     if (name.trim()) {
@@ -1985,6 +1988,22 @@ function PMTemplateEditorForm({
           />
         </div>
       </div>
+
+      {/* File attachments — only available after the template is saved */}
+      {initial?.id ? (
+        <AgentTemplateFileUpload
+          templateId={initial.id}
+          attachedFiles={attachedFiles}
+          onFilesChange={setAttachedFiles}
+        />
+      ) : (
+        <div className="mb-6">
+          <label className="block text-sm text-slate-400 mb-1">Attach files</label>
+          <p className="text-xs text-slate-500">
+            Save the template first, then open it again to attach files.
+          </p>
+        </div>
+      )}
 
       <div className="flex items-center justify-end gap-3">
         <button

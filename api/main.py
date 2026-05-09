@@ -18,6 +18,7 @@ from routers import tasks, dashboard, settings, agents, chat, status, projects, 
 from routers import adhd as adhd_router
 from routers import memory as memory_router
 from routers import ostk as ostk_router
+from routers import agent_uploads as agent_uploads_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -123,6 +124,7 @@ app.include_router(specs._compat, prefix="/api")
 app.include_router(spec_drive.router, prefix="/api")
 app.include_router(adventures.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
+app.include_router(agent_uploads_router.router, prefix="/api")
 app.include_router(beautify.router, prefix="/api")
 app.include_router(drive.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
