@@ -25,7 +25,7 @@ import os
 import signal
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ def reap_ghost_agents(
     now: datetime,
     *,
     stale_heartbeat_seconds: int = STALE_HEARTBEAT_SECONDS,
+    transcript_resolver: Optional[Callable[[str], Optional[Path]]] = None,
 ) -> list[str]:
     """Return names of ghost entries that should be deleted from the registry.
 
@@ -64,6 +65,13 @@ def reap_ghost_agents(
         transcripts_dir: directory where ``{name}.md`` transcripts live.
         now: current UTC datetime (injectable for tests).
         stale_heartbeat_seconds: how old a heartbeat must be to qualify.
+        transcript_resolver: optional callable ``(name) -> Path | None`` that
+            looks up a broader set of transcript locations (e.g. JSONL files
+            under ~/.claude/projects/). When provided, the reaper checks this
+            as a final fallback before declaring an agent a ghost. Pass
+            ``_resolve_transcript_source`` from routers.agents so that HTTP-
+            registered agents whose transcripts live outside transcripts_dir
+            are not incorrectly reaped (fixes →1084 registry-loss pattern).
 
     Returns:
         List of agent names that match every ghost criterion.
@@ -129,6 +137,17 @@ def reap_ghost_agents(
                         transcript_ok = True
                 except OSError:
                     pass
+        # Final fallback: use the broader resolver (e.g. JSONL under
+        # ~/.claude/projects/) if one was provided. This prevents reapers
+        # from deleting HTTP-registered agents that write transcripts to
+        # non-standard paths the basic checks above cannot reach.
+        if not transcript_ok and transcript_resolver is not None:
+            try:
+                resolved = transcript_resolver(name)
+                if resolved is not None and resolved.exists() and resolved.stat().st_size > 0:
+                    transcript_ok = True
+            except Exception:
+                pass
         if transcript_ok:
             continue  # real transcript content present
 
@@ -269,10 +288,16 @@ async def _do_sweep(transcripts_dir: Path) -> int:
         _save_agent_state,
         _load_deleted_agents,
         _save_deleted_agents,
+        _resolve_transcript_source,
     )
 
     now = datetime.now(timezone.utc)
-    victims = reap_ghost_agents(agent_metadata, transcripts_dir, now)
+    victims = reap_ghost_agents(
+        agent_metadata,
+        transcripts_dir,
+        now,
+        transcript_resolver=_resolve_transcript_source,
+    )
     n_ghosts = 0
     if victims:
         for name in victims:
