@@ -2813,121 +2813,126 @@ export function ChatPanel() {
         )}
 
         {/* NEEDLE: removed gray box container around input */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => { setSideBySideEnabled(false); setDefaultChatModel('claude'); }}
-            className={`shrink-0 px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer hover:scale-105 ${
-              !sideBySideEnabled && defaultChatModel === 'claude'
-                ? 'bg-blue-500/15 border-blue-500/40 text-blue-300'
-                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
-            }`}
-            title="Chat with Claude only"
-            data-testid="chat-pill-claude"
-          >
-            Claude
-          </button>
-          <button
-            onClick={() => { setSideBySideEnabled(false); setDefaultChatModel('gemini'); }}
-            className={`shrink-0 px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer hover:scale-105 ${
-              !sideBySideEnabled && defaultChatModel === 'gemini'
-                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
-            }`}
-            title="Chat with Gemini only"
-            data-testid="chat-pill-gemini"
-          >
-            Gemini
-          </button>
-          <button
-            onClick={() => setSideBySideEnabled(true)}
-            className={`shrink-0 relative px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer hover:scale-105 ${
-              sideBySideEnabled
-                ? 'bg-purple-500/15 border-purple-500/40 text-purple-300'
-                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
-            } ${allPillPulse ? 'ring-2 ring-purple-400/70 animate-pulse' : ''}`}
-            title="Send to Claude and Gemini side by side"
-            data-testid="chat-pill-all"
-            data-pulse={allPillPulse ? 'true' : undefined}
-          >
-            All
-            {allPillPulse && (
-              <span
-                data-testid="chat-pill-all-new-badge"
-                className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 text-[9px] font-semibold rounded-full bg-purple-500 text-white shadow-md"
-              >
-                New
-              </span>
-            )}
-          </button>
-          {/* Claude tier switcher (→1065) — only visible when Claude is active */}
-          {!sideBySideEnabled && defaultChatModel === 'claude' && (
-            <div className="flex items-center gap-0.5 shrink-0" data-testid="claude-tier-switcher">
-              {(Object.entries(CLAUDE_TIER_LABELS) as [ClaudeTier, string][]).map(([tier, label]) => (
-                <button
-                  key={tier}
-                  onClick={() => handleSetClaudeTier(tier)}
-                  data-testid={`claude-tier-${tier}`}
-                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                    claudeTier === tier
-                      ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
-                      : 'text-slate-500 hover:text-slate-300 border border-transparent'
-                  }`}
-                  title={`Use Claude ${label}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="relative flex-1">
-            <TackAutocomplete inputValue={input} onSelect={(s) => setInput(s)} keyHandlerRef={tackKeyHandlerRef} />
-            <input
-              ref={inputRef}
-              data-testid="chat-input"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleInputKeyDown}
-              onPaste={handlePaste}
-              className="w-full bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/50"
-              placeholder={replyingTo ? 'Type your reply...' : `Message ${defaultChatModel}... (/giphy to search GIFs)`}
-            />
-          </div>
-          <button
-            onClick={() => { setShowGiphy(!showGiphy); setGiphyInitialSearch('') }}
-            className={`hidden sm:block p-2 transition-colors rounded-lg ${showGiphy ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
-            title="Search GIFs"
-          >
-            <Icon name="gif_box" className="text-lg" />
-          </button>
-          <button
-            onClick={() => setShowAttachmentPicker(true)}
-            className={`p-2 transition-colors rounded-lg ${pendingAttachment ? 'text-pink-400 bg-pink-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
-            title="Attach a file"
-            data-testid="attach-btn"
-          >
-            <Icon name="attach_file" className="text-lg" />
-          </button>
-          {speechSupported && (
+        <div className="flex flex-col gap-1.5">
+          {/* Row 1: provider + model selectors */}
+          <div className="flex items-center gap-2">
             <button
-              onClick={toggleSpeech}
-              className={`p-2 transition-colors rounded-lg ${isListening ? 'text-red-400 bg-red-500/10 animate-pulse' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
-              title={isListening ? 'Stop listening' : 'Voice input'}
+              onClick={() => { setSideBySideEnabled(false); setDefaultChatModel('claude'); }}
+              className={`shrink-0 px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer hover:scale-105 ${
+                !sideBySideEnabled && defaultChatModel === 'claude'
+                  ? 'bg-blue-500/15 border-blue-500/40 text-blue-300'
+                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+              title="Chat with Claude only"
+              data-testid="chat-pill-claude"
             >
-              <Icon name="mic" className="text-lg" />
+              Claude
             </button>
-          )}
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() && !pendingImage && !pendingAttachment}
-            className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isStreaming ? (
-              <span className="inline-block w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : (
-              <Icon name="send" className="text-lg" />
+            <button
+              onClick={() => { setSideBySideEnabled(false); setDefaultChatModel('gemini'); }}
+              className={`shrink-0 px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer hover:scale-105 ${
+                !sideBySideEnabled && defaultChatModel === 'gemini'
+                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+              title="Chat with Gemini only"
+              data-testid="chat-pill-gemini"
+            >
+              Gemini
+            </button>
+            <button
+              onClick={() => setSideBySideEnabled(true)}
+              className={`shrink-0 relative px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer hover:scale-105 ${
+                sideBySideEnabled
+                  ? 'bg-purple-500/15 border-purple-500/40 text-purple-300'
+                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+              } ${allPillPulse ? 'ring-2 ring-purple-400/70 animate-pulse' : ''}`}
+              title="Send to Claude and Gemini side by side"
+              data-testid="chat-pill-all"
+              data-pulse={allPillPulse ? 'true' : undefined}
+            >
+              All
+              {allPillPulse && (
+                <span
+                  data-testid="chat-pill-all-new-badge"
+                  className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 text-[9px] font-semibold rounded-full bg-purple-500 text-white shadow-md"
+                >
+                  New
+                </span>
+              )}
+            </button>
+            {/* Claude tier switcher (→1065) — only visible when Claude is active */}
+            {!sideBySideEnabled && defaultChatModel === 'claude' && (
+              <div className="flex items-center gap-0.5 shrink-0" data-testid="claude-tier-switcher">
+                {(Object.entries(CLAUDE_TIER_LABELS) as [ClaudeTier, string][]).map(([tier, label]) => (
+                  <button
+                    key={tier}
+                    onClick={() => handleSetClaudeTier(tier)}
+                    data-testid={`claude-tier-${tier}`}
+                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                      claudeTier === tier
+                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                        : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                    }`}
+                    title={`Use Claude ${label}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             )}
-          </button>
+          </div>
+          {/* Row 2: input + action buttons */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <TackAutocomplete inputValue={input} onSelect={(s) => setInput(s)} keyHandlerRef={tackKeyHandlerRef} />
+              <input
+                ref={inputRef}
+                data-testid="chat-input"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleInputKeyDown}
+                onPaste={handlePaste}
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-4 py-3 min-h-[48px] text-sm text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/50"
+                placeholder={replyingTo ? 'Type your reply...' : `Message ${defaultChatModel}... (/giphy to search GIFs)`}
+              />
+            </div>
+            <button
+              onClick={() => { setShowGiphy(!showGiphy); setGiphyInitialSearch('') }}
+              className={`hidden sm:block p-2 transition-colors rounded-lg ${showGiphy ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
+              title="Search GIFs"
+            >
+              <Icon name="gif_box" className="text-lg" />
+            </button>
+            <button
+              onClick={() => setShowAttachmentPicker(true)}
+              className={`p-2 transition-colors rounded-lg ${pendingAttachment ? 'text-pink-400 bg-pink-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
+              title="Attach a file"
+              data-testid="attach-btn"
+            >
+              <Icon name="attach_file" className="text-lg" />
+            </button>
+            {speechSupported && (
+              <button
+                onClick={toggleSpeech}
+                className={`p-2 transition-colors rounded-lg ${isListening ? 'text-red-400 bg-red-500/10 animate-pulse' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
+                title={isListening ? 'Stop listening' : 'Voice input'}
+              >
+                <Icon name="mic" className="text-lg" />
+              </button>
+            )}
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() && !pendingImage && !pendingAttachment}
+              className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isStreaming ? (
+                <span className="inline-block w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Icon name="send" className="text-lg" />
+              )}
+            </button>
+          </div>
         </div>
         {/* Tiny indicator showing which pathway is powering the response.
             Uses plain language so a non-engineer sees at a glance whether

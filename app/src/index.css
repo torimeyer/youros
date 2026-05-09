@@ -42,6 +42,10 @@
   --color-text-muted: #a1a1aa;
 }
 
+html {
+  font-size: 13px;
+}
+
 /* Light theme (default). Dark only activates when data-theme="dark"
    is explicitly set on the document element by Layout.tsx or the
    OnboardingWizard. This prevents a dark flash during onboarding
