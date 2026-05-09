@@ -1434,7 +1434,7 @@ class TestChatWebSocketHandshakeNeverBlocksEventLoop:
         chat_providers._BOOT_CONTEXT_CACHE = None
         chat_providers._BOOT_CONTEXT_REFRESH_IN_FLIGHT = False
 
-        async def fake_stream_anthropic(self, messages, websocket, tab_id=""):
+        async def fake_stream_anthropic(self, messages, websocket, tab_id="", claude_tier=""):
             # Mock: send two tokens and rely on the caller to send done.
             # The real stream_anthropic does NOT send done itself on
             # success, the websocket handler trusts the provider to emit
@@ -1964,7 +1964,7 @@ class TestTwoMentionRouting:
         async def fake_orchestration(**kwargs):
             orchestration_calls["count"] += 1
 
-        async def fake_call_model(provider, messages, websocket, label="", use_tools=False, tab_id=""):
+        async def fake_call_model(provider, messages, websocket, label="", use_tools=False, tab_id="", claude_tier=""):
             call_model_calls["count"] += 1
             call_model_calls["model"] = provider
             await websocket.send_json({"type": "done"})
@@ -2152,7 +2152,7 @@ class TestHostFallbackForConversation:
             orchestration_calls["count"] += 1
 
         async def fake_call_model(
-            provider, messages, websocket, label="", use_tools=False, tab_id=""
+            provider, messages, websocket, label="", use_tools=False, tab_id="", claude_tier=""
         ):
             call_model_calls["count"] += 1
             call_model_calls["model"] = provider
@@ -2195,7 +2195,7 @@ class TestHostFallbackForConversation:
             orchestration_calls["count"] += 1
 
         async def fake_call_model(
-            provider, messages, websocket, label="", use_tools=False, tab_id=""
+            provider, messages, websocket, label="", use_tools=False, tab_id="", claude_tier=""
         ):
             call_model_calls["count"] += 1
             call_model_calls["model"] = provider

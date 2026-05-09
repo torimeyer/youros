@@ -49,6 +49,15 @@ from main import app  # noqa: E402
 from services import chat_providers  # noqa: E402
 
 
+def _receive_until_type(ws, target_type: str, *, max_frames: int = 15) -> dict:
+    """Drain WS frames until one matches target_type, skipping prelude frames."""
+    for _ in range(max_frames):
+        frame = ws.receive_json()
+        if frame.get("type") == target_type:
+            return frame
+    raise AssertionError(f"No {target_type!r} frame after {max_frames} frames")
+
+
 # Tori's exact message from the failing session. The second model is
 # referenced by bare name, not @mention, which is the bug the earlier
 # agents missed. Keep this string byte-for-byte identical.
@@ -166,11 +175,8 @@ def test_multi_ai_chat_with_bare_second_model_runs_full_back_and_forth(
                 "tools": False,
             }
         )
-        # New flow: backend returns the turn picker event first.
-        picker_frame = ws.receive_json()
-        assert picker_frame["type"] == "peer_chat_turns_required", (
-            f"Expected peer_chat_turns_required, got {picker_frame}"
-        )
+        # New flow: backend returns the turn picker event first (after prelude frames).
+        picker_frame = _receive_until_type(ws, "peer_chat_turns_required")
         pending_id = picker_frame["pending_id"]
         assert set(picker_frame.get("participants", [])) == {"gemini", "claude"}
 
@@ -371,8 +377,7 @@ def test_two_mentions_conversation_intent_via_bare_word_threaded(
                 "tools": False,
             }
         )
-        picker_frame = ws.receive_json()
-        assert picker_frame["type"] == "peer_chat_turns_required"
+        picker_frame = _receive_until_type(ws, "peer_chat_turns_required")
         resp = client.post(
             "/api/chat/peer/start",
             json={"pending_id": picker_frame["pending_id"], "turns": 2},
