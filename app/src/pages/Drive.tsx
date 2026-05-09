@@ -4,7 +4,7 @@ import TopBar from '../components/TopBar';
 import { LoadingState, ErrorBanner, EmptyState } from '../components/ui';
 import { api, ApiError } from '../lib/api';
 import GoogleSetupGuideModal from '../components/GoogleSetupGuideModal';
-import DrivePreview from '../components/DrivePreview';
+import QuickLook from '../components/QuickLook';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1124,11 +1124,11 @@ export default function Drive() {
 
       {/* Drive preview panel */}
       {previewFile && (
-        <DrivePreview
-          fileId={previewFile.id}
-          name={previewFile.name}
-          mimeType={previewFile.mimeType}
-          webViewLink={previewFile.webViewLink || undefined}
+        <QuickLook
+          driveFileId={previewFile.id}
+          filePath=""
+          fileType=""
+          isOpen={true}
           onClose={() => setPreviewFile(null)}
         />
       )}
