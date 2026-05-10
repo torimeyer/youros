@@ -142,8 +142,9 @@ export default function Settings() {
     loading: boolean;
     available: boolean;
     email: string | null;
+    api_error: string | null;
   }
-  const [geminiStatus, setGeminiStatus] = useState<GeminiStatus>({ loading: true, available: false, email: null });
+  const [geminiStatus, setGeminiStatus] = useState<GeminiStatus>({ loading: true, available: false, email: null, api_error: null });
   const [defaultProvider, setDefaultProvider] = useState<'claude' | 'gemini'>('claude');
 
   // Connection-status state for Gmail, Calendar, Drive, and Slack.
@@ -301,9 +302,9 @@ export default function Settings() {
       })
       .catch(() => { setKeyStatusLoading(false); });
     // Fetch Gemini Enterprise availability
-    api.get<{ available: boolean; email: string | null }>('/gemini/status')
-      .then((data) => setGeminiStatus({ loading: false, available: !!data.available, email: data.email ?? null }))
-      .catch(() => setGeminiStatus({ loading: false, available: false, email: null }));
+    api.get<{ available: boolean; email: string | null; api_error?: string | null }>('/gemini/status')
+      .then((data) => setGeminiStatus({ loading: false, available: !!data.available, email: data.email ?? null, api_error: data.api_error ?? null }))
+      .catch(() => setGeminiStatus({ loading: false, available: false, email: null, api_error: null }));
 
     // Kick off all four connection status fetches in parallel so every
     // dot renders in the same tick. Each call is cached server-side with
@@ -1347,9 +1348,20 @@ export default function Settings() {
                       )}
                     </>
                   ) : (
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Run <code className="text-green-400 font-mono">gcloud auth application-default login</code> or the Gemini CLI to connect
-                    </p>
+                    <>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Run <code className="text-green-400 font-mono">gcloud auth application-default login</code> or the Gemini CLI to connect
+                      </p>
+                      {geminiStatus.api_error && (
+                        <p
+                          data-testid="gemini-api-error"
+                          aria-label="Gemini API error"
+                          className="text-xs text-red-400 mt-1 break-words"
+                        >
+                          {geminiStatus.api_error}
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               </button>
