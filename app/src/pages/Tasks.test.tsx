@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Tasks, { getFirstSentence } from './Tasks'
 import { useAppStore } from '../stores/app'
+import { useRunningAgentsStore } from '../stores/runningAgents'
 
 vi.mock('../lib/api', () => ({
   api: {
@@ -3025,6 +3026,63 @@ describe('task title truncation (→1060)', () => {
     const titleSpan = row.querySelector(`span[title="${longTitle}"]`)
     expect(titleSpan).not.toBeNull()
     expect(titleSpan!.className).toContain('line-clamp-2')
+  })
+})
+
+describe('real-time In progress pill via running agents store (→1118)', () => {
+  beforeEach(() => {
+    useRunningAgentsStore.setState({ count: 0, agents: [], connected: true, lastUpdatedAt: null })
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      return Promise.resolve({})
+    })
+  })
+
+  it('shows In progress pill when store delivers an agent linked to a task', async () => {
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    // Simulate WS feed arriving: agent starts working on task '1'
+    act(() => {
+      useRunningAgentsStore.getState().setSnapshot(1, [
+        { name: 'fix-agent', status: 'running', task_id: '1' },
+      ])
+    })
+
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('task-in-progress-indicator-1')).toBeInTheDocument()
+      },
+      { timeout: 1000 },
+    )
+  })
+
+  it('removes In progress pill when store clears the agent', async () => {
+    useRunningAgentsStore.setState({
+      count: 1,
+      agents: [{ name: 'fix-agent', status: 'running', task_id: '1' }],
+      connected: true,
+      lastUpdatedAt: null,
+    })
+
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByTestId('task-in-progress-indicator-1')).toBeInTheDocument()
+    })
+
+    act(() => {
+      useRunningAgentsStore.getState().setSnapshot(0, [])
+    })
+
+    await waitFor(
+      () => {
+        expect(screen.queryByTestId('task-in-progress-indicator-1')).not.toBeInTheDocument()
+      },
+      { timeout: 1000 },
+    )
   })
 })
 

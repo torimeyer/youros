@@ -42,6 +42,7 @@ export const USER_SELECTABLE_STATUSES = ["open", "closed"] as const;
 
 import ConfirmModal from "../components/ConfirmModal";
 import { ComprehensiveBuildPill } from "../components/ComprehensiveBuild";
+import { useRunningAgentsStore } from "../stores/runningAgents";
 
 interface Task {
   id: string;
@@ -303,6 +304,8 @@ export default function Tasks() {
   const [runningAgentTaskIds, setRunningAgentTaskIds] = useState<Set<string>>(
     () => new Set()
   );
+  // Real-time agent list from the app-level WS feed (useRunningAgentsFeed in App.tsx).
+  const storeAgents = useRunningAgentsStore((s) => s.agents);
   // Build state per task_id: "running" | "queued" — only set for tasks that
   // have a comprehensive build agent tracked in the build queue.
   const [buildStateByTaskId, setBuildStateByTaskId] = useState<
@@ -602,6 +605,34 @@ export default function Tasks() {
       clearInterval(interval);
     };
   }, []);
+
+  // Real-time fast path: re-derive runningAgentTaskIds from the app-level
+  // running agents store (populated by useRunningAgentsFeed → /ws/agents/state).
+  // Fires within milliseconds of a WS delta instead of waiting up to 3s for
+  // the HTTP poll above. The HTTP poll remains as a safety-net when WS drops.
+  useEffect(() => {
+    const terminal = new Set(["completed", "succeeded", "failed", "error", "cancelled", "canceled", "stopped", "timeout"]);
+    const next = new Set<string>();
+    const nextBuildStates = new Map<string, "running" | "queued">();
+    for (const a of storeAgents) {
+      const isRunning = !a.status || !terminal.has(a.status.toLowerCase());
+      if (!isRunning) continue;
+      if (a.task_id) next.add(a.task_id);
+      if (a.needle_id) next.add(`→${a.needle_id}`);
+      if (a.label) {
+        const needleInLabel = a.label.match(/^[a-z_]+-(\d{3,6})-/);
+        if (needleInLabel) next.add(`→${needleInLabel[1]}`);
+        for (const tok of a.label.split(/[^A-Za-z0-9_-]+/)) {
+          if (tok) next.add(tok);
+        }
+      }
+      if (a.build_state && a.task_id) {
+        nextBuildStates.set(a.task_id, a.build_state);
+      }
+    }
+    setRunningAgentTaskIds(next);
+    setBuildStateByTaskId(nextBuildStates);
+  }, [storeAgents]);
 
   // Live updates for new tasks. Two channels:
   //

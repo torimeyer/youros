@@ -8603,7 +8603,14 @@ def _compute_running_snapshot() -> dict:
     for _name, _meta in agent_metadata.items():
         row = {"name": _name, **_meta}
         if is_user_spawned_agent(row) and _meta.get("status") in _WS_ACTIVE_STATUSES:
-            running.append({"name": _name, "status": _meta.get("status", "running")})
+            running.append({
+                "name": _name,
+                "status": _meta.get("status", "running"),
+                "task_id": _meta.get("task_id"),
+                "needle_id": _meta.get("needle_id"),
+                "label": _meta.get("label"),
+                "build_state": _meta.get("build_state"),
+            })
     return {"running_count": len(running), "agents": running}
 
 
