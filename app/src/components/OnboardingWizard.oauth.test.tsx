@@ -1,17 +1,13 @@
 /**
- * Tests for OAuth-aware rendering of the Atlassian + GitHub setup cards.
- *
- * When /atlassian/defaults reports oauth_available=true, the expanded
- * card shows the OAuth button as the primary path with a "Use a token
- * instead" link to fall back to PAT. When oauth_available=false (no
- * client_id env var configured), the existing PAT form is the only
- * path. The PAT form's own behavior is covered elsewhere; here we
- * verify the branching only.
+ * Tests for OAuth-aware rendering of the Atlassian + GitHub setup cards,
+ * and for the OnboardingWizard restore-step behavior on OAuth return.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { AtlassianSetupCard, GithubSetupCard } from './OnboardingWizard'
+import OnboardingWizard from './OnboardingWizard'
+import { useAppStore } from '../stores/app'
 
 type ApiResponse = Record<string, unknown>
 
@@ -109,5 +105,70 @@ describe('GithubSetupCard OAuth branching', () => {
       expect(screen.getByTestId('onboarding-github-token')).toBeTruthy()
     })
     expect(screen.queryByTestId('onboarding-github-oauth')).toBeNull()
+  })
+})
+
+// Connect step index in PERSONAL_STEPS_NO_FORK (TEAM_MODE_VISIBLE=false):
+// ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'EnhanceClaude', 'Connect', 'Ready']
+const CONNECT_STEP_IDX = 7
+
+function setupWizardStore() {
+  useAppStore.setState({
+    onboarded: false,
+    osName: 'myOS',
+    darkMode: false,
+    defaultChatModel: 'claude',
+    instanceMode: 'personal',
+    orgName: '',
+    teamAccentColor: '#6366f1',
+    displayOsName: () => 'myOS',
+    setInstanceMode: vi.fn() as unknown as (mode: 'personal' | 'team') => void,
+    setOrgName: vi.fn(),
+    setAgentsLastViewed: vi.fn() as unknown as (v: string) => void,
+  })
+}
+
+describe('OnboardingWizard restore-step after OAuth', () => {
+  beforeEach(() => {
+    window.history.pushState({}, '', '/')
+    sessionStorage.clear()
+    setupWizardStore()
+  })
+
+  afterEach(() => {
+    window.history.pushState({}, '', '/')
+    sessionStorage.clear()
+  })
+
+  it.each([
+    ['?connected=true'],
+    ['?auth_success=google'],
+    ['?atlassian_connected=true'],
+    ['?oauth_connected=true'],
+  ])('restores to saved Connect step on return param %s', async (paramStr) => {
+    sessionStorage.setItem('onboarding_step_before_oauth', String(CONNECT_STEP_IDX))
+    window.history.pushState({}, '', `/${paramStr}`)
+
+    render(<OnboardingWizard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('step-connect')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('step-welcome')).toBeNull()
+    expect(sessionStorage.getItem('onboarding_step_before_oauth')).toBeNull()
+  })
+
+  it('shows error banner on ?error=token_exchange_failed and clears saved step', async () => {
+    sessionStorage.setItem('onboarding_step_before_oauth', String(CONNECT_STEP_IDX))
+    window.history.pushState({}, '', '/?error=token_exchange_failed')
+
+    render(<OnboardingWizard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('oauth-error-banner')).toBeTruthy()
+    })
+    const banner = screen.getByTestId('oauth-error-banner')
+    expect(banner.textContent).toContain('token_exchange_failed')
+    expect(sessionStorage.getItem('onboarding_step_before_oauth')).toBeNull()
   })
 })

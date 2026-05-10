@@ -50,6 +50,7 @@ export default function OnboardingWizard() {
   const [detectedProvider, setDetectedProvider] = useState<string | null>(null)
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null)
   const [otherSelected, setOtherSelected] = useState(false)
+  const [oauthError, setOauthError] = useState<string | null>(null)
 
   // Reset osName to empty on wizard mount so a new user always starts with
   // an empty "Name your OS" field. This prevents stale values from
@@ -77,15 +78,25 @@ export default function OnboardingWizard() {
       .catch((e) => console.error('provider detection failed:', e))
   }, [])
 
-  // Restore step after Google OAuth redirect
+  // Restore step after any OAuth redirect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const savedStep = sessionStorage.getItem('onboarding_step_before_oauth')
-    const isOAuthReturn = params.get('connected') === 'true' || params.get('auth_success') === 'google'
+
+    const errorMsg = params.get('error') || params.get('auth_error')
+    if (errorMsg) {
+      setOauthError(`Connection failed: ${errorMsg}. Try again.`)
+      sessionStorage.removeItem('onboarding_step_before_oauth')
+      window.history.replaceState({}, '', '/')
+      return
+    }
+
+    const oauthReturnKeys = ['connected', 'auth_success', 'atlassian_connected', 'oauth_connected']
+    const isOAuthReturn = oauthReturnKeys.some(k => params.has(k))
     if (isOAuthReturn && savedStep !== null) {
       const idx = parseInt(savedStep, 10)
       if (!Number.isNaN(idx) && idx >= 0) {
-        setStepIndex(Math.min(idx + 1, STEPS.length - 1))
+        setStepIndex(idx)
       }
       sessionStorage.removeItem('onboarding_step_before_oauth')
       window.history.replaceState({}, '', '/')
@@ -297,6 +308,17 @@ export default function OnboardingWizard() {
             />
           ))}
         </div>
+
+        {/* OAuth error banner */}
+        {oauthError && (
+          <div
+            className="mb-4 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center justify-between"
+            data-testid="oauth-error-banner"
+          >
+            <span>{oauthError}</span>
+            <button onClick={() => setOauthError(null)} className="ml-3 text-red-400 hover:text-red-300 text-xs underline">Dismiss</button>
+          </div>
+        )}
 
         {/* Step content */}
         <div className="min-h-[320px]">
@@ -1153,8 +1175,8 @@ function ConnectStep({
         You can skip this step and connect later in Settings.
       </p>
 
-      <AtlassianSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} />
-      <GithubSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} />
+      <AtlassianSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} stepIndex={stepIndex} />
+      <GithubSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} stepIndex={stepIndex} />
     </div>
   )
 }
@@ -1163,10 +1185,12 @@ export function AtlassianSetupCard({
   darkMode,
   inputCls,
   subtextCls,
+  stepIndex,
 }: {
   darkMode: boolean
   inputCls: string
   subtextCls: string
+  stepIndex?: number
 }) {
   const [connected, setConnected] = useState<boolean | null>(null)
   const [expanded, setExpanded] = useState(false)
@@ -1179,6 +1203,10 @@ export function AtlassianSetupCard({
   const [forceTokenForm, setForceTokenForm] = useState(false)
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('atlassian_connected') === 'true') {
+      window.history.replaceState({}, '', '/')
+    }
     api.get<{ connected: boolean }>('/atlassian/status')
       .then((data) => setConnected(data.connected))
       .catch(() => setConnected(false))
@@ -1235,7 +1263,10 @@ export function AtlassianSetupCard({
         </p>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { window.location.href = '/api/atlassian/auth' }}
+            onClick={() => {
+              if (stepIndex !== undefined) sessionStorage.setItem('onboarding_step_before_oauth', String(stepIndex))
+              window.location.href = '/api/atlassian/auth'
+            }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
             data-testid="onboarding-atlassian-oauth"
           >
@@ -1327,10 +1358,12 @@ export function GithubSetupCard({
   darkMode,
   inputCls,
   subtextCls,
+  stepIndex,
 }: {
   darkMode: boolean
   inputCls: string
   subtextCls: string
+  stepIndex?: number
 }) {
   const [connected, setConnected] = useState<boolean | null>(null)
   const [expanded, setExpanded] = useState(false)
@@ -1342,6 +1375,10 @@ export function GithubSetupCard({
   const [forceTokenForm, setForceTokenForm] = useState(false)
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('oauth_connected') === 'true') {
+      window.history.replaceState({}, '', '/')
+    }
     api.get<{ connected: boolean }>('/github/status')
       .then((data) => setConnected(data.connected))
       .catch(() => setConnected(false))
@@ -1391,7 +1428,10 @@ export function GithubSetupCard({
         </p>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { window.location.href = '/api/github/auth' }}
+            onClick={() => {
+              if (stepIndex !== undefined) sessionStorage.setItem('onboarding_step_before_oauth', String(stepIndex))
+              window.location.href = '/api/github/auth'
+            }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
             data-testid="onboarding-github-oauth"
           >
