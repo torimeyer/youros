@@ -31,6 +31,8 @@ import Sessions from './pages/Sessions'
 import { useAppStore } from './stores/app'
 import { useRunningAgentsFeed } from './hooks/useRunningAgentsFeed'
 import { useSessionsFeed } from './hooks/useSessionsFeed'
+import { useDashboardFeed } from './hooks/useDashboardFeed'
+import { useNotificationsFeed } from './hooks/useNotificationsFeed'
 import ShareView from './pages/ShareView'
 import AdminLayout from './components/AdminLayout'
 import AdminOverview from './pages/admin/Overview'
@@ -51,6 +53,8 @@ import TeamSettings from './pages/TeamSettings'
 export default function App() {
   useRunningAgentsFeed()
   useSessionsFeed()
+  useDashboardFeed()
+  useNotificationsFeed()
   const hydrated = useAppStore((s) => s.hydrated)
   const onboarded = useAppStore((s) => s.onboarded)
   const hydrateFromServer = useAppStore((s) => s.hydrateFromServer)

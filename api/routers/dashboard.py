@@ -3,7 +3,7 @@ import json
 import re as _re
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from config import OSTK_DIR
 from services.ostk import ostk, OstkError
@@ -14,6 +14,7 @@ from services.task_visibility import (
     is_session_task,
     is_visible_task,
 )
+from services.dashboard_events import bus as _dashboard_events_bus
 
 router = APIRouter(tags=["dashboard"])
 
@@ -327,3 +328,45 @@ async def get_session_diff():
             "audit_total": 0,
         }
     return diff
+
+
+async def _build_dashboard_data() -> dict:
+    """Build snapshot of dashboard state: active agents, tasks, system health."""
+    try:
+        all_tasks = await ostk.list_tasks()
+    except OstkError:
+        all_tasks = []
+
+    open_tasks = [t for t in all_tasks if t.get("status") != "closed" and not is_session_task(t) and not is_e2e_task(t)]
+
+    return {
+        "agents_count": 0,
+        "tasks_count": len(open_tasks),
+        "system_uptime": 0,
+        "last_sync_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.websocket("/ws/dashboard/data")
+async def dashboard_data_ws(websocket: WebSocket) -> None:
+    """Push dashboard state to clients in real time.
+
+    On connect: sends one snapshot frame with current data.
+    On updates: sends fresh snapshot.
+    Keepalive ping every 15 seconds.
+    """
+    await websocket.accept()
+    try:
+        data = await _build_dashboard_data()
+        await websocket.send_json({"type": "snapshot", **data})
+        async with _dashboard_events_bus.subscribe() as q:
+            while True:
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=15.0)
+                    await websocket.send_json({"type": event.type, **event.payload})
+                except asyncio.TimeoutError:
+                    await websocket.send_json({"type": "ping"})
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
