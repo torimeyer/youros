@@ -196,15 +196,34 @@ def _frontend_url(request: Request) -> str:
     return os.environ.get("FRONTEND_URL") or str(request.base_url).rstrip("/")
 
 
+def _validate_return_to(return_to: str, default: str, request: Request) -> str:
+    """Return a validated post-OAuth redirect target.
+
+    Only accepts same-origin paths (starting with /) or URLs that start with
+    the configured FRONTEND_URL. Falls back to ``default`` to prevent open
+    redirects.
+    """
+    if not return_to:
+        return default
+    frontend = _frontend_url(request)
+    if return_to.startswith("/") or return_to.startswith(frontend):
+        if return_to.startswith("/"):
+            return f"{frontend}{return_to}"
+        return return_to
+    return default
+
+
 @router.get("/github/auth")
-async def github_auth(request: Request):
+async def github_auth(request: Request, return_to: str = ""):
     """Redirect the user to GitHub's OAuth consent screen."""
     client_id = os.environ.get("GITHUB_CLIENT_ID", "")
     if not client_id:
         return RedirectResponse(f"{_frontend_url(request)}/?auth_error=github_not_configured")
 
     state = secrets.token_urlsafe(32)
-    oauth_states[state] = True
+    frontend = _frontend_url(request)
+    effective_return_to = _validate_return_to(return_to, f"{frontend}/github", request)
+    oauth_states[state] = {"return_to": effective_return_to}
 
     base_url = str(request.base_url).rstrip("/")
     redirect_uri = f"{base_url}/api/github/callback"
@@ -229,7 +248,11 @@ async def github_callback(request: Request, code: str = "", state: str = "", err
 
     if state not in oauth_states:
         return RedirectResponse(f"{frontend_url}/?auth_error=invalid_state")
-    del oauth_states[state]
+    state_data = oauth_states.pop(state)
+    if isinstance(state_data, dict):
+        return_to = state_data.get("return_to", f"{frontend_url}/github")
+    else:
+        return_to = f"{frontend_url}/github"
 
     if not code:
         return RedirectResponse(f"{frontend_url}/?auth_error=no_code")
@@ -261,7 +284,8 @@ async def github_callback(request: Request, code: str = "", state: str = "", err
 
     github_service.save_config(token=access_token, repo="")
 
-    return RedirectResponse(f"{frontend_url}/github?oauth_connected=true")
+    sep = "&" if "?" in return_to else "?"
+    return RedirectResponse(f"{return_to}{sep}oauth_connected=true")
 
 
 @router.get("/github/defaults")

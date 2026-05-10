@@ -30,6 +30,23 @@ def _frontend_url(request: Request) -> str:
     return os.environ.get("FRONTEND_URL") or str(request.base_url).rstrip("/")
 
 
+def _validate_return_to(return_to: str, default: str, request: Request) -> str:
+    """Return a validated post-OAuth redirect target.
+
+    Only accepts same-origin paths (starting with /) or URLs that start with
+    the configured FRONTEND_URL. Falls back to ``default`` to prevent open
+    redirects.
+    """
+    if not return_to:
+        return default
+    frontend = _frontend_url(request)
+    if return_to.startswith("/") or return_to.startswith(frontend):
+        if return_to.startswith("/"):
+            return f"{frontend}{return_to}"
+        return return_to
+    return default
+
+
 class AtlassianConnectRequest(BaseModel):
     email: str
     api_token: str
@@ -56,7 +73,7 @@ async def atlassian_defaults():
 
 
 @router.get("/atlassian/auth")
-async def atlassian_auth(request: Request):
+async def atlassian_auth(request: Request, return_to: str = ""):
     """Redirect the user to Atlassian's OAuth consent screen."""
     client_id = os.environ.get("ATLASSIAN_CLIENT_ID", "")
     if not client_id:
@@ -65,7 +82,9 @@ async def atlassian_auth(request: Request):
         )
 
     state = secrets.token_urlsafe(32)
-    oauth_states[state] = True
+    frontend = _frontend_url(request)
+    effective_return_to = _validate_return_to(return_to, f"{frontend}/", request)
+    oauth_states[state] = {"return_to": effective_return_to}
 
     base_url = str(request.base_url).rstrip("/")
     redirect_uri = f"{base_url}/api/atlassian/callback"
@@ -95,7 +114,11 @@ async def atlassian_callback(
 
     if state not in oauth_states:
         return RedirectResponse(f"{frontend_url}/?auth_error=invalid_state")
-    del oauth_states[state]
+    state_data = oauth_states.pop(state)
+    if isinstance(state_data, dict):
+        return_to = state_data.get("return_to", f"{frontend_url}/")
+    else:
+        return_to = f"{frontend_url}/"
 
     if not code:
         return RedirectResponse(f"{frontend_url}/?auth_error=no_code")
@@ -175,7 +198,8 @@ async def atlassian_callback(
         refresh_token=refresh_token,
     )
 
-    return RedirectResponse(f"{frontend_url}/?atlassian_connected=true")
+    sep = "&" if "?" in return_to else "?"
+    return RedirectResponse(f"{return_to}{sep}atlassian_connected=true")
 
 
 @router.post("/atlassian/connect")
@@ -208,14 +232,25 @@ async def atlassian_status():
     connected = atlassian_service.is_connected()
     email = ""
     site = ""
+    jira_url = ""
+    confluence_url = ""
     if connected:
         try:
             config = atlassian_service.get_config()
             email = config.get("email", "")
             site = config.get("site", "")
+            if site:
+                jira_url = f"https://{site}/jira"
+                confluence_url = f"https://{site}/wiki"
         except Exception:
             pass
-    return {"connected": connected, "email": email, "site": site}
+    return {
+        "connected": connected,
+        "email": email,
+        "site": site,
+        "jira_url": jira_url,
+        "confluence_url": confluence_url,
+    }
 
 
 @router.delete("/atlassian/disconnect")
