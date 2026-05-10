@@ -90,7 +90,12 @@ def _clean_agent_metadata():
     """Remove any test agent rows from the global registry before/after each test."""
     import routers.agents as agents_mod
 
-    test_names = {"test-roadmap-template-spawn-reg", "test-roadmap-noverb-reg"}
+    test_names = {
+        "test-roadmap-template-spawn-reg",
+        "test-roadmap-noverb-reg",
+        "test-builder-no-locks-reg",
+        "test-builder-with-locks-worktree",
+    }
     for n in test_names:
         agents_mod.agent_metadata.pop(n, None)
     yield
@@ -225,4 +230,146 @@ async def test_non_edit_verb_spawn_without_template_still_works(monkeypatch):
 
     assert resp.status_code == 200, (
         f"Research-only direct spawn must succeed. Got {resp.status_code}: {resp.text}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_builder_template_no_locks_registers(monkeypatch):
+    """Builder template spawn without locks must register in /api/agents.
+
+    Regression introduced by 223a4e9: narrowed the pre-isolation check from
+    `in ("none", "nono")` to `== "nono"`. builder.agent has no ISOLATION
+    directive, so AgentfileConfig defaults isolation to "none". The narrowed
+    check skips the pre-set, decide_isolation picks "worktree" for the
+    edit-verb prompt, validate_locks_for_spawn rejects with 400 (no locks
+    from the UI), and the agent never appears in /api/agents.
+
+    Fix: also force isolation="none" when the template defaults to "none" AND
+    the caller sent no locks (UI template-card spawns never send locks).
+    """
+    from services.agentfile_parser import AgentfileConfig
+    from main import app
+
+    _install_doubles(monkeypatch)
+
+    # builder.agent has no ISOLATION directive → defaults to "none"
+    mock_cfg = AgentfileConfig()
+    mock_cfg.isolation = "none"
+
+    with (
+        patch(
+            "services.agentfile_parser.get_agent_config_by_template",
+            return_value=mock_cfg,
+        ),
+        patch(
+            "services.agent_templates_store._resolve_alias",
+            return_value=None,
+        ),
+        patch(
+            "services.agent_templates_store._BUILTIN_BY_ID",
+            {},
+        ),
+    ):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": "test-builder-no-locks-reg",
+                    # "build" is a CODE_EDIT_VERB — without the fix this triggers
+                    # worktree isolation, then 400 (no locks)
+                    "prompt": "build a solution end to end with tests",
+                    "model": "sonnet",
+                    "budget": 3.0,
+                    "source": "ui",
+                    "template": "Builder",
+                    # No "locks" — this is exactly what the UI sends for template cards
+                },
+            )
+
+    assert resp.status_code == 200, (
+        f"Expected 200 but got {resp.status_code}. "
+        f"Body: {resp.text}. "
+        "Builder template spawn without locks was rejected. "
+        "Root cause: 223a4e9 narrowed `in (\"none\", \"nono\")` to `== \"nono\"`, "
+        "so builder's default isolation=\"none\" no longer pre-sets body.isolation. "
+        "Fix: add `elif _pre_cfg.isolation == \"none\" and not body.locks: body.isolation = \"none\"`."
+    )
+
+    import routers.agents as agents_mod
+    assert "test-builder-no-locks-reg" in agents_mod.agent_metadata, (
+        "Agent row missing from agent_metadata. "
+        "spawn_agent must write the row before returning 200."
+    )
+
+
+@pytest.mark.asyncio
+async def test_builder_template_with_locks_still_uses_worktree(monkeypatch):
+    """Builder template spawn WITH locks must use worktree isolation (auto-suffix path).
+
+    When a comprehensive build is re-promoted from the queue it has locks.
+    The fix must not break this path — those spawns still need worktree
+    isolation so the auto-suffix check can fire when the branch has prior work.
+    """
+    from services.agentfile_parser import AgentfileConfig
+    from main import app
+
+    _install_doubles(monkeypatch)
+
+    mock_cfg = AgentfileConfig()
+    mock_cfg.isolation = "none"  # same default as builder.agent
+
+    captured_isolation: list[str] = []
+
+    real_decide = None
+
+    def _spy_decide(**kwargs):
+        result = real_decide(**kwargs)
+        captured_isolation.append(result)
+        return result
+
+    import services.spawn_isolation as _spi
+    real_decide = _spi.decide_isolation
+
+    with (
+        patch(
+            "services.agentfile_parser.get_agent_config_by_template",
+            return_value=mock_cfg,
+        ),
+        patch(
+            "services.agent_templates_store._resolve_alias",
+            return_value=None,
+        ),
+        patch(
+            "services.agent_templates_store._BUILTIN_BY_ID",
+            {},
+        ),
+        patch(
+            "services.spawn_isolation.decide_isolation",
+            side_effect=_spy_decide,
+        ),
+    ):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": "test-builder-with-locks-worktree",
+                    "prompt": "build a solution end to end with tests",
+                    "model": "sonnet",
+                    "budget": 3.0,
+                    "source": "api",
+                    "template": "Builder",
+                    "locks": ["tasks/task-123"],  # task-based spawn sends locks
+                },
+            )
+
+    # With locks provided, decide_isolation should run and return worktree
+    # (since "build" is a CODE_EDIT_VERB). The spawn may fail later (e.g.
+    # worktree creation skipped in test env) but the isolation decision must
+    # be "worktree" — confirming auto-suffix can fire for re-promotions.
+    assert captured_isolation and captured_isolation[0] == "worktree", (
+        f"Expected decide_isolation to return 'worktree' for edit-verb prompt + locks. "
+        f"Got: {captured_isolation}. "
+        "The fix must only force isolation='none' when NO locks are provided."
     )
