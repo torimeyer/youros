@@ -3855,6 +3855,14 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                 body.isolation = _pre_cfg.isolation
         except Exception:
             pass
+    # Follow-on content spawns (email drafts, slide decks, flashcards) must not
+    # get worktree isolation. The verb heuristic in decide_isolation misreads
+    # "write an email" / "create a slide deck" as code-edit tasks because
+    # "write" and "create" are in CODE_EDIT_VERBS. When follow_on=True the
+    # caller guarantees this is a content-generation task, so we force
+    # isolation="none" here before the heuristic runs. Introduced for →1096.
+    if body.follow_on and not body.isolation:
+        body.isolation = "none"
     body.isolation = _decide_isolation(
         description=body.description,
         prompt=body.prompt,

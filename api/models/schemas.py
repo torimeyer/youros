@@ -251,6 +251,14 @@ class AgentSpawn(BaseModel):
     # present). Peer cancel-all guards check this field before
     # cancelling an agent they did not spawn themselves.
     user_authored: Optional[bool] = None
+    # True when this spawn originates from a What's Next / follow-on action
+    # button on a completed agent panel. These are content-generation tasks
+    # (email drafts, slide decks, flashcards) — NOT code edits. The
+    # decide_isolation verb heuristic misreads "write an email" / "create a
+    # slide deck" as code-edit tasks because "write" and "create" are in
+    # CODE_EDIT_VERBS. Setting follow_on=True forces isolation="none" before
+    # the heuristic runs so these spawns are never rejected for missing locks.
+    follow_on: Optional[bool] = None
 
 
 class AgentNudge(BaseModel):

@@ -3387,7 +3387,7 @@ export default function Agents() {
     return () => unsubscribe();
   }, []);
 
-  const handleSpawn = async (name: string, prompt?: string, model?: string, budget?: number, tokenLimit?: number | null, template?: string) => {
+  const handleSpawn = async (name: string, prompt?: string, model?: string, budget?: number, tokenLimit?: number | null, template?: string, isolation?: string) => {
     if (!name.trim()) return;
     const cleanName = name.trim();
     const cleanModel = model || "sonnet";
@@ -3436,6 +3436,10 @@ export default function Agents() {
       }
       if (template) {
         spawnPayload.template = template;
+      }
+      if (isolation) {
+        spawnPayload.isolation = isolation;
+        if (isolation === "none") spawnPayload.follow_on = true;
       }
       await api.post("/agents/spawn", spawnPayload);
       // Optimistically add to the WS store so the Active tab shows it
@@ -4528,20 +4532,17 @@ export default function Agents() {
                                   data-testid="follow-on-action-btn"
                                   onClick={async () => {
                                     const isSlide = action.label.toLowerCase().includes('slide');
-                                    if (isSlide) {
-                                      let context = '';
-                                      try {
-                                        const data = await fetch(`/api/agents/${encodeURIComponent(agent.name)}/transcript`).then(r => r.json());
-                                        if (!data.empty && data.content) context = data.content;
-                                      } catch { /* proceed without transcript */ }
-                                      const slideName = `slide-deck-${Date.now()}`;
-                                      const slidePrompt = `Using fcp-slides, create a slide deck presentation from the following content. Save the .pptx file to ~/myos/files/.\n\n${context || action.prompt}`;
-                                      handleSpawn(slideName, slidePrompt);
-                                      navigate('/agents');
-                                    } else {
-                                      setChatPrefill(action.prompt);
-                                      navigate('/');
-                                    }
+                                    let context = '';
+                                    try {
+                                      const data = await fetch(`/api/agents/${encodeURIComponent(agent.name)}/transcript`).then(r => r.json());
+                                      if (!data.empty && data.content) context = data.content;
+                                    } catch { /* proceed without transcript */ }
+                                    const agentName = action.label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now();
+                                    const spawnPrompt = isSlide
+                                      ? `Using fcp-slides, create a slide deck presentation from the following content. Save the .pptx file to ~/myos/files/.\n\n${context || action.prompt}`
+                                      : context ? `${action.prompt}\n\nContext from the previous agent:\n\n${context}` : action.prompt;
+                                    handleSpawn(agentName, spawnPrompt, undefined, undefined, undefined, undefined, 'none');
+                                    navigate('/agents');
                                   }}
                                   className="inline-flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-emerald-900/60 border border-slate-700 hover:border-emerald-700 text-slate-300 hover:text-emerald-300 rounded-full px-3 py-1 transition-colors"
                                 >
