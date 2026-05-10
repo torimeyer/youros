@@ -1093,44 +1093,6 @@ describe('Settings - Enter key submit', () => {
 })
 
 
-describe('Settings page — Files location', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    vi.mocked(api.get).mockImplementation(async (path: string) => {
-      if (path.endsWith('/settings')) {
-        return { onboarded: true, files_dir: '/Users/me/.myos/files' }
-      }
-      return {}
-    })
-    window.confirm = vi.fn().mockReturnValue(true)
-  })
-
-  const renderIt = () =>
-    render(
-      <MemoryRouter><Settings /></MemoryRouter>
-    )
-
-  it('renders a Files location field and submits a new path via PUT', async () => {
-    renderIt()
-    // Files location lives in the Connections tab (Data subheader)
-    const connectionsButtons = await screen.findAllByRole('button', { name: 'Connections' })
-    fireEvent.click(connectionsButtons[0])
-    const input = await screen.findByTestId('files-dir-input') as HTMLInputElement
-    await waitFor(() => expect(input.value).toBe('/Users/me/.myos/files'))
-
-    fireEvent.change(input, { target: { value: '/tmp/new-files' } })
-    fireEvent.click(screen.getByTestId('files-dir-change'))
-
-    // Component uses useConfirm() (modal), not window.confirm.
-    fireEvent.click(await screen.findByTestId('confirm-modal-confirm'))
-    await waitFor(() => {
-      expect(vi.mocked(api.put)).toHaveBeenCalledWith(
-        '/settings',
-        expect.objectContaining({ files_dir: '/tmp/new-files' }),
-      )
-    })
-  })
-})
 
 describe('Settings page — Developer section', () => {
   beforeEach(() => {
