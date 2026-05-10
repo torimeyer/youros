@@ -201,7 +201,14 @@ async def test_spawn_worktree_creates_fork_and_sets_cwd(tmp_path, monkeypatch):
         ]
         assert len(claude_calls) == 1
         _, kw = claude_calls[0]
-        assert kw.get("cwd", "").endswith(f".claude/worktrees/agent-{agent_name}")
+        # 7fce558 introduced _short_cwd_for_worktree which may use a /tmp symlink
+        # to keep sun_path within the macOS 104-byte limit. Accept either the
+        # canonical worktrees path OR the short /tmp link.
+        cwd = kw.get("cwd", "")
+        assert (
+            cwd.endswith(f".claude/worktrees/agent-{agent_name}")
+            or cwd.startswith("/tmp/")
+        ), f"Expected cwd to be the worktree path or a /tmp symlink; got: {cwd!r}"
 
         meta = agent_metadata[agent_name]
         assert meta.get("isolation") == "worktree"

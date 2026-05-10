@@ -3853,6 +3853,17 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             _pre_cfg = _pre_get_tpl_cfg(_pre_stem)
             if _pre_cfg is not None and _pre_cfg.isolation == "nono":
                 body.isolation = _pre_cfg.isolation
+            elif _pre_cfg is not None and _pre_cfg.isolation == "none" and not body.locks:
+                # Template defaults to no-isolation (no ISOLATION directive in the
+                # agentfile), and the caller sent no locks. Without this branch,
+                # verb detection returns "worktree" for edit prompts, then
+                # validate_locks_for_spawn rejects with 400 — the agent never
+                # registers. UI template-card spawns never send locks. Task-based
+                # spawns (comprehensive-build promotions) DO send locks, so they
+                # skip this branch and proceed through verb detection normally,
+                # preserving the auto-suffix check for re-spawned branches.
+                # Regression introduced by 223a4e9 (narrowed to == "nono").
+                body.isolation = "none"
         except Exception:
             pass
     # Follow-on content spawns (email drafts, slide decks, flashcards) must not
