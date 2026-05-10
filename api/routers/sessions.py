@@ -7,15 +7,17 @@ lines of each file so it stays fast even with long-running sessions.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from config import OSTK_DIR
+from services.session_events import bus as _session_events_bus
 
 router = APIRouter(tags=["sessions"])
 
@@ -291,9 +293,8 @@ def _session_type(session_id: str) -> str:
     return "ostk"
 
 
-@router.get("/sessions/coordination")
-async def get_coordination():
-    """Visible coordination panel: sessions, locks, and recent inter-session events."""
+async def _build_coordination_data() -> dict:
+    """Assemble the full coordination snapshot (sessions, locks, events)."""
     from services.ostk import ostk
     from routers.agents import agent_metadata, nudge_history
 
@@ -358,6 +359,46 @@ async def get_coordination():
         "locks": locks,
         "events": events,
     }
+
+
+async def _publish_session_state() -> None:
+    """Recompute coordination data and push to WS subscribers. Best-effort."""
+    try:
+        data = await _build_coordination_data()
+        await _session_events_bus.publish("snapshot", data)
+    except Exception:
+        pass  # never block mutation endpoints
+
+
+@router.websocket("/ws/sessions/state")
+async def sessions_state_ws(websocket: WebSocket) -> None:
+    """Push coordination snapshot to clients in real time.
+
+    On connect: sends one snapshot frame with current data.
+    On every agent mutation (register, complete, cancel): sends a fresh snapshot.
+    Keepalive ping every 15 seconds.
+    """
+    await websocket.accept()
+    try:
+        data = await _build_coordination_data()
+        await websocket.send_json({"type": "snapshot", **data})
+        async with _session_events_bus.subscribe() as q:
+            while True:
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=15.0)
+                    await websocket.send_json({"type": event.type, **event.payload})
+                except asyncio.TimeoutError:
+                    await websocket.send_json({"type": "ping"})
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+
+
+@router.get("/sessions/coordination")
+async def get_coordination():
+    """Visible coordination panel: sessions, locks, and recent inter-session events."""
+    return await _build_coordination_data()
 
 
 @router.get("/sessions/active")

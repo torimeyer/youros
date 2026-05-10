@@ -9,6 +9,8 @@ import { useConfirm } from "../hooks/useConfirm";
 import { api, ApiError, ApiTimeoutError } from "../lib/api";
 import { onAgentsChange, addDismissed, isDismissed, clearDismissed } from "../lib/sidebarBus";
 import { useRunningAgentsStore } from "../stores/runningAgents";
+import { useGrantsStore } from "../stores/grantsStore";
+import { useLocksStore } from "../stores/locksStore";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 import { AGENT_MARKETPLACE } from "../data/agentMarketplace";
@@ -2249,6 +2251,10 @@ export default function Agents() {
   const [grantActioning, setGrantActioning] = useState<Record<string, boolean>>({});
   const [grantFilter, setGrantFilter] = useState<"pending" | "granted" | "denied">("pending");
 
+  // WS-backed pending grants: when connected, merge store into local state.
+  const wsGrants = useGrantsStore((s) => s.grants);
+  const wsGrantsConnected = useGrantsStore((s) => s.connected);
+
   // Memory state: per-agent memory facts and summaries
   const [agentMemory, setAgentMemory] = useState<Record<string, AgentMemoryResponse>>({});
   const [agentNotes, setAgentNotes] = useState<Record<string, AgentNoteRecord[]>>({});
@@ -2323,8 +2329,10 @@ export default function Agents() {
     });
   };
 
-  // Coordination locks (needle 338)
-  const [locks, setLocks] = useState<{ name: string; holder?: string; created_at?: string }[]>([]);
+  // Coordination locks (needle 338) — driven by WS feed (→1130); HTTP poll is safety net
+  const locks = useLocksStore((s) => s.locks);
+  const locksWsConnected = useLocksStore((s) => s.wsConnected);
+  const setLocks = useLocksStore((s) => s.setLocks);
   const [releasingLock, setReleasingLock] = useState<Record<string, boolean>>({});
 
   // Context pressure per agent (needle 337)
@@ -3114,7 +3122,8 @@ export default function Agents() {
     setReleasingLock((prev) => ({ ...prev, [lockName]: true }));
     try {
       await api.delete(`/agents/locks/${encodeURIComponent(lockName)}`);
-      setLocks((prev) => prev.filter((l) => l.name !== lockName));
+      // Optimistic remove; WS delta will confirm when it arrives
+      setLocks(useLocksStore.getState().locks.filter((l) => l.name !== lockName));
     } catch {
       // show nothing, the lock may already be released
     } finally {
@@ -3242,24 +3251,36 @@ export default function Agents() {
 
   // Fetch permission requests whenever the Active tab is showing, so
   // pending approvals surface inline on each agent card instead of in a
-  // separate Permissions tab.
+  // separate Permissions tab. When the WS feed is connected, the store
+  // delivers updates instantly (see effect below) so we only poll as a
+  // safety net when the socket is down.
   useEffect(() => {
     if (activeTab === "Active") {
-      // Always look at pending grants for inline display.
-      fetchGrants("pending");
-      const interval = setInterval(() => fetchGrants("pending"), 5000);
-      return () => clearInterval(interval);
+      if (!wsGrantsConnected) {
+        fetchGrants("pending");
+        const interval = setInterval(() => fetchGrants("pending"), 5000);
+        return () => clearInterval(interval);
+      }
     }
-  }, [activeTab, fetchGrants]);
+  }, [activeTab, fetchGrants, wsGrantsConnected]);
 
-  // Fetch coordination locks when the Active tab is showing (needle 338)
+  // Real-time fast path: when the WS store delivers a new snapshot/delta,
+  // replace local pending-grants state. grantFilter tabs that show
+  // granted/denied still use HTTP; the store only carries pending grants.
   useEffect(() => {
-    if (activeTab === "Active") {
+    if (wsGrantsConnected && grantFilter === "pending") {
+      setGrants(wsGrants);
+    }
+  }, [wsGrants, wsGrantsConnected, grantFilter]);
+
+  // HTTP poll fallback when WS is down (needle 338 → 1130)
+  useEffect(() => {
+    if (activeTab === "Active" && !locksWsConnected) {
       fetchLocks();
       const interval = setInterval(fetchLocks, 10000);
       return () => clearInterval(interval);
     }
-  }, [activeTab, fetchLocks]);
+  }, [activeTab, locksWsConnected, fetchLocks]);
 
   // Fetch context pressure for running agents (needle 337)
   useEffect(() => {
