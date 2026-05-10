@@ -2741,7 +2741,155 @@ class ChatService:
             await websocket.send_json({"type": "error", "data": str(e)})
             return ""
 
+    async def _stream_gemini_vertex(
+        self,
+        messages: list[dict],
+        websocket: WebSocket,
+        project: str,
+        location: str,
+        datastore: Optional[str] = None,
+    ) -> str:
+        """Stream Gemini via Vertex AI (Application Default Credentials).
+
+        Imports vertexai inside the method so the library not being installed
+        does not affect other import paths. Uses the same merged-history shape
+        as stream_gemini.
+        """
+        import asyncio as _asyncio
+
+        history = []
+        for msg in messages[:-1]:
+            role = "user" if msg["role"] == "user" else "model"
+            text = _gemini_content_to_text(msg.get("content", ""))
+            if role == "model":
+                source = (msg.get("model") or "").lower()
+                if source and "claude" in source:
+                    text = f"[Claude's response]: {text}"
+                elif source and "gemini" in source:
+                    text = f"[Your previous response]: {text}"
+            history.append({"role": role, "parts": [{"text": text}]})
+
+        merged_history: list[dict] = []
+        for entry in history:
+            if merged_history and merged_history[-1]["role"] == entry["role"]:
+                prev_texts = [
+                    p["text"] for p in merged_history[-1].get("parts", [])
+                    if isinstance(p, dict) and p.get("text")
+                ]
+                new_texts = [
+                    p["text"] for p in entry.get("parts", [])
+                    if isinstance(p, dict) and p.get("text")
+                ]
+                combined = "\n\n".join(prev_texts + new_texts)
+                merged_history[-1] = {"role": entry["role"], "parts": [{"text": combined}]}
+            else:
+                merged_history.append(entry)
+
+        if merged_history and merged_history[-1]["role"] == "user":
+            merged_history.append({
+                "role": "model",
+                "parts": [{"text": "Got it. What would you like to know?"}],
+            })
+
+        last_text = _gemini_content_to_text(messages[-1].get("content", ""))
+        contents = merged_history + [{"role": "user", "parts": [{"text": last_text}]}]
+
+        full_text = ""
+        citations: list[dict] = []
+
+        try:
+            def _init_and_get_stream():
+                import vertexai
+                from vertexai.generative_models import (
+                    GenerativeModel,
+                    Tool,
+                    grounding as _grounding,
+                )
+                vertexai.init(project=project, location=location)
+                _tools = None
+                if datastore:
+                    _tools = [Tool.from_retrieval(
+                        _grounding.Retrieval(
+                            _grounding.VertexAISearch(datastore=datastore)
+                        )
+                    )]
+                _model = GenerativeModel(_gemini_model_name(), tools=_tools)
+                return _model.generate_content(contents, stream=True), _tools
+
+            response_stream, active_tools = await _asyncio.to_thread(_init_and_get_stream)
+
+            _CHUNK_STOP = object()
+            _chunk_iter = iter(response_stream)
+
+            def _pull_next():
+                try:
+                    return next(_chunk_iter)
+                except StopIteration:
+                    return _CHUNK_STOP
+
+            while True:
+                chunk = await _asyncio.to_thread(_pull_next)
+                if chunk is _CHUNK_STOP:
+                    break
+                try:
+                    text = chunk.text
+                except (ValueError, AttributeError):
+                    text = None
+                if text:
+                    full_text += text
+                    await websocket.send_json({"type": "token", "data": text})
+
+                if active_tools is not None:
+                    try:
+                        for candidate in (getattr(chunk, "candidates", None) or []):
+                            gm = getattr(candidate, "grounding_metadata", None)
+                            if not gm:
+                                continue
+                            for gc in (getattr(gm, "grounding_chunks", None) or []):
+                                web = getattr(gc, "web", None)
+                                uri = getattr(web, "uri", None) if web else None
+                                title = getattr(web, "title", None) if web else None
+                                if uri and uri not in {c.get("uri") for c in citations}:
+                                    citations.append({"uri": uri, "title": title or uri})
+                    except Exception:
+                        pass
+
+            if citations:
+                await websocket.send_json({"type": "citations", "data": citations})
+
+            if not full_text:
+                await websocket.send_json({
+                    "type": "error",
+                    "data": "Vertex AI returned an empty response. Please try again.",
+                })
+                return full_text
+
+            await websocket.send_json({"type": "done"})
+
+        except WebSocketDisconnect:
+            pass
+        except Exception as e:
+            friendly = _friendly_gemini_error(str(e))
+            try:
+                await websocket.send_json({"type": "error", "data": friendly})
+            except Exception:
+                pass
+
+        return full_text
+
     async def stream_gemini(self, messages: list[dict], websocket: WebSocket) -> str:
+        # Priority 1: Vertex AI via Application Default Credentials.
+        # detect_vertex_gemini() checks gcloud ADC and never raises.
+        # Imported here to avoid a circular-import at module load time.
+        import os
+        from .provider_detection import detect_vertex_gemini
+        vx = detect_vertex_gemini()
+        if vx.get("available"):
+            datastore = os.environ.get("VERTEX_SEARCH_DATASTORE", "") or None
+            return await self._stream_gemini_vertex(
+                messages, websocket, vx["project"], vx["location"], datastore=datastore
+            )
+
         # Gemini's public Generative Language API only accepts API keys.
         # User OAuth tokens (even with cloud-platform scope) are rejected
         # with ACCESS_TOKEN_TYPE_UNSUPPORTED, so we no longer try to use

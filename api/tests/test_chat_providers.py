@@ -4242,3 +4242,226 @@ class TestAnthropicRateLimitFallback:
 
         assert not websocket.get_messages_of_type("provider_fallback")
         assert call_count[0] == 1
+
+
+# --- Vertex AI streaming tests ---
+
+
+class _FakeVertexChunk:
+    """Minimal fake for vertexai GenerationResponse chunk."""
+
+    def __init__(self, text: str, candidates=None):
+        self._text = text
+        self.candidates = candidates or []
+
+    @property
+    def text(self):
+        if not self._text:
+            raise ValueError("no text")
+        return self._text
+
+
+def _make_fake_vertex_model(chunks):
+    """Return a MagicMock GenerativeModel whose generate_content yields chunks."""
+    fake_model = MagicMock()
+    fake_model.generate_content.return_value = iter(chunks)
+    return fake_model
+
+
+class TestStreamGeminiVertexDispatch:
+    """stream_gemini routes to _stream_gemini_vertex when ADC is available."""
+
+    @pytest.fixture
+    def websocket(self):
+        return FakeWebSocket()
+
+    @pytest.mark.asyncio
+    async def test_vertex_adc_takes_priority_over_api_key(self, websocket):
+        """When detect_vertex_gemini returns available=True, Vertex path is used
+        regardless of whether GEMINI_API_KEY is also set in the environment."""
+        messages = [{"role": "user", "content": "hello vertex"}]
+
+        # detect_vertex_gemini is imported inside stream_gemini via
+        # `from .provider_detection import detect_vertex_gemini`, so we patch
+        # it on the source module (provider_detection) so the local import
+        # picks up the mock.
+        with patch(
+            "services.provider_detection.detect_vertex_gemini",
+            return_value={"available": True, "project": "test-proj", "location": "us-central1"},
+        ):
+            service = ChatService()
+            service._stream_gemini_vertex = AsyncMock(return_value="hello from vertex")
+
+            with patch.dict("os.environ", {"GEMINI_API_KEY": "fake-key", "VERTEX_SEARCH_DATASTORE": ""}):
+                await service.stream_gemini(messages, websocket)
+
+            service._stream_gemini_vertex.assert_called_once()
+            call_args = service._stream_gemini_vertex.call_args
+            assert call_args.args[2] == "test-proj"
+            assert call_args.args[3] == "us-central1"
+            assert call_args.kwargs.get("datastore") is None
+
+    @pytest.mark.asyncio
+    async def test_vertex_unavailable_falls_back_to_api_key_path(self, websocket):
+        """When detect_vertex_gemini returns available=False, stream_gemini
+        proceeds to the public API key path."""
+        messages = [{"role": "user", "content": "hello fallback"}]
+
+        with (
+            patch(
+                "services.provider_detection.detect_vertex_gemini",
+                return_value={"available": False},
+            ),
+            patch(
+                "services.chat_providers._resolve_api_key",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            await ChatService().stream_gemini(messages, websocket)
+
+        errors = websocket.get_messages_of_type("error")
+        assert errors, "expected error when no API key available"
+        assert "Gemini API key" in errors[0]["data"]
+
+    @pytest.mark.asyncio
+    async def test_vertex_dispatches_with_datastore_when_env_set(self, websocket):
+        """When VERTEX_SEARCH_DATASTORE is set, datastore is passed through."""
+        messages = [{"role": "user", "content": "search something"}]
+        datastore_path = "projects/p/locations/l/collections/default_collection/dataStores/my-store"
+
+        with patch(
+            "services.provider_detection.detect_vertex_gemini",
+            return_value={"available": True, "project": "proj", "location": "us-central1"},
+        ):
+            service = ChatService()
+            service._stream_gemini_vertex = AsyncMock(return_value="result")
+
+            with patch.dict("os.environ", {"VERTEX_SEARCH_DATASTORE": datastore_path}):
+                await service.stream_gemini(messages, websocket)
+
+            service._stream_gemini_vertex.assert_called_once()
+            assert service._stream_gemini_vertex.call_args.kwargs.get("datastore") == datastore_path
+
+
+class TestStreamGeminiVertexMethod:
+    """Unit tests for _stream_gemini_vertex itself."""
+
+    @pytest.fixture
+    def websocket(self):
+        return FakeWebSocket()
+
+    @pytest.mark.asyncio
+    async def test_tokens_and_done_sent_for_clean_stream(self, websocket):
+        """Token chunks and done are forwarded to websocket for a normal stream."""
+        messages = [{"role": "user", "content": "hi"}]
+        fake_chunks = [
+            _FakeVertexChunk("hello "),
+            _FakeVertexChunk("world"),
+        ]
+        fake_model = _make_fake_vertex_model(fake_chunks)
+
+        import sys
+        import types
+
+        fake_vertexai = MagicMock()
+        fake_gm_mod = MagicMock()
+        fake_gm_mod.GenerativeModel = MagicMock(return_value=fake_model)
+        fake_gm_mod.Tool = MagicMock()
+        fake_gm_mod.grounding = MagicMock()
+
+        with patch.dict(sys.modules, {
+            "vertexai": fake_vertexai,
+            "vertexai.generative_models": fake_gm_mod,
+        }):
+            await ChatService()._stream_gemini_vertex(
+                messages, websocket, project="p", location="l"
+            )
+
+        tokens = websocket.get_messages_of_type("token")
+        assert len(tokens) == 2
+        assert tokens[0]["data"] == "hello "
+        assert tokens[1]["data"] == "world"
+        dones = websocket.get_messages_of_type("done")
+        assert len(dones) == 1
+
+    @pytest.mark.asyncio
+    async def test_citations_forwarded_when_grounding_tools_active(self, websocket):
+        """When datastore is set and grounding metadata appears in chunks,
+        a citations message is sent to the websocket."""
+        messages = [{"role": "user", "content": "search"}]
+
+        web_chunk = MagicMock()
+        web_chunk.uri = "https://example.com/doc"
+        web_chunk.title = "Example Doc"
+
+        grounding_chunk = MagicMock()
+        grounding_chunk.web = web_chunk
+
+        grounding_meta = MagicMock()
+        grounding_meta.grounding_chunks = [grounding_chunk]
+
+        candidate = MagicMock()
+        candidate.grounding_metadata = grounding_meta
+
+        fake_chunk = MagicMock()
+        fake_chunk.text = "grounded answer"
+        fake_chunk.candidates = [candidate]
+
+        fake_model = MagicMock()
+        fake_model.generate_content.return_value = iter([fake_chunk])
+
+        fake_tool = MagicMock()
+
+        import sys
+
+        fake_vertexai = MagicMock()
+        fake_gm_mod = MagicMock()
+        fake_gm_mod.GenerativeModel = MagicMock(return_value=fake_model)
+        fake_gm_mod.Tool = MagicMock()
+        fake_gm_mod.Tool.from_retrieval = MagicMock(return_value=fake_tool)
+        fake_gm_mod.grounding = MagicMock()
+
+        with patch.dict(sys.modules, {
+            "vertexai": fake_vertexai,
+            "vertexai.generative_models": fake_gm_mod,
+        }):
+            await ChatService()._stream_gemini_vertex(
+                messages,
+                websocket,
+                project="p",
+                location="l",
+                datastore="projects/p/locations/l/collections/default_collection/dataStores/ds",
+            )
+
+        citations_msgs = websocket.get_messages_of_type("citations")
+        assert len(citations_msgs) == 1, f"expected citations message, got: {websocket.messages}"
+        citations = citations_msgs[0]["data"]
+        assert len(citations) == 1
+        assert citations[0]["uri"] == "https://example.com/doc"
+        assert citations[0]["title"] == "Example Doc"
+
+    @pytest.mark.asyncio
+    async def test_no_citations_when_no_datastore(self, websocket):
+        """Without a datastore, no Tool is built and no citations message is sent."""
+        messages = [{"role": "user", "content": "plain query"}]
+        fake_chunks = [_FakeVertexChunk("plain answer")]
+        fake_model = _make_fake_vertex_model(fake_chunks)
+
+        import sys
+
+        fake_vertexai = MagicMock()
+        fake_gm_mod = MagicMock()
+        fake_gm_mod.GenerativeModel = MagicMock(return_value=fake_model)
+        fake_gm_mod.Tool = MagicMock()
+        fake_gm_mod.grounding = MagicMock()
+
+        with patch.dict(sys.modules, {
+            "vertexai": fake_vertexai,
+            "vertexai.generative_models": fake_gm_mod,
+        }):
+            await ChatService()._stream_gemini_vertex(
+                messages, websocket, project="p", location="l", datastore=None
+            )
+
+        assert not websocket.get_messages_of_type("citations")
+        assert len(websocket.get_messages_of_type("done")) == 1
