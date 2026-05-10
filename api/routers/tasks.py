@@ -26,6 +26,7 @@ from services import session_task_map
 from services import recent_deletes
 from services.task_visibility import is_session_task
 from services.tracing import trace_event
+from services.agent_events import push_open_task_count as _push_open_task_count
 
 logger = logging.getLogger(__name__)
 
@@ -359,6 +360,33 @@ async def task_counts():
         return {"open": open_count}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _broadcast_open_task_count() -> None:
+    """Recompute and push the open task count to WS subscribers.
+    Call fire-and-forget after any mutation that changes the visible count.
+    """
+    import re as _re2
+    _session_re2 = _re2.compile(r"^Claude Code session claude-code-", _re2.IGNORECASE)
+
+    def _is_session(t: dict) -> bool:
+        desc = t.get("description") or ""
+        title = t.get("title") or ""
+        if desc.startswith("session-task:") or "Auto-filed by SessionStart hook" in desc:
+            return True
+        return bool(_session_re2.match(title))
+
+    try:
+        tasks = await ostk.list_tasks()
+        count = sum(
+            1 for t in tasks
+            if t.get("status") not in ("closed", "shelved")
+            and not _is_session(t)
+            and not (t.get("title") or "").lower().startswith("e2e-")
+        )
+        await _push_open_task_count(count)
+    except Exception:
+        pass  # never block a mutation response for a broadcast failure
 
 
 @router.get("/tasks/next")
@@ -989,6 +1017,7 @@ async def create_task(body: TaskCreate, include_test_data: bool = False):
         task_source_store.set_source(new_id, body.source, body.source_ref)
 
     trace_event("task_created", task_id=new_id, title=clean_title, priority=body.priority)
+    await _broadcast_open_task_count()
     return {"result": result, "task_id": new_id}
 
 
@@ -1041,6 +1070,7 @@ async def shelve_task(task_id: str):
     """Pause a task so it stays on the board but is hidden from the active view."""
     try:
         result = await ostk.shelve_task(task_id)
+        await _broadcast_open_task_count()
         return {"result": result}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1051,6 +1081,7 @@ async def unshelve_task(task_id: str):
     """Resume a previously paused task."""
     try:
         result = await ostk.unshelve_task(task_id)
+        await _broadcast_open_task_count()
         return {"result": result}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1131,6 +1162,7 @@ async def delete_task(task_id: str):
     task_order_store.remove_task(task_id)
     task_source_store.remove_task(task_id)
     trace_event("task_deleted", task_id=task_id, title=deleted_title)
+    await _broadcast_open_task_count()
     return {"result": result}
 
 
@@ -1394,6 +1426,7 @@ async def close_task(task_id: str, body: TaskClose = TaskClose()):
         )
 
     trace_event("task_closed", task_id=task_id, reason=structured_reason)
+    await _broadcast_open_task_count()
     return {"result": result}
 
 
@@ -1401,6 +1434,7 @@ async def close_task(task_id: str, body: TaskClose = TaskClose()):
 async def reopen_task(task_id: str):
     try:
         result = await ostk.reopen_task(task_id)
+        await _broadcast_open_task_count()
         return {"result": result}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))

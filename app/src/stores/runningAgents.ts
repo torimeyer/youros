@@ -14,7 +14,8 @@ interface RunningAgentsState {
   agents: RunningAgent[]
   connected: boolean
   lastUpdatedAt: string | null
-  setSnapshot: (count: number, agents: RunningAgent[]) => void
+  openTaskCount: number
+  setSnapshot: (count: number, agents: RunningAgent[], openTaskCount?: number) => void
   setConnected: (connected: boolean) => void
 }
 
@@ -23,7 +24,13 @@ export const useRunningAgentsStore = create<RunningAgentsState>((set) => ({
   agents: [],
   connected: false,
   lastUpdatedAt: null,
-  setSnapshot: (count, agents) =>
-    set({ count, agents, lastUpdatedAt: new Date().toISOString() }),
+  openTaskCount: -1,
+  setSnapshot: (count, agents, openTaskCount) =>
+    set({
+      count,
+      agents,
+      lastUpdatedAt: new Date().toISOString(),
+      ...(openTaskCount !== undefined ? { openTaskCount } : {}),
+    }),
   setConnected: (connected) => set({ connected }),
 }))

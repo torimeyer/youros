@@ -42,3 +42,18 @@ class AgentEventBus:
 
 
 bus = AgentEventBus()
+
+# Cached open-task count included in every /ws/agents/state snapshot.
+# Updated by tasks router after any mutation that changes the count.
+_open_task_count: int = -1
+
+
+def get_open_task_count() -> int:
+    return _open_task_count
+
+
+async def push_open_task_count(count: int) -> None:
+    """Update the cache and push a WS delta so sidebar updates instantly."""
+    global _open_task_count
+    _open_task_count = count
+    await bus.publish("delta", {"open_task_count": count})

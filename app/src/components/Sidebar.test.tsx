@@ -62,7 +62,7 @@ describe('Sidebar', () => {
     vi.clearAllMocks()
     localStorage.clear()
     _resetSidebarBus()
-    useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
+    useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null, openTaskCount: -1 })
     useAppStore.setState({
       osName: 'myOS',
       features: DEFAULT_FEATURES,
@@ -318,6 +318,58 @@ describe('Sidebar', () => {
 
     // The sidebar must never call /tasks directly to compute the badge.
     expect(mockedApiGet).not.toHaveBeenCalledWith('/tasks')
+  })
+
+  it('Tasks badge updates from WS store when connected (no HTTP poll needed)', async () => {
+    // WS connected and delivers open_task_count=9 via the running-agents store.
+    // Sidebar must show 9 immediately without waiting for the HTTP poll.
+    useRunningAgentsStore.setState({
+      count: 0,
+      agents: [],
+      connected: true,
+      lastUpdatedAt: new Date().toISOString(),
+      openTaskCount: 9,
+    })
+    renderSidebar()
+
+    await waitFor(() => {
+      const tasksLink = screen.getByText('Tasks').closest('a')
+      expect(tasksLink?.textContent).toContain('9')
+    })
+  })
+
+  it('Tasks badge updates reactively when WS delivers a new open_task_count', async () => {
+    useRunningAgentsStore.setState({
+      count: 0, agents: [], connected: true, lastUpdatedAt: null, openTaskCount: 3,
+    })
+    renderSidebar()
+
+    await waitFor(() => {
+      expect(screen.getByText('Tasks').closest('a')?.textContent).toContain('3')
+    })
+
+    // WS sends a delta with a new count (e.g. a task was just created).
+    useRunningAgentsStore.setState({ openTaskCount: 4 })
+
+    await waitFor(() => {
+      expect(screen.getByText('Tasks').closest('a')?.textContent).toContain('4')
+    })
+  })
+
+  it('Tasks badge falls back to HTTP poll when WS is not connected', async () => {
+    // WS disconnected: openTaskCount stays -1, so the sidebar ignores the store.
+    useRunningAgentsStore.setState({
+      count: 0, agents: [], connected: false, lastUpdatedAt: null, openTaskCount: -1,
+    })
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/tasks/counts') return Promise.resolve({ open: 5 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+    renderSidebar()
+
+    await waitFor(() => {
+      expect(screen.getByText('Tasks').closest('a')?.textContent).toContain('5')
+    })
   })
 
   it('renders Agents nav item even when API calls fail', async () => {

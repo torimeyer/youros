@@ -17,7 +17,7 @@ from services import chat_ack_bot
 from services import recent_deletes
 from services import agent_chat_responder
 from services.tracing import trace_event
-from services.agent_events import bus as _agent_events_bus
+from services.agent_events import bus as _agent_events_bus, get_open_task_count as _get_open_task_count
 
 logger = logging.getLogger(__name__)
 
@@ -8611,7 +8611,7 @@ def _compute_running_snapshot() -> dict:
                 "label": _meta.get("label"),
                 "build_state": _meta.get("build_state"),
             })
-    return {"running_count": len(running), "agents": running}
+    return {"running_count": len(running), "agents": running, "open_task_count": _get_open_task_count()}
 
 
 async def _ws_keepalive(websocket: WebSocket) -> None:

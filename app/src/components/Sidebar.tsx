@@ -331,6 +331,8 @@ export function Sidebar() {
   const location = useLocation()
 
   const activeAgents = useRunningAgentsStore((s) => s.count)
+  const wsOpenTaskCount = useRunningAgentsStore((s) => s.openTaskCount)
+  const wsConnected = useRunningAgentsStore((s) => s.connected)
   const [openTasksCount, setOpenTasksCount] = useState(0)
   const [unfinishedSpecs, setUnfinishedSpecs] = useState(0)
   const [gmailUnread, setGmailUnread] = useState(0)
@@ -373,6 +375,15 @@ export function Sidebar() {
     })
   }
 
+
+  // Fast path: sync WS-driven task count when the agent state feed delivers it.
+  // Fires within one WS delta (~50ms) instead of waiting up to 2s for the poll.
+  // The HTTP poll below remains as a safety net when WS is disconnected.
+  useEffect(() => {
+    if (wsConnected && wsOpenTaskCount >= 0) {
+      setOpenTasksCount(wsOpenTaskCount)
+    }
+  }, [wsOpenTaskCount, wsConnected])
 
   useEffect(() => {
     const fetchTaskCounts = async () => {

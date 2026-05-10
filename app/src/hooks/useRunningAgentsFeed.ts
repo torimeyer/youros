@@ -11,6 +11,7 @@ interface AgentStateFrame {
   type: 'snapshot' | 'delta' | 'sweep' | 'ping' | string
   running_count?: number
   agents?: RunningAgent[]
+  open_task_count?: number
 }
 
 export function useRunningAgentsFeed() {
@@ -28,7 +29,7 @@ export function useRunningAgentsFeed() {
       (frame.type === 'snapshot' || frame.type === 'delta' || frame.type === 'sweep') &&
       typeof frame.running_count === 'number'
     ) {
-      setSnapshot(frame.running_count, frame.agents ?? [])
+      setSnapshot(frame.running_count, frame.agents ?? [], frame.open_task_count)
     }
   }, [lastMessage, setSnapshot])
 

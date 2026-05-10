@@ -8,6 +8,7 @@ describe('useRunningAgentsStore', () => {
       agents: [],
       connected: false,
       lastUpdatedAt: null,
+      openTaskCount: -1,
     })
   })
 
@@ -47,5 +48,22 @@ describe('useRunningAgentsStore', () => {
     const s = useRunningAgentsStore.getState()
     expect(s.count).toBe(1)
     expect(s.agents).toHaveLength(1)
+  })
+
+  it('setSnapshot with openTaskCount updates openTaskCount', () => {
+    const { setSnapshot } = useRunningAgentsStore.getState()
+    setSnapshot(0, [], 7)
+    expect(useRunningAgentsStore.getState().openTaskCount).toBe(7)
+  })
+
+  it('setSnapshot without openTaskCount leaves openTaskCount unchanged', () => {
+    useRunningAgentsStore.setState({ openTaskCount: 5 })
+    const { setSnapshot } = useRunningAgentsStore.getState()
+    setSnapshot(1, [{ name: 'a', status: 'running' }])
+    expect(useRunningAgentsStore.getState().openTaskCount).toBe(5)
+  })
+
+  it('openTaskCount defaults to -1', () => {
+    expect(useRunningAgentsStore.getState().openTaskCount).toBe(-1)
   })
 })
