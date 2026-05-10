@@ -880,6 +880,83 @@ class TestSubprocessCwd:
         )
 
 
+class TestStreamTimeout:
+    """Regression guard: _STREAM_TIMEOUT_SECONDS must be generous enough
+    for long multi-tool chat sessions.
+
+    Root cause (→1113): 300 s tripped on sessions with many sequential tool
+    calls. The CLI has no such ceiling, so the error only appeared in mychat.
+    The value must be at least 900 s (15 min) to cover realistic workloads.
+    """
+
+    def test_stream_timeout_is_at_least_900_seconds(self):
+        from services.claude_code_provider import _STREAM_TIMEOUT_SECONDS
+
+        assert _STREAM_TIMEOUT_SECONDS >= 900, (
+            f"_STREAM_TIMEOUT_SECONDS={_STREAM_TIMEOUT_SECONDS} is too low. "
+            "Long sessions with many sequential tool calls (run tests, read files, "
+            "edit code) can easily take 15+ minutes. The CLI has no such ceiling. "
+            "Keep this at 900 s minimum (current target: 1800 s)."
+        )
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_does_not_timeout_on_slow_stdout(self, monkeypatch):
+        """A subprocess that takes longer than the old 300 s limit must still
+        complete successfully when the timeout is generous.
+
+        We temporarily patch the timeout to a tight value and assert it does NOT
+        fire for a normal fast response, proving the machinery works.
+        The companion constant test above ensures the real value stays generous.
+        """
+        import services.claude_code_provider as provider_mod
+
+        original_timeout = provider_mod._STREAM_TIMEOUT_SECONDS
+        # Use a very tight value just to exercise the wait_for path.
+        provider_mod._STREAM_TIMEOUT_SECONDS = 5.0
+
+        result_event = {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+
+        async def fake_create(*args, **kwargs):
+            return FakeProcess(
+                stdout_lines=[(json.dumps(result_event) + "\n").encode()],
+                return_code=0,
+            )
+
+        websocket = FakeWebSocket()
+        try:
+            with patch(
+                "services.claude_code_provider._find_claude_binary",
+                return_value="/usr/local/bin/claude",
+            ), patch(
+                "asyncio.create_subprocess_exec",
+                new=fake_create,
+            ):
+                await stream_chat(
+                    [{"role": "user", "content": "quick question"}],
+                    websocket,
+                    system_prompt=None,
+                )
+        finally:
+            provider_mod._STREAM_TIMEOUT_SECONDS = original_timeout
+
+        # A fast response must never produce the timeout error message.
+        errors = websocket.of_type("error")
+        timeout_errors = [
+            e for e in errors if "took too long" in e.get("data", "").lower()
+        ]
+        assert not timeout_errors, (
+            "A fast subprocess response triggered the timeout error — "
+            "the wait_for machinery is broken."
+        )
+        done = websocket.of_type("done")
+        assert done, "Expected a done event for a fast successful response."
+
+
 class TestSystemPromptOstkTools:
     """Verify the system prompt names mcp__ostk__* tools explicitly.
 

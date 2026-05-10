@@ -93,7 +93,10 @@ _DETECTION_CACHE_TTL_SECONDS: float = 600.0
 _AUTH_STATUS_TIMEOUT_SECONDS: float = 3.0
 
 # Cap on how long a single chat turn may run before we kill the subprocess.
-_STREAM_TIMEOUT_SECONDS: float = 300.0
+# 1800 s (30 min) gives even very complex multi-tool sessions room to finish
+# without triggering the "took too long" error. The CLI has no such ceiling;
+# this value is a safety net for hung processes, not a workload limit.
+_STREAM_TIMEOUT_SECONDS: float = 1800.0
 
 
 # Module-level cache for detection results. Not perfect across processes
