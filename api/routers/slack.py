@@ -7,6 +7,8 @@ import os
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from models.schemas import TaskCreate
+from routers.tasks import create_task
 from services import connections_cache, recent_deletes
 from services import slack as slack_service
 from services import slack_reply as slack_reply_service
@@ -290,3 +292,42 @@ async def slack_reply(body: SlackReplyBody) -> dict:
         return result
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# --- Promote a Slack message to a tracked task (needle) ---
+
+
+class SlackPromoteRequest(BaseModel):
+    channel_id: str
+    ts: str
+
+
+@router.post("/slack/triage/promote")
+async def slack_triage_promote(body: SlackPromoteRequest) -> dict:
+    """Convert a Slack message into a tracked task (needle)."""
+    if not slack_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Slack.")
+
+    messages = await slack_service.fetch_messages(body.channel_id, limit=100)
+    msg = next((m for m in messages if m["ts"] == body.ts), None)
+    if msg is None:
+        raise HTTPException(status_code=404, detail="Message not found.")
+
+    text = msg.get("text", "") or ""
+    permalink = await slack_service.get_message_permalink(body.channel_id, body.ts)
+
+    title = text[:57] + "..." if len(text) > 60 else text
+    description = f"From Slack:\n\n{text}"
+    if permalink:
+        description += f"\n\n{permalink}"
+
+    result = await create_task(
+        TaskCreate(
+            title=title,
+            priority="P2",
+            description=description,
+            source="slack",
+            source_ref=permalink or body.ts,
+        )
+    )
+    return {"ok": True, **result}
