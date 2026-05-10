@@ -718,3 +718,64 @@ def test_parse_roadmap_items_empty_content_returns_empty():
 
     assert parse_roadmap_items("") == []
     assert parse_roadmap_items("# Roadmap\n\nNothing actionable here.") == []
+
+
+# ---------------------------------------------------------------------------
+# Regression: roadmap output must land in ~/.myos/files/ not ~/Documents/
+# → Both must appear in /api/docs/recent. Ticket →1097.
+# ---------------------------------------------------------------------------
+
+
+def test_roadmap_template_writes_to_myos_files_not_documents():
+    """The roadmap.agent template must direct the agent to write files to
+    ~/.myos/files/, which is scanned by /api/docs/recent. Writing to
+    ~/Documents/ (old behavior) causes outputs to be invisible in the UI.
+    """
+    template_path = Path(__file__).parents[2] / "agents" / "marketplace" / "roadmap.agent"
+    content = template_path.read_text()
+    assert "~/Documents/" not in content, (
+        "roadmap.agent still writes to ~/Documents/ — change to ~/.myos/files/ "
+        "so outputs appear in Recent Documents on the Files page"
+    )
+    assert "~/.myos/files/" in content, (
+        "roadmap.agent must explicitly write to ~/.myos/files/ so /api/docs/recent "
+        "picks up the output"
+    )
+
+
+@pytest.mark.asyncio
+async def test_roadmap_completion_md_appears_in_recent_docs(tmp_path):
+    """After a roadmap completion, roadmap.md must appear in /api/docs/recent.
+
+    Simulates the backend writing roadmap.md to MYOS_FILES_DIR (which
+    _save_agent_output_to_files does for roadmap agents) and asserts the
+    /api/docs/recent endpoint returns it.
+    """
+    import importlib
+
+    import routers.projects as projects_module
+
+    fake_home = tmp_path / "home"
+    fake_ws = tmp_path / "workspace"
+    fake_ws.mkdir(parents=True)
+    myos_files = fake_home / ".myos" / "files"
+    myos_files.mkdir(parents=True)
+
+    (myos_files / "roadmap.md").write_text(
+        "---\nsource: roadmap-agent\nkind: roadmap\n---\n\n# Roadmap\n\n"
+        "| Quarter | Theme | Initiatives |\n"
+        "| Q1 2026 | Ship onboarding | wizard, tour, email |\n"
+    )
+
+    transport = ASGITransport(app=app)
+    with patch.object(projects_module, "TORIOS_DIR", fake_ws), patch(
+        "routers.projects.Path.home", return_value=fake_home
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/docs/recent")
+
+    assert resp.status_code == 200
+    names = [f["name"] for f in resp.json()["files"]]
+    assert "roadmap.md" in names, (
+        f"roadmap.md written to ~/.myos/files/ must appear in /api/docs/recent, got: {names}"
+    )
