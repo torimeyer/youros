@@ -3,6 +3,10 @@ import { create } from 'zustand'
 export interface RunningAgent {
   name: string
   status: string
+  task_id?: string | null
+  needle_id?: string | null
+  label?: string | null
+  build_state?: 'running' | 'queued' | null
 }
 
 interface RunningAgentsState {
