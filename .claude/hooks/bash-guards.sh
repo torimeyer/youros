@@ -268,6 +268,20 @@ if m2:
 fi
 
 # ---------------------------------------------------------------------
+# 9. no-auto-server-start: block scripts/dev-backend.sh and
+#    scripts/dev-frontend.sh unless MYOS_EXPLICIT_START=1 is set (env or
+#    inline in the command). Prevents the boot sequence from silently
+#    starting servers when the user only asked for `ostk boot`.
+# ---------------------------------------------------------------------
+case "$CMD" in
+    *scripts/dev-backend.sh*|*scripts/dev-frontend.sh*)
+        if [[ "${MYOS_EXPLICIT_START:-}" != "1" ]] && ! echo "$CMD" | grep -q 'MYOS_EXPLICIT_START=1'; then
+            deny "Blocked auto-start of server — run with MYOS_EXPLICIT_START=1 or ask explicitly"
+        fi
+        ;;
+esac
+
+# ---------------------------------------------------------------------
 # 8. long-run-cache: Bash.
 #    If a known-long script is being re-run with a grep/head/tail/awk/sed
 #    filter pipe, and a fresh cache at /tmp/last-<key>.log (< 600s old)
