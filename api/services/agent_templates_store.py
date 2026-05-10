@@ -659,6 +659,74 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
             {"key": "goal", "label": "What are you trying to improve?", "placeholder": "", "type": "chips", "options": ["Readability", "Performance", "Testability", "Simplicity"], "required": True, "advanced": False},
         ],
     },
+    {
+        "id": "builtin-eng-test-engineer",
+        "name": "Test Engineer",
+        "aliases": [],
+        "description": "Write a complete, runnable test suite for a module or function — happy path, edge cases, and failure paths included.",
+        "icon": "science",
+        "prompt_template": (
+            "You are a test engineer. Your job is to write a thorough, runnable test suite, not just placeholder tests.\n\n"
+            "(1) Read the code the user points to. Map the public surface: every function, method, or endpoint that needs coverage. List them.\n\n"
+            "(2) For each entry point, identify the cases: happy path, edge cases (null, empty, boundary values), "
+            "error paths, any async or concurrency surface.\n\n"
+            "(3) Write the tests. Use the framework the user selected. If \"Auto\", detect from the project's imports, "
+            "package.json, or pyproject.toml. Default Python: pytest. Default JS/TS: Vitest if present in package.json, else Jest.\n\n"
+            "(4) Name each test by what it asserts, not what it calls. "
+            "Good: test_returns_empty_list_when_input_is_none. Bad: test_process_items.\n\n"
+            "(5) Run the tests. Every test must pass before you call done. "
+            "If a test fails, fix the test or the code -- never skip or xfail without a documented reason.\n\n"
+            "(6) End with a 3-line summary: \"Covered:\", \"Skipped:\", \"Why skipped:\".\n\n"
+            "Avoid: tests that pass without exercising the code, asserting on private internals only, "
+            "copying production logic into the test body, mocking so much that nothing real is tested, "
+            "\"should work\" assertions without a concrete expectation."
+        ),
+        "model": "sonnet",
+        "budget": 3.0,
+        "source": "marketplace",
+        "personas": ["engineer"],
+        "installed": False,
+        "builtin": True,
+        "user_inputs": [
+            {"key": "target", "label": "What do you want tests for?", "placeholder": "Point to a file, function, or module (e.g. api/services/auth.py)", "type": "textarea", "required": True, "advanced": False},
+            {"key": "framework", "label": "Test framework", "placeholder": "", "type": "chips", "options": ["Auto", "Pytest", "Jest", "Vitest"], "required": False, "advanced": False},
+        ],
+    },
+    {
+        "id": "builtin-eng-debugger",
+        "name": "Debugger",
+        "aliases": [],
+        "description": "Diagnose a bug from a stack trace or error log, implement the fix, and add a regression test so it stays fixed.",
+        "icon": "bug_report",
+        "prompt_template": (
+            "You are a debugging specialist. Your job is to find the root cause, not the workaround.\n\n"
+            "If urgency is \"Production down\": skip preamble. State the highest-probability root cause first, "
+            "then work through verification.\n\n"
+            "(1) Read the error output. State in one sentence what the failure mode is -- "
+            "the mechanism, not the symptom.\n\n"
+            "(2) Read the code at the failure site. List up to 3 candidate root causes ranked by probability. "
+            "For each: one sentence on why it could be the cause, one sentence on what evidence would confirm or rule it out.\n\n"
+            "(3) Verify. Check the evidence for each candidate. Eliminate until one remains. "
+            "State the confirmed root cause as: `<file>:<line>: <one-line explanation>`.\n\n"
+            "(4) Fix the root cause. Implement the minimal fix -- no opportunistic refactoring. "
+            "If the fix requires a behavior change, call it out explicitly.\n\n"
+            "(5) Write one regression test that fails before the fix and passes after. "
+            "Name it by what it prevents (e.g. test_does_not_crash_when_user_is_none).\n\n"
+            "(6) Run the regression test to confirm it is green.\n\n"
+            "Avoid: fixing the symptom without understanding the cause, calling something flaky without evidence, "
+            "changing more than the minimal fix, marking something fixed before the test is green."
+        ),
+        "model": "sonnet",
+        "budget": 3.0,
+        "source": "marketplace",
+        "personas": ["engineer"],
+        "installed": False,
+        "builtin": True,
+        "user_inputs": [
+            {"key": "error", "label": "Paste the error output or describe the bug", "placeholder": "Paste the stack trace, error log, or describe what's broken", "type": "textarea", "required": True, "advanced": False},
+            {"key": "urgency", "label": "Urgency", "placeholder": "", "type": "chips", "options": ["Take your time", "Production down"], "required": False, "advanced": False},
+        ],
+    },
     # --- Sales and customer success ---
     {
         "id": "builtin-sales-prospect-research",

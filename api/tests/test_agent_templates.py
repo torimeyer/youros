@@ -2275,11 +2275,12 @@ def test_marketplace_listing_count_for_fresh_store(store):
 
     Research, Review, and Test are marketplace-sourced but installed=True by
     default, so they are excluded. The 4 builtin-source templates (Builder,
-    Diagnose, Brainstorm, Explain Plain) are also excluded. This leaves 31
-    templates visible in the marketplace for a brand-new user.
+    Diagnose, Brainstorm, Explain Plain) are also excluded. This leaves 33
+    templates visible in the marketplace for a brand-new user (31 prior + 2
+    engineer templates: Test Engineer and Debugger added in →1106).
     """
     marketplace = store.list_marketplace()
-    assert len(marketplace) == 31, (
-        f"Expected 31 marketplace templates for a fresh store, got {len(marketplace)}. "
+    assert len(marketplace) == 33, (
+        f"Expected 33 marketplace templates for a fresh store, got {len(marketplace)}. "
         f"Names: {sorted(t['name'] for t in marketplace)}"
     )
