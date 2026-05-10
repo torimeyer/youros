@@ -123,3 +123,28 @@ def test_mailbox_instruction_has_no_budget_sentinel():
             f"{fn_name} must not embed a '\"budget\":5' sentinel (any spacing) "
             "in the registration curl example."
         )
+
+
+# ---------------------------------------------------------------------------
+# AgentSpawn default: budget must be None (no cap) or explicitly > $50
+# ---------------------------------------------------------------------------
+
+def test_spawn_default_budget_is_uncapped():
+    """AgentSpawn without an explicit budget must default to None (no cap).
+
+    A numeric default (e.g. 2.0) is stored in agent metadata and agents read
+    it as their own spending limit. On subscription auth billing is flat-rate,
+    so the cap only kills agents prematurely. budget=None means no field is
+    written to metadata and the agent runs without a self-imposed dollar limit.
+    """
+    import sys
+    sys.path.insert(0, str(AGENTS_PY_PATH.parent.parent))
+    from models.schemas import AgentSpawn
+
+    body = AgentSpawn(name="test-agent-no-budget", prompt="test")
+    assert body.budget is None or body.budget > 50, (
+        f"AgentSpawn.budget defaults to {body.budget!r}. "
+        "A numeric default is stored in agent metadata and agents treat it "
+        "as a self-imposed spending cap. On subscription auth (flat-rate) "
+        "this causes agents to bail mid-investigation. Default must be None."
+    )

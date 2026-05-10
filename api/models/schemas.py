@@ -180,7 +180,7 @@ class AgentSpawn(BaseModel):
     name: str
     prompt: str = ""
     model: str = "sonnet"
-    budget: float = 2.0
+    budget: Optional[float] = None
     status: Optional[str] = None
     description: Optional[str] = None
     task: Optional[str] = None
