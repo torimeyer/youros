@@ -716,12 +716,30 @@ async def _list_tasks() -> str:
     return "\n".join(lines)
 
 
+def _norm_title(s: str) -> str:
+    import re as _re
+    return _re.sub(r"\s+", " ", (s or "").strip().lower())
+
+
 async def _create_task(
     title: str,
     priority: str = "P1",
     description: str = "",
     labels: Optional[list[str]] = None,
 ) -> str:
+    # Deduplicate: if an open task with the same normalised title already exists,
+    # return it instead of creating a duplicate. This prevents the chat model from
+    # filing two identical needles on a single saa turn (→1123).
+    try:
+        existing = await ostk.list_tasks(status="open")
+        key = _norm_title(title)
+        for task in existing:
+            if _norm_title(task.get("title") or "") == key:
+                tid = task.get("id") or ""
+                return f"Task already exists: {tid} — {task.get('title', title)}"
+    except Exception:
+        pass  # dedup is best-effort; never block creation on a list failure
+
     result = await ostk.add_task(title, priority)
     # Fire-and-forget auto label suggestion. Never blocks task creation.
     # Imported lazily to avoid a circular import via chat_providers.

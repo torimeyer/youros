@@ -294,6 +294,43 @@ class TestOstkTools:
             assert "closed" in result
             mock_ostk.close_task.assert_awaited_once_with("T1")
 
+    @pytest.mark.asyncio
+    async def test_create_task_deduplicates_same_title(self):
+        """When an open task with the same (normalised) title already exists,
+        create_task must return the existing ID without calling add_task again.
+        This prevents the chat model from creating duplicate needles on a single
+        saa turn (→1123)."""
+        existing = [{"id": "→1119", "title": "Plans for needles in recent docs", "status": "open"}]
+        with patch("services.tool_executor.ostk") as mock_ostk:
+            mock_ostk.list_tasks = AsyncMock(return_value=existing)
+            mock_ostk.add_task = AsyncMock(return_value="added →1120: Plans for needles in recent docs")
+            result = await execute_tool("create_task", {"title": "Plans for needles in recent docs"})
+            mock_ostk.add_task.assert_not_awaited()
+            assert "→1119" in result
+
+    @pytest.mark.asyncio
+    async def test_create_task_deduplicates_case_insensitive(self):
+        """Dedup is case- and whitespace-insensitive."""
+        existing = [{"id": "→500", "title": "Fix the login bug", "status": "open"}]
+        with patch("services.tool_executor.ostk") as mock_ostk:
+            mock_ostk.list_tasks = AsyncMock(return_value=existing)
+            mock_ostk.add_task = AsyncMock(return_value="added →501")
+            result = await execute_tool("create_task", {"title": "  Fix The Login Bug  "})
+            mock_ostk.add_task.assert_not_awaited()
+            assert "→500" in result
+
+    @pytest.mark.asyncio
+    async def test_create_task_creates_when_no_duplicate(self):
+        """When no matching open task exists, add_task must still be called."""
+        with patch("services.tool_executor.ostk") as mock_ostk:
+            mock_ostk.list_tasks = AsyncMock(return_value=[
+                {"id": "→99", "title": "Something else entirely", "status": "open"}
+            ])
+            mock_ostk.add_task = AsyncMock(return_value="added →100: Build new feature")
+            result = await execute_tool("create_task", {"title": "Build new feature"})
+            mock_ostk.add_task.assert_awaited_once()
+            assert "added" in result
+
 
 # ---- execute_tool: create_tasks_from_spec ----
 
