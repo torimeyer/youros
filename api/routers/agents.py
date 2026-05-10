@@ -655,7 +655,7 @@ def agent_mailbox_instruction(agent_name: str, model: str = "sonnet") -> str:
         "in the Agents page:\n"
         f"   `curl -sSk -X POST https://127.0.0.1:8000/api/agents/register "
         "-H 'Content-Type: application/json' "
-        f"-d '{{\"name\": \"{agent_name}\", \"model\": \"{model}\", \"budget\": 5, \"task\": \"<one line description of your task>\", \"source\": \"claude-code\"}}'`\n\n"
+        f"-d '{{\"name\": \"{agent_name}\", \"model\": \"{model}\", \"task\": \"<one line description of your task>\", \"source\": \"claude-code\"}}'`\n\n"
         f"### Heartbeat (every {slow} seconds, CRITICAL for long tasks)\n\n"
         "The Agents page marks you as stopped if it does not hear from "
         f"you for more than {STALE_AGENT_TIMEOUT_SECONDS} seconds (15 min). "
