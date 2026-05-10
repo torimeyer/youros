@@ -4993,6 +4993,11 @@ describe('Agents page - Enter key submit', () => {
 
 describe('Agents page - Cancel all agents', () => {
   beforeEach(() => {
+    // Freeze the 2-second polling interval so it can't fire during assertions
+    // and push tests past the 5s testTimeout.  Only setInterval/clearInterval
+    // are faked; setTimeout stays real so RTL's waitFor and the ConfirmModal
+    // focus timeout both continue to work normally.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
@@ -5029,6 +5034,10 @@ describe('Agents page - Cancel all agents', () => {
       if (path.includes('/nudges')) return { agent: '', nudges: [], session_nudges: [] }
       return {}
     })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('renders the Cancel all button on the Active tab', async () => {
