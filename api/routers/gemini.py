@@ -47,14 +47,16 @@ def _detect_gemini_sync() -> dict:
                     except Exception:
                         pass
 
-        api_reachable = True
+        api_reachable = False
+        api_error = None
         try:
             import google.generativeai as genai
 
             genai.configure(credentials=credentials)
             list(genai.list_models())
-        except Exception:
-            pass
+            api_reachable = True
+        except Exception as api_exc:
+            api_error = str(api_exc)[:300]
 
         return {
             "available": True,
@@ -62,6 +64,7 @@ def _detect_gemini_sync() -> dict:
             "email": email,
             "workspace_connected": True,
             "api_reachable": api_reachable,
+            "api_error": api_error,
         }
     except Exception as exc:
         logger.debug("gemini.detect: not available: %s", exc)
@@ -71,6 +74,7 @@ def _detect_gemini_sync() -> dict:
             "email": None,
             "workspace_connected": False,
             "api_reachable": False,
+            "api_error": None,
         }
 
 
@@ -82,6 +86,7 @@ async def _detect_gemini() -> dict:
         "email": None,
         "workspace_connected": False,
         "api_reachable": False,
+        "api_error": None,
     }
     try:
         return await asyncio.wait_for(

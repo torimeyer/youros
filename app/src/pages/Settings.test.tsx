@@ -340,6 +340,32 @@ describe('Settings', () => {
       expect(screen.getByText('Gemini Enterprise')).toBeInTheDocument()
     })
 
+    it('shows api_error text when gemini status returns api_reachable=false with an error', async () => {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path === '/gemini/status')
+          return Promise.resolve({ available: false, email: null, api_error: 'serviceusage.services.use permission denied' })
+        return Promise.resolve({})
+      })
+      renderSettings()
+      await waitFor(() => {
+        expect(screen.getByTestId('gemini-api-error')).toBeInTheDocument()
+      })
+      expect(screen.getByTestId('gemini-api-error')).toHaveTextContent('permission denied')
+    })
+
+    it('does not show api_error element when gemini is available', async () => {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path === '/gemini/status')
+          return Promise.resolve({ available: true, email: 'user@example.com', api_error: null })
+        return Promise.resolve({})
+      })
+      renderSettings()
+      await waitFor(() => {
+        expect(screen.getByTestId('provider-card-gemini')).not.toBeDisabled()
+      })
+      expect(screen.queryByTestId('gemini-api-error')).not.toBeInTheDocument()
+    })
+
     it('selects Gemini provider and persists to API', async () => {
       vi.mocked(api.get).mockImplementation((path: string) => {
         if (path === '/gemini/status') return Promise.resolve({ available: true, email: null })
