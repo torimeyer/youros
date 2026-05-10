@@ -2057,7 +2057,14 @@ class OstkService:
         Returns a list of dicts with path, title, status, timestamps,
         task_ids, task_summary, acceptance_criteria, and computed status
         parsed from the YAML front matter and body.
+
+        Also scans transcripts/ for plan files matching ^plan-(\\d+)\\.md$
+        and emits them with status="plan" so the Recent Documents widget
+        can surface them alongside specs.
         """
+        import re as _re
+        from datetime import datetime, timezone as _tz
+
         docs_dir = Path(self.cwd) / "docs"
         results: list[dict] = []
 
@@ -2068,6 +2075,47 @@ class OstkService:
             for md in sorted(target.glob("*.md")):
                 doc = self._parse_doc_frontmatter(md, status)
                 results.append(doc)
+
+        # Scan transcripts/ for plan files (^plan-(\d+)\.md$).
+        # These are written by the Plan skill and should surface in Recent
+        # Documents alongside specs. They use status="plan" to distinguish
+        # them visually in the widget.
+        _plan_re = _re.compile(r"^plan-(\d+)\.md$")
+        transcripts_dir = Path(self.cwd) / "transcripts"
+        if transcripts_dir.is_dir():
+            for md in sorted(transcripts_dir.glob("plan-*.md")):
+                m = _plan_re.match(md.name)
+                if not m:
+                    continue
+                needle_id = m.group(1)
+                try:
+                    text = md.read_text(errors="replace")
+                    mtime = md.stat().st_mtime
+                    mtime_ms = int(mtime * 1000)
+                    created_at = datetime.fromtimestamp(mtime, tz=_tz.utc).isoformat()
+                except OSError:
+                    continue
+                # Derive title from the first non-blank, non-heartbeat line.
+                title = f"Plan for →{needle_id}"
+                for line in text.split("\n"):
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith("[heartbeat"):
+                        candidate = stripped.lstrip("#").lstrip("*").rstrip("*").strip()
+                        if candidate and candidate != "---":
+                            title = candidate[:80]
+                            break
+                results.append({
+                    "path": f"transcripts/{md.name}",
+                    "filename": md.name,
+                    "title": title,
+                    "status": "plan",
+                    "created_at": created_at,
+                    "promoted_at": "",
+                    "updated_at_ms": mtime_ms,
+                    "body": text[:2000],
+                    "task_ids": [needle_id],
+                    "acceptance_criteria": [],
+                })
 
         # Collect all task IDs referenced by any spec. Spec front matter
         # stores bare numeric IDs ("407") but ostk returns IDs prefixed with
@@ -2506,8 +2554,8 @@ class OstkService:
         still pass it, but it no longer gates ``complete``. Kept so the
         existing test fixtures keep working.
         """
-        if base_status == "draft":
-            return "draft"
+        if base_status in ("draft", "plan"):
+            return base_status
         if not task_ids:
             # No tasks linked: trust the frontmatter vocabulary.
             if base_status in ("complete", "done"):
