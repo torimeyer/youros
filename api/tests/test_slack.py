@@ -48,6 +48,26 @@ async def test_slack_callback_uses_default_frontend_url_when_env_unset(client):
     assert "connected=true" in location
 
 
+@pytest.mark.asyncio
+async def test_slack_callback_no_code_returns_400(client):
+    """Callback with no code query param must return 400."""
+    resp = await client.get("/api/slack/callback", follow_redirects=False)
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_slack_callback_no_credentials_returns_500(client):
+    """Callback with code but no Slack credentials configured must return 500."""
+    with patch("routers.slack._get_slack_client_id", return_value=""), \
+         patch("routers.slack._get_slack_client_secret", return_value=""):
+        resp = await client.get(
+            "/api/slack/callback",
+            params={"code": "test-code"},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 500
+
+
 # --- GET /api/slack/status ---
 
 @pytest.mark.asyncio
