@@ -7,13 +7,14 @@ lines of each file so it stays fast even with long-running sessions.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from config import OSTK_DIR
 
@@ -391,3 +392,45 @@ async def get_active_sessions():
         "active_count": sum(1 for s in sessions if s["status"] == "active"),
         "idle_count": sum(1 for s in sessions if s["status"] == "idle"),
     }
+
+
+@router.websocket("/ws/sessions/state")
+async def sessions_state_ws(websocket: WebSocket) -> None:
+    """Push session list to clients in real time.
+
+    On connect: sends one snapshot frame with all current sessions.
+    On every agent register/complete event: sends a delta frame so the
+    client replaces state immediately. Sends a keepalive ping every 15 s.
+    """
+    from services.session_events import bus as _sess_bus
+
+    await websocket.accept()
+    keepalive: asyncio.Task | None = None
+
+    async def _keepalive() -> None:
+        while True:
+            await asyncio.sleep(15)
+            try:
+                await websocket.send_json({"type": "ping"})
+            except Exception:
+                break
+
+    try:
+        snapshot = await get_active_sessions()
+        await websocket.send_json({"type": "snapshot", **snapshot})
+        keepalive = asyncio.create_task(_keepalive())
+        async with _sess_bus.subscribe() as q:
+            while True:
+                try:
+                    await asyncio.wait_for(q.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                delta = await get_active_sessions()
+                await websocket.send_json({"type": "delta", **delta})
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        if keepalive:
+            keepalive.cancel()

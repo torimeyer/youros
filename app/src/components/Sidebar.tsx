@@ -338,7 +338,6 @@ export function Sidebar() {
   const [backendUp, setBackendUp] = useState<boolean | null>(null)
   const [ostkUp, setOstkUp] = useState<boolean | null>(null)
   const [ostkKernel, setOstkKernel] = useState('')
-  const [, setSessionCount] = useState(0)
 
   // Collapsed state per group. Initialized from localStorage; active group
   // is forced open if it would otherwise be collapsed.
@@ -457,29 +456,6 @@ export function Sidebar() {
     return () => clearInterval(interval)
   }, [])
 
-  useEffect(() => {
-    const fetchSessions = async () => {
-      try {
-        // Read `count`, not `active_count`. `active_count` only
-        // includes sessions that wrote an event in the last 5 minutes,
-        // so a Claude Code tab (or torichat tab, or any other session)
-        // that has been sitting idle without a tool call briefly falls
-        // out and the sidebar lies "No sessions" while the user is
-        // clearly still there. `count` includes every session alive
-        // inside the 30-minute idle window. Fallback keeps working
-        // against older backends that only expose `active_count`.
-        const res = await api.get<{ count?: number; active_count?: number }>(
-          '/sessions/active',
-        )
-        setSessionCount(res.count ?? res.active_count ?? 0)
-      } catch {
-        // ignore
-      }
-    }
-    fetchSessions()
-    const interval = setInterval(fetchSessions, 10000)
-    return () => clearInterval(interval)
-  }, [])
 
   useEffect(() => {
     api.get<{ myos: { current: string } }>('/upgrade/status')

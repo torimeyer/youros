@@ -32,6 +32,19 @@ def _fire_delta(name: str, status: str) -> None:
         pass  # no running loop (startup / test context)
 
 
+def _fire_session_delta() -> None:
+    """Notify the sessions WS feed that session state may have changed."""
+    try:
+        from services.session_events import bus as _sess_bus
+        asyncio.get_running_loop().create_task(
+            _sess_bus.publish("delta", {})
+        )
+    except RuntimeError:
+        pass  # no running loop (startup / test context)
+    except ImportError:
+        pass
+
+
 
 class AgentMemorySave(BaseModel):
     key: str
@@ -5593,6 +5606,7 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     agent_metadata[body.name] = record
     await _save_agent_state_async()
     _fire_delta(body.name, status)
+    _fire_session_delta()
 
     # Start the ack bot on first registration so Tori's inline chat
     # gets a warm acknowledgment within two seconds even when the
@@ -6442,6 +6456,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             )
 
     _fire_delta(name, "completed")
+    _fire_session_delta()
 
     # Auto-close the spec builder task if this agent was spawned from a
     # Build it click. The spec_build prompt tells the agent to edit
