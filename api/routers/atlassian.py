@@ -12,6 +12,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
+from models.schemas import TaskCreate
+from routers.tasks import create_task
 from services import atlassian as atlassian_service
 from services.oauth_state import oauth_states
 
@@ -386,3 +388,40 @@ async def jira_assign_issue(key: str, req: AssignRequest):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return {"ok": True}
+
+
+# --- Promote a Jira issue to a tracked task (needle) ---
+
+
+class JiraPromoteRequest(BaseModel):
+    key: str
+
+
+@router.post("/atlassian/jira/promote")
+async def jira_promote_to_task(body: JiraPromoteRequest) -> dict:
+    """Convert a Jira issue into a tracked task (needle)."""
+    if not atlassian_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Atlassian.")
+
+    try:
+        issue = await atlassian_service.get_issue(body.key)
+    except RuntimeError as exc:
+        status_code = 404 if "not found" in str(exc).lower() else 500
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    summary = issue.get("summary", body.key)
+    url = issue.get("url", "")
+
+    title = summary[:57] + "..." if len(summary) > 60 else summary
+    description = f"From Jira: {url}\n\n{summary}"
+
+    result = await create_task(
+        TaskCreate(
+            title=title,
+            priority="P2",
+            description=description,
+            source="jira",
+            source_ref=body.key,
+        )
+    )
+    return {"ok": True, **result}
