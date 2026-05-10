@@ -28,6 +28,67 @@ def detect_vertex_ai() -> bool:
     return False
 
 
+def _resolve_gcloud_default_project() -> str | None:
+    try:
+        r = subprocess.run(
+            ["gcloud", "config", "get-value", "project"],
+            capture_output=True,
+            timeout=3,
+            text=True,
+        )
+        if r.returncode == 0:
+            val = r.stdout.strip()
+            return val if val else None
+    except Exception:
+        pass
+    return None
+
+
+def _extract_hosted_domain(creds) -> str | None:
+    try:
+        id_token = getattr(creds, "id_token", None)
+        if isinstance(id_token, dict):
+            return id_token.get("hd")
+    except Exception:
+        pass
+    return None
+
+
+def _extract_user_email(creds) -> str | None:
+    try:
+        id_token = getattr(creds, "id_token", None)
+        if isinstance(id_token, dict):
+            return id_token.get("email")
+    except Exception:
+        pass
+    return None
+
+
+def detect_vertex_gemini() -> dict:
+    """Return {available, project, location, identity_email, hosted_domain} or {available: False}."""
+    if not detect_vertex_ai():
+        return {"available": False}
+    try:
+        import google.auth
+        creds, project = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        if not project:
+            project = _resolve_gcloud_default_project()
+        hosted_domain = _extract_hosted_domain(creds)
+        location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+        return {
+            "available": bool(project),
+            "project": project,
+            "location": location,
+            "identity_email": getattr(creds, "service_account_email", None)
+            or _extract_user_email(creds),
+            "hosted_domain": hosted_domain,
+        }
+    except Exception:
+        return {"available": False}
+
+
 def detect_bedrock() -> bool:
     if os.environ.get("AWS_ACCESS_KEY_ID"):
         return True
@@ -67,10 +128,12 @@ async def detect_providers() -> dict[str, bool]:
         or settings_store.get("gemini_api_key")
     )
 
+    vx = detect_vertex_gemini()
     return {
         "claude_code": claude_code,
         "anthropic_key": anthropic_key,
         "gemini_key": gemini_key,
-        "vertex_ai": detect_vertex_ai(),
+        "vertex_ai": vx.get("available", False),
+        "vertex_ai_project": vx.get("project"),
         "bedrock": detect_bedrock(),
     }

@@ -30,6 +30,7 @@ async def test_detect_no_providers():
         "anthropic_key": False,
         "gemini_key": False,
         "vertex_ai": False,
+        "vertex_ai_project": None,
         "bedrock": False,
     }
 
@@ -100,9 +101,10 @@ def test_detect_endpoint_returns_dict():
 
     assert resp.status_code == 200
     data = resp.json()
-    assert {"claude_code", "anthropic_key", "gemini_key", "vertex_ai", "bedrock"} <= set(data.keys())
-    for val in data.values():
-        assert isinstance(val, bool)
+    assert {"claude_code", "anthropic_key", "gemini_key", "vertex_ai", "vertex_ai_project", "bedrock"} <= set(data.keys())
+    bool_keys = {"claude_code", "anthropic_key", "gemini_key", "vertex_ai", "bedrock"}
+    for key in bool_keys:
+        assert isinstance(data[key], bool), f"{key} should be bool"
 
 
 # ---------------------------------------------------------------------------
@@ -187,3 +189,87 @@ def test_detect_bedrock_none():
     with patch.dict(os.environ, {"AWS_ACCESS_KEY_ID": "", "AWS_PROFILE": ""}):
         with patch("services.provider_detection.subprocess.run", return_value=mock_proc):
             assert detect_bedrock() is False
+
+
+# ---------------------------------------------------------------------------
+# detect_vertex_gemini() tests (Wave B1)
+# ---------------------------------------------------------------------------
+
+def test_detect_vertex_gemini_adc_present():
+    """ADC present + google.auth.default returns creds+project → available True."""
+    from services.provider_detection import detect_vertex_gemini
+
+    mock_creds = MagicMock(spec=[])
+    with patch("services.provider_detection.detect_vertex_ai", return_value=True):
+        with patch("google.auth.default", return_value=(mock_creds, "test-project")):
+            with patch.dict(os.environ, {"GOOGLE_CLOUD_LOCATION": "us-east1"}):
+                result = detect_vertex_gemini()
+
+    assert result["available"] is True
+    assert result["project"] == "test-project"
+    assert result["location"] == "us-east1"
+
+
+def test_detect_vertex_gemini_project_fallback():
+    """google.auth.default returns project=None → falls back to gcloud config."""
+    from services.provider_detection import detect_vertex_gemini
+
+    mock_creds = MagicMock(spec=[])
+    with patch("services.provider_detection.detect_vertex_ai", return_value=True):
+        with patch("google.auth.default", return_value=(mock_creds, None)):
+            with patch(
+                "services.provider_detection._resolve_gcloud_default_project",
+                return_value="fallback-project",
+            ):
+                result = detect_vertex_gemini()
+
+    assert result["available"] is True
+    assert result["project"] == "fallback-project"
+
+
+def test_detect_vertex_gemini_no_adc():
+    """detect_vertex_ai False → available False, google.auth never called."""
+    from services.provider_detection import detect_vertex_gemini
+
+    with patch("services.provider_detection.detect_vertex_ai", return_value=False):
+        with patch("google.auth.default") as mock_auth:
+            result = detect_vertex_gemini()
+
+    assert result == {"available": False}
+    mock_auth.assert_not_called()
+
+
+def test_detect_vertex_gemini_auth_exception():
+    """google.auth.default raising RuntimeError → available False, no leak."""
+    from services.provider_detection import detect_vertex_gemini
+
+    with patch("services.provider_detection.detect_vertex_ai", return_value=True):
+        with patch("google.auth.default", side_effect=RuntimeError("no credentials")):
+            result = detect_vertex_gemini()
+
+    assert result == {"available": False}
+
+
+@pytest.mark.asyncio
+async def test_detect_providers_includes_vertex_ai_project():
+    """detect_providers() exposes vertex_ai_project alongside vertex_ai bool."""
+    from services.provider_detection import detect_providers
+
+    mock_vx = {
+        "available": True,
+        "project": "my-gcp-project",
+        "location": "us-central1",
+        "identity_email": None,
+        "hosted_domain": None,
+    }
+
+    with patch("services.provider_detection.is_claude_code_available", new=AsyncMock(return_value=False)):
+        with patch("services.provider_detection.settings_store") as mock_store:
+            mock_store.get.return_value = ""
+            with patch("services.provider_detection.detect_vertex_gemini", return_value=mock_vx):
+                with patch("services.provider_detection.detect_bedrock", return_value=False):
+                    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "", "GEMINI_API_KEY": ""}):
+                        result = await detect_providers()
+
+    assert result["vertex_ai"] is True
+    assert result["vertex_ai_project"] == "my-gcp-project"

@@ -22,3 +22,5 @@ pypdf>=4.0.0
 pywebpush>=2.0.0
 # JWT session tokens for enterprise user identity
 PyJWT>=2.8.0
+# Vertex AI (Gemini Enterprise routing via ADC)
+google-cloud-aiplatform>=1.71
