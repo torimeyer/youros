@@ -2019,6 +2019,13 @@ export function ChatPanel() {
       setHistoryIndex(-1)
     }
     if (isPeerChatIntent(input)) {
+      const savedTurns = localStorage.getItem('peer_chat_last_turns')
+      if (savedTurns) {
+        preSelectedTurnsRef.current = parseInt(savedTurns, 10)
+        sendMessage(input.trim())
+        setInput('')
+        return
+      }
       setPendingPeerChatText(input.trim())
       setInput('')
       return

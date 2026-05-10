@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { PeerChatTurnsPicker } from './PeerChatTurnsPicker'
 
 // Mock the api module — the picker itself does not call api, but
@@ -169,6 +169,20 @@ describe('ChatPanel pre-send turns picker (→1040)', () => {
     expect(mockSend).toHaveBeenCalled()
   })
 
+  it('skips the picker and sends immediately when localStorage has saved turns', async () => {
+    localStorage.setItem('peer_chat_last_turns', '2')
+    render(<ChatPanel />)
+    const input = screen.getByTestId('chat-input')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'chat with gemini about dogs' } })
+    })
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+    expect(screen.queryByTestId('peer-chat-turns-picker')).toBeNull()
+    expect(mockSend).toHaveBeenCalled()
+  })
+
   it('hides picker and dispatches after user picks turns for a peer-chat prompt', async () => {
     render(<ChatPanel />)
     const input = screen.getByTestId('chat-input')
@@ -186,7 +200,7 @@ describe('ChatPanel pre-send turns picker (→1040)', () => {
     expect(mockSend).toHaveBeenCalled()
   })
 
-  it.skip('auto-confirms peer_chat_turns_required with pre-selected turns (→1038, partial — localStorage shipped, full auto-confirm pending)', async () => {
+  it('auto-confirms peer_chat_turns_required with pre-selected turns', async () => {
     const mockPost = vi.mocked(api.post)
     render(<ChatPanel />)
     const input = screen.getByTestId('chat-input')
@@ -199,6 +213,8 @@ describe('ChatPanel pre-send turns picker (→1040)', () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId('turns-option-3'))
     })
+    // Fire a change event alongside the WS message to force a React re-render
+    // so the lastMessage getter (from the useWebSocket mock) is re-evaluated.
     await act(async () => {
       mockLastMessage = {
         type: 'peer_chat_turns_required',
@@ -206,10 +222,13 @@ describe('ChatPanel pre-send turns picker (→1040)', () => {
         participants: ['claude', 'gemini'],
         prompt: 'chat with gemini',
       }
+      fireEvent.change(input, { target: { value: ' ' } })
     })
-    expect(mockPost).toHaveBeenCalledWith('/chat/peer/start', {
-      pending_id: 'pending-autoconfirm-1',
-      turns: 3,
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith('/chat/peer/start', {
+        pending_id: 'pending-autoconfirm-1',
+        turns: 3,
+      })
     })
     expect(screen.queryByTestId('peer-chat-turns-picker')).toBeNull()
   })
@@ -254,6 +273,25 @@ describe('ChatPanel peer_chat_turns_required integration', () => {
     expect(mockPost).toHaveBeenCalledWith('/chat/peer/start', {
       pending_id: 'pending-xyz-456',
       turns: 2,
+    })
+  })
+
+  it('auto-confirms from localStorage without showing picker when peer_chat_turns_required arrives', async () => {
+    localStorage.setItem('peer_chat_last_turns', '3')
+    const mockPost = vi.mocked(api.post)
+    render(<ChatPanel />)
+    await act(async () => {
+      mockLastMessage = {
+        type: 'peer_chat_turns_required',
+        pending_id: 'pending-ls-autoconfirm',
+        participants: ['claude', 'gemini'],
+        prompt: '@gemini chat with claude',
+      }
+    })
+    expect(screen.queryByTestId('peer-chat-turns-picker')).toBeNull()
+    expect(mockPost).toHaveBeenCalledWith('/chat/peer/start', {
+      pending_id: 'pending-ls-autoconfirm',
+      turns: 3,
     })
   })
 
