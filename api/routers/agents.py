@@ -4603,7 +4603,19 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                                 "spawn.silent_kill name=%s silent_s=%.0f hang_kind=%s",
                                 name, silent_for, hang_kind,
                             )
-                            p.kill()
+                            import signal as _sig
+                            try:
+                                _pgid = os.getpgid(p.pid)
+                                _own_pgid = os.getpgid(os.getpid())
+                                if _pgid != _own_pgid:
+                                    os.killpg(_pgid, _sig.SIGKILL)
+                                else:
+                                    p.kill()
+                            except (ProcessLookupError, OSError):
+                                try:
+                                    p.kill()
+                                except Exception:
+                                    pass
                         except Exception:
                             pass
                         break
@@ -4971,6 +4983,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     stdout=open(str(transcript_path), "w"),
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(PROJECT_ROOT),
+                    start_new_session=True,
                 )
                 active_agents[body.name] = proc
                 now_iso = datetime.now(timezone.utc).isoformat()
