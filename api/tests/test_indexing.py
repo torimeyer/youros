@@ -55,15 +55,19 @@ class TestIndexHelpers:
 @pytest.mark.asyncio
 async def test_build_index(client, tmp_path):
     """POST /api/index/build scans files and stores an index."""
-    # Create a small project to scan
-    (tmp_path / "hello.py").write_text("print('hello world')")
-    (tmp_path / "readme.md").write_text("# My Project\n\nA description.")
-    (tmp_path / "image.png").write_bytes(b"\x89PNG")
+    # Use a subdirectory as the project root so autouse fixtures that write
+    # JSON files into tmp_path (e.g. _redirect_async_state_save) don't get
+    # swept into the scan and inflate file_count.
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / "hello.py").write_text("print('hello world')")
+    (project_dir / "readme.md").write_text("# My Project\n\nA description.")
+    (project_dir / "image.png").write_bytes(b"\x89PNG")
 
     idx_path = tmp_path / "idx" / "file_index.json"
     with patch("routers.indexing.MYOS_DIR", tmp_path / "idx"), \
          patch("routers.indexing.INDEX_PATH", idx_path), \
-         patch("config.PROJECT_ROOT", tmp_path):
+         patch("config.PROJECT_ROOT", project_dir):
         resp = await client.post("/api/index/build")
 
     assert resp.status_code == 200
