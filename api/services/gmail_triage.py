@@ -18,6 +18,7 @@ import anthropic
 
 from services.atomic_io import atomic_write_text
 from services.briefing import is_actionable_for_reply
+from services.task_source_store import task_source_store
 
 MYOS_DIR = Path.home() / ".myos"
 GMAIL_CACHE_DIR = MYOS_DIR / "gmail_cache"
@@ -289,11 +290,15 @@ async def create_task_from_email(msg: dict) -> dict:
     from services.ostk import ostk, OstkError
     from services.task_labeling import schedule_auto_labels, extract_task_id
 
+    message_id = msg.get("id", "")
+    gmail_link = f"https://mail.google.com/mail/u/0/#inbox/{message_id}" if message_id else ""
+
     title = msg.get("task_title") or f"Follow up: {msg.get('subject', 'email')}"
-    description = msg.get("task_description") or (
+    base_description = msg.get("task_description") or (
         f"From {msg.get('from_name') or msg.get('from_email', 'unknown')}: "
         f"{msg.get('snippet', '')}"
     )
+    description = f"{gmail_link}\n\n{base_description}" if gmail_link else base_description
 
     try:
         add_result = await ostk.add_task(title, "P1", description=description)
@@ -302,6 +307,8 @@ async def create_task_from_email(msg: dict) -> dict:
 
     task_id = extract_task_id(add_result)
     schedule_auto_labels(task_id, title, description)
+    if task_id and message_id:
+        task_source_store.set_source(task_id, "email", message_id)
     return {"ok": True, "task_id": task_id, "title": title}
 
 
