@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from difflib import SequenceMatcher
 from typing import Optional
@@ -48,6 +49,24 @@ _GOAL_LABELS: dict[str, str] = {
     "myos": "myOS",
     "guess-who": "Guess Who",
 }
+
+
+def _plan_path_for(bare_id: str) -> Optional[str]:
+    """Return relative path to plan file if it exists, else None."""
+    rel = f"transcripts/plan-{bare_id}.md"
+    full = os.path.join(ostk.cwd, rel)
+    return rel if os.path.exists(full) else None
+
+
+def _attach_plan_path(task: dict) -> dict:
+    """Add plan_path field to a task dict (mutates in place)."""
+    raw_id = str(task.get("id") or "")
+    bare_id = raw_id.lstrip("→")
+    if bare_id:
+        task["plan_path"] = _plan_path_for(bare_id)
+    else:
+        task["plan_path"] = None
+    return task
 
 
 def _enrich_task(
@@ -281,7 +300,10 @@ async def list_tasks(
         open_tasks = [t for t in tasks if t.get("status") != "closed"]
         closed_tasks = [t for t in tasks if t.get("status") == "closed"]
         closed_tasks.sort(key=lambda t: t.get("closed_at") or "", reverse=True)
-        return {"tasks": open_tasks + closed_tasks}
+        all_tasks = open_tasks + closed_tasks
+        for t in all_tasks:
+            _attach_plan_path(t)
+        return {"tasks": all_tasks}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -622,13 +644,15 @@ async def get_task(task_id: str):
     task_thread_map = threads_store.get_all_task_thread_map()
     session_pairs = session_task_map.all_session_task_pairs()
     children_counts = session_task_map.all_children_counts()
-    return _enrich_task(
+    enriched = _enrich_task(
         task,
         all_assignments,
         task_thread_map,
         session_task_map_pairs=session_pairs,
         children_counts=children_counts,
     )
+    _attach_plan_path(enriched)
+    return enriched
 
 
 # Trailing machine-id patterns we strip from task titles. Smoke

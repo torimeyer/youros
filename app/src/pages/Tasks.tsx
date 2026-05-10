@@ -73,6 +73,8 @@ interface Task {
   // Free-text notes the user can attach to a task. Displayed inline
   // below the description and editable from the detail panel.
   notes?: string | null;
+  // Relative path to a plan file if one exists for this needle.
+  plan_path?: string | null;
 }
 
 // A task is "active" (shown under the Open tab and counted in the
@@ -2699,6 +2701,24 @@ export default function Tasks() {
                             </div>
                           )}
                         </>
+                      )}
+
+                      {/* Plan attachment link */}
+                      {detailTab === "context" && task.plan_path && (
+                        <div className="mt-3 flex items-center gap-2 text-xs">
+                          <Icon name="task_alt" className="text-blue-400 text-sm" />
+                          <a
+                            data-testid={`task-plan-${task.id}`}
+                            href={`/specs?highlight=${encodeURIComponent(task.plan_path)}`}
+                            onClick={e => {
+                              e.preventDefault();
+                              navigate(`/specs?highlight=${encodeURIComponent(task.plan_path!)}`);
+                            }}
+                            className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                          >
+                            Plan attached
+                          </a>
+                        </div>
                       )}
 
                       {/* Notes editor — shown at the bottom of the context tab */}

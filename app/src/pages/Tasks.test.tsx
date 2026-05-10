@@ -2076,6 +2076,64 @@ describe('Tasks page', () => {
       expect(screen.queryByTestId('task-action-resume')).not.toBeInTheDocument()
     })
   })
+
+  // --- Plan attachment link (→1120) ---
+
+  it('renders task-plan-{id} testid when task has plan_path and row is expanded', async () => {
+    const tasksWithPlan = [
+      ...mockTasks,
+      {
+        id: '5',
+        title: 'Task with a plan',
+        priority: 'P1',
+        status: 'open',
+        created_at: new Date().toISOString(),
+        goal: null,
+        label_ids: [],
+        plan_path: 'transcripts/plan-5.md',
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: tasksWithPlan })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Task with a plan')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Task with a plan'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-plan-5')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('task-plan-5')).toHaveTextContent('Plan attached')
+  })
+
+  it('does not render task-plan testid when task has no plan_path', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('briefing-panel')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId('task-plan-1')).not.toBeInTheDocument()
+  })
 })
 
 // Regression for needle 299: the Tasks page was showing "Loading tasks..."
