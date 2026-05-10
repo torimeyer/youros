@@ -847,3 +847,35 @@ async def test_patch_instance_name_back_to_default(client, settings_file):
         await client.patch("/api/settings", json={"instance_name": "myOS"})
         resp = await client.get("/api/settings")
     assert resp.json()["instance_name"] == "myOS"
+
+
+# --- onboarding_step persistence tests ---
+# The wizard saves stepIndex here before any OAuth redirect so the browser
+# can land back on the right step. Cleared immediately after consume.
+
+
+@pytest.mark.asyncio
+async def test_patch_onboarding_step_round_trips(client, settings_file):
+    """PATCH /api/settings with onboarding_step=8 should be readable via GET."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch("/api/settings", json={"onboarding_step": 8})
+        assert resp.status_code == 200
+
+        resp = await client.get("/api/settings")
+
+    assert resp.json()["onboarding_step"] == 8
+    saved = json.loads(settings_file.read_text())
+    assert saved["onboarding_step"] == 8
+
+
+@pytest.mark.asyncio
+async def test_patch_onboarding_step_null_clears_value(client, settings_file):
+    """PATCHing onboarding_step to null after it was set should clear it."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        await client.patch("/api/settings", json={"onboarding_step": 5})
+        resp = await client.patch("/api/settings", json={"onboarding_step": None})
+        assert resp.status_code == 200
+
+        resp = await client.get("/api/settings")
+
+    assert resp.json()["onboarding_step"] is None

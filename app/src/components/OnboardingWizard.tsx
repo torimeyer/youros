@@ -81,25 +81,31 @@ export default function OnboardingWizard() {
   // Restore step after any OAuth redirect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const savedStep = sessionStorage.getItem('onboarding_step_before_oauth')
 
     const errorMsg = params.get('error') || params.get('auth_error')
     if (errorMsg) {
       setOauthError(`Connection failed: ${errorMsg}. Try again.`)
-      sessionStorage.removeItem('onboarding_step_before_oauth')
+      api.patch('/settings', { onboarding_step: null }).catch(() => {})
       window.history.replaceState({}, '', '/')
       return
     }
 
     const oauthReturnKeys = ['connected', 'auth_success', 'atlassian_connected', 'oauth_connected']
     const isOAuthReturn = oauthReturnKeys.some(k => params.has(k))
-    if (isOAuthReturn && savedStep !== null) {
-      const idx = parseInt(savedStep, 10)
-      if (!Number.isNaN(idx) && idx >= 0) {
-        setStepIndex(idx)
-      }
-      sessionStorage.removeItem('onboarding_step_before_oauth')
-      window.history.replaceState({}, '', '/')
+    if (isOAuthReturn) {
+      api.get<{ onboarding_step?: number | null }>('/settings').then((data) => {
+        const savedStep = data.onboarding_step
+        if (savedStep != null) {
+          const idx = typeof savedStep === 'number' ? savedStep : parseInt(String(savedStep), 10)
+          if (!Number.isNaN(idx) && idx >= 0) {
+            setStepIndex(idx)
+          }
+          api.patch('/settings', { onboarding_step: null }).catch(() => {})
+        }
+        window.history.replaceState({}, '', '/')
+      }).catch(() => {
+        window.history.replaceState({}, '', '/')
+      })
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1037,12 +1043,12 @@ function ConnectStep({
           <button
             onClick={async () => {
               try {
-                sessionStorage.setItem('onboarding_step_before_oauth', String(stepIndex))
+                await api.patch('/settings', { onboarding_step: stepIndex })
                 const res = await api.get<{ url: string }>('/drive/auth/url?return_to=%2F')
                 window.location.href = res.url
               } catch (err) {
                 console.error('Google Workspace sign-in failed to start:', err)
-                sessionStorage.removeItem('onboarding_step_before_oauth')
+                api.patch('/settings', { onboarding_step: null }).catch(() => {})
               }
             }}
             className={`w-full px-4 py-2.5 border rounded-lg text-sm transition-colors flex items-center gap-2 ${
@@ -1063,7 +1069,7 @@ function ConnectStep({
         googleOAuthAvailable ? (
           <button
             onClick={() => {
-              sessionStorage.setItem('onboarding_step_before_oauth', String(stepIndex))
+              api.patch('/settings', { onboarding_step: stepIndex }).catch(() => {})
               window.open('/api/auth/google', '_self')
             }}
             className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
@@ -1264,7 +1270,7 @@ export function AtlassianSetupCard({
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
-              if (stepIndex !== undefined) sessionStorage.setItem('onboarding_step_before_oauth', String(stepIndex))
+              if (stepIndex !== undefined) api.patch('/settings', { onboarding_step: stepIndex }).catch(() => {})
               window.location.href = '/api/atlassian/auth'
             }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
@@ -1429,7 +1435,7 @@ export function GithubSetupCard({
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
-              if (stepIndex !== undefined) sessionStorage.setItem('onboarding_step_before_oauth', String(stepIndex))
+              if (stepIndex !== undefined) api.patch('/settings', { onboarding_step: stepIndex }).catch(() => {})
               window.location.href = '/api/github/auth'
             }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"

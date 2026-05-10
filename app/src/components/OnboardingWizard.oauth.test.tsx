@@ -8,6 +8,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { AtlassianSetupCard, GithubSetupCard } from './OnboardingWizard'
 import OnboardingWizard from './OnboardingWizard'
 import { useAppStore } from '../stores/app'
+import { api } from '../lib/api'
 
 type ApiResponse = Record<string, unknown>
 
@@ -131,13 +132,13 @@ function setupWizardStore() {
 describe('OnboardingWizard restore-step after OAuth', () => {
   beforeEach(() => {
     window.history.pushState({}, '', '/')
-    sessionStorage.clear()
+    vi.clearAllMocks()
+    mockGetResponses = {}
     setupWizardStore()
   })
 
   afterEach(() => {
     window.history.pushState({}, '', '/')
-    sessionStorage.clear()
   })
 
   it.each([
@@ -146,7 +147,7 @@ describe('OnboardingWizard restore-step after OAuth', () => {
     ['?atlassian_connected=true'],
     ['?oauth_connected=true'],
   ])('restores to saved Connect step on return param %s', async (paramStr) => {
-    sessionStorage.setItem('onboarding_step_before_oauth', String(CONNECT_STEP_IDX))
+    mockGetResponses['/settings'] = { onboarding_step: CONNECT_STEP_IDX }
     window.history.pushState({}, '', `/${paramStr}`)
 
     render(<OnboardingWizard />)
@@ -155,11 +156,10 @@ describe('OnboardingWizard restore-step after OAuth', () => {
       expect(screen.getByTestId('step-connect')).toBeTruthy()
     })
     expect(screen.queryByTestId('step-welcome')).toBeNull()
-    expect(sessionStorage.getItem('onboarding_step_before_oauth')).toBeNull()
+    expect(vi.mocked(api.patch)).toHaveBeenCalledWith('/settings', { onboarding_step: null })
   })
 
   it('shows error banner on ?error=token_exchange_failed and clears saved step', async () => {
-    sessionStorage.setItem('onboarding_step_before_oauth', String(CONNECT_STEP_IDX))
     window.history.pushState({}, '', '/?error=token_exchange_failed')
 
     render(<OnboardingWizard />)
@@ -169,6 +169,33 @@ describe('OnboardingWizard restore-step after OAuth', () => {
     })
     const banner = screen.getByTestId('oauth-error-banner')
     expect(banner.textContent).toContain('token_exchange_failed')
-    expect(sessionStorage.getItem('onboarding_step_before_oauth')).toBeNull()
+    expect(vi.mocked(api.patch)).toHaveBeenCalledWith('/settings', { onboarding_step: null })
+  })
+
+  it('restores to step 8 from backend settings on OAuth return', async () => {
+    mockGetResponses['/settings'] = { onboarding_step: 8 }
+    window.history.pushState({}, '', '/?connected=true')
+
+    render(<OnboardingWizard />)
+
+    await waitFor(() => {
+      // step 8 = 'Ready' in PERSONAL_STEPS_NO_FORK (0-indexed)
+      expect(screen.getByTestId('step-ready')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('step-welcome')).toBeNull()
+    expect(vi.mocked(api.patch)).toHaveBeenCalledWith('/settings', { onboarding_step: null })
+  })
+
+  it('does not advance step when settings has no onboarding_step', async () => {
+    mockGetResponses['/settings'] = {}
+    window.history.pushState({}, '', '/?connected=true')
+
+    render(<OnboardingWizard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('step-welcome')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('step-connect')).toBeNull()
+    expect(vi.mocked(api.patch)).not.toHaveBeenCalledWith('/settings', { onboarding_step: null })
   })
 })

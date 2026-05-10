@@ -73,6 +73,10 @@ class HayConvert(BaseModel):
 
 class Settings(BaseModel):
     onboarded: bool = False
+    # Transient step index saved before an OAuth redirect so the wizard
+    # can land back on the right step after the browser returns. Cleared
+    # immediately after it is consumed (set to null). None = no pending restore.
+    onboarding_step: Optional[int] = None
     # Absolute path where torios stores user-visible files (briefs,
     # roadmaps, automation outputs). None means fall back to the default
     # ~/.myos/files. See api/services/files_dir.py.
