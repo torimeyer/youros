@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+import asyncio
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from typing import Optional
 
 from services.google_auth import get_email, is_authenticated
 from services import calendar as calendar_service
 from services import connections_cache
+from services.calendar_events import calendar_events
 
 router = APIRouter(tags=["calendar"])
 
@@ -242,3 +244,52 @@ async def calendar_sync():
         ) from exc
 
     return {"ok": True, "count": len(events)}
+
+
+async def _build_calendar_data(days: int = 7) -> dict:
+  """Helper to fetch current calendar data snapshot."""
+  if not is_authenticated():
+    return {"events": []}
+  try:
+    if days == 7:
+      events = await calendar_service.get_upcoming_events(days=days)
+    else:
+      events = await calendar_service.fetch_events_uncached(days=days)
+    return {"events": events}
+  except Exception:
+    return {"events": []}
+
+
+@router.websocket("/ws/calendar/events")
+async def websocket_calendar_events(websocket: WebSocket):
+  """WebSocket endpoint for real-time calendar events.
+  
+  On connect, sends snapshot of upcoming events. Then pushes deltas
+  when calendar changes. Falls back to HTTP polling if connection closes.
+  """
+  await websocket.accept()
+  try:
+    data = await _build_calendar_data()
+    await websocket.send_json({"type": "snapshot", "events": data.get("events", [])})
+    
+    async with calendar_events.subscribe() as queue:
+      while True:
+        try:
+          msg = queue.get_nowait()
+          await websocket.send_json(msg)
+        except asyncio.QueueEmpty:
+          await asyncio.sleep(0.1)
+          try:
+            await websocket.send_json({"type": "ping"})
+          except Exception:
+            break
+  except WebSocketDisconnect:
+    pass
+  except Exception as e:
+    import logging
+    logging.error(f"Calendar WS error: {e}")
+  finally:
+    try:
+      await websocket.close()
+    except Exception:
+      pass
