@@ -9,6 +9,8 @@ interface AtlassianStatus {
   connected: boolean
   email: string
   site: string
+  jira_url?: string
+  confluence_url?: string
 }
 
 interface JiraIssue {
@@ -111,6 +113,7 @@ export default function Jira() {
   }, [])
 
   useEffect(() => {
+    setForceTokenForm(false)
     ;(async () => {
       try {
         const defaults = await api.get<{ site: string; oauth_available?: boolean }>('/atlassian/defaults')
@@ -196,7 +199,7 @@ export default function Jira() {
           <ConnectCard
             icon="bug_report"
             accentColor="#94a3b8"
-            title="Connect Atlassian"
+            title="Connect Atlassian (Jira + Confluence)"
             description="See your assigned Jira issues inside myOS. You need an Atlassian API token."
             primaryAction={
               oauthAvailable && !forceTokenForm ? (
@@ -391,12 +394,24 @@ export default function Jira() {
       <TopBar title="Jira" />
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl sm:text-2xl font-bold">Jira</h1>
-            {status.site && (
-              <span className="px-2 py-0.5 bg-slate-500/20 text-slate-300 text-sm font-mono rounded-full">
-                {status.site}
-              </span>
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl sm:text-2xl font-bold">Jira</h1>
+              {status.site && (
+                <span className="px-2 py-0.5 bg-slate-500/20 text-slate-300 text-sm font-mono rounded-full">
+                  {status.site}
+                </span>
+              )}
+            </div>
+            {(status.jira_url || status.confluence_url) && (
+              <div className="flex gap-4 mt-1">
+                {status.jira_url && (
+                  <span className="text-xs text-slate-500" data-testid="jira-jira-url">{status.jira_url}</span>
+                )}
+                {status.confluence_url && (
+                  <span className="text-xs text-slate-500" data-testid="jira-confluence-url">{status.confluence_url}</span>
+                )}
+              </div>
             )}
           </div>
           <button

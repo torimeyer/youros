@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import Jira from './Jira'
 
@@ -62,7 +62,7 @@ describe('Jira page', () => {
     await waitFor(() => {
       expect(screen.getByTestId('connect-card')).toBeInTheDocument()
     })
-    expect(screen.getByText('Connect Atlassian')).toBeInTheDocument()
+    expect(screen.getByText('Connect Atlassian (Jira + Confluence)')).toBeInTheDocument()
   })
 
   it('shows connect form with three inputs when not connected', async () => {
@@ -199,6 +199,83 @@ describe('Jira page', () => {
 
     await waitFor(() => {
       expect(screen.getByText('No issues assigned to you')).toBeInTheDocument()
+    })
+  })
+
+  it('shows "Connect Atlassian (Jira + Confluence)" title when oauth is available', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/atlassian/defaults')) {
+        return Promise.resolve({ site: '', oauth_available: true })
+      }
+      if (path.includes('/atlassian/status')) {
+        return Promise.resolve({ connected: false, email: '', site: '' })
+      }
+      return Promise.resolve({})
+    })
+
+    renderJira()
+
+    await waitFor(() => {
+      expect(screen.getByText('Connect Atlassian (Jira + Confluence)')).toBeInTheDocument()
+    })
+  })
+
+  it('shows jira_url and confluence_url subtext when connected with both URLs', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/atlassian/status')) {
+        return Promise.resolve({
+          connected: true,
+          email: 'user@example.com',
+          site: 'example.atlassian.net',
+          jira_url: 'https://example.atlassian.net/jira',
+          confluence_url: 'https://example.atlassian.net/wiki',
+        })
+      }
+      if (path.includes('/atlassian/jira/issues')) {
+        return Promise.resolve({ issues: [] })
+      }
+      return Promise.resolve({})
+    })
+
+    renderJira()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('jira-jira-url')).toBeInTheDocument()
+      expect(screen.getByTestId('jira-confluence-url')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('jira-jira-url').textContent).toBe('https://example.atlassian.net/jira')
+    expect(screen.getByTestId('jira-confluence-url').textContent).toBe('https://example.atlassian.net/wiki')
+  })
+
+  it('forceTokenForm is false at mount even after a prior mount-cycle set it true', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/atlassian/defaults')) {
+        return Promise.resolve({ site: '', oauth_available: true })
+      }
+      if (path.includes('/atlassian/status')) {
+        return Promise.resolve({ connected: false, email: '', site: '' })
+      }
+      return Promise.resolve({})
+    })
+
+    const { unmount } = renderJira()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('jira-oauth-connect')).toBeInTheDocument()
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('jira-use-token'))
+    })
+
+    expect(screen.getByTestId('jira-connect-form')).toBeInTheDocument()
+
+    unmount()
+
+    renderJira()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('jira-oauth-connect')).toBeInTheDocument()
     })
   })
 })

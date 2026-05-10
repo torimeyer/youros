@@ -6,6 +6,7 @@ interface AtlassianStatus {
   connected: boolean
   email?: string
   site?: string
+  expired?: boolean
 }
 
 export default function AtlassianConnect() {
@@ -65,6 +66,25 @@ export default function AtlassianConnect() {
       <div className="flex items-center gap-2 text-sm text-slate-500">
         <div className="w-2.5 h-2.5 rounded-full bg-slate-600 animate-pulse" />
         Checking Atlassian...
+      </div>
+    )
+  }
+
+  if (status.connected && status.expired) {
+    return (
+      <div className="flex items-center justify-between" data-testid="atlassian-connect-expired">
+        <div className="flex items-center gap-2">
+          <div className="w-2.5 h-2.5 rounded-full bg-amber-400 flex-shrink-0" />
+          <p className="text-sm text-amber-300">Atlassian credentials expired</p>
+        </div>
+        <button
+          onClick={() => { window.location.href = '/api/atlassian/auth' }}
+          data-testid="atlassian-reconnect-btn"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
+        >
+          <Icon name="refresh" size={15} />
+          Reconnect
+        </button>
       </div>
     )
   }
