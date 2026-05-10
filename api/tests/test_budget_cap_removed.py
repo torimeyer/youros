@@ -66,3 +66,60 @@ def test_spawn_agent_cmd_has_no_max_budget_flag():
         "Removing it ensures subscription-auth agents are not killed by a "
         "billing cap that has no effect on per-month costs."
     )
+
+
+# ---------------------------------------------------------------------------
+# Mailbox instruction: registration example must not embed a budget sentinel
+# ---------------------------------------------------------------------------
+
+def test_mailbox_instruction_has_no_budget_sentinel():
+    """agent_mailbox_instruction must not embed '"budget": 5' (or any numeric
+    budget sentinel) in the registration curl example baked into every agent's
+    spawn prompt.
+
+    When the registration example includes '"budget": 5', agents read it as
+    their own spending limit. On subscription auth this causes agents to bail
+    mid-investigation without committing once they perceive they have spent $5,
+    even though the claude CLI is never actually passed --max-budget-usd.
+    The short variant already omits budget; this guards the long variant too.
+    """
+    import sys
+    import importlib
+
+    # Force a fresh import so edits to agents.py are reflected even if the
+    # module was already cached from a previous test run in the same session.
+    for key in list(sys.modules.keys()):
+        if "routers.agents" in key or key == "agents":
+            sys.modules.pop(key, None)
+
+    sys.path.insert(0, str(AGENTS_PY_PATH.parent.parent))
+    try:
+        from routers.agents import agent_mailbox_instruction, agent_mailbox_instruction_short
+    except ImportError:
+        # Fallback: read source and check the string literally (avoids heavy
+        # FastAPI import chain in lightweight CI environments).
+        source = AGENTS_PY_PATH.read_text()
+        assert '"budget": 5' not in source, (
+            'agent_mailbox_instruction must not embed \'"budget": 5\' in the '
+            "registration curl example. Remove the budget field from the "
+            "registration body so agents are not told to self-limit at $5."
+        )
+        return
+
+    for fn_name, fn in (
+        ("agent_mailbox_instruction", agent_mailbox_instruction),
+        ("agent_mailbox_instruction_short", agent_mailbox_instruction_short),
+    ):
+        result = fn("test-agent")
+        # The registration body must not contain a numeric budget sentinel.
+        # We check the serialised JSON substring rather than parsing the curl
+        # command because the format is stable and easy to scan.
+        assert '"budget": 5' not in result, (
+            f"{fn_name} must not embed '\"budget\": 5' in the registration "
+            "curl example. Remove the budget field from the registration body "
+            "so agents are not told to self-limit at $5."
+        )
+        assert '"budget":5' not in result.replace(" ", ""), (
+            f"{fn_name} must not embed a '\"budget\":5' sentinel (any spacing) "
+            "in the registration curl example."
+        )
