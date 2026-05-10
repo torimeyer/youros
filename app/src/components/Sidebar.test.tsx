@@ -16,6 +16,7 @@ vi.mock('../lib/api', () => ({
 import { api } from '../lib/api'
 import { _resetSidebarBus } from '../lib/sidebarBus'
 import { useRunningAgentsStore } from '../stores/runningAgents'
+import { useSpecCountsStore } from '../stores/specCounts'
 
 const mockedApiGet = vi.mocked(api.get)
 
@@ -63,6 +64,7 @@ describe('Sidebar', () => {
     localStorage.clear()
     _resetSidebarBus()
     useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
+    useSpecCountsStore.setState({ unfinished: 0, total: 0, connected: false, lastUpdatedAt: null })
     useAppStore.setState({
       osName: 'myOS',
       features: DEFAULT_FEATURES,
@@ -1262,5 +1264,45 @@ describe('Files and Drive sidebar entries', () => {
     expandAllGroups()
     const links = screen.getAllByRole('link')
     expect(links.some((l) => l.getAttribute('href') === '/inbox')).toBe(false)
+  })
+
+  describe('WS-driven spec counts', () => {
+    it('shows spec badge when useSpecCountsStore has unfinished > 0', async () => {
+      useSpecCountsStore.setState({ unfinished: 4, total: 6, connected: true, lastUpdatedAt: new Date().toISOString() })
+      renderSidebar()
+
+      await waitFor(() => {
+        const specsLink = screen.getByText('Specs').closest('a')
+        expect(specsLink?.textContent).toContain('4')
+      })
+    })
+
+    it('does not show spec badge when useSpecCountsStore has unfinished = 0', async () => {
+      useSpecCountsStore.setState({ unfinished: 0, total: 2, connected: true, lastUpdatedAt: new Date().toISOString() })
+      renderSidebar()
+      // Give HTTP poll time to not accidentally fire a different value
+      await waitFor(() => {
+        expect(mockedApiGet).toHaveBeenCalledWith('/specs/counts')
+      })
+      const specsLink = screen.getByText('Specs').closest('a')
+      expect(specsLink?.querySelectorAll('.rounded-full').length).toBe(0)
+    })
+
+    it('spec badge updates reactively when WS store changes', async () => {
+      useSpecCountsStore.setState({ unfinished: 2, total: 3, connected: true, lastUpdatedAt: new Date().toISOString() })
+      renderSidebar()
+
+      await waitFor(() => {
+        const specsLink = screen.getByText('Specs').closest('a')
+        expect(specsLink?.textContent).toContain('2')
+      })
+
+      // Simulate WS delta arriving
+      useSpecCountsStore.getState().setSnapshot(5, 7)
+      await waitFor(() => {
+        const specsLink = screen.getByText('Specs').closest('a')
+        expect(specsLink?.textContent).toContain('5')
+      })
+    })
   })
 })

@@ -1,20 +1,66 @@
+import asyncio
 import logging
 import os
 import re
 from pathlib import Path, PurePosixPath
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from config import PROJECT_ROOT
 from models.schemas import SpecDraft, SpecPromote, SpecDecompose
 from services.ostk import ostk, OstkError
+from services.spec_events import bus as _spec_events_bus
 from services.tracing import trace_event
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["specs"])
+
+
+async def _publish_spec_counts() -> None:
+    """Recompute spec counts from ostk and push to WS subscribers. Best-effort."""
+    try:
+        docs = await ostk.list_docs()
+        total = len(docs)
+        unfinished = sum(1 for d in docs if d.get("status") != "complete")
+        await _spec_events_bus.publish(unfinished, total)
+    except Exception:
+        pass  # never block mutation endpoints
+
+
+@router.websocket("/ws/specs/state")
+async def specs_state_ws(websocket: WebSocket):
+    """Push spec counts to clients in real time.
+
+    On connect: sends one snapshot frame with current cached counts.
+    On every spec mutation (create, delete, promote, verify): sends a
+    snapshot frame with fresh counts. Keepalive ping every 15 seconds.
+    """
+    await websocket.accept()
+    try:
+        await websocket.send_json({
+            "type": "snapshot",
+            "unfinished": _spec_events_bus.cached_unfinished,
+            "total": _spec_events_bus.cached_total,
+        })
+        async with _spec_events_bus.subscribe() as q:
+            while True:
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=15.0)
+                    await websocket.send_json({
+                        "type": event.type,
+                        "unfinished": event.unfinished,
+                        "total": event.total,
+                    })
+                except asyncio.TimeoutError:
+                    # Keepalive ping so proxies don't idle-drop the socket.
+                    await websocket.send_json({"type": "ping"})
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
 
 
 # Model used for acceptance-criteria drafting. Haiku produces the same
@@ -383,6 +429,7 @@ async def create_draft(body: SpecDraft):
         source="draft",
         status=status,
     )
+    asyncio.create_task(_publish_spec_counts())
     return {"result": result, "status": status, "promoted_path": promoted_path}
 
 
@@ -1046,6 +1093,7 @@ async def verify_spec(spec_path: str):
         raise HTTPException(status_code=404, detail=str(e))
     if isinstance(result, dict) and result.get("all_met") is True:
         _fire_spec_complete_notification(spec_path)
+        asyncio.create_task(_publish_spec_counts())
     return result
 
 
@@ -1779,6 +1827,7 @@ async def delete_spec(doc_path: str):
             doc_path,
             deleted_tasks,
         )
+    asyncio.create_task(_publish_spec_counts())
     return {"result": "deleted", "cleaned_builder_tasks": deleted_tasks}
 
 

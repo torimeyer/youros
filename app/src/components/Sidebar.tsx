@@ -23,6 +23,7 @@ import AdminSection from './AdminSection'
 import { api } from '../lib/api'
 import { onTasksChange, onSpecsChange } from '../lib/sidebarBus'
 import { useRunningAgentsStore } from '../stores/runningAgents'
+import { useSpecCountsStore } from '../stores/specCounts'
 
 // ------------- types -------------
 
@@ -331,6 +332,9 @@ export function Sidebar() {
   const location = useLocation()
 
   const activeAgents = useRunningAgentsStore((s) => s.count)
+  // Real-time spec count from the app-level WS feed (useSpecCountsFeed in App.tsx).
+  const wsUnfinishedSpecs = useSpecCountsStore((s) => s.unfinished)
+  const wsSpecsConnected = useSpecCountsStore((s) => s.connected)
   const [openTasksCount, setOpenTasksCount] = useState(0)
   const [unfinishedSpecs, setUnfinishedSpecs] = useState(0)
   const [gmailUnread, setGmailUnread] = useState(0)
@@ -669,7 +673,7 @@ export function Sidebar() {
               activeAgents={activeAgents}
               gmailUnread={gmailUnread}
               openTasksCount={openTasksCount}
-              unfinishedSpecs={Math.max(0, unfinishedSpecs + pendingSpecDelta)}
+              unfinishedSpecs={Math.max(0, (wsSpecsConnected ? wsUnfinishedSpecs : unfinishedSpecs) + pendingSpecDelta)}
               onNavigate={() => setMobileOpen(false)}
               iconFilled={iconStyle}
               features={features}
