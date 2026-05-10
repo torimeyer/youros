@@ -11,7 +11,6 @@ import SlackConnect from '../components/SlackConnect';
 import { AtlassianSetupCard, GithubSetupCard } from '../components/OnboardingWizard';
 import CustomVerbs from '../components/CustomVerbs';
 
-const DEFAULT_FILES_DIR_HINT = "~/.myos/files";
 
 interface SettingsData {
   dark_mode?: boolean;
@@ -84,7 +83,7 @@ export default function Settings() {
     showBudgetCaps, setShowBudgetCaps,
   } = useAppStore();
 
-  const { confirm, confirmProps } = useConfirm();
+  const { confirmProps } = useConfirm();
 
   const [selectedProvider, setSelectedProvider] = useState('Anthropic');
   // Chat backend preference: "auto" picks the subscription when ready,
@@ -118,8 +117,6 @@ export default function Settings() {
   const [standingSaveStatus, setStandingSaveStatus] = useState<string | null>(null);
   const [standingSaveIsError, setStandingSaveIsError] = useState(false);
   const standingSectionRef = useRef<HTMLDivElement>(null);
-  const [filesDirInput, setFilesDirInput] = useState('');
-  const [currentFilesDir, setCurrentFilesDir] = useState<string | null>(null);
   // Auto-draft suggestions: the "Suggest for me" button calls the backend
   // generator, which returns 5-10 candidate instructions based on the
   // user's real patterns. Each row has a checkbox (default checked) and
@@ -191,11 +188,6 @@ export default function Settings() {
         const data = await api.get<SettingsData>('/settings');
         if (data.accent_color) setAccentColor(data.accent_color as AccentColor);
         if (data.os_name) setOsName(data.os_name);
-        if (typeof data.files_dir === 'string' || data.files_dir === null || data.files_dir === undefined) {
-          const fd = (data.files_dir as string | null | undefined) ?? null;
-          setCurrentFilesDir(fd);
-          setFilesDirInput(fd ?? '');
-        }
         if (data.dark_mode !== undefined && data.dark_mode !== darkMode) {
           // Set directly via store to avoid a toggle flash
           localStorage.setItem('myos-dark-mode', String(data.dark_mode));
@@ -390,23 +382,6 @@ export default function Settings() {
     { name: 'Anthropic', model: 'Claude' },
     { name: 'Google Gemini', model: 'Gemini' },
   ];
-
-  const handleChangeFilesDir = async () => {
-    const next = filesDirInput.trim();
-    if (next === (currentFilesDir ?? '')) return;
-    const ok = await confirm({
-      title: 'Change files folder?',
-      message: 'Changing this will point torios at the new folder. Files in your current folder stay where they are.',
-      confirmLabel: 'Continue',
-    });
-    if (!ok) return;
-    try {
-      await api.put('/settings', { files_dir: next || null });
-      setCurrentFilesDir(next || null);
-    } catch (e) {
-      console.error('Failed to update files_dir', e);
-    }
-  };
 
   const handleAccentColor = (name: string) => {
     setAccentColor(name as AccentColor);
@@ -1653,34 +1628,6 @@ export default function Settings() {
             </div>
           )}
           </div>
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Data</p>
-          {activeSection === 'section-connections' && (
-          <div className={cardClass} data-testid="files-location-section">
-          <h2 className="text-lg font-semibold mb-2">Files location</h2>
-          <p className="text-sm text-slate-400 mb-3">
-            This is the folder on your computer where torios saves your
-            files, like briefs and roadmaps. The default is a hidden
-            folder in your home directory.
-          </p>
-          <div className="flex gap-2 items-center">
-            <input
-              type="text"
-              value={filesDirInput}
-              onChange={(e) => setFilesDirInput(e.target.value)}
-              placeholder={DEFAULT_FILES_DIR_HINT}
-              data-testid="files-dir-input"
-              className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
-            />
-            <button
-              onClick={handleChangeFilesDir}
-              data-testid="files-dir-change"
-              className="accent-bg !text-white px-4 py-2 rounded-lg text-sm font-medium"
-            >
-              Change
-            </button>
-          </div>
-          </div>
-          )}
           </div>
 
           {/* ── Team Admin (gated) ──────────────────── */}

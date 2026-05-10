@@ -13,8 +13,10 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'EnhanceClaude', 'Connect', 'Ready'] as const
-const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'EnhanceClaude', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'EnhanceClaude', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'EnhanceClaude', 'Connect', 'Ready'] as const
+
+const DEFAULT_FILES_DIR = '~/.myos/files'
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
 
@@ -44,6 +46,7 @@ export default function OnboardingWizard() {
 
   // Local state
   const [userName, setUserName] = useState('')
+  const [filesDir, setFilesDir] = useState(DEFAULT_FILES_DIR)
   const [selectedProvider, setSelectedProvider] = useState('Anthropic')
   const [apiKey, setApiKey] = useState('')
   const [keySaved, setKeySaved] = useState(false)
@@ -107,6 +110,12 @@ export default function OnboardingWizard() {
         window.history.replaceState({}, '', '/')
       })
     }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    api.get<{ files_dir?: string | null }>('/settings')
+      .then((data) => setFilesDir(data.files_dir ?? DEFAULT_FILES_DIR))
+      .catch(() => setFilesDir(DEFAULT_FILES_DIR))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Profile (HUMANFILE) step state
@@ -224,6 +233,13 @@ export default function OnboardingWizard() {
     // Navigate home BEFORE flipping onboarded (see goHome comment above).
     goHome()
     setOnboarded(true)
+  }
+
+  const handleFilesLocationNext = () => {
+    api.put('/settings', { files_dir: filesDir || null }).catch(
+      (e) => console.error('Failed to save files_dir during onboarding:', e)
+    )
+    next()
   }
 
   const handleProviderSelect = (name: string) => {
@@ -345,6 +361,15 @@ export default function OnboardingWizard() {
               setOsName={setOsName}
               onNext={next}
               userName={userName}
+              inputCls={inputCls}
+              subtextCls={subtextCls}
+            />
+          )}
+          {step === 'FilesLocation' && (
+            <FilesLocationStep
+              filesDir={filesDir}
+              setFilesDir={setFilesDir}
+              defaultPath={DEFAULT_FILES_DIR}
               inputCls={inputCls}
               subtextCls={subtextCls}
             />
@@ -575,7 +600,7 @@ export default function OnboardingWizard() {
               </button>
             ) : (
               <button
-                onClick={next}
+                onClick={step === 'FilesLocation' ? handleFilesLocationNext : next}
                 className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
                 data-testid="next-button"
               >
@@ -783,9 +808,6 @@ function WelcomeStep({ subtextCls }: { subtextCls: string }) {
         Let's set up your personal OS. This will only take a minute, and you can
         change everything later in settings.
       </p>
-      <p className={`${subtextCls} text-sm leading-relaxed mt-4`} data-testid="onboarding-files-location-note">
-        Your files live in ~/.myos/files. You can change this in Settings.
-      </p>
       <p className={`${subtextCls} text-xs leading-relaxed mt-3`}>
         <a
           href="/privacy"
@@ -870,6 +892,46 @@ function NameStep({
   )
 }
 
+
+function FilesLocationStep({
+  filesDir,
+  setFilesDir,
+  defaultPath,
+  inputCls,
+  subtextCls,
+}: {
+  filesDir: string
+  setFilesDir: (v: string) => void
+  defaultPath: string
+  inputCls: string
+  subtextCls: string
+}) {
+  return (
+    <div data-testid="step-files-location">
+      <h2 className="text-2xl font-bold mb-2">Where should your files go?</h2>
+      <p className={`mb-4 ${subtextCls}`}>
+        This is the folder on your computer where myOS saves your files, like briefs and roadmaps.
+      </p>
+      <div className="mb-3">
+        <input
+          type="text"
+          value={filesDir}
+          onChange={(e) => setFilesDir(e.target.value)}
+          placeholder={defaultPath}
+          data-testid="files-dir-input"
+          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+        />
+      </div>
+      <button
+        onClick={() => setFilesDir(defaultPath)}
+        data-testid="files-location-use-default"
+        className={`text-xs ${subtextCls} hover:opacity-80 underline`}
+      >
+        Use default ({defaultPath})
+      </button>
+    </div>
+  )
+}
 
 function ThemeStep({
   darkMode,
