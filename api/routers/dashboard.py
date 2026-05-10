@@ -1,9 +1,10 @@
 import asyncio
 import json
 import re as _re
+import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from config import OSTK_DIR
 from services.ostk import ostk, OstkError
@@ -14,6 +15,9 @@ from services.task_visibility import (
     is_session_task,
     is_visible_task,
 )
+from services.dashboard_events import bus as _dashboard_bus
+
+_SERVER_START = time.time()
 
 router = APIRouter(tags=["dashboard"])
 
@@ -327,3 +331,89 @@ async def get_session_diff():
             "audit_total": 0,
         }
     return diff
+
+
+# ---------------------------------------------------------------------------
+# Real-time dashboard data WebSocket feed (→1131)
+# ---------------------------------------------------------------------------
+
+
+async def _build_dashboard_snapshot() -> dict:
+    """Compute real-time dashboard counts: active agents, running tasks, uptime."""
+    from routers.agents import agent_metadata
+    from services.agent_filters import is_user_spawned_agent
+
+    active_count = sum(
+        1
+        for name, meta in agent_metadata.items()
+        if is_user_spawned_agent({"name": name, **meta})
+        and meta.get("status") == "running"
+    )
+
+    try:
+        all_tasks = await ostk.list_tasks()
+        tasks_count = sum(1 for t in all_tasks if t.get("status") == "in_progress")
+    except OstkError:
+        tasks_count = 0
+
+    return {
+        "active_agents": active_count,
+        "running_tasks": tasks_count,
+        "system_uptime": int(time.time() - _SERVER_START),
+        "last_sync_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def _publish_dashboard_state() -> None:
+    """Recompute dashboard data and push to WS subscribers. Best-effort."""
+    try:
+        data = await _build_dashboard_snapshot()
+        await _dashboard_bus.publish("snapshot", data)
+    except Exception:
+        pass
+
+
+@router.get("/coordination/dashboard")
+async def get_coordination_dashboard():
+    """Fallback HTTP endpoint for dashboard data when WS is unavailable."""
+    return await _build_dashboard_snapshot()
+
+
+@router.websocket("/ws/dashboard/data")
+async def dashboard_data_ws(websocket: WebSocket) -> None:
+    """Push real-time dashboard counts to clients.
+
+    On connect: sends one snapshot frame with active_agents, running_tasks,
+    system_uptime, and last_sync_at. Then sends a fresh snapshot every 5 s
+    via the DashboardEventBus. Also subscribes to the bus so future callers
+    of _publish_dashboard_state (e.g. agent lifecycle hooks) get instant
+    delivery without waiting for the 5 s tick.
+    """
+    await websocket.accept()
+
+    async def _periodic_publish() -> None:
+        while True:
+            await asyncio.sleep(5)
+            await _publish_dashboard_state()
+
+    periodic_task = asyncio.create_task(_periodic_publish())
+    try:
+        data = await _build_dashboard_snapshot()
+        await websocket.send_json({"type": "snapshot", **data})
+
+        async with _dashboard_bus.subscribe() as q:
+            while True:
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=15.0)
+                    if event.type == "snapshot":
+                        await websocket.send_json({"type": "snapshot", **event.payload})
+                    else:
+                        await websocket.send_json({"type": "delta", **event.payload})
+                except asyncio.TimeoutError:
+                    await websocket.send_json({"type": "ping"})
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        periodic_task.cancel()
