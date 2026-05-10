@@ -123,3 +123,37 @@ def test_mailbox_instruction_has_no_budget_sentinel():
             f"{fn_name} must not embed a '\"budget\":5' sentinel (any spacing) "
             "in the registration curl example."
         )
+
+
+# ---------------------------------------------------------------------------
+# AgentSpawn model: default budget must be None, not a numeric cap
+# ---------------------------------------------------------------------------
+
+def test_agent_spawn_default_budget_is_none():
+    """AgentSpawn().budget must default to None, not a numeric cap.
+
+    When the model defaults to e.g. 2.0, every register call stores
+    "budget":"2.0" in agent metadata. Subagents reading their own metadata
+    via /api/agents see this cap and bail prematurely even though
+    --max-budget-usd is never passed to the claude subprocess on
+    subscription auth. None means "no cap injected unless explicitly set."
+    """
+    import sys
+    for key in list(sys.modules.keys()):
+        if "models.schemas" in key or key == "schemas":
+            sys.modules.pop(key, None)
+
+    sys.path.insert(0, str(AGENTS_PY_PATH.parent.parent))
+    try:
+        from models.schemas import AgentSpawn
+        assert AgentSpawn(name="test").budget is None, (
+            "AgentSpawn.budget must default to None. A numeric default "
+            "(e.g. 2.0) causes agents to store a budget cap in their metadata "
+            "and bail prematurely on subscription auth."
+        )
+    except ImportError:
+        source = (AGENTS_PY_PATH.parent.parent / "models" / "schemas.py").read_text()
+        assert "budget: float = " not in source, (
+            "AgentSpawn.budget must not have a numeric float default. "
+            "Change to Optional[float] = None."
+        )

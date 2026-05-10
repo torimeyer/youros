@@ -4780,11 +4780,12 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             "status": "running",
             "spawned_at": now_spawn,
             "last_heartbeat_at": now_spawn,
-            "budget": str(body.budget),
             "model": model,
             "pid": proc.pid,
             "tokens_used": 0,
         }
+        if body.budget is not None:
+            spawn_meta["budget"] = str(body.budget)
         if body.token_limit is not None:
             spawn_meta["token_limit"] = body.token_limit
         # Record the resolved template name so completion hooks (e.g. the
@@ -4891,7 +4892,9 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
 
         # Log to audit
         try:
-            audit_data = {"name": body.name, "model": model, "budget": str(body.budget)}
+            audit_data: dict = {"name": body.name, "model": model}
+            if body.budget is not None:
+                audit_data["budget"] = str(body.budget)
             if request:
                 from services import enterprise_store
                 if enterprise_store.is_enterprise():
@@ -4974,17 +4977,19 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                 )
                 active_agents[body.name] = proc
                 now_iso = datetime.now(timezone.utc).isoformat()
-                agent_metadata[body.name] = {
+                _retry_meta: dict = {
                     "status": "running",
                     "spawned_at": now_iso,
                     "last_heartbeat_at": now_iso,
-                    "budget": str(body.budget),
                     "model": model,
                     "pid": proc.pid,
                     "tokens_used": 0,
                     "source": body.source or "api",
                     "recovery_note": "claude_bin_stale_retry",
                 }
+                if body.budget is not None:
+                    _retry_meta["budget"] = str(body.budget)
+                agent_metadata[body.name] = _retry_meta
                 await _save_agent_state_async()
                 return {
                     "result": f"Agent '{body.name}' spawned (retry)",
@@ -5454,7 +5459,6 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     model = spawn_time_model or resolved_model
     record: dict = {
         "spawned_at": spawned_at,
-        "budget": str(body.budget),
         "model": model,
         "source": body.source,
         "status": status,
@@ -5464,6 +5468,10 @@ async def register_agent(body: AgentSpawn, request: Request = None):
         "last_heartbeat_at": now_iso,
         "tokens_used": existing.get("tokens_used", 0),
     }
+    if body.budget is not None:
+        record["budget"] = str(body.budget)
+    elif existing.get("budget"):
+        record["budget"] = existing["budget"]
     if body.token_limit is not None:
         record["token_limit"] = body.token_limit
     elif existing.get("token_limit") is not None:
@@ -5593,7 +5601,9 @@ async def register_agent(body: AgentSpawn, request: Request = None):
 
     # Log to audit
     try:
-        audit_data = {"name": body.name, "model": model, "budget": str(body.budget)}
+        audit_data: dict = {"name": body.name, "model": model}
+        if body.budget is not None:
+            audit_data["budget"] = str(body.budget)
         if request:
             from services import enterprise_store
             if enterprise_store.is_enterprise():
