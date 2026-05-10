@@ -4236,6 +4236,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             try:
                 from services.spawn_isolation import (
                     create_worktree as _create_worktree,
+                    short_cwd_for_worktree as _short_cwd_for_worktree,
                     sync_claude_dir_to_worktree as _sync,
                 )
                 _wt_ok, _wt_err = await _create_worktree(
@@ -4245,7 +4246,13 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     wt_path=_wt_path,
                 )
                 if _wt_ok:
-                    _spawn_cwd = str(_wt_path)
+                    # Cap cwd so <cwd>/.ostk/ostk.sock fits macOS sun_path (104).
+                    # Long agent names + nested .claude/worktrees/agent-<name>/
+                    # otherwise blow past the limit, the ostk daemon's bind()
+                    # fails, and the MCP server falls back to degraded mode
+                    # without bash/read/fs_ops — which silently pushes the
+                    # subagent onto native tools and reintroduces the cwd-leak.
+                    _spawn_cwd = _short_cwd_for_worktree(_wt_path)
                     _spawn_env["OSTK_PROJECT_ROOT"] = str(_wt_path)
                     _spawn_env["OSTK_ROOT"] = str(_wt_path)
                     # CLAUDE_PROJECT_DIR is inherited from the parent env
