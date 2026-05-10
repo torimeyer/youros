@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from services.atomic_io import atomic_write_json
+from services.workflow_events import bus as _wf_bus
 
 MYOS_DIR = Path.home() / ".myos"
 WORKFLOWS_FILE = MYOS_DIR / "workflows.json"
@@ -251,6 +252,7 @@ async def run_workflow(workflow_id: str) -> dict:
     wf["completed_at"] = None
     wf["run_started_at"] = datetime.now(timezone.utc).isoformat()
     await _persist_workflow(workflow_id, wf)
+    asyncio.create_task(_wf_bus.publish("delta", {"id": workflow_id}))
 
     # Build a map for quick lookup
     step_map: dict[str, dict] = {s["id"]: s for s in wf["steps"]}
@@ -267,6 +269,7 @@ async def run_workflow(workflow_id: str) -> dict:
         step["status"] = STEP_RUNNING
         step["started_at"] = datetime.now(timezone.utc).isoformat()
         await _persist_workflow(workflow_id, wf)
+        asyncio.create_task(_wf_bus.publish("delta", {"id": workflow_id}))
 
         try:
             from routers.agents import spawn_agent
@@ -306,6 +309,7 @@ async def run_workflow(workflow_id: str) -> dict:
         finally:
             step["finished_at"] = datetime.now(timezone.utc).isoformat()
             await _persist_workflow(workflow_id, wf)
+            asyncio.create_task(_wf_bus.publish("delta", {"id": workflow_id}))
 
     # Iteratively run waves of steps whose dependencies are all satisfied
     all_ids = set(step_map.keys())
@@ -396,6 +400,7 @@ async def run_workflow(workflow_id: str) -> dict:
     wf["run_history"] = run_history
 
     await _persist_workflow(workflow_id, wf)
+    asyncio.create_task(_wf_bus.publish("delta", {"id": workflow_id}))
 
     # Files tab artifact + follow-up tasks. Every workflow run writes a
     # rollup markdown file to ~/.myos/files/ so the run shows up on

@@ -3,7 +3,7 @@
 import asyncio
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from services import recent_deletes
@@ -241,3 +241,44 @@ async def delete_one_workflow(workflow_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
     recent_deletes.record_id(f"workflow:{workflow_id}")
     return {"result": f"Workflow '{workflow_id}' deleted"}
+
+
+@router.websocket("/ws/workflows/state")
+async def workflows_state_ws(websocket: WebSocket) -> None:
+    """Push workflow list to clients in real time.
+
+    On connect: sends one snapshot frame with all current workflows.
+    On every workflow status change (started, step update, completed): sends a
+    delta frame with the recomputed full list so the client can replace state.
+    Sends a keepalive ping every 15 seconds.
+    """
+    from services.workflow_events import bus as _wf_bus
+
+    await websocket.accept()
+    keepalive: asyncio.Task | None = None
+
+    async def _keepalive() -> None:
+        while True:
+            await asyncio.sleep(15)
+            try:
+                await websocket.send_json({"type": "ping"})
+            except Exception:
+                break
+
+    try:
+        await websocket.send_json({"type": "snapshot", "workflows": list_workflows()})
+        keepalive = asyncio.create_task(_keepalive())
+        async with _wf_bus.subscribe() as q:
+            while True:
+                try:
+                    await asyncio.wait_for(q.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                await websocket.send_json({"type": "delta", "workflows": list_workflows()})
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        if keepalive:
+            keepalive.cancel()

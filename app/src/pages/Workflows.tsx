@@ -4,6 +4,7 @@ import TopBar from '../components/TopBar'
 import Icon from '../components/Icon'
 import { api } from '../lib/api'
 import { Button, EmptyState, Card, ErrorBanner } from '../components/ui'
+import { useWorkflowsStore } from '../stores/workflowsStore'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -593,6 +594,33 @@ export default function Workflows() {
     const interval = setInterval(fetchWorkflows, 3000)
     return () => clearInterval(interval)
   }, [fetchWorkflows])
+
+  // Real-time fast path: subscribe to /ws/workflows/state and push updates
+  // into the store. The HTTP poll above remains as a safety net when WS drops.
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws/workflows/state`)
+    ws.onmessage = (evt: MessageEvent) => {
+      try {
+        const frame = JSON.parse(evt.data as string) as { type: string; workflows?: Workflow[] }
+        if ((frame.type === 'snapshot' || frame.type === 'delta') && Array.isArray(frame.workflows)) {
+          useWorkflowsStore.getState().setWorkflows(frame.workflows)
+        }
+      } catch {
+        // ignore malformed frames
+      }
+    }
+    return () => ws.close()
+  }, [])
+
+  // Merge WS store data into local state whenever the store updates.
+  // Fires within one WS delta (~50 ms) instead of waiting up to 3 s for the
+  // HTTP poll. The poll keeps running as a safety net.
+  const storeWorkflows = useWorkflowsStore((s) => s.workflows)
+  useEffect(() => {
+    if (storeWorkflows.length === 0) return
+    setWorkflows(storeWorkflows as Workflow[])
+  }, [storeWorkflows])
 
   // Keep selected workflow in sync with polled data
   useEffect(() => {

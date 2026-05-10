@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Workflows from './Workflows'
+import { useWorkflowsStore } from '../stores/workflowsStore'
 
 // Mock the api module so we can inspect calls and simulate responses.
 vi.mock('../lib/api', () => ({
@@ -13,6 +14,21 @@ vi.mock('../lib/api', () => ({
     delete: vi.fn(),
   },
 }))
+
+// Silence WebSocket connection attempts — Workflows.tsx opens one for the
+// real-time feed; jsdom does not support WebSocket. Never fires onopen so
+// the component falls back to HTTP poll, letting us inject state via the store.
+vi.stubGlobal(
+  'WebSocket',
+  vi.fn(function MockWebSocket(this: Record<string, unknown>) {
+    this.onmessage = null
+    this.onclose = null
+    this.onerror = null
+    this.onopen = null
+    this.close = vi.fn()
+    this.readyState = 0
+  }),
+)
 
 // jsdom does not provide window.matchMedia. Stub it so components that
 // use responsive breakpoints do not crash.
@@ -259,5 +275,59 @@ describe('Workflows page Run handler', () => {
     await waitFor(() => {
       expect(screen.getByTestId('error-banner')).toBeInTheDocument()
     })
+  })
+})
+
+describe('Workflows page: real-time status via WS store (→1126)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useWorkflowsStore.setState({ workflows: [] })
+    primeMocks()
+  })
+
+  it('updates workflow status immediately when WS store delivers a delta', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Daily standup')).toBeInTheDocument()
+    })
+
+    // Initial status is pending — badge shows "Waiting"
+    expect(screen.getByText('Waiting')).toBeInTheDocument()
+
+    // Simulate WS delta: workflow is now running
+    act(() => {
+      useWorkflowsStore.getState().setWorkflows([
+        { ...standupWorkflow, status: 'running' },
+      ])
+    })
+
+    await waitFor(
+      () => {
+        expect(screen.getByText('Running')).toBeInTheDocument()
+      },
+      { timeout: 1000 },
+    )
+  })
+
+  it('shows done status when WS delivers a completed workflow', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Daily standup')).toBeInTheDocument()
+    })
+
+    act(() => {
+      useWorkflowsStore.getState().setWorkflows([
+        { ...standupWorkflow, status: 'done' },
+      ])
+    })
+
+    await waitFor(
+      () => {
+        expect(screen.getByText('Done')).toBeInTheDocument()
+      },
+      { timeout: 1000 },
+    )
   })
 })
