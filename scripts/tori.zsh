@@ -44,12 +44,12 @@ tori() {
       # latest; -m 15 left users on the old binary with no warning). 120s is
       # generous for typical home connections; --connect-timeout 5 still bails
       # fast when GitHub is unreachable.
-      local url="https://github.com/os-tack/ostk.ai/releases/download/v${ostk_latest}/ostk-${ostk_latest}-darwin-universal.tar.gz"
+      local url="https://github.com/os-tack/ostk.ai/releases/download/v${ostk_latest}/ostk-${ostk_latest}-aarch64-apple-darwin-fuse.tar.gz"
       local _dl_err=""
-      if ! curl -fsL --connect-timeout 5 -m 120 "$url" -o /tmp/ostk-update.tar.gz 2>/tmp/ostk-update.err; then
+      if ! curl -fSL --connect-timeout 5 -m 120 "$url" -o /tmp/ostk-update.tar.gz 2>/tmp/ostk-update.err; then
         _dl_err=$(cat /tmp/ostk-update.err 2>/dev/null)
         url="https://github.com/os-tack/ostk.ai/releases/download/v${ostk_latest}/ostk-v${ostk_latest}-aarch64-apple-darwin.tar.gz"
-        if ! curl -fsL --connect-timeout 5 -m 120 "$url" -o /tmp/ostk-update.tar.gz 2>/tmp/ostk-update.err; then
+        if ! curl -fSL --connect-timeout 5 -m 120 "$url" -o /tmp/ostk-update.tar.gz 2>/tmp/ostk-update.err; then
           _dl_err="$_dl_err; fallback: $(cat /tmp/ostk-update.err 2>/dev/null)"
           printf '\033[38;2;255;80;80m  ✗ ostk download failed: %s\033[0m\n' "$_dl_err"
         fi

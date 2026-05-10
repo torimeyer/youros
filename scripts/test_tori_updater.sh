@@ -4,8 +4,8 @@
 # Enforces static invariants so known bugs cannot regress:
 #   1. tori() MUST invoke "command claude update" (not npm).
 #   2. tori() MUST NOT invoke "npm install -g @anthropic-ai/claude-code".
-#   3. tori() MUST try "darwin-universal" for ostk downloads (v3.0.0+ naming).
-#   4. tori() MUST NOT hardcode "aarch64-apple-darwin" as the only download path.
+#   3. tori() MUST try "aarch64-apple-darwin-fuse" for ostk downloads (v6.0.0+ naming).
+#   4. tori() MUST NOT use "curl -fsL" (silences errors; use -fSL instead).
 #   5. tori() MUST run "ostk boot" visibly (not redirected to /dev/null).
 
 set -u
@@ -52,20 +52,20 @@ if grep -qF 'npm install -g @anthropic-ai/claude-code' <<<"$tori_body"; then
   fail=1
 fi
 
-# Invariant 3: must try "darwin-universal" for ostk downloads.
-# v3.0.0 switched from per-arch tarballs to a universal macOS binary.
-if ! grep -qF 'darwin-universal' <<<"$tori_body"; then
-  echo "FAIL: tori() does not try 'darwin-universal' for ostk downloads." >&2
-  echo "      ostk v3.0.0+ ships a universal macOS binary. The old" >&2
-  echo "      aarch64-apple-darwin naming returns 404 on new releases." >&2
+# Invariant 3: must try "aarch64-apple-darwin-fuse" for ostk downloads.
+# v6.0.0 switched from darwin-universal to aarch64-apple-darwin-fuse (no v-prefix).
+if ! grep -qF 'aarch64-apple-darwin-fuse' <<<"$tori_body"; then
+  echo "FAIL: tori() does not try 'aarch64-apple-darwin-fuse' for ostk downloads." >&2
+  echo "      ostk v6.0.0+ ships ostk-X.Y.Z-aarch64-apple-darwin-fuse.tar.gz." >&2
+  echo "      The old darwin-universal pattern returns 404 on v6+ releases." >&2
   fail=1
 fi
 
-# Invariant 4: must NOT hardcode aarch64-apple-darwin as the ONLY download path.
-# It is OK as a fallback, but "darwin-universal" must appear first.
-if grep -qF 'local arch="aarch64-apple-darwin"' <<<"$tori_body"; then
-  echo "FAIL: tori() hardcodes arch='aarch64-apple-darwin' as the sole" >&2
-  echo "      download target. ostk v3.0.0+ uses darwin-universal." >&2
+# Invariant 4: must NOT silence curl errors with lowercase -s in the upgrade block.
+# -fsL silences curl error messages; -fSL shows them so users see why downloads fail.
+if grep -qF 'curl -fsL' <<<"$tori_body"; then
+  echo "FAIL: tori() uses 'curl -fsL' which silences error output." >&2
+  echo "      Use 'curl -fSL' so download errors surface to the user." >&2
   fail=1
 fi
 
@@ -81,5 +81,5 @@ if [[ "$fail" -ne 0 ]]; then
   exit 1
 fi
 
-echo "PASS: tori() updater invariants hold (claude update, darwin-universal, visible boot)."
+echo "PASS: tori() updater invariants hold (claude update, aarch64-apple-darwin-fuse, -fSL, visible boot)."
 exit 0

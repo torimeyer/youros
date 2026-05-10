@@ -53,3 +53,21 @@ if [[ "$OUT" != *"$VERSION"* ]]; then
 fi
 
 echo "PASS: tori() ostk update logic works on v${VERSION} tarball"
+
+# Static assertions: verify tori.zsh contains v6 asset name and non-silent curl flag.
+TORI_ZSH="$(cd "$(dirname "$0")" && pwd)/tori.zsh"
+if [[ -f "$TORI_ZSH" ]]; then
+  if ! grep -qF 'aarch64-apple-darwin-fuse' "$TORI_ZSH"; then
+    echo "FAIL: tori.zsh does not contain 'aarch64-apple-darwin-fuse' (v6 primary asset name)"
+    exit 1
+  fi
+  if ! grep -qF 'curl -fSL' "$TORI_ZSH"; then
+    echo "FAIL: tori.zsh does not use 'curl -fSL' (needed to surface download errors)"
+    exit 1
+  fi
+  if grep -qF 'curl -fsL' "$TORI_ZSH"; then
+    echo "FAIL: tori.zsh still has 'curl -fsL' which silences curl errors"
+    exit 1
+  fi
+  echo "PASS: tori.zsh static assertions hold (aarch64-apple-darwin-fuse, -fSL)"
+fi
