@@ -3,16 +3,14 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import TimeFilter, { type TimePeriod } from "./TimeFilter";
 
 describe("TimeFilter", () => {
-  it("renders 4 pills with correct labels", () => {
+  it("renders 3 pills with correct labels", () => {
     render(<TimeFilter value="week" onChange={vi.fn()} />);
     expect(screen.getByTestId("time-filter-today")).toBeInTheDocument();
     expect(screen.getByTestId("time-filter-week")).toBeInTheDocument();
     expect(screen.getByTestId("time-filter-month")).toBeInTheDocument();
-    expect(screen.getByTestId("time-filter-all")).toBeInTheDocument();
     expect(screen.getByText("Today")).toBeInTheDocument();
     expect(screen.getByText("This Week")).toBeInTheDocument();
     expect(screen.getByText("This Month")).toBeInTheDocument();
-    expect(screen.getByText("All Time")).toBeInTheDocument();
   });
 
   it("marks the active pill with aria-checked=true", () => {
@@ -39,9 +37,9 @@ describe("TimeFilter", () => {
   it("calls onChange when Space is pressed on a focused pill", () => {
     const handler = vi.fn();
     render(<TimeFilter value="week" onChange={handler} />);
-    const pill = screen.getByTestId("time-filter-all");
+    const pill = screen.getByTestId("time-filter-month");
     fireEvent.keyDown(pill, { key: " " });
-    expect(handler).toHaveBeenCalledWith("all");
+    expect(handler).toHaveBeenCalledWith("month");
   });
 
   it("ArrowRight moves selection to next pill", () => {
@@ -55,16 +53,16 @@ describe("TimeFilter", () => {
     const handler = vi.fn();
     render(<TimeFilter value="today" onChange={handler} />);
     fireEvent.keyDown(screen.getByTestId("time-filter-today"), { key: "ArrowLeft" });
-    expect(handler).toHaveBeenCalledWith("all");
+    expect(handler).toHaveBeenCalledWith("month");
   });
 
   it("supports custom labels override", () => {
     render(
-      <TimeFilter value="all" onChange={vi.fn()} labels={{ all: "Everything" }} />
+      <TimeFilter value="today" onChange={vi.fn()} labels={{ today: "Now" }} />
     );
-    expect(screen.getByText("Everything")).toBeInTheDocument();
+    expect(screen.getByText("Now")).toBeInTheDocument();
     // Other labels stay default
-    expect(screen.getByText("Today")).toBeInTheDocument();
+    expect(screen.getByText("This Week")).toBeInTheDocument();
   });
 
   it("has role=radiogroup on container and role=radio on each pill", () => {
@@ -72,6 +70,6 @@ describe("TimeFilter", () => {
     const group = screen.getByRole("radiogroup");
     expect(group).toBeInTheDocument();
     const radios = screen.getAllByRole("radio");
-    expect(radios).toHaveLength(4);
+    expect(radios).toHaveLength(3);
   });
 });

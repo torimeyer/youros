@@ -1,18 +1,17 @@
 import { useEffect, useRef } from "react";
 
-export type TimePeriod = "today" | "week" | "month" | "all";
+export type TimePeriod = "today" | "week" | "month";
 
 export const DEFAULT_TIME_LABELS: Record<TimePeriod, string> = {
   today: "Today",
   week: "This Week",
   month: "This Month",
-  all: "All Time",
 };
 
-export const TIME_PERIOD_ORDER: TimePeriod[] = ["today", "week", "month", "all"];
+export const TIME_PERIOD_ORDER: TimePeriod[] = ["today", "week", "month"];
 
 interface TimeFilterProps {
-  value: TimePeriod;
+  value: string;
   onChange: (period: TimePeriod) => void;
   labels?: Partial<Record<TimePeriod, string>>;
 }
@@ -43,7 +42,7 @@ export default function TimeFilter({ value, onChange, labels }: TimeFilterProps)
     }
   }
 
-  function focusPill(period: TimePeriod) {
+  function focusPill(period: string) {
     if (containerRef.current) {
       const btn = containerRef.current.querySelector<HTMLButtonElement>(
         `[data-period="${period}"]`

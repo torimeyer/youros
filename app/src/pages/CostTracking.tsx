@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties }
 import { Link, useNavigate } from 'react-router-dom'
 import TopBar from '../components/TopBar'
 import Icon from '../components/Icon'
-import TimeFilter, { type TimePeriod } from '../components/TimeFilter'
+import TimeFilter from '../components/TimeFilter'
 import { api } from '../lib/api'
 import { useAppStore } from '../stores/app'
 
@@ -587,7 +587,7 @@ function InfoTooltip({ text }: { text: string }) {
   )
 }
 
-type Period = TimePeriod
+type Period = 'today' | 'week' | 'month'
 
 interface ModelBreakdown {
   model: string
@@ -674,7 +674,6 @@ const periodLabels: Record<Period, string> = {
   today: 'Today',
   week: 'This Week',
   month: 'This Month',
-  all: 'All Time',
 }
 
 const modelColors: Record<string, string> = {
@@ -816,7 +815,7 @@ export default function CostTracking() {
   // Period is read first so savings seed uses the correct per-period cache key.
   const [period, setPeriod] = useState<Period>(() => {
     const saved = localStorage.getItem('myos_cost_period') as Period | null
-    return saved === 'today' || saved === 'week' || saved === 'month' || saved === 'all' ? saved : 'week'
+    return saved === 'today' || saved === 'week' || saved === 'month' ? saved : 'week'
   })
   // Seed from localStorage (per-period first, then legacy global) so both
   // first paint and every filter swap are instant.
@@ -1017,7 +1016,7 @@ export default function CostTracking() {
             onClick={() => setActiveTab('spending')}
             className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'spending' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white'}`}
           >
-            AI Spending
+            Spending
           </button>
           <button
             data-testid="tab-whats-working"
@@ -1160,6 +1159,7 @@ export default function CostTracking() {
             value={period}
             onChange={(p) => { setPeriod(p); localStorage.setItem('myos_cost_period', p) }}
           />
+          <p className="text-xs text-slate-500 mt-2">These are estimates based on per-token pricing for each model.</p>
         </div>
 
         {loading && !data ? (

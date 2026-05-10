@@ -133,9 +133,9 @@ describe('CostTracking page', () => {
     localStorage.clear()
   })
 
-  it('renders the page heading', async () => {
+  it('renders the spending tab', async () => {
     renderCostTracking()
-    expect(screen.getByText('AI Spending')).toBeInTheDocument()
+    expect(screen.getByTestId('tab-spending')).toBeInTheDocument()
   })
 
   it('page title bar shows "Usage"', async () => {
@@ -149,7 +149,6 @@ describe('CostTracking page', () => {
     expect(screen.getByText('Today')).toBeInTheDocument()
     expect(screen.getByText('This Week')).toBeInTheDocument()
     expect(screen.getByText('This Month')).toBeInTheDocument()
-    expect(screen.getByText('All Time')).toBeInTheDocument()
   })
 
   it('switches period when clicking filter button', async () => {
@@ -326,10 +325,10 @@ describe('CostTracking page', () => {
       return Promise.resolve(mockCostData)
     })
 
-    localStorage.setItem('myos_cost_period', 'all')
+    localStorage.setItem('myos_cost_period', 'month')
     renderCostTracking()
 
-    // Initial "all" load -- wait for summary card
+    // Initial "month" load -- wait for summary card
     await waitFor(() => expect(screen.getByTestId('summary-card')).toBeInTheDocument())
 
     // Click Week (will be slow)
@@ -373,8 +372,8 @@ describe('CostTracking page', () => {
       return Promise.resolve(mockCostData)
     })
 
-    // Start on 'all' so the initial load resolves via the fallback (mockCostData).
-    localStorage.setItem('myos_cost_period', 'all')
+    // Start on 'today' so the initial load resolves immediately via the mocked handler.
+    localStorage.setItem('myos_cost_period', 'today')
     renderCostTracking()
     await waitFor(() => expect(screen.getByTestId('summary-card')).toBeInTheDocument())
 
@@ -733,7 +732,6 @@ describe('CostTracking page', () => {
     expect(screen.getByTestId('time-filter-today')).toBeInTheDocument()
     expect(screen.getByTestId('time-filter-week')).toBeInTheDocument()
     expect(screen.getByTestId('time-filter-month')).toBeInTheDocument()
-    expect(screen.getByTestId('time-filter-all')).toBeInTheDocument()
   })
 
   it('clicking "This Week" pill fetches with period=week', async () => {
@@ -744,14 +742,14 @@ describe('CostTracking page', () => {
     })
   })
 
-  it('switching from All Time to This Week triggers a new savings fetch with ?period=week', async () => {
-    // Start on "all" so the initial mount fetches period=all
-    localStorage.setItem('myos_cost_period', 'all')
+  it('switching from This Month to This Week triggers a new savings fetch with ?period=week', async () => {
+    // Start on "month" so the initial mount fetches period=month
+    localStorage.setItem('myos_cost_period', 'month')
     renderCostTracking()
 
-    // Wait for the initial savings fetch with period=all
+    // Wait for the initial savings fetch with period=month
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/costs/savings?period=all')
+      expect(mockedApiGet).toHaveBeenCalledWith('/costs/savings?period=month')
     })
 
     vi.clearAllMocks()
@@ -766,11 +764,11 @@ describe('CostTracking page', () => {
   })
 
   it('savings fetch uses the current period query param for each pill', async () => {
-    localStorage.setItem('myos_cost_period', 'all')
+    localStorage.setItem('myos_cost_period', 'month')
     renderCostTracking()
 
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/costs/savings?period=all')
+      expect(mockedApiGet).toHaveBeenCalledWith('/costs/savings?period=month')
     })
 
     vi.clearAllMocks()
@@ -795,7 +793,7 @@ describe('CostTracking page', () => {
     ) as never)
     renderCostTracking()
     await waitFor(() => {
-      expect(screen.getByText(/AI Spending/)).toBeInTheDocument()
+      expect(screen.getByTestId('tab-spending')).toBeInTheDocument()
     })
     // Wait for API data to load
     await waitFor(() => {
@@ -975,17 +973,17 @@ describe('CostTracking page', () => {
   })
 
   it('writes per-period cache so swapping back is instant', async () => {
-    localStorage.setItem('myos_cost_period', 'all')
+    localStorage.setItem('myos_cost_period', 'month')
     renderCostTracking()
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/costs?period=all')
+      expect(mockedApiGet).toHaveBeenCalledWith('/costs?period=month')
     })
     // After the initial load, a per-period cache entry must exist so a
-    // later swap back to "all" can paint instantly from localStorage.
+    // later swap back to "month" can paint instantly from localStorage.
     await waitFor(() => {
-      expect(localStorage.getItem('myos_cost_data_cache_all')).toBeTruthy()
+      expect(localStorage.getItem('myos_cost_data_cache_month')).toBeTruthy()
     })
-    const stored = JSON.parse(localStorage.getItem('myos_cost_data_cache_all') || '{}')
+    const stored = JSON.parse(localStorage.getItem('myos_cost_data_cache_month') || '{}')
     expect(stored.event_count).toBe(mockCostData.event_count)
   })
 

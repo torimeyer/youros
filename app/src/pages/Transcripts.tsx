@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
-import TimeFilter, { type TimePeriod } from "../components/TimeFilter";
+import TimeFilter from "../components/TimeFilter";
 import { api } from "../lib/api";
 import SharePopover from "../components/SharePopover";
 import { renderMarkdown } from "../lib/markdown";
@@ -51,7 +51,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-type DateRange = TimePeriod;
+type DateRange = 'today' | 'week' | 'month' | 'all';
 
 interface TranscriptListResponse {
   transcripts: TranscriptSummary[];
