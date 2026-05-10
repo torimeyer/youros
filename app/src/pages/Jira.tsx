@@ -76,6 +76,7 @@ export default function Jira() {
   const [connectSite, setConnectSite] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
+  const [needledKeys, setNeedledKeys] = useState<Set<string>>(new Set())
   const [oauthAvailable, setOauthAvailable] = useState(false)
   const [forceTokenForm, setForceTokenForm] = useState(false)
 
@@ -173,6 +174,15 @@ export default function Jira() {
       setStatus({ connected: false, email: '', site: '' })
       setIssues([])
       setDetail(null)
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleTrackInMyOS = async (issueKey: string) => {
+    try {
+      await api.post('/atlassian/jira/promote', { key: issueKey })
+      setNeedledKeys((prev) => new Set([...prev, issueKey]))
     } catch {
       // ignore
     }
@@ -312,15 +322,29 @@ export default function Jira() {
                   </div>
                   <h1 className="text-lg font-semibold">{detail.summary}</h1>
                 </div>
-                <a
-                  href={detail.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="shrink-0 p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
-                  title="Open in Jira"
-                >
-                  <Icon name="open_in_new" size={16} className="text-slate-400" />
-                </a>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    data-testid={`jira-needle-${detail.key}`}
+                    onClick={() => handleTrackInMyOS(detail.key)}
+                    title="track this in myOS"
+                    className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                  >
+                    <Icon
+                      name="add_task"
+                      size={16}
+                      className={needledKeys.has(detail.key) ? 'text-green-400' : 'text-slate-400'}
+                    />
+                  </button>
+                  <a
+                    href={detail.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                    title="Open in Jira"
+                  >
+                    <Icon name="open_in_new" size={16} className="text-slate-400" />
+                  </a>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs text-slate-400 mb-6">

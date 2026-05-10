@@ -32,6 +32,7 @@ Object.defineProperty(window, 'matchMedia', {
 import { api } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
+const mockedApiPost = vi.mocked(api.post)
 
 function renderJira(initialPath = '/jira') {
   return render(
@@ -245,6 +246,45 @@ describe('Jira page', () => {
     })
     expect(screen.getByTestId('jira-jira-url').textContent).toBe('https://example.atlassian.net/jira')
     expect(screen.getByTestId('jira-confluence-url').textContent).toBe('https://example.atlassian.net/wiki')
+  })
+
+  it('needle button calls /atlassian/jira/promote with the issue key', async () => {
+    const detail = {
+      key: 'PROJ-42',
+      summary: 'Fix the login flow',
+      description_html: '<p>Details</p>',
+      status: 'In Progress',
+      priority: 'High',
+      type: 'Bug',
+      assignee: 'Tori Meyer',
+      reporter: 'Alice',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-04-29T00:00:00Z',
+      url: 'https://example.atlassian.net/browse/PROJ-42',
+      comments: [],
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/atlassian/status')) {
+        return Promise.resolve({ connected: true, email: 'user@example.com', site: 'example.atlassian.net' })
+      }
+      if (path.includes('/atlassian/jira/issue/PROJ-42')) {
+        return Promise.resolve(detail)
+      }
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ ok: true, task_id: '999' })
+
+    renderJira('/jira/PROJ-42')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('jira-needle-PROJ-42')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('jira-needle-PROJ-42'))
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/atlassian/jira/promote', { key: 'PROJ-42' })
+    })
   })
 
   it('forceTokenForm is false at mount even after a prior mount-cycle set it true', async () => {
