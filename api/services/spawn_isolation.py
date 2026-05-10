@@ -612,6 +612,56 @@ async def create_worktree(
     return True, ""
 
 
+# macOS sun_path (Unix-domain socket address) is 104 bytes, so the kernel
+# rejects bind() when the sock path is >= 104 chars. The ostk MCP server
+# binds <cwd>/.ostk/ostk.sock, so when cwd is a deeply nested worktree path
+# the bind fails, the kernel falls back to degraded mode, and only static
+# tools register (context/search/recall/nudge). bash/read/fs_ops disappear
+# and the subagent silently falls through to native tools (cwd-leak risk).
+SOCK_SUFFIX_LEN = len("/.ostk/ostk.sock")
+SUN_PATH_MAX = 104
+SHORT_CWD_DIR = "/tmp"
+
+
+def short_cwd_for_worktree(wt_path) -> str:
+    """Return a cwd that keeps <cwd>/.ostk/ostk.sock under macOS SUN_PATH_MAX.
+
+    For short worktree paths (most cases) this is just str(wt_path).
+    For long worktree paths (long agent names + nested .claude/worktrees/)
+    this is a /tmp symlink that resolves to the worktree, so the kernel
+    sees a short cwd and binds a sock path that fits sun_path.
+    """
+    import hashlib
+    import os
+    from pathlib import Path as _P
+
+    wt = _P(wt_path)
+    wt_str = str(wt)
+    if len(wt_str) + SOCK_SUFFIX_LEN < SUN_PATH_MAX:
+        return wt_str
+
+    short_name = hashlib.sha256(wt_str.encode()).hexdigest()[:8]
+    short = _P(SHORT_CWD_DIR) / f"myos-wt-{short_name}"
+    if short.is_symlink() or short.exists():
+        try:
+            short.unlink()
+        except Exception:
+            pass
+    try:
+        os.symlink(wt_str, str(short))
+    except Exception as exc:
+        logger.warning(
+            "spawn.short_cwd.symlink_failed wt=%s short=%s err=%s",
+            wt_str, short, exc,
+        )
+        return wt_str
+    logger.info(
+        "spawn.short_cwd.created wt=%s short=%s wt_len=%d",
+        wt_str, short, len(wt_str),
+    )
+    return str(short)
+
+
 async def remove_worktree(
     *,
     project_root,
