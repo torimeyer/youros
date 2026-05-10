@@ -57,8 +57,18 @@ echo "PASS: tori() ostk update logic works on v${VERSION} tarball"
 # Static assertions: verify tori.zsh contains v6 asset name and non-silent curl flag.
 TORI_ZSH="$(cd "$(dirname "$0")" && pwd)/tori.zsh"
 if [[ -f "$TORI_ZSH" ]]; then
-  if ! grep -qF 'aarch64-apple-darwin-fuse' "$TORI_ZSH"; then
-    echo "FAIL: tori.zsh does not contain 'aarch64-apple-darwin-fuse' (v6 primary asset name)"
+  nonfuse_line=$(grep -nF 'aarch64-apple-darwin.tar.gz"' "$TORI_ZSH" | head -1 | cut -d: -f1)
+  fuse_line=$(grep -nF 'aarch64-apple-darwin-fuse.tar.gz' "$TORI_ZSH" | head -1 | cut -d: -f1)
+  if [[ -z "$nonfuse_line" ]]; then
+    echo "FAIL: tori.zsh does not contain non-fuse aarch64-apple-darwin asset URL"
+    exit 1
+  fi
+  if [[ -z "$fuse_line" ]]; then
+    echo "FAIL: tori.zsh does not contain fuse aarch64-apple-darwin-fuse asset URL"
+    exit 1
+  fi
+  if [[ "$nonfuse_line" -ge "$fuse_line" ]]; then
+    echo "FAIL: non-fuse URL (line $nonfuse_line) must appear before fuse URL (line $fuse_line)"
     exit 1
   fi
   if ! grep -qF 'curl -fSL' "$TORI_ZSH"; then
@@ -69,5 +79,5 @@ if [[ -f "$TORI_ZSH" ]]; then
     echo "FAIL: tori.zsh still has 'curl -fsL' which silences curl errors"
     exit 1
   fi
-  echo "PASS: tori.zsh static assertions hold (aarch64-apple-darwin-fuse, -fSL)"
+  echo "PASS: tori.zsh static assertions hold (non-fuse before fuse, -fSL)"
 fi
