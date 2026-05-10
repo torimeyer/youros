@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Agents, { friendlyAgentName, isMainSession, isUserSpawnedAgent } from './Agents'
 import { agentTitleParts } from '../lib/agentUtils'
@@ -6126,4 +6126,88 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
     // Empty state must NOT be visible: badge counts 2, tab shows 2.
     expect(screen.queryByText('No agents running right now')).toBeNull()
   })
+})
+
+describe('Agents page - chat session isolation (→1095)', () => {
+  // Regression: spawning a new agent under the same name (e.g. "roadmap")
+  // showed prior-session bubbles in the chat thread because the frontend
+  // nudge/reply state was keyed by name and the merge in fetchNudges
+  // re-added old local entries even after the backend purged them.
+  // The fix: track spawned_at per agent and clear local state when it changes.
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+  })
+
+  it('clears prior-session messages when the same agent name is respawned', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+    try {
+      const t1 = '2026-05-09T19:00:00.000Z'
+      const t2 = '2026-05-09T19:26:00.000Z'
+
+      let returnT2 = false
+      mockedApiGet.mockImplementation(async (path: string) => {
+        if (path === '/agents') {
+          if (!returnT2) {
+            return {
+              daemon_running: true, status: 'ok', active: ['roadmap'],
+              agents: [{ name: 'roadmap', status: 'running', source: 'claude-code', model: 'sonnet', budget: '2.00', spawned_at: t1 }],
+            }
+          }
+          // Respawned: same name, new spawned_at, server purged nudges.
+          return {
+            daemon_running: true, status: 'ok', active: ['roadmap'],
+            agents: [{ name: 'roadmap', status: 'running', source: 'claude-code', model: 'sonnet', budget: '2.00', spawned_at: t2 }],
+          }
+        }
+        if (path === '/agents/templates') return { templates: [] }
+        if (path.includes('/nudges')) return { nudges: [], session_nudges: [], replies: [], session_replies: [] }
+        return {}
+      })
+
+      mockedApiPost.mockResolvedValue({
+        result: 'Nudge sent',
+        nudge: { message: 'completed via idle detection', timestamp: '2026-05-09T19:10:00.000Z', source: 'ui', stdin_delivered: false },
+      })
+
+      preExpandAgents('roadmap')
+      render(<MemoryRouter><Agents /></MemoryRouter>)
+
+      // Settle the initial mount fetch (microtasks only, no timer advance needed).
+      await act(async () => { await Promise.resolve() })
+
+      // Agent card should appear.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100)
+      })
+      expect(screen.getByTitle(/^roadmap(\s|$)/)).toBeInTheDocument()
+
+      // Send a message — puts it optimistically in nudgeHistory["roadmap"].
+      const input = screen.getByPlaceholderText('Message roadmap...')
+      fireEvent.change(input, { target: { value: 'completed via idle detection' } })
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
+        await Promise.resolve()
+      })
+
+      // Old-session bubble is now visible.
+      expect(screen.getByText('completed via idle detection')).toBeInTheDocument()
+
+      // Switch the /agents mock to return t2 (simulates the backend respawn).
+      returnT2 = true
+
+      // Advance past the 2s fetchAgents poll interval so it fires with t2.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2500)
+      })
+
+      // After allAgents updates with new spawned_at the cleanup effect fires
+      // and deletes nudgeHistory["roadmap"]. Old bubble must be gone.
+      expect(screen.queryByText('completed via idle detection')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 15000)
 })

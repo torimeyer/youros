@@ -2272,6 +2272,10 @@ export default function Agents() {
   // agent. Used as the ?since= query param so the backend blocks the
   // request until something strictly newer arrives (needle 300).
   const nudgeSinceRef = useRef<Record<string, string>>({});
+  // Tracks the spawned_at seen for each agent name. When it changes the
+  // agent was respawned and local nudge/reply state is stale — cleared
+  // before the next merge so old bubbles don't bleed into a fresh session.
+  const agentSpawnedAtRef = useRef<Record<string, string>>({});
   const [nudgeSending, setNudgeSending] = useState<Record<string, boolean>>({});
   // Per-agent inline error message for the nudge Send flow. Empty
   // string means no error. Shown under the input so a failed send is
@@ -2326,6 +2330,36 @@ export default function Agents() {
 
   // Context pressure per agent (needle 337)
   const [contextPressure, setContextPressure] = useState<Record<string, { available: boolean; pressure_pct?: number }>>({});
+
+  // When an agent is respawned under the same name its spawned_at changes.
+  // The backend purges nudges/replies on spawn, but the frontend keeps
+  // per-name state that the merge in fetchNudges re-adds over the (now
+  // empty) server response. Detect the change here and clear local state
+  // so no prior-session bubbles bleed into the fresh chat thread.
+  useEffect(() => {
+    for (const agent of allAgents) {
+      const name = agent.name;
+      const spawnedAt = agent.spawned_at || agent.timestamp || "";
+      if (!spawnedAt) continue;
+      const prev = agentSpawnedAtRef.current[name];
+      if (prev && prev !== spawnedAt) {
+        setNudgeHistory((h) => {
+          if (!h[name]) return h;
+          const next = { ...h };
+          delete next[name];
+          return next;
+        });
+        setNudgeReplies((r) => {
+          if (!r[name]) return r;
+          const next = { ...r };
+          delete next[name];
+          return next;
+        });
+        delete nudgeSinceRef.current[name];
+      }
+      agentSpawnedAtRef.current[name] = spawnedAt;
+    }
+  }, [allAgents]);
 
   // Fetch nudge history and memory when expanding an agent.
   //
