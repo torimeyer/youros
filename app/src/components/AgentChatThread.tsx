@@ -320,7 +320,7 @@ export function AgentChatThread({
                 <div className="relative max-w-[85%] w-fit">
                   <div
                     data-testid="agent-chat-conversational-bubble"
-                    className="inline-block border px-4 py-3 rounded-xl text-sm text-slate-300 whitespace-pre-line overflow-hidden break-words bg-slate-900 border-slate-700/60"
+                    className="inline-block border px-4 py-3 rounded-xl text-sm text-slate-300 overflow-hidden break-words bg-slate-900 border-slate-700/60"
                   >
                     {renderMarkdown(reply.message)}
                   </div>
@@ -342,7 +342,7 @@ export function AgentChatThread({
               <div className="relative max-w-[85%] w-fit">
                 <div
                   data-testid="agent-chat-assistant-bubble"
-                  className="inline-block border px-4 py-3 rounded-xl text-sm text-slate-300 whitespace-pre-line overflow-hidden break-words bg-slate-900 border-slate-800"
+                  className="inline-block border px-4 py-3 rounded-xl text-sm text-slate-300 overflow-hidden break-words bg-slate-900 border-slate-800"
                 >
                   {renderMarkdown(reply.message)}
                 </div>

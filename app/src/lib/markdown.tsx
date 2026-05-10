@@ -220,7 +220,7 @@ export function renderMarkdown(text: string): React.ReactNode[] {
 
     if (paragraphChildren.length > 0) {
       nodes.push(
-        <p key={`p-${paragraphStart}`} className="my-1">
+        <p key={`p-${paragraphStart}`} className="my-2">
           {paragraphChildren}
         </p>,
       )
