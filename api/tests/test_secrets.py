@@ -158,6 +158,95 @@ async def test_key_status_endpoint_keychain_available(client):
     assert "gemini_source" in data
 
 
+# --- /api/secrets/key-status gemini_enterprise block tests ---
+
+
+@pytest.mark.asyncio
+async def test_key_status_gemini_enterprise_vertex_available(client):
+    """gemini_enterprise block shows available=True via Vertex when ADC is present."""
+    mock_secrets = []
+    vx_result = {
+        "available": True,
+        "project": "test-proj",
+        "identity_email": "user@example.com",
+        "hosted_domain": "example.com",
+        "location": "us-central1",
+    }
+    with patch("routers.secrets.ostk") as mock_ostk, \
+         patch("services.provider_detection.detect_vertex_gemini", return_value=vx_result), \
+         patch("services.google_auth.is_authenticated", return_value=False), \
+         patch.dict("os.environ", {}, clear=False):
+        import os
+        os.environ.pop("VERTEX_SEARCH_DATASTORE", None)
+        os.environ.pop("GOOGLE_CLIENT_ID", None)
+        mock_ostk.secret_list = AsyncMock(return_value=mock_secrets)
+        resp = await client.get("/api/secrets/key-status")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    ge = data["gemini_enterprise"]
+    assert ge["available"] is True
+    assert ge["source"] == "vertex"
+    assert ge["project"] == "test-proj"
+    assert ge["identity_email"] == "user@example.com"
+    assert ge["hosted_domain"] == "example.com"
+    assert ge["grounded"] is False
+    assert ge["datastore"] is None
+
+
+@pytest.mark.asyncio
+async def test_key_status_gemini_enterprise_grounded_when_datastore_set(client):
+    """gemini_enterprise.grounded=True when VERTEX_SEARCH_DATASTORE is set and Vertex available."""
+    mock_secrets = []
+    vx_result = {
+        "available": True,
+        "project": "test-proj",
+        "identity_email": "user@example.com",
+        "hosted_domain": "example.com",
+        "location": "us-central1",
+    }
+    datastore_path = "projects/test-proj/locations/global/collections/default_collection/dataStores/my-store"
+    with patch("routers.secrets.ostk") as mock_ostk, \
+         patch("services.provider_detection.detect_vertex_gemini", return_value=vx_result), \
+         patch("services.google_auth.is_authenticated", return_value=False), \
+         patch.dict("os.environ", {"VERTEX_SEARCH_DATASTORE": datastore_path}, clear=False):
+        import os
+        os.environ.pop("GOOGLE_CLIENT_ID", None)
+        mock_ostk.secret_list = AsyncMock(return_value=mock_secrets)
+        resp = await client.get("/api/secrets/key-status")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    ge = data["gemini_enterprise"]
+    assert ge["available"] is True
+    assert ge["grounded"] is True
+    assert ge["datastore"] == datastore_path
+
+
+@pytest.mark.asyncio
+async def test_key_status_gemini_enterprise_unavailable(client):
+    """gemini_enterprise.available=False and source=None when Vertex ADC absent and no nerd-completion."""
+    mock_secrets = []
+    with patch("routers.secrets.ostk") as mock_ostk, \
+         patch("services.provider_detection.detect_vertex_gemini", return_value={"available": False}), \
+         patch("services.google_auth.is_authenticated", return_value=False), \
+         patch.dict("os.environ", {}, clear=False):
+        import os
+        os.environ.pop("VERTEX_SEARCH_DATASTORE", None)
+        os.environ.pop("GOOGLE_CLIENT_ID", None)
+        mock_ostk.secret_list = AsyncMock(return_value=mock_secrets)
+        resp = await client.get("/api/secrets/key-status")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    ge = data["gemini_enterprise"]
+    assert ge["available"] is False
+    assert ge["source"] is None
+    assert ge["project"] is None
+    assert ge["grounded"] is False
+    assert ge["datastore"] is None
+
+
 # --- _resolve_api_key tests ---
 
 

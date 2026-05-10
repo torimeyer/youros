@@ -200,6 +200,10 @@ myOS covers the full ostk surface area:
 | Cmd+N | New task |
 | Cmd+1-8 | Navigate pages |
 
+## Connecting AI Providers
+
+If you have `gcloud auth application-default login` set up, Gemini calls automatically route through Vertex AI. No API key required.
+
 ## Google Sign-In Setup
 
 To use Gemini through your Google account:

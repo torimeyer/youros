@@ -55,6 +55,13 @@ async def key_status():
             return "env"
         return "none"
 
+    def _nerd_completion_available() -> bool:
+        try:
+            from services.chat_providers import _nerd_completion_context
+            return bool(_nerd_completion_context())
+        except Exception:
+            return False
+
     anthropic_src = _source("ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")
     gemini_src = _source("GEMINI_API_KEY", "GEMINI_API_KEY")
 
@@ -65,6 +72,10 @@ async def key_status():
     from services.google_auth import is_authenticated as _google_is_authenticated
     google_connected = _google_is_authenticated()
 
+    from services.provider_detection import detect_vertex_gemini
+    vx = detect_vertex_gemini()
+    datastore = os.environ.get("VERTEX_SEARCH_DATASTORE", "") or None
+
     return {
         "anthropic": anthropic_src != "none",
         "anthropic_source": anthropic_src,
@@ -72,6 +83,15 @@ async def key_status():
         "gemini_source": gemini_src,
         "google_oauth_available": bool(os.environ.get("GOOGLE_CLIENT_ID", "")),
         "google_connected": google_connected,
+        "gemini_enterprise": {
+            "available": vx.get("available", False),
+            "source": "vertex" if vx.get("available") else ("nerd-completion" if _nerd_completion_available() else None),
+            "project": vx.get("project"),
+            "identity_email": vx.get("identity_email"),
+            "hosted_domain": vx.get("hosted_domain"),
+            "grounded": bool(vx.get("available") and datastore),
+            "datastore": datastore,
+        },
     }
 
 
