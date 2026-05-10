@@ -85,6 +85,7 @@ export default function Slack() {
   const [sending, setSending] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
   const [flaggedTs, setFlaggedTs] = useState<Set<string>>(new Set())
+  const [needledTs, setNeedledTs] = useState<Set<string>>(new Set())
   const [replyOpenTs, setReplyOpenTs] = useState<string | null>(null)
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
@@ -246,14 +247,13 @@ export default function Slack() {
   }
 
   const handleCreateTask = async (msg: SlackMessage) => {
-    const channelName = channels.find((c) => c.id === selectedChannel)?.name || ''
-    const title = msg.text.length > 80 ? msg.text.slice(0, 77) + '...' : msg.text
+    if (!selectedChannel) return
     try {
-      await api.post('/tasks', {
-        title: `[Slack #${channelName}] ${title}`,
-        priority: 'P2',
-        description: `From Slack #${channelName}:\n\n${msg.text}`,
+      await api.post('/slack/triage/promote', {
+        channel_id: selectedChannel,
+        ts: msg.ts,
       })
+      setNeedledTs((prev) => new Set([...prev, msg.ts]))
     } catch {
       // ignore
     }
@@ -479,11 +479,16 @@ export default function Slack() {
                             <Icon name="reply" size={16} className="text-slate-400" />
                           </button>
                           <button
+                            data-testid={`slack-needle-${msg.ts}`}
                             onClick={() => handleCreateTask(msg)}
-                            title="Create task from this message"
+                            title="make a needle out of this"
                             className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
                           >
-                            <Icon name="add_task" size={16} className="text-slate-400" />
+                            <Icon
+                              name="add_task"
+                              size={16}
+                              className={needledTs.has(msg.ts) ? 'text-green-400' : 'text-slate-400'}
+                            />
                           </button>
                         </div>
                       </div>

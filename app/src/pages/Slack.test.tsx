@@ -490,6 +490,28 @@ describe('Slack configure form', () => {
     })
   })
 
+  it('needle button calls /slack/triage/promote with channel_id and ts', async () => {
+    mockConnectedWithMessages()
+    renderSlack()
+    await waitFor(() => {
+      expect(screen.getByText('general')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('general'))
+    await waitFor(() => {
+      expect(screen.getByText('Hey team!')).toBeInTheDocument()
+    })
+
+    const needleBtn = screen.getByTestId('slack-needle-1000000001.000100')
+    fireEvent.click(needleBtn)
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/slack/triage/promote', {
+        channel_id: 'C1',
+        ts: '1000000001.000100',
+      })
+    })
+  })
+
   it('submitting the form calls /slack/configure with entered credentials', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path.includes('/slack/status')) {
