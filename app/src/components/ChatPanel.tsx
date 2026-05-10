@@ -300,13 +300,16 @@ export function CollapsibleText({ text, isLast, streaming }: { text: string; isL
     wasStreamingRef.current = isActivelyStreaming
   }, [isActivelyStreaming])
 
-  // While the bubble is still actively streaming, render the raw text with
-  // whitespace preserved rather than parsed markdown. Parsing markdown on
-  // every new token causes the rendered tree to flicker: a half-written
-  // fenced code block collapses into a <pre>, a partial [link](url) shifts
-  // layout when the closing ) arrives, and so on. Plain text with
-  // whitespace-pre-wrap gives a stable, monotonically growing view. The
-  // final markdown render happens once streaming ends.
+  // While the bubble is still actively streaming, render the raw text without
+  // full markdown parsing. Parsing markdown on every new token causes the
+  // rendered tree to flicker: a half-written fenced code block collapses into
+  // a <pre>, a partial [link](url) shifts layout when the closing ) arrives,
+  // and so on. We avoid those by NOT calling renderMarkdown here.
+  //
+  // We DO split on \n\n to create proper <p> elements for paragraph breaks
+  // so streaming and finalized views have matching visual separation.
+  // Within each paragraph, \n becomes a <br> (soft line break). This avoids
+  // the "period abuts next sentence" bug (→1121) without reintroducing jitter.
   //
   // We also deliberately do NOT slice to the last 200 characters here. The
   // old behavior computed `text.slice(-200)` and then trimmed to the next
@@ -314,9 +317,22 @@ export function CollapsibleText({ text, isLast, streaming }: { text: string; isL
   // time a new sentence finished inside the sliding window. That looked
   // exactly like "types a sentence then deletes it".
   if (isActivelyStreaming) {
+    const paragraphs = text.split(/\n\n+/).filter((p) => p.trim().length > 0)
     return (
-      <div className="chat-bubble-content whitespace-pre-wrap break-words">
-        {text}
+      <div className="chat-bubble-content">
+        {paragraphs.map((para, i) => {
+          const lines = para.split('\n')
+          const children: React.ReactNode[] = []
+          lines.forEach((line, j) => {
+            if (j > 0) children.push(<br key={`br-${j}`} />)
+            children.push(line)
+          })
+          return (
+            <p key={i} className="my-2 break-words">
+              {children}
+            </p>
+          )
+        })}
       </div>
     )
   }

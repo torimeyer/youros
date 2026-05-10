@@ -87,3 +87,57 @@ describe('CollapsibleText markdown rendering', () => {
     expect(container.querySelector('strong')?.textContent).toBe('ready')
   })
 })
+
+// Regression guard for →1121: streaming bubbles must preserve paragraph breaks.
+// The streaming path previously rendered raw text in a whitespace-pre-wrap div.
+// \n\n produced a visual blank line via CSS but no <p> elements, so the visual
+// separation was inconsistent between streaming and finalized states and
+// depended entirely on CSS white-space behaviour that jsdom cannot verify.
+describe('CollapsibleText streaming paragraph breaks (→1121)', () => {
+  it('renders \\n\\n as two separate <p> elements during active streaming', () => {
+    // Use {expression} syntax so \n is an actual newline, not literal backslash-n.
+    const { container } = render(
+      <CollapsibleText
+        text={"Para one.\n\nPara two."}
+        isLast={true}
+        streaming={true}
+      />,
+    )
+    const pElements = container.querySelectorAll('p')
+    expect(pElements.length).toBeGreaterThanOrEqual(2)
+    expect(pElements[0].textContent).toContain('Para one.')
+    expect(pElements[1].textContent).toContain('Para two.')
+  })
+
+  it('does not merge the two paragraphs into one block', () => {
+    const { container } = render(
+      <CollapsibleText
+        text={"First paragraph.\n\nSecond paragraph."}
+        isLast={true}
+        streaming={true}
+      />,
+    )
+    const pElements = container.querySelectorAll('p')
+    expect(pElements.length).toBeGreaterThanOrEqual(2)
+    expect(pElements[0].textContent).not.toContain('Second paragraph.')
+    expect(pElements[1].textContent).not.toContain('First paragraph.')
+  })
+
+  it('renders a single-newline within a paragraph as a <br> during streaming', () => {
+    const { container } = render(
+      <CollapsibleText
+        text={"Line one.\nLine two."}
+        isLast={true}
+        streaming={true}
+      />,
+    )
+    // Single newlines stay within one paragraph — no extra <p> appears.
+    const pElements = container.querySelectorAll('p')
+    expect(pElements.length).toBe(1)
+    // The line break must be visible (br), not collapsed.
+    const br = pElements[0].querySelector('br')
+    expect(br).not.toBeNull()
+    expect(pElements[0].textContent).toContain('Line one.')
+    expect(pElements[0].textContent).toContain('Line two.')
+  })
+})
