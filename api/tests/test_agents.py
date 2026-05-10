@@ -5089,11 +5089,24 @@ class _FakeGitProc:
 
 
 class _FakeProc:
-    """Minimal stand-in for the process object returned by create_subprocess_exec."""
+    """Minimal stand-in for the process object returned by create_subprocess_exec.
+
+    Attributes added so drain tasks (_drain_stderr, _drain_stdout) and the
+    heartbeat loop exit cleanly without errors when the test tears down.
+    Without them, _heartbeat_loop is created as an asyncio task AFTER
+    _cancel_all_tasks captures all_tasks(loop), leaving it orphaned for
+    its full 30s sleep during event-loop teardown.
+    """
+    returncode = 0
+    stderr = None
+    stdout = None
 
     def __init__(self):
         self.pid = 424242
         self.stdin = _CaptureStdin()
+
+    async def wait(self):
+        return self.returncode
 
 
 def _make_spawn_returner(fake_proc):

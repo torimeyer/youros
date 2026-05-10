@@ -2166,7 +2166,6 @@ export default function Agents() {
   const [transcriptModal, setTranscriptModal] = useState<{name: string; content: string; loading: boolean; error?: string; retryable?: boolean} | null>(null);
   const { confirm, confirmProps } = useConfirm();
   const setAgentsLastViewed = useAppStore((s) => s.setAgentsLastViewed);
-  const setChatPrefill = useAppStore((s) => s.setChatPrefill);
 
   // Mark agents as viewed on mount and when the window regains focus so the
   // sidebar badge clears the moment the user looks at this page.
