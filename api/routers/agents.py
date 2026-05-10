@@ -3843,7 +3843,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             else:
                 _pre_stem = body.template.lower().replace(" ", "-")
             _pre_cfg = _pre_get_tpl_cfg(_pre_stem)
-            if _pre_cfg is not None and _pre_cfg.isolation in ("none", "nono"):
+            if _pre_cfg is not None and _pre_cfg.isolation == "nono":
                 body.isolation = _pre_cfg.isolation
         except Exception:
             pass
