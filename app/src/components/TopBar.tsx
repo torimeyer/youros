@@ -4,20 +4,13 @@ import Icon from './Icon'
 import { useAppStore } from '../stores/app'
 import { useNotificationStore } from '../stores/notifications'
 import type { AppNotification } from '../stores/notifications'
+import { useNotificationsStore } from '../stores/notificationsStore'
+import type { Notification as WsNotification } from '../stores/notificationsStore'
+import { useNotificationsFeed } from '../hooks/useNotificationsFeed'
 import { api } from '../lib/api'
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications'
 
-interface PersistentNotification {
-  id: string
-  type: string
-  title: string
-  body: string
-  action_label: string | null
-  action_url: string | null
-  read: boolean
-  created_at: string
-  metadata: Record<string, unknown>
-}
+type PersistentNotification = WsNotification
 
 interface TopBarProps {
   title: string
@@ -133,7 +126,7 @@ function PersistentNotificationItem({
       />
       <div className="flex-1 min-w-0">
         <p className="text-sm text-white font-medium">{n.title}</p>
-        <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{n.body}</p>
+        <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{n.message}</p>
         {n.action_label && (
           <p className="text-xs text-blue-400 mt-1">{n.action_label} &rarr;</p>
         )}
@@ -161,9 +154,11 @@ export default function TopBar({ title }: TopBarProps) {
     mql.addEventListener('change', handler)
     return () => mql.removeEventListener('change', handler)
   }, [])
+  useNotificationsFeed()
+  const persistentNotifs = useNotificationsStore((s) => s.notifications) as PersistentNotification[]
+
   const [showNotifications, setShowNotifications] = useState(false)
   const [, setTick] = useState(0)
-  const [persistentNotifs, setPersistentNotifs] = useState<PersistentNotification[]>([])
   const [pushEnabled, setPushEnabled] = useState(false)
   const [pushToggling, setPushToggling] = useState(false)
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
@@ -187,63 +182,37 @@ export default function TopBar({ title }: TopBarProps) {
   )
   const unreadCount = agentUnreadCount + persistentUnread
 
-  // Track which persistent notification ids we've already observed on a
-  // previous poll so we can diff each response and fire a toast only for
-  // genuinely new rows. Seeded on the very first poll so a user who
-  // visits the page mid-session does not get slammed with toasts for
-  // notifications that were already sitting in the drawer.
+  // Track which persistent notification ids we've already observed so we
+  // fire a toast only for genuinely new rows. Seeded on first render so
+  // a user who visits mid-session does not get slammed with old toasts.
   const seenNotifIdsRef = useRef<Set<string> | null>(null)
 
-  const fetchPersistentNotifs = useCallback(async () => {
-    try {
-      const data = await api.get<PersistentNotification[]>('/notifications')
-      const list = Array.isArray(data) ? data : []
-      setPersistentNotifs(list)
-
-      // Diff against the previous poll. On the first poll just seed the
-      // ref so we do not retroactively toast existing rows.
-      if (seenNotifIdsRef.current === null) {
-        seenNotifIdsRef.current = new Set(list.map((n) => n.id))
-      } else {
-        const seen = seenNotifIdsRef.current
-        for (const n of list) {
-          if (seen.has(n.id)) continue
-          seen.add(n.id)
-          // Only toast unread rows whose type is in the allow-list. The
-          // store dedupes on id as a second line of defence.
-          if (!n.read && TOAST_WORTHY_PERSISTENT_TYPES.has(n.type)) {
-            addPersistentToast({
-              id: n.id,
-              type: n.type,
-              title: n.title,
-              body: n.body,
-              action_url: n.action_url,
-            })
-          }
-        }
-      }
-    } catch {
-      // ignore
+  useEffect(() => {
+    if (seenNotifIdsRef.current === null) {
+      seenNotifIdsRef.current = new Set(persistentNotifs.map((n) => n.id))
+      return
     }
-  }, [addPersistentToast])
+    const seen = seenNotifIdsRef.current
+    for (const n of persistentNotifs) {
+      if (seen.has(n.id)) continue
+      seen.add(n.id)
+      if (!n.read && TOAST_WORTHY_PERSISTENT_TYPES.has(n.type)) {
+        addPersistentToast({
+          id: n.id,
+          type: n.type,
+          title: n.title,
+          body: n.message,
+          action_url: n.action_url ?? null,
+        })
+      }
+    }
+  }, [persistentNotifs, addPersistentToast])
 
   // Re-render every minute so "X min ago" stays fresh
   useEffect(() => {
     const interval = setInterval(() => setTick((t) => t + 1), 60_000)
     return () => clearInterval(interval)
   }, [])
-
-  // Proactively fetch the persistent notifications list on mount and
-  // poll every 10 seconds so backend-driven events (e.g. a roadmap
-  // agent finishing) surface as a toast within ~10s instead of up to a
-  // full minute. The diff inside fetchPersistentNotifs guarantees we
-  // only toast rows we have not seen before, so tighter polling does
-  // not spam the toast stack.
-  useEffect(() => {
-    fetchPersistentNotifs()
-    const interval = setInterval(fetchPersistentNotifs, 10_000)
-    return () => clearInterval(interval)
-  }, [fetchPersistentNotifs])
 
   // Check push subscription state on mount
   useEffect(() => {
@@ -284,7 +253,9 @@ export default function TopBar({ title }: TopBarProps) {
   const handleMarkPersistentRead = useCallback(async (id: string) => {
     try {
       await api.post(`/notifications/${id}/read`)
-      setPersistentNotifs((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n))
+      useNotificationsStore.setState((state) => ({
+        notifications: state.notifications.map((n) => n.id === id ? { ...n, read: true } : n),
+      }))
     } catch {
       // ignore
     }
@@ -293,20 +264,16 @@ export default function TopBar({ title }: TopBarProps) {
   const handleMarkAllPersistentRead = useCallback(async () => {
     try {
       await api.post('/notifications/read-all')
-      setPersistentNotifs((prev) => prev.map((n) => ({ ...n, read: true })))
+      useNotificationsStore.setState((state) => ({
+        notifications: state.notifications.map((n) => ({ ...n, read: true })),
+      }))
     } catch {
       // ignore
     }
   }, [])
 
-  const handleOpenNotifications = async () => {
-    // Just open the drawer. We intentionally do NOT mark everything as read
-    // on open. Users need to see which notifications are new. Individual
-    // items get marked read when clicked, and anything still unread gets
-    // marked read when the drawer closes. Refresh the list so the dropdown
-    // and badge are both up to date with the server.
+  const handleOpenNotifications = () => {
     setShowNotifications(true)
-    await fetchPersistentNotifs()
   }
 
   const handleCloseNotifications = useCallback(() => {
