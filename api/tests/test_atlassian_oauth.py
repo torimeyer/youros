@@ -182,6 +182,127 @@ async def test_get_auth_and_base_falls_back_to_pat_when_no_access_token():
     assert site == "acme.atlassian.net"
 
 
+# --- /atlassian/auth: offline_access in scope ---
+
+
+@pytest.mark.asyncio
+async def test_atlassian_auth_includes_offline_access_in_scope(client):
+    env = {"ATLASSIAN_CLIENT_ID": "client-abc"}
+    with patch.dict("os.environ", env, clear=True):
+        oauth_states.clear()
+        resp = await client.get("/api/atlassian/auth", follow_redirects=False)
+    location = resp.headers["location"]
+    assert "offline_access" in location
+
+
+# --- /atlassian/status: jira_url + confluence_url ---
+
+
+@pytest.mark.asyncio
+async def test_atlassian_status_returns_jira_and_confluence_urls(client):
+    config = {"email": "user@acme.com", "site": "acme.atlassian.net"}
+    with patch("routers.atlassian.atlassian_service.is_connected", return_value=True):
+        with patch("routers.atlassian.atlassian_service.get_config", return_value=config):
+            resp = await client.get("/api/atlassian/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["connected"] is True
+    assert data["jira_url"] == "https://acme.atlassian.net/jira"
+    assert data["confluence_url"] == "https://acme.atlassian.net/wiki"
+    assert data["site"] == "acme.atlassian.net"
+
+
+@pytest.mark.asyncio
+async def test_atlassian_status_empty_urls_when_disconnected(client):
+    with patch("routers.atlassian.atlassian_service.is_connected", return_value=False):
+        resp = await client.get("/api/atlassian/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["connected"] is False
+    assert data["jira_url"] == ""
+    assert data["confluence_url"] == ""
+
+
+# --- /atlassian/callback: return_to ---
+
+
+@pytest.mark.asyncio
+async def test_atlassian_callback_honors_return_to(client):
+    """Callback redirects to return_to with atlassian_connected=true appended."""
+    env = {
+        "ATLASSIAN_CLIENT_ID": "client-abc",
+        "ATLASSIAN_CLIENT_SECRET": "secret-xyz",
+        "FRONTEND_URL": "https://app.example.com",
+    }
+    state = "rt-state-1"
+    oauth_states[state] = {"return_to": "https://app.example.com/onboarding"}
+
+    token_resp = MagicMock(status_code=200)
+    token_resp.json.return_value = {"access_token": "at-1", "refresh_token": "rt-1"}
+    resources_resp = MagicMock(status_code=200)
+    resources_resp.json.return_value = [{"id": "cloud-1", "url": "https://acme.atlassian.net"}]
+    me_resp = MagicMock(status_code=200)
+    me_resp.json.return_value = {"emailAddress": "user@acme.com"}
+
+    mock_http = AsyncMock()
+    mock_http.post = AsyncMock(return_value=token_resp)
+    mock_http.get = AsyncMock(side_effect=[resources_resp, me_resp])
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__.return_value = mock_http
+
+    with patch.dict("os.environ", env, clear=True):
+        with patch("routers.atlassian.httpx.AsyncClient", return_value=mock_ctx):
+            with patch.object(atlassian_service, "save_oauth_config", AsyncMock()):
+                resp = await client.get(
+                    f"/api/atlassian/callback?code=c&state={state}",
+                    follow_redirects=False,
+                )
+
+    location = resp.headers["location"]
+    assert "https://app.example.com/onboarding" in location
+    assert "atlassian_connected=true" in location
+
+
+@pytest.mark.asyncio
+async def test_atlassian_callback_falls_back_when_no_return_to(client):
+    """Callback falls back to /?atlassian_connected=true when return_to absent."""
+    env = {
+        "ATLASSIAN_CLIENT_ID": "client-abc",
+        "ATLASSIAN_CLIENT_SECRET": "secret-xyz",
+        "FRONTEND_URL": "https://app.example.com",
+    }
+    state = "rt-state-2"
+    oauth_states[state] = {"return_to": "https://app.example.com/"}
+
+    token_resp = MagicMock(status_code=200)
+    token_resp.json.return_value = {"access_token": "at-2", "refresh_token": "rt-2"}
+    resources_resp = MagicMock(status_code=200)
+    resources_resp.json.return_value = [{"id": "cloud-2", "url": "https://acme2.atlassian.net"}]
+    me_resp = MagicMock(status_code=200)
+    me_resp.json.return_value = {"emailAddress": "user@acme.com"}
+
+    mock_http = AsyncMock()
+    mock_http.post = AsyncMock(return_value=token_resp)
+    mock_http.get = AsyncMock(side_effect=[resources_resp, me_resp])
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__.return_value = mock_http
+
+    with patch.dict("os.environ", env, clear=True):
+        with patch("routers.atlassian.httpx.AsyncClient", return_value=mock_ctx):
+            with patch.object(atlassian_service, "save_oauth_config", AsyncMock()):
+                resp = await client.get(
+                    f"/api/atlassian/callback?code=c&state={state}",
+                    follow_redirects=False,
+                )
+
+    location = resp.headers["location"]
+    assert location.startswith("https://app.example.com/")
+    assert "atlassian_connected=true" in location
+
+
+# --- service: _get_auth_and_base picks the right path ---
+
+
 @pytest.mark.asyncio
 async def test_get_auth_and_base_oauth_without_cloud_id_raises():
     config = {"email": "user@acme.com", "site": "acme.atlassian.net"}  # no cloud_id

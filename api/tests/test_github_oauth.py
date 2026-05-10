@@ -129,6 +129,73 @@ async def test_github_callback_github_error_param(client, monkeypatch):
     assert "auth_error=access_denied" in location
 
 
+# ---------------------------------------------------------------------------
+# return_to: callback honors it when set, falls back when absent
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_github_callback_honors_return_to(client, monkeypatch):
+    """Callback redirects to return_to with oauth_connected=true appended."""
+    monkeypatch.setenv("GITHUB_CLIENT_ID", "gh_id")
+    monkeypatch.setenv("GITHUB_CLIENT_SECRET", "gh_secret")
+    monkeypatch.setenv("FRONTEND_URL", "https://app.example.com")
+
+    state = "rt-state-gh-1"
+    oauth_states[state] = {"return_to": "https://app.example.com/onboarding"}
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"access_token": "gho_token", "token_type": "bearer"}
+
+    with patch("routers.github.httpx.AsyncClient") as mock_client_cls, \
+         patch("routers.github.github_service.save_config"):
+        mock_http = AsyncMock()
+        mock_http.post = AsyncMock(return_value=mock_response)
+        mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
+        mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        resp = await client.get(
+            f"/api/github/callback?code=auth_code&state={state}",
+            follow_redirects=False,
+        )
+
+    location = resp.headers["location"]
+    assert "https://app.example.com/onboarding" in location
+    assert "oauth_connected=true" in location
+
+
+@pytest.mark.asyncio
+async def test_github_callback_falls_back_to_github_route_when_no_return_to(client, monkeypatch):
+    """Callback falls back to /github?oauth_connected=true when return_to absent."""
+    monkeypatch.setenv("GITHUB_CLIENT_ID", "gh_id")
+    monkeypatch.setenv("GITHUB_CLIENT_SECRET", "gh_secret")
+    monkeypatch.setenv("FRONTEND_URL", "https://app.example.com")
+
+    state = "rt-state-gh-2"
+    oauth_states[state] = {"return_to": "https://app.example.com/github"}
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"access_token": "gho_token2", "token_type": "bearer"}
+
+    with patch("routers.github.httpx.AsyncClient") as mock_client_cls, \
+         patch("routers.github.github_service.save_config"):
+        mock_http = AsyncMock()
+        mock_http.post = AsyncMock(return_value=mock_response)
+        mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
+        mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        resp = await client.get(
+            f"/api/github/callback?code=auth_code2&state={state}",
+            follow_redirects=False,
+        )
+
+    location = resp.headers["location"]
+    assert "/github" in location
+    assert "oauth_connected=true" in location
+
+
 @pytest.mark.asyncio
 async def test_github_callback_token_exchange_fails(client, monkeypatch):
     monkeypatch.setenv("GITHUB_CLIENT_ID", "gh_id")
