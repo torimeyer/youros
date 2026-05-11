@@ -62,7 +62,11 @@ pub fn count_lines(path: &Path) -> usize {
 }
 
 /// Canonical active needle count: open + in_progress.
-/// This is the ONLY function that should count "active" needles.
+/// This is the ONLY function that should count open needles.
+///
+/// Counts only `status == "open"` — matches what `ostk work list --status open`
+/// returns. `in_progress` needles are excluded so this counter agrees with the
+/// authoritative CLI listing.
 ///
 /// All callers — StatusCache, BootContext (via build_register_dump), bootloader,
 /// context heartbeat, show status — MUST use this function to avoid disagreement.
@@ -81,7 +85,7 @@ pub fn count_active_needles(path: &Path) -> usize {
         match serde_json::from_str::<serde_json::Value>(line) {
             Ok(val) => {
                 let status = val.get("status").and_then(|s| s.as_str()).unwrap_or("");
-                if status == "open" || status == "in_progress" {
+                if status == "open" {
                     count += 1;
                 }
             }
@@ -180,24 +184,25 @@ mod tests {
     // ── count_active_needles ────────────────────────────────────────
 
     #[test]
-    fn test_count_active_needles_open_and_in_progress() {
+    fn test_count_active_needles_open_only() {
+        // in_progress must NOT be counted — counter must match `ostk work list --status open`
         let f = write_tmp_file(
             r#"{"id":"→001","status":"open","title":"a"}
 {"id":"→002","status":"in_progress","title":"b"}
 "#,
         );
-        assert_eq!(count_active_needles(f.path()), 2);
+        assert_eq!(count_active_needles(f.path()), 1, "in_progress must be excluded");
     }
 
     #[test]
-    fn test_count_active_needles_excludes_closed() {
+    fn test_count_active_needles_excludes_closed_and_in_progress() {
         let f = write_tmp_file(
             r#"{"id":"→001","status":"open","title":"a"}
 {"id":"→002","status":"closed","title":"b"}
 {"id":"→003","status":"in_progress","title":"c"}
 "#,
         );
-        assert_eq!(count_active_needles(f.path()), 2);
+        assert_eq!(count_active_needles(f.path()), 1, "only open status counts");
     }
 
     #[test]
