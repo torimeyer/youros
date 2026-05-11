@@ -659,40 +659,17 @@ async def test_callback_success_redirect_uses_frontend_url(client, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_callback_redirect_uses_request_base_url_when_no_frontend_url(client):
-    """When FRONTEND_URL is unset, the callback redirects to request.base_url, not https://localhost:3010."""
-    import json
-    from unittest.mock import patch, AsyncMock, MagicMock
-    import tempfile, os
+async def test_callback_redirect_defaults_to_frontend_port_when_no_frontend_url(client):
+    """When FRONTEND_URL is unset, the callback defaults to https://localhost:3010 (→1141).
 
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
-        json.dump({"session_id": "test"}, f)
-        settings_file = f.name
-
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json = MagicMock(return_value={
-        "access_token": "ya29.test",
-        "refresh_token": "1//test",
-        "expires_in": 3600,
-        "token_type": "Bearer",
-    })
+    Previously it fell back to request.base_url (backend port 8000), causing
+    OAuth to land users on the backend instead of the frontend.
+    """
+    import os
 
     env_without_frontend_url = {k: v for k, v in os.environ.items() if k != "FRONTEND_URL"}
 
-    with (
-        patch("routers.auth._google_client_id", return_value="test-client-id"),
-        patch("routers.auth._google_client_secret", return_value="test-secret"),
-        patch("routers.auth.httpx.AsyncClient") as MockHttpxClient,
-        patch("services.settings_store.SETTINGS_PATH", settings_file),
-        patch.dict("os.environ", env_without_frontend_url, clear=True),
-    ):
-        mock_client_instance = AsyncMock()
-        mock_client_instance.post = AsyncMock(return_value=mock_response)
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
-        MockHttpxClient.return_value = mock_client_instance
-
+    with patch.dict("os.environ", env_without_frontend_url, clear=True):
         resp = await client.get(
             "/api/auth/google/callback?code=fallback-code&state=fallback-state",
             follow_redirects=False,
@@ -700,10 +677,84 @@ async def test_callback_redirect_uses_request_base_url_when_no_frontend_url(clie
 
     assert resp.status_code == 302
     location = resp.headers["location"]
-    assert "localhost:3010" not in location, (
-        f"Redirect must not fall back to hardcoded https://localhost:3010, got: {location}"
+    assert location.startswith("https://localhost:3010"), (
+        f"When FRONTEND_URL is unset, redirect must default to https://localhost:3010, got: {location}"
     )
-    assert location.startswith("http://"), f"Expected http:// scheme from test client base_url, got: {location}"
+
+
+@pytest.mark.asyncio
+async def test_drive_oauth_callback_redirects_to_frontend_url(client):
+    """Drive OAuth callback must redirect to the frontend, not the backend (→1141).
+
+    The Connect Google Workspace button stores a return_to URL during /drive/auth/url.
+    After the OAuth dance, /api/auth/google/callback must redirect to that URL,
+    which must be on the frontend host (https://localhost:3010 by default).
+    """
+    import time
+    from unittest.mock import AsyncMock, patch
+    from services.oauth_state import drive_oauth_states as _drive_oauth_states
+
+    state = "drive-redirect-test-state"
+    _drive_oauth_states[state] = {
+        "return_to": "https://localhost:3010/",
+        "expires": time.time() + 300,
+    }
+
+    with (
+        patch("routers.auth._drive_exchange_code"),
+        patch("routers.auth._prewarm_all_google_caches", new_callable=AsyncMock),
+    ):
+        resp = await client.get(
+            f"/api/auth/google/callback?code=drive-code&state={state}",
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 302
+    location = resp.headers["location"]
+    assert location.startswith("https://localhost:3010"), (
+        f"Drive OAuth callback must redirect to frontend, got: {location}"
+    )
+    assert "connected=true" in location
+
+
+@pytest.mark.asyncio
+async def test_drive_auth_url_return_to_uses_frontend_url(client):
+    """GET /drive/auth/url must produce a return_to URL rooted at the frontend (→1141).
+
+    When FRONTEND_URL is not set, the return_to must default to https://localhost:3010,
+    not the backend's own base URL (https://localhost:8000).
+    """
+    import os
+    import urllib.parse
+    from unittest.mock import patch
+
+    env_without_frontend_url = {k: v for k, v in os.environ.items() if k != "FRONTEND_URL"}
+
+    with (
+        patch("routers.drive.can_start_oauth", return_value=True),
+        patch.dict("os.environ", env_without_frontend_url, clear=True),
+    ):
+        resp = await client.get("/api/drive/auth/url", follow_redirects=False)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "url" in data
+
+    # The redirect URL is the Google authorize URL; the state maps to a return_to.
+    # Verify by checking the stored state contains the correct return_to.
+    from services.oauth_state import drive_oauth_states as _drive_oauth_states
+
+    found_return_to = None
+    for _state_data in _drive_oauth_states.values():
+        rt = _state_data.get("return_to", "")
+        if rt:
+            found_return_to = rt
+            break
+
+    assert found_return_to is not None, "No return_to was stored in drive_oauth_states"
+    assert found_return_to.startswith("https://localhost:3010"), (
+        f"return_to must be rooted at https://localhost:3010, got: {found_return_to}"
+    )
 
 
 def test_google_connected_reads_token_file(tmp_path):

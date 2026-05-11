@@ -227,7 +227,7 @@ async def drive_auth_url_for_gmail(request: Request, return_to: str = ""):
 
 
 def _frontend_url(request: Request) -> str:
-    return os.environ.get("FRONTEND_URL") or str(request.base_url).rstrip("/")
+    return os.environ.get("FRONTEND_URL", "https://localhost:3010")
 
 
 # Module-level anchor for regression tests: the post-auth redirect
