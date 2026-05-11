@@ -1,21 +1,29 @@
 """Regression tests for subagent ostk MCP tool propagation.
 
-Root cause (2026-05-10): when isolation="worktree" agents have long names,
-the worktree path .claude/worktrees/agent-<name>/.ostk/ostk.sock exceeds
-macOS sun_path (104). The ostk MCP server's bind() fails with
+Root cause (2026-05-10, updated 2026-05-11): when isolation="worktree" agents
+have long names, the worktree path .claude/worktrees/agent-<name>/.ostk/ostk.sock
+exceeds macOS sun_path (104). The ostk MCP server's bind() fails with
 "path must be shorter than SUN_LEN", the kernel falls back to degraded mode,
 and only static tools register (context/search/recall/nudge). bash/read/fs_ops
 are missing — the subagent silently falls through to native tools, which
 reintroduces the cwd-leak symptom (commits land on parent main).
 
-Fix: spawn code routes long worktree paths through a short /tmp symlink so
-the resulting sock path fits sun_path.
+Fix (2026-05-10): spawn code routes long worktree paths through a short /tmp
+symlink so the resulting sock path fits sun_path.
+
+Fix (2026-05-11, →1148): the prior fix only set the short path as cwd.
+macOS getcwd() resolves symlinks so the ostk daemon still computed the socket
+path from the real (long) path. Fix: also set OSTK_PROJECT_ROOT and OSTK_ROOT
+to the short _spawn_cwd so the daemon uses the short path for socket binding.
+CLAUDE_PROJECT_DIR remains the real path for Claude Code hook/worktree routing.
 """
 
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -118,3 +126,210 @@ def test_short_link_is_idempotent_across_respawn():
     finally:
         if created:
             target_path.rmdir()
+
+
+# ---------------------------------------------------------------------------
+# Integration test: spawn env vars for long-name agents (→1148)
+# ---------------------------------------------------------------------------
+
+
+class _FakeStdin:
+    _closed = False
+
+    def write(self, _: bytes) -> None:
+        pass
+
+    async def drain(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self._closed = True
+
+    def is_closing(self) -> bool:
+        return self._closed
+
+    def can_write_eof(self) -> bool:
+        return True
+
+    def write_eof(self) -> None:
+        self._closed = True
+
+
+class _FakeStderr:
+    async def read(self, _n: int) -> bytes:
+        return b""
+
+
+class _FakeProc:
+    pid = 99999
+    returncode = 0
+
+    def __init__(self) -> None:
+        self.stdin = _FakeStdin()
+        self.stderr = _FakeStderr()
+
+    async def wait(self) -> int:
+        return 0
+
+    async def communicate(self):
+        return (b"", b"")
+
+
+class _FakeForkProc:
+    def __init__(self, returncode: int = 0) -> None:
+        self.returncode = returncode
+
+    async def communicate(self):
+        return (b"", b"")
+
+
+def _install_spawn_doubles_env(monkeypatch) -> dict[str, Any]:
+    from routers import agents as agents_module
+    import services.spawn_isolation as _siso
+
+    calls: dict[str, Any] = {"exec": [], "fork_called": False, "spawn_env": None}
+
+    async def _fake_exec(*args, **kwargs):
+        calls["exec"].append((args, kwargs))
+        if args and args[0] == "git":
+            if "worktree" in args and "add" in args:
+                calls["fork_called"] = True
+                wt_arg = next(
+                    (a for a in args if "worktrees/agent-" in str(a)), None
+                )
+                if wt_arg:
+                    # Create the worktree dir so spawn_isolation checks pass.
+                    Path(str(wt_arg)).mkdir(parents=True, exist_ok=True)
+                return _FakeForkProc(returncode=0)
+            return _FakeForkProc(returncode=0)
+        # This is the claude subprocess call -- capture its env.
+        calls["spawn_env"] = kwargs.get("env")
+        return _FakeProc()
+
+    monkeypatch.setattr(agents_module.asyncio, "create_subprocess_exec", _fake_exec)
+    monkeypatch.setattr(_siso.asyncio, "create_subprocess_exec", _fake_exec)
+
+    async def _noop_run(*a, **kw):
+        return ""
+
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    real_create_task = agents_module.asyncio.create_task
+
+    def _maybe_noop_task(coro, *a, **kw):
+        name = getattr(coro, "__name__", "") or getattr(
+            getattr(coro, "cr_code", None), "co_name", ""
+        )
+        if name.startswith("_drain_stderr"):
+            coro.close()
+
+            class _D:
+                def cancel(self) -> None:
+                    pass
+
+                def done(self) -> bool:
+                    return True
+
+            return _D()
+        return real_create_task(coro, *a, **kw)
+
+    monkeypatch.setattr(agents_module.asyncio, "create_task", _maybe_noop_task)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_ostk_project_root_short_for_long_agent_name(tmp_path, monkeypatch):
+    """OSTK_PROJECT_ROOT and OSTK_ROOT must be the short _spawn_cwd for long names.
+
+    The prior fix (2026-05-10) only set the short path as cwd. macOS getcwd()
+    resolves symlinks so the daemon still computed the socket path from the
+    canonical (long) path via current_dir(). The daemon uses OSTK_PROJECT_ROOT
+    to find its state dir and bind the socket. Without this fix, the daemon
+    binds at the full worktree path (110+ chars) which exceeds macOS SUN_LEN
+    (104), falls back to degraded mode, and ostk tools disappear. (→1148)
+    """
+    from services.spawn_isolation import _reset_spawn_lock_registry_for_tests
+    _reset_spawn_lock_registry_for_tests()
+
+    import config as config_module
+    from main import app
+    from routers.agents import active_agents, agent_metadata
+
+    # Use a fixed-length project root under /tmp so the test is reproducible
+    # regardless of the pytest tmp_path prefix length.
+    fixed_root = Path("/tmp/myos-test-pr-long-agent-name")
+    fixed_root.mkdir(exist_ok=True)
+    monkeypatch.setattr(config_module, "PROJECT_ROOT", fixed_root)
+    (fixed_root / ".claude" / "worktrees").mkdir(parents=True, exist_ok=True)
+    (fixed_root / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
+    (fixed_root / ".ostk").mkdir(parents=True, exist_ok=True)
+
+    # A name long enough that the worktree path exceeds sun_path.
+    # fixed_root = 37 chars, /.claude/worktrees/agent- = 25 chars -> 62 prefix.
+    # Need name > 104 - 62 - 16 = 26 chars.
+    long_agent_name = "fix-subagent-ostk-mcp-not-loaded-411a0e"
+    agent_metadata.pop(long_agent_name, None)
+    active_agents.pop(long_agent_name, None)
+
+    wt_path = fixed_root / ".claude" / "worktrees" / f"agent-{long_agent_name}"
+
+    calls = _install_spawn_doubles_env(monkeypatch)
+
+    try:
+        from httpx import ASGITransport, AsyncClient
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": long_agent_name,
+                    "prompt": "fix the ostk mcp propagation issue",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "isolation": "worktree",
+                    "locks": ["/tmp/fix-subagent-ostk-mcp-1148.log"],
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        assert calls["fork_called"] is True, "git worktree add must be called"
+
+        spawn_env = calls["spawn_env"]
+        assert spawn_env is not None, "subprocess env was not captured"
+
+        # The worktree path (full) would produce a sock path >= sun_path.
+        full_wt = str(wt_path)
+        assert len(full_wt) + SOCK_SUFFIX_LEN >= SUN_PATH_MAX, (
+            f"test setup: worktree path {len(full_wt)} chars should trigger "
+            f"the short-cwd rewrite (need sock path >= {SUN_PATH_MAX})"
+        )
+
+        # OSTK_PROJECT_ROOT must be the short cwd, NOT the full worktree path.
+        pr = spawn_env.get("OSTK_PROJECT_ROOT", "")
+        assert pr != full_wt, (
+            "OSTK_PROJECT_ROOT must not be the full worktree path for long agent names; "
+            "the daemon would compute a socket path that exceeds macOS SUN_LEN (104)"
+        )
+        assert len(pr) + SOCK_SUFFIX_LEN < SUN_PATH_MAX, (
+            f"OSTK_PROJECT_ROOT sock path {len(pr) + SOCK_SUFFIX_LEN} chars must "
+            f"fit under sun_path {SUN_PATH_MAX}. Got OSTK_PROJECT_ROOT={pr!r}"
+        )
+        assert pr.startswith(SHORT_CWD_DIR + "/myos-wt-"), (
+            f"OSTK_PROJECT_ROOT must be the short /tmp symlink; got {pr!r}"
+        )
+
+        # OSTK_ROOT must match OSTK_PROJECT_ROOT.
+        oroot = spawn_env.get("OSTK_ROOT", "")
+        assert oroot == pr, (
+            f"OSTK_ROOT must equal OSTK_PROJECT_ROOT; got {oroot!r} != {pr!r}"
+        )
+
+        # CLAUDE_PROJECT_DIR must remain the real worktree path for Claude Code.
+        cpd = spawn_env.get("CLAUDE_PROJECT_DIR", "")
+        assert cpd == full_wt, (
+            f"CLAUDE_PROJECT_DIR must be the real worktree path; got {cpd!r}"
+        )
+    finally:
+        agent_metadata.pop(long_agent_name, None)
+        active_agents.pop(long_agent_name, None)
+        _reset_spawn_lock_registry_for_tests()
+        shutil.rmtree(fixed_root, ignore_errors=True)

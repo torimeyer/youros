@@ -4309,8 +4309,16 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     # without bash/read/fs_ops — which silently pushes the
                     # subagent onto native tools and reintroduces the cwd-leak.
                     _spawn_cwd = _short_cwd_for_worktree(_wt_path)
-                    _spawn_env["OSTK_PROJECT_ROOT"] = str(_wt_path)
-                    _spawn_env["OSTK_ROOT"] = str(_wt_path)
+                    # Also set OSTK_PROJECT_ROOT and OSTK_ROOT to the short path
+                    # so the daemon uses it to compute the socket path instead of
+                    # walking up from getcwd() (macOS resolves symlinks in cwd via
+                    # getcwd(), defeating the short-cwd approach for socket binding).
+                    # The short path is a /tmp symlink that resolves to the real
+                    # worktree, so all file I/O still reaches the correct checkout.
+                    # CLAUDE_PROJECT_DIR must stay as the real path so Claude Code
+                    # hooks and the worktree guard resolve to the correct checkout.
+                    _spawn_env["OSTK_PROJECT_ROOT"] = _spawn_cwd
+                    _spawn_env["OSTK_ROOT"] = _spawn_cwd
                     # CLAUDE_PROJECT_DIR is inherited from the parent env
                     # (line 4127: _spawn_env = {**os.environ}), which points
                     # to the parent repo. Without this override, hooks and
