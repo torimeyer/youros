@@ -359,6 +359,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
           <TimeFilter
             value={dateRange}
             onChange={(r) => { setDateRange(r); localStorage.setItem("myos_transcripts_period", r); }}
+            includeAll
           />
 
           {/* Kind filter */}

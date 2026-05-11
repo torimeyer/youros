@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
 
-export type TimePeriod = "today" | "week" | "month";
+export type TimePeriod = "today" | "week" | "month" | "all";
 
 export const DEFAULT_TIME_LABELS: Record<TimePeriod, string> = {
   today: "Today",
   week: "This Week",
   month: "This Month",
+  all: "All Time",
 };
 
 export const TIME_PERIOD_ORDER: TimePeriod[] = ["today", "week", "month"];
@@ -14,26 +15,30 @@ interface TimeFilterProps {
   value: string;
   onChange: (period: TimePeriod) => void;
   labels?: Partial<Record<TimePeriod, string>>;
+  includeAll?: boolean;
 }
 
 /**
  * Canonical pill-button row for time period selection.
  * Accessible: role="radiogroup", arrow-key navigation, Enter/Space to select.
  */
-export default function TimeFilter({ value, onChange, labels }: TimeFilterProps) {
+export default function TimeFilter({ value, onChange, labels, includeAll }: TimeFilterProps) {
   const resolvedLabels = { ...DEFAULT_TIME_LABELS, ...labels };
   const containerRef = useRef<HTMLDivElement>(null);
+  const effectiveOrder: TimePeriod[] = includeAll
+    ? ["all", ...TIME_PERIOD_ORDER]
+    : TIME_PERIOD_ORDER;
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, period: TimePeriod) {
-    const idx = TIME_PERIOD_ORDER.indexOf(period);
+    const idx = effectiveOrder.indexOf(period);
     if (e.key === "ArrowRight" || e.key === "ArrowDown") {
       e.preventDefault();
-      const next = TIME_PERIOD_ORDER[(idx + 1) % TIME_PERIOD_ORDER.length];
+      const next = effectiveOrder[(idx + 1) % effectiveOrder.length];
       onChange(next);
       focusPill(next);
     } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
       e.preventDefault();
-      const prev = TIME_PERIOD_ORDER[(idx - 1 + TIME_PERIOD_ORDER.length) % TIME_PERIOD_ORDER.length];
+      const prev = effectiveOrder[(idx - 1 + effectiveOrder.length) % effectiveOrder.length];
       onChange(prev);
       focusPill(prev);
     } else if (e.key === "Enter" || e.key === " ") {
@@ -66,7 +71,7 @@ export default function TimeFilter({ value, onChange, labels }: TimeFilterProps)
       aria-label="Time period"
       className="flex gap-2"
     >
-      {TIME_PERIOD_ORDER.map((period) => (
+      {effectiveOrder.map((period) => (
         <button
           key={period}
           role="radio"
