@@ -231,6 +231,15 @@ _spawn_lock_holders: dict[str, Tuple[str, str, float]] = {}
 # runs it on a threadpool, so an asyncio.Lock is not enough.
 _spawn_lock_mutex = threading.Lock()
 
+# Serializes concurrent git worktree write operations (create, remove, branch
+# create/delete). git acquires exclusive locks on .git/config.lock and
+# .git/packed-refs.lock; two concurrent ``git worktree add`` or ``git branch``
+# calls race on these and one exits non-zero with "unable to create
+# .git/config.lock: File exists". The spawn handler converts that to HTTP 500.
+# Using asyncio.Lock (not threading.Lock) because all callers are async
+# coroutines on the same event loop.
+_worktree_git_mutex: asyncio.Lock = asyncio.Lock()
+
 
 _GLOB_SANITIZE_RE = re.compile(r"[^A-Za-z0-9._*/-]+")
 
@@ -545,65 +554,66 @@ async def create_worktree(
         )
         return False, f"safety: branch {branch} has unmerged commits; cherry-pick before re-spawning"
 
-    # 1. Remove any existing registered worktree at this path.
-    #    Worktrees are created with --lock, so a plain `git worktree remove
-    #    --force` will be refused ("locked") unless we unlock first.
-    if wt.exists():
-        # Unlock (no-op if not locked; never fatal).
-        await _run_git("worktree", "unlock", str(wt), cwd=cwd, timeout=5.0)
-        # Now remove the worktree registration and its directory.
-        rc, _, err = await _run_git(
-            "worktree", "remove", "--force", str(wt),
+    async with _worktree_git_mutex:
+        # 1. Remove any existing registered worktree at this path.
+        #    Worktrees are created with --lock, so a plain `git worktree remove
+        #    --force` will be refused ("locked") unless we unlock first.
+        if wt.exists():
+            # Unlock (no-op if not locked; never fatal).
+            await _run_git("worktree", "unlock", str(wt), cwd=cwd, timeout=5.0)
+            # Now remove the worktree registration and its directory.
+            rc, _, err = await _run_git(
+                "worktree", "remove", "--force", str(wt),
+                cwd=cwd, timeout=timeout,
+            )
+            if rc != 0:
+                logger.debug(
+                    "spawn.worktree.pre_remove_nonzero path=%s rc=%s err=%s",
+                    wt, rc, err.decode(errors="replace")[:120],
+                )
+            # If the directory survived (unregistered orphan), remove it from disk.
+            if wt.exists():
+                import shutil as _shutil
+                try:
+                    _shutil.rmtree(str(wt))
+                except Exception as exc:
+                    logger.warning("spawn.worktree.orphan_rmtree_failed path=%s err=%s", wt, exc)
+                    return False, f"orphan dir {wt} could not be removed: {exc}"
+
+        # 2. Delete the branch if it still exists.
+        rc, _, _ = await _run_git(
+            "branch", "-D", branch,
+            cwd=cwd, timeout=5.0,
+        )
+        # rc != 0 just means the branch didn't exist; that's fine.
+
+        # 3. Create the worktree on a fresh branch pinned to main.
+        wt.parent.mkdir(parents=True, exist_ok=True)
+        rc, out, err = await _run_git(
+            "worktree", "add", "--lock",
+            str(wt), "-b", branch, "main",
             cwd=cwd, timeout=timeout,
         )
         if rc != 0:
-            logger.debug(
-                "spawn.worktree.pre_remove_nonzero path=%s rc=%s err=%s",
-                wt, rc, err.decode(errors="replace")[:120],
+            # Clean up any partial directory left by git.
+            if wt.exists():
+                import shutil as _shutil
+                try:
+                    _shutil.rmtree(str(wt))
+                except Exception:
+                    pass
+            err_msg = err.decode(errors="replace")[:200]
+            logger.warning(
+                "spawn.worktree.add_failed name=%s rc=%s err=%s",
+                agent_name, rc, err_msg,
             )
-        # If the directory survived (unregistered orphan), remove it from disk.
-        if wt.exists():
-            import shutil as _shutil
-            try:
-                _shutil.rmtree(str(wt))
-            except Exception as exc:
-                logger.warning("spawn.worktree.orphan_rmtree_failed path=%s err=%s", wt, exc)
-                return False, f"orphan dir {wt} could not be removed: {exc}"
+            return False, f"git worktree add exited {rc}: {err_msg}"
 
-    # 2. Delete the branch if it still exists.
-    rc, _, _ = await _run_git(
-        "branch", "-D", branch,
-        cwd=cwd, timeout=5.0,
-    )
-    # rc != 0 just means the branch didn't exist; that's fine.
-
-    # 3. Create the worktree on a fresh branch pinned to main.
-    wt.parent.mkdir(parents=True, exist_ok=True)
-    rc, out, err = await _run_git(
-        "worktree", "add", "--lock",
-        str(wt), "-b", branch, "main",
-        cwd=cwd, timeout=timeout,
-    )
-    if rc != 0:
-        # Clean up any partial directory left by git.
-        if wt.exists():
-            import shutil as _shutil
-            try:
-                _shutil.rmtree(str(wt))
-            except Exception:
-                pass
-        err_msg = err.decode(errors="replace")[:200]
-        logger.warning(
-            "spawn.worktree.add_failed name=%s rc=%s err=%s",
-            agent_name, rc, err_msg,
-        )
-        return False, f"git worktree add exited {rc}: {err_msg}"
-
-    # Ensure the new worktree is never sparse. git worktree add can inherit
-    # sparse-checkout state from system or global git config even when the
-    # local repo has no sparse config. Disabling it is a no-op when sparse
-    # mode is inactive and guarantees a full source tree when it is.
-    await _run_git("sparse-checkout", "disable", cwd=str(wt), timeout=5.0)
+        # Ensure the new worktree is never sparse. git worktree add can inherit
+        # sparse-checkout state from system or global git config even when the
+        # local repo has no sparse config. Disabling it is a no-op when sparse
+        # mode is inactive and guarantees a full source tree when it is.
+        await _run_git("sparse-checkout", "disable", cwd=str(wt), timeout=5.0)
 
     logger.info(
         "spawn.worktree.created name=%s path=%s branch=%s",
@@ -712,34 +722,35 @@ async def remove_worktree(
             )
             return False
 
-    if wt.exists() or True:  # attempt even if dir is gone (unregister stale entry)
-        # Unlock first; worktrees are created with --lock so a plain remove
-        # --force will be refused without the prior unlock.
-        await _run_git("worktree", "unlock", str(wt), cwd=cwd, timeout=5.0)
-        rc, _, err = await _run_git(
-            "worktree", "remove", "--force", str(wt),
-            cwd=cwd, timeout=timeout,
-        )
-        if rc != 0:
-            logger.warning(
-                "spawn.worktree.remove_failed path=%s rc=%s err=%s",
-                wt, rc, err.decode(errors="replace")[:120],
+    async with _worktree_git_mutex:
+        if wt.exists() or True:  # attempt even if dir is gone (unregister stale entry)
+            # Unlock first; worktrees are created with --lock so a plain remove
+            # --force will be refused without the prior unlock.
+            await _run_git("worktree", "unlock", str(wt), cwd=cwd, timeout=5.0)
+            rc, _, err = await _run_git(
+                "worktree", "remove", "--force", str(wt),
+                cwd=cwd, timeout=timeout,
             )
-            ok = False
-        # Ensure directory is gone even if git didn't clean it.
-        if wt.exists():
-            import shutil as _shutil
-            try:
-                _shutil.rmtree(str(wt))
-            except Exception as exc:
-                logger.warning("spawn.worktree.rmtree_failed path=%s err=%s", wt, exc)
+            if rc != 0:
+                logger.warning(
+                    "spawn.worktree.remove_failed path=%s rc=%s err=%s",
+                    wt, rc, err.decode(errors="replace")[:120],
+                )
                 ok = False
+            # Ensure directory is gone even if git didn't clean it.
+            if wt.exists():
+                import shutil as _shutil
+                try:
+                    _shutil.rmtree(str(wt))
+                except Exception as exc:
+                    logger.warning("spawn.worktree.rmtree_failed path=%s err=%s", wt, exc)
+                    ok = False
 
-    # Delete the branch.
-    rc, _, _ = await _run_git("branch", "-D", branch, cwd=cwd, timeout=5.0)
-    if rc != 0:
-        logger.debug("spawn.worktree.branch_delete_nonzero branch=%s rc=%s", branch, rc)
-        # Not fatal; branch may have already been deleted by the agent itself.
+        # Delete the branch.
+        rc, _, _ = await _run_git("branch", "-D", branch, cwd=cwd, timeout=5.0)
+        if rc != 0:
+            logger.debug("spawn.worktree.branch_delete_nonzero branch=%s rc=%s", branch, rc)
+            # Not fatal; branch may have already been deleted by the agent itself.
 
     return ok
 
