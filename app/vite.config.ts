@@ -35,6 +35,10 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 3010,
+    // Force IPv4 binding. Without this vite defaults to ::1 (IPv6-only)
+    // which enters a stuck state after idle periods and refuses all
+    // connections — the "wedge". Needle 1138/1142.
+    host: '127.0.0.1',
     https: httpsConfig,
     // Fail hard instead of silently falling back to 3011 when 3010 is
     // already taken. A silent fallback + a browser tab pointed at 3010
