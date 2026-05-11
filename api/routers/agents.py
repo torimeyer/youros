@@ -4309,8 +4309,13 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     # without bash/read/fs_ops — which silently pushes the
                     # subagent onto native tools and reintroduces the cwd-leak.
                     _spawn_cwd = _short_cwd_for_worktree(_wt_path)
-                    _spawn_env["OSTK_PROJECT_ROOT"] = str(_wt_path)
-                    _spawn_env["OSTK_ROOT"] = str(_wt_path)
+                    # OSTK_PROJECT_ROOT and OSTK_ROOT must also use the short
+                    # cwd path so the daemon computes a socket path that fits
+                    # macOS SUN_PATH_MAX (104 chars). The env vars take
+                    # precedence over cwd when the daemon builds its socket
+                    # path, so cwd shortening alone is not sufficient. (→1148)
+                    _spawn_env["OSTK_PROJECT_ROOT"] = _spawn_cwd
+                    _spawn_env["OSTK_ROOT"] = _spawn_cwd
                     # CLAUDE_PROJECT_DIR is inherited from the parent env
                     # (line 4127: _spawn_env = {**os.environ}), which points
                     # to the parent repo. Without this override, hooks and
