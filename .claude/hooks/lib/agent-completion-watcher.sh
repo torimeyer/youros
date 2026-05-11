@@ -4,8 +4,9 @@
 # appends a JSON row to the announcements file so the parent session learns
 # about the completion mid-turn (not only on the next UserPromptSubmit).
 #
-# Launched by agent-completion-drain.sh (PreToolUse hook). Do not start
-# this script directly unless testing.
+# Launched by session-start.sh (SessionStart hook) for reliability, with
+# agent-completion-drain.sh (PreToolUse hook) as a lazy fallback if the
+# daemon dies mid-session. Do not start this script directly unless testing.
 #
 # Env overrides:
 #   MYOS_BACKEND_URL                  (default https://127.0.0.1:8000)
@@ -28,13 +29,13 @@ trap 'rm -f "$PID_FILE"' EXIT INT TERM
 
 # Python snippet: compare current /api/agents response against the known-state
 # file. Emit any running → terminal transitions to the announcements file.
-# Updated the state file so the next poll starts from current reality.
+# Updates the state file so the next poll starts from current reality.
 POLL_PY='
 import json, os, sys
 from datetime import datetime, timezone
 
-TERMINAL = {"completed", "failed", "cancelled", "terminated_stale", "completed_timeout", "stopped"}
-EXCLUDE   = {"ack-bot", "heartbeat-bot", "e2e-smoke"}
+TERMINAL      = {"completed", "failed", "cancelled", "terminated_stale", "completed_timeout", "stopped"}
+EXCLUDE_NAMES = {"ack-bot", "heartbeat-bot", "e2e-smoke"}
 
 resp_file  = sys.argv[1]
 annc_file  = sys.argv[2]
@@ -59,31 +60,29 @@ try:
 except Exception:
     pass
 
-# Build current snapshot from poll response
+# Build current snapshot from poll response.
+# Use ?source=claude-code&summary=1 (no limit) so new agents beyond slot 100
+# are visible. summary=1 drops heavy fields; completed_at/summary may be absent.
 current = {}
 for a in data.get("agents", []) or []:
-    src = a.get("source")
-    if src != "claude-code" or src in EXCLUDE:
+    if a.get("source") != "claude-code":
         continue
     name = a.get("name") or ""
-    if not name or name.startswith("claude-code-"):
-        continue  # main-session rows, not user-spawned subagents
-    current[name] = {"status": a.get("status") or "", "agent": a}
+    if not name or name.startswith("claude-code-") or name in EXCLUDE_NAMES:
+        continue  # skip main-session rows and bots
+    current[name] = a.get("status") or ""
 
 # Detect running → terminal transitions
+now = datetime.now(timezone.utc)
 announcements = []
-for name, info in current.items():
-    status = info["status"]
+for name, status in current.items():
     if known.get(name) == "running" and status in TERMINAL:
-        a = info["agent"]
-        completed_at = a.get("completed_at") or datetime.now(timezone.utc).isoformat()
-        summary = (a.get("summary") or a.get("last_summary") or "")[:140]
         announcements.append({
-            "name": name,
-            "status": status,
-            "completed_at": completed_at,
-            "summary": summary,
-            "detected_at": datetime.now(timezone.utc).isoformat(),
+            "name":         name,
+            "status":       status,
+            "completed_at": now.isoformat(),
+            "summary":      "",
+            "detected_at":  now.isoformat(),
         })
 
 if announcements:
@@ -92,15 +91,11 @@ if announcements:
         for ann in announcements:
             f.write(json.dumps(ann) + "\n")
 
-# Persist merged state: keep previously-known running agents that may have
-# been paged out of the current response, plus all current snapshot values.
-merged = {name: status for name, status in known.items() if status == "running"}
-for name, info in current.items():
-    merged[name] = info["status"]
-
+# Persist new full state snapshot (overwrites; no need to keep paged-out running
+# agents since the no-limit query always returns the complete picture).
 os.makedirs(os.path.dirname(state_file) or ".", exist_ok=True)
 with open(state_file, "w") as f:
-    for name, status in merged.items():
+    for name, status in current.items():
         f.write(json.dumps({"name": name, "status": status}) + "\n")
 '
 
@@ -109,8 +104,11 @@ while true; do
 
     TMP_RESP="$(mktemp -t completion-watcher-resp.XXXXXX 2>/dev/null)" || continue
 
-    if curl -sSk --connect-timeout 2 -m 5 \
-            "${BACKEND_URL}/api/agents?source=claude-code&limit=100" \
+    # Fetch all claude-code agents with summary=1 (no limit).
+    # summary=1 keeps payload ~120KB even with 500+ agents; the no-limit ensures
+    # newly-spawned agents beyond the old 100-row cutoff are always visible.
+    if curl -sSk --connect-timeout 2 -m 8 \
+            "${BACKEND_URL}/api/agents?source=claude-code&summary=1" \
             -o "$TMP_RESP" 2>/dev/null; then
         python3 -c "$POLL_PY" "$TMP_RESP" "$ANNC_FILE" "$STATE_FILE" 2>/dev/null || true
     fi

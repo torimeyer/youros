@@ -149,4 +149,31 @@ if [ -n "$CWD" ] && [ -x "$FLEET_REAPER" ]; then
     fi
 fi
 
+# ---- 5. Start agent-completion-watcher daemon. ----
+# Ensure the daemon is always running at session start so the parent session
+# gets mid-turn push notifications when watched agents complete.
+# Kill any stale daemon first (may be from a previous session or an old worktree).
+WATCHER_SCRIPT="$CWD/.claude/hooks/lib/agent-completion-watcher.sh"
+WATCHER_PID_FILE="$HOME/.myos/subagents/completion-watcher.pid"
+
+if [ -x "$WATCHER_SCRIPT" ]; then
+    if [ -f "$WATCHER_PID_FILE" ]; then
+        OLD_PID=$(cat "$WATCHER_PID_FILE" 2>/dev/null)
+        case "$OLD_PID" in
+            ''|*[!0-9]*) ;;
+            *) kill "$OLD_PID" 2>/dev/null || true ;;
+        esac
+        rm -f "$WATCHER_PID_FILE" 2>/dev/null || true
+    fi
+    (
+        MYOS_BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}" \
+        MYOS_COMPLETION_ANNC="${HOME}/.myos/subagents/pending-completion-announcements.jsonl" \
+        MYOS_COMPLETION_STATE="${HOME}/.myos/subagents/completion-watcher-state.json" \
+        MYOS_COMPLETION_PID="$WATCHER_PID_FILE" \
+        MYOS_COMPLETION_WATCHER_INTERVAL="5" \
+            bash "$WATCHER_SCRIPT" </dev/null >/dev/null 2>&1 &
+    )
+    disown 2>/dev/null || true
+fi
+
 exit 0
