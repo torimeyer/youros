@@ -118,3 +118,158 @@ def test_short_link_is_idempotent_across_respawn():
     finally:
         if created:
             target_path.rmdir()
+
+
+# ---------------------------------------------------------------------------
+# Regression: OSTK_PROJECT_ROOT must use the short cwd, not the full path
+# (→1148) When the worktree path is long, ostk uses OSTK_PROJECT_ROOT for
+# socket location, not the actual process CWD. Setting it to the full path
+# causes bind() to fail (110 > 104 chars) and degrades to static-only tools.
+# ---------------------------------------------------------------------------
+
+
+class _FakeStderr:
+    async def read(self, _n: int) -> bytes:
+        return b""
+
+
+class _FakeProc:
+    pid = 424242
+    returncode = 0
+
+    def __init__(self) -> None:
+        self.stderr = _FakeStderr()
+
+    async def wait(self) -> int:
+        return 0
+
+    async def communicate(self):
+        return (b"", b"")
+
+
+class _FakeForkProc:
+    def __init__(self, returncode: int = 0, stderr: bytes = b"", stdout: bytes = b"0\n") -> None:
+        self.returncode = returncode
+        self._stderr = stderr
+        self._stdout = stdout
+
+    async def communicate(self):
+        return (self._stdout, self._stderr)
+
+
+@pytest.mark.asyncio
+async def test_spawn_sets_ostk_root_to_short_cwd_for_long_agent_name(monkeypatch):
+    """OSTK_PROJECT_ROOT and OSTK_ROOT must be the short /tmp path when the
+    worktree path would push the ostk socket over macOS's 104-char sun_path.
+
+    Root cause (→1148): spawn set OSTK_PROJECT_ROOT to the full worktree path.
+    ostk uses this env var (not the process CWD) for socket location. A 94-char
+    worktree path + 16-char "/.ostk/ostk.sock" = 110 > 104, causing bind() to
+    fail. The kernel fell back to degraded mode: only context/search/nudge
+    tools registered; bash/read/fs_ops disappeared; subagents fell through to
+    native tools.
+
+    Fix: set OSTK_PROJECT_ROOT and OSTK_ROOT to _spawn_cwd (the /tmp short path).
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from main import app
+    from routers.agents import active_agents, agent_metadata
+    import routers.agents as agents_module
+    import services.spawn_isolation as _siso
+    from httpx import ASGITransport, AsyncClient
+
+    # Use a long agent name that makes the worktree socket path exceed 104 chars.
+    # .claude/worktrees/agent-<name>/.ostk/ostk.sock needs base path + suffix.
+    # PROJECT_ROOT ~30 chars + "/.claude/worktrees/agent-" 25 chars + name + 16 = >104
+    # So name >= 34 chars triggers the short-cwd path. Use 40 chars to be safe.
+    agent_name = "fix-subagent-ostk-mcp-not-loaded-411a0e"  # 40 chars, matches real failure
+
+    captured_envs: list[dict] = []
+
+    async def _fake_exec(*args, **kwargs):
+        env = kwargs.get("env") or {}
+        captured_envs.append(dict(env))
+        if args and args[0] == "git":
+            if "worktree" in args and "add" in args:
+                return _FakeForkProc(returncode=0)
+            return _FakeForkProc(returncode=0)
+        return _FakeProc()
+
+    real_create_task = agents_module.asyncio.create_task
+
+    def _noop_drain_task(coro, *a, **kw):
+        name = getattr(coro, "__name__", "") or getattr(
+            getattr(coro, "cr_code", None), "co_name", ""
+        )
+        if name.startswith("_drain_stderr"):
+            coro.close()
+
+            class _Dummy:
+                def cancel(self) -> None:
+                    return None
+
+                def done(self) -> bool:
+                    return True
+
+            return _Dummy()
+        return real_create_task(coro, *a, **kw)
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(agents_module.asyncio, "create_subprocess_exec", _fake_exec)
+    monkeypatch.setattr(_siso.asyncio, "create_subprocess_exec", _fake_exec)
+    monkeypatch.setattr(agents_module.asyncio, "create_task", _noop_drain_task)
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "fix the ostk mcp propagation bug",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "locks": ["/tmp/fix-subagent-ostk-mcp-1148.log"],
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        # Find the claude --print subprocess call (not git)
+        claude_envs = [
+            env for env in captured_envs
+            if "CLAUDE_PROJECT_DIR" in env or "OSTK_PROJECT_ROOT" in env
+        ]
+        assert claude_envs, (
+            "Expected at least one subprocess call with OSTK_PROJECT_ROOT in env; "
+            f"got captured envs: {[list(e.keys())[:5] for e in captured_envs]}"
+        )
+        env = claude_envs[-1]  # last one is the claude --print call
+
+        ostk_root = env.get("OSTK_PROJECT_ROOT", "")
+        assert ostk_root, "OSTK_PROJECT_ROOT must be set in subagent env"
+
+        sock_path_len = len(ostk_root) + SOCK_SUFFIX_LEN
+        assert sock_path_len < SUN_PATH_MAX, (
+            f"OSTK_PROJECT_ROOT={ostk_root!r} makes socket path {sock_path_len} chars "
+            f"which exceeds macOS sun_path limit ({SUN_PATH_MAX}). "
+            f"This causes the ostk daemon bind() to fail and degrades to static-only tools."
+        )
+        assert env.get("OSTK_ROOT", "") == ostk_root, (
+            "OSTK_ROOT must equal OSTK_PROJECT_ROOT"
+        )
+        # For this long agent name, the root must be the /tmp short link, not the
+        # full worktree path.
+        assert ostk_root.startswith("/tmp/"), (
+            f"Long agent name must route OSTK_PROJECT_ROOT through /tmp short link; "
+            f"got {ostk_root!r}"
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)

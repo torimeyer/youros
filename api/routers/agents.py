@@ -4302,15 +4302,17 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     wt_path=_wt_path,
                 )
                 if _wt_ok:
-                    # Cap cwd so <cwd>/.ostk/ostk.sock fits macOS sun_path (104).
+                    # Cap cwd AND ostk root so <root>/.ostk/ostk.sock fits
+                    # macOS sun_path (104 chars). ostk uses OSTK_PROJECT_ROOT
+                    # (not the actual process CWD) to determine socket location.
                     # Long agent names + nested .claude/worktrees/agent-<name>/
-                    # otherwise blow past the limit, the ostk daemon's bind()
-                    # fails, and the MCP server falls back to degraded mode
-                    # without bash/read/fs_ops — which silently pushes the
-                    # subagent onto native tools and reintroduces the cwd-leak.
+                    # push the socket path to 110+ chars, causing bind() to fail.
+                    # The daemon then starts in degraded mode: only static tools
+                    # (context/search/nudge) register; bash/read/fs_ops are absent,
+                    # silently pushing subagents onto native tools. (→1148)
                     _spawn_cwd = _short_cwd_for_worktree(_wt_path)
-                    _spawn_env["OSTK_PROJECT_ROOT"] = str(_wt_path)
-                    _spawn_env["OSTK_ROOT"] = str(_wt_path)
+                    _spawn_env["OSTK_PROJECT_ROOT"] = _spawn_cwd
+                    _spawn_env["OSTK_ROOT"] = _spawn_cwd
                     # CLAUDE_PROJECT_DIR is inherited from the parent env
                     # (line 4127: _spawn_env = {**os.environ}), which points
                     # to the parent repo. Without this override, hooks and
