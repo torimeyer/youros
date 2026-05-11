@@ -2043,6 +2043,42 @@ _RESOLVE_TTL_SECONDS = 30.0
 import threading as _threading
 _enrich_thread_lock = _threading.Lock()
 
+# Fields in agent dicts whose string values may contain raw control bytes
+# (e.g. from heartbeat step messages, spawn prompts, or shell output).
+# json.dumps escapes these correctly in most cases, but certain code paths
+# (direct file reads, subprocess output, MCP socket text blocks) can produce
+# strings with literal U+0000–U+001F bytes that survive into the HTTP response.
+# RFC 8259 requires control characters to be escaped; Python's strict json.loads
+# rejects them. Sanitize these fields at the serialization boundary so the
+# /api/agents response always round-trips through json.loads(strict=True).
+_SANITIZE_FIELDS = frozenset({
+    "current_step",
+    "task",
+    "description",
+    "summary",
+    "prompt",
+    "terminated_reason",
+    "fail_reason",
+    "label",
+})
+
+
+def sanitize_for_json(s: str) -> str:
+    """Replace unescapable control characters in ``s`` with their \\uXXXX forms.
+
+    Keeps tab (U+0009), newline (U+000A), and carriage return (U+000D) — the
+    three control characters that are valid in JSON string values — and replaces
+    every other character below U+0020 with its \\uXXXX Unicode escape.  This
+    makes the string safe to include in a JSON payload regardless of how the
+    surrounding serializer handles ``ensure_ascii``.
+    """
+    if not s:
+        return s
+    return "".join(
+        c if ord(c) >= 0x20 or c in "\t\n\r" else f"\\u{ord(c):04x}"
+        for c in s
+    )
+
 
 def _run_enrich_pipeline(
     all_agents: list,
@@ -2111,6 +2147,12 @@ def _run_enrich_pipeline(
             )
             agent["recovery_count"] = meta.get("recovery_count", 0)
             agent["max_recoveries"] = MAX_RECOVERY_ATTEMPTS
+            # Sanitize string fields that may carry raw control bytes from
+            # heartbeat step messages, spawn prompts, or external tool output.
+            for field in _SANITIZE_FIELDS:
+                val = agent.get(field)
+                if isinstance(val, str):
+                    agent[field] = sanitize_for_json(val)
     return filtered
 
 
@@ -3538,7 +3580,10 @@ async def list_agents(
         pass
     return {
         "daemon_running": daemon_running,
-        "status": ps_result.get("raw", "unknown"),
+        # sanitize_for_json: raw ps output can contain control chars (e.g. tabs
+        # from column-aligned output). json.dumps normally escapes these but the
+        # sanitization makes the contract explicit at the serialization boundary.
+        "status": sanitize_for_json(ps_result.get("raw", "unknown")),
         "active": [
             a["name"] for a in filtered_agents
             if a.get("status") == "running" and _is_user_spawned(a)
