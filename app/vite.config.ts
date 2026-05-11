@@ -33,6 +33,18 @@ const httpsConfig = fs.existsSync(keyPath) && fs.existsSync(certPath)
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Needle 1145: after an idle period the browser reconnects with a burst
+  // of simultaneous module requests. Each request registers a transform,
+  // which resets vite's 50 ms crawl-end idle timer. With the default
+  // holdUntilCrawlEnd:true the timer never expires, so
+  // depOptimizationProcessing.promise never resolves and every request
+  // for a pre-bundled dep (react, react-dom, …) hangs forever.
+  // Setting false makes the optimizer apply results as soon as the initial
+  // scan finishes, regardless of ongoing transforms. Card-compass hit the
+  // same bug under concurrent Playwright workers (vite 5.4.21); same fix.
+  optimizeDeps: {
+    holdUntilCrawlEnd: false,
+  },
   server: {
     port: 3010,
     // Force IPv4 binding. Without this vite defaults to ::1 (IPv6-only)

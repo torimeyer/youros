@@ -1,15 +1,29 @@
 #!/usr/bin/env bash
-# Regression test: vite dev server must stay responsive after idle period.
-# Verifies the IPv4-host fix for needles →1138/→1142.
+# Regression test: vite dev server must stay responsive under concurrent load
+# and after an idle period.
+#
+# Needle 1145 root cause: optimizeDeps.holdUntilCrawlEnd:true (vite default)
+# defers dep-optimization results until the 50ms crawl-end idle timer fires.
+# A burst of simultaneous module requests (browser reconnecting after idle, or
+# concurrent agent activity) keeps resetting that timer indefinitely.
+# depOptimizationProcessing.promise never resolves and every request for a
+# pre-bundled dep hangs forever. Fix: holdUntilCrawlEnd:false.
+#
+# This test covers both failure modes:
+#   Phase 1 — concurrent burst: fire 10 requests in parallel immediately
+#             after startup to trigger the crawl-end stall.
+#   Phase 2 — post-idle:       idle 30s, then burst again to verify the
+#             server is still alive (original IPv4-binding scenario).
+#
 # Usage: ./scripts/test-vite-no-wedge.sh
 # Exit 0 = pass, exit 1 = fail.
 
 set -euo pipefail
 
 IDLE_SECONDS=30
-HIT_COUNT=5
-# Use a test-only port so the regression test doesn't conflict with a running dev server.
-# The IPv4-binding behavior (what we're testing) is set by host:, not port:.
+BURST_COUNT=10
+# Use a test-only port so the regression test doesn't conflict with a running
+# dev server.
 PORT=3013
 HOST=127.0.0.1
 PASS=0
@@ -53,13 +67,13 @@ if [[ -n "$stale" ]]; then
   sleep 1
 fi
 
-VITE_CONFIG="$APP_DIR/vite.config.ts"
-
 # When running from a worktree, vite must be invoked from the main repo's
 # app/ directory (where node_modules live) but pointed at the worktree's
 # vite.config.ts so we test the patched version.
-if [[ "$APP_DIR" != "$(cd "$(git rev-parse --git-common-dir)/.." && pwd)/app" ]]; then
-  MAIN_APP_DIR="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)/app"
+VITE_CONFIG="$APP_DIR/vite.config.ts"
+GIT_COMMON_DIR="$(git -C "$REPO_DIR" rev-parse --git-common-dir 2>/dev/null || echo "")"
+if [[ -n "$GIT_COMMON_DIR" ]]; then
+  MAIN_APP_DIR="$(cd "$GIT_COMMON_DIR/.." && pwd)/app"
 else
   MAIN_APP_DIR="$APP_DIR"
 fi
@@ -69,7 +83,6 @@ echo "[vite-wedge-test] Config: $VITE_CONFIG"
 cd "$MAIN_APP_DIR"
 # --config points at the worktree's (patched) config.
 # --port overrides so the test doesn't conflict with the live dev server on 3010.
-# --host from config will bind 127.0.0.1 — that is what we are testing.
 node "$VITE_BIN" --config "$VITE_CONFIG" --port "${PORT}" &>/tmp/vite-wedge-test.log &
 VITE_PID=$!
 
@@ -98,19 +111,66 @@ if [[ $READY -eq 0 ]]; then
   tail -20 /tmp/vite-wedge-test.log | sed 's/\x1b\[[0-9;]*m//g' || true
   exit 1
 fi
-echo "[vite-wedge-test] vite ready (scheme=${SCHEME}). Idling ${IDLE_SECONDS}s to simulate wedge window..."
+echo "[vite-wedge-test] vite ready (scheme=${SCHEME})."
+
+# ---------- Phase 1: concurrent burst immediately after startup ----------
+# This is the holdUntilCrawlEnd test. Each curl fires in the background so
+# all N requests are in-flight simultaneously, mimicking a browser that
+# opens many connections at once and keeps resetting the 50ms crawl-end
+# idle timer. With holdUntilCrawlEnd:true these would all hang; with
+# holdUntilCrawlEnd:false they resolve immediately.
+echo "[vite-wedge-test] Phase 1: firing ${BURST_COUNT} concurrent requests..."
+declare -a PIDS
+declare -a TMPFILES
+for i in $(seq 1 "$BURST_COUNT"); do
+  TMPFILE=$(mktemp /tmp/vite-wedge-burst-XXXXXX)
+  TMPFILES+=("$TMPFILE")
+  curl --connect-timeout 3 -m 8 -sk "${SCHEME}://${HOST}:${PORT}/" \
+    -o /dev/null -w "%{http_code}" >"$TMPFILE" 2>/dev/null &
+  PIDS+=($!)
+done
+
+# Collect results
+phase1_fail=0
+for i in "${!PIDS[@]}"; do
+  wait "${PIDS[$i]}" 2>/dev/null || true
+  HTTP=$(cat "${TMPFILES[$i]}" 2>/dev/null || echo "000")
+  rm -f "${TMPFILES[$i]}"
+  req=$((i + 1))
+  if echo "$HTTP" | grep -qE "^[23]"; then
+    echo "[vite-wedge-test]   burst $req: $HTTP OK"
+    PASS=$((PASS + 1))
+  else
+    echo "[vite-wedge-test]   burst $req: $HTTP FAIL (holdUntilCrawlEnd wedge?)"
+    FAIL=$((FAIL + 1))
+    phase1_fail=$((phase1_fail + 1))
+  fi
+done
+
+if [[ $phase1_fail -gt 0 ]]; then
+  echo "[vite-wedge-test] Phase 1 FAIL: ${phase1_fail}/${BURST_COUNT} concurrent requests timed out."
+  echo "[vite-wedge-test] This indicates the holdUntilCrawlEnd:false fix is missing."
+  echo "[vite-wedge-test] vite log tail:"
+  tail -20 /tmp/vite-wedge-test.log | sed 's/\x1b\[[0-9;]*m//g' || true
+  exit 1
+fi
+echo "[vite-wedge-test] Phase 1 PASS: all ${BURST_COUNT} concurrent requests returned 2xx/3xx."
+
+# ---------- Phase 2: post-idle sequential check ----------
+echo "[vite-wedge-test] Phase 2: idling ${IDLE_SECONDS}s then verifying server is still alive..."
 sleep "${IDLE_SECONDS}"
 
-echo "[vite-wedge-test] Hitting / ${HIT_COUNT} times rapidly after idle..."
-for i in $(seq 1 "$HIT_COUNT"); do
+phase2_fail=0
+for i in $(seq 1 5); do
   HTTP=$(curl --connect-timeout 3 -m 5 -sk "${SCHEME}://${HOST}:${PORT}/" \
     -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
   if echo "$HTTP" | grep -qE "^[23]"; then
-    echo "[vite-wedge-test]   hit $i: $HTTP OK"
+    echo "[vite-wedge-test]   post-idle hit $i: $HTTP OK"
     PASS=$((PASS + 1))
   else
-    echo "[vite-wedge-test]   hit $i: $HTTP FAIL"
+    echo "[vite-wedge-test]   post-idle hit $i: $HTTP FAIL"
     FAIL=$((FAIL + 1))
+    phase2_fail=$((phase2_fail + 1))
   fi
 done
 
