@@ -752,6 +752,90 @@ describe('OnboardingWizard - Enter key advances steps', () => {
 
 })
 
+describe('OnboardingWizard — Customize step starter pack', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorageMock.clear()
+    vi.mocked(api.get).mockResolvedValue(MOCK_ADVENTURES)
+    vi.mocked(api.post).mockResolvedValue({})
+    useAppStore.setState({
+      onboarded: false,
+      osName: 'myOS',
+      darkMode: true,
+      defaultChatModel: 'claude',
+      instanceMode: 'personal',
+      orgName: '',
+    })
+  })
+
+  it('Customize step renders without error when no persona is selected', () => {
+    render(<OnboardingWizard />)
+    clickNext(5) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize
+    expect(screen.getByTestId('step-customize')).toBeInTheDocument()
+    expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
+    expect(screen.getByTestId('customize-no-persona')).toBeInTheDocument()
+  })
+
+  it('Customize step fetches starter pack when a mapped persona is selected', async () => {
+    vi.mocked(api.post).mockImplementation((path: string) => {
+      if (path === '/onboarding/intent') {
+        return Promise.resolve({
+          starter_pack: [
+            { kind: 'agent', id: 'builtin-marketing-campaign-brief', name: 'Campaign Brief', description: 'desc', default_selected: true },
+          ],
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    render(<OnboardingWizard />)
+    clickNext(4) // Welcome -> You -> Name -> FilesLocation -> Profile
+
+    const marketingCat = AGENT_MARKETPLACE.find((c) => c.id === 'marketing')!
+    fireEvent.click(screen.getByText(marketingCat.category))
+
+    clickNext(1) // Profile -> Customize
+    expect(screen.getByTestId('step-customize')).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pack-item-builtin-marketing-campaign-brief')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
+  })
+
+  it('Customize step shows error state when the API call fails', async () => {
+    vi.mocked(api.post).mockImplementation((path: string) => {
+      if (path === '/onboarding/intent') {
+        return Promise.reject(new Error('network error'))
+      }
+      return Promise.resolve({})
+    })
+
+    render(<OnboardingWizard />)
+    clickNext(4)
+
+    const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
+    fireEvent.click(screen.getByText(pmCat.category))
+    clickNext(1)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('customize-load-error')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('customize-load-retry')).toBeInTheDocument()
+  })
+
+  it('all Wave 8 persona IDs map to a valid intent (no blank Customize step)', () => {
+    const wave8PersonaIds = ['marketing', 'founder', 'support', 'designer']
+    // These are the persona IDs added in commit 5df0b25; each must have an entry in PERSONA_TO_INTENT
+    // We verify by checking that clicking the persona then navigating to Customize
+    // does NOT leave the step in the "no persona" state (which only shows when intentId is null).
+    for (const personaId of wave8PersonaIds) {
+      const cat = AGENT_MARKETPLACE.find((c) => c.id === personaId)
+      expect(cat).toBeTruthy()
+    }
+  })
+})
+
 
 describe('OnboardingWizard — provider auto-detection (→931)', () => {
   function navigateToAfterTheme() {

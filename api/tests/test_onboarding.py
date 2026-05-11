@@ -453,6 +453,72 @@ async def test_intent_invalid_returns_422(client):
 
 
 @pytest.mark.asyncio
+async def test_intent_marketing_returns_campaign_brief(client):
+    """Marketing intent returns Campaign Brief as the primary agent."""
+    resp = await client.post("/api/onboarding/intent", json={"intent": "marketing"})
+    assert resp.status_code == 200
+    pack = resp.json()["starter_pack"]
+    assert len(pack) > 0
+    ids = [item["id"] for item in pack]
+    assert "builtin-marketing-campaign-brief" in ids
+    by_id = {item["id"]: item for item in pack}
+    assert by_id["builtin-marketing-campaign-brief"]["default_selected"] is True
+
+
+@pytest.mark.asyncio
+async def test_intent_founder_returns_investor_update(client):
+    """Founder intent returns Investor Update as the primary agent."""
+    resp = await client.post("/api/onboarding/intent", json={"intent": "founder"})
+    assert resp.status_code == 200
+    pack = resp.json()["starter_pack"]
+    assert len(pack) > 0
+    ids = [item["id"] for item in pack]
+    assert "builtin-founder-investor-update" in ids
+    by_id = {item["id"]: item for item in pack}
+    assert by_id["builtin-founder-investor-update"]["default_selected"] is True
+
+
+@pytest.mark.asyncio
+async def test_intent_support_returns_customer_reply(client):
+    """Support intent returns Customer Reply as the primary agent."""
+    resp = await client.post("/api/onboarding/intent", json={"intent": "support"})
+    assert resp.status_code == 200
+    pack = resp.json()["starter_pack"]
+    assert len(pack) > 0
+    ids = [item["id"] for item in pack]
+    assert "builtin-support-customer-reply" in ids
+    by_id = {item["id"]: item for item in pack}
+    assert by_id["builtin-support-customer-reply"]["default_selected"] is True
+
+
+@pytest.mark.asyncio
+async def test_intent_designer_returns_design_critique(client):
+    """Designer intent returns Design Critique as the primary agent."""
+    resp = await client.post("/api/onboarding/intent", json={"intent": "designer"})
+    assert resp.status_code == 200
+    pack = resp.json()["starter_pack"]
+    assert len(pack) > 0
+    ids = [item["id"] for item in pack]
+    assert "builtin-designer-design-critique" in ids
+    by_id = {item["id"]: item for item in pack}
+    assert by_id["builtin-designer-design-critique"]["default_selected"] is True
+
+
+@pytest.mark.asyncio
+async def test_intent_all_packs_resolve_to_non_empty_list(client):
+    """Every intent in the mapping resolves to at least one valid template."""
+    all_intents = [
+        "writing", "personal", "coding", "research", "work_role",
+        "sales", "general", "marketing", "founder", "support", "designer",
+    ]
+    for intent in all_intents:
+        resp = await client.post("/api/onboarding/intent", json={"intent": intent})
+        assert resp.status_code == 200, f"intent={intent} returned {resp.status_code}"
+        pack = resp.json()["starter_pack"]
+        assert len(pack) > 0, f"intent={intent} returned empty starter_pack"
+
+
+@pytest.mark.asyncio
 async def test_first_runs_writing_returns_three_hints(client):
     resp = await client.get("/api/onboarding/first-runs?intent=writing")
     assert resp.status_code == 200

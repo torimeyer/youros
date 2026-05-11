@@ -48,7 +48,7 @@ class StarterPackItem(BaseModel):
 
 
 class IntentRequest(BaseModel):
-    intent: Literal["writing", "personal", "coding", "research", "work_role", "sales", "general"]
+    intent: Literal["writing", "personal", "coding", "research", "work_role", "sales", "general", "marketing", "founder", "support", "designer"]
     role: Optional[str] = None
 
 
@@ -70,20 +70,20 @@ _INTENT_PACKS: dict[str, list[dict]] = {
         {"id": "builtin-home-meal-planner", "default_selected": True},
         {"id": "builtin-home-trip-planner", "default_selected": True},
         {"id": "builtin-home-gift-finder", "default_selected": True},
-        {"id": "builtin-home-grocery-list", "default_selected": False},
+        {"id": "builtin-home-homework-helper", "default_selected": False},
     ],
     "coding": [
         {"id": "builtin-builder", "default_selected": True},
         {"id": "builtin-diagnose", "default_selected": True},
         {"id": "builtin-eng-write-tests", "default_selected": True},
-        {"id": "builtin-eng-bug-finder", "default_selected": False},
         {"id": "builtin-eng-debug-helper", "default_selected": False},
+        {"id": "builtin-eng-refactor-plan", "default_selected": False},
     ],
     "research": [
         {"id": "builtin-research", "default_selected": True},
         {"id": "builtin-explain-plain", "default_selected": True},
-        {"id": "builtin-student-concept-explainer", "default_selected": True},
-        {"id": "builtin-student-study-guide", "default_selected": False},
+        {"id": "builtin-student-study-guide", "default_selected": True},
+        {"id": "builtin-student-essay-outline", "default_selected": False},
     ],
     "work_role": [
         {"id": "builtin-pm-prd", "default_selected": True},
@@ -104,6 +104,30 @@ _INTENT_PACKS: dict[str, list[dict]] = {
         {"id": "builtin-brainstorm", "default_selected": True},
         {"id": "builtin-explain-plain", "default_selected": True},
         {"id": "builtin-diagnose", "default_selected": False},
+    ],
+    "marketing": [
+        {"id": "builtin-marketing-campaign-brief", "default_selected": True},
+        {"id": "builtin-research", "default_selected": True},
+        {"id": "builtin-brainstorm", "default_selected": True},
+        {"id": "builtin-writer-social-post", "default_selected": False},
+    ],
+    "founder": [
+        {"id": "builtin-founder-investor-update", "default_selected": True},
+        {"id": "builtin-pm-prd", "default_selected": True},
+        {"id": "builtin-research", "default_selected": True},
+        {"id": "builtin-builder", "default_selected": False},
+    ],
+    "support": [
+        {"id": "builtin-support-customer-reply", "default_selected": True},
+        {"id": "builtin-explain-plain", "default_selected": True},
+        {"id": "builtin-research", "default_selected": False},
+        {"id": "builtin-pm-stakeholder-update", "default_selected": False},
+    ],
+    "designer": [
+        {"id": "builtin-designer-design-critique", "default_selected": True},
+        {"id": "builtin-brainstorm", "default_selected": True},
+        {"id": "builtin-research", "default_selected": False},
+        {"id": "builtin-explain-plain", "default_selected": False},
     ],
 }
 

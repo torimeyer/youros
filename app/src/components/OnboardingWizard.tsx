@@ -683,6 +683,10 @@ const PERSONA_TO_INTENT: Record<string, string> = {
   writer: 'writing',
   home: 'personal',
   student: 'research',
+  marketing: 'marketing',
+  founder: 'founder',
+  support: 'support',
+  designer: 'designer',
 }
 
 function CustomizeStep({
