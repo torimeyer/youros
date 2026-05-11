@@ -503,6 +503,15 @@ STALE_AGENT_AUTOCOMPLETE_SECONDS = 300
 # still writing output and must not be auto-completed yet.
 STALE_AGENT_TRANSCRIPT_GRACE_SECONDS = 120
 
+# Response-time staleness cutoff for GET /api/agents (→1151).
+# Non-running rows whose last_seen (last_heartbeat_at or spawned_at) is
+# older than this are dropped from the serialized response. Running rows
+# are always kept regardless of last_seen so a transiently-delayed
+# heartbeat never hides an active agent. 90 seconds matches the ostk
+# kernel's fleet-active freshness criterion.
+_RESPONSE_STALE_SECONDS = 90
+
+
 # How often (seconds) to write a progress marker to the transcript file while
 # a subagent process is alive but has not produced any stdout yet.  The
 # subprocess (claude-code) uses full libc buffering on non-TTY pipes, so its
@@ -998,6 +1007,26 @@ def _parse_iso(value: str) -> Optional[datetime]:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return None
+
+
+def _last_seen_dt(agent: dict) -> Optional[datetime]:
+    """Return the most recent activity timestamp for an agent row.
+
+    Tries last_heartbeat_at first (set by /heartbeat and /register), then
+    spawned_at, then the audit-log ``timestamp`` field (present on rows
+    sourced from .ostk/audit.jsonl which carry ``timestamp`` instead of
+    ``spawned_at``).  Returns None when no field is present or parseable;
+    callers treat None as "keep the row" to avoid silently hiding agents
+    whose timestamps are malformed.
+    """
+    raw = (
+        agent.get("last_heartbeat_at")
+        or agent.get("spawned_at")
+        or agent.get("timestamp")
+    )
+    if not isinstance(raw, str):
+        return None
+    return _parse_iso(raw)
 
 
 # Marker written at the top of any transcript whose owning agent terminated
@@ -2106,6 +2135,19 @@ def _run_enrich_pipeline(
             agent["name"], now_for_sweep
         ):
             agent["status"] = "running"
+    # 1b. Drop stale non-running rows from the response (→1151).
+    # Running rows are always kept to avoid hiding a transiently slow heartbeat.
+    # Non-running rows whose last_seen is older than _RESPONSE_STALE_SECONDS are
+    # omitted from the serialized payload — they stay on disk unchanged.
+    # Rows with no parseable timestamp are kept so malformed records don't vanish
+    # silently.
+    _stale_cutoff = now_for_sweep - timedelta(seconds=_RESPONSE_STALE_SECONDS)
+    all_agents = [
+        a for a in all_agents
+        if a.get("status") == "running"
+        or _last_seen_dt(a) is None
+        or _last_seen_dt(a) >= _stale_cutoff
+    ]
     # 2. Apply filters.
     filtered: list = [a for a in all_agents if a.get("name") not in deleted_names]
     if user_spawned_filter is not None:
