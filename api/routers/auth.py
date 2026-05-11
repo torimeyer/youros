@@ -22,7 +22,7 @@ router = APIRouter(tags=["auth"])
 
 
 def _frontend_url(request: Request) -> str:
-    return os.environ.get("FRONTEND_URL") or str(request.base_url).rstrip("/")
+    return os.environ.get("FRONTEND_URL", "https://localhost:3010")
 
 
 GOOGLE_SCOPES = "https://www.googleapis.com/auth/cloud-platform"
