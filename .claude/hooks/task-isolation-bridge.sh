@@ -261,9 +261,24 @@ if em:
 
 orig_session = os.environ.get("ORIG_SESSION_ID") or ""
 orig_msg = os.environ.get("ORIG_MSG_ID") or ""
+
+# Completion requirement injected by the bridge (→RC3 fix).
+# scaffold-commit-watcher.sh PostToolUse:Agent never fires after bridge exit 2,
+# so this is the only enforcement path for REST-spawned agents.
+COMPLETION_CLAUSE = (
+    "\n\n"
+    "COMPLETION REQUIREMENT: Before your process exits you MUST do one of:\n"
+    "  (a) git commit -m \"...\" (commit all file changes to your worktree branch), OR\n"
+    "  (b) ostk work add \"...\" --priority P0 (file a needle with the evidence).\n"
+    "Exiting after analysis only — no commit, no needle — is a failed run.\n"
+    "If running tests: run targeted tests first (e.g. pytest path/to/test.py -x -q),\n"
+    "commit, then optionally run the full suite. Do not block a commit on full-suite pass."
+)
+injected_prompt = (prompt or desc) + COMPLETION_CLAUSE
+
 body = {
     "name": os.environ["SPAWN_NAME"],
-    "prompt": prompt or desc,
+    "prompt": injected_prompt,
     "description": desc or "task-tool bridge spawn",
     "source": "task-bridge",
     "status": "running",
