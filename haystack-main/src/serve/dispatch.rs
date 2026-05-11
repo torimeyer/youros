@@ -233,13 +233,13 @@ impl McpDispatcher {
 
         // Extract args summary before arguments is moved (Task 3: bd-202)
         let args_summary = match tool_name.as_str() {
-            "shell" | "sh_run" | "Bash" => arguments
+            "shell" | "sh_run" | "bash" | "Bash" => arguments
                 .get("cmd")
                 .or_else(|| arguments.get("command"))
                 .and_then(|c| c.as_str())
                 .unwrap_or("")
                 .to_string(),
-            "fs_ops" | "fs_read" | "file:read" | "file:edit" | "file:write" => arguments
+            "fs_ops" | "fs_read" | "file:read" | "read" | "file:edit" | "file:write" => arguments
                 .get("path")
                 .or_else(|| arguments.get("action"))
                 .and_then(|v| v.as_str())
@@ -249,7 +249,7 @@ impl McpDispatcher {
         };
 
         let tool_result = match tool_name.as_str() {
-            "shell" | "sh_run" | "Bash" => self.dispatch_sh_run(arguments).await,
+            "shell" | "sh_run" | "bash" | "Bash" => self.dispatch_sh_run(arguments).await,
             "spawn" | "sh_spawn" => self.dispatch_sh_spawn(arguments).await,
             "interact" | "sh_interact" => self.dispatch_sh_interact(arguments).await,
             "session" | "sh_session" => self.dispatch_sh_session(arguments).await,
@@ -257,6 +257,8 @@ impl McpDispatcher {
             "help" | "sh_help" => Ok(sh_run::handle_sh_help()),
             "fs_ops" | "file:edit" | "file:write" | "Edit" | "Write" => self.dispatch_fs_ops(arguments).await,
             "fs_read" | "file:read" | "Read" => self.dispatch_fs_read(arguments).await,
+            "read" => self.dispatch_read(arguments).await,
+            "search" => self.dispatch_search(arguments),
             "tack" => self.dispatch_tack(arguments),
             // fcp-web: built-in web reading tools (→842)
             "WebRead" | "web_read" | "ostk_fcp-web" | "ostk_fcp_web"
@@ -530,6 +532,39 @@ impl McpDispatcher {
             .map_err(|e| ToolError::invalid_params(format!("Invalid file:read params: {e}")))?;
         let agent = self.get_agent_alias().await;
         fs_read::handle(params, &self.state.ostk_dir, agent.as_deref()).await
+    }
+
+    /// `read` tool: accepts path/offset/limit params (documented API) and
+    /// translates to the internal action-string format used by fs_read::handle.
+    async fn dispatch_read(
+        &self,
+        arguments: serde_json::Value,
+    ) -> Result<serde_json::Value, ToolError> {
+        let action = if let Some(path) = arguments.get("path").and_then(|v| v.as_str()) {
+            if let Some(offset) = arguments.get("offset").and_then(|v| v.as_i64()) {
+                let limit = arguments.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
+                let end = offset + limit;
+                format!("read {} start:{} end:{}", path, offset + 1, end)
+            } else {
+                format!("read {}", path)
+            }
+        } else if let Some(action_str) = arguments.get("action").and_then(|v| v.as_str()) {
+            action_str.to_string()
+        } else {
+            return Err(ToolError::invalid_params("'path' is required for read tool"));
+        };
+        let params = FsReadParams { action };
+        let agent = self.get_agent_alias().await;
+        fs_read::handle(params, &self.state.ostk_dir, agent.as_deref()).await
+    }
+
+    /// `search` tool: routes to pitchfork for kernel-state keyword search.
+    fn dispatch_search(
+        &self,
+        arguments: serde_json::Value,
+    ) -> Result<serde_json::Value, ToolError> {
+        let query = arguments.get("query").and_then(|v| v.as_str()).unwrap_or("");
+        pitchfork::handle(query, &self.state.ostk_dir)
     }
 
     fn dispatch_tack(
@@ -909,7 +944,7 @@ impl McpDispatcher {
 /// Format tool result as text for the MCP content response.
 fn format_tool_text(tool_name: &str, result: &serde_json::Value) -> String {
     match tool_name {
-        "shell" | "sh_run" => {
+        "shell" | "sh_run" | "bash" => {
             let exit_code = result["exit_code"].as_i64().unwrap_or(0);
             let duration_ms = result["duration_ms"].as_u64().unwrap_or(0);
             let output = result["output"].as_str().unwrap_or("");
@@ -988,8 +1023,8 @@ fn format_tool_text(tool_name: &str, result: &serde_json::Value) -> String {
             .as_str()
             .unwrap_or("ostk help")
             .to_string(),
-        "fs_ops" | "fs_read" | "file:edit" | "file:read" | "file:write" => result["text"].as_str().unwrap_or("").to_string(),
-        "ostk_pitchfork" | "pitchfork" | "ostk_context_search" | "context_search"
+        "fs_ops" | "fs_read" | "read" | "file:edit" | "file:read" | "file:write" => result["text"].as_str().unwrap_or("").to_string(),
+        "ostk_pitchfork" | "pitchfork" | "search" | "ostk_context_search" | "context_search"
         | "ostk_context_release" | "context_release" => result["text"].as_str().unwrap_or("").to_string(),
         "tack" => {
             let resolved = result["resolved"].as_bool().unwrap_or(false);
@@ -1274,6 +1309,64 @@ fn tool_definitions_fallback() -> Vec<ToolDefinition> {
                     "reason": { "type": "string", "description": "Why this context is being released (optional)" }
                 },
                 "required": ["before_turn"]
+            }),
+        },
+        // →1152: kernel tools missing from fallback — agents call these by name per CLAUDE.md routing table.
+        // bash/read/fs_ops/search were advertised in OSTK_INSTRUCTIONS but absent from tools/list,
+        // causing mcp__ostk__bash/read/fs_ops/search calls to return unknown-tool errors.
+        ToolDefinition {
+            name: "bash".to_string(),
+            description: "Execute a shell command (replaces Bash). Alias: shell. CWD defaults to project root.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "cmd": { "type": "string", "description": "Command to execute" },
+                    "timeout": { "type": "integer", "description": "Seconds before kill", "default": 300 },
+                    "raw": { "type": "boolean", "description": "Skip compression (use for test output)", "default": false },
+                    "cwd": { "type": "string", "description": "Working directory override. Defaults to project root." }
+                },
+                "required": ["cmd"]
+            }),
+        },
+        ToolDefinition {
+            name: "read".to_string(),
+            description: "Read a file (replaces Read). gen_table tracked, elision-aware. Returns [304] on redundant reads.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path to read" },
+                    "offset": { "type": "integer", "description": "Start line (0-based). Lines offset..(offset+limit) are returned." },
+                    "limit": { "type": "integer", "description": "Number of lines to read", "default": 100 }
+                },
+                "required": ["path"]
+            }),
+        },
+        ToolDefinition {
+            name: "fs_ops".to_string(),
+            description: "File operations: create, edit, or batch-mutate files (replaces Edit/Write). CAS str_replace with OCC conflict detection.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Target file path (quick mode)" },
+                    "old_str": { "type": "string", "description": "Text to find and replace (omit for create/overwrite)" },
+                    "new_str": { "type": "string", "description": "Replacement text or full file content" },
+                    "replace_all": { "type": "boolean", "description": "Replace every occurrence", "default": false },
+                    "ops": { "type": "array", "description": "Batch mode: array of {method, path, ...} operations", "items": { "type": "object" } },
+                    "op": { "type": "string", "description": "File system op: mkdir, mv, cp, rm, chmod" }
+                }
+            }),
+        },
+        ToolDefinition {
+            name: "search".to_string(),
+            description: "Search across kernel state by keyword: decisions, needles, docs, audit (replaces Grep/Glob). Use mode='files' for glob, mode='content' for grep.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Search keyword or glob pattern" },
+                    "mode": { "type": "string", "description": "Search mode: content (default), files, semantic", "default": "content" },
+                    "scope": { "type": "string", "description": "Search scope: code, files, work, history, decisions, transcripts, all" }
+                },
+                "required": ["query"]
             }),
         },
     ]
@@ -1842,5 +1935,92 @@ mod tests {
             "fs_write is not a registered MCP tool — use fs_ops(path=..., new_str=...)");
         assert!(!OSTK_INSTRUCTIONS.contains("edit(path="),
             "edit(path=...) is not a registered MCP tool — use fs_ops(path=..., old_str=..., new_str=...)");
+    }
+
+    // →1152: kernel tools must appear in tools/list so agents can call mcp__ostk__bash/read/fs_ops/search
+
+    #[tokio::test]
+    async fn kernel_tools_registered_in_tools_list() {
+        let state = Arc::new(ServerState::new());
+        let dispatcher = McpDispatcher::new(state);
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: serde_json::json!(1),
+            method: "tools/list".to_string(),
+            params: None,
+        };
+        let response = dispatcher.dispatch(request).await.unwrap();
+        assert!(response.error.is_none());
+        let tools = response.result.unwrap()["tools"].as_array().unwrap().clone();
+        let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        for expected in ["bash", "read", "fs_ops", "search"] {
+            assert!(
+                names.contains(&expected),
+                "kernel tool missing from tools/list: {expected} — agents cannot call mcp__ostk__{expected}",
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn dispatch_bash_tool_is_callable() {
+        let state = Arc::new(ServerState::new());
+        let dispatcher = McpDispatcher::new(state);
+        dispatcher.initialized.store(true, std::sync::atomic::Ordering::Relaxed);
+
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: serde_json::json!(1),
+            method: "tools/call".to_string(),
+            params: Some(serde_json::json!({"name": "bash", "arguments": {"cmd": "echo hi"}})),
+        };
+        let response = dispatcher.dispatch(request).await.unwrap();
+        assert!(
+            response.error.as_ref().map(|e| e.code).unwrap_or(0) != ERR_METHOD_NOT_FOUND,
+            "bash must not return unknown-tool error: {:?}", response.error,
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_search_tool_is_callable() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(ServerState::with_ostk_dir(dir.path().to_path_buf()));
+        let dispatcher = McpDispatcher::new(state);
+        dispatcher.initialized.store(true, std::sync::atomic::Ordering::Relaxed);
+
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: serde_json::json!(1),
+            method: "tools/call".to_string(),
+            params: Some(serde_json::json!({"name": "search", "arguments": {"query": "test"}})),
+        };
+        let response = dispatcher.dispatch(request).await.unwrap();
+        assert!(
+            response.error.as_ref().map(|e| e.code).unwrap_or(0) != ERR_METHOD_NOT_FOUND,
+            "search must not return unknown-tool error: {:?}", response.error,
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_read_tool_is_callable() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(ServerState::with_ostk_dir(dir.path().to_path_buf()));
+        let dispatcher = McpDispatcher::new(state);
+        dispatcher.initialized.store(true, std::sync::atomic::Ordering::Relaxed);
+
+        // Write a test file the handler can actually read
+        let test_file = dir.path().parent().unwrap_or(dir.path()).join("test_read_dispatch.txt");
+        std::fs::write(&test_file, "line1\nline2\n").unwrap();
+
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: serde_json::json!(1),
+            method: "tools/call".to_string(),
+            params: Some(serde_json::json!({"name": "read", "arguments": {"path": test_file.to_string_lossy()}})),
+        };
+        let response = dispatcher.dispatch(request).await.unwrap();
+        assert!(
+            response.error.as_ref().map(|e| e.code).unwrap_or(0) != ERR_METHOD_NOT_FOUND,
+            "read must not return unknown-tool error: {:?}", response.error,
+        );
     }
 }
