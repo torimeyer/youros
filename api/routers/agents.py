@@ -2040,8 +2040,9 @@ _RESOLVE_TTL_SECONDS = 30.0
 # can amplify the cold pass from ~5s to >120s. With the lock, only one
 # pass runs at a time; once it warms the caches, every queued poller gets
 # a near-zero pass.
-import threading as _threading
-_enrich_thread_lock = _threading.Lock()
+# asyncio.Lock (not threading.Lock) so waiting callers suspend at coroutine
+# level without consuming a thread-pool slot (→1144: thread-pool saturation).
+_enrich_async_lock: asyncio.Lock = asyncio.Lock()
 
 # Fields in agent dicts whose string values may contain raw control bytes
 # (e.g. from heartbeat step messages, spawn prompts, or shell output).
@@ -2096,63 +2097,64 @@ def _run_enrich_pipeline(
     resolve and metrics caches every queued caller runs in milliseconds.
     All I/O here is synchronous and belongs in a thread (not in the
     event loop) so TLS handshakes for other endpoints are never blocked.
+    Serialization is now done by _enrich_async_lock in the caller so this
+    function no longer holds a threading.Lock (→1144).
     """
-    with _enrich_thread_lock:
-        # 1. Status flip for terminated_stale rows still active on disk.
-        for agent in all_agents:
-            if agent.get("status") == "terminated_stale" and _transcript_recently_active(
-                agent["name"], now_for_sweep
-            ):
-                agent["status"] = "running"
-        # 2. Apply filters.
-        filtered: list = [a for a in all_agents if a.get("name") not in deleted_names]
-        if user_spawned_filter is not None:
-            filtered = [a for a in filtered if user_spawned_filter(a)]
-        if filter_status:
-            filtered = [a for a in filtered if a.get("status") == filter_status]
-        if filter_source:
-            filtered = [a for a in filtered if a.get("source") == filter_source]
-        if limit is not None and limit >= 0:
-            filtered = sorted(filtered, key=lambda a: a.get("spawned_at") or "")[:limit]
-        # 3. Enrich the filtered subset with transcript metrics and cost.
-        # Skip transcript I/O for old stopped agents: cold-cache walk over
-        # 1000+ entries takes 14s. Only running and recently-spawned agents
-        # need live transcript byte/line counts.
-        _enrich_cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-        for agent in filtered:
-            _status = agent.get("status", "")
-            _spawned_at = agent.get("spawned_at") or ""
-            _is_old_stopped = (
-                bool(_spawned_at)
-                and _status in ("stopped", "completed", "failed", "abandoned")
-                and _spawned_at < _enrich_cutoff
-            )
-            if _is_old_stopped:
-                agent.setdefault("transcript_bytes", 0)
-                agent.setdefault("transcript_lines", 0)
-            else:
-                metrics = _get_transcript_metrics(agent["name"])
-                agent.update(metrics)
-            meta = agent_metadata.get(agent["name"], {})
-            tokens_used = meta.get("tokens_used", 0)
-            token_limit = meta.get("token_limit")
-            agent["tokens_used"] = tokens_used
-            agent["token_limit"] = token_limit
-            if token_limit and token_limit > 0:
-                agent["token_usage_pct"] = round(tokens_used / token_limit * 100, 1)
-            else:
-                agent["token_usage_pct"] = None
-            agent["cost_estimate"] = _estimate_cost(
-                meta.get("model", ""), tokens_used
-            )
-            agent["recovery_count"] = meta.get("recovery_count", 0)
-            agent["max_recoveries"] = MAX_RECOVERY_ATTEMPTS
-            # Sanitize string fields that may carry raw control bytes from
-            # heartbeat step messages, spawn prompts, or external tool output.
-            for field in _SANITIZE_FIELDS:
-                val = agent.get(field)
-                if isinstance(val, str):
-                    agent[field] = sanitize_for_json(val)
+    # 1. Status flip for terminated_stale rows still active on disk.
+    for agent in all_agents:
+        if agent.get("status") == "terminated_stale" and _transcript_recently_active(
+            agent["name"], now_for_sweep
+        ):
+            agent["status"] = "running"
+    # 2. Apply filters.
+    filtered: list = [a for a in all_agents if a.get("name") not in deleted_names]
+    if user_spawned_filter is not None:
+        filtered = [a for a in filtered if user_spawned_filter(a)]
+    if filter_status:
+        filtered = [a for a in filtered if a.get("status") == filter_status]
+    if filter_source:
+        filtered = [a for a in filtered if a.get("source") == filter_source]
+    if limit is not None and limit >= 0:
+        filtered = sorted(filtered, key=lambda a: a.get("spawned_at") or "")[:limit]
+    # 3. Enrich the filtered subset with transcript metrics and cost.
+    # Skip transcript I/O for old stopped agents: cold-cache walk over
+    # 1000+ entries takes 14s. Only running and recently-spawned agents
+    # need live transcript byte/line counts.
+    _enrich_cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    for agent in filtered:
+        _status = agent.get("status", "")
+        _spawned_at = agent.get("spawned_at") or ""
+        _is_old_stopped = (
+            bool(_spawned_at)
+            and _status in ("stopped", "completed", "failed", "abandoned")
+            and _spawned_at < _enrich_cutoff
+        )
+        if _is_old_stopped:
+            agent.setdefault("transcript_bytes", 0)
+            agent.setdefault("transcript_lines", 0)
+        else:
+            metrics = _get_transcript_metrics(agent["name"])
+            agent.update(metrics)
+        meta = agent_metadata.get(agent["name"], {})
+        tokens_used = meta.get("tokens_used", 0)
+        token_limit = meta.get("token_limit")
+        agent["tokens_used"] = tokens_used
+        agent["token_limit"] = token_limit
+        if token_limit and token_limit > 0:
+            agent["token_usage_pct"] = round(tokens_used / token_limit * 100, 1)
+        else:
+            agent["token_usage_pct"] = None
+        agent["cost_estimate"] = _estimate_cost(
+            meta.get("model", ""), tokens_used
+        )
+        agent["recovery_count"] = meta.get("recovery_count", 0)
+        agent["max_recoveries"] = MAX_RECOVERY_ATTEMPTS
+        # Sanitize string fields that may carry raw control bytes from
+        # heartbeat step messages, spawn prompts, or external tool output.
+        for field in _SANITIZE_FIELDS:
+            val = agent.get(field)
+            if isinstance(val, str):
+                agent[field] = sanitize_for_json(val)
     return filtered
 
 
@@ -3521,23 +3523,24 @@ async def list_agents(
     # synchronous filesystem I/O. Running them in the event loop with
     # sleep(0) yields still blocks TLS handshakes between yields. Moving
     # the whole pipeline into asyncio.to_thread keeps the loop free.
-    # _run_enrich_pipeline holds _enrich_thread_lock so concurrent pollers
-    # don't duplicate the cold scan; once warm the queued callers run fast.
+    # _enrich_async_lock serializes concurrent pollers at coroutine level so
+    # waiting callers don't consume thread-pool slots (→1144).
     if user_spawned_only:
         from services.agent_filters import is_user_spawned_agent
     else:
         is_user_spawned_agent = None  # type: ignore[assignment]
 
-    filtered_agents = await asyncio.to_thread(
-        _run_enrich_pipeline,
-        all_agents,
-        deleted_names,
-        now_for_sweep,
-        is_user_spawned_agent,
-        filter_status,
-        filter_source,
-        limit,
-    )
+    async with _enrich_async_lock:
+        filtered_agents = await asyncio.to_thread(
+            _run_enrich_pipeline,
+            all_agents,
+            deleted_names,
+            now_for_sweep,
+            is_user_spawned_agent,
+            filter_status,
+            filter_source,
+            limit,
+        )
 
     if summary:
         # description + model are required by the frontend's
