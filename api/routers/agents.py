@@ -4361,6 +4361,28 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                                 "spawn.ostk_sock_symlink.failed name=%s err=%s",
                                 body.name, _sym_exc,
                             )
+                    # Symlink needles/ to the main repo's shared needle store
+                    # so `ostk work add` from the worktree writes to the same
+                    # issues.jsonl the backend reads. Without this symlink, when
+                    # the daemon is not running, ostk falls back to direct file
+                    # I/O and fails with "issues.lock: No such file or directory"
+                    # because .ostk/needles/ does not exist in the worktree.
+                    # Needles filed from the worktree then never appear in the UI.
+                    # (→1143)
+                    _main_needles = PROJECT_ROOT / ".ostk" / "needles"
+                    _wt_needles = _wt_path / ".ostk" / "needles"
+                    if _main_needles.exists() and not _wt_needles.exists():
+                        try:
+                            os.symlink(str(_main_needles), str(_wt_needles))
+                            logger.info(
+                                "spawn.ostk_needles_symlink.created name=%s target=%s",
+                                body.name, _main_needles,
+                            )
+                        except Exception as _sym_exc:
+                            logger.warning(
+                                "spawn.ostk_needles_symlink.failed name=%s err=%s",
+                                body.name, _sym_exc,
+                            )
                 else:
                     logger.warning(
                         "spawn.worktree.fork_failed name=%s err=%s",
