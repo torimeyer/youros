@@ -50,8 +50,9 @@ class TestIsOrphanPlanTranscript:
         assert self.ostk._is_orphan_plan_transcript(text) is True
 
     def test_real_plan_content_is_not_orphan(self):
+        # Proper structured header — no conversational preamble.
         text = (
-            "Let me check your memory and calendar context before drafting the plan.\n\n"
+            "## Plan: migrate auth flow\n\n"
             "Here is the full integration plan for arrow1117.\n"
             "## Tasks\n- [ ] Step one\n- [ ] Step two\n"
         )
@@ -61,10 +62,47 @@ class TestIsOrphanPlanTranscript:
         text = "[heartbeat ts=2026-05-11T21:00:00Z]\nGot the full picture. No plan needed.\n"
         assert self.ostk._is_orphan_plan_transcript(text) is True
 
-    def test_registered_externally_multiline_not_orphan(self):
+    # Shape 1: heartbeat dump + "Let me check…" preamble (plan-1117 pattern).
+    def test_heartbeat_preamble_let_me_check_is_orphan(self):
         text = (
-            "Agent 'plan-897' completed (registered externally).\n"
-            "Now I have everything. Here's the full integration plan for arrow897.\n"
+            "[heartbeat ts=2026-05-10T19:45:27.345838+00:00]\n"
+            "Let me check your memory and calendar context before drafting the plan."
+            "Let me look up the appointment in your calendar to make the plan specific.\n"
+            "[heartbeat ts=2026-05-10T19:45:57.347176+00:00]\n"
+            "Got everything I need. Here's the plan.\n"
+        )
+        assert self.ostk._is_orphan_plan_transcript(text) is True
+
+    # Shape 2: "(registered externally)." as first line + appended research body (plan-865 pattern).
+    def test_registered_externally_multiline_with_research_is_orphan(self):
+        text = (
+            "Agent 'plan-865' completed (registered externally).\n"
+            "The research found something important: **ostk already ships a native Windows binary**.\n"
+            "Bottom line: WSL2-first approach recommended.\n"
+        )
+        assert self.ostk._is_orphan_plan_transcript(text) is True
+
+    # Shape 3: "Now I have everything…" plan announcement (plan-897 pattern).
+    def test_now_i_have_everything_announcement_is_orphan(self):
+        text = (
+            "Now I have everything. Here's the full integration plan for →897.\n\n"
+            "---\n\n## Plan: fcp-gdocs integration into myOS\n\n### Steps\n1. Do X\n2. Do Y\n"
+        )
+        assert self.ostk._is_orphan_plan_transcript(text) is True
+
+    # Shape 4: "(registered externally)." stub + short follow-up (plan-950 pattern).
+    def test_registered_externally_stub_with_followup_is_orphan(self):
+        text = (
+            "Agent 'plan-950' completed (registered externally).\n"
+            "Plan is above. Want me to spawn the builder now?\n"
+        )
+        assert self.ostk._is_orphan_plan_transcript(text) is True
+
+    # Positive case: properly structured plan must NOT be filtered.
+    def test_structured_plan_without_preamble_is_not_orphan(self):
+        text = (
+            "## Plan: Windows support for myOS\n\n"
+            "### Steps\n1. Add WSL2 install doc\n2. Update tori.zsh\n3. CI green\n"
         )
         assert self.ostk._is_orphan_plan_transcript(text) is False
 
@@ -85,29 +123,59 @@ async def test_list_docs_filters_orphan_plan_transcripts(tmp_path, monkeypatch):
     transcripts = tmp_path / "transcripts"
     transcripts.mkdir()
 
+    # Original orphan shapes (pre-5195e18 filter)
     (transcripts / "plan-863.md").write_text(
         "# TERMINATED WITHOUT WORK tokens=0 reason=user cancelled\n\n"
         "Agent 'plan-863' terminated without producing real work.\n"
     )
-    (transcripts / "plan-865.md").write_text(
+    (transcripts / "plan-865-stub.md").write_text(
         "Agent 'plan-865' completed (registered externally).\n"
     )
     (transcripts / "plan-951.md").write_text(
         "Got the full picture. No plan needed -- the work is already done.\n"
     )
+    # Shape 1: heartbeat + "Let me check…" preamble (plan-1117 pattern)
     (transcripts / "plan-1117.md").write_text(
-        "Let me check your memory and calendar context before drafting.\n\n"
-        "Here is the integration plan for arrow1117.\n"
+        "[heartbeat ts=2026-05-10T19:45:27.345838+00:00]\n"
+        "Let me check your memory and calendar context before drafting the plan.\n"
+    )
+    # Shape 2: "(registered externally)." + appended research (plan-865 pattern)
+    (transcripts / "plan-865.md").write_text(
+        "Agent 'plan-865' completed (registered externally).\n"
+        "The research found something important: ostk ships a Windows binary.\n"
+    )
+    # Shape 3: "Now I have everything…" announcement (plan-897 pattern)
+    (transcripts / "plan-897.md").write_text(
+        "Now I have everything. Here's the full integration plan for →897.\n\n"
+        "## Plan: fcp-gdocs integration\n"
+    )
+    # Shape 4: "(registered externally)." stub with short follow-up (plan-950 pattern)
+    (transcripts / "plan-950.md").write_text(
+        "Agent 'plan-950' completed (registered externally).\n"
+        "Plan is above. Want me to spawn the builder now?\n"
+    )
+    # Real plan that must survive — proper structured header, no preamble
+    (transcripts / "plan-999.md").write_text(
+        "## Plan: migrate auth flow\n\n- Step one\n- Step two\n"
+    )
+    # User-authored spec in docs/spec/ must also survive (orphan filter never touches docs/)
+    (tmp_path / "docs" / "spec" / "real-spec.md").write_text(
+        "---\ntitle: Real user spec\n---\n\nUser-authored content here.\n"
     )
 
     with patch.object(ostk_module.ostk, "list_tasks", new=AsyncMock(return_value=[])):
         docs = await ostk_module.ostk.list_docs()
 
     plan_docs = [d for d in docs if d["status"] == "plan"]
+    # Specs get status "ready"/"in-progress"/"complete" via compute_spec_status
+    # (a spec with no tasks becomes "ready"). Match by path instead.
+    user_doc_names = {d["filename"] for d in docs if "docs/" in d.get("path", "")}
     titles = [d["title"] for d in plan_docs]
 
     assert len(plan_docs) == 1, f"Expected 1 real plan, got {len(plan_docs)}: {titles}"
-    assert "1117" in plan_docs[0]["path"]
+    assert "999" in plan_docs[0]["path"]
+    # User-authored spec is unaffected by the orphan filter
+    assert "real-spec.md" in user_doc_names
 
 
 # ---------------------------------------------------------------------------

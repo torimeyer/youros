@@ -2065,7 +2065,11 @@ class OstkService:
         if stripped.startswith("# TERMINATED WITHOUT WORK"):
             return True
         non_blank = [ln for ln in stripped.splitlines() if ln.strip()]
-        if len(non_blank) == 1 and "(registered externally)." in non_blank[0]:
+        # Any transcript whose first non-blank line is a "(registered externally)."
+        # completion notice is a stub written by the harness, not real plan content.
+        # The original check required len==1; multi-line stubs with appended research
+        # also need filtering (plan-865, plan-950 patterns).
+        if non_blank and "(registered externally)." in non_blank[0]:
             return True
         first = ""
         for line in text.splitlines():
@@ -2073,7 +2077,17 @@ class OstkService:
             if s and not s.startswith("[heartbeat"):
                 first = s.lower()
                 break
-        return "no plan needed" in first or "work is already done" in first
+        # Transcript whose only non-blank content is heartbeat lines.
+        if not first:
+            return True
+        if "no plan needed" in first or "work is already done" in first:
+            return True
+        # Conversational AI preamble phrases signal an agent work log rather than
+        # a structured plan. Safe to filter here because this function is only ever
+        # called on transcripts/plan-*.md, never on user-authored docs/.
+        # Catches plan-1117 ("Let me check…") and plan-897 ("Now I have everything…").
+        _PREAMBLE_PREFIXES = ("let me ", "now i have everything")
+        return any(first.startswith(p) for p in _PREAMBLE_PREFIXES)
 
     async def list_docs(self) -> list[dict]:
         """Scan docs/draft and docs/spec directories for documents.
