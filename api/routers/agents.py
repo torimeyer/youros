@@ -6566,7 +6566,11 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
         except (asyncio.TimeoutError, Exception):
             pass
     if should_write_stub:
-        transcript.write_text(f"Agent '{name}' completed (registered externally).\n")
+        import re as _re
+        if _re.match(r"^plan-\d+$", name):
+            transcript.unlink(missing_ok=True)
+        else:
+            transcript.write_text(f"Agent '{name}' completed (registered externally).\n")
 
     # Fire a persistent notification so the bell lights up when an agent finishes.
     # Skip internal housekeeping agents — they are infrastructure noise, not user work.
@@ -6900,11 +6904,15 @@ async def cancel_agent(
     # if tokens_used stayed 0 (→1041).
     if _terminated_without_work(meta):
         try:
+            import re as _re
             from config import PROJECT_ROOT
             _t_path = PROJECT_ROOT / "transcripts" / f"{name}.md"
             _wt_branch = meta.get("worktree_branch") or ""
             if not _transcript_has_real_content(_t_path) and not _worktree_branch_has_commits(_wt_branch):
-                _write_terminated_banner(_t_path, name, reason)
+                if _re.match(r"^plan-\d+$", name):
+                    _t_path.unlink(missing_ok=True)
+                else:
+                    _write_terminated_banner(_t_path, name, reason)
         except Exception:
             pass
 

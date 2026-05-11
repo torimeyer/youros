@@ -2051,6 +2051,30 @@ class OstkService:
 
         return {"result": result, "task_ids": task_ids}
 
+    @staticmethod
+    def _is_orphan_plan_transcript(text: str) -> bool:
+        """Return True when a plan transcript contains no real plan content.
+
+        Orphan transcripts accumulate when planning agents are cancelled,
+        complete without producing real work, or explicitly say no plan is
+        needed. These should be hidden from the Specs panel.
+        """
+        stripped = text.strip()
+        if not stripped:
+            return True
+        if stripped.startswith("# TERMINATED WITHOUT WORK"):
+            return True
+        non_blank = [ln for ln in stripped.splitlines() if ln.strip()]
+        if len(non_blank) == 1 and "(registered externally)." in non_blank[0]:
+            return True
+        first = ""
+        for line in text.splitlines():
+            s = line.strip()
+            if s and not s.startswith("[heartbeat"):
+                first = s.lower()
+                break
+        return "no plan needed" in first or "work is already done" in first
+
     async def list_docs(self) -> list[dict]:
         """Scan docs/draft and docs/spec directories for documents.
 
@@ -2094,6 +2118,8 @@ class OstkService:
                     mtime_ms = int(mtime * 1000)
                     created_at = datetime.fromtimestamp(mtime, tz=_tz.utc).isoformat()
                 except OSError:
+                    continue
+                if self._is_orphan_plan_transcript(text):
                     continue
                 # Derive title from the first non-blank, non-heartbeat line.
                 title = f"Plan for →{needle_id}"

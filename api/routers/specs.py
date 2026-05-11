@@ -1725,6 +1725,46 @@ async def build_spec(spec_path: str):
     ]}
 
 
+@router.delete("/specs/orphan-drafts")
+async def delete_orphan_plan_drafts():
+    """Delete plan transcript files that contain no real plan content.
+
+    Scans transcripts/ for plan-{id}.md files whose content matches
+    known orphan patterns (cancelled without work, registered-externally
+    stubs, or explicit "no plan needed" messages) and removes them.
+
+    Returns the count and paths of deleted files. Safe to call repeatedly.
+    """
+    import re as _re
+
+    _plan_re = _re.compile(r"^plan-(\d+)\.md$")
+    transcripts_dir = Path(PROJECT_ROOT) / "transcripts"
+    deleted: list[str] = []
+
+    if not transcripts_dir.is_dir():
+        return {"deleted": 0, "deleted_paths": []}
+
+    for md in sorted(transcripts_dir.glob("plan-*.md")):
+        if not _plan_re.match(md.name):
+            continue
+        try:
+            text = md.read_text(errors="replace")
+        except OSError:
+            continue
+        if not ostk._is_orphan_plan_transcript(text):
+            continue
+        rel = f"transcripts/{md.name}"
+        try:
+            md.unlink()
+            deleted.append(rel)
+        except OSError as exc:
+            logger.warning("delete_orphan_plan_drafts: unlink failed %s: %s", rel, exc)
+
+    if deleted:
+        logger.info("delete_orphan_plan_drafts removed %d orphans: %s", len(deleted), deleted)
+    return {"deleted": len(deleted), "deleted_paths": deleted}
+
+
 @router.delete("/specs/{doc_path:path}")
 async def delete_spec(doc_path: str):
     """Delete a draft or spec document by its relative path.
