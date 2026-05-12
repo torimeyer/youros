@@ -1111,6 +1111,37 @@ def _transcript_has_real_content(path) -> bool:
         return False
 
 
+def _close_orphan_plan_transcript(name: str) -> bool:
+    """Delete transcripts/plan-NNN.md when its content matches an orphan pattern.
+
+    Called at agent cancel and complete transitions to clean up plan transcript
+    files that were never useful: cancelled runs, "no plan needed" responses,
+    and zero-work completions. The list_docs() filter (→1149) already hides
+    these at read time; this removes them from disk so they do not accumulate.
+
+    Returns True if the file was deleted, False otherwise. Never raises to
+    callers -- a failed delete must not block cancel or complete.
+    """
+    import re as _re
+    if not _re.match(r"^plan-\d+$", name):
+        return False
+    try:
+        from pathlib import Path as _Path
+        from config import PROJECT_ROOT as _root
+        from services.ostk import ostk as _ostk
+        t_path = _Path(_root) / "transcripts" / f"{name}.md"
+        if not t_path.exists():
+            return False
+        text = t_path.read_text(errors="replace")
+        if not _ostk._is_orphan_plan_transcript(text):
+            return False
+        t_path.unlink(missing_ok=True)
+        logger.debug("closed orphan plan transcript %s (→1147)", name)
+        return True
+    except Exception:
+        return False
+
+
 def _worktree_branch_has_commits(branch: str) -> bool:
     """Return True when the agent's worktree branch has commits ahead of main.
 
@@ -6625,6 +6656,13 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
         else:
             transcript.write_text(f"Agent '{name}' completed (registered externally).\n")
 
+    # (→1147) Clean up orphan plan transcripts at completion. Covers:
+    # - "no plan needed" responses where transcript has content but no real plan
+    # - empty transcripts that were not caught by the should_write_stub path above
+    # The should_write_stub path already deletes plan-NNN.md when the file is
+    # missing/empty; this catch handles the case where it EXISTS with orphan text.
+    _close_orphan_plan_transcript(name)
+
     # Fire a persistent notification so the bell lights up when an agent finishes.
     # Skip internal housekeeping agents — they are infrastructure noise, not user work.
     if not _is_test_artifact_agent_name(name):
@@ -6968,6 +7006,10 @@ async def cancel_agent(
                     _write_terminated_banner(_t_path, name, reason)
         except Exception:
             pass
+
+    # (→1147) Clean up orphan plan transcripts on cancel, regardless of token count.
+    # Covers "no plan needed" responses and zero-token cancels alike. Best-effort.
+    _close_orphan_plan_transcript(name)
 
     # Audit so the audit log reflects the cancel.
     _emit_audit_event("agent.cancelled", {"name": name, "reason": reason})
