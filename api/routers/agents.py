@@ -517,10 +517,14 @@ _RESPONSE_STALE_SECONDS = 90
 # a subagent process is alive but has not produced any stdout yet.  The
 # subprocess (claude-code) uses full libc buffering on non-TTY pipes, so its
 # output can stay in user-space buffers for the entire run.  The periodic
-# marker ensures transcript_bytes grows on every 30-second tick so the Agents
-# page shows a live agent instead of a stalled one.  Override in tests via
-# monkeypatch to keep suites fast.
-_TRANSCRIPT_FLUSH_INTERVAL: float = 30.0
+# marker ensures transcript_bytes grows on every tick so the Agents page shows
+# a live agent instead of a stalled one.  Override in tests via monkeypatch.
+#
+# 25 s (not 30 s) so this flush interval does not coincide with the 60 s
+# resolve/candidates cache TTLs — if they matched, every flush would
+# simultaneously bust all three caches, causing a synchronized cold-rebuild
+# spike on the next /api/agents request (→1192).
+_TRANSCRIPT_FLUSH_INTERVAL: float = 25.0
 
 # If a subprocess produces NO stdout for this many seconds while still
 # running, we treat it as wedged and kill it. Without this guard, agents
@@ -919,19 +923,27 @@ def _write_state_content(content: str) -> None:
             pass
 
 
+def _serialize_and_write_snapshot(snapshot: dict) -> None:
+    """Serialize snapshot to JSON and write to disk. Runs inside asyncio.to_thread."""
+    content = json.dumps(snapshot, indent=2, ensure_ascii=False)
+    _write_state_content(content)
+
+
 async def _save_agent_state_async() -> None:
     """Non-blocking save for use inside async handlers.
 
-    json.dumps serializes agent_metadata on the event loop (~10-30ms for
-    a typical 500-row state file). The file write + fsync run inside
-    asyncio.to_thread so the event loop is free to process TLS handshakes
-    and other requests while the disk I/O completes. Without this, five
-    parallel subagents each heartbeating + a standing-rules poll loop
-    can block the event loop long enough for SSL handshakes on queued
-    requests to time out, returning empty bodies (→1086).
+    A per-agent dict copy is taken on the event loop while no await can
+    interleave, guaranteeing a consistent snapshot. Both json.dumps (~10-30ms
+    for 1500 rows) and the file write + fsync run inside asyncio.to_thread so
+    the event loop is free during GIL-heavy serialization and disk I/O.
+    Without this, parallel heartbeat calls and standing-rules poll loops block
+    the loop long enough for TLS handshakes to time out (→1086, →1192).
     """
-    content = json.dumps(agent_metadata, indent=2, ensure_ascii=False)
-    await asyncio.to_thread(_write_state_content, content)
+    # Snapshot on the event loop: no await can interleave here, so the dict
+    # is consistent. Per-agent dict() copy is enough since primitive field
+    # values (str/int/bool) are immutable.
+    snapshot = {k: dict(v) for k, v in agent_metadata.items()}
+    await asyncio.to_thread(_serialize_and_write_snapshot, snapshot)
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -2092,7 +2104,10 @@ def _is_stub_markdown(path: Path) -> bool:
 # list call after the TTL elapses picks it up. Tests that mutate files
 # during one process run should call _reset_transcript_resolver_cache().
 _resolve_cache: dict[str, tuple[float, Optional[Path]]] = {}
-_RESOLVE_TTL_SECONDS = 30.0
+# 60 s (not 30 s) — decoupled from _TRANSCRIPT_FLUSH_INTERVAL (25 s) so the
+# two timers don't expire at the same moment and trigger a synchronized
+# cold-rebuild spike on every flush cycle (→1192).
+_RESOLVE_TTL_SECONDS = 60.0
 
 # Serialize concurrent enrich passes in list_agents. Without this, multiple
 # pollers (standing-rules hooks across many sessions) hit a cold resolve
@@ -2506,7 +2521,7 @@ def _resolve_transcript_source_uncached(name: str) -> Optional[Path]:
 # picks up a freshly-spawned agent's file on the very next request rather
 # than waiting for the old TTL to expire.
 _candidates_cache: dict[tuple[str, str, int], tuple[float, list[tuple[float, Path, str]]]] = {}
-_CANDIDATES_TTL_SECONDS = 30.0
+_CANDIDATES_TTL_SECONDS = 60.0  # 60 s — decoupled from flush interval (→1192)
 
 
 def _reset_candidates_cache() -> None:
@@ -2545,7 +2560,11 @@ def _load_candidates(root: Path, pattern: str) -> list[tuple[float, Path, str]]:
 
     candidates: list[tuple[float, Path, str]] = []
     try:
+        _i = 0
         for p in root.glob(pattern):
+            _i += 1
+            if _i % 10 == 0:
+                import time as _t; _t.sleep(0)  # yield GIL every 10 iters (→1192)
             try:
                 stat = p.stat()
                 with open(p, "rb") as f:
@@ -2607,7 +2626,7 @@ def _first_line_matches_needle(first_line_lower: str, needle_lower: str) -> bool
 # first-line content. Used by the meta.description fallback path when the
 # strict needle match fails.
 _meta_candidates_cache: dict[tuple[str, int], tuple[float, list[tuple[float, Path, str]]]] = {}
-_META_CANDIDATES_TTL_SECONDS = 30.0
+_META_CANDIDATES_TTL_SECONDS = 60.0  # 60 s — decoupled from flush interval (→1192)
 
 
 def _reset_meta_candidates_cache() -> None:
@@ -2631,7 +2650,11 @@ def _load_meta_candidates(project_dir: Path) -> list[tuple[float, Path, str]]:
 
     candidates: list[tuple[float, Path, str]] = []
     try:
+        _i = 0
         for meta_path in project_dir.glob("*/subagents/agent-*.meta.json"):
+            _i += 1
+            if _i % 10 == 0:
+                import time as _t; _t.sleep(0)  # yield GIL every 10 iters (→1192)
             jsonl_path = meta_path.with_suffix("")  # strips ".json"
             if jsonl_path.suffix != ".meta":
                 continue
