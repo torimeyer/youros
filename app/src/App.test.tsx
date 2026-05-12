@@ -118,4 +118,18 @@ describe('App routing', () => {
     await Promise.resolve()
     expect(window.location.search).toBe('?keep=this')
   })
+
+  it('strips ?auth_error from the URL on mount', async () => {
+    window.history.pushState({}, '', '/?auth_error=invalid_state')
+    render(<App />)
+    await Promise.resolve()
+    expect(window.location.search).toBe('')
+  })
+
+  it('preserves other query params when stripping ?auth_error', async () => {
+    window.history.pushState({}, '', '/?keep=this&auth_error=token_exchange_failed')
+    render(<App />)
+    await Promise.resolve()
+    expect(window.location.search).toBe('?keep=this')
+  })
 })

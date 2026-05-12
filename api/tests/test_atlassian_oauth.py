@@ -57,7 +57,7 @@ async def test_atlassian_auth_without_client_id_redirects_to_frontend_with_error
 async def test_atlassian_callback_exchanges_code_and_saves_oauth_config(client):
     """Happy path: state valid, code exchanges, cloud_id + tokens persist."""
     state = "valid-state-xyz"
-    oauth_states[state] = True
+    oauth_states[state] = {"return_to": "http://testclient/settings"}
 
     env = {
         "ATLASSIAN_CLIENT_ID": "client-abc",
@@ -312,3 +312,38 @@ async def test_get_auth_and_base_oauth_without_cloud_id_raises():
         ):
             with pytest.raises(RuntimeError, match="cloud_id"):
                 await atlassian_service._get_auth_and_base(product="jira")
+
+
+# --- error redirects use return_to when state has it ---
+
+
+@pytest.mark.asyncio
+async def test_atlassian_callback_error_redirects_to_return_to(client):
+    """When state carries return_to, error redirects go there not root."""
+    state = "rt-err-state"
+    oauth_states[state] = {"return_to": "http://testclient/settings"}
+
+    env = {
+        "ATLASSIAN_CLIENT_ID": "client-abc",
+        "ATLASSIAN_CLIENT_SECRET": "secret-xyz",
+    }
+
+    token_resp = MagicMock(status_code=400)
+    token_resp.json.return_value = {}
+
+    mock_http = AsyncMock()
+    mock_http.post = AsyncMock(return_value=token_resp)
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__.return_value = mock_http
+
+    with patch.dict("os.environ", env, clear=True):
+        with patch("routers.atlassian.httpx.AsyncClient", return_value=mock_ctx):
+            resp = await client.get(
+                f"/api/atlassian/callback?code=bad-code&state={state}",
+                follow_redirects=False,
+            )
+
+    assert resp.status_code in (302, 307)
+    location = resp.headers["location"]
+    assert "auth_error=token_exchange_failed" in location
+    assert "settings" in location

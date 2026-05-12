@@ -81,7 +81,7 @@ describe('AtlassianConnect', () => {
     expect(screen.queryByTestId('atlassian-reconnect-btn')).not.toBeInTheDocument()
   })
 
-  it('Reconnect button onClick navigates to /api/atlassian/auth', async () => {
+  it('Reconnect button onClick navigates to /api/atlassian/auth with return_to=/settings', async () => {
     let assignedHref = ''
     Object.defineProperty(window, 'location', {
       configurable: true,
@@ -110,6 +110,38 @@ describe('AtlassianConnect', () => {
     })
 
     fireEvent.click(screen.getByTestId('atlassian-reconnect-btn'))
-    expect(assignedHref).toBe('/api/atlassian/auth')
+    expect(assignedHref).toBe('/api/atlassian/auth?return_to=/settings')
+  })
+
+  it('Connect Atlassian button includes return_to=/settings', async () => {
+    let assignedHref = ''
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: {
+        ...window.location,
+        get href() { return assignedHref },
+        set href(v: string) { assignedHref = v },
+      },
+    })
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/atlassian/status')) {
+        return Promise.resolve({ connected: false })
+      }
+      if (path.includes('/atlassian/defaults')) {
+        return Promise.resolve({ site: '', oauth_available: true })
+      }
+      return Promise.resolve({})
+    })
+
+    render(<AtlassianConnect />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('atlassian-oauth-btn')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('atlassian-oauth-btn'))
+    expect(assignedHref).toBe('/api/atlassian/auth?return_to=/settings')
   })
 })

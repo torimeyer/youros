@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { useNotificationStore } from './stores/notifications'
 import { Layout } from './components/Layout'
 import OnboardingWizard from './components/OnboardingWizard'
 import Dashboard from './pages/Dashboard'
@@ -69,13 +70,22 @@ export default function App() {
     hydrateFromServer()
   }, [hydrateFromServer])
 
-  // OAuth callback cleanup: when Atlassian's callback redirects back to
-  // the app with ?atlassian_connected=true, strip the param so a
-  // refresh does not re-trigger anything. The connection card on the
-  // onboarding screen polls /atlassian/status independently and will
-  // pick up the new connected=true state on its next mount.
+  // OAuth callback cleanup: strip ?atlassian_connected=true and surface
+  // any ?auth_error so the user knows when Atlassian OAuth failed.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
+    const authError = params.get('auth_error')
+    if (authError) {
+      params.delete('auth_error')
+      const next = params.toString()
+      window.history.replaceState({}, '', window.location.pathname + (next ? `?${next}` : ''))
+      useNotificationStore.getState().addPersistentToast({
+        id: `atlassian-auth-error-${authError}`,
+        type: 'error',
+        title: 'Atlassian connection failed',
+        body: `${authError.replace(/_/g, ' ')}. Try connecting again in Settings.`,
+      })
+    }
     if (params.get('atlassian_connected') === 'true') {
       params.delete('atlassian_connected')
       const next = params.toString()

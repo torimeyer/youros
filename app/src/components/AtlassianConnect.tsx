@@ -78,7 +78,7 @@ export default function AtlassianConnect() {
           <p className="text-sm text-amber-300">Atlassian credentials expired</p>
         </div>
         <button
-          onClick={() => { window.location.href = '/api/atlassian/auth' }}
+          onClick={() => { window.location.href = '/api/atlassian/auth?return_to=/settings' }}
           data-testid="atlassian-reconnect-btn"
           className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
         >
@@ -124,7 +124,7 @@ export default function AtlassianConnect() {
         </p>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { window.location.href = '/api/atlassian/auth' }}
+            onClick={() => { window.location.href = '/api/atlassian/auth?return_to=/settings' }}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
             data-testid="atlassian-oauth-btn"
           >

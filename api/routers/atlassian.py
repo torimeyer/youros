@@ -122,15 +122,17 @@ async def atlassian_callback(
     else:
         return_to = f"{frontend_url}/"
 
+    def _error_redirect(reason: str) -> RedirectResponse:
+        sep = "&" if "?" in return_to else "?"
+        return RedirectResponse(f"{return_to}{sep}auth_error={reason}")
+
     if not code:
-        return RedirectResponse(f"{frontend_url}/?auth_error=no_code")
+        return _error_redirect("no_code")
 
     client_id = os.environ.get("ATLASSIAN_CLIENT_ID", "")
     client_secret = os.environ.get("ATLASSIAN_CLIENT_SECRET", "")
     if not client_id or not client_secret:
-        return RedirectResponse(
-            f"{frontend_url}/?auth_error=atlassian_not_configured"
-        )
+        return _error_redirect("atlassian_not_configured")
 
     base_url = str(request.base_url).rstrip("/")
     redirect_uri = f"{base_url}/api/atlassian/callback"
@@ -147,30 +149,22 @@ async def atlassian_callback(
             },
         )
         if token_resp.status_code != 200:
-            return RedirectResponse(
-                f"{frontend_url}/?auth_error=token_exchange_failed"
-            )
+            return _error_redirect("token_exchange_failed")
         tokens = token_resp.json()
         access_token = tokens.get("access_token", "")
         refresh_token = tokens.get("refresh_token", "")
         if not access_token:
-            return RedirectResponse(
-                f"{frontend_url}/?auth_error=token_exchange_failed"
-            )
+            return _error_redirect("token_exchange_failed")
 
         resources_resp = await http.get(
             "https://api.atlassian.com/oauth/token/accessible-resources",
             headers={"Authorization": f"Bearer {access_token}"},
         )
         if resources_resp.status_code != 200:
-            return RedirectResponse(
-                f"{frontend_url}/?auth_error=accessible_resources_failed"
-            )
+            return _error_redirect("accessible_resources_failed")
         resources = resources_resp.json()
         if not resources:
-            return RedirectResponse(
-                f"{frontend_url}/?auth_error=no_atlassian_sites"
-            )
+            return _error_redirect("no_atlassian_sites")
 
     first = resources[0]
     cloud_id = first.get("id", "")
