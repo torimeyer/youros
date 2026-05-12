@@ -3922,19 +3922,24 @@ def get_running_needle_ids() -> set[str]:
     Mirrors get_running_task_ids() for ostk needles. The task list
     endpoint overlays in_progress status on a needle when a live agent
     carries its needle_id, without writing back to issues.jsonl.
+
+    Checks both ``needle_id`` (primary, first match) and ``needle_ids``
+    (all →NNN tokens extracted at register time, →1204).
     """
     live: set[str] = set()
     for _name, meta in agent_metadata.items():
         if not isinstance(meta, dict):
             continue
-        nid = meta.get("needle_id")
-        if not nid:
-            continue
         if meta.get("completed_at"):
             continue
         status = str(meta.get("status") or "").lower()
-        if status in _LIVE_AGENT_STATUSES:
+        if status not in _LIVE_AGENT_STATUSES:
+            continue
+        nid = meta.get("needle_id")
+        if nid:
             live.add(str(nid))
+        for extra_nid in meta.get("needle_ids") or []:
+            live.add(str(extra_nid))
     return live
 
 
@@ -3999,6 +4004,27 @@ def _infer_needle_id(
                 if result is not None:
                     return result
     return None
+
+
+def _extract_all_needle_ids(
+    task: str = "",
+    description: str = "",
+    prompt: str = "",
+) -> list[str]:
+    """Extract every unique →NNN needle ID from agent text fields, in order.
+
+    Unlike _infer_needle_id which returns only the first match, this
+    returns all unique →NNN tokens. Used at register/spawn time to
+    populate needle_ids so get_running_needle_ids() shows in_progress
+    for every referenced needle, not just the first (→1204).
+    """
+    seen: dict[str, None] = {}
+    for text in (task, description, prompt):
+        if not text:
+            continue
+        for m in _ARROW_NEEDLE_RE.finditer(text):
+            seen.setdefault(m.group(1), None)
+    return list(seen.keys())
 
 
 def _build_spec_ac_block(task_id: str, docs: list[dict]) -> str:
@@ -5200,6 +5226,15 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             )
             if _inferred_nid:
                 spawn_meta["needle_id"] = _inferred_nid
+        # Auto-claim: store all →NNN tokens so in_progress is shown for
+        # every referenced needle, not just the first one (→1204).
+        _all_nids = _extract_all_needle_ids(
+            body.task or "",
+            body.description or "",
+            body.prompt or "",
+        )
+        if _all_nids:
+            spawn_meta["needle_ids"] = _all_nids
         # Worktree isolation: record the fork location so /cleanup and
         # the pre-merge gate can find the branch later. Keys are only
         # set when the fork actually succeeded (body.isolation is flipped
@@ -5935,6 +5970,18 @@ async def register_agent(body: AgentSpawn, request: Request = None):
         )
         if _inferred_nid:
             record["needle_id"] = _inferred_nid
+    # Auto-claim: extract ALL →NNN tokens from task description and store
+    # as needle_ids so get_running_needle_ids() shows in_progress for every
+    # referenced needle, not just the first one (→1204).
+    _all_nids = _extract_all_needle_ids(
+        body.task or "",
+        body.description or "",
+        body.prompt or "",
+    )
+    if _all_nids:
+        record["needle_ids"] = _all_nids
+    elif existing.get("needle_ids"):
+        record["needle_ids"] = existing["needle_ids"]
     # Needle 857: stamp conversational chat mode for claude-code agents so
     # the nudge handler knows it can generate a full LLM reply instead of
     # relying on the ack bot's canned receipts. Preserved on re-register so
