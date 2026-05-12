@@ -6,6 +6,8 @@ last_seen (last_heartbeat_at or spawned_at) is older than
 _RESPONSE_STALE_SECONDS (90 s) before the enrich/serialize pass.
 Running rows are always kept regardless of last_seen.
 """
+from __future__ import annotations
+
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
