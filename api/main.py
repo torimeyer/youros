@@ -22,6 +22,7 @@ from routers import memory as memory_router
 from routers import ostk as ostk_router
 from routers import agent_uploads as agent_uploads_router
 from routers import gems as gems_router
+from routers import gemini_capture as gemini_capture_router
 from routers import internal as internal_router
 
 @asynccontextmanager
@@ -114,6 +115,7 @@ app.include_router(settings.router, prefix="/api")
 app.include_router(providers.router, prefix="/api")
 app.include_router(gemini_router.router, prefix="/api")
 app.include_router(gems_router.router, prefix="/api")
+app.include_router(gemini_capture_router.router, prefix="/api")
 app.include_router(agents.router, prefix="/api")
 app.include_router(chat.router)
 app.include_router(status.router, prefix="/api")
