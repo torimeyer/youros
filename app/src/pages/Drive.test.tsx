@@ -163,7 +163,7 @@ describe('Drive page', () => {
     })
   })
 
-  it.skip('opens the preview overlay when a file is clicked', async () => {
+  it('opens the preview overlay when a file is clicked', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
       if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
@@ -197,7 +197,7 @@ describe('Drive page', () => {
     })
   })
 
-  it.skip('closes the preview overlay with the close button', async () => {
+  it('closes the preview overlay with the close button', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
       if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
@@ -553,7 +553,7 @@ describe('Drive page', () => {
     openSpy.mockRestore()
   })
 
-  it.skip('clicking a Google Doc row still opens the preview panel (inline renderer intact)', async () => {
+  it('clicking a Google Doc row still opens the preview panel (inline renderer intact)', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
       if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
@@ -581,6 +581,67 @@ describe('Drive page', () => {
     expect(openSpy).not.toHaveBeenCalled()
 
     openSpy.mockRestore()
+  })
+
+  it('clicking a Google Slides file opens the slide carousel preview', async () => {
+    const SLIDES_FILES = [
+      {
+        id: 'slides-1',
+        name: 'Q1 Deck',
+        mimeType: 'application/vnd.google-apps.presentation',
+        modifiedTime: new Date().toISOString(),
+        iconLink: '',
+        webViewLink: 'https://docs.google.com/presentation/d/slides-1',
+        size: null,
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SLIDES_FILES, cached: false })
+      return Promise.resolve({})
+    })
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        kind: 'slides',
+        name: 'Q1 Deck',
+        mime_type: 'application/vnd.google-apps.presentation',
+        thumbnail_url: null,
+        export_url: '/api/drive/files/slides-1/preview',
+        web_view_link: 'https://docs.google.com/presentation/d/slides-1',
+        sample: {
+          slides: [
+            { slide_id: 'p1', thumbnail_url: 'https://img/slide1' },
+            { slide_id: 'p2', thumbnail_url: 'https://img/slide2' },
+          ],
+          truncated: false,
+        },
+      }),
+    } as unknown as Response)
+
+    renderDrive()
+    await waitFor(() => screen.getByText('Q1 Deck'))
+
+    fireEvent.click(screen.getByText('Q1 Deck'))
+
+    // Preview dialog opens.
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    // Slide carousel renders.
+    await waitFor(() => {
+      expect(screen.getByTestId('quicklook-slides')).toBeInTheDocument()
+    })
+    // Navigation controls are present.
+    expect(screen.getByTestId('slide-prev')).toBeInTheDocument()
+    expect(screen.getByTestId('slide-next')).toBeInTheDocument()
+    // Fetch was called with the preview endpoint.
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/drive/preview/slides-1')
+    )
   })
 
   // --- redirect_uri_mismatch banner ---

@@ -228,7 +228,7 @@ async def test_drive_auth_callback_error_param(client):
     )
     assert resp.status_code == 302
     assert "access_denied" in resp.headers["location"]
-    assert resp.headers["location"].startswith("http://test/")
+    assert resp.headers["location"].startswith("https://localhost:3010/")
 
 
 @pytest.mark.asyncio
@@ -240,7 +240,7 @@ async def test_drive_auth_callback_invalid_state(client):
     )
     assert resp.status_code == 302
     assert "invalid_state" in resp.headers["location"]
-    assert resp.headers["location"].startswith("http://test/")
+    assert resp.headers["location"].startswith("https://localhost:3010/")
 
 
 @pytest.mark.asyncio
