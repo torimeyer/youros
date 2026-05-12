@@ -102,6 +102,8 @@ describe('MyGems page', () => {
     expect(screen.getByTestId('gem-card-gem-2')).toBeInTheDocument();
     expect(screen.getByText('Code Reviewer')).toBeInTheDocument();
     expect(screen.getByText('Research Assistant')).toBeInTheDocument();
+    expect(screen.getByTestId('gems-page-subtitle')).toHaveTextContent(/personas you chat with/i);
+    expect(screen.getByTestId('gems-page-subtitle')).toHaveTextContent(/they don't run jobs/i);
   });
 
   it('shows knowledge file count badge', async () => {

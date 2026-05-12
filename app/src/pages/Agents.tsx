@@ -3714,35 +3714,38 @@ export default function Agents() {
       <TopBar title="Agents" />
       <div data-tour="agents" className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-          <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+        <div className="mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h1 className="text-xl sm:text-2xl font-bold text-white">Agents</h1>
-            <div className="flex gap-2 sm:gap-4 flex-wrap">
-              {tabs.map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTabWithRef(tab)}
-                  data-testid={`tab-${tab.toLowerCase()}`}
-                  className={`text-sm pb-1 transition-colors ${
-                    activeTab === tab
-                      ? "text-blue-400 border-b-2 border-blue-400"
-                      : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => setShowNewForm(!showNewForm)}
+              data-testid="spawn-agent-btn"
+            >
+              <Icon name="add" className="text-lg" />
+              New Agent
+            </Button>
           </div>
-          <Button
-            variant="primary"
-            size="md"
-            onClick={() => setShowNewForm(!showNewForm)}
-            data-testid="spawn-agent-btn"
-          >
-            <Icon name="add" className="text-lg" />
-            New Agent
-          </Button>
+          <p data-testid="agents-page-subtitle" className="text-sm text-slate-400 mb-4 sm:mb-6 -mt-3 sm:-mt-4">
+            Workers you send off to run jobs. They edit files, run tests, and commit code in the background.
+          </p>
+          <div className="flex gap-2 sm:gap-4 flex-wrap">
+            {tabs.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTabWithRef(tab)}
+                data-testid={`tab-${tab.toLowerCase()}`}
+                className={`text-sm pb-1 transition-colors ${
+                  activeTab === tab
+                    ? "text-blue-400 border-b-2 border-blue-400"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* New Agent Form */}

@@ -119,8 +119,8 @@ export default function MyGems() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold">My Gems</h1>
-            <p className="text-sm text-slate-400 mt-2">
-              Custom Gemini assistants set up here. Each Gem has its own instructions and knowledge files.
+            <p data-testid="gems-page-subtitle" className="text-sm text-slate-400 mt-2">
+              Personas you chat with. Each Gem has its own instructions and knowledge files. They answer questions, they don't run jobs.
             </p>
           </div>
           <button

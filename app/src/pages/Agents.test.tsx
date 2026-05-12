@@ -788,6 +788,31 @@ describe('Agents page - Send button stuck state (needle 237)', () => {
   })
 })
 
+describe('Agents page - page-level subtitle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        return { agent: 'test-agent', nudges: [], session_nudges: [], replies: [], session_replies: [] }
+      }
+      return {}
+    })
+  })
+
+  it('shows role subtitle under the Agents heading', async () => {
+    renderAgents()
+    await waitFor(() => {
+      expect(screen.getByTestId('agents-page-subtitle')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('agents-page-subtitle')).toHaveTextContent(/workers you send off to run jobs/i)
+  })
+})
+
 describe('Agents page - Status bar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
