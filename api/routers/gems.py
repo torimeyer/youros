@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from services.agent_templates_store import agent_templates_store
+from services.gem_knowledge import retrieve as _rag_retrieve
+
+_UPLOAD_DIR = Path.home() / ".myos" / "gem_knowledge" / "uploads"
+_ALLOWED_SUFFIXES = {".txt", ".md", ".pdf", ".docx"}
 
 router = APIRouter(tags=["gems"])
 
@@ -118,6 +124,23 @@ async def delete_gem(gem_id: str):
     agent_templates_store.delete(gem_id)
 
 
+@router.post("/gems/upload")
+async def upload_knowledge_file(file: UploadFile = File(...)):
+    """Accept a knowledge file, save to ~/.myos/gem_knowledge/uploads/, return filename."""
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in _ALLOWED_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Allowed: {', '.join(sorted(_ALLOWED_SUFFIXES))}",
+        )
+    _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = f"{uuid.uuid4().hex}_{file.filename}"
+    dest = _UPLOAD_DIR / safe_name
+    content = await file.read()
+    dest.write_bytes(content)
+    return {"filename": safe_name}
+
+
 @router.post("/gems/{gem_id}/chat")
 async def chat_with_gem(gem_id: str, body: ChatRequest):
     t = agent_templates_store.get_by_id(gem_id)
@@ -126,6 +149,17 @@ async def chat_with_gem(gem_id: str, body: ChatRequest):
 
     system_prompt = t.get("prompt_template", "")
     messages = (body.history or []) + [{"role": "user", "content": body.message}]
+
+    # Retrieve relevant chunks from knowledge files and prepend to system prompt.
+    try:
+        chunks = await _rag_retrieve(gem_id, body.message)
+        if chunks:
+            snippets = "\n---\n".join(c["text"] for c in chunks)
+            system_prompt = (
+                f"Reference material from your knowledge files:\n---\n{snippets}\n---\n{system_prompt}"
+            )
+    except Exception:
+        pass  # RAG failure is non-fatal; continue without context
 
     async def generator():
         from services.chat_providers import chat_service
