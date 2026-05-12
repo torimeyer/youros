@@ -38,6 +38,7 @@ vi.mock('./pages/ShareView', () => ({ default: () => <div data-testid="page-shar
 vi.mock('./pages/InviteAccept', () => ({ default: () => <div data-testid="page-invite" /> }))
 vi.mock('./pages/PrivacyPolicy', () => ({ default: () => <div /> }))
 vi.mock('./pages/AboutMyOS', () => ({ default: () => <div /> }))
+vi.mock('./pages/MyGems', () => ({ default: () => <div data-testid="page-gems" /> }))
 vi.mock('./pages/admin/Overview', () => ({ default: () => <div /> }))
 vi.mock('./pages/admin/Members', () => ({ default: () => <div /> }))
 vi.mock('./pages/admin/Policies', () => ({ default: () => <div /> }))

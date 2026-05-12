@@ -62,6 +62,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/specs', icon: 'description', label: 'Specs', featureLabel: 'Specs', specsBadge: true },
       { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
       { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
+      { to: '/gems', icon: 'auto_awesome', label: 'My Gems', featureLabel: 'Gems' },
     ],
   },
   {
