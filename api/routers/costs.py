@@ -9,7 +9,7 @@ router = APIRouter(tags=["costs"])
 
 from config import OSTK_DIR
 from services import token_metrics
-from services.ostk import read_audit_entries
+from services.ostk import ostk, read_audit_entries
 
 # Token prices per million tokens by model family.
 # These are API rates (not subscription). Used to compute what the work
@@ -1401,3 +1401,41 @@ async def get_costs_explain(
             ),
         )
     return _build_explain(metric, period)
+
+
+# ---------------------------------------------------------------------------
+# ostk profile endpoints — parallel source alongside existing audit aggregates
+# ---------------------------------------------------------------------------
+
+@router.get("/costs/kernel-tokens")
+async def get_kernel_tokens(
+    last: int = Query(50, description="Number of recent api.call rows to return", ge=1, le=1000),
+):
+    """Return per-call token usage from the ostk kernel profile.
+
+    Calls ``ostk profile tokens --json --last N`` and returns the parsed list.
+    Returns an empty list when there are no api.call rows yet (no audit entries).
+    """
+    return await ostk.profile_tokens(last=last)
+
+
+@router.get("/costs/kernel-cache")
+async def get_kernel_cache(
+    per_driver: bool = Query(False, description="Break down cache stats by driver"),
+):
+    """Return cache efficiency metrics from the ostk kernel profile.
+
+    Calls ``ostk profile cache --json`` and returns the parsed dict.
+    Returns an empty dict when the command fails or there are no rows.
+    """
+    return await ostk.profile_cache(per_driver=per_driver)
+
+
+@router.get("/costs/kernel-sessions")
+async def get_kernel_sessions():
+    """Return session-level usage data from the ostk kernel profile.
+
+    Calls ``ostk profile sessions --json`` and returns the parsed list.
+    Returns an empty list when there are no sessions recorded.
+    """
+    return await ostk.profile_sessions()

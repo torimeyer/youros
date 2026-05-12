@@ -3189,5 +3189,65 @@ class OstkService:
         """Release a coordination lock by name."""
         return await self._run("lock", "release", name, timeout=5)
 
+    # --- ostk profile wrappers (Tier 2.1) ---
+
+    async def profile_tokens(self, last: int = 50) -> list:
+        """Return per-call token usage from ``ostk profile tokens --json --last N``.
+
+        Returns an empty list when there are no api.call rows yet.
+        """
+        try:
+            raw = await self._run("profile", "tokens", "--json", "--last", str(last), timeout=15)
+        except OstkError:
+            return []
+        if not raw.strip() or "no api.call rows" in raw:
+            return []
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, list) else [result]
+        except json.JSONDecodeError:
+            return []
+
+    async def profile_cache(self, per_driver: bool = False) -> dict:
+        """Return cache efficiency metrics from ``ostk profile cache --json``.
+
+        Returns an empty dict when the command fails or there are no rows.
+        """
+        args = ["profile", "cache", "--json"]
+        if per_driver:
+            args.append("--per-driver")
+        try:
+            raw = await self._run(*args, timeout=15)
+        except OstkError:
+            return {}
+        if not raw.strip() or "no api.call rows" in raw:
+            return {}
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+
+    async def profile_sessions(self) -> list:
+        """Return session-level usage data from ``ostk profile sessions --json``.
+
+        Returns an empty list when there are no sessions or the command fails.
+        """
+        try:
+            raw = await self._run("profile", "sessions", "--json", timeout=15)
+        except OstkError:
+            return []
+        if not raw.strip() or "no api.call rows" in raw:
+            return []
+        try:
+            result = json.loads(raw)
+            if isinstance(result, list):
+                return result
+            if isinstance(result, dict):
+                return [result]
+            return []
+        except json.JSONDecodeError:
+            return []
+
 
 ostk = OstkService()
