@@ -2520,8 +2520,17 @@ def _resolve_transcript_source_uncached(name: str) -> Optional[Path]:
 # immediately when a new subagent file appears. This means View Transcript
 # picks up a freshly-spawned agent's file on the very next request rather
 # than waiting for the old TTL to expire.
-_candidates_cache: dict[tuple[str, str, int], tuple[float, list[tuple[float, Path, str]]]] = {}
-_CANDIDATES_TTL_SECONDS = 60.0  # 60 s — decoupled from flush interval (→1192)
+# Cache value tuple is (expires_at, candidates_list, name_index).
+# - candidates_list: linear scan, used by callers that need full list/sort.
+# - name_index: O(1) lookup keyed on _extract_agent_name(first_line) so the
+#   common "match this agent name" path skips the linear pattern walk that
+#   otherwise costs ~6s of GIL time when 162 agents × 826 candidates ×
+#   12 patterns must be compared (→1192).
+_candidates_cache: dict[tuple[str, str, int], tuple[float, list[tuple[float, Path, str]], dict[str, Path]]] = {}
+# 60 s (not 30 s) — decoupled from _TRANSCRIPT_FLUSH_INTERVAL (25 s) so the
+# two timers don't expire at the same moment and trigger a synchronized
+# cold-rebuild spike on every flush cycle (→1192, morning fix).
+_CANDIDATES_TTL_SECONDS = 60.0
 
 
 def _reset_candidates_cache() -> None:
@@ -2582,7 +2591,12 @@ def _load_candidates(root: Path, pattern: str) -> list[tuple[float, Path, str]]:
         candidates = []
 
     candidates.sort(key=lambda t: t[0], reverse=True)
-    _candidates_cache[key] = (now + _CANDIDATES_TTL_SECONDS, candidates)
+    name_index: dict[str, Path] = {}
+    for _mt, p, fl in candidates:
+        name = _extract_agent_name(fl)
+        if name and name not in name_index:
+            name_index[name] = p
+    _candidates_cache[key] = (now + _CANDIDATES_TTL_SECONDS, candidates, name_index)
     return candidates
 
 
@@ -2619,6 +2633,46 @@ def _first_line_matches_needle(first_line_lower: str, needle_lower: str) -> bool
     if any(p in first_line_lower for p in intro_patterns):
         return True
     return False
+
+
+def _extract_agent_name(first_line_lower: str) -> Optional[str]:
+    """Extract the agent name from a candidate's first line.
+
+    Covers the same patterns as _first_line_matches_needle so the inverted
+    index built in _load_candidates captures every name that the linear scan
+    would have matched. Returns the name in lowercase, or None if no pattern
+    fires (triggering the linear-scan fallback in _find_freshest_matching_jsonl).
+    """
+    if not first_line_lower:
+        return None
+    m = _re.search(r'"name"\s*:\s*"([^"\\]+)"', first_line_lower)
+    if m:
+        return m.group(1).strip()
+    m = _re.search(r'\\"name\\"\s*:\s*\\"([^\\]+)\\"', first_line_lower)
+    if m:
+        return m.group(1).strip()
+    m = _re.search(r'/agents/([^/"\s]+)/(?:complete|register)', first_line_lower)
+    if m:
+        return m.group(1).strip()
+    m = _re.search(r'/api/agents/([^/"\s]+)/', first_line_lower)
+    if m:
+        return m.group(1).strip()
+    m = _re.search(r'you are "([^"\\]+)"', first_line_lower)
+    if m:
+        return m.group(1).strip()
+    m = _re.search(r'you are \\"([^\\]+)\\"', first_line_lower)
+    if m:
+        return m.group(1).strip()
+    m = _re.search(r"you are '([^']+)'", first_line_lower)
+    if m:
+        return m.group(1).strip()
+    m = _re.search(r"you are the (\S+) agent", first_line_lower)
+    if m:
+        return m.group(1).strip()
+    m = _re.search(r"agent:\s*(\S+)", first_line_lower)
+    if m:
+        return m.group(1).strip()
+    return None
 
 
 # (project_dir, row_mtime_ns) -> (expires_at_monotonic, [(mtime, jsonl_path, description)])
@@ -2721,8 +2775,20 @@ def _find_freshest_matching_jsonl(
     substring match returns a confident-but-wrong file. Uses the
     shared ``_load_candidates`` cache so one glob sweep serves every
     agent row in the request.
+
+    Fast path: O(1) inverted-index lookup built by _load_candidates.
+    Fallback: linear scan for the rare case _extract_agent_name cannot
+    parse a name from the first line (e.g. unusual intro formats).
     """
-    for _mtime, path, first_line_lower in _load_candidates(root, pattern):
+    candidates = _load_candidates(root, pattern)
+    root_mtime = _dir_mtime_ns(root)
+    key = (str(root), pattern, root_mtime)
+    entry = _candidates_cache.get(key)
+    if entry is not None:
+        path = entry[2].get(needle_lower.strip())
+        if path is not None:
+            return path
+    for _mtime, path, first_line_lower in candidates:
         if _first_line_matches_needle(first_line_lower, needle_lower):
             return path
     return None
