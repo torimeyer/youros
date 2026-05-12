@@ -2837,6 +2837,7 @@ class ChatService:
         project: str,
         location: str,
         datastore: Optional[str] = None,
+        system_instruction: Optional[str] = None,
     ) -> str:
         """Stream Gemini via Vertex AI (Application Default Credentials).
 
@@ -2966,7 +2967,12 @@ class ChatService:
 
         return full_text
 
-    async def stream_gemini(self, messages: list[dict], websocket: WebSocket) -> str:
+    async def stream_gemini(
+        self,
+        messages: list[dict],
+        websocket: WebSocket,
+        system_instruction: Optional[str] = None,
+    ) -> str:
         # Priority 1: Vertex AI via Application Default Credentials.
         # detect_vertex_gemini() checks gcloud ADC and never raises.
         # Imported here to avoid a circular-import at module load time.
@@ -2976,7 +2982,8 @@ class ChatService:
         if vx.get("available"):
             datastore = os.environ.get("VERTEX_SEARCH_DATASTORE", "") or None
             return await self._stream_gemini_vertex(
-                messages, websocket, vx["project"], vx["location"], datastore=datastore
+                messages, websocket, vx["project"], vx["location"],
+                datastore=datastore, system_instruction=system_instruction,
             )
 
         # Gemini's public Generative Language API only accepts API keys.
@@ -3130,7 +3137,7 @@ class ChatService:
                 model=model_name,
                 history=merged_history,
                 config=genai.types.GenerateContentConfig(
-                    system_instruction=_gemini_system_instruction()
+                    system_instruction=system_instruction if system_instruction is not None else _gemini_system_instruction()
                 ),
             )
             # The google.genai SDK's streaming ``send_message_stream()``

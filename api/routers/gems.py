@@ -1,15 +1,13 @@
-"""Gems router — import and manage Gemini Gems as agent templates (→1161).
-
-Gems are agent templates with provider="gemini" and a gem_metadata blob.
-The /gems/{id}/chat endpoint is a stub; Gemini routing wires up in a later
-Phase A needle once chat_providers.py gains the oauth_vertex dispatch path.
-"""
+"""Gems router — import and manage Gemini Gems as agent templates (→1161)."""
 
 from __future__ import annotations
 
+import asyncio
+import json
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from services.agent_templates_store import agent_templates_store
@@ -31,6 +29,17 @@ class GemUpdate(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    history: Optional[list[dict]] = None
+
+
+class _SseProxy:
+    """WebSocket-shaped proxy that funnels events into an asyncio queue for SSE delivery."""
+
+    def __init__(self) -> None:
+        self._queue: asyncio.Queue = asyncio.Queue()
+
+    async def send_json(self, data: dict) -> None:
+        await self._queue.put(data)
 
 
 def _to_gem(t: dict) -> dict:
@@ -114,9 +123,31 @@ async def chat_with_gem(gem_id: str, body: ChatRequest):
     t = agent_templates_store.get_by_id(gem_id)
     if t is None or t.get("provider") != "gemini":
         raise HTTPException(status_code=404, detail="Gem not found")
-    return {
-        "gem_id": gem_id,
-        "message": body.message,
-        "response": "Chat routing to Gemini not yet wired — coming in Phase A wire-up.",
-        "provider": "gemini",
-    }
+
+    system_prompt = t.get("prompt_template", "")
+    messages = (body.history or []) + [{"role": "user", "content": body.message}]
+
+    async def generator():
+        from services.chat_providers import chat_service
+
+        proxy = _SseProxy()
+        task = asyncio.create_task(
+            chat_service.stream_gemini(messages, proxy, system_instruction=system_prompt)  # type: ignore[arg-type]
+        )
+        task.add_done_callback(lambda _: proxy._queue.put_nowait(None))
+        try:
+            while True:
+                item = await proxy._queue.get()
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item)}\n\n"
+                if item.get("type") in ("done", "error"):
+                    break
+        finally:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    return StreamingResponse(generator(), media_type="text/event-stream")
