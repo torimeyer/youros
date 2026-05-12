@@ -336,6 +336,89 @@ async def test_ostk_project_root_short_for_long_agent_name(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_ostk_state_dir_set_for_long_name_agents(tmp_path, monkeypatch):
+    """OSTK_STATE_DIR must be set to a short /tmp path when the worktree socket
+    path would exceed macOS SUN_PATH_MAX (→1185).
+
+    The MCP server binary reads OSTK_STATE_DIR (not OSTK_PROJECT_ROOT / OSTK_ROOT)
+    to find its state root and bind its daemon socket.  OSTK_PROJECT_ROOT / OSTK_ROOT
+    are Python-layer variables the binary does not recognise; the short-cwd symlink
+    workaround is defeated by macOS getcwd() resolving symlinks.  Without
+    OSTK_STATE_DIR, the daemon computes its socket path as
+    <getcwd()>/.ostk/ostk.sock — the resolved real path — which exceeds
+    SUN_PATH_MAX for long worktree names, bind() fails, and bash/read/fs_ops
+    disappear from the subagent's tool list.
+    """
+    from services.spawn_isolation import _reset_spawn_lock_registry_for_tests
+    _reset_spawn_lock_registry_for_tests()
+
+    import config as config_module
+    from main import app
+    from routers.agents import active_agents, agent_metadata
+
+    fixed_root = Path("/tmp/myos-test-ostk-state-dir")
+    fixed_root.mkdir(exist_ok=True)
+    monkeypatch.setattr(config_module, "PROJECT_ROOT", fixed_root)
+    (fixed_root / ".claude" / "worktrees").mkdir(parents=True, exist_ok=True)
+    (fixed_root / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
+    (fixed_root / ".ostk").mkdir(parents=True, exist_ok=True)
+
+    # Use the exact name from the real failing agent to prevent regression.
+    long_agent_name = "diagnose-mcp-missing-in-subagent-8b9de6"
+    agent_metadata.pop(long_agent_name, None)
+    active_agents.pop(long_agent_name, None)
+
+    wt_path = fixed_root / ".claude" / "worktrees" / f"agent-{long_agent_name}"
+
+    calls = _install_spawn_doubles_env(monkeypatch)
+
+    try:
+        from httpx import ASGITransport, AsyncClient
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": long_agent_name,
+                    "prompt": "diagnose the mcp missing issue",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "isolation": "worktree",
+                    "locks": ["/tmp/diagnose-mcp-1185.log"],
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        assert calls["fork_called"] is True, "git worktree add must be called"
+
+        spawn_env = calls["spawn_env"]
+        assert spawn_env is not None, "subprocess env was not captured"
+
+        wt_sock_len = len(str(wt_path)) + SOCK_SUFFIX_LEN
+        if wt_sock_len >= SUN_PATH_MAX:
+            state_dir = spawn_env.get("OSTK_STATE_DIR", "")
+            assert state_dir, (
+                f"OSTK_STATE_DIR must be set when worktree sock path "
+                f"({wt_sock_len} chars) >= SUN_PATH_MAX ({SUN_PATH_MAX}). "
+                "Without it the daemon binds at the long worktree path, "
+                "bind() fails, and bash/read/fs_ops disappear. (→1185)"
+            )
+            assert state_dir.startswith("/tmp/myos-state-"), (
+                f"OSTK_STATE_DIR must use /tmp/myos-state- prefix; got {state_dir!r}"
+            )
+            # Socket path via OSTK_STATE_DIR: {state_dir}/ostk.sock
+            sock_via_state = len(state_dir) + len("/ostk.sock")
+            assert sock_via_state < SUN_PATH_MAX, (
+                f"State-dir socket path ({sock_via_state} chars) must fit under "
+                f"SUN_PATH_MAX ({SUN_PATH_MAX}). Got OSTK_STATE_DIR={state_dir!r}"
+            )
+    finally:
+        agent_metadata.pop(long_agent_name, None)
+        active_agents.pop(long_agent_name, None)
+        _reset_spawn_lock_registry_for_tests()
+        shutil.rmtree(fixed_root, ignore_errors=True)
+
+
+@pytest.mark.asyncio
 async def test_ostk_socket_env_set_for_worktree_spawn(tmp_path, monkeypatch):
     """OSTK_SOCKET must be set in _spawn_env for worktree agents.
 

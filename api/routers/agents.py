@@ -4561,6 +4561,47 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                                 "spawn.ostk_needles_symlink.failed name=%s err=%s",
                                 body.name, _sym_exc,
                             )
+                    # →1185: The MCP server's embedded daemon reads OSTK_STATE_DIR
+                    # (not OSTK_PROJECT_ROOT / OSTK_ROOT) to find its state root
+                    # and bind its Unix domain socket.  When the worktree socket
+                    # path exceeds macOS SUN_PATH_MAX (104 bytes), bind() fails and
+                    # the daemon falls back to degraded mode — only static tools
+                    # register (context/recall/search/nudge); bash/read/fs_ops stay
+                    # missing.  OSTK_PROJECT_ROOT and OSTK_ROOT are Python-layer
+                    # vars the binary does not read, and the short-cwd symlink
+                    # workaround is defeated by macOS getcwd() resolving symlinks.
+                    # Setting OSTK_STATE_DIR to a short /tmp path ensures bind()
+                    # always succeeds regardless of agent name length.
+                    from services.spawn_isolation import (
+                        SOCK_SUFFIX_LEN as _SOCK_SUFFIX_LEN,
+                        SUN_PATH_MAX as _SUN_PATH_MAX,
+                    )
+                    _wt_sock_path_len = len(str(_wt_path)) + _SOCK_SUFFIX_LEN
+                    if _wt_sock_path_len >= _SUN_PATH_MAX:
+                        import hashlib as _hashlib
+                        _state_hash = _hashlib.sha256(
+                            body.name.encode()
+                        ).hexdigest()[:8]
+                        _short_state_dir = Path(f"/tmp/myos-state-{_state_hash}")
+                        _short_state_dir.mkdir(exist_ok=True)
+                        _short_needles_link = _short_state_dir / "needles"
+                        if _main_needles.exists() and not _short_needles_link.exists():
+                            try:
+                                os.symlink(
+                                    str(_main_needles),
+                                    str(_short_needles_link),
+                                )
+                            except Exception as _snl_exc:
+                                logger.warning(
+                                    "spawn.ostk_state_dir.needles_failed "
+                                    "name=%s err=%s", body.name, _snl_exc,
+                                )
+                        _spawn_env["OSTK_STATE_DIR"] = str(_short_state_dir)
+                        logger.info(
+                            "spawn.ostk_state_dir.set name=%s state_dir=%s "
+                            "sock_path_len=%d",
+                            body.name, _short_state_dir, _wt_sock_path_len,
+                        )
                 else:
                     logger.warning(
                         "spawn.worktree.fork_failed name=%s err=%s",
