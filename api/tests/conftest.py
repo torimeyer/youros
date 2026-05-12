@@ -153,13 +153,18 @@ def _reset_worktree_mutex():
     Replacing the lock object before and after each test keeps it unbound.
     """
     import asyncio
+    _siso = None
     try:
         import services.spawn_isolation as _siso
         _siso._worktree_git_mutex = asyncio.Lock()
-        yield
-        _siso._worktree_git_mutex = asyncio.Lock()
     except Exception:
-        yield
+        pass
+    yield
+    try:
+        if _siso is not None:
+            _siso._worktree_git_mutex = asyncio.Lock()
+    except Exception:
+        pass
 
 
 @pytest.fixture(autouse=True)
