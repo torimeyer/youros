@@ -118,12 +118,22 @@ while IFS= read -r line; do
                 printf '%-48s %-10s %s\n' "$wt_branch" "error" "?"
                 error_count=$((error_count + 1))
               elif [ "$ahead" -gt 0 ]; then
-                printf '%-48s %-10s %s\n' "$wt_branch" "unique" "$ahead"
-                echo "  [reaper] REFUSING to delete $wt_branch: $ahead unmerged commit(s) ahead of main -- cherry-pick before removing" >&2
-                git log --oneline "main..$wt_branch" 2>/dev/null | head -5 | while IFS= read -r oneline; do
-                  echo "    commit: $oneline" >&2
-                done
-                unique_count=$((unique_count + 1))
+                # Commits ahead by hash lineage, but squash-merged branches have
+                # new SHAs whose content is already present on main.  Content-check
+                # so those are not parked forever as "unique".
+                if git diff --quiet "main..$wt_branch" 2>/dev/null; then
+                  printf '%-48s %-10s %s\n' "$wt_branch" "absorbed" "$ahead (squashed)"
+                  absorbed_branches+=("$wt_branch")
+                  absorbed_paths+=("$wt_path")
+                  absorbed_count=$((absorbed_count + 1))
+                else
+                  printf '%-48s %-10s %s\n' "$wt_branch" "unique" "$ahead"
+                  echo "  [reaper] REFUSING to delete $wt_branch: $ahead unmerged commit(s) ahead of main -- cherry-pick before removing" >&2
+                  git log --oneline "main..$wt_branch" 2>/dev/null | head -5 | while IFS= read -r oneline; do
+                    echo "    commit: $oneline" >&2
+                  done
+                  unique_count=$((unique_count + 1))
+                fi
               else
                 # No commits ahead of main. Also guard against uncommitted
                 # work (staged or unstaged) left behind if an agent was
