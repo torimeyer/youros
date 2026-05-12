@@ -499,6 +499,127 @@ async def audit_tasks():
     }
 
 
+
+
+# ---------------------------------------------------------------------------
+# Wave planning — conflict-safe grouping of open needles
+# ---------------------------------------------------------------------------
+
+# Tokens that appear in almost every task description and carry no scope signal.
+_WAVE_STOPWORDS = {
+    "the", "and", "for", "with", "from", "this", "that", "when", "into",
+    "also", "via", "use", "add", "fix", "get", "set", "run", "new", "old",
+    "all", "any", "its", "not", "are", "can", "has", "was", "had", "will",
+    "make", "move", "show", "them", "then", "only", "each", "more", "some",
+    "need", "work", "task", "open", "page", "data", "list", "item", "view",
+}
+
+# Heuristic v1: three signal classes
+_WAVE_FILE_RE = re.compile(r"[a-z][a-z0-9_/]*\.(?:py|tsx|ts|rs|sh|json|yaml|yml|toml|md)")
+_WAVE_DIR_RE = re.compile(
+    r"\b(?:frontend|backend|api|app|haystack|scripts|services|routers|models|tests|hooks|tools|components|stores|pages|lib)\b"
+)
+_WAVE_TOKEN_RE = re.compile(r"\b[a-z][a-z0-9_]{3,}\b")
+
+_WAVE_PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+_WAVE_MAX = 4  # max tasks per wave (matches feedback_saa_split_when_scope_is_big.md)
+
+
+def _wave_scope_tokens(task: dict) -> set[str]:
+    """Extract non-trivial scope tokens from a task\'s title + description.
+
+    Three signal classes:
+    1. File paths (high signal): e.g. ``routers/tasks.py``, ``Tasks.tsx``
+    2. Directory/module keywords: ``frontend``, ``api``, ``services``
+    3. Long module-ish words not in the stopword list
+    """
+    text = " ".join([
+        task.get("title") or "",
+        task.get("description") or "",
+    ]).lower()
+
+    tokens: set[str] = set()
+
+    for m in _WAVE_FILE_RE.finditer(text):
+        tokens.add(m.group(0))
+
+    for m in _WAVE_DIR_RE.finditer(text):
+        tokens.add(m.group(0))
+
+    for m in _WAVE_TOKEN_RE.finditer(text):
+        word = m.group(0)
+        if word not in _WAVE_STOPWORDS and len(word) > 4:
+            tokens.add(word)
+
+    return tokens
+
+
+@router.get("/tasks/waves")
+async def plan_waves():
+    """Group open needles into parallel-safe waves.
+
+    Conflict heuristic v1:
+    - Extract scope tokens per task: file paths, directory names, module-ish words.
+    - Two tasks conflict when their token sets share any non-trivial token.
+    - Greedy bin-packing ordered by priority (P0 first, then P1, P2, P3):
+      assign each task to the earliest wave that has no conflict with any
+      already-assigned task in that wave.
+    - Wave capacity is capped at 4 (feedback_saa_split_when_scope_is_big.md).
+
+    Response shape:
+      waves -- ordered list of wave objects:
+        wave            -- 1-indexed wave number
+        needles         -- [{id, title, priority, scope_hint}]
+        blocked_by_prior -- true for every wave after the first
+      total_needles -- count of open tasks considered
+    """
+    try:
+        tasks = await ostk.list_tasks(status="open")
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    def _sort_key(t: dict) -> tuple:
+        prio = _WAVE_PRIORITY_ORDER.get(t.get("priority", "P2"), 2)
+        return (prio, t.get("created_at") or "")
+
+    sorted_tasks = sorted(tasks, key=_sort_key)
+
+    waves: list[list[dict]] = []
+    wave_tokens: list[set[str]] = []
+
+    for task in sorted_tasks:
+        tokens = _wave_scope_tokens(task)
+        placed = False
+        for idx, existing_tokens in enumerate(wave_tokens):
+            if len(waves[idx]) < _WAVE_MAX and not (tokens & existing_tokens):
+                waves[idx].append(task)
+                wave_tokens[idx] |= tokens
+                placed = True
+                break
+        if not placed:
+            waves.append([task])
+            wave_tokens.append(set(tokens))
+
+    result = []
+    for i, wave_tasks in enumerate(waves):
+        needles = []
+        for t in wave_tasks:
+            tok = _wave_scope_tokens(t)
+            hint = ", ".join(sorted(tok)[:3]) if tok else "general"
+            needles.append({
+                "id": t.get("id", ""),
+                "title": t.get("title", ""),
+                "priority": t.get("priority", ""),
+                "scope_hint": hint,
+            })
+        result.append({
+            "wave": i + 1,
+            "needles": needles,
+            "blocked_by_prior": i > 0,
+        })
+
+    return {"waves": result, "total_needles": len(sorted_tasks)}
+
 # Matches a task id reference like "→160" inside a blocker text line.
 _BLOCKER_ID_RE = re.compile(r"\u2192\d+")
 
