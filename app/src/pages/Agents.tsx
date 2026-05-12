@@ -2444,7 +2444,13 @@ export default function Agents() {
   // ?wait=30&since=<latest_ts> and wakes sub-second when a new nudge
   // or reply lands. The 60s safety refresh below guards against a
   // stalled connection so the thread never goes silent forever.
-  const agentsWithMessages = Object.keys(nudgeHistory);
+  // Only track agents that have at least one message. Agents whose nudgeHistory
+  // entry was seeded with an empty array (e.g. from the expandedActiveNames
+  // one-shot fetch) must NOT start a long-poll loop — there is nothing to
+  // follow up on and the tight 100ms yield causes unbounded re-renders.
+  const agentsWithMessages = Object.keys(nudgeHistory).filter(
+    (name) => (nudgeHistory[name]?.length ?? 0) > 0,
+  );
   const agentsWithMessagesKey = agentsWithMessages.sort().join("|");
   useEffect(() => {
     if (agentsWithMessages.length === 0) return;
