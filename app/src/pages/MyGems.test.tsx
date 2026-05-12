@@ -113,6 +113,27 @@ describe('MyGems page', () => {
     expect(screen.getByText('1 file')).toBeInTheDocument();
   });
 
+  it('empty state has no Create Gem button inside it', async () => {
+    mockedGet.mockResolvedValue([]);
+    renderMyGems();
+    await waitFor(() => {
+      expect(screen.getByTestId('gems-empty-state')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/No Gems yet/i)).toBeInTheDocument();
+    const emptyState = screen.getByTestId('gems-empty-state');
+    const buttons = emptyState.querySelectorAll('button');
+    expect(buttons).toHaveLength(0);
+  });
+
+  it('header Create Gem button is present when empty state is shown', async () => {
+    mockedGet.mockResolvedValue([]);
+    renderMyGems();
+    await waitFor(() => {
+      expect(screen.getByTestId('gems-empty-state')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('create-gem-button')).toBeInTheDocument();
+  });
+
   it('opens create modal when "Create Gem" is clicked', async () => {
     mockedGet.mockResolvedValue([]);
     renderMyGems();
