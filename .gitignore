@@ -33,3 +33,4 @@ e2e-screenshots/*.png
 
 # NR-internal strategy content should live outside the repo (~/.myos/) — never commit
 nr-workspaces-saved/
+frontend/test-results/
