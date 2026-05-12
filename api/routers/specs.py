@@ -226,10 +226,14 @@ async def list_specs():
 
     Each document includes task_ids, task_summary, acceptance_criteria,
     and a computed status (draft/ready/in-progress/complete).
+
+    Plan transcripts (status="plan") are excluded here. They surface via
+    /specs/recent for the Recent Documents widget. Including them would
+    inflate the page count and show agent plan files as user specs.
     """
     try:
         docs = await ostk.list_docs()
-        return {"docs": docs}
+        return {"docs": [d for d in docs if d.get("status") != "plan"]}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -271,12 +275,17 @@ async def spec_counts():
     not been verified complete (Verify flipped all acceptance criteria
     and all its tasks are closed). This matches the definition the
     Specs page uses for its default "not yet done" view.
+
+    Plan transcripts (status="plan") are excluded so the badge matches
+    what the Specs page shows. They are agent-generated plan files, not
+    user specs.
     """
     try:
         docs = await ostk.list_docs()
-        total = len(docs)
+        real_specs = [d for d in docs if d.get("status") != "plan"]
+        total = len(real_specs)
         unfinished = sum(
-            1 for d in docs if d.get("status") != "complete"
+            1 for d in real_specs if d.get("status") != "complete"
         )
         return {"unfinished": unfinished, "total": total}
     except OstkError as e:

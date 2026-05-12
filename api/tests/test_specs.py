@@ -2545,3 +2545,82 @@ async def test_build_scopes_to_acceptance_criteria_heading(
     assert created == ["real_ac"]
     assert "prose_bullet" not in created
     assert len(data["agents"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Regression: sidebar badge / Specs page count mismatch (→badge-count bug)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_spec_counts_excludes_plan_transcripts(client, tmp_path, monkeypatch):
+    """spec_counts must not count plan transcript files as unfinished specs.
+
+    ostk.list_docs() returns plan transcripts (status="plan") alongside real
+    specs. Before the fix, including them caused the sidebar to show N while
+    the Specs page showed 0 (no real specs). The fix filters status="plan"
+    docs from the count so badge and page agree.
+    """
+    from services import ostk as ostk_module
+
+    (tmp_path / "docs" / "draft").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    transcripts_dir = tmp_path / "transcripts"
+    transcripts_dir.mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+
+    # Two plan transcript files — must NOT be counted.
+    (transcripts_dir / "plan-100.md").write_text("Plan content for needle 100\n")
+    (transcripts_dir / "plan-200.md").write_text("Plan content for needle 200\n")
+
+    # One real spec in ready state — must be counted as unfinished.
+    (tmp_path / "docs" / "spec" / "my-spec.md").write_text(
+        "---\ntitle: My Spec\nstatus: spec\n---\n\n- [ ] Do the thing\n"
+    )
+
+    monkeypatch.setattr(ostk_module.ostk, "list_tasks", AsyncMock(return_value=[]))
+
+    res = await client.get("/api/specs/counts")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 1, f"expected 1 real spec, got {data['total']}"
+    assert data["unfinished"] == 1
+
+
+@pytest.mark.asyncio
+async def test_list_specs_excludes_plan_transcripts(client, tmp_path, monkeypatch):
+    """GET /specs must not return plan transcript files.
+
+    Plan transcripts surface in /specs/recent for the Recent Documents widget
+    but must not appear on the Specs page. Before the fix they showed up as
+    Draft specs, inflating the page count.
+    """
+    from services import ostk as ostk_module
+
+    (tmp_path / "docs" / "draft").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    transcripts_dir = tmp_path / "transcripts"
+    transcripts_dir.mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+
+    # A plan transcript that must NOT appear in /specs.
+    (transcripts_dir / "plan-300.md").write_text("Plan for needle 300\n")
+
+    # A real spec that must appear.
+    (tmp_path / "docs" / "spec" / "real-spec.md").write_text(
+        "---\ntitle: Real Spec\nstatus: spec\n---\n\n- [ ] Do the thing\n"
+    )
+
+    monkeypatch.setattr(ostk_module.ostk, "list_tasks", AsyncMock(return_value=[]))
+
+    res = await client.get("/api/specs")
+    assert res.status_code == 200
+    docs = res.json()["docs"]
+    paths = [d["path"] for d in docs]
+
+    assert not any("transcripts/" in p for p in paths), (
+        f"Plan transcript leaked into /specs: {paths}"
+    )
+    assert any("docs/spec/" in p for p in paths), (
+        f"Real spec missing from /specs: {paths}"
+    )
