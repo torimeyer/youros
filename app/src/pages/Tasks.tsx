@@ -28,6 +28,7 @@ import { onTasksChange } from "../lib/sidebarBus";
 import SharePopover from "../components/SharePopover";
 import ExportButton from "../components/ExportButton";
 import TasksAuditModal from "../components/TasksAuditModal";
+import PlanWavesPanel from "../components/PlanWavesPanel";
 import RecurringTasksSection from "../components/RecurringTasksSection";
 import { FilterDrawer, type StatusFilter as StatusPill, type ClosedSortOrder, type SortBy } from "./tasks/FilterDrawer";
 // StatusFilter keeps the extended legacy set of single-select string values
@@ -354,6 +355,7 @@ export default function Tasks() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [auditModalOpen, setAuditModalOpen] = useState(false);
+  const [wavesModalOpen, setWavesModalOpen] = useState(false);
   // Priority reason prompt: when a user changes priority, we show a small
   // input asking "Why?" before committing the change. The user can skip it.
   const [pendingPriorityChange, setPendingPriorityChange] = useState<{
@@ -1837,6 +1839,14 @@ export default function Tasks() {
                   <Icon name="fact_check" className="text-blue-400 text-sm" />
                   Audit for review
                 </button>
+                <button
+                  onClick={() => { setShowOverflowMenu(false); setWavesModalOpen(true); }}
+                  data-testid="plan-waves-button"
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-purple-300"
+                >
+                  <Icon name="account_tree" className="text-purple-400 text-sm" />
+                  Plan waves
+                </button>
                 <div className="border-t border-slate-700 my-1" />
                 <button
                   onClick={() => { setShowOverflowMenu(false); setDeleteAllConfirmOpen(true); }}
@@ -3071,6 +3081,11 @@ export default function Tasks() {
         onTasksChanged={() => {
           fetchTasks();
         }}
+      />
+
+      <PlanWavesPanel
+        open={wavesModalOpen}
+        onClose={() => setWavesModalOpen(false)}
       />
 
       <ConfirmModal

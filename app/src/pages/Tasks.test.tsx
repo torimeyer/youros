@@ -3144,6 +3144,92 @@ describe('real-time In progress pill via running agents store (→1118)', () => 
   })
 })
 
+describe('Plan waves feature (→1181)', () => {
+  const mockWaves = {
+    waves: [
+      {
+        wave: 1,
+        needles: [
+          { id: '10', title: 'Fix auth token', priority: 'P0', scope_hint: 'auth.py, services' },
+          { id: '11', title: 'Update dashboard', priority: 'P1', scope_hint: 'frontend, components' },
+        ],
+        blocked_by_prior: false,
+      },
+      {
+        wave: 2,
+        needles: [
+          { id: '12', title: 'Add tasks export', priority: 'P1', scope_hint: 'routers/tasks.py' },
+        ],
+        blocked_by_prior: true,
+      },
+    ],
+    total_needles: 3,
+  }
+
+  beforeEach(() => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path === '/tasks/waves') return Promise.resolve(mockWaves)
+      return Promise.resolve({})
+    })
+  })
+
+  it('shows Plan waves button in overflow menu', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+    expect(screen.getByTestId('plan-waves-button')).toBeInTheDocument()
+    expect(screen.getByTestId('plan-waves-button')).toHaveTextContent('Plan waves')
+  })
+
+  it('clicking Plan waves opens the panel', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+    fireEvent.click(screen.getByTestId('plan-waves-button'))
+    await waitFor(() => expect(screen.getByTestId('plan-waves-panel')).toBeInTheDocument())
+  })
+
+  it('panel calls GET /tasks/waves and renders waves', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+    fireEvent.click(screen.getByTestId('plan-waves-button'))
+    await waitFor(() => expect(screen.getByTestId('wave-1')).toBeInTheDocument())
+    expect(screen.getByTestId('wave-2')).toBeInTheDocument()
+    expect(mockedApiGet).toHaveBeenCalledWith('/tasks/waves')
+  })
+
+  it('panel shows wave needles with titles', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+    fireEvent.click(screen.getByTestId('plan-waves-button'))
+    await waitFor(() => expect(screen.getByTestId('wave-needle-10')).toBeInTheDocument())
+    expect(screen.getByTestId('wave-needle-11')).toBeInTheDocument()
+    expect(screen.getByTestId('wave-needle-12')).toBeInTheDocument()
+  })
+
+  it('wave 2 shows blocked-by-prior label', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+    fireEvent.click(screen.getByTestId('plan-waves-button'))
+    await waitFor(() => expect(screen.getByTestId('wave-2-blocked')).toBeInTheDocument())
+  })
+
+  it('close button dismisses the panel', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+    fireEvent.click(screen.getByTestId('plan-waves-button'))
+    await waitFor(() => expect(screen.getByTestId('plan-waves-panel')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('plan-waves-close'))
+    expect(screen.queryByTestId('plan-waves-panel')).not.toBeInTheDocument()
+  })
+})
+
 describe('getFirstSentence (→1057)', () => {
   it('returns text up to and including the first period', () => {
     expect(getFirstSentence('Short title. Longer body here.')).toBe('Short title.')
