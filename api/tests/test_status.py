@@ -161,3 +161,124 @@ async def test_os_clock_handles_empty_output():
         result = await svc.os_clock()
 
     assert result == {}
+
+
+# --- Clock cache ---
+
+
+@pytest.mark.asyncio
+async def test_clock_returns_cached_data(client):
+    """When the clock cache is pre-seeded, the response uses it and skips os_clock."""
+    import services.ostk as ostk_mod
+
+    seeded = {
+        "kernel": "v9.9.9 (cached)",
+        "session": "99h",
+        "wall": "2099-01-01T00:00:00Z",
+        "audit": "999 events",
+        "swap": "healthy",
+        "focus": "testing",
+    }
+    original_cache = dict(ostk_mod._clock_cache)
+    ostk_mod._clock_cache.update(seeded)
+    try:
+        with patch("routers.status.ostk") as mock_ostk:
+            mock_ostk.os_clock = AsyncMock(side_effect=Exception("should not be called"))
+            resp = await client.get("/api/status/clock")
+    finally:
+        ostk_mod._clock_cache.clear()
+        ostk_mod._clock_cache.update(original_cache)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["kernel"] == "v9.9.9 (cached)"
+    assert data["session"] == "99h"
+    assert data["audit"] == "999 events"
+    assert data["wall"] == "2099-01-01T00:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_clock_falls_back_when_cache_empty(client):
+    """Empty cache causes os_clock() to be called and its data returned."""
+    import services.ostk as ostk_mod
+
+    original_cache = dict(ostk_mod._clock_cache)
+    ostk_mod._clock_cache.clear()
+    mock_clock = {
+        "kernel": "v1.0.0",
+        "session": "1h",
+        "audit": "10 events",
+        "wall": "2026-01-01T00:00:00Z",
+        "swap": "ok",
+        "focus": "",
+    }
+    try:
+        with patch("routers.status.ostk") as mock_ostk:
+            mock_ostk.os_clock = AsyncMock(return_value=mock_clock)
+            resp = await client.get("/api/status/clock")
+    finally:
+        ostk_mod._clock_cache.clear()
+        ostk_mod._clock_cache.update(original_cache)
+
+    assert resp.status_code == 200
+    assert resp.json()["kernel"] == "v1.0.0"
+
+
+@pytest.mark.asyncio
+async def test_clock_refresher_populates_cache():
+    """start_clock_refresher updates _clock_cache within one refresh cycle."""
+    import asyncio
+    import services.ostk as ostk_mod
+    from services.ostk import start_clock_refresher
+
+    original_cache = dict(ostk_mod._clock_cache)
+    original_task = ostk_mod._clock_cache_task
+    ostk_mod._clock_cache.clear()
+    ostk_mod._clock_cache_task = None
+
+    expected = {"kernel": "v5.5.5", "session": "5h"}
+    try:
+        with patch.object(ostk_mod.ostk, "os_clock", new_callable=AsyncMock, return_value=expected):
+            await start_clock_refresher(interval_seconds=100)
+            await asyncio.sleep(0.05)
+            assert ostk_mod._clock_cache.get("kernel") == "v5.5.5"
+            assert ostk_mod._clock_cache.get("session") == "5h"
+    finally:
+        task = ostk_mod._clock_cache_task
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        ostk_mod._clock_cache.clear()
+        ostk_mod._clock_cache.update(original_cache)
+        ostk_mod._clock_cache_task = original_task
+
+
+@pytest.mark.asyncio
+async def test_clock_refresher_is_idempotent():
+    """Calling start_clock_refresher twice leaves only one background task."""
+    import asyncio
+    import services.ostk as ostk_mod
+    from services.ostk import start_clock_refresher
+
+    original_task = ostk_mod._clock_cache_task
+    ostk_mod._clock_cache_task = None
+
+    try:
+        with patch.object(ostk_mod.ostk, "os_clock", new_callable=AsyncMock, return_value={}):
+            await start_clock_refresher(interval_seconds=100)
+            task_a = ostk_mod._clock_cache_task
+            await start_clock_refresher(interval_seconds=100)
+            task_b = ostk_mod._clock_cache_task
+            assert task_a is task_b
+    finally:
+        task = ostk_mod._clock_cache_task
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        ostk_mod._clock_cache_task = original_task

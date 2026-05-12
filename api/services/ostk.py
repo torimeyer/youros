@@ -3304,3 +3304,38 @@ class OstkService:
 
 
 ostk = OstkService()
+
+# --- Clock cache ---
+# A background task refreshes this on a slow cadence so the /status/clock
+# endpoint never has to spawn an ostk subprocess on every poll.
+
+_clock_cache: dict = {}
+_clock_cache_task: asyncio.Task | None = None
+
+
+def get_cached_clock() -> dict:
+    """Return a copy of the in-memory clock cache (empty dict if not yet primed)."""
+    return dict(_clock_cache)
+
+
+async def start_clock_refresher(interval_seconds: int = 30) -> None:
+    """Start a single background task that keeps _clock_cache fresh.
+
+    Idempotent: a second call while the task is alive is a no-op.
+    On any exception the previous cached value is kept and the loop retries.
+    """
+    global _clock_cache_task
+    if _clock_cache_task is not None and not _clock_cache_task.done():
+        return
+
+    async def _refresh_loop() -> None:
+        while True:
+            try:
+                result = await ostk.os_clock()
+                _clock_cache.clear()
+                _clock_cache.update(result)
+            except Exception:
+                pass
+            await asyncio.sleep(interval_seconds)
+
+    _clock_cache_task = asyncio.create_task(_refresh_loop())
