@@ -51,6 +51,7 @@ import MySetup from './pages/MySetup'
 
 import Team from './pages/Team'
 import TeamSettings from './pages/TeamSettings'
+import MyGems from './pages/MyGems'
 
 export default function App() {
   useRunningAgentsFeed()
@@ -195,6 +196,7 @@ export default function App() {
           <Route path="privacy" element={<PrivacyPolicy />} />
           <Route path="about" element={<AboutMyOS />} />
           <Route path="my-setup" element={<MySetup />} />
+          <Route path="gems" element={<MyGems />} />
 
         </Route>
       </Routes>
