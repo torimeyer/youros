@@ -142,6 +142,27 @@ async def live_task_tracker(client):
 
 
 @pytest.fixture(autouse=True)
+def _reset_worktree_mutex():
+    """Reset the module-level asyncio.Lock in spawn_isolation between tests.
+
+    asyncio.Lock binds to the first event loop that acquires it. pytest-asyncio
+    creates a fresh loop per test, so any test that calls create_worktree or
+    remove_worktree (directly or via the HTTP endpoint) will leave the lock
+    bound to a dead event loop. The next test then fails with:
+      '<lock> is bound to a different event loop'
+    Replacing the lock object before and after each test keeps it unbound.
+    """
+    import asyncio
+    try:
+        import services.spawn_isolation as _siso
+        _siso._worktree_git_mutex = asyncio.Lock()
+        yield
+        _siso._worktree_git_mutex = asyncio.Lock()
+    except Exception:
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_connections_cache():
     """Drop every cached connection-status payload before and after each test.
 

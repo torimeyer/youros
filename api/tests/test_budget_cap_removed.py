@@ -83,16 +83,6 @@ def test_mailbox_instruction_has_no_budget_sentinel():
     even though the claude CLI is never actually passed --max-budget-usd.
     The short variant already omits budget; this guards the long variant too.
     """
-    import sys
-    import importlib
-
-    # Force a fresh import so edits to agents.py are reflected even if the
-    # module was already cached from a previous test run in the same session.
-    for key in list(sys.modules.keys()):
-        if "routers.agents" in key or key == "agents":
-            sys.modules.pop(key, None)
-
-    sys.path.insert(0, str(AGENTS_PY_PATH.parent.parent))
     try:
         from routers.agents import agent_mailbox_instruction, agent_mailbox_instruction_short
     except ImportError:
