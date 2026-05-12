@@ -1,10 +1,14 @@
-"""Tests for →1151: filter stale rows from GET /api/agents response.
+"""Tests for →1151, →1212: filter stale rows from GET /api/agents response.
 
 GET /api/agents was returning 816KB / 1380 rows because every row that
 ever existed was serialized.  The fix filters non-running rows whose
 last_seen (last_heartbeat_at or spawned_at) is older than
-_RESPONSE_STALE_SECONDS (90 s) before the enrich/serialize pass.
+_RESPONSE_STALE_SECONDS before the enrich/serialize pass.
 Running rows are always kept regardless of last_seen.
+
+→1212 widened _RESPONSE_STALE_SECONDS from 90s to 86400s (24h) so the
+Recent tab shows the full day's history instead of only the last 1.5 min.
+Rows older than 24h are still pruned to keep the payload bounded.
 """
 from __future__ import annotations
 
@@ -20,8 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from routers.agents import _run_enrich_pipeline, _last_seen_dt, _RESPONSE_STALE_SECONDS
 
 NOW = datetime(2026, 5, 11, 12, 0, 0, tzinfo=timezone.utc)
-RECENT = (NOW - timedelta(seconds=30)).isoformat()      # within 90s window
-STALE = (NOW - timedelta(seconds=120)).isoformat()      # older than 90s
+RECENT = (NOW - timedelta(seconds=30)).isoformat()       # well within 24h window
+MINUTES_AGO = (NOW - timedelta(minutes=30)).isoformat()  # 30 min ago — still within 24h
+STALE = (NOW - timedelta(hours=25)).isoformat()          # older than 24h — must be dropped
 
 
 def _make_agent(name: str, status: str, last_heartbeat_at: str | None = None, spawned_at: str | None = None) -> dict:
@@ -55,7 +60,7 @@ def _run(agents: list) -> list:
 
 
 class TestResponseStalenessFilter:
-    """→1151: non-running rows older than 90 s are dropped from the response."""
+    """→1151/→1212: non-running rows older than 24h are dropped from the response."""
 
     def test_running_rows_always_kept(self):
         agents = [_make_agent(f"running-{i}", "running", last_heartbeat_at=STALE) for i in range(5)]
@@ -67,17 +72,32 @@ class TestResponseStalenessFilter:
         result = _run(agents)
         assert len(result) == 5
 
+    def test_minutes_ago_non_running_rows_kept(self):
+        """→1212: completed agents from 30 min ago must appear (old cutoff was 90s)."""
+        agents = [_make_agent(f"old-{i}", "completed", last_heartbeat_at=MINUTES_AGO) for i in range(50)]
+        result = _run(agents)
+        assert len(result) == 50
+
     def test_stale_non_running_rows_dropped(self):
-        agents = [_make_agent(f"old-{i}", "completed", last_heartbeat_at=STALE) for i in range(50)]
+        """Rows older than 24h are still pruned to keep the payload bounded."""
+        agents = [_make_agent(f"ancient-{i}", "completed", last_heartbeat_at=STALE) for i in range(50)]
         result = _run(agents)
         assert len(result) == 0
 
-    def test_mixed_fixture_10_of_60(self):
-        """Acceptance: 5 running + 5 recent + 50 stale → 10 rows, not 60."""
+    def test_mixed_fixture_60_of_60_within_24h(self):
+        """5 running (stale HB) + 5 recent + 50 from 30-min-ago → all 60 rows returned."""
         running = [_make_agent(f"run-{i}", "running", last_heartbeat_at=STALE) for i in range(5)]
         recent = [_make_agent(f"rec-{i}", "completed", last_heartbeat_at=RECENT) for i in range(5)]
-        stale = [_make_agent(f"old-{i}", "completed", last_heartbeat_at=STALE) for i in range(50)]
-        result = _run(running + recent + stale)
+        within_24h = [_make_agent(f"old-{i}", "completed", last_heartbeat_at=MINUTES_AGO) for i in range(50)]
+        result = _run(running + recent + within_24h)
+        assert len(result) == 60
+
+    def test_mixed_fixture_drops_only_ancient_rows(self):
+        """5 running + 5 recent + 50 ancient (>24h) → 10 rows, not 60."""
+        running = [_make_agent(f"run-{i}", "running", last_heartbeat_at=STALE) for i in range(5)]
+        recent = [_make_agent(f"rec-{i}", "completed", last_heartbeat_at=RECENT) for i in range(5)]
+        ancient = [_make_agent(f"ancient-{i}", "completed", last_heartbeat_at=STALE) for i in range(50)]
+        result = _run(running + recent + ancient)
         assert len(result) == 10
 
     def test_no_timestamp_row_kept(self):
@@ -89,13 +109,14 @@ class TestResponseStalenessFilter:
     def test_spawned_at_used_as_fallback(self):
         """When last_heartbeat_at is absent, spawned_at determines staleness."""
         recent = _make_agent("fresh", "failed", spawned_at=RECENT)
-        stale = _make_agent("old", "failed", spawned_at=STALE)
-        result = _run([recent, stale])
+        ancient = _make_agent("ancient", "failed", spawned_at=STALE)
+        result = _run([recent, ancient])
         assert len(result) == 1
         assert result[0]["name"] == "fresh"
 
-    def test_constant_is_90(self):
-        assert _RESPONSE_STALE_SECONDS == 90
+    def test_constant_is_86400(self):
+        """→1212: window widened to 24h so Recent tab shows today's full history."""
+        assert _RESPONSE_STALE_SECONDS == 86400
 
 
 class TestLastSeenDt:

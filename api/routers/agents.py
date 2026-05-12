@@ -504,13 +504,16 @@ STALE_AGENT_AUTOCOMPLETE_SECONDS = 300
 # still writing output and must not be auto-completed yet.
 STALE_AGENT_TRANSCRIPT_GRACE_SECONDS = 120
 
-# Response-time staleness cutoff for GET /api/agents (→1151).
+# Response-time staleness cutoff for GET /api/agents (→1151, →1212).
 # Non-running rows whose last_seen (last_heartbeat_at or spawned_at) is
 # older than this are dropped from the serialized response. Running rows
 # are always kept regardless of last_seen so a transiently-delayed
-# heartbeat never hides an active agent. 90 seconds matches the ostk
-# kernel's fleet-active freshness criterion.
-_RESPONSE_STALE_SECONDS = 90
+# heartbeat never hides an active agent.
+# 24 hours so the Recent tab shows today's full session history. The
+# expensive transcript enrichment pass already has its own 24h cutoff
+# (_enrich_cutoff) that skips I/O for old stopped rows, so widening
+# this window does not re-introduce the perf concern from →1151.
+_RESPONSE_STALE_SECONDS = 86400
 
 
 # How often (seconds) to write a progress marker to the transcript file while
