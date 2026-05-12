@@ -339,12 +339,26 @@ print(json.dumps({"name": os.environ["SPAWN_NAME"], "ts": datetime.now(timezone.
     ""|"000")
         # curl prints 000 on connect-refused and leaves it empty only
         # on some platforms. Both mean "no HTTP response at all", i.e.
-        # backend unreachable. Fail-open: a fresh user without the myOS
-        # backend running should not be blocked from using Task. The
-        # original "block to prevent silent fallthrough" rule only made
-        # sense when the backend was assumed up; for non-torios users
-        # there is no isolation guarantee to protect, just one checkout.
+        # backend unreachable.
+        #
+        # →1200: Fail-CLOSED when .ostk/ is present in CLAUDE_PROJECT_DIR.
+        # Presence of .ostk/ marks this as a torios/myOS project where the
+        # backend must be running for worktree isolation to work correctly.
+        # When the backend is down and native Task runs instead, it creates
+        # a worktree but never creates .ostk/ inside it. The ostk MCP server
+        # in the subprocess then traverses UP from the worktree through the
+        # filesystem until it finds .ostk/ at the main repo root, rooting all
+        # bash calls there. Git commits and file edits silently land on main
+        # instead of the agent's worktree branch — the cwd-leak.
+        #
+        # For non-torios environments (no .ostk/), retain the original
+        # fail-open behavior: a user without the myOS backend should not be
+        # blocked from using Task entirely.
         rm -f "$RESP_BODY"
+        _CPD="${CLAUDE_PROJECT_DIR:-.}"
+        if [ -d "${_CPD}/.ostk" ]; then
+            deny "myOS backend unreachable at ${API_BASE}. Native Task would leak subagent commits into the parent checkout because no .ostk/ is created in the worktree without the REST spawn path (→1200). Restart the backend (scripts/dev-backend.sh) and retry."
+        fi
         echo "task-isolation-bridge: myOS backend unreachable at ${API_BASE} (connect-timeout/refused)." >&2
         echo "Allowing native Task tool. Worktree isolation skipped — sequential edits only." >&2
         exit 0
