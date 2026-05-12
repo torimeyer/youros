@@ -611,6 +611,7 @@ async def plan_waves():
                 "title": t.get("title", ""),
                 "priority": t.get("priority", ""),
                 "scope_hint": hint,
+                "description": t.get("description", ""),
             })
         result.append({
             "wave": i + 1,

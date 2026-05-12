@@ -7,6 +7,7 @@ interface WaveNeedle {
   title: string
   priority: string
   scope_hint: string
+  description?: string
 }
 
 interface Wave {
@@ -30,6 +31,53 @@ const PRIORITY_COLORS: Record<string, string> = {
   P1: 'bg-orange-500/20 text-orange-300 border border-orange-500/30',
   P2: 'bg-blue-500/20 text-blue-300 border border-blue-500/30',
   P3: 'bg-slate-500/20 text-slate-400 border border-slate-600',
+}
+
+// Strip ⊕ section separators and collapse extra whitespace.
+function normalizeDescription(raw: string): string {
+  return raw
+    .replace(/⊕/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function NeedleRow({ needle }: { needle: WaveNeedle }) {
+  const [expanded, setExpanded] = useState(false)
+  const desc = normalizeDescription(needle.description ?? '')
+
+  return (
+    <div
+      data-testid={`wave-needle-${needle.id}`}
+      className="flex items-start gap-3 px-4 py-3"
+    >
+      <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded font-mono ${PRIORITY_COLORS[needle.priority] ?? PRIORITY_COLORS.P3}`}>
+        {needle.priority}
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-slate-200 leading-snug">{needle.title}</p>
+        {needle.scope_hint && needle.scope_hint !== 'general' && (
+          <p className="text-xs text-slate-500 mt-0.5 truncate">{needle.scope_hint}</p>
+        )}
+        {desc && (
+          <div className="mt-1">
+            <p
+              data-testid={`needle-description-${needle.id}`}
+              className={`text-xs text-slate-400 leading-relaxed overflow-hidden ${expanded ? '' : 'line-clamp-2'}`}
+            >
+              {desc}
+            </p>
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="text-xs text-slate-500 hover:text-slate-300 transition-colors mt-0.5"
+              aria-label={expanded ? 'Show less' : 'Show more'}
+            >
+              {expanded ? 'Show less' : 'Show more'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export default function PlanWavesPanel({ open, onClose }: Props) {
@@ -131,21 +179,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
               {/* Needles */}
               <div className="divide-y divide-slate-800/60">
                 {wave.needles.map((needle) => (
-                  <div
-                    key={needle.id}
-                    data-testid={`wave-needle-${needle.id}`}
-                    className="flex items-start gap-3 px-4 py-3"
-                  >
-                    <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded font-mono ${PRIORITY_COLORS[needle.priority] ?? PRIORITY_COLORS.P3}`}>
-                      {needle.priority}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-slate-200 leading-snug">{needle.title}</p>
-                      {needle.scope_hint && needle.scope_hint !== 'general' && (
-                        <p className="text-xs text-slate-500 mt-0.5 truncate">{needle.scope_hint}</p>
-                      )}
-                    </div>
-                  </div>
+                  <NeedleRow key={needle.id} needle={needle} />
                 ))}
               </div>
             </div>
