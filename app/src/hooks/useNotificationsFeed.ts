@@ -1,71 +1,81 @@
-import { useEffect } from 'react'
-import { useNotificationsStore } from '../stores/notificationsStore'
+import { useEffect, useRef } from 'react'
+import { useWebSocket } from './useWebSocket'
+import { useNotificationsStore, type Notification } from '../stores/notificationsStore'
+import { api } from '../lib/api'
+
+const FALLBACK_POLL_MS = 5000
+const FALLBACK_DELAY_MS = 3000
+
+interface NotificationsFrame {
+  snapshot?: Notification[]
+  delta?: Notification
+}
 
 export function useNotificationsFeed() {
+  const { lastMessage, isConnected } = useWebSocket('/api/ws/notifications', true)
+  const setNotifications = useNotificationsStore((s) => s.setNotifications)
+  const setWsConnected = useNotificationsStore((s) => s.setWsConnected)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   useEffect(() => {
-    let ws: WebSocket | null = null
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-    let pollTimer: ReturnType<typeof setInterval> | null = null
-
-    const connect = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const url = `${protocol}//${window.location.host}/ws/notifications`
-
-      ws = new WebSocket(url)
-
-      ws.onopen = () => {
-        useNotificationsStore.setState({ wsConnected: true })
-      }
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data)
-          if (msg.type === 'snapshot') {
-            useNotificationsStore.setState({
-              notifications: msg.notifications || [],
-            })
-          } else if (msg.type === 'ping') {
-            // Keepalive received
-          }
-        } catch (e) {
-          console.error('Notifications WS message parse error:', e)
+    if (!lastMessage) return
+    const frame = lastMessage as unknown as NotificationsFrame
+    if (Array.isArray(frame.snapshot)) {
+      setNotifications(frame.snapshot)
+    } else if (frame.delta) {
+      useNotificationsStore.setState((state) => {
+        const idx = state.notifications.findIndex((n) => n.id === frame.delta!.id)
+        if (idx !== -1) {
+          const updated = [...state.notifications]
+          updated[idx] = frame.delta!
+          return { notifications: updated }
         }
-      }
+        return { notifications: [frame.delta!, ...state.notifications] }
+      })
+    }
+  }, [lastMessage, setNotifications])
 
-      ws.onerror = () => {
-        useNotificationsStore.setState({ wsConnected: false })
-      }
+  useEffect(() => {
+    setWsConnected(isConnected)
 
-      ws.onclose = () => {
-        useNotificationsStore.setState({ wsConnected: false })
-        // Fallback to polling
-        startPolling()
-        // Try to reconnect after 5s
-        reconnectTimer = setTimeout(connect, 5000)
+    if (isConnected) {
+      if (fallbackTimerRef.current !== null) {
+        clearTimeout(fallbackTimerRef.current)
+        fallbackTimerRef.current = null
       }
+      if (pollRef.current !== null) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+      return
     }
 
-    const startPolling = () => {
-      pollTimer = setInterval(async () => {
+    fallbackTimerRef.current = setTimeout(() => {
+      fallbackTimerRef.current = null
+      if (pollRef.current !== null) return
+      pollRef.current = setInterval(async () => {
         try {
-          const res = await fetch('/api/notifications')
-          if (!res.ok) return
-          const data = await res.json()
-          useNotificationsStore.setState({
-            notifications: Array.isArray(data) ? data : [],
-          })
-        } catch (e) {
-          console.error('Notifications poll error:', e)
+          const data = await api.get<Notification[]>('/notifications')
+          setNotifications(Array.isArray(data) ? data : [])
+        } catch {
+          // network error during fallback — ignore, retry next interval
         }
-      }, 5000)
-    }
-
-    connect()
+      }, FALLBACK_POLL_MS)
+    }, FALLBACK_DELAY_MS)
 
     return () => {
-      if (reconnectTimer) clearTimeout(reconnectTimer)
-      if (pollTimer) clearInterval(pollTimer)
-      if (ws) ws.close()
+      if (fallbackTimerRef.current !== null) {
+        clearTimeout(fallbackTimerRef.current)
+        fallbackTimerRef.current = null
+      }
+    }
+  }, [isConnected, setWsConnected, setNotifications])
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current !== null) clearInterval(pollRef.current)
+      if (fallbackTimerRef.current !== null) clearTimeout(fallbackTimerRef.current)
     }
   }, [])
 }

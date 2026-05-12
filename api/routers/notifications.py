@@ -65,7 +65,7 @@ async def notifications_ws(websocket: WebSocket) -> None:
     await websocket.accept()
     try:
         snapshot = [n.to_dict() for n in notifications_service.list_all()]
-        await websocket.send_json({"type": "snapshot", "notifications": snapshot})
+        await websocket.send_json({"snapshot": snapshot})
         async with _notifications_events_bus.subscribe() as q:
             while True:
                 try:

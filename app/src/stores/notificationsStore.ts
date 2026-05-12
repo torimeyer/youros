@@ -1,24 +1,26 @@
 import { create } from 'zustand'
 
-interface Notification {
+export interface Notification {
   id: string
   type: string
-  title?: string
-  message?: string
-  created_at?: string
-  read?: boolean
+  title: string
+  body: string
+  created_at: string
+  read: boolean
+  action_label?: string | null
+  action_url?: string | null
 }
 
 interface NotificationsState {
   notifications: Notification[]
-  wsConnected: boolean
+  ws_connected: boolean
   setNotifications: (notifications: Notification[]) => void
-  setWsConnected: (connected: boolean) => void
+  setWsConnected: (ws_connected: boolean) => void
 }
 
 export const useNotificationsStore = create<NotificationsState>((set) => ({
   notifications: [],
-  wsConnected: false,
+  ws_connected: false,
   setNotifications: (notifications) => set({ notifications }),
-  setWsConnected: (connected) => set({ wsConnected: connected }),
+  setWsConnected: (ws_connected) => set({ ws_connected }),
 }))
