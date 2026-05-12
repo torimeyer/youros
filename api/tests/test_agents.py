@@ -7849,6 +7849,74 @@ async def test_autocomplete_fast_agent_completes_on_transcript_idle(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_autocomplete_fresh_heartbeat_blocks_idle_transcript(tmp_path):
+    """An agent that heartbeated within STALE_AGENT_TRANSCRIPT_GRACE_SECONDS
+    must NOT be auto-completed even if its transcript file is idle.
+
+    Regression for →1227: the heartbeat stub and the JSONL have independent
+    mtimes. The JSONL can go idle between model responses (while the agent is
+    executing tool calls and heartbeating). Without the guard, Path A fires
+    prematurely on a live agent.
+    """
+    import os
+    from routers.agents import (
+        agent_metadata,
+        STALE_AGENT_TRANSCRIPT_GRACE_SECONDS,
+    )
+
+    fresh_hb = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TRANSCRIPT_GRACE_SECONDS - 30)
+    ).isoformat()
+
+    transcript = tmp_path / "transcripts" / "hb-fresh-transcript-idle.md"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("some transcript content\n")
+    old_mtime = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TRANSCRIPT_GRACE_SECONDS + 60)
+    ).timestamp()
+    os.utime(str(transcript), (old_mtime, old_mtime))
+
+    agent_name = "hb-fresh-transcript-idle"
+    agent_metadata[agent_name] = {
+        "spawned_at": fresh_hb,
+        "last_heartbeat_at": fresh_hb,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "1.0",
+        "model": "claude-sonnet-4-6",
+        "transcript_path": str(transcript),
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._is_pid_alive", return_value=False), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert agent_name in names
+                assert names[agent_name]["status"] == "running", (
+                    "Agent with fresh heartbeat must stay running even when "
+                    "transcript is idle (→1227 guard). "
+                    f"Got: {names[agent_name]['status']!r}"
+                )
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
 async def test_autocomplete_active_transcript_blocks_fast_path(tmp_path):
     """A source='claude-code' agent whose transcript is STILL GROWING must NOT
     be auto-completed even when the heartbeat would otherwise qualify.

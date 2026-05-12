@@ -1665,6 +1665,17 @@ def _autocomplete_exited_subagents() -> bool:
         # directly fixes count drift for fast subagents (< 5 min).
         transcript_source = _resolve_transcript_source(name)
         if transcript_source is not None:
+            # →1227 fix: a recent heartbeat means the agent is alive between
+            # tool calls, even if the transcript stub is momentarily idle.
+            # The stub (written by /heartbeat) and the JSONL (written by the
+            # model) have independent mtimes; the stub can lag when the agent
+            # is making long Claude API calls without heartbeating. Treat a
+            # heartbeat within the grace window as "still live".
+            _last_hb_raw = meta.get("last_heartbeat_at")
+            if _last_hb_raw:
+                _last_hb_dt = _parse_iso(_last_hb_raw)
+                if _last_hb_dt and (now - _last_hb_dt).total_seconds() <= STALE_AGENT_TRANSCRIPT_GRACE_SECONDS:
+                    continue
             if not _transcript_grew_recently(name, now):
                 # Transcript exists and is idle: agent finished.
                 # Ghost check: if transcript is 0 bytes and no tokens were
@@ -4589,6 +4600,19 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                         ),
                     },
                 )
+        # →1225: Remap absolute main-checkout paths in prompt to worktree paths.
+        # Briefs from the parent session may include absolute paths that point
+        # to the main checkout. Replacing them ensures fs_ops writes land in
+        # the agent's worktree, not on main.
+        if _worktree_path and prompt_with_memory:
+            _main_prefix = str(PROJECT_ROOT) + "/"
+            _wt_prefix = _worktree_path + "/"
+            if _main_prefix in prompt_with_memory:
+                prompt_with_memory = prompt_with_memory.replace(_main_prefix, _wt_prefix)
+                logger.info(
+                    "spawn.prompt_path_remap name=%s rewrote main-checkout paths to worktree",
+                    body.name,
+                )
         # Create the transcript file immediately so the resolver can find it
         # even before the subprocess writes its first byte. The _drain_stdout
         # coroutine below writes+flushes each chunk so the file grows in real
@@ -5711,11 +5735,19 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     # haiku/opus spawn-time assignments on first register.
     spawn_time_model = existing.get("model") if existing.get("pid") else None
     model = spawn_time_model or resolved_model
+    # When an agent was REST-spawned (has a pid), preserve the spawn-time source
+    # rather than letting the agent's self-register overwrite it. Bridge-spawned
+    # agents (source="task-bridge") self-register with source="claude-code", which
+    # makes them eligible for _autocomplete_exited_subagents — the sweep that
+    # prematurely marked onboarding-tracking-step-folder-025d66 "completed" while
+    # its subprocess was still running (→1227, Bug 1).
+    spawn_time_source = existing.get("source") if existing.get("pid") else None
+    source = spawn_time_source or body.source
     record: dict = {
         "spawned_at": spawned_at,
         "budget": str(body.budget),
         "model": model,
-        "source": body.source,
+        "source": source,
         "status": status,
         # Heartbeat field. Set on register and refreshed on every re-register
         # or /heartbeat call. The list endpoint compares this to
@@ -5807,6 +5839,14 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     for wt_field in ("worktree_path", "worktree_branch", "isolation"):
         if existing.get(wt_field) and wt_field not in record:
             record[wt_field] = existing[wt_field]
+    # Preserve PID from spawn: the spawn endpoint stores proc.pid in metadata
+    # before the agent boots. A subsequent /register call (e.g. self-registration)
+    # must not drop it. After a backend restart active_agents is cleared, leaving
+    # meta.get("pid") as the only liveness guard in _autocomplete_exited_subagents
+    # (line: if pid and _is_pid_alive(pid): continue). Without this, the guard is
+    # bypassed and agents are prematurely completed (→1227, Bug 2).
+    if existing.get("pid") and "pid" not in record:
+        record["pid"] = existing["pid"]
     # Task and needle linkage: persist from the request body, or carry
     # forward from existing metadata on re-register. Without this, a
     # spawn-set task_id is erased when the subagent self-registers, and
