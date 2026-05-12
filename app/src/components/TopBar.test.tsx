@@ -891,5 +891,26 @@ describe('TopBar persistent-notification toast', () => {
 
     vi.useRealTimers()
   })
+
+  describe('Start tour button', () => {
+    it('shows Start tour button when tourComplete is false', () => {
+      useAppStore.setState({ tourComplete: false })
+      renderTopBar()
+      expect(screen.getByTestId('start-tour-btn')).toBeInTheDocument()
+    })
+
+    it('does not show Start tour button when tourComplete is true', () => {
+      useAppStore.setState({ tourComplete: true })
+      renderTopBar()
+      expect(screen.queryByTestId('start-tour-btn')).toBeNull()
+    })
+
+    it('clicking Start tour button calls setShowTour(true)', () => {
+      useAppStore.setState({ tourComplete: false, showTour: false })
+      renderTopBar()
+      fireEvent.click(screen.getByTestId('start-tour-btn'))
+      expect(useAppStore.getState().showTour).toBe(true)
+    })
+  })
 })
 
