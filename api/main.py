@@ -23,7 +23,6 @@ from routers import gems as gems_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await prune_stale_agent_state()
     await fix_audit_watermark()
     await schedule_upgrade_check()
     await schedule_label_backfill()
@@ -176,39 +175,6 @@ app.include_router(inbox_router.router, prefix="/api")
 app.include_router(memory_router.router)
 app.include_router(team_router.router, prefix="/api")
 app.include_router(ostk_router.router, prefix="/api")
-
-
-async def prune_stale_agent_state():
-    """Drop terminal agent rows older than 30 days from agent_state.json.
-
-    Runs once at startup in a thread so the cold-cache enrich pass that
-    follows iterates a small dict instead of 500+ stale rows. Also
-    removes pruned keys from the in-memory agent_metadata dict so the
-    first /api/agents call never touches the stale rows.
-    """
-    import asyncio
-
-    def _run_sync():
-        from routers.agents import agent_metadata, AGENT_STATE_PATH
-        from services.agent_state_prune import run_startup_prune, prune_agent_state
-
-        # Compute pruned set first to know which keys to drop in-memory.
-        pruned_dict, removed = prune_agent_state(agent_metadata)
-        if removed == 0:
-            return
-
-        # Backup + persist the smaller file.
-        run_startup_prune(AGENT_STATE_PATH, agent_metadata)
-
-        # Drop pruned keys from the live in-memory dict so enrich never
-        # iterates them (agent_metadata is a module-level mutable dict).
-        for k in set(agent_metadata) - set(pruned_dict):
-            agent_metadata.pop(k, None)
-
-    try:
-        await asyncio.to_thread(_run_sync)
-    except Exception:
-        pass
 
 
 async def fix_audit_watermark():
