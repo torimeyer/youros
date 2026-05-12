@@ -297,8 +297,12 @@ def _worktree_head_hash(name: str, worktree_path: str) -> Optional[str]:
         return None
 
 
-async def _do_sweep() -> int:
-    """Find stuck/stalled agents and update their status. Returns count updated."""
+def _do_sweep_sync() -> int:
+    """Blocking sweep implementation — called via asyncio.to_thread, never on event loop.
+
+    _worktree_head_hash calls subprocess.run which blocks; running this entire function
+    in a thread keeps the event loop free during the 30s reaper cycle.
+    """
     from routers.agents import agent_metadata, _save_agent_state, _get_transcript_metrics
 
     now = datetime.now(timezone.utc)
@@ -342,6 +346,11 @@ async def _do_sweep() -> int:
 
     _save_agent_state()
     return len(victims) + len(stalled)
+
+
+async def _do_sweep() -> int:
+    """Find stuck/stalled agents and update their status. Returns count updated."""
+    return await asyncio.to_thread(_do_sweep_sync)
 
 
 async def run_forever() -> None:
