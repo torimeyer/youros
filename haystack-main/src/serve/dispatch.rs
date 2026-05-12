@@ -539,9 +539,19 @@ impl McpDispatcher {
         &self,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value, ToolError> {
-        let params: FsOpsParams = serde_json::from_value(arguments)
+        let mut params: FsOpsParams = serde_json::from_value(arguments)
             .map_err(|e| ToolError::invalid_params(format!("Invalid file:edit params: {e}")))?;
         let agent = self.get_agent_alias().await;
+        // →1225: Remap absolute main-checkout paths to the agent worktree.
+        // Agents in isolation:worktree sessions may receive absolute paths from
+        // the parent session context. Those paths point to the main checkout
+        // instead of the worktree, causing writes to land on main. If this
+        // process runs in a git worktree (project_root/.git is a file not a
+        // directory), detect the main checkout and transparently remap.
+        let project_root = self.state.ostk_dir.parent().unwrap_or(&self.state.ostk_dir);
+        if let Some(main_root) = find_main_checkout_from_worktree(project_root) {
+            params = remap_fs_ops_paths(params, project_root, &main_root);
+        }
         fs_ops::handle(params, &self.state.ostk_dir, agent.as_deref()).await
     }
 
@@ -960,6 +970,70 @@ impl McpDispatcher {
             },
         }
     }
+}
+
+// ── Worktree path remapping (→1225) ──────────────────────────────────────────
+
+/// If `project_root` is a git worktree, return the main checkout path.
+/// Returns None when running in the main checkout (no remapping needed).
+/// Git worktrees have .git as a FILE containing "gitdir: /path/.git/worktrees/name".
+fn find_main_checkout_from_worktree(project_root: &std::path::Path) -> Option<std::path::PathBuf> {
+    let git_path = project_root.join(".git");
+    if !git_path.is_file() {
+        return None;
+    }
+    let content = std::fs::read_to_string(&git_path).ok()?;
+    let gitdir = content.trim().strip_prefix("gitdir:")?.trim();
+    // gitdir = /path/to/main/.git/worktrees/name
+    // main checkout = gitdir.parent().parent().parent()
+    let gitdir_path = std::path::PathBuf::from(gitdir);
+    let main_checkout = gitdir_path.parent()?.parent()?.parent()?;
+    Some(main_checkout.to_path_buf())
+}
+
+/// Remap absolute main-checkout paths in fs_ops params to the worktree equivalent.
+fn remap_fs_ops_paths(
+    mut params: FsOpsParams,
+    project_root: &std::path::Path,
+    main_root: &std::path::Path,
+) -> FsOpsParams {
+    params.path = params.path.take().map(|p| remap_path_str(&p, project_root, main_root));
+    if let Some(ref mut ops) = params.ops {
+        for op in ops.iter_mut() {
+            let path_str = op.get("path").and_then(|p| p.as_str()).map(str::to_string);
+            if let Some(path_str) = path_str {
+                let remapped = remap_path_str(&path_str, project_root, main_root);
+                if remapped != path_str {
+                    if let Some(obj) = op.as_object_mut() {
+                        obj.insert("path".to_string(), serde_json::Value::String(remapped));
+                    }
+                }
+            }
+        }
+    }
+    params
+}
+
+/// Remap a single path string if it's absolute and points to the main checkout.
+fn remap_path_str(
+    path: &str,
+    project_root: &std::path::Path,
+    main_root: &std::path::Path,
+) -> String {
+    let p = std::path::Path::new(path);
+    if !p.is_absolute() || p.starts_with(project_root) {
+        return path.to_string();
+    }
+    if let Ok(rel) = p.strip_prefix(main_root) {
+        let remapped = project_root.join(rel);
+        eprintln!(
+            "[ostk] fs_ops path remapped (→1225): {} -> {}",
+            path,
+            remapped.display()
+        );
+        return remapped.to_string_lossy().into_owned();
+    }
+    path.to_string()
 }
 
 /// Format tool result as text for the MCP content response.
