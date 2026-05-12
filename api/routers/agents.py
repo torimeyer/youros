@@ -7198,16 +7198,21 @@ async def cancel_all_agents():
         # plausible-looking "Task is complete" stdout in
         # transcripts/<name>.md and the inline chat treats that as real
         # work. See _terminated_without_work for the invariant.
+        # Guard (→1189): same two conditions as the single-cancel path:
+        # skip the banner when (a) the transcript already has real content or
+        # (b) the agent's worktree branch has commits ahead of main. Either
+        # means real work was done even when tokens_used stayed 0 (e.g. for
+        # bridge-spawned worktree agents that don't report tokens to the API).
         try:
             from config import PROJECT_ROOT
             for name in cancelled_names:
                 meta_row = agent_metadata.get(name, {})
                 if _terminated_without_work(meta_row):
-                    _write_terminated_banner(
-                        PROJECT_ROOT / "transcripts" / f"{name}.md",
-                        name,
-                        "bulk cancel",
-                    )
+                    _t_path = PROJECT_ROOT / "transcripts" / f"{name}.md"
+                    _wt_branch = meta_row.get("worktree_branch") or ""
+                    if (not _transcript_has_real_content(_t_path)
+                            and not _worktree_branch_has_commits(_wt_branch)):
+                        _write_terminated_banner(_t_path, name, "bulk cancel")
         except Exception:
             pass
 

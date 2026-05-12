@@ -1,10 +1,11 @@
-"""Tests for →1041: cancel handler must not clobber transcript when real work was done.
+"""Tests for →1041 / →1189: cancel handler must not clobber transcript when real work was done.
 
 Two guard conditions:
   (a) Transcript already contains non-heartbeat content.
   (b) Agent's worktree branch has commits ahead of main.
 
 Either condition should suppress the TERMINATED WITHOUT WORK banner overwrite.
+The same guards are applied to the bulk-cancel (cancel-all) path (→1189).
 """
 from __future__ import annotations
 
@@ -245,5 +246,163 @@ async def test_cancel_clobbers_transcript_when_no_real_work(tmp_path):
     banner_path = tmp_path / "transcripts" / f"{name}.md"
     content = banner_path.read_text()
     assert content.startswith(TERMINATED_WITHOUT_WORK_BANNER)
+
+    agent_metadata.pop(name, None)
+
+
+# ---------------------------------------------------------------------------
+# Bulk-cancel (cancel-all) path: same guards must apply (→1189)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cancel_all_preserves_transcript_when_real_content(tmp_path):
+    """Bulk cancel must NOT overwrite a transcript that has real (non-heartbeat) content.
+
+    Regression test for →1189: bridge-spawned worktree agents report tokens_used=0
+    to the backend, so _terminated_without_work returns True. The banner-write
+    must still be suppressed by the transcript-content guard.
+    """
+    from routers.agents import agent_metadata, active_agents, TERMINATED_WITHOUT_WORK_BANNER
+    from datetime import datetime, timezone, timedelta
+
+    name = "bulk-ctp-real-content-agent"
+    transcript_file = _make_transcript(
+        tmp_path, name,
+        "[heartbeat ts=2026-05-12T04:30:00+00:00]\nI found the root cause and applied the fix.\n",
+    )
+
+    # Age > grace period so the agent is eligible for bulk cancel.
+    old_time = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+    agent_metadata[name] = {
+        "name": name,
+        "status": "running",
+        "source": "claude-code",
+        "spawned_at": old_time,
+        "registered_at": old_time,
+        "tokens_used": 0,
+        "worktree_branch": "",
+    }
+    active_agents.pop(name, None)
+
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    mock_git = MagicMock()
+    mock_git.stdout = ""
+
+    with patch("routers.agents._save_agent_state"), \
+         patch("routers.agents._save_agent_state_async", return_value=None), \
+         patch("routers.agents._fire_delta"), \
+         patch("routers.agents._emit_audit_event"), \
+         patch("routers.agents.trace_event"), \
+         patch("config.PROJECT_ROOT", tmp_path), \
+         patch("subprocess.run", return_value=mock_git):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            resp = await ac.post("/api/agents/cancel-all")
+
+    assert resp.status_code == 200
+    content = transcript_file.read_text()
+    assert TERMINATED_WITHOUT_WORK_BANNER not in content, (
+        "cancel-all must not clobber transcript with real content"
+    )
+    assert "I found the root cause" in content
+
+    agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_cancel_all_preserves_transcript_when_worktree_has_commits(tmp_path):
+    """Bulk cancel must NOT overwrite a transcript when the agent's worktree branch has commits."""
+    from routers.agents import agent_metadata, active_agents, TERMINATED_WITHOUT_WORK_BANNER
+    from datetime import datetime, timezone, timedelta
+
+    name = "bulk-ctp-commits-ahead-agent"
+    transcript_file = _make_transcript(
+        tmp_path, name,
+        "[heartbeat ts=2026-05-12T04:30:00+00:00]\n",
+    )
+
+    old_time = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+    agent_metadata[name] = {
+        "name": name,
+        "status": "running",
+        "source": "claude-code",
+        "spawned_at": old_time,
+        "registered_at": old_time,
+        "tokens_used": 0,
+        "worktree_branch": "worktree-agent-diagnose-mcp-missing-8b9de6",
+    }
+    active_agents.pop(name, None)
+
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    mock_git = MagicMock()
+    mock_git.stdout = "a1b2c3d fix: scaffold commit\n"
+
+    with patch("routers.agents._save_agent_state"), \
+         patch("routers.agents._save_agent_state_async", return_value=None), \
+         patch("routers.agents._fire_delta"), \
+         patch("routers.agents._emit_audit_event"), \
+         patch("routers.agents.trace_event"), \
+         patch("config.PROJECT_ROOT", tmp_path), \
+         patch("subprocess.run", return_value=mock_git):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            resp = await ac.post("/api/agents/cancel-all")
+
+    assert resp.status_code == 200
+    content = transcript_file.read_text()
+    assert TERMINATED_WITHOUT_WORK_BANNER not in content, (
+        "cancel-all must not clobber transcript when worktree branch has commits"
+    )
+
+    agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_cancel_all_writes_banner_when_no_real_work(tmp_path):
+    """Bulk cancel still writes the banner for genuinely empty agents (heartbeat-only, no commits)."""
+    from routers.agents import agent_metadata, active_agents, TERMINATED_WITHOUT_WORK_BANNER
+    from datetime import datetime, timezone, timedelta
+
+    name = "bulk-ctp-no-work-agent"
+    transcript_file = _make_transcript(
+        tmp_path, name,
+        "[heartbeat ts=2026-05-12T04:30:00+00:00]\n",
+    )
+
+    old_time = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+    agent_metadata[name] = {
+        "name": name,
+        "status": "running",
+        "source": "claude-code",
+        "spawned_at": old_time,
+        "registered_at": old_time,
+        "tokens_used": 0,
+        "worktree_branch": "",
+    }
+    active_agents.pop(name, None)
+
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    mock_git = MagicMock()
+    mock_git.stdout = ""
+
+    with patch("routers.agents._save_agent_state"), \
+         patch("routers.agents._save_agent_state_async", return_value=None), \
+         patch("routers.agents._fire_delta"), \
+         patch("routers.agents._emit_audit_event"), \
+         patch("routers.agents.trace_event"), \
+         patch("config.PROJECT_ROOT", tmp_path), \
+         patch("subprocess.run", return_value=mock_git):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            resp = await ac.post("/api/agents/cancel-all")
+
+    assert resp.status_code == 200
+    content = transcript_file.read_text()
+    assert content.startswith(TERMINATED_WITHOUT_WORK_BANNER), (
+        "cancel-all must still write banner for heartbeat-only agents with no commits"
+    )
 
     agent_metadata.pop(name, None)
