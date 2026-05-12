@@ -1333,9 +1333,15 @@ export function ChatPanel() {
           // Re-send logic: the Retry button finds the last user message
           // in this tab and replays its content through sendMessage, so
           // the user never has to re-type after a mid-turn socket drop.
+          const hasCategory = Boolean(
+            (lastMessage as unknown as { category?: string }).category
+          )
+          const errorContent = hasCategory
+            ? String(lastMessage.data)
+            : `Connection error${lastMessage.data ? `: ${lastMessage.data}` : ''}`
           updated[idx] = {
             ...target,
-            content: `Error: ${lastMessage.data}`,
+            content: errorContent,
             isError: true,
           }
         }

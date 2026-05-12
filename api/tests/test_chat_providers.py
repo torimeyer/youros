@@ -450,13 +450,13 @@ class TestAnthropicRetryOn5xx:
 
         errors = websocket.get_messages_of_type("error")
         assert len(errors) == 1
+        assert errors[0].get("category") == "provider_5xx"
         text = errors[0]["data"]
-        assert text == _ANTHROPIC_UNAVAILABLE_MESSAGE
 
         # Hard guarantees for the friendly copy:
         assert "API Error" not in text
         assert "Internal server error" not in text
-        assert "500" not in text
+        assert "500" in text  # status code is now intentionally surfaced
         assert "{" not in text  # no JSON leaking through
         assert "\u2014" not in text  # em-dash (U+2014)
         assert "\u2013" not in text  # en-dash (U+2013)

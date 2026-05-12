@@ -856,6 +856,64 @@ def _is_retryable_anthropic_error(exc: BaseException) -> bool:
     return False
 
 
+def _classify_anthropic_error(
+    exc: BaseException, *, model: Optional[str] = None
+) -> dict:
+    """Return a structured error payload for an Anthropic exception.
+
+    Keys: ``category`` (str), ``http_status`` (int or None),
+    ``user_message`` (str).  Consumed by ``_send_friendly_anthropic_error``
+    and by the raw exception handlers so both paths produce consistent
+    structured payloads the frontend can switch on.
+    """
+    http_status = getattr(exc, "status_code", None)
+    try:
+        http_status = int(http_status) if http_status is not None else None
+    except (TypeError, ValueError):
+        http_status = None
+
+    if isinstance(exc, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
+        return {
+            "category": "network",
+            "http_status": None,
+            "user_message": "Lost connection to backend.",
+        }
+
+    if isinstance(exc, anthropic.APIStatusError):
+        if http_status in (401, 403):
+            return {
+                "category": "auth_invalid",
+                "http_status": http_status,
+                "user_message": "Anthropic API key invalid or missing.",
+            }
+        if http_status == 429:
+            model_label = f" for {model}" if model else ""
+            return {
+                "category": "quota_exceeded",
+                "http_status": 429,
+                "user_message": (
+                    f"Quota exceeded{model_label} right now. "
+                    "Try again later or switch model."
+                ),
+            }
+        if http_status is not None and 500 <= http_status < 600:
+            return {
+                "category": "provider_5xx",
+                "http_status": http_status,
+                "user_message": (
+                    f"Anthropic returned {http_status}; "
+                    "their API may be having issues."
+                ),
+            }
+
+    msg = str(exc)[:200]
+    return {
+        "category": "unknown",
+        "http_status": http_status,
+        "user_message": f"Unexpected error: {msg}",
+    }
+
+
 def _retry_after_seconds(exc: BaseException) -> Optional[float]:
     """Return the Retry-After delay from an Anthropic error, if any.
 
@@ -1010,23 +1068,24 @@ async def _with_ws_heartbeat(
 
 
 async def _send_friendly_anthropic_error(
-    websocket: WebSocket, exc: BaseException
+    websocket: WebSocket, exc: BaseException, *, model: Optional[str] = None
 ) -> None:
-    """Send a plain-language error to the chat panel after retries failed.
+    """Send a structured, plain-language error to the chat panel.
 
-    Never leaks raw JSON, never uses em-dashes, never uses jargon. The
-    exact text comes from ``_ANTHROPIC_UNAVAILABLE_MESSAGE`` so the fix
-    is a single place to edit if we want to tune the copy.
+    Uses ``_classify_anthropic_error`` so every error path produces the
+    same ``{type, category, data}`` shape.  The frontend switches on
+    ``category`` to show the right copy; older clients fall back to
+    displaying ``data`` directly.
     """
+    classified = _classify_anthropic_error(exc, model=model)
     try:
-        await websocket.send_json(
-            {"type": "error", "data": _ANTHROPIC_UNAVAILABLE_MESSAGE}
-        )
+        await websocket.send_json({
+            "type": "error",
+            "category": classified["category"],
+            "data": classified["user_message"],
+        })
     except Exception:
-        # Never let a websocket hiccup mask the underlying failure.
         pass
-    # Log the real error so it shows up in server logs without leaking it
-    # to the chat panel.
     try:
         _anthropic_retry_log.error(
             "anthropic call failed after retries: %s: %s",
@@ -2376,18 +2435,28 @@ class ChatService:
                     # Already running on the fallback model. Don't recurse.
                     await websocket.send_json({
                         "type": "error",
-                        "data": "Claude is at capacity right now. Try again in a moment.",
+                        "category": "quota_exceeded",
+                        "data": "Quota exceeded right now. Try again later or switch model.",
                     })
                 else:
                     full_text = await _handle_anthropic_rate_limit(self, messages, websocket)
             else:
-                # Other 4xx: show the real error so the user can fix it
-                # (bad key, unknown model, bad input, etc.).
-                await websocket.send_json({"type": "error", "data": str(e)})
+                # Other 4xx: classify and surface a user-readable message.
+                _c = _classify_anthropic_error(e)
+                await websocket.send_json({
+                    "type": "error",
+                    "category": _c["category"],
+                    "data": _c["user_message"],
+                })
         except (anthropic.APIConnectionError, anthropic.APITimeoutError) as e:
             await _send_friendly_anthropic_error(websocket, e)
         except anthropic.APIError as e:
-            await websocket.send_json({"type": "error", "data": str(e)})
+            _c = _classify_anthropic_error(e)
+            await websocket.send_json({
+                "type": "error",
+                "category": _c["category"],
+                "data": _c["user_message"],
+            })
 
         return full_text
 
@@ -2741,15 +2810,24 @@ class ChatService:
                 # Rate-limited. Try Gemini if a key is available.
                 return await _handle_anthropic_rate_limit(self, messages, websocket)
             else:
-                # Other 4xx: real bug in the request. Show the actual error so
-                # the user can fix it (bad key, bad input, etc.).
-                await websocket.send_json({"type": "error", "data": str(e)})
+                # Other 4xx: classify and surface a user-readable message.
+                _c = _classify_anthropic_error(e)
+                await websocket.send_json({
+                    "type": "error",
+                    "category": _c["category"],
+                    "data": _c["user_message"],
+                })
             return ""
         except (anthropic.APIConnectionError, anthropic.APITimeoutError) as e:
             await _send_friendly_anthropic_error(websocket, e)
             return ""
         except anthropic.APIError as e:
-            await websocket.send_json({"type": "error", "data": str(e)})
+            _c = _classify_anthropic_error(e)
+            await websocket.send_json({
+                "type": "error",
+                "category": _c["category"],
+                "data": _c["user_message"],
+            })
             return ""
 
     async def _stream_gemini_vertex(
