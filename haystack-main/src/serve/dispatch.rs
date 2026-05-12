@@ -475,6 +475,27 @@ impl McpDispatcher {
         let project_root = self.state.ostk_dir.parent()
             .unwrap_or(&self.state.ostk_dir)
             .to_path_buf();
+        // →1153: Fleet-active gate — block git state mutations while agents are writing.
+        // count_fleet() applies a 90s staleness window, so stale rows never falsely block.
+        // OSTK_SKIP_GIT_GUARD=1 bypasses the gate (operator override).
+        if crate::commands::helpers::is_git_state_mutation(&params.cmd)
+            && std::env::var("OSTK_SKIP_GIT_GUARD").map_or(true, |v| v.is_empty())
+        {
+            let agents_path = self.state.ostk_dir.join("agents.jsonl");
+            let (active, _) = crate::commands::helpers::count_fleet(&agents_path);
+            if active > 0 {
+                return Err(ToolError::new(
+                    crate::serve::types::ERR_SHELL_ERROR,
+                    format!(
+                        "error: git-state-mutation blocked by fleet-active gate (→1522): \
+                         {} agent{} active — git stash/reset/clean while peers are writing \
+                         risks data loss. Wait until fleet is idle, or set \
+                         OSTK_SKIP_GIT_GUARD=1 to override (operator use only).",
+                        active, if active == 1 { "" } else { "s" }
+                    ),
+                ));
+            }
+        }
         sh_run::handle(params, &project_root).await
     }
 
