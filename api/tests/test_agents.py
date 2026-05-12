@@ -39,19 +39,25 @@ def _reset_transcript_caches():
     requests for performance (see feedback_deferred_tool_load and needle
     275), but tests reuse agent names across fresh tmp_paths and must
     see a cold resolver each time.
+
+    Also resets _cached_snapshot so a warm snapshotter from a prior test
+    does not feed stale data into the next test's list_agents call (→1219).
     """
     from routers.agents import (
         _reset_transcript_resolver_cache,
         _reset_candidates_cache,
         _transcript_metrics_cache,
+        _cached_snapshot,
     )
     _reset_transcript_resolver_cache()
     _reset_candidates_cache()
     _transcript_metrics_cache.clear()
+    _cached_snapshot.update({"agents": [], "computed_at": None, "daemon_running": False})
     yield
     _reset_transcript_resolver_cache()
     _reset_candidates_cache()
     _transcript_metrics_cache.clear()
+    _cached_snapshot.update({"agents": [], "computed_at": None, "daemon_running": False})
 
 
 @pytest.fixture

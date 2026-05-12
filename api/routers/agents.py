@@ -43,6 +43,22 @@ def _fire_delta(name: str, status: str) -> None:
         pass  # no running loop (startup / test context)
 
 
+# Background snapshot cache (→1219): the snapshotter loop writes here every 500 ms;
+# list_agents reads directly from it so every GET /agents completes in <10 ms.
+_cached_snapshot: dict = {"agents": [], "computed_at": None, "daemon_running": False}
+_snapshot_lock: asyncio.Lock = asyncio.Lock()
+
+
+def _set_agent_status(name: str, new_status: str, **extra_fields) -> None:
+    """Update agent_metadata[name]['status'] and fire a WS delta. No-op if absent."""
+    meta = agent_metadata.get(name)
+    if meta is None:
+        return
+    meta["status"] = new_status
+    for k, v in extra_fields.items():
+        meta[k] = v
+    _fire_delta(name, new_status)
+
 
 class AgentMemorySave(BaseModel):
     key: str
@@ -1478,13 +1494,9 @@ def _sweep_stale_running_agents() -> bool:
         recovery_count = meta.get("recovery_count", 0)
         handoff_note = _read_handoff_note(name)
         if handoff_note and recovery_count < MAX_RECOVERY_ATTEMPTS:
-            meta["status"] = "recovering"
-            meta["recovery_count"] = recovery_count + 1
-            meta["last_recovery_at"] = now.isoformat()
+            _set_agent_status(name, "recovering", recovery_count=recovery_count + 1, last_recovery_at=now.isoformat())
             changed = True
         else:
-            meta["status"] = "terminated_stale"
-            meta["terminated_at"] = now.isoformat()
             reason = (
                 f"No heartbeat for {int(age_seconds)}s "
                 f"(limit {STALE_AGENT_TIMEOUT_SECONDS}s)"
@@ -1493,7 +1505,7 @@ def _sweep_stale_running_agents() -> bool:
                 reason += (
                     f". Recovery exhausted ({recovery_count}/{MAX_RECOVERY_ATTEMPTS})"
                 )
-            meta["terminated_reason"] = reason
+            _set_agent_status(name, "terminated_stale", terminated_at=now.isoformat(), terminated_reason=reason)
             changed = True
     return changed
 
@@ -1659,19 +1671,14 @@ def _autocomplete_exited_subagents() -> bool:
                 # used, this is likely a quota-cap silent failure.
                 _ghost, _ghost_reason = _is_ghost_completion(meta, name)
                 if _ghost:
-                    meta["status"] = "failed"
-                    meta["failed_at"] = now.isoformat()
-                    meta["fail_reason"] = _ghost_reason
-                    meta["summary"] = _stale_sweep_summary_for(name)
+                    _set_agent_status(name, "failed", failed_at=now.isoformat(), fail_reason=_ghost_reason, summary=_stale_sweep_summary_for(name))
                     _pending_ghost_retries.append(name)
                     logger.warning(
                         "ghost.detected path=A name=%s reason=%s",
                         name, _ghost_reason,
                     )
                 else:
-                    meta["status"] = "completed"
-                    meta["completed_at"] = now.isoformat()
-                    meta["summary"] = _stale_sweep_summary_for(name)
+                    _set_agent_status(name, "completed", completed_at=now.isoformat(), summary=_stale_sweep_summary_for(name))
                     _emit_audit_event("agent.completed", {"name": name})
                 changed = True
             # Either idle (just completed/failed above) or still active.
@@ -1710,19 +1717,14 @@ def _autocomplete_exited_subagents() -> bool:
         # Ghost check: transcript absent + no tokens = quota cap.
         _ghost_b, _ghost_reason_b = _is_ghost_completion(meta, name)
         if _ghost_b:
-            meta["status"] = "failed"
-            meta["failed_at"] = now.isoformat()
-            meta["fail_reason"] = _ghost_reason_b
-            meta["summary"] = _stale_sweep_summary_for(name)
+            _set_agent_status(name, "failed", failed_at=now.isoformat(), fail_reason=_ghost_reason_b, summary=_stale_sweep_summary_for(name))
             _pending_ghost_retries.append(name)
             logger.warning(
                 "ghost.detected path=B name=%s reason=%s",
                 name, _ghost_reason_b,
             )
         else:
-            meta["status"] = "completed"
-            meta["completed_at"] = now.isoformat()
-            meta["summary"] = _stale_sweep_summary_for(name)
+            _set_agent_status(name, "completed", completed_at=now.isoformat(), summary=_stale_sweep_summary_for(name))
             _emit_audit_event("agent.completed", {"name": name})
         changed = True
     return changed
@@ -1767,8 +1769,7 @@ def _recover_stale_agents():
         # Case 3: backend-managed spawn (ui/api/chat) or stale claude-code
         # session. Worker is dead. Mark abandoned so the Active Sessions
         # list does not show phantoms.
-        meta["status"] = "abandoned"
-        meta["abandoned_at"] = now.isoformat()
+        _set_agent_status(name, "abandoned", abandoned_at=now.isoformat())
         changed = True
     if changed:
         _save_agent_state()
@@ -1819,9 +1820,7 @@ def _recover_bulk_cancelled_agents() -> bool:
         if heartbeat <= terminated:
             continue
         # Agent was alive after the bulk cancel - it was caught by accident.
-        meta["status"] = "completed"
-        meta["completed_at"] = heartbeat_raw
-        meta["summary"] = "Recovered after bulk cancel: agent was still active when cancelled"
+        _set_agent_status(name, "completed", completed_at=heartbeat_raw, summary="Recovered after bulk cancel: agent was still active when cancelled")
         # Clear the cancellation fields so the row reads cleanly.
         meta.pop("terminated_at", None)
         meta.pop("terminated_reason", None)
@@ -1890,9 +1889,7 @@ def _reconcile_workflow_step_agents() -> bool:
                 if age < _WORKFLOW_ORPHAN_GRACE_SECONDS:
                     continue
 
-        meta["status"] = "cancelled"
-        meta["terminated_at"] = now.isoformat()
-        meta["terminated_reason"] = "workflow ended"
+        _set_agent_status(name, "cancelled", terminated_at=now.isoformat(), terminated_reason="workflow ended")
         changed = True
 
     return changed
@@ -3158,6 +3155,419 @@ async def agent_duration_stats():
     return get_duration_stats()
 
 
+async def _compute_agents_snapshot_async() -> dict:
+    """Build the full unfiltered, enriched agent list.
+
+    Called by the background snapshotter every 500 ms (→1219). All the
+    expensive work — kernel_ps, audit_agents, 3-pass merge, PID-death
+    reconcile, stale sweep, auto-complete, recovery, workflow reconcile,
+    transcript-based CC-session inference, and enrich pipeline — runs
+    here rather than on the request path.
+    """
+    _prune_stale_completed_agents()
+    ps_result = await ostk.kernel_ps()
+    audit_agents_list = await ostk.audit_agents()
+    daemon_running = ps_result.get("daemon_running", False)
+    daemon_agent_names = {a["name"] for a in ps_result.get("agents", [])}
+    deleted_names = _load_deleted_agents()
+
+    agents_map: dict[str, dict] = {}
+
+    # 1. Audit log agents (lowest priority, background context)
+    from config import PROJECT_ROOT
+    _audit_i = 0
+    for agent in audit_agents_list:
+        _audit_i += 1
+        if _audit_i % 10 == 0:
+            await asyncio.sleep(0)
+        if agent.get("status") in ("spawned", "running"):
+            if not daemon_running or agent["name"] not in daemon_agent_names:
+                if agent["name"] not in active_agents:
+                    transcript = PROJECT_ROOT / "transcripts" / f"{agent['name']}.md"
+                    if transcript.exists() and transcript.stat().st_size > 0:
+                        agent = {**agent, "status": "completed"}
+                    else:
+                        agent = {**agent, "status": "stopped"}
+        agents_map[agent["name"]] = agent
+
+    # 2. In-memory agents (spawned via API this session)
+    for name in list(active_agents.keys()):
+        proc = active_agents[name]
+        meta = agent_metadata.get(name, {})
+        if hasattr(proc, 'returncode') and proc.returncode is not None:
+            del active_agents[name]
+            if meta.get("spawned_at") and meta.get("budget") and meta.get("model"):
+                try:
+                    start = datetime.fromisoformat(meta["spawned_at"])
+                    duration = (datetime.now(timezone.utc) - start).total_seconds()
+                    _save_duration(meta["model"], float(meta["budget"]), duration)
+                except (ValueError, TypeError):
+                    pass
+            agents_map[name] = {
+                "name": name,
+                "source": "api",
+                **meta,
+                "status": "completed" if proc.returncode == 0 else "failed",
+            }
+        else:
+            _TERMINAL_FROM_META = {
+                "cancelled", "failed", "terminated_stale",
+                "killed", "stopped", "abandoned",
+                "completed_timeout", "completed",
+            }
+            persisted = meta.get("status", "")
+            effective_status = persisted if persisted in _TERMINAL_FROM_META else "running"
+            agents_map[name] = {
+                "name": name,
+                "source": "api",
+                **meta,
+                "status": effective_status,
+            }
+
+    # 2b. Persisted metadata (agents from previous server sessions).
+    persisted_pass_changed = False
+    _meta_i = 0
+    for name, meta in agent_metadata.items():
+        _meta_i += 1
+        if _meta_i % 10 == 0:
+            await asyncio.sleep(0)
+        if name in active_agents:
+            continue
+        _AUTHORITATIVE_STATUSES = {
+            "running", "completed",
+            "cancelled", "failed", "terminated_stale", "killed", "stopped", "abandoned",
+            "completed_timeout",
+        }
+        persisted_status_check = meta.get("status")
+        if name in agents_map and persisted_status_check in _AUTHORITATIVE_STATUSES:
+            override_pid = meta.get("pid")
+            if (
+                persisted_status_check == "running"
+                and override_pid
+                and not _is_pid_alive(int(override_pid))
+            ):
+                now_iso = datetime.now(timezone.utc).isoformat()
+                _set_agent_status(name, "completed",
+                                  completed_at=now_iso,
+                                  completion_reason="PID exited (list endpoint reconciled on read)")
+                persisted_pass_changed = True
+                agents_map[name] = {
+                    "name": name,
+                    "source": meta.get("source", "api"),
+                    **meta,
+                    "status": "completed",
+                }
+                continue
+            agents_map[name] = {
+                "name": name,
+                "source": meta.get("source", "api"),
+                **meta,
+            }
+            continue
+        if name in agents_map:
+            meta_source = meta.get("source")
+            if meta_source and meta_source != "audit":
+                agents_map[name] = {**agents_map[name], "source": meta_source}
+            continue
+        pid = meta.get("pid")
+        is_registered = meta.get("source") == "claude-code"
+        persisted_status = meta.get("status")
+        if persisted_status == "completed":
+            agents_map[name] = {
+                "name": name,
+                "source": meta.get("source", "api"),
+                **meta,
+                "status": "completed",
+            }
+        elif persisted_status == "running":
+            pid_for_check = meta.get("pid")
+            if pid_for_check and not _is_pid_alive(int(pid_for_check)):
+                now_iso = datetime.now(timezone.utc).isoformat()
+                _set_agent_status(name, "completed",
+                                  completed_at=now_iso,
+                                  completion_reason="PID exited (list endpoint reconciled on read)")
+                persisted_pass_changed = True
+                agents_map[name] = {
+                    "name": name,
+                    "source": meta.get("source", "api"),
+                    **meta,
+                    "status": "completed",
+                }
+                continue
+            spawned_at_str = meta.get("spawned_at", "")
+            has_heartbeat = isinstance(meta.get("last_heartbeat_at"), str)
+            is_stale_no_heartbeat = False
+            if not has_heartbeat and spawned_at_str:
+                try:
+                    spawned_at = datetime.fromisoformat(
+                        spawned_at_str.replace("Z", "+00:00")
+                    )
+                    age_seconds = (
+                        datetime.now(timezone.utc) - spawned_at
+                    ).total_seconds()
+                    is_stale_no_heartbeat = age_seconds > 1200
+                except (ValueError, TypeError):
+                    pass
+            if is_stale_no_heartbeat:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                _set_agent_status(name, "terminated_stale",
+                                  terminated_at=now_iso,
+                                  terminated_reason=(
+                                      "Running with no heartbeat for over 20 minutes "
+                                      "(legacy record, swept by list endpoint)"
+                                  ))
+                persisted_pass_changed = True
+                agents_map[name] = {
+                    "name": name,
+                    "source": meta.get("source", "api"),
+                    **meta,
+                    "status": "terminated_stale",
+                }
+            else:
+                agents_map[name] = {
+                    "name": name,
+                    "source": meta.get("source", "api"),
+                    **meta,
+                    "status": "running",
+                }
+        elif persisted_status == "abandoned":
+            agents_map[name] = {
+                "name": name,
+                "source": meta.get("source", "api"),
+                **meta,
+                "status": "abandoned",
+            }
+        elif persisted_status in (
+            "terminated_stale", "cancelled", "failed", "killed", "stopped",
+            "completed_timeout",
+        ):
+            agents_map[name] = {
+                "name": name,
+                "source": meta.get("source", "api"),
+                **meta,
+                "status": persisted_status,
+            }
+        elif pid and _is_pid_alive(pid):
+            agents_map[name] = {
+                "name": name,
+                "source": "api",
+                **meta,
+                "status": "running",
+            }
+        else:
+            transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
+            if transcript.exists() and transcript.stat().st_size > 0:
+                agents_map[name] = {
+                    "name": name,
+                    "source": meta.get("source", "api"),
+                    **meta,
+                    "status": "completed",
+                }
+            elif is_registered:
+                spawned_at_str = meta.get("spawned_at", "")
+                is_stale = False
+                if spawned_at_str:
+                    try:
+                        spawned_at = datetime.fromisoformat(spawned_at_str.replace("Z", "+00:00"))
+                        age_seconds = (datetime.now(timezone.utc) - spawned_at).total_seconds()
+                        is_stale = age_seconds > 1200
+                    except (ValueError, TypeError):
+                        pass
+                if is_stale:
+                    _set_agent_status(name, "abandoned")
+                    persisted_pass_changed = True
+                    agents_map[name] = {
+                        "name": name,
+                        "source": "claude-code",
+                        **meta,
+                        "status": "abandoned",
+                    }
+                else:
+                    agents_map[name] = {
+                        "name": name,
+                        "source": "claude-code",
+                        **meta,
+                        "status": "running",
+                    }
+
+    # 3. Daemon agents (highest priority, ground truth)
+    for agent in ps_result.get("agents", []):
+        agents_map[agent["name"]] = agent
+
+    # 4. Kernel fleet
+    try:
+        _kernel_rows = _read_kernel_fleet(
+            socket_agents_path=OSTK_DIR / "agents.jsonl"
+        )
+        for _krow in _kernel_rows:
+            _kname = _krow.get("name")
+            if not _kname or _kname in deleted_names:
+                continue
+            if _kname not in agents_map:
+                agents_map[_kname] = _krow
+            else:
+                _existing = agents_map[_kname]
+                if _existing.get("status") not in _TERMINAL_STATUSES:
+                    _k_status = _krow.get("status")
+                    if _k_status in ("running", "completed", "failed", "killed"):
+                        agents_map[_kname] = {**_existing, "status": _k_status}
+                        _existing = agents_map[_kname]
+                _k_hb = _krow.get("last_heartbeat_at") or ""
+                _e_hb = _existing.get("last_heartbeat_at") or ""
+                if _k_hb > _e_hb:
+                    agents_map[_kname]["last_heartbeat_at"] = _k_hb
+    except Exception:
+        logger.debug("kernel_fleet read failed", exc_info=True)
+
+    # Sweep: mark running agents with no recent heartbeat as terminated_stale.
+    sweep_changed = False
+    now_for_sweep = datetime.now(timezone.utc)
+    _sweep_i = 0
+    for name, agent in agents_map.items():
+        _sweep_i += 1
+        if _sweep_i % 10 == 0:
+            await asyncio.sleep(0)
+        if agent.get("status") != "running":
+            continue
+        last_heartbeat_raw = agent.get("last_heartbeat_at")
+        if not isinstance(last_heartbeat_raw, str):
+            continue
+        last_seen = _parse_iso(last_heartbeat_raw)
+        if last_seen is None:
+            continue
+        age_seconds = (now_for_sweep - last_seen).total_seconds()
+        source = agent.get("source") or (agent_metadata.get(name) or {}).get("source")
+        is_cc_subagent = source == "claude-code"
+        threshold = (
+            STALE_CLAUDE_CODE_SUBAGENT_SECONDS
+            if is_cc_subagent
+            else STALE_AGENT_TIMEOUT_SECONDS
+        )
+        if age_seconds <= threshold:
+            continue
+        if _proc_handle_is_alive(name):
+            continue
+        if _transcript_recently_active(name, now_for_sweep):
+            continue
+        terminated_at = now_for_sweep.isoformat()
+        demoted_status = "completed_timeout" if is_cc_subagent else "terminated_stale"
+        reason = (
+            f"No heartbeat for {int(age_seconds)}s "
+            f"(limit {threshold}s)"
+        )
+        agent["status"] = demoted_status
+        agent["terminated_at"] = terminated_at
+        agent["terminated_reason"] = reason
+        if is_cc_subagent:
+            agent["completed_at"] = terminated_at
+        meta = agent_metadata.get(name)
+        if meta is not None:
+            _set_agent_status(name, demoted_status,
+                              terminated_at=terminated_at,
+                              terminated_reason=reason)
+            if is_cc_subagent:
+                meta["completed_at"] = terminated_at
+            sweep_changed = True
+    if sweep_changed or persisted_pass_changed:
+        await _save_agent_state_async()
+
+    ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
+    if ac_changed:
+        await _save_agent_state_async()
+        await _agent_events_bus.publish("sweep", {})
+        for name, meta in agent_metadata.items():
+            if meta.get("status") == "completed" and name in agents_map:
+                if agents_map[name].get("status") == "running":
+                    agents_map[name]["status"] = "completed"
+                    agents_map[name]["completed_at"] = meta.get("completed_at", "")
+
+    rc_changed = _recover_bulk_cancelled_agents()
+    if rc_changed:
+        await _save_agent_state_async()
+        for name, meta in agent_metadata.items():
+            if meta.get("status") == "completed" and name in agents_map:
+                if agents_map[name].get("status") == "cancelled":
+                    agents_map[name]["status"] = "completed"
+                    agents_map[name]["completed_at"] = meta.get("completed_at", "")
+                    agents_map[name].pop("terminated_at", None)
+                    agents_map[name].pop("terminated_reason", None)
+
+    wf_changed = _reconcile_workflow_step_agents()
+    if wf_changed:
+        await _save_agent_state_async()
+        for name, meta in agent_metadata.items():
+            if meta.get("status") == "cancelled" and meta.get("terminated_reason") == "workflow ended":
+                if name in agents_map and agents_map[name].get("status") == "running":
+                    agents_map[name]["status"] = "cancelled"
+                    agents_map[name]["terminated_at"] = meta.get("terminated_at", "")
+                    agents_map[name]["terminated_reason"] = "workflow ended"
+
+    # Merge live Claude Code sessions inferred from transcript file mtimes.
+    try:
+        from pathlib import Path as _Path
+        from config import PROJECT_ROOT as _PROJECT_ROOT
+        projects_dir = _Path.home() / ".claude" / "projects" / str(_PROJECT_ROOT).replace("/", "-")
+        if projects_dir.is_dir():
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+            for jsonl in projects_dir.glob("*.jsonl"):
+                try:
+                    mtime = datetime.fromtimestamp(jsonl.stat().st_mtime, tz=timezone.utc)
+                except OSError:
+                    continue
+                if mtime < cutoff:
+                    continue
+                inferred_name = f"claude-code-{jsonl.stem[:10]}"
+                if inferred_name in agents_map:
+                    continue
+                agents_map[inferred_name] = {
+                    "name": inferred_name,
+                    "source": "claude-code",
+                    "status": "running",
+                    "spawned_at": mtime.isoformat(),
+                    "last_heartbeat_at": mtime.isoformat(),
+                    "model": "claude-code",
+                    "budget": "0",
+                    "description": "Claude Code session (inferred from transcript mtime)",
+                }
+    except Exception:
+        pass
+
+    all_agents = list(agents_map.values())
+
+    async with _enrich_async_lock:
+        enriched = await asyncio.to_thread(
+            _run_enrich_pipeline,
+            all_agents,
+            deleted_names,
+            now_for_sweep,
+            None,   # user_spawned_filter — caller applies per-request
+            None,   # filter_status
+            None,   # filter_source
+            None,   # limit
+        )
+
+    return {
+        "daemon_running": daemon_running,
+        "status": sanitize_for_json(ps_result.get("raw", "unknown")),
+        "agents": enriched,
+        "avg_min_per_dollar": _avg_minutes_per_dollar(),
+        "computed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def _agents_snapshot_loop() -> None:
+    """Background task: refresh the agent snapshot every 500 ms (→1219)."""
+    global _cached_snapshot
+    while True:
+        try:
+            snapshot = await _compute_agents_snapshot_async()
+            async with _snapshot_lock:
+                _cached_snapshot = snapshot
+        except Exception:
+            logger.exception("agents snapshotter iteration failed")
+        await asyncio.sleep(0.5)
+
+
 @router.get("/agents")
 async def list_agents(
     user_spawned_only: bool = False,
@@ -3193,608 +3603,50 @@ async def list_agents(
       - ``limit=<n>``: cap the returned agent list at N rows (applied last,
         after filters and sort-by-spawned_at so the oldest rows win).
     """
-    _prune_stale_completed_agents()
-    ps_result = await ostk.kernel_ps()
-    audit_agents_list = await ostk.audit_agents()
-    daemon_running = ps_result.get("daemon_running", False)
-    daemon_agent_names = {a["name"] for a in ps_result.get("agents", [])}
+    # Read from the background snapshot cache (→1219). Latency: <10 ms.
+    async with _snapshot_lock:
+        snapshot = dict(_cached_snapshot)
+    if snapshot.get("computed_at") is None:
+        snapshot = await _compute_agents_snapshot_async()
+        async with _snapshot_lock:
+            _cached_snapshot.update(snapshot)
+    all_agents = list(snapshot.get("agents", []))
+    # Overlay live statuses from agent_metadata (snapshot is up to 500ms stale).
+    # This ensures /complete and other status mutations are immediately visible.
+    snapshot_names: set = set()
+    for _a in all_agents:
+        _n = _a.get("name")
+        snapshot_names.add(_n)
+        _live = agent_metadata.get(_n)
+        if _live is not None:
+            _live_status = _live.get("status")
+            if _live_status is not None:
+                _a["status"] = _live_status
+    # Include agents registered since the last snapshot run.
+    for _n, _meta in list(agent_metadata.items()):
+        if _n not in snapshot_names:
+            all_agents.append(dict(_meta, name=_n))
+    daemon_running = snapshot.get("daemon_running", False)
     deleted_names = _load_deleted_agents()
-
-    # Orphan cleanup intentionally removed: it was killing real agents
-    # whose register call hadn't landed task metadata yet by the time
-    # GET /agents fired. The user-spawned filter on the UI side already
-    # hides mystery rows; no need to destroy them on the server.
-
-    # Build a unified agent map: name -> agent info.
-    # Priority: daemon (most authoritative) > in-memory > audit log.
-    agents_map: dict[str, dict] = {}
-
-    # 1. Audit log agents (lowest priority, background context)
-    from config import PROJECT_ROOT
-    _audit_i = 0
-    for agent in audit_agents_list:
-        _audit_i += 1
-        if _audit_i % 10 == 0:
-            await asyncio.sleep(0)
-        # If no daemon is running and audit says "spawned", the agent is dead.
-        # Also if daemon IS running but this agent isn't in the daemon's list.
-        if agent.get("status") in ("spawned", "running"):
-            if not daemon_running or agent["name"] not in daemon_agent_names:
-                # Check if it's in our in-memory registry (API-spawned this session)
-                if agent["name"] not in active_agents:
-                    # Check transcript to determine if agent completed or crashed
-                    transcript = PROJECT_ROOT / "transcripts" / f"{agent['name']}.md"
-                    if transcript.exists() and transcript.stat().st_size > 0:
-                        agent = {**agent, "status": "completed"}
-                    else:
-                        agent = {**agent, "status": "stopped"}
-        agents_map[agent["name"]] = agent
-
-    # 2. In-memory agents (spawned via API this session)
-    for name in list(active_agents.keys()):
-        proc = active_agents[name]
-        meta = agent_metadata.get(name, {})
-        # Check if the process is still alive
-        if hasattr(proc, 'returncode') and proc.returncode is not None:
-            del active_agents[name]
-            # Record duration for future estimates
-            if meta.get("spawned_at") and meta.get("budget") and meta.get("model"):
-                try:
-                    start = datetime.fromisoformat(meta["spawned_at"])
-                    duration = (datetime.now(timezone.utc) - start).total_seconds()
-                    _save_duration(meta["model"], float(meta["budget"]), duration)
-                except (ValueError, TypeError):
-                    pass
-            agents_map[name] = {
-                "name": name,
-                "source": "api",
-                **meta,
-                "status": "completed" if proc.returncode == 0 else "failed",
-            }
-        else:
-            # If the metadata already carries a terminal status (e.g.
-            # "cancelled" from cancel-all), respect it even though the
-            # subprocess handle is still technically alive. The process may
-            # not have exited yet but the user's intent is clear.
-            #
-            # ``completed_timeout`` is the demo-mode supervisor's terminal
-            # status: it fires the moment ``_schedule_demo_force_complete``
-            # SIGKILLs a stuck demo agent and flips the row, even though
-            # the kernel may not have reaped the proc handle yet. Without
-            # this in the terminal set, the very next GET /agents would
-            # see proc.returncode is None and revert the row to "running",
-            # which is what made the demo smoke poll loop time out.
-            # NOTE: "completed" MUST be in this set. Without it, an agent
-            # whose /complete handler has already written status=completed +
-            # completed_at to disk but whose asyncio proc handle has not yet
-            # been reaped by the child watcher (returncode still None) will
-            # show as status="running" + completed_at set — the impossible
-            # state that breaks the standing-rules CURRENT RUNNING AGENTS
-            # filter and silently strands the parent session's view of what
-            # landed. (→1182)
-            _TERMINAL_FROM_META = {
-                "cancelled", "failed", "terminated_stale",
-                "killed", "stopped", "abandoned",
-                "completed_timeout", "completed",
-            }
-            persisted = meta.get("status", "")
-            effective_status = persisted if persisted in _TERMINAL_FROM_META else "running"
-            agents_map[name] = {
-                "name": name,
-                "source": "api",
-                **meta,
-                "status": effective_status,
-            }
-
-    # 2b. Persisted metadata (agents from previous server sessions).
-    # Any mutations discovered during this pass are flagged in
-    # ``persisted_pass_changed`` and saved exactly once at the end of the
-    # request, combined with the sweep below. Calling _save_agent_state()
-    # inside the loop would do one full-file atomic JSON write per dead
-    # row, which on a 100+ row state file serializes concurrent /api/agents
-    # requests in the asyncio loop long enough for the SSL handshake
-    # timeout to trip on queued requests.
-    persisted_pass_changed = False
-    _meta_i = 0
-    for name, meta in agent_metadata.items():
-        _meta_i += 1
-        if _meta_i % 10 == 0:
-            await asyncio.sleep(0)
-        if name in active_agents:
-            continue  # in-memory process, step 2 already handled it
-        # If this agent is already in agents_map from the audit log (step 1)
-        # but agent_metadata says it's "running", "completed", or any terminal
-        # status, the stored metadata is more authoritative than the audit
-        # log's guess. Override the audit log entry.
-        # Terminal statuses must win over audit-log "running" rows so that
-        # cancel-all (and other cancel paths) stick on the next GET /agents
-        # poll instead of reverting to "running".
-        _AUTHORITATIVE_STATUSES = {
-            "running", "completed",
-            "cancelled", "failed", "terminated_stale", "killed", "stopped", "abandoned",
-            # Demo-mode supervisor's terminal status. Without this in the
-            # authoritative set, a force-completed demo agent keeps the
-            # audit-log placeholder (source="audit") and gets filtered
-            # out of the Recent tab by is_user_spawned_agent.
-            "completed_timeout",
-        }
-        persisted_status_check = meta.get("status")
-        if name in agents_map and persisted_status_check in _AUTHORITATIVE_STATUSES:
-            # Fast PID-death reconcile: if metadata says running but the
-            # pid has exited, flip to completed before overriding the
-            # audit log. Prevents dead rows from re-stamping themselves
-            # as running via this merge path.
-            override_pid = meta.get("pid")
-            if (
-                persisted_status_check == "running"
-                and override_pid
-                and not _is_pid_alive(int(override_pid))
-            ):
-                now_iso = datetime.now(timezone.utc).isoformat()
-                meta["status"] = "completed"
-                meta["completed_at"] = now_iso
-                meta["completion_reason"] = (
-                    "PID exited (list endpoint reconciled on read)"
-                )
-                agent_metadata[name] = meta
-                persisted_pass_changed = True
-                agents_map[name] = {
-                    "name": name,
-                    "source": meta.get("source", "api"),
-                    **meta,
-                    "status": "completed",
-                }
-                continue
-            agents_map[name] = {
-                "name": name,
-                "source": meta.get("source", "api"),
-                **meta,
-            }
-            continue
-        if name in agents_map:
-            # Audit-log entry stands, but if agent_metadata has a real
-            # source (e.g. "api", "ui", "claude-code"), it wins over the
-            # audit-log's "audit" placeholder. This ensures a user-spawned
-            # agent stays visible in the Recent tab even when its status
-            # was never matched by the authoritative-status override path.
-            meta_source = meta.get("source")
-            if meta_source and meta_source != "audit":
-                agents_map[name] = {**agents_map[name], "source": meta_source}
-            continue
-        pid = meta.get("pid")
-        is_registered = meta.get("source") == "claude-code"
-        persisted_status = meta.get("status")
-        # If the completion endpoint explicitly stamped this row as completed,
-        # trust that over everything else.
-        if persisted_status == "completed":
-            agents_map[name] = {
-                "name": name,
-                "source": meta.get("source", "api"),
-                **meta,
-                "status": "completed",
-            }
-        # If the register endpoint explicitly stamped this row as running,
-        # trust that and show it in the UI immediately. This is the case
-        # for Claude Code subagents that register before they start work.
-        # Note: stale running agents from previous server sessions are cleaned
-        # up by _recover_stale_agents() at startup, so any agent that still
-        # has status="running" here was registered during this server session.
-        #
-        # Safety net for needle 240: a legacy record with no last_heartbeat_at
-        # (registered under older code, or an agent that never polled
-        # /heartbeat at all) would otherwise pass through forever. Age
-        # it out on spawned_at at the same 20 minute cutoff the else
-        # branch uses for is_stale below. The fast 10 minute sweep
-        # below still wins for any record that does have last_heartbeat_at,
-        # so nothing regresses on the good path.
-        elif persisted_status == "running":
-            # Fast PID-death reconcile (needle: demo staleness).
-            # If the record carries a pid and that pid is NOT alive, the
-            # process has exited. Flip to "completed" now rather than
-            # waiting the 900s heartbeat sweep. This removes the lag
-            # that made reaped builders keep showing as running in the
-            # Agents page for up to 15 minutes after they finished.
-            pid_for_check = meta.get("pid")
-            if pid_for_check and not _is_pid_alive(int(pid_for_check)):
-                now_iso = datetime.now(timezone.utc).isoformat()
-                meta["status"] = "completed"
-                meta["completed_at"] = now_iso
-                meta["completion_reason"] = (
-                    "PID exited (list endpoint reconciled on read)"
-                )
-                agent_metadata[name] = meta
-                persisted_pass_changed = True
-                agents_map[name] = {
-                    "name": name,
-                    "source": meta.get("source", "api"),
-                    **meta,
-                    "status": "completed",
-                }
-                continue
-            spawned_at_str = meta.get("spawned_at", "")
-            has_heartbeat = isinstance(meta.get("last_heartbeat_at"), str)
-            is_stale_no_heartbeat = False
-            if not has_heartbeat and spawned_at_str:
-                try:
-                    spawned_at = datetime.fromisoformat(
-                        spawned_at_str.replace("Z", "+00:00")
-                    )
-                    age_seconds = (
-                        datetime.now(timezone.utc) - spawned_at
-                    ).total_seconds()
-                    is_stale_no_heartbeat = age_seconds > 1200
-                except (ValueError, TypeError):
-                    pass
-            if is_stale_no_heartbeat:
-                now_iso = datetime.now(timezone.utc).isoformat()
-                meta["status"] = "terminated_stale"
-                meta["terminated_at"] = now_iso
-                meta["terminated_reason"] = (
-                    "Running with no heartbeat for over 20 minutes "
-                    "(legacy record, swept by list endpoint)"
-                )
-                agent_metadata[name] = meta
-                persisted_pass_changed = True
-                agents_map[name] = {
-                    "name": name,
-                    "source": meta.get("source", "api"),
-                    **meta,
-                    "status": "terminated_stale",
-                }
-            else:
-                agents_map[name] = {
-                    "name": name,
-                    "source": meta.get("source", "api"),
-                    **meta,
-                    "status": "running",
-                }
-        elif persisted_status == "abandoned":
-            agents_map[name] = {
-                "name": name,
-                "source": meta.get("source", "api"),
-                **meta,
-                "status": "abandoned",
-            }
-        elif persisted_status in (
-            "terminated_stale", "cancelled", "failed", "killed", "stopped",
-            # Demo-mode supervisor's terminal status. Without it here the
-            # branch below would mis-derive the row as "completed" or
-            # "running" and the smoke loop would never see a terminal.
-            "completed_timeout",
-        ):
-            # Preserve any terminal status the register/complete/cancel/sweep
-            # paths stamped on the record. Without this branch the else below
-            # would try to re-derive the status and could flip terminal states
-            # back to running or abandoned.
-            agents_map[name] = {
-                "name": name,
-                "source": meta.get("source", "api"),
-                **meta,
-                "status": persisted_status,
-            }
-        elif pid and _is_pid_alive(pid):
-            agents_map[name] = {
-                "name": name,
-                "source": "api",
-                **meta,
-                "status": "running",
-            }
-        else:
-            # Process is dead (or externally managed). Check transcript for completion.
-            transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
-            if transcript.exists() and transcript.stat().st_size > 0:
-                agents_map[name] = {
-                    "name": name,
-                    "source": meta.get("source", "api"),
-                    **meta,
-                    "status": "completed",
-                }
-            elif is_registered:
-                # Externally registered agent with no pid and no transcript.
-                # If it has been "running" for more than 20 minutes without
-                # any transcript activity, mark it as abandoned so the UI
-                # does not show forever-stuck ghost agents.
-                spawned_at_str = meta.get("spawned_at", "")
-                is_stale = False
-                if spawned_at_str:
-                    try:
-                        spawned_at = datetime.fromisoformat(spawned_at_str.replace("Z", "+00:00"))
-                        age_seconds = (datetime.now(timezone.utc) - spawned_at).total_seconds()
-                        is_stale = age_seconds > 1200  # 20 minutes
-                    except (ValueError, TypeError):
-                        pass
-                if is_stale:
-                    # Persist the abandoned status so we do not keep recomputing.
-                    meta["status"] = "abandoned"
-                    agent_metadata[name] = meta
-                    persisted_pass_changed = True
-                    agents_map[name] = {
-                        "name": name,
-                        "source": "claude-code",
-                        **meta,
-                        "status": "abandoned",
-                    }
-                else:
-                    agents_map[name] = {
-                        "name": name,
-                        "source": "claude-code",
-                        **meta,
-                        "status": "running",
-                    }
-
-    # 3. Daemon agents (highest priority, ground truth)
-    for agent in ps_result.get("agents", []):
-        agents_map[agent["name"]] = agent
-
-    # 4. Kernel fleet (Tier 1.1 wave A): ostk journal + socket connections.
-    # Sources: ~/.ostk/journal.jsonl (agent.spawned/completed/failed/killed)
-    #          <OSTK_DIR>/agents.jsonl (socket connection registry).
-    # Two merge rules:
-    #   a) kernel-only row → add to agents_map (peer-session / ostk-run agents)
-    #   b) row in both    → prefer kernel's status/heartbeat for non-terminal rows
-    try:
-        _kernel_rows = _read_kernel_fleet(
-            socket_agents_path=OSTK_DIR / "agents.jsonl"
-        )
-        for _krow in _kernel_rows:
-            _kname = _krow.get("name")
-            if not _kname or _kname in deleted_names:
-                continue
-            if _kname not in agents_map:
-                # Agent spawned via `ostk run` — myOS has no record of it.
-                agents_map[_kname] = _krow
-            else:
-                # Both sources know this agent: update status and heartbeat
-                # from kernel when myOS row is still non-terminal.
-                _existing = agents_map[_kname]
-                if _existing.get("status") not in _TERMINAL_STATUSES:
-                    _k_status = _krow.get("status")
-                    if _k_status in ("running", "completed", "failed", "killed"):
-                        agents_map[_kname] = {**_existing, "status": _k_status}
-                        _existing = agents_map[_kname]
-                # Keep the more-recent last_heartbeat_at
-                _k_hb = _krow.get("last_heartbeat_at") or ""
-                _e_hb = _existing.get("last_heartbeat_at") or ""
-                if _k_hb > _e_hb:
-                    agents_map[_kname]["last_heartbeat_at"] = _k_hb
-    except Exception:
-        logger.debug("kernel_fleet read failed", exc_info=True)
-
-    # Sweep: mark running agents with no recent heartbeat as terminated_stale.
-    # Done after merging the three sources so we catch every record that still
-    # says running, regardless of which source set that status. We persist once
-    # per request via _save_agent_state so 50 stale rows are cleaned in a single
-    # write, not 50 writes.
-    # Important: we ONLY sweep records that have a last_heartbeat_at
-    # field set. Legacy records registered before the heartbeat field
-    # existed fall back to the older abandoned-at-20-min logic above,
-    # so an agent that never calls /heartbeat does not get swept
-    # purely on spawned_at. Once an agent hits /register or
-    # /heartbeat under the new code, last_heartbeat_at is set and it
-    # becomes eligible for the fast 10-minute sweep.
-    sweep_changed = False
-    now_for_sweep = datetime.now(timezone.utc)
-    _sweep_i = 0
-    for name, agent in agents_map.items():
-        _sweep_i += 1
-        if _sweep_i % 10 == 0:
-            await asyncio.sleep(0)
-        if agent.get("status") != "running":
-            continue
-        last_heartbeat_raw = agent.get("last_heartbeat_at")
-        if not isinstance(last_heartbeat_raw, str):
-            continue
-        last_seen = _parse_iso(last_heartbeat_raw)
-        if last_seen is None:
-            continue
-        age_seconds = (now_for_sweep - last_seen).total_seconds()
-        # Two thresholds. Claude Code Agent-tool subagents
-        # (source="claude-code") get the shorter 8-minute window because
-        # they are short-lived one-shot spawns, and the register-agent.sh
-        # PreToolUse hook runs a detached heartbeat loop for 45 minutes
-        # that masks the normal sweep. Everything else
-        # (externally-registered agents running pytest, tsc, long shell
-        # work) keeps the 15-minute window. Demoted status also differs:
-        # claude-code subagents get "completed_timeout" (the common case
-        # is a clean exit without calling /complete), others stay
-        # "terminated_stale" (implies an unclean exit).
-        source = agent.get("source") or (agent_metadata.get(name) or {}).get("source")
-        is_cc_subagent = source == "claude-code"
-        threshold = (
-            STALE_CLAUDE_CODE_SUBAGENT_SECONDS
-            if is_cc_subagent
-            else STALE_AGENT_TIMEOUT_SECONDS
-        )
-        if age_seconds <= threshold:
-            continue
-        # Needle 300: proc is ground truth. If the subprocess is still
-        # running, the agent is working even if its HTTP channel has
-        # been quiet past the timeout. Only the death signal matters.
-        if _proc_handle_is_alive(name):
-            continue
-        # Transcript-growth heuristic: Claude Code Agent-tool subagents
-        # never see the mailbox instruction block and never heartbeat via
-        # HTTP. Their transcript file mtime is the only liveness signal.
-        if _transcript_recently_active(name, now_for_sweep):
-            continue
-        terminated_at = now_for_sweep.isoformat()
-        demoted_status = "completed_timeout" if is_cc_subagent else "terminated_stale"
-        reason = (
-            f"No heartbeat for {int(age_seconds)}s "
-            f"(limit {threshold}s)"
-        )
-        agent["status"] = demoted_status
-        agent["terminated_at"] = terminated_at
-        agent["terminated_reason"] = reason
-        if is_cc_subagent:
-            # Mirror the completed_at field so UI filters that hide
-            # completed rows pick this up alongside terminal rows.
-            agent["completed_at"] = terminated_at
-        # Persist to agent_metadata so the next request does not re-sweep.
-        meta = agent_metadata.get(name)
-        if meta is not None:
-            meta["status"] = demoted_status
-            meta["terminated_at"] = terminated_at
-            meta["terminated_reason"] = reason
-            if is_cc_subagent:
-                meta["completed_at"] = terminated_at
-            sweep_changed = True
-    # Single persistence point for everything mutated during the request:
-    # step 2b transitions (PID-death reconciles, legacy-stale-no-heartbeat,
-    # abandoned-on-age) AND the sweep above. One atomic disk write
-    # regardless of how many rows changed, so concurrent pollers do not
-    # serialize on disk I/O. Async version keeps the event loop free
-    # during fsync so TLS handshakes on concurrent requests are not dropped.
-    if sweep_changed or persisted_pass_changed:
-        await _save_agent_state_async()
-
-    # Auto-complete pass: flip source='claude-code' agents that exited
-    # cleanly (no heartbeat for >5 min, transcript idle for >2 min, no
-    # live PID) to status='completed'. Runs AFTER the terminated_stale
-    # sweep so the two passes see consistent state. If an agent was just
-    # swept to terminated_stale it won't be 'running' here and won't be
-    # auto-completed (correct: a stale timeout is not a clean exit).
-    # Persists once and updates agents_map so the response reflects the
-    # new status immediately.
-    ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
-    if ac_changed:
-        await _save_agent_state_async()
-        await _agent_events_bus.publish("sweep", {})
-        # Reflect the completed status into agents_map for this response.
-        for name, meta in agent_metadata.items():
-            if meta.get("status") == "completed" and name in agents_map:
-                if agents_map[name].get("status") == "running":
-                    agents_map[name]["status"] = "completed"
-                    agents_map[name]["completed_at"] = meta.get("completed_at", "")
-
-    # Recovery pass: flip bulk-cancelled agents that were still heartbeating
-    # after the cancel timestamp back to 'completed'. This repairs the
-    # regression where a sibling agent's test call to /cancel-all wiped
-    # actively-running workers. Runs once-per-list so already-recovered
-    # rows (status != 'cancelled') are skipped cheaply.
-    rc_changed = _recover_bulk_cancelled_agents()
-    if rc_changed:
-        await _save_agent_state_async()
-        for name, meta in agent_metadata.items():
-            if meta.get("status") == "completed" and name in agents_map:
-                if agents_map[name].get("status") == "cancelled":
-                    agents_map[name]["status"] = "completed"
-                    agents_map[name]["completed_at"] = meta.get("completed_at", "")
-                    agents_map[name].pop("terminated_at", None)
-                    agents_map[name].pop("terminated_reason", None)
-
-    # Workflow step-agent reconcile pass: auto-cancel running agents whose
-    # parent workflow has already finished. The direct cancel fires inside
-    # run_workflow() at completion, but this pass catches any that slipped
-    # through (e.g. agents that registered after the workflow closed, or
-    # agents orphaned by a server restart). Only fires after the grace
-    # window (_WORKFLOW_ORPHAN_GRACE_SECONDS) so the direct cancel path
-    # gets first crack. Never touches agents without workflow_run_id.
-    wf_changed = _reconcile_workflow_step_agents()
-    if wf_changed:
-        await _save_agent_state_async()
-        for name, meta in agent_metadata.items():
-            if meta.get("status") == "cancelled" and meta.get("terminated_reason") == "workflow ended":
-                if name in agents_map and agents_map[name].get("status") == "running":
-                    agents_map[name]["status"] = "cancelled"
-                    agents_map[name]["terminated_at"] = meta.get("terminated_at", "")
-                    agents_map[name]["terminated_reason"] = "workflow ended"
-
-    # Merge in live Claude Code sessions inferred from transcript
-    # file mtimes. This catches tabs that were open before the
-    # SessionStart hook was wired up (which only fires for NEW
-    # sessions) so Tori sees every Claude Code session she has
-    # running, not just the ones that registered via the hook.
-    try:
-        from pathlib import Path as _Path
-        from config import PROJECT_ROOT as _PROJECT_ROOT
-        projects_dir = _Path.home() / ".claude" / "projects" / str(_PROJECT_ROOT).replace("/", "-")
-        if projects_dir.is_dir():
-            cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
-            for jsonl in projects_dir.glob("*.jsonl"):
-                try:
-                    mtime = datetime.fromtimestamp(jsonl.stat().st_mtime, tz=timezone.utc)
-                except OSError:
-                    continue
-                if mtime < cutoff:
-                    continue
-                inferred_name = f"claude-code-{jsonl.stem[:10]}"
-                if inferred_name in agents_map:
-                    continue
-                agents_map[inferred_name] = {
-                    "name": inferred_name,
-                    "source": "claude-code",
-                    "status": "running",
-                    "spawned_at": mtime.isoformat(),
-                    "last_heartbeat_at": mtime.isoformat(),
-                    "model": "claude-code",
-                    "budget": "0",
-                    "description": "Claude Code session (inferred from transcript mtime)",
-                }
-    except Exception:
-        # Never let the transcript sweep fail the main agent list.
-        pass
-
-    all_agents = list(agents_map.values())
-
-    # Status flip + filter + enrich, all in one thread.
-    # _transcript_recently_active and _get_transcript_metrics both do
-    # synchronous filesystem I/O. Running them in the event loop with
-    # sleep(0) yields still blocks TLS handshakes between yields. Moving
-    # the whole pipeline into asyncio.to_thread keeps the loop free.
-    # _enrich_async_lock serializes concurrent pollers at coroutine level so
-    # waiting callers don't consume thread-pool slots (→1144).
+    agents = [a for a in all_agents if a.get("name") not in deleted_names]
     if user_spawned_only:
         from services.agent_filters import is_user_spawned_agent
-    else:
-        is_user_spawned_agent = None  # type: ignore[assignment]
-
-    async with _enrich_async_lock:
-        filtered_agents = await asyncio.to_thread(
-            _run_enrich_pipeline,
-            all_agents,
-            deleted_names,
-            now_for_sweep,
-            is_user_spawned_agent,
-            filter_status,
-            filter_source,
-            limit,
-        )
-
+        agents = [a for a in agents if is_user_spawned_agent(a)]
+    if filter_status:
+        agents = [a for a in agents if a.get("status") == filter_status]
+    if filter_source:
+        agents = [a for a in agents if a.get("source") == filter_source]
+    if limit is not None and limit >= 0:
+        agents = sorted(agents, key=lambda a: a.get("spawned_at") or "")[:limit]
     if summary:
-        # description + model are required by the frontend's
-        # isUserSpawnedAgent filter (app/src/lib/agentUtils.ts): description
-        # feeds isMainSession detection and model excludes subscription
-        # sessions. Without these the user's own claude-code-* main-session
-        # row slips through, producing a "1" Agents nav badge when Active
-        # Sessions correctly shows 0.
-        compact_keys = (
-            "name", "source", "status", "spawned_at",
-            "transcript_bytes", "last_heartbeat_at",
-            "description", "model",
-        )
-        compact_agents = [
-            {k: a.get(k) for k in compact_keys if a.get(k) is not None}
-            for a in filtered_agents
-        ]
-        return {"agents": compact_agents}
-
-    # The "active" list drives the Agents page Active Sessions tab. We
-    # deliberately drop synthetic main-session rows (the parent Claude Code
-    # tab inferred from jsonl mtime) so the user's own tab never shows up
-    # as a running agent she has to clean up. Those rows have no PID and
-    # cannot be flipped via /complete because they are synthesised on every
-    # list read from transcript mtime, so filter them at the source.
-    # Other user-spawned-filter exclusions (chat/audit/hook/subscription)
-    # are applied too for consistency with the Agents page count.
+        compact_keys = ("name", "source", "status", "spawned_at", "transcript_bytes", "last_heartbeat_at", "description", "model")
+        return {"agents": [{k: a.get(k) for k in compact_keys if a.get(k) is not None} for a in agents]}
     from services.agent_filters import is_user_spawned_agent as _is_user_spawned
-    # Overlay build_state ("running" | "queued") on each agent row so the
-    # Agents page can show queue position for comprehensive builds.
     try:
         from services.build_queue import all_build_states as _all_build_states
         _bstates = _all_build_states()
         if _bstates:
-            for _agent_row in filtered_agents:
+            for _agent_row in agents:
                 _bs = _bstates.get(_agent_row.get("name", ""))
                 if _bs:
                     _agent_row["build_state"] = _bs
@@ -3802,16 +3654,10 @@ async def list_agents(
         pass
     return {
         "daemon_running": daemon_running,
-        # sanitize_for_json: raw ps output can contain control chars (e.g. tabs
-        # from column-aligned output). json.dumps normally escapes these but the
-        # sanitization makes the contract explicit at the serialization boundary.
-        "status": sanitize_for_json(ps_result.get("raw", "unknown")),
-        "active": [
-            a["name"] for a in filtered_agents
-            if a.get("status") == "running" and _is_user_spawned(a)
-        ],
-        "agents": filtered_agents,
-        "avg_min_per_dollar": _avg_minutes_per_dollar(),
+        "status": snapshot.get("status", "unknown"),
+        "active": [a["name"] for a in agents if a.get("status") == "running" and _is_user_spawned(a)],
+        "agents": agents,
+        "avg_min_per_dollar": snapshot.get("avg_min_per_dollar", 0.0),
     }
 
 
@@ -4844,9 +4690,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                 if rc not in (None, 0):
                     _fail_meta = agent_metadata.get(name)
                     if _fail_meta and _fail_meta.get("status") == "running":
-                        _fail_meta["status"] = "failed"
-                        _fail_meta["completed_at"] = datetime.now(timezone.utc).isoformat()
-                        _fail_meta["error"] = f"subprocess exited {rc}"
+                        _set_agent_status(name, "failed", completed_at=datetime.now(timezone.utc).isoformat(), error=f"subprocess exited {rc}")
                         await _save_agent_state_async()
                         logger.info("spawn.marked_failed name=%s rc=%s", name, rc)
                 # Quick-mode roadmap agents write JSON to stdout (transcript)
@@ -5301,7 +5145,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         )
         agent_metadata[body.name] = spawn_meta
         await _save_agent_state_async()
-        _fire_delta(body.name, "running")
+        _set_agent_status(body.name, "running")
 
         # Log to audit
         try:
@@ -6006,7 +5850,7 @@ async def register_agent(body: AgentSpawn, request: Request = None):
         record["chat_mode"] = existing["chat_mode"]
     agent_metadata[body.name] = record
     await _save_agent_state_async()
-    _fire_delta(body.name, status)
+    _set_agent_status(body.name, status)
 
     # Start the ack bot on first registration so Tori's inline chat
     # gets a warm acknowledgment within two seconds even when the
@@ -6654,14 +6498,13 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     # This closes the race window where two simultaneous /complete calls
     # both passed the guard while the first was still awaiting the AC gate.
     now_iso = datetime.now(timezone.utc).isoformat()
-    if name in agent_metadata:
-        agent_metadata[name]["status"] = "completing"
-    else:
+    if name not in agent_metadata:
         agent_metadata[name] = {
             "spawned_at": now_iso,
             "status": "completing",
             "source": "claude-code",
         }
+    _set_agent_status(name, "completing")
     # Persist the sentinel so even a server restart within the AC window
     # does not create a second completion event.
     await _save_agent_state_async()
@@ -6798,7 +6641,6 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     # before the AC gate; now stamp the real terminal status and timestamp.
     completed_at = datetime.now(timezone.utc).isoformat()
     if name in agent_metadata:
-        agent_metadata[name]["status"] = "completed"
         agent_metadata[name]["completed_at"] = completed_at
     else:
         # Agent was deleted from metadata before /complete arrived (deleted
@@ -6855,7 +6697,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
                 name, _am_branch,
             )
 
-    _fire_delta(name, "completed")
+    _set_agent_status(name, "completed")
 
     # Auto-close the spec builder task if this agent was spawned from a
     # Build it click. The spec_build prompt tells the agent to edit
@@ -7152,9 +6994,7 @@ async def recover_agent(name: str):
         full_prompt = f"{recovery_context}\n\nOriginal task:\n{original_prompt}"
 
     # Update recovery metadata
-    meta["recovery_count"] = recovery_count + 1
-    meta["last_recovery_at"] = _now_iso()
-    meta["status"] = "recovering"
+    _set_agent_status(name, "recovering", recovery_count=recovery_count + 1, last_recovery_at=_now_iso())
     await _save_agent_state_async()
 
     # Spawn the recovered agent
@@ -7175,9 +7015,7 @@ async def recover_agent(name: str):
         }
     except Exception as e:
         # Roll back to the terminal state if spawn fails
-        meta["status"] = "failed"
-        meta["terminated_at"] = _now_iso()
-        meta["terminated_reason"] = f"Recovery spawn failed: {e}"
+        _set_agent_status(name, "failed", terminated_at=_now_iso(), terminated_reason=f"Recovery spawn failed: {e}")
         await _save_agent_state_async()
         raise HTTPException(status_code=500, detail=f"Recovery spawn failed: {e}")
 
@@ -7229,11 +7067,8 @@ async def cancel_agent(
     reason = body.reason if body and body.reason else "user cancelled"
     now_iso = _now_iso()
     meta = agent_metadata[name]
-    meta["status"] = "cancelled"
-    meta["terminated_at"] = now_iso
-    meta["terminated_reason"] = reason
+    _set_agent_status(name, "cancelled", terminated_at=now_iso, terminated_reason=reason)
     await _save_agent_state_async()
-    _fire_delta(name, "cancelled")
 
     # Terminate the subprocess if we hold one.
     proc = active_agents.pop(name, None)
@@ -7340,9 +7175,7 @@ async def cancel_all_agents():
                 if age_seconds < CANCEL_ALL_GRACE_SECONDS:
                     continue
 
-        meta["status"] = "cancelled"
-        meta["terminated_at"] = now_iso
-        meta["terminated_reason"] = "bulk cancel"
+        _set_agent_status(name, "cancelled", terminated_at=now_iso, terminated_reason="bulk cancel")
         cancelled_names.append(name)
 
     if cancelled_names:
@@ -7448,9 +7281,7 @@ async def reconcile_agents():
 
         # No live process, no recent heartbeat, no transcript activity.
         # Mark as stopped.
-        meta["status"] = "stopped"
-        meta["terminated_at"] = now_iso
-        meta["terminated_reason"] = "reconcile: no live process or recent heartbeat"
+        _set_agent_status(name, "stopped", terminated_at=now_iso, terminated_reason="reconcile: no live process or recent heartbeat")
         reconciled_names.append(name)
 
         # Clean up the active_agents dict entry if lingering.
@@ -7929,8 +7760,7 @@ async def post_agent_reply(name: str, body: AgentNudgeReply):
         now_iso = _now_iso()
         meta["last_heartbeat_at"] = now_iso
         if meta.get("status") == "terminated_stale":
-            meta["status"] = "completed"
-            meta["completed_at"] = now_iso
+            _set_agent_status(name, "completed", completed_at=now_iso)
             meta["revival_reason"] = (
                 "Reply arrived after the record was marked terminated_stale. "
                 "The agent was still working. Record restored to completed."
@@ -9389,9 +9219,8 @@ async def complete_chat_session(
     # Idempotency: already in a terminal completion state, skip re-emit.
     if meta.get("status") in ("completed", "failed"):
         return
-    meta["status"] = status
-    meta["completed_at"] = datetime.now(timezone.utc).isoformat()
-    meta["last_heartbeat_at"] = meta["completed_at"]
+    _completed_at = datetime.now(timezone.utc).isoformat()
+    _set_agent_status(name, status, completed_at=_completed_at, last_heartbeat_at=_completed_at)
     total_tokens = int(tokens_in or 0) + int(tokens_out or 0)
     if total_tokens:
         meta["tokens_used"] = int(meta.get("tokens_used", 0) or 0) + total_tokens
