@@ -9,6 +9,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
 from routers.drive import _prewarm_all_google_caches
+from services.google_auth import build_redirect_uri as _google_redirect_uri
 from services.google_auth import exchange_code as _drive_exchange_code
 from services.oauth_state import (
     drive_oauth_states as _drive_oauth_states,
@@ -51,9 +52,7 @@ async def google_auth(request: Request):
     state = secrets.token_urlsafe(32)
     _oauth_states[state] = True
 
-    # Build the redirect URI from the current request
-    base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}/api/auth/google/callback"
+    redirect_uri = _google_redirect_uri(request)
 
     auth_url = (
         "https://accounts.google.com/o/oauth2/v2/auth"
@@ -91,7 +90,7 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
             return RedirectResponse(f"{frontend_url}/?auth_error=no_code", status_code=302)
         return_to = state_data.get("return_to", f"{frontend_url}/drive")
         try:
-            redirect_uri = str(request.base_url).rstrip("/") + "/api/auth/google/callback"
+            redirect_uri = _google_redirect_uri(request)
             _drive_exchange_code(code, redirect_uri)
         except Exception:
             sep = "&" if "?" in return_to else "?"
@@ -113,8 +112,7 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
 
     client_id = _google_client_id()
     client_secret = _google_client_secret()
-    base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}/api/auth/google/callback"
+    redirect_uri = _google_redirect_uri(request)
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
