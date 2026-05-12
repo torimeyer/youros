@@ -40,6 +40,8 @@ def _to_gem(t: dict) -> dict:
         "name": t.get("name", ""),
         "system_prompt": t.get("prompt_template", ""),
         "knowledge_files": meta.get("knowledge_file_ids", []),
+        "created_at": t.get("created_at"),
+        "updated_at": t.get("updated_at"),
         "gem_metadata": t.get("gem_metadata"),
         "provider": t.get("provider"),
     }

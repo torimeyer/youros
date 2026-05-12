@@ -65,6 +65,29 @@ async def test_create_gem_returns_201(client):
     assert data["system_prompt"] == "Act as a helpful assistant."
     assert data["provider"] == "gemini"
     assert data["id"].startswith("custom-")
+    assert data["created_at"] is not None
+    assert data["updated_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_list_gems_includes_timestamps(client):
+    await client.post("/api/gems", json={"name": "TS Gem", "system_prompt": "Be precise."})
+    resp = await client.get("/api/gems")
+    assert resp.status_code == 200
+    gems = resp.json()
+    assert len(gems) == 1
+    assert gems[0]["created_at"] is not None
+    assert gems[0]["updated_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_update_gem_bumps_updated_at(client, gem):
+    original_updated = gem["updated_at"]
+    import asyncio
+    await asyncio.sleep(0.01)
+    resp = await client.patch(f"/api/gems/{gem['id']}", json={"name": "Renamed"})
+    assert resp.status_code == 200
+    assert resp.json()["updated_at"] != original_updated
 
 
 @pytest.mark.asyncio

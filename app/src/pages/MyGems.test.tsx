@@ -203,6 +203,23 @@ describe('MyGems page', () => {
     expect(screen.getByTestId('gem-card-gem-1')).toBeInTheDocument();
   });
 
+  it('shows retry button on error and retries fetch when clicked', async () => {
+    mockedGet.mockRejectedValue(new Error('Network error'));
+    renderMyGems();
+    await waitFor(() => {
+      expect(screen.getByTestId('gems-error')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('gems-retry')).toBeInTheDocument();
+
+    mockedGet.mockResolvedValue(mockGems);
+    fireEvent.click(screen.getByTestId('gems-retry'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('gems-list')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('gems-error')).not.toBeInTheDocument();
+  });
+
   it('shows a toast when Chat is clicked (stub)', async () => {
     mockedGet.mockResolvedValue(mockGems);
     renderMyGems();

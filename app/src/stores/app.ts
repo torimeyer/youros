@@ -421,6 +421,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     { label: 'Specs', enabled: true },
     { label: 'Automations', enabled: true },
     { label: 'Cost Tracking', enabled: true },
+    { label: 'Gems', enabled: true },
   ]),
   setFeatures: (features) => {
     lsSet(LS_KEYS.featureOrder, JSON.stringify(features.map((f) => f.label)))
