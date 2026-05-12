@@ -109,6 +109,66 @@ pub fn count_open_needles(path: &Path) -> usize {
     count_active_needles(path)
 }
 
+/// Count open P0 needles in issues.jsonl.
+///
+/// Used by `generate_loadavg_line` to populate the `(N P0)` indicator.
+pub fn count_p0_needles(path: &Path) -> usize {
+    let content = fs::read_to_string(path).unwrap_or_default();
+    let mut count = 0usize;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() { continue; }
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+            let status = val.get("status").and_then(|s| s.as_str()).unwrap_or("");
+            let priority = val.get("priority").and_then(|s| s.as_str()).unwrap_or("");
+            if (status == "open" || status == "in_progress") && priority == "P0" {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+/// Count pending nudges across all agent mailboxes.
+///
+/// Reads the nudges/ directory under ostk_dir. Returns 0 if the directory does not
+/// exist (e.g. worktree sessions that share only a subset of the ostk state).
+pub fn count_pending_nudges(ostk_dir: &Path) -> usize {
+    let nudge_dir = ostk_dir.join("nudges");
+    if !nudge_dir.is_dir() {
+        return 0;
+    }
+    let Ok(entries) = fs::read_dir(&nudge_dir) else { return 0; };
+    entries
+        .flatten()
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            name.ends_with(".json") || name.ends_with(".jsonl")
+        })
+        .count()
+}
+
+/// Generate the `[loadavg]` MCP footer line by reading live from disk.
+///
+/// Root cause of →1199: the v6.0.0 binary reads these counts from a
+/// per-session cache initialised to 0 at boot, so `[loadavg]` always shows
+/// zeros even when needles/fleet/nudges are non-zero. `[ctx]` is correct
+/// because it calls `build_heartbeat` which reads from disk on every invocation.
+///
+/// Fix: read the same files `[ctx]` uses — needles/issues.jsonl, agents.jsonl,
+/// nudges/ — directly, with no intermediate cache.
+pub fn generate_loadavg_line(ostk_dir: &Path) -> String {
+    let issues_path = ostk_dir.join("needles").join("issues.jsonl");
+    let agents_path = ostk_dir.join("agents.jsonl");
+    let open   = count_open_needles(&issues_path);
+    let p0     = count_p0_needles(&issues_path);
+    let (alive, total) = count_fleet(&agents_path);
+    let nudges = count_pending_nudges(ostk_dir);
+    format!(
+        "[loadavg] needles: {open} open ({p0} P0) | fleet: {alive}/{total} alive | nudges: {nudges}"
+    )
+}
+
 /// Returns true if `cmd` is a git operation that mutates working-tree state.
 ///
 /// →1153: Used by the fleet-active gate in serve/dispatch.rs to decide
@@ -381,5 +441,97 @@ mod tests {
         assert!(!is_git_state_mutation("cargo test"));
         assert!(!is_git_state_mutation("echo hello"));
         assert!(!is_git_state_mutation(""));
+    }
+
+    // ── generate_loadavg_line (→1199) ───────────────────────────────────────
+
+    #[test]
+    fn test_generate_loadavg_line_reads_live_from_disk() {
+        // Regression test for →1199: [loadavg] must read live from disk, not a
+        // cached register. The v6.0.0 binary init'd the cache to 0 and never
+        // refreshed it, so all three counters always showed zero.
+        let dir = tempfile::tempdir().unwrap();
+        let ostk_dir = dir.path();
+        let needles_dir = ostk_dir.join("needles");
+        fs::create_dir_all(&needles_dir).unwrap();
+
+        // 3 open (1 P0), 1 in_progress (P2), 2 closed (one was P0)
+        let issues = concat!(
+            "{\"id\":\"001\",\"status\":\"open\",\"priority\":\"P0\",\"title\":\"critical\"}\n",
+            "{\"id\":\"002\",\"status\":\"open\",\"priority\":\"P1\",\"title\":\"normal-a\"}\n",
+            "{\"id\":\"003\",\"status\":\"open\",\"priority\":\"P1\",\"title\":\"normal-b\"}\n",
+            "{\"id\":\"004\",\"status\":\"in_progress\",\"priority\":\"P2\",\"title\":\"doing\"}\n",
+            "{\"id\":\"005\",\"status\":\"closed\",\"priority\":\"P1\",\"title\":\"done-a\"}\n",
+            "{\"id\":\"006\",\"status\":\"closed\",\"priority\":\"P0\",\"title\":\"done-b\"}\n",
+        );
+        fs::write(needles_dir.join("issues.jsonl"), issues).unwrap();
+
+        // 1 fresh active, 1 stale active (excluded by 90s window), 1 non-active
+        let fresh = now_utc_iso();
+        let stale = "2026-01-01T00:00:00Z";
+        let agents = format!(
+            "{}\n{}\n{}\n",
+            agent_row("live-1",    1, "active", &fresh),
+            agent_row("stale-1",   2, "active", stale),
+            agent_row("observer",  3, "idle",   &fresh),
+        );
+        fs::write(ostk_dir.join("agents.jsonl"), &agents).unwrap();
+
+        let line = generate_loadavg_line(ostk_dir);
+
+        // 4 active needles (3 open + 1 in_progress)
+        assert!(line.starts_with("[loadavg]"), "must start with [loadavg]: {line}");
+        assert!(line.contains("needles: 4 open"), "open needle count wrong: {line}");
+        // 1 open P0 (the closed P0 must not count)
+        assert!(line.contains("(1 P0)"), "P0 count wrong: {line}");
+        // 1 alive (stale excluded), 3 total
+        assert!(line.contains("fleet: 1/3 alive"), "fleet count wrong: {line}");
+        // No nudges/ dir → 0
+        assert!(line.contains("nudges: 0"), "nudge count wrong: {line}");
+    }
+
+    #[test]
+    fn test_generate_loadavg_line_no_needles_file() {
+        // When issues.jsonl is missing, counts default to 0 — no panic.
+        let dir = tempfile::tempdir().unwrap();
+        let ostk_dir = dir.path();
+        fs::create_dir_all(ostk_dir.join("needles")).unwrap();
+        // No issues.jsonl, no agents.jsonl
+        let line = generate_loadavg_line(ostk_dir);
+        assert_eq!(
+            line,
+            "[loadavg] needles: 0 open (0 P0) | fleet: 0/0 alive | nudges: 0"
+        );
+    }
+
+    #[test]
+    fn test_count_p0_needles_only_open() {
+        let f = write_tmp_file(concat!(
+            "{\"id\":\"1\",\"status\":\"open\",\"priority\":\"P0\",\"title\":\"a\"}\n",
+            "{\"id\":\"2\",\"status\":\"open\",\"priority\":\"P1\",\"title\":\"b\"}\n",
+            "{\"id\":\"3\",\"status\":\"closed\",\"priority\":\"P0\",\"title\":\"c\"}\n",
+            "{\"id\":\"4\",\"status\":\"in_progress\",\"priority\":\"P0\",\"title\":\"d\"}\n",
+        ));
+        // closed P0 must not count; open+in_progress P0 should
+        assert_eq!(count_p0_needles(f.path()), 2);
+    }
+
+    #[test]
+    fn test_count_pending_nudges_counts_json_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let nudge_dir = dir.path().join("nudges");
+        fs::create_dir_all(&nudge_dir).unwrap();
+        fs::write(nudge_dir.join("agent-a.json"), "{}").unwrap();
+        fs::write(nudge_dir.join("agent-b.jsonl"), "{}").unwrap();
+        fs::write(nudge_dir.join("README.md"), "notes").unwrap();
+        // Only .json and .jsonl files count
+        assert_eq!(count_pending_nudges(dir.path()), 2);
+    }
+
+    #[test]
+    fn test_count_pending_nudges_missing_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        // nudges/ does not exist — should return 0, not panic
+        assert_eq!(count_pending_nudges(dir.path()), 0);
     }
 }
