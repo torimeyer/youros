@@ -4469,8 +4469,19 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         _worktree_path: Optional[str] = None
         _worktree_branch: Optional[str] = None
         if body.isolation == "worktree":
-            _wt_branch = f"worktree-agent-{body.name}"
-            _wt_path = PROJECT_ROOT / ".claude" / "worktrees" / f"agent-{body.name}"
+            # Cap the worktree id so the resulting
+            #   <project_root>/.claude/worktrees/agent-<id>/.ostk/ostk.sock
+            # path stays under macOS sun_path (104).  Long agent names
+            # (Claude Code derives names from the spawn description, so a
+            # verbose description can produce 40+ char names) otherwise
+            # overflow, the ostk MCP server's bind() fails, and the
+            # subagent silently registers only the static tool surface
+            # (no bash/read/fs_ops).  See feedback memory entry
+            # subagent_mcp_must_have_realtime_backup for full context.
+            from services.spawn_isolation import short_worktree_id as _short_wt_id
+            _wt_id = _short_wt_id(body.name)
+            _wt_branch = f"worktree-agent-{_wt_id}"
+            _wt_path = PROJECT_ROOT / ".claude" / "worktrees" / f"agent-{_wt_id}"
             try:
                 from services.spawn_isolation import (
                     create_worktree as _create_worktree,

@@ -271,7 +271,15 @@ async def test_ostk_project_root_short_for_long_agent_name(tmp_path, monkeypatch
     agent_metadata.pop(long_agent_name, None)
     active_agents.pop(long_agent_name, None)
 
-    wt_path = fixed_root / ".claude" / "worktrees" / f"agent-{long_agent_name}"
+    # Spawn now caps the worktree id via short_worktree_id() before building
+    # the path, so the actual on-disk dir uses a shortened identifier rather
+    # than the raw (long) agent name.  We compute the expected capped path
+    # here so the assertions can verify both the cap and the legacy
+    # short-cwd guarantees.
+    from services.spawn_isolation import short_worktree_id as _short_wt_id
+    capped_id = _short_wt_id(long_agent_name)
+    capped_wt = fixed_root / ".claude" / "worktrees" / f"agent-{capped_id}"
+    uncapped_wt = fixed_root / ".claude" / "worktrees" / f"agent-{long_agent_name}"
 
     calls = _install_spawn_doubles_env(monkeypatch)
 
@@ -296,25 +304,26 @@ async def test_ostk_project_root_short_for_long_agent_name(tmp_path, monkeypatch
         spawn_env = calls["spawn_env"]
         assert spawn_env is not None, "subprocess env was not captured"
 
-        # The worktree path (full) would produce a sock path >= sun_path.
-        full_wt = str(wt_path)
-        assert len(full_wt) + SOCK_SUFFIX_LEN >= SUN_PATH_MAX, (
-            f"test setup: worktree path {len(full_wt)} chars should trigger "
-            f"the short-cwd rewrite (need sock path >= {SUN_PATH_MAX})"
+        # The uncapped path would push the sock path over sun_path; the cap
+        # is what brings it back under the limit.
+        full_uncapped = str(uncapped_wt)
+        assert len(full_uncapped) + SOCK_SUFFIX_LEN >= SUN_PATH_MAX, (
+            f"test setup: uncapped path {len(full_uncapped)} chars should "
+            f"trigger the cap (need sock path >= {SUN_PATH_MAX})"
         )
 
-        # OSTK_PROJECT_ROOT must be the short cwd, NOT the full worktree path.
+        # OSTK_PROJECT_ROOT must keep the worktree's sock path under sun_path.
+        # Two valid outcomes after the cap: either the capped real path
+        # already fits and is used directly, or it still overflows on the
+        # current PROJECT_ROOT and the /tmp short-cwd fallback kicks in.
         pr = spawn_env.get("OSTK_PROJECT_ROOT", "")
-        assert pr != full_wt, (
-            "OSTK_PROJECT_ROOT must not be the full worktree path for long agent names; "
+        assert pr != full_uncapped, (
+            "OSTK_PROJECT_ROOT must never be the uncapped path; "
             "the daemon would compute a socket path that exceeds macOS SUN_LEN (104)"
         )
         assert len(pr) + SOCK_SUFFIX_LEN < SUN_PATH_MAX, (
             f"OSTK_PROJECT_ROOT sock path {len(pr) + SOCK_SUFFIX_LEN} chars must "
             f"fit under sun_path {SUN_PATH_MAX}. Got OSTK_PROJECT_ROOT={pr!r}"
-        )
-        assert pr.startswith(SHORT_CWD_DIR + "/myos-wt-"), (
-            f"OSTK_PROJECT_ROOT must be the short /tmp symlink; got {pr!r}"
         )
 
         # OSTK_ROOT must match OSTK_PROJECT_ROOT.
@@ -323,10 +332,12 @@ async def test_ostk_project_root_short_for_long_agent_name(tmp_path, monkeypatch
             f"OSTK_ROOT must equal OSTK_PROJECT_ROOT; got {oroot!r} != {pr!r}"
         )
 
-        # CLAUDE_PROJECT_DIR must remain the real worktree path for Claude Code.
+        # CLAUDE_PROJECT_DIR points at the (capped) real worktree path for
+        # Claude Code hooks.  Hooks resolve from this; capping the dir is
+        # safe because hooks treat it as opaque.
         cpd = spawn_env.get("CLAUDE_PROJECT_DIR", "")
-        assert cpd == full_wt, (
-            f"CLAUDE_PROJECT_DIR must be the real worktree path; got {cpd!r}"
+        assert cpd == str(capped_wt), (
+            f"CLAUDE_PROJECT_DIR must be the capped worktree path; got {cpd!r}"
         )
     finally:
         agent_metadata.pop(long_agent_name, None)

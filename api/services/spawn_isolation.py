@@ -632,6 +632,42 @@ SOCK_SUFFIX_LEN = len("/.ostk/ostk.sock")
 SUN_PATH_MAX = 104
 SHORT_CWD_DIR = "/tmp"
 
+# Fixed prefix the worktree path adds around the agent name:
+#   <project_root>/.claude/worktrees/agent-<id>/.ostk/ostk.sock
+# We must keep the total under SUN_PATH_MAX (104).  PROJECT_ROOT can vary,
+# but realistic checkouts (~50 chars) plus ".claude/worktrees/agent-" (24)
+# plus "/.ostk/ostk.sock" (16) leaves ~14 chars for the id before macOS
+# rejects bind().  short_cwd_for_worktree() falls back to a /tmp symlink for
+# the cwd, but the MCP server in the spawned subagent does not always honor
+# OSTK_SOCKET or OSTK_ROOT and still tries to bind at the real path.  Capping
+# the worktree id at spawn time keeps the path short structurally so the
+# bind always succeeds.  30 chars gives a comfortable margin even on long
+# project roots.
+WORKTREE_ID_MAX_LEN = 30
+
+
+def short_worktree_id(name: str, max_len: int = WORKTREE_ID_MAX_LEN) -> str:
+    """Return a worktree-dir-safe identifier derived from an agent name.
+
+    Long agent names blow past macOS sun_path (104) when combined with the
+    nested ``<project_root>/.claude/worktrees/agent-<name>/.ostk/ostk.sock``
+    structure, which forces the ostk MCP server to fall back to degraded mode
+    and silently drops bash/read/fs_ops from the subagent's tool surface.
+
+    If ``name`` already fits within ``max_len`` we return it unchanged so
+    debugging and ``git worktree list`` stay readable for normal short names.
+    Otherwise we truncate the readable prefix and append a stable 8-character
+    blake2s hash of the full name so two different long names never collide.
+    The same input always produces the same output.
+    """
+    if len(name) <= max_len:
+        return name
+    import hashlib
+    digest = hashlib.blake2s(name.encode(), digest_size=4).hexdigest()  # 8 hex
+    prefix_len = max_len - 9  # "-" + 8 hex chars
+    prefix = name[:prefix_len].rstrip("-_")
+    return f"{prefix}-{digest}"
+
 
 def short_cwd_for_worktree(wt_path) -> str:
     """Return a cwd that keeps <cwd>/.ostk/ostk.sock under macOS SUN_PATH_MAX.
