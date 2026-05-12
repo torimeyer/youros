@@ -37,9 +37,9 @@ const mockedApiGet = vi.mocked(api.get)
 const mockedApiPost = vi.mocked(api.post)
 
 const mockTasks = [
-  { id: '1', title: 'Fix login bug', priority: 'P0', status: 'open', created_at: new Date().toISOString(), goal: 'Auth', label_ids: ['l1'] },
-  { id: '2', title: 'Add dark mode', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: 'UI', label_ids: [] },
-  { id: '3', title: 'Write docs', priority: 'P2', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: ['l1', 'l2'] },
+  { id: '1', title: 'Fix login bug', priority: 'P0', status: 'open', created_at: '2026-05-11T12:00:03.000Z', goal: 'Auth', label_ids: ['l1'] },
+  { id: '2', title: 'Add dark mode', priority: 'P1', status: 'open', created_at: '2026-05-11T12:00:02.000Z', goal: 'UI', label_ids: [] },
+  { id: '3', title: 'Write docs', priority: 'P2', status: 'open', created_at: '2026-05-11T12:00:01.000Z', goal: null, label_ids: ['l1', 'l2'] },
   { id: '4', title: 'Old completed task', priority: 'P1', status: 'closed', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [] },
 ]
 
