@@ -24,6 +24,7 @@ from services.google_auth import (
     CREDENTIALS_PATH,
     DRIVE_CACHE_DIR,
     TOKEN_PATH,
+    build_redirect_uri,
     can_start_oauth,
     credentials_file_exists,
     exchange_code,
@@ -173,7 +174,7 @@ async def drive_auth_url(request: Request, return_to: str = ""):
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
-    redirect_uri = str(request.base_url).rstrip("/") + "/api/auth/google/callback"
+    redirect_uri = build_redirect_uri(request)
     url = get_auth_url(state, redirect_uri)
     return {"url": url}
 
@@ -197,7 +198,7 @@ async def drive_auth_url_for_calendar(request: Request, return_to: str = ""):
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
-    redirect_uri = str(request.base_url).rstrip("/") + "/api/auth/google/callback"
+    redirect_uri = build_redirect_uri(request)
     url = get_auth_url(state, redirect_uri)
     return {"url": url}
 
@@ -221,7 +222,7 @@ async def drive_auth_url_for_gmail(request: Request, return_to: str = ""):
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
-    redirect_uri = str(request.base_url).rstrip("/") + "/api/auth/google/callback"
+    redirect_uri = build_redirect_uri(request)
     url = get_auth_url(state, redirect_uri)
     return {"url": url}
 

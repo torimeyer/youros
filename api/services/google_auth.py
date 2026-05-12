@@ -83,6 +83,19 @@ def _load_client_config() -> dict:
     return {"client_id": client_id, "client_secret": client_secret}
 
 
+def build_redirect_uri(request) -> str:
+    """Return the Google OAuth redirect URI.
+
+    Checks GOOGLE_REDIRECT_URI env var first so work setups with a reverse
+    proxy or HTTPS terminator can pin a stable value that matches what is
+    registered in Google Cloud Console. Falls back to request.base_url.
+    """
+    override = os.environ.get("GOOGLE_REDIRECT_URI", "")
+    if override:
+        return override
+    return str(request.base_url).rstrip("/") + "/api/auth/google/callback"
+
+
 def get_auth_url(state: str, redirect_uri: str) -> str:
     """Build the Google OAuth consent-screen URL."""
     cfg = _load_client_config()

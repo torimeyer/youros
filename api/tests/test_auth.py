@@ -757,6 +757,88 @@ async def test_drive_auth_url_return_to_uses_frontend_url(client):
     )
 
 
+# --- GOOGLE_REDIRECT_URI env var override (→1186) ---
+
+
+@pytest.mark.asyncio
+async def test_google_auth_uses_google_redirect_uri_env(client):
+    """When GOOGLE_REDIRECT_URI is set, it must be used verbatim as the redirect_uri.
+
+    This allows work setups with HTTPS termination or reverse proxies to pin a
+    stable URL that matches what is registered in Google Cloud Console (→1186).
+    """
+    with (
+        patch("routers.auth._google_client_id", return_value="test-client-id"),
+        patch.dict("os.environ", {"GOOGLE_REDIRECT_URI": "https://work.myos.example.com/api/auth/google/callback"}),
+    ):
+        resp = await client.get("/api/auth/google", follow_redirects=False)
+
+    assert resp.status_code == 307
+    location = resp.headers["location"]
+    assert "work.myos.example.com" in location, (
+        f"redirect_uri must use GOOGLE_REDIRECT_URI when set, got: {location}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_drive_auth_url_uses_google_redirect_uri_env(client, tmp_path):
+    """GOOGLE_REDIRECT_URI must be used in the drive auth URL too (→1186)."""
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text('{"web": {"client_id": "test-id", "client_secret": "test-secret"}}')
+
+    with (
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+        patch.dict("os.environ", {"GOOGLE_REDIRECT_URI": "https://work.myos.example.com/api/auth/google/callback"}),
+    ):
+        resp = await client.get("/api/drive/auth/url")
+
+    assert resp.status_code == 200
+    url = resp.json()["url"]
+    assert "work.myos.example.com" in url, (
+        f"GOOGLE_REDIRECT_URI must be reflected in drive auth URL, got: {url}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_google_callback_uses_google_redirect_uri_env(client):
+    """Token exchange in the callback must use GOOGLE_REDIRECT_URI when set (→1186).
+
+    Google's token endpoint rejects the code if redirect_uri doesn't match what
+    was used to start the flow. When GOOGLE_REDIRECT_URI is pinned, both the
+    authorize and token-exchange calls must use the same value.
+    """
+    from routers.auth import _oauth_states
+
+    _oauth_states["redirect-env-state"] = True
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"access_token": "ya29.test", "refresh_token": "1//test"}
+
+    with (
+        patch("routers.auth._google_client_id", return_value="test-client-id"),
+        patch("routers.auth._google_client_secret", return_value="test-secret"),
+        patch("routers.auth.httpx.AsyncClient") as MockHttpxClient,
+        patch("services.settings_store.settings_store") as mock_store,
+        patch.dict("os.environ", {"GOOGLE_REDIRECT_URI": "https://work.myos.example.com/api/auth/google/callback"}),
+    ):
+        mock_client_instance = AsyncMock()
+        mock_client_instance.post = AsyncMock(return_value=mock_response)
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        MockHttpxClient.return_value = mock_client_instance
+
+        await client.get(
+            "/api/auth/google/callback?code=test-code&state=redirect-env-state",
+            follow_redirects=False,
+        )
+
+    payload = mock_client_instance.post.call_args.kwargs["data"]
+    assert payload["redirect_uri"] == "https://work.myos.example.com/api/auth/google/callback", (
+        f"Token exchange must use GOOGLE_REDIRECT_URI, got: {payload['redirect_uri']}"
+    )
+
+
 def test_google_connected_reads_token_file(tmp_path):
     """GET /secrets/key-status returns google_connected=true when google_token.json exists."""
     import json
