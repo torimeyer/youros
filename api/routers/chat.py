@@ -1051,12 +1051,20 @@ async def _handle_slash_command(text: str, websocket: WebSocket) -> bool:
 
 async def _fetch_agents_list() -> str:
     """Fetch and format the agents list for the /agents slash command."""
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get("http://127.0.0.1:8000/api/agents", timeout=5)
-            data = resp.json()
-    except Exception:
-        # Fall back to ostk kernel ps if the HTTP endpoint is not reachable.
+    _port = os.environ.get("PORT", os.environ.get("UVICORN_PORT", "8000"))
+    data = None
+    for _scheme in ("https", "http"):
+        try:
+            async with httpx.AsyncClient(verify=False) as client:
+                resp = await client.get(
+                    f"{_scheme}://127.0.0.1:{_port}/api/agents", timeout=5
+                )
+                data = resp.json()
+                break
+        except Exception:
+            continue
+    if data is None:
+        # Fall back to ostk kernel ps if neither scheme reaches the backend.
         ps = await ostk.kernel_ps()
         agents = ps.get("agents", [])
         if not agents:

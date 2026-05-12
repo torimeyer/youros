@@ -598,3 +598,47 @@ def test_backend_alive_across_five_commits():
     print("\n→942 live receipts:")
     for sha, code in receipts:
         print(f"  commit {sha}  →  HTTP {code}")
+
+
+# ---------------------------------------------------------------------------
+# →1178: _fetch_agents_list must not hardcode http:// (backend runs HTTPS)
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_agents_list_no_hardcoded_http_scheme():
+    """_fetch_agents_list in chat.py must not hardcode http:// for loopback (→1178).
+
+    When SSL certs exist in ~/.myos/, the backend runs with HTTPS. A bare
+    http:// URL returns HTTP 000 / empty reply because the server closes the
+    connection before writing any response (TLS handshake never starts).
+    The fix is to try https:// first (verify=False for self-signed) then
+    fall back to http://.
+    """
+    chat_router = Path(__file__).resolve().parent.parent / "routers" / "chat.py"
+    text = chat_router.read_text()
+    start = text.find("async def _fetch_agents_list")
+    assert start != -1, "_fetch_agents_list not found in chat.py"
+    end = text.find("\nasync def ", start + 1)
+    body = text[start:end] if end != -1 else text[start:]
+    assert '"http://127.0.0.1' not in body and "'http://127.0.0.1" not in body, (
+        "_fetch_agents_list must not hardcode http:// — backend runs HTTPS when "
+        "SSL certs exist; use https:// first (verify=False) then fall back to http://"
+    )
+
+
+def test_fetch_agents_list_tries_https_first():
+    """_fetch_agents_list must try https:// before http:// (→1178)."""
+    chat_router = Path(__file__).resolve().parent.parent / "routers" / "chat.py"
+    text = chat_router.read_text()
+    start = text.find("async def _fetch_agents_list")
+    assert start != -1, "_fetch_agents_list not found in chat.py"
+    end = text.find("\nasync def ", start + 1)
+    body = text[start:end] if end != -1 else text[start:]
+    https_pos = body.find("https")
+    http_pos = body.find('"http://')
+    if http_pos == -1:
+        http_pos = body.find("'http://")
+    assert https_pos != -1, "_fetch_agents_list must contain 'https' scheme"
+    assert http_pos == -1 or https_pos < http_pos, (
+        "https:// must appear before any http:// fallback in _fetch_agents_list"
+    )
