@@ -609,7 +609,7 @@ export default function Tasks() {
       }
     };
     refreshAgents();
-    const interval = setInterval(refreshAgents, 3000);
+    const interval = setInterval(refreshAgents, 30000);
     return () => {
       cancelled = true;
       clearInterval(interval);
