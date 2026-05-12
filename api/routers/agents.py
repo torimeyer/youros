@@ -3102,10 +3102,16 @@ async def list_agents(
     # hides mystery rows; no need to destroy them on the server.
 
     # Build a unified agent map: name -> agent info.
-    # Priority: daemon (most authoritative) > in-memory > audit log.
+    # Priority: daemon (most authoritative) > in-memory > audit log > kernel fleet.
     agents_map: dict[str, dict] = {}
 
-    # 1. Audit log agents (lowest priority, background context)
+    # 0. Kernel fleet (OSTK_DIR/agents.jsonl) — lowest priority baseline.
+    # Provides early visibility for agents the kernel knows about before
+    # the HTTP /register call arrives.  All subsequent passes overwrite.
+    from services.kernel_fleet import merge_kernel_fleet as _merge_kernel_fleet
+    _merge_kernel_fleet(agents_map)
+
+    # 1. Audit log agents (overrides kernel fleet)
     from config import PROJECT_ROOT
     _audit_i = 0
     for agent in audit_agents_list:
