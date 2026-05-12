@@ -31,6 +31,39 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+describe('PlanWavesPanel — needle title rendering', () => {
+  it('strips ⊕-appended body from needle title', async () => {
+    mockedApiGet.mockResolvedValue({
+      waves: [
+        {
+          wave: 1,
+          blocked_by_prior: false,
+          needles: [
+            {
+              id: 'needle-title-clamp',
+              title: 'Onboarding: three options ⊕ Open design question: should we do X or Y?',
+              priority: 'P2',
+              scope_hint: 'general',
+            },
+          ],
+        },
+      ],
+      total_needles: 1,
+    })
+    render(<PlanWavesPanel open={true} onClose={() => {}} />)
+
+    await waitFor(() => screen.getByTestId('wave-needle-needle-title-clamp'))
+
+    const needle = screen.getByTestId('wave-needle-needle-title-clamp')
+    const titleEl = needle.querySelector('p.text-slate-200')
+    expect(titleEl).not.toBeNull()
+    expect(titleEl!.textContent).toBe('Onboarding: three options')
+    expect(titleEl!.textContent).not.toContain('⊕')
+    expect(titleEl!.textContent).not.toContain('Open design question')
+    expect(titleEl!.className).toContain('line-clamp-2')
+  })
+})
+
 describe('PlanWavesPanel — scope_hint rendering', () => {
   it('strips ⊕ separator characters before display', async () => {
     mockedApiGet.mockResolvedValue(
@@ -40,7 +73,7 @@ describe('PlanWavesPanel — scope_hint rendering', () => {
 
     await waitFor(() => screen.getByTestId('wave-needle-needle-1'))
 
-    const hint = screen.getByTestId('wave-needle-needle-1').querySelector('p.line-clamp-2')
+    const hint = screen.getByTestId('wave-needle-needle-1').querySelector('p.text-slate-500')
     expect(hint).not.toBeNull()
     expect(hint!.textContent).not.toContain('⊕')
     expect(hint!.textContent).toContain('frontend/src')
@@ -56,7 +89,7 @@ describe('PlanWavesPanel — scope_hint rendering', () => {
     await waitFor(() => screen.getByTestId('wave-needle-needle-1'))
 
     const needle = screen.getByTestId('wave-needle-needle-1')
-    const hint = needle.querySelector('p.line-clamp-2')
+    const hint = needle.querySelector('p.text-slate-500')
     expect(hint).not.toBeNull()
     expect(hint!.className).toContain('line-clamp-2')
   })
