@@ -36,10 +36,14 @@ import { api } from '../lib/api'
 const mockedApiGet = vi.mocked(api.get)
 const mockedApiPost = vi.mocked(api.post)
 
+// Use explicit offsets so the date-desc sort puts task '1' first, then '2', then '3'.
+// Without offsets, three concurrent new Date() calls can land on the same millisecond
+// and produce a non-deterministic sort order.
+const _MOCK_NOW = Date.now()
 const mockTasks = [
-  { id: '1', title: 'Fix login bug', priority: 'P0', status: 'open', created_at: new Date().toISOString(), goal: 'Auth', label_ids: ['l1'] },
-  { id: '2', title: 'Add dark mode', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: 'UI', label_ids: [] },
-  { id: '3', title: 'Write docs', priority: 'P2', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: ['l1', 'l2'] },
+  { id: '1', title: 'Fix login bug', priority: 'P0', status: 'open', created_at: new Date(_MOCK_NOW - 1000).toISOString(), goal: 'Auth', label_ids: ['l1'] },
+  { id: '2', title: 'Add dark mode', priority: 'P1', status: 'open', created_at: new Date(_MOCK_NOW - 2000).toISOString(), goal: 'UI', label_ids: [] },
+  { id: '3', title: 'Write docs', priority: 'P2', status: 'open', created_at: new Date(_MOCK_NOW - 3000).toISOString(), goal: null, label_ids: ['l1', 'l2'] },
   { id: '4', title: 'Old completed task', priority: 'P1', status: 'closed', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [] },
 ]
 
