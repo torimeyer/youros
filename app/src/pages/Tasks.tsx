@@ -335,6 +335,7 @@ export default function Tasks() {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [showTaskSharePopover, setShowTaskSharePopover] = useState(false);
   const [undoDelete, setUndoDelete] = useState<{ task: Task; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const [closeError, setCloseError] = useState<string | null>(null);
   // IDs the user has clicked delete on but the 5s undo timer has not
   // fired yet. fetchTasks polls every 3s and the real DELETE only
   // fires on timer expiry, so without this guard the next poll hands
@@ -823,10 +824,15 @@ export default function Tasks() {
 
   const closeTask = async (id: string) => {
     try {
-      await api.post(`/tasks/${id}/close`);
+      await api.post(`/tasks/${id}/close?source=user`);
       await fetchTasks();
-    } catch (e) {
+    } catch (e: unknown) {
       console.error("Failed to close task:", e);
+      const msg =
+        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        "Couldn't close the task. Please try again.";
+      setCloseError(msg);
+      setTimeout(() => setCloseError(null), 5000);
     }
   };
 
@@ -3351,6 +3357,22 @@ export default function Tasks() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {closeError && (
+        <div
+          data-testid="close-task-error-toast"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-red-950 border border-red-700 text-sm text-red-200 px-4 py-3 rounded-xl shadow-lg"
+        >
+          <span>{closeError}</span>
+          <button
+            data-testid="close-task-error-dismiss"
+            onClick={() => setCloseError(null)}
+            className="font-medium text-red-400 hover:text-red-300"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
