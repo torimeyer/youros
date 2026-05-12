@@ -529,7 +529,7 @@ describe('Tasks page', () => {
     fireEvent.click(closeButtons[0])
 
     await waitFor(() => {
-      expect(mockedApiPost).toHaveBeenCalledWith('/tasks/1/close')
+      expect(mockedApiPost).toHaveBeenCalledWith('/tasks/1/close?source=user')
     })
   })
 
@@ -751,7 +751,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(screen.getByTestId('briefing-panel')).toBeInTheDocument()
@@ -777,7 +777,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(mockedApiGet).toHaveBeenCalledWith('/tasks/1/briefing')
@@ -812,7 +812,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(screen.getByText('Waiting on')).toBeInTheDocument()
@@ -860,7 +860,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(screen.getByText('Waiting on')).toBeInTheDocument()
@@ -915,7 +915,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(screen.getByTestId('blocker-card-0')).toBeInTheDocument()
@@ -948,7 +948,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(screen.getByTestId('briefing-panel')).toBeInTheDocument()
@@ -982,7 +982,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(screen.getByText('Finishing this unblocks')).toBeInTheDocument()
@@ -1013,7 +1013,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(screen.getByText('This task is standalone. No blockers, no dependencies, no related tasks.')).toBeInTheDocument()
@@ -1040,14 +1040,14 @@ describe('Tasks page', () => {
     })
 
     // Open
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(screen.getByTestId('briefing-panel')).toBeInTheDocument()
     })
 
     // Close by clicking again
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(screen.queryByTestId('briefing-panel')).not.toBeInTheDocument()
@@ -1073,7 +1073,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(screen.getByTestId('briefing-panel')).toBeInTheDocument()
@@ -1105,7 +1105,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(mockedApiGet).toHaveBeenCalledWith('/tasks/1/trace')
@@ -1139,7 +1139,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(screen.getByTestId('changelog-tab')).toBeInTheDocument()
@@ -1177,7 +1177,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(screen.getByTestId('changelog-tab')).toBeInTheDocument()
@@ -2106,7 +2106,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Task with a plan')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Task with a plan'))
+    fireEvent.click(screen.getByTestId('task-row-5'))
 
     await waitFor(() => {
       expect(screen.getByTestId('task-plan-5')).toBeInTheDocument()
@@ -2127,7 +2127,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Fix login bug'))
+    fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
       expect(screen.getByTestId('briefing-panel')).toBeInTheDocument()
