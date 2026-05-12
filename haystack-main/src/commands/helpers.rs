@@ -109,6 +109,41 @@ pub fn count_open_needles(path: &Path) -> usize {
     count_active_needles(path)
 }
 
+/// Returns true if `cmd` is a git operation that mutates working-tree state.
+///
+/// →1153: Used by the fleet-active gate in serve/dispatch.rs to decide
+/// which commands to block when peers are active. Read-only git subcommands
+/// (log, diff, status, stash list, …) are NOT considered mutations.
+pub fn is_git_state_mutation(cmd: &str) -> bool {
+    let lower = cmd.trim().to_lowercase();
+    // Strip leading VAR=value env overrides (e.g. OSTK_SKIP_GIT_GUARD=1 git stash …)
+    let rest = {
+        let mut s = lower.as_str();
+        loop {
+            let trimmed = s.trim_start();
+            let eq_pos = trimmed.find('=');
+            let sp_pos = trimmed.find(char::is_whitespace);
+            match (eq_pos, sp_pos) {
+                (Some(eq), Some(sp)) if eq < sp => { s = trimmed[sp..].trim_start(); }
+                _ => break,
+            }
+        }
+        s
+    };
+    let mut words = rest.split_whitespace();
+    if words.next() != Some("git") { return false; }
+    let sub = words.next().unwrap_or("");
+    match sub {
+        "reset" | "clean" => true,
+        // stash push/save/drop/clear mutate state; list/show/apply/pop/branch are reads
+        "stash" => !matches!(
+            words.next().unwrap_or("push"),
+            "list" | "show" | "apply" | "pop" | "branch"
+        ),
+        _ => false,
+    }
+}
+
 /// Canonical fleet count: active agents from agents.jsonl.
 ///
 /// Returns (active, total) — uses proper JSON parsing of the "status" field.
@@ -272,5 +307,79 @@ mod tests {
 "#,
         );
         assert_eq!(count_open_needles(f.path()), count_active_needles(f.path()));
+    }
+
+    // ── count_fleet gate: 10-row staleness scenario (→1153) ─────────────────
+
+    #[test]
+    fn test_fleet_gate_count_10_rows() {
+        // 8 stale active rows + 2 fresh active rows → gate must see only 2.
+        // Pre-fix the gate counted all 10 rows, falsely blocking git mutations.
+        let fresh = now_utc_iso();
+        let stale = "2026-01-01T00:00:00Z";
+        let dir = tempfile::tempdir().unwrap();
+        let agents_path = dir.path().join("agents.jsonl");
+        let rows: Vec<String> = (1..=8)
+            .map(|i| agent_row(&format!("stale-{i}"), i, "active", stale))
+            .chain([
+                agent_row("live-1", 101, "active", &fresh),
+                agent_row("live-2", 102, "active", &fresh),
+            ])
+            .collect();
+        std::fs::write(&agents_path, rows.join("\n") + "\n").unwrap();
+        let (active, total) = count_fleet(&agents_path);
+        assert_eq!(total, 10);
+        assert_eq!(active, 2, "only 2 fresh active rows should count; stale 8 must be excluded");
+    }
+
+    // ── is_git_state_mutation ────────────────────────────────────────────────
+
+    #[test]
+    fn test_git_state_mutation_detects_stash_push() {
+        assert!(is_git_state_mutation("git stash"));
+        assert!(is_git_state_mutation("git stash push"));
+        assert!(is_git_state_mutation("git stash push -m \"wip\""));
+        assert!(is_git_state_mutation("git stash save"));
+        assert!(is_git_state_mutation("git stash drop"));
+        assert!(is_git_state_mutation("git stash clear"));
+    }
+
+    #[test]
+    fn test_git_state_mutation_allows_stash_reads() {
+        assert!(!is_git_state_mutation("git stash list"));
+        assert!(!is_git_state_mutation("git stash show"));
+        assert!(!is_git_state_mutation("git stash apply"));
+        assert!(!is_git_state_mutation("git stash pop"));
+        assert!(!is_git_state_mutation("git stash branch my-branch"));
+    }
+
+    #[test]
+    fn test_git_state_mutation_detects_reset_and_clean() {
+        assert!(is_git_state_mutation("git reset --hard"));
+        assert!(is_git_state_mutation("git reset --soft HEAD~1"));
+        assert!(is_git_state_mutation("git clean -fd"));
+        assert!(is_git_state_mutation("git clean -fxd"));
+    }
+
+    #[test]
+    fn test_git_state_mutation_allows_read_only() {
+        assert!(!is_git_state_mutation("git log --oneline -5"));
+        assert!(!is_git_state_mutation("git status"));
+        assert!(!is_git_state_mutation("git diff HEAD"));
+        assert!(!is_git_state_mutation("git branch -a"));
+    }
+
+    #[test]
+    fn test_git_state_mutation_strips_env_prefix() {
+        // OSTK_SKIP_GIT_GUARD=1 git stash — env prefix stripped, mutation detected
+        assert!(is_git_state_mutation("OSTK_SKIP_GIT_GUARD=1 git stash"));
+        assert!(!is_git_state_mutation("OSTK_SKIP_GIT_GUARD=1 git status"));
+    }
+
+    #[test]
+    fn test_git_state_mutation_non_git_commands() {
+        assert!(!is_git_state_mutation("cargo test"));
+        assert!(!is_git_state_mutation("echo hello"));
+        assert!(!is_git_state_mutation(""));
     }
 }
