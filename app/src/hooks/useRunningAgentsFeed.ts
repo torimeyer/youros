@@ -11,12 +11,14 @@ interface AgentStateFrame {
   type: 'snapshot' | 'delta' | 'sweep' | 'ping' | string
   running_count?: number
   agents?: RunningAgent[]
+  changed?: { name: string; status: string; terminal?: boolean; feedback?: string }
 }
 
 export function useRunningAgentsFeed() {
   const { lastMessage, isConnected } = useWebSocket('/api/ws/agents/state', true)
   const setSnapshot = useRunningAgentsStore((s) => s.setSnapshot)
   const setConnected = useRunningAgentsStore((s) => s.setConnected)
+  const setTerminatedAgent = useRunningAgentsStore((s) => s.setTerminatedAgent)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -30,7 +32,20 @@ export function useRunningAgentsFeed() {
     ) {
       setSnapshot(frame.running_count, frame.agents ?? [])
     }
-  }, [lastMessage, setSnapshot])
+    // When a delta carries a terminal transition, surface it for ChatPanel to
+    // append a completion bubble immediately without waiting for the poll.
+    if (
+      frame.type === 'delta' &&
+      frame.changed?.terminal === true &&
+      frame.changed.feedback
+    ) {
+      setTerminatedAgent({
+        name: frame.changed.name,
+        status: frame.changed.status,
+        feedback: frame.changed.feedback,
+      })
+    }
+  }, [lastMessage, setSnapshot, setTerminatedAgent])
 
   // Mirror WS connected state; start/stop REST fallback on disconnect
   useEffect(() => {

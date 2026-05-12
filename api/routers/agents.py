@@ -25,8 +25,13 @@ logger = logging.getLogger(__name__)
 def _fire_delta(name: str, status: str) -> None:
     """Schedule a delta publish on the agent event bus without blocking the caller."""
     try:
+        payload: dict = {"name": name, "status": status}
+        if status in _TERMINAL_STATUSES:
+            meta = agent_metadata.get(name) or {}
+            payload["terminal"] = True
+            payload["feedback"] = _plain_language_feedback(name, meta)
         asyncio.get_running_loop().create_task(
-            _agent_events_bus.publish("delta", {"name": name, "status": status})
+            _agent_events_bus.publish("delta", payload)
         )
     except RuntimeError:
         pass  # no running loop (startup / test context)
