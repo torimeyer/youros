@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from services.staticfiles_ws_guard import StaticFilesWSGuard
 from services.request_trace import TraceMiddleware
 from services.loopback_guard import LoopbackGuardMiddleware
 from services.security_headers import SecurityHeadersMiddleware
@@ -928,4 +929,4 @@ async def health():
 # the whole app run from a single server process.
 _dist = Path(__file__).resolve().parent.parent / "app" / "dist"
 if _dist.is_dir():
-    app.mount("/", StaticFiles(directory=str(_dist), html=True), name="frontend")
+    app.mount("/", StaticFilesWSGuard(StaticFiles(directory=str(_dist), html=True)), name="frontend")
