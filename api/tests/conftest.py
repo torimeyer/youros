@@ -306,12 +306,13 @@ def _isolate_agent_state(tmp_path, monkeypatch):
       3. The correct-agent tests then checkpoint the already-polluted
          dict back to disk, persisting the leak across sessions.
 
-    This fixture snapshots ``agent_metadata`` at the start of each test,
-    redirects the persistence path to ``tmp_path/agent_state.json`` so no
-    real writes happen, clears the dict, and restores the snapshot
-    afterwards. Tests that add their own rows still see them via the
-    module dict. Tests that call ``_save_agent_state`` write to the tmp
-    path and never touch the shared file.
+    This fixture snapshots ``agent_metadata`` and ``active_agents`` at the
+    start of each test, redirects the persistence path to
+    ``tmp_path/agent_state.json`` so no real writes happen, clears the
+    dicts, and restores the snapshots afterwards. Tests that add their own
+    rows still see them via the module dicts. Tests that call
+    ``_save_agent_state`` write to the tmp path and never touch the shared
+    file.
 
     Also redirects OSTK_DIR so that _emit_audit_event (which constructs
     its audit.jsonl path from OSTK_DIR at call time) writes to a tmp
@@ -319,6 +320,10 @@ def _isolate_agent_state(tmp_path, monkeypatch):
     every POST /register call during tests appends a real agent.registered
     event to the live audit log, causing test-named agents to appear in
     the production GET /api/agents response.
+
+    Also disables the _RESPONSE_STALE_SECONDS filter (set to 10 years) so
+    tests with hardcoded historical timestamps are not silently dropped
+    from GET /api/agents responses.
     """
     from routers import agents as agents_mod
 
@@ -327,13 +332,16 @@ def _isolate_agent_state(tmp_path, monkeypatch):
     tmp_state = tmp_path / "agent_state.json"
     snapshot = dict(agents_mod.agent_metadata)
     nudge_snapshot = {k: list(v) for k, v in agents_mod.nudge_history.items()}
+    active_snapshot = dict(agents_mod.active_agents)
 
     monkeypatch.setattr(agents_mod, "OSTK_DIR", tmp_ostk)
     monkeypatch.setattr(agents_mod, "AGENT_STATE_PATH", tmp_state)
     monkeypatch.setattr(agents_mod, "DELETED_AGENTS_PATH", tmp_ostk / "deleted_agents.json")
     monkeypatch.setattr(agents_mod, "DURATION_STATS_PATH", tmp_ostk / "agent_durations.json")
+    monkeypatch.setattr(agents_mod, "_RESPONSE_STALE_SECONDS", 10 * 365 * 24 * 3600)
     agents_mod.agent_metadata.clear()
     agents_mod.nudge_history.clear()
+    agents_mod.active_agents.clear()
 
     yield
 
@@ -341,6 +349,8 @@ def _isolate_agent_state(tmp_path, monkeypatch):
     agents_mod.agent_metadata.update(snapshot)
     agents_mod.nudge_history.clear()
     agents_mod.nudge_history.update(nudge_snapshot)
+    agents_mod.active_agents.clear()
+    agents_mod.active_agents.update(active_snapshot)
 
 
 @pytest.fixture(autouse=True)

@@ -2168,13 +2168,13 @@ def _run_enrich_pipeline(
 ) -> list:
     """Run the status-flip, filter, and enrich passes in a thread.
 
-    Holds _enrich_thread_lock so concurrent /api/agents callers don't
+    Caller holds _enrich_async_lock so concurrent /api/agents callers don't
     duplicate the cold filesystem scan. Once the first pass warms the
     resolve and metrics caches every queued caller runs in milliseconds.
     All I/O here is synchronous and belongs in a thread (not in the
     event loop) so TLS handshakes for other endpoints are never blocked.
-    Serialization is now done by _enrich_async_lock in the caller so this
-    function no longer holds a threading.Lock (→1144).
+    Serialization is done by _enrich_async_lock in the caller; this
+    function does not hold any threading.Lock (→1144).
     """
     # 1. Status flip for terminated_stale rows still active on disk.
     for agent in all_agents:
