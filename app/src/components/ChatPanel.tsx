@@ -461,6 +461,7 @@ export function ChatPanel() {
   // and then settles. Dedup'd in localStorage on the notification id so
   // re-mounting the panel on a later page visit does not re-pulse.
   const lastFeatureLive = useNotificationStore((s) => s.lastFeatureLive)
+  const addPersistentToast = useNotificationStore((s) => s.addPersistentToast)
   const [allPillPulse, setAllPillPulse] = useState(false)
   useEffect(() => {
     if (!lastFeatureLive) return
@@ -697,6 +698,7 @@ export function ChatPanel() {
   type TrackedAgent = { name: string }
   const [trackedAgents, setTrackedAgents] = useState<TrackedAgent[]>([])
   const [stepProgress, setStepProgress] = useState<{ step: number; maxSteps: number } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; msgId: string; content: string } | null>(null)
 
   // Push-fed running set from useRunningAgentsStore. When a tracked
   // agent disappears from this set, the banner hides instantly instead
@@ -721,6 +723,34 @@ export function ChatPanel() {
     setConfirmedDoneIds(new Set())
     bubbleGotTokensRef.current.clear()
   }, [])
+
+  const handleCreateNeedle = useCallback(async (content: string) => {
+    setContextMenu(null)
+    const excerpt = content.trim().slice(0, 120)
+    try {
+      await api.post('/tasks', { title: excerpt, priority: 'P2' })
+      addPersistentToast({
+        id: `needle-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        type: 'needle_created',
+        title: 'Needle filed',
+        body: excerpt,
+      })
+    } catch {
+      addPersistentToast({
+        id: `needle-err-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        type: 'failed',
+        title: 'Could not file needle',
+        body: 'Please try again.',
+      })
+    }
+  }, [addPersistentToast])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [contextMenu])
 
   const findMessage = useCallback((id: string) => messages.find(m => m.id === id), [messages])
 
@@ -2403,6 +2433,7 @@ export function ChatPanel() {
                 id={`msg-${msg.id}`}
                 data-testid={`bubble-${msg.id}`}
                 className={`group transition-all rounded-xl ${inBroadcastColumn ? 'min-w-0 w-full' : ''} ${msg.role === 'user' ? 'flex flex-col items-end' : ''} ${isThread ? 'ml-2' : ''}`}
+                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, msgId: msg.id, content: msg.content }) }}
               >
                 {/* Reply context within a thread */}
                 {msg.replyTo && isThread && (
@@ -2959,6 +2990,25 @@ export function ChatPanel() {
           </div>
         )}
       </div>
+      {contextMenu && (
+        <div
+          data-testid="chat-message-context-menu"
+          role="menu"
+          className="fixed z-50 bg-slate-900 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[160px]"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <button
+            data-testid="context-menu-create-needle"
+            role="menuitem"
+            className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex items-center gap-2"
+            onClick={() => handleCreateNeedle(contextMenu.content)}
+          >
+            <Icon name="push_pin" className="text-pink-400 text-sm" />
+            Turn into needle
+          </button>
+        </div>
+      )}
       <ConfirmModal {...confirmProps} />
     </div>
   )
