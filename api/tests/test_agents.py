@@ -202,7 +202,7 @@ async def test_list_agents_endpoint_merges_sources():
                 "status": "spawned",
                 "model": "sonnet",
                 "budget": "1.00",
-                "timestamp": "2026-04-04T10:00:00Z",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": "audit",
             },
         ]
@@ -12843,30 +12843,31 @@ async def test_audit_agents_runs_in_thread():
 @pytest.mark.asyncio
 async def test_register_does_not_block_on_enrich_lock():
     """POST /api/agents/register must return 200 within 1 second even when
-    _enrich_thread_lock is held by a slow enrich pipeline (→954).
+    _enrich_async_lock is held by a slow enrich pipeline (→954).
 
     The register endpoint only writes a new row — it must never acquire
-    _enrich_thread_lock. If it ever starts calling _run_enrich_pipeline or
+    _enrich_async_lock. If it ever starts calling _run_enrich_pipeline or
     list_agents, that call will contend with concurrent GET /api/agents
     requests and cause register-agent.sh hooks to pile up in S state,
     keeping transcript bytes at 0.
+
+    Updated for asyncio.Lock (_enrich_async_lock replaced _enrich_thread_lock
+    in →1144). Uses an async task to hold the lock while the register call runs.
     """
-    import threading
     import time
 
-    from routers.agents import _enrich_thread_lock, agent_metadata
+    from routers.agents import _enrich_async_lock, agent_metadata
 
-    lock_acquired = threading.Event()
-    lock_release = threading.Event()
+    lock_released = asyncio.Event()
+    lock_acquired = asyncio.Event()
 
-    def hold_lock():
-        with _enrich_thread_lock:
+    async def hold_lock():
+        async with _enrich_async_lock:
             lock_acquired.set()
-            lock_release.wait(timeout=5.0)
+            await lock_released.wait()
 
-    t = threading.Thread(target=hold_lock, daemon=True)
-    t.start()
-    assert lock_acquired.wait(timeout=2.0), "lock thread never acquired the lock"
+    lock_task = asyncio.create_task(hold_lock())
+    await lock_acquired.wait()
 
     try:
         transport = ASGITransport(app=app)
@@ -12891,44 +12892,45 @@ async def test_register_does_not_block_on_enrich_lock():
         assert resp.status_code == 200, f"register returned {resp.status_code}"
         assert elapsed < 1.0, (
             f"register_agent blocked for {elapsed:.2f}s while enrich lock was held — "
-            "it must not acquire _enrich_thread_lock"
+            "it must not acquire _enrich_async_lock"
         )
     finally:
-        lock_release.set()
-        t.join(timeout=2.0)
+        lock_released.set()
+        await lock_task
         agent_metadata.pop("enrich-lock-test-agent", None)
 
 
 @pytest.mark.asyncio
 async def test_heartbeat_does_not_block_on_enrich_lock():
     """POST /api/agents/{name}/heartbeat must return 200 within 1 second even
-    when _enrich_thread_lock is held (→954).
+    when _enrich_async_lock is held (→954).
 
     Heartbeat only touches agent_metadata — it must never acquire the lock.
+
+    Updated for asyncio.Lock (_enrich_async_lock replaced _enrich_thread_lock
+    in →1144). Uses an async task to hold the lock while the heartbeat runs.
     """
-    import threading
     import time
 
-    from routers.agents import _enrich_thread_lock, agent_metadata
+    from routers.agents import _enrich_async_lock, agent_metadata
 
     agent_metadata["hb-lock-test-agent"] = {
-        "spawned_at": "2026-04-29T00:00:00+00:00",
-        "last_heartbeat_at": "2026-04-29T00:00:00+00:00",
+        "spawned_at": datetime.now(timezone.utc).isoformat(),
+        "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
         "source": "claude-code",
         "status": "running",
     }
 
-    lock_acquired = threading.Event()
-    lock_release = threading.Event()
+    lock_released = asyncio.Event()
+    lock_acquired = asyncio.Event()
 
-    def hold_lock():
-        with _enrich_thread_lock:
+    async def hold_lock():
+        async with _enrich_async_lock:
             lock_acquired.set()
-            lock_release.wait(timeout=5.0)
+            await lock_released.wait()
 
-    t = threading.Thread(target=hold_lock, daemon=True)
-    t.start()
-    assert lock_acquired.wait(timeout=2.0), "lock thread never acquired the lock"
+    lock_task = asyncio.create_task(hold_lock())
+    await lock_acquired.wait()
 
     try:
         transport = ASGITransport(app=app)
@@ -12944,11 +12946,11 @@ async def test_heartbeat_does_not_block_on_enrich_lock():
         assert resp.status_code == 200, f"heartbeat returned {resp.status_code}"
         assert elapsed < 1.0, (
             f"heartbeat_agent blocked for {elapsed:.2f}s while enrich lock was held — "
-            "it must not acquire _enrich_thread_lock"
+            "it must not acquire _enrich_async_lock"
         )
     finally:
-        lock_release.set()
-        t.join(timeout=2.0)
+        lock_released.set()
+        await lock_task
         agent_metadata.pop("hb-lock-test-agent", None)
 
 

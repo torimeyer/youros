@@ -64,6 +64,112 @@ def _redirect_async_state_save(tmp_path):
         yield
 
 
+@pytest.fixture(autouse=True)
+def _reset_worktree_git_mutex():
+    """Reset the module-level _worktree_git_mutex between tests.
+
+    asyncio.Lock binds to the first event loop that acquires it. pytest-asyncio
+    creates a fresh loop per test; if a previous test called create_worktree or
+    remove_worktree (via the real HTTP router, not a mock) and the event loop
+    was closed while the lock was still held, the lock stays bound to a dead
+    loop. The next test that tries to acquire it gets:
+      RuntimeError: <Lock [locked]> is bound to a different event loop
+    which surfaces as a 500 from the spawn handler.
+
+    Resetting to a fresh asyncio.Lock() before every test ensures each test
+    starts with an uncontested, loop-unbound mutex regardless of what previous
+    tests did.
+    """
+    import asyncio
+    try:
+        import services.spawn_isolation as _siso
+        _siso._worktree_git_mutex = asyncio.Lock()
+    except Exception:
+        pass
+    yield
+    try:
+        import services.spawn_isolation as _siso
+        _siso._worktree_git_mutex = asyncio.Lock()
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _disable_response_staleness_filter(request):
+    """Disable the _RESPONSE_STALE_SECONDS=90 filter for all tests except those
+    that specifically test the staleness filter itself.
+
+    Tests were written with hardcoded timestamps from early 2026 (e.g.
+    '2026-04-04T10:00:00Z'). The response trim feature (→1151) introduced a
+    90-second staleness cutoff that silently drops those rows from the response,
+    causing previously-passing tests to fail as time passes.
+
+    Patching the cutoff to a very large value for non-filter tests restores the
+    pre-→1151 behaviour: all agents appear in the response regardless of age.
+    tests/test_1151_agents_response_trim.py is excluded so it can still verify
+    that the filter itself works correctly.
+    """
+    if "test_1151_agents_response_trim" in str(request.fspath):
+        yield
+        return
+    try:
+        import routers.agents as _agents_module
+        old_val = _agents_module._RESPONSE_STALE_SECONDS
+        _agents_module._RESPONSE_STALE_SECONDS = 10 * 365 * 24 * 3600
+        yield
+        _agents_module._RESPONSE_STALE_SECONDS = old_val
+    except Exception:
+        yield
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _cancel_orphaned_ack_bots():
+    """Cancel any chat_ack_bot tasks left over from previous tests.
+
+    Spawn tests that do not mock chat_ack_bot leave asyncio tasks running after
+    the test's event loop closes. Those cancelled tasks are not fully cleaned up
+    from module-level dicts in services.chat_ack_bot, so the next spawn test
+    inherits stale entries. Over enough tests, the accumulated tasks cause the
+    event loop teardown to wait 30 seconds (the _TRANSCRIPT_FLUSH_INTERVAL) for
+    a background heartbeat task, tripping the pytest-timeout.
+
+    Pre-yield: clear all module-level dicts (stale references from dead loops
+    can't be awaited, so just drop them).
+
+    Post-yield: cancel tasks created in THIS test's event loop and await their
+    completion before the loop closes, preventing the 30-second sleep wait.
+    Also reset loop-bound asyncio.Event objects in _nudge_signal_events so they
+    don't raise "bound to a different event loop" in subsequent tests.
+    """
+    import asyncio
+
+    def _clear_all():
+        try:
+            from services import chat_ack_bot as _cab
+            _cab._agent_ack_tasks.clear()
+            _cab._nudge_signal_events.clear()
+            _cab._acked_nudge_ids.clear()
+            _cab._last_ack_ts.clear()
+        except Exception:
+            pass
+
+    _clear_all()
+    yield
+    # Teardown: cancel tasks from this test's event loop and await them so
+    # asyncio.sleep(30) inside the heartbeat finishes immediately.
+    try:
+        from services import chat_ack_bot as _cab
+        tasks = list(_cab._agent_ack_tasks.values())
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+    except Exception:
+        pass
+    _clear_all()
+
+
 @pytest_asyncio.fixture
 async def client():
     transport = httpx.ASGITransport(app=app)

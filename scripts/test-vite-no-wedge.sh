@@ -71,7 +71,7 @@ fi
 # app/ directory (where node_modules live) but pointed at the worktree's
 # vite.config.ts so we test the patched version.
 VITE_CONFIG="$APP_DIR/vite.config.ts"
-GIT_COMMON_DIR="$(git -C "$REPO_DIR" rev-parse --git-common-dir 2>/dev/null || echo "")"
+GIT_COMMON_DIR="$(git -C "$REPO_DIR" rev-parse --git-common-dir 2>/dev/null)"
 if [[ -n "$GIT_COMMON_DIR" ]]; then
   MAIN_APP_DIR="$(cd "$GIT_COMMON_DIR/.." && pwd)/app"
 else

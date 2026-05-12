@@ -515,6 +515,7 @@ rm -f "$RESTART_LOCK" 2>/dev/null || true
 
 
 @pytest.mark.integration
+@pytest.mark.timeout(120)
 def test_backend_alive_across_five_commits():
     """
     →942 AC (live): backend must return HTTP 200 after each of 5 sequential

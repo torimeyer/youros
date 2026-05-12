@@ -6,6 +6,8 @@ dependencies = [
 
 [tool.pytest.ini_options]
 timeout = 30
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: tests that hit external services or full stack",
     "touches_agent_registry: tests that read or write the live agent registry",

@@ -18,6 +18,8 @@ from services import recent_deletes
 from services import agent_chat_responder
 from services.tracing import trace_event
 from services.agent_events import bus as _agent_events_bus
+from services.grants_events import GrantsEventBus as _GrantsEventBus
+import services.locks_events as _locks_events_mod
 
 logger = logging.getLogger(__name__)
 
@@ -8428,6 +8430,51 @@ async def deny_grant(grant_id: str, body: Optional[GrantDeny] = None):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+_grants_bus: _GrantsEventBus = _GrantsEventBus()
+
+
+async def _publish_grants_state() -> None:
+    """Fetch current pending grants and broadcast a snapshot to all WS subscribers."""
+    try:
+        raw_grants = await ostk.list_grants("pending")
+    except Exception:
+        raw_grants = []
+    normalized: list[dict] = []
+    for g in raw_grants:
+        agent = g.get("agent_alias") or g.get("agent") or ""
+        if not agent or agent == "unknown":
+            continue
+        normalized.append({
+            "id": g.get("id", ""),
+            "agent": agent,
+            "type": g.get("request_type") or g.get("type") or "other",
+            "target": g.get("target", ""),
+            "status": g.get("status", "pending"),
+            "detail": g.get("reason") or g.get("detail") or "",
+            "requested_at": g.get("timestamp") or g.get("requested_at") or "",
+        })
+    await _grants_bus.publish("snapshot", {"grants": normalized})
+
+
+@router.websocket("/ws/grants/state")
+async def grants_state_ws(websocket: WebSocket):
+    """Stream grant state snapshots and delta events to connected clients."""
+    await websocket.accept()
+    try:
+        async with _grants_bus.subscribe() as q:
+            await _publish_grants_state()
+            while True:
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=30.0)
+                    await websocket.send_json({"type": event.type, **event.payload})
+                except asyncio.TimeoutError:
+                    await websocket.send_json({"type": "ping"})
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        logger.debug("grants_state_ws closed: %s", exc)
+
+
 # ── Agent Correction (needle 333) ──────────────────────────────────
 
 
@@ -8887,6 +8934,39 @@ async def _ws_keepalive(websocket: WebSocket) -> None:
             await websocket.send_json({"type": "ping"})
         except Exception:
             break
+
+
+async def _publish_locks_state() -> None:
+    """Fetch current locks from ostk and broadcast to all /ws/locks/state subscribers."""
+    try:
+        locks = await ostk.list_locks()
+    except Exception:
+        locks = []
+    await _locks_events_mod.bus.publish(locks)
+
+
+@router.websocket("/ws/locks/state")
+async def locks_state_ws(websocket: WebSocket):
+    """Stream coordination lock state to connected clients."""
+    await websocket.accept()
+    keepalive: asyncio.Task | None = None
+    try:
+        async with _locks_events_mod.bus.subscribe() as q:
+            await _publish_locks_state()
+            keepalive = asyncio.create_task(_ws_keepalive(websocket))
+            while True:
+                try:
+                    locks = await asyncio.wait_for(q.get(), timeout=30.0)
+                    await websocket.send_json({"type": "snapshot", "locks": locks})
+                except asyncio.TimeoutError:
+                    pass
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        logger.debug("locks_state_ws closed: %s", exc)
+    finally:
+        if keepalive:
+            keepalive.cancel()
 
 
 @router.websocket("/ws/agents/state")

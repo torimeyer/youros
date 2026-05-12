@@ -276,13 +276,19 @@ class TestClassifier:
         }]
         templates = merge_with_built_ins(custom)
 
+        import services.ostk_secrets as _ostk_secrets
+
+        async def _no_key() -> str:
+            return ""
+
         with patch("services.template_matcher.anthropic") as mock_anth:
             client = MagicMock()
             client.messages.create = AsyncMock(return_value=_fake_classifier_response("writer"))
             mock_anth.AsyncAnthropic.return_value = client
 
-            # Force the env var to be empty so the matcher cannot find a key.
-            with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}, clear=False):
+            # Mock get_anthropic_key at the source so keychain / cache are bypassed.
+            _ostk_secrets._clear_cache()
+            with patch("services.ostk_secrets.get_anthropic_key", new=_no_key):
                 result = await match_template(
                     "draft a tweet",
                     templates,

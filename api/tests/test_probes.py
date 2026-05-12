@@ -48,14 +48,18 @@ async def test_probe_claude_api_missing_ok(monkeypatch):
 @pytest.mark.asyncio
 async def test_probe_claude_api_no_key():
     """Test probe fails when API key is missing."""
-    import os
-    
-    env = os.environ.copy()
-    if 'ANTHROPIC_API_KEY' in env:
-        del env['ANTHROPIC_API_KEY']
-    
-    with patch.dict('os.environ', env, clear=True):
+    import services.ostk_secrets as _ostk_secrets
+
+    # Clear the in-process key cache so a prior test's warm cache doesn't leak
+    # into this one, then mock get_anthropic_key to return "" regardless of
+    # keychain / settings_store / os.environ resolution order.
+    _ostk_secrets._clear_cache()
+
+    async def _no_key() -> str:
+        return ""
+
+    with patch("services.ostk_secrets.get_anthropic_key", new=_no_key):
         result = await probe_claude_api()
-        
-        assert result['status'] == 'fail'
-        assert "ANTHROPIC_API_KEY not set" in result['error']
+
+    assert result['status'] == 'fail'
+    assert "ANTHROPIC_API_KEY not set" in result['error']

@@ -190,3 +190,61 @@ async def test_create_worktree_git_lock_error_returns_false():
     assert "config.lock" in err_msg or "128" in err_msg, (
         f"error message should mention the git failure; got: {err_msg!r}"
     )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_create_worktree_serialized_100x(tmp_path):
+    """Run the serialization property 100 times to catch any intermittent race.
+
+    Each iteration resets the mutex (simulating per-test event-loop isolation)
+    and runs two concurrent create_worktree calls. max_concurrent_add must
+    never exceed 1. A single failure would indicate the mutex is not covering
+    the git worktree add call path correctly.
+    """
+    failures = []
+    for i in range(100):
+        siso._worktree_git_mutex = asyncio.Lock()
+        stats: dict = {"max_concurrent_add": 0, "_running_add": 0}
+
+        async def mock_run_git(*args, cwd, timeout=15.0):
+            if args[:2] == ("worktree", "add"):
+                stats["_running_add"] += 1
+                stats["max_concurrent_add"] = max(
+                    stats["max_concurrent_add"], stats["_running_add"]
+                )
+                await asyncio.sleep(0.005)
+                stats["_running_add"] -= 1
+                return 0, b"", b""
+            if args[:1] == ("rev-parse",):
+                return 128, b"", b"fatal: unknown revision"
+            return 0, b"", b""
+
+        iter_dir = tmp_path / f"iter{i}"
+        iter_dir.mkdir()
+        wt1 = iter_dir / "agent-x"
+        wt2 = iter_dir / "agent-y"
+        with patch.object(siso, "_run_git", side_effect=mock_run_git):
+            results = await asyncio.gather(
+                siso.create_worktree(
+                    project_root=iter_dir,
+                    agent_name="x",
+                    branch=f"worktree-x-{i}",
+                    wt_path=wt1,
+                ),
+                siso.create_worktree(
+                    project_root=iter_dir,
+                    agent_name="y",
+                    branch=f"worktree-y-{i}",
+                    wt_path=wt2,
+                ),
+            )
+        ok_x, msg_x = results[0]
+        ok_y, msg_y = results[1]
+        if not ok_x or not ok_y:
+            failures.append((i, "create failed", msg_x or msg_y))
+        elif stats["max_concurrent_add"] != 1:
+            failures.append((i, "concurrency", stats["max_concurrent_add"]))
+
+    assert not failures, (
+        f"serialization failures across 100 iterations: {failures[:5]}"
+    )
