@@ -272,3 +272,40 @@ describe('MyGems page', () => {
     });
   });
 });
+
+const mockConversations = [
+  {
+    conversation_id: 'conv-1',
+    gem_name: 'Code Gem',
+    turn_count: 4,
+    last_timestamp: new Date().toISOString(),
+  },
+];
+
+describe('MyGems captures section', () => {
+  it('shows captures empty state when no captures returned', async () => {
+    mockedGet.mockImplementation((path: string) => {
+      if (path === '/gemini-captures/conversations') return Promise.resolve([]);
+      return Promise.resolve(mockGems);
+    });
+    renderMyGems();
+    await waitFor(() => {
+      expect(screen.getByTestId('captures-empty-state')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/No captures yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Install the myOS Gemini extension/i)).toBeInTheDocument();
+  });
+
+  it('shows captures list when conversations are returned', async () => {
+    mockedGet.mockImplementation((path: string) => {
+      if (path === '/gemini-captures/conversations') return Promise.resolve(mockConversations);
+      return Promise.resolve(mockGems);
+    });
+    renderMyGems();
+    await waitFor(() => {
+      expect(screen.getByTestId('captures-list')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('capture-conversation-row-conv-1')).toBeInTheDocument();
+    expect(screen.getByText('Code Gem')).toBeInTheDocument();
+  });
+});
