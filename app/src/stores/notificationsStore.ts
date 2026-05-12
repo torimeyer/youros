@@ -1,12 +1,15 @@
 import { create } from 'zustand'
 
-interface Notification {
+export interface Notification {
   id: string
   type: string
   title?: string
-  message?: string
-  created_at?: string
+  body?: string
+  action_label?: string | null
+  action_url?: string | null
   read?: boolean
+  created_at?: string
+  metadata?: Record<string, unknown>
 }
 
 interface NotificationsState {
