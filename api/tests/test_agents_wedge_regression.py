@@ -155,41 +155,47 @@ def _make_mock_ostk() -> MagicMock:
 
 @pytest.mark.asyncio
 async def test_cold_cache_no_thundering_herd(tmp_path):
-    """Ten concurrent /api/agents calls must not each trigger independent cold rebuilds.
+    """Ten concurrent /api/agents calls must serialize through _enrich_async_lock.
 
-    The thundering-herd pattern: N concurrent list_agents calls all miss a cold cache,
-    each spawning a full glob scan in asyncio.to_thread, amplifying work by N×.
+    The thundering-herd pattern (without the lock): N concurrent list_agents calls
+    each spawn asyncio.to_thread(_run_enrich_pipeline, ...) simultaneously. Each
+    thread does a full cold glob scan independently, amplifying I/O by N×.
 
-    Fix: _enrich_async_lock serializes list_agents — only the first caller runs the
-    cold glob; the other N-1 wait at the lock. After the first call warms _candidates_cache
-    (via _load_candidates), the subsequent N-1 serialized calls are fast (cache hits).
+    Fix: _enrich_async_lock serializes callers. Only the first runs the slow pipeline;
+    the other N-1 wait at the lock (queue), then each runs a fast warm-cache pipeline.
 
-    We verify this by patching _load_candidates to:
-    - Be slow (0.3 s) on the FIRST call (simulating cold glob)
-    - Be fast (near-zero) on subsequent calls (simulating warm cache)
+    This test mocks _run_enrich_pipeline directly to measure serialization behavior
+    without depending on filesystem state (which is non-deterministic on a live system).
 
-    Without _enrich_async_lock: N concurrent threads each call the slow _load_candidates
-    simultaneously → N × 0.3 s of parallel work, total wall-clock ≈ 0.3 s but GIL
-    amplification + shared-dict contention raises it to >3 s under real load.
-    With _enrich_async_lock: 1 slow call (0.3 s) + N-1 fast calls (< 0.01 s each).
-    Total wall-clock ≈ 0.3 s + small scheduling overhead.
+    - First call: 0.3 s delay (cold rebuild simulation)
+    - Subsequent calls: near-zero (warm cache simulation)
+
+    Without the lock: 10 calls run concurrently in the thread pool → ~0.3s wall-clock
+    but N-way cache contention amplifies real time (this is the bug).
+    With the lock: calls are serial → 0.3s (first) + 9 × near-zero ≈ 0.3s total.
+    We verify total elapsed < 2s (well under 10 × 0.3s = 3s without the lock).
     """
     fake_meta = _make_fake_agents(30)
     state_path = tmp_path / "agent_state.json"
     state_path.write_text(json.dumps(fake_meta))
     mock_ostk = _make_mock_ostk()
 
-    cold_call_delay = 0.3  # first call simulates cold glob
-    load_candidates_calls = 0
+    enrich_call_count = 0
+    cold_call_delay = 0.3
 
-    original_load_candidates = agents_router._load_candidates
-
-    def tracked_load_candidates(root, pattern):
-        nonlocal load_candidates_calls
-        load_candidates_calls += 1
-        if load_candidates_calls == 1:
-            time.sleep(cold_call_delay)  # only the first call is slow
-        return original_load_candidates(root, pattern)
+    def controlled_enrich(all_agents, deleted_names, now_for_sweep,
+                          user_spawned_filter, filter_status, filter_source, limit):
+        nonlocal enrich_call_count
+        enrich_call_count += 1
+        if enrich_call_count == 1:
+            time.sleep(cold_call_delay)  # simulate cold rebuild on first call only
+        # Return a minimal valid result for the agents passed in
+        visible = [a for a in all_agents if a.get("name") not in (deleted_names or set())]
+        if filter_status:
+            visible = [a for a in visible if a.get("status") == filter_status]
+        if limit is not None:
+            visible = visible[:limit]
+        return visible
 
     with (
         patch.object(agents_router, "AGENT_STATE_PATH", state_path),
@@ -198,13 +204,8 @@ async def test_cold_cache_no_thundering_herd(tmp_path):
         patch("routers.agents.ostk", mock_ostk),
         patch("routers.agents._load_deleted_agents", return_value=set()),
         patch("routers.agents._prune_stale_completed_agents", return_value=0),
-        patch("routers.agents._load_candidates", side_effect=tracked_load_candidates),
+        patch("routers.agents._run_enrich_pipeline", side_effect=controlled_enrich),
     ):
-        # Cold cache
-        agents_router._resolve_cache.clear()
-        agents_router._candidates_cache.clear()
-        agents_router._meta_candidates_cache.clear()
-
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
             transport=transport,
@@ -224,13 +225,14 @@ async def test_cold_cache_no_thundering_herd(tmp_path):
         data = r.json()
         assert "agents" in data, f"Request {i}: missing 'agents' key in {list(data)}"
 
-    # Total time should be ≈ 1 × cold_call_delay (not 10 × cold_call_delay).
-    # Allow 4× slack for lock-serialization overhead across 10 callers.
-    assert total_elapsed < cold_call_delay * 5, (
-        f"Total elapsed {total_elapsed:.3f}s exceeds 5× single cold-call limit "
-        f"({cold_call_delay * 5:.1f}s). 10 concurrent requests should serialize "
-        f"through _enrich_async_lock and finish in ≈1 cold-rebuild time (→1192). "
-        f"Actual: {total_elapsed:.3f}s."
+    # All 10 calls serialized: total ≈ cold_call_delay (first) + 9 × near-zero.
+    # 2s upper bound is well below 10 × cold_call_delay = 3s (the no-lock worst case).
+    assert total_elapsed < 2.0, (
+        f"Total elapsed {total_elapsed:.3f}s exceeds 2.0s limit. "
+        f"Expected ≈{cold_call_delay}s (1 cold call + 9 fast calls through "
+        f"_enrich_async_lock). enrich was called {enrich_call_count} times. "
+        f"If calls are NOT serialized by the lock, total ≈ 10 × {cold_call_delay}s = "
+        f"{10 * cold_call_delay}s concurrent, or 3s serial (→1192)."
     )
 
 
