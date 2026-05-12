@@ -383,6 +383,7 @@ def _is_long_poll_parked(name: str) -> bool:
 
 
 from config import AGENTS_DIR, OSTK_DIR
+from services.kernel_fleet import read_kernel_fleet as _read_kernel_fleet
 
 # Persistent file tracking agent state across server restarts
 AGENT_STATE_PATH = OSTK_DIR / "agent_state.json"
@@ -3413,6 +3414,40 @@ async def list_agents(
     # 3. Daemon agents (highest priority, ground truth)
     for agent in ps_result.get("agents", []):
         agents_map[agent["name"]] = agent
+
+    # 4. Kernel fleet (Tier 1.1 wave A): ostk journal + socket connections.
+    # Sources: ~/.ostk/journal.jsonl (agent.spawned/completed/failed/killed)
+    #          <OSTK_DIR>/agents.jsonl (socket connection registry).
+    # Two merge rules:
+    #   a) kernel-only row → add to agents_map (peer-session / ostk-run agents)
+    #   b) row in both    → prefer kernel's status/heartbeat for non-terminal rows
+    try:
+        _kernel_rows = _read_kernel_fleet(
+            socket_agents_path=OSTK_DIR / "agents.jsonl"
+        )
+        for _krow in _kernel_rows:
+            _kname = _krow.get("name")
+            if not _kname or _kname in deleted_names:
+                continue
+            if _kname not in agents_map:
+                # Agent spawned via `ostk run` — myOS has no record of it.
+                agents_map[_kname] = _krow
+            else:
+                # Both sources know this agent: update status and heartbeat
+                # from kernel when myOS row is still non-terminal.
+                _existing = agents_map[_kname]
+                if _existing.get("status") not in _TERMINAL_STATUSES:
+                    _k_status = _krow.get("status")
+                    if _k_status in ("running", "completed", "failed", "killed"):
+                        agents_map[_kname] = {**_existing, "status": _k_status}
+                        _existing = agents_map[_kname]
+                # Keep the more-recent last_heartbeat_at
+                _k_hb = _krow.get("last_heartbeat_at") or ""
+                _e_hb = _existing.get("last_heartbeat_at") or ""
+                if _k_hb > _e_hb:
+                    agents_map[_kname]["last_heartbeat_at"] = _k_hb
+    except Exception:
+        logger.debug("kernel_fleet read failed", exc_info=True)
 
     # Sweep: mark running agents with no recent heartbeat as terminated_stale.
     # Done after merging the three sources so we catch every record that still
