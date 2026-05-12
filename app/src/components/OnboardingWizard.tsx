@@ -14,8 +14,8 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'EnhanceClaude', 'Connect', 'Ready'] as const
-const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'EnhanceClaude', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'EnhanceClaude', 'Tracking', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'EnhanceClaude', 'Tracking', 'Connect', 'Ready'] as const
 
 const DEFAULT_FILES_DIR = '~/.myos/files'
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
@@ -55,6 +55,8 @@ export default function OnboardingWizard() {
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null)
   const [otherSelected, setOtherSelected] = useState(false)
   const [oauthError, setOauthError] = useState<string | null>(null)
+  const [trackingOption, setTrackingOption] = useState<'everywhere' | 'repo' | 'myos-only' | null>(null)
+  const [trackingRepoPath, setTrackingRepoPath] = useState('')
 
   // Reset osName to empty on wizard mount so a new user always starts with
   // an empty "Name your OS" field. This prevents stale values from
@@ -231,6 +233,11 @@ export default function OnboardingWizard() {
     // Reset the "Finished" baseline so agents from before onboarding
     // do not immediately show a stale count in the sidebar.
     setAgentsLastViewed(new Date().toISOString())
+    if (trackingOption) {
+      const trackBody: Record<string, unknown> = { scope: trackingOption }
+      if (trackingOption === 'repo' && trackingRepoPath) trackBody.path = trackingRepoPath
+      await api.post('/onboarding/enable-myos-hooks', trackBody).catch((e) => console.error('tracking setup failed:', e))
+    }
     // Navigate home BEFORE flipping onboarded (see goHome comment above).
     goHome()
     setOnboarded(true)
@@ -506,6 +513,16 @@ export default function OnboardingWizard() {
                 </button>
               </div>
             </div>
+          )}
+          {step === 'Tracking' && (
+            <TrackingStep
+              selectedOption={trackingOption}
+              onSelect={setTrackingOption}
+              repoPath={trackingRepoPath}
+              onRepoPath={setTrackingRepoPath}
+              subtextCls={subtextCls}
+              cardCls={cardCls}
+            />
           )}
           {step === 'Connect' && (
             <ConnectStep
@@ -1028,6 +1045,91 @@ function ThemeStep({
           <p className="text-sm font-medium">Dark</p>
         </button>
       </div>
+    </div>
+  )
+}
+
+function TrackingStep({
+  selectedOption,
+  onSelect,
+  repoPath,
+  onRepoPath,
+  subtextCls,
+  cardCls,
+}: {
+  selectedOption: 'everywhere' | 'repo' | 'myos-only' | null
+  onSelect: (opt: 'everywhere' | 'repo' | 'myos-only') => void
+  repoPath: string
+  onRepoPath: (path: string) => void
+  subtextCls: string
+  cardCls: string
+}) {
+  const options = [
+    {
+      id: 'everywhere' as const,
+      label: 'myOS is my daily dashboard, track everything.',
+      subtitle: "Every Claude Code conversation on this computer shows up in myOS, no matter which folder you're in.",
+    },
+    {
+      id: 'repo' as const,
+      label: "I always want tracking when I'm in my work repo.",
+      subtitle: 'Only conversations inside your work project show up in myOS. Other projects stay untouched.',
+    },
+    {
+      id: 'myos-only' as const,
+      label: 'I just want to try myOS without touching anything else.',
+      subtitle: 'Only conversations inside the myOS folder show up. Nothing else on your computer changes.',
+    },
+  ]
+
+  return (
+    <div data-testid="step-tracking">
+      <h2 className="text-2xl font-bold mb-2">How should myOS track your work?</h2>
+      <p className={`mb-6 ${subtextCls}`}>
+        Choose how myOS connects to Claude Code on this computer.
+      </p>
+      <div className="space-y-3">
+        {options.map((opt) => (
+          <button
+            key={opt.id}
+            onClick={() => onSelect(opt.id)}
+            data-testid={`tracking-option-${opt.id}`}
+            className={`w-full text-left p-4 rounded-xl border transition-all ${
+              selectedOption === opt.id
+                ? 'border-blue-500 bg-blue-500/10'
+                : `${cardCls} hover:border-blue-400`
+            }`}
+          >
+            <p className="text-sm font-medium">{opt.label}</p>
+            <p className={`text-xs mt-1 ${subtextCls}`}>{opt.subtitle}</p>
+          </button>
+        ))}
+      </div>
+      {selectedOption === 'repo' && (
+        <div className="mt-4" data-testid="tracking-folder-picker">
+          <p className={`text-xs mb-2 ${subtextCls}`}>Pick your work project folder:</p>
+          <input
+            type="file"
+            // @ts-expect-error webkitdirectory is not in standard React types
+            webkitdirectory=""
+            directory=""
+            data-testid="tracking-folder-input"
+            onChange={(e) => {
+              const files = (e.target as HTMLInputElement).files
+              if (files && files.length > 0) {
+                const rel = (files[0] as File & { webkitRelativePath: string }).webkitRelativePath
+                onRepoPath(rel ? rel.split('/')[0] : files[0].name)
+              }
+            }}
+            className="text-sm"
+          />
+          {repoPath && (
+            <p className={`text-xs mt-1 ${subtextCls}`} data-testid="tracking-folder-display">
+              Selected: {repoPath}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

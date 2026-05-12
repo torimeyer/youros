@@ -316,15 +316,41 @@ async def first_runs(intent: str = "writing"):
     return FirstRunsResponse(hints=[FirstRunsItem(**h) for h in raw])
 
 
+class EnableHooksRequest(BaseModel):
+    scope: Optional[Literal['everywhere', 'repo', 'myos-only']] = None
+    path: Optional[str] = None
+
+
 @router.post("/onboarding/enable-myos-hooks")
-async def enable_myos_hooks():
-    """Run myos-track.sh to wire myOS hooks into Claude Code for this project."""
+async def enable_myos_hooks(body: EnableHooksRequest = EnableHooksRequest()):
+    """Run myos-track.sh to wire myOS hooks into Claude Code.
+
+    scope='everywhere': install machine-wide hook at ~/.claude/settings.json
+    scope='repo': run myos-track.sh against the provided path
+    scope='myos-only': no-op, return success without changes
+    No scope: keep existing behavior (run myos-track.sh in repo root).
+    """
+    if body.scope == 'myos-only':
+        return {"enabled": True, "method": "myos-only"}
+
     repo_root = Path(__file__).resolve().parents[2]
     script = repo_root / "myos-track.sh"
+
+    cmd: list[str] = [str(script)]
+    cwd = str(repo_root)
+
+    if body.scope == 'everywhere':
+        cmd.append('--global')
+    elif body.scope == 'repo':
+        if body.path:
+            cmd.append(body.path)
+        else:
+            return {"enabled": False, "error": "path is required when scope is 'repo'"}
+
     try:
         result = subprocess.run(
-            [str(script)],
-            cwd=str(repo_root),
+            cmd,
+            cwd=cwd,
             capture_output=True,
             text=True,
             timeout=10,
@@ -333,7 +359,7 @@ async def enable_myos_hooks():
         return {"enabled": False, "error": str(exc)}
     if result.returncode != 0:
         return {"enabled": False, "error": result.stderr.strip() or f"exit {result.returncode}"}
-    return {"enabled": True, "method": "track"}
+    return {"enabled": True, "method": body.scope or "track"}
 
 
 @router.post("/onboarding/intent", response_model=IntentResponse)

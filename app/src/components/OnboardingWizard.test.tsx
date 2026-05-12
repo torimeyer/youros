@@ -115,8 +115,8 @@ describe('OnboardingWizard', () => {
   it('shows progress dots equal to the number of steps', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    // 10 steps: Welcome, You, Name, FilesLocation, Profile, Customize, Theme, EnhanceClaude, Connect, Ready
-    expect(dots.children).toHaveLength(10)
+    // 11 steps: Welcome, You, Name, FilesLocation, Profile, Customize, Theme, EnhanceClaude, Tracking, Connect, Ready
+    expect(dots.children).toHaveLength(11)
   })
 
   it('does not show Back button on Welcome step', () => {
@@ -252,14 +252,14 @@ describe('OnboardingWizard', () => {
   it('advances to Connect step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize -> Theme -> EnhanceClaude -> Connect
+    clickNext(9) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize -> Theme -> EnhanceClaude -> Tracking -> Connect
     expect(screen.getByTestId('step-connect')).toBeInTheDocument()
   })
 
   it('shows Anthropic connect option by default', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(9)
     expect(screen.getByTestId('connect-anthropic')).toBeInTheDocument()
     expect(screen.getByTestId('api-key-input')).toBeInTheDocument()
   })
@@ -267,7 +267,7 @@ describe('OnboardingWizard', () => {
   it('switches provider when Gemini is selected', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(9)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
     // Anthropic connect button should no longer be visible
     expect(screen.queryByTestId('connect-anthropic')).not.toBeInTheDocument()
@@ -276,7 +276,7 @@ describe('OnboardingWizard', () => {
   it('shows both Gemini key paths (Cloud Console recommended, AI Studio fallback) when Gemini is selected', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(9)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
     const helper = screen.getByTestId('gemini-key-help')
     expect(helper).toBeInTheDocument()
@@ -291,7 +291,7 @@ describe('OnboardingWizard', () => {
   it('shows "Paste AI Studio key (for personal use)" label when Gemini is selected', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(9)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
     expect(screen.getByText(/Paste AI Studio key \(for personal use\)/i)).toBeInTheDocument()
   })
@@ -299,7 +299,7 @@ describe('OnboardingWizard', () => {
   it('Connect step sections show Anthropic, Google, Confluence, GitHub headings', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(9)
     const connectEl = screen.getByTestId('step-connect')
     expect(connectEl).toHaveTextContent(/Anthropic/i)
     expect(connectEl).toHaveTextContent(/Google/i)
@@ -310,7 +310,7 @@ describe('OnboardingWizard', () => {
   it('advances to Ready step with summary', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize -> Theme -> EnhanceClaude -> Connect -> Ready
+    clickNext(10) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize -> Theme -> EnhanceClaude -> Tracking -> Connect -> Ready
 
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
     expect(screen.getByTestId('summary-os-name')).toHaveTextContent('myOS')
@@ -324,7 +324,7 @@ describe('OnboardingWizard', () => {
     useAppStore.setState({ onboarded: false, osName: 'myOS', darkMode: true })
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9) // skip through all steps including Theme without touching it
+    clickNext(10) // skip through all steps including Theme and Tracking without touching them
     expect(screen.getByTestId('summary-theme')).toHaveTextContent('Dark')
   })
 
@@ -332,14 +332,14 @@ describe('OnboardingWizard', () => {
     useAppStore.setState({ onboarded: false, osName: 'myOS', darkMode: false })
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(10)
     expect(screen.getByTestId('summary-theme')).toHaveTextContent('Light')
   })
 
   it('does not show Skip button on Ready step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(10)
 
     expect(screen.queryByTestId('skip-button')).not.toBeInTheDocument()
   })
@@ -347,7 +347,7 @@ describe('OnboardingWizard', () => {
   it('shows "Get started" button on Ready step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(10)
 
     expect(screen.getByTestId('finish-button')).toHaveTextContent('Get started')
   })
@@ -355,7 +355,7 @@ describe('OnboardingWizard', () => {
   it('sets onboarded to true and persists to localStorage when finished', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(10)
     fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
 
     expect(useAppStore.getState().onboarded).toBe(true)
@@ -369,7 +369,7 @@ describe('OnboardingWizard', () => {
     const before = Date.now()
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(10)
     fireEvent.click(screen.getByTestId('finish-button'))
     const after = Date.now()
 
@@ -385,7 +385,7 @@ describe('OnboardingWizard', () => {
 
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(10)
     fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
 
     expect(window.location.pathname).toBe('/')
@@ -402,7 +402,7 @@ describe('OnboardingWizard', () => {
     const personaCard = screen.getByText(firstPersona.category)
     fireEvent.click(personaCard)
 
-    clickNext(5) // Profile -> Customize -> Theme -> EnhanceClaude -> Connect -> Ready
+    clickNext(6) // Profile -> Customize -> Theme -> EnhanceClaude -> Tracking -> Connect -> Ready
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
 
@@ -422,7 +422,7 @@ describe('OnboardingWizard', () => {
     try {
       render(<OnboardingWizard />)
       choosePersonalMode()
-      clickNext(9)
+      clickNext(10)
       fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
     } finally {
       unsubscribe()
@@ -453,7 +453,7 @@ describe('OnboardingWizard', () => {
   it('does not show Back button on Ready step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(10)
 
     expect(screen.queryByTestId('back-button')).not.toBeInTheDocument()
   })
@@ -461,7 +461,7 @@ describe('OnboardingWizard', () => {
   it('Connect step is skippable', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8) // Get to Connect step
+    clickNext(9) // Get to Connect step
     expect(screen.getByTestId('step-connect')).toBeInTheDocument()
     expect(screen.getByTestId('skip-button')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('skip-button'))
@@ -472,7 +472,7 @@ describe('OnboardingWizard', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     // Walk all 9 steps (Welcome, You, Name, FilesLocation, Profile, Customize, Theme, EnhanceClaude, Connect)
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < 10; i++) {
       expect(screen.queryByTestId('step-adventure')).not.toBeInTheDocument()
       fireEvent.click(screen.getByTestId('next-button'))
     }
@@ -612,10 +612,10 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('other-role-input')).not.toBeInTheDocument()
   })
 
-  it('step count for personal mode is 10', () => {
+  it('step count for personal mode is 11', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    expect(dots.children).toHaveLength(10)
+    expect(dots.children).toHaveLength(11)
   })
 })
 
@@ -737,7 +737,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
   it('Enter on the Connect API key input saves and advances to Ready step', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8) // Welcome -> ... -> EnhanceClaude -> Connect
+    clickNext(9) // Welcome -> ... -> EnhanceClaude -> Tracking -> Connect
 
     const keyInput = screen.getByTestId('api-key-input')
     fireEvent.change(keyInput, { target: { value: 'sk-ant-test123' } })
@@ -751,7 +751,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
   it('Enter on the Ready step finishes onboarding', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9) // Welcome -> ... -> Ready
+    clickNext(10) // Welcome -> ... -> Tracking -> Ready
 
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
 
@@ -878,7 +878,7 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
   function navigateToAfterTheme() {
 
     fireEvent.click(screen.getByTestId('next-button'))   // Welcome → You
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 8; i++) {
       fireEvent.click(screen.getByTestId('skip-button')) // You/Name/FilesLocation/Profile/Customize/Theme/EnhanceClaude
     }
   }
@@ -1197,7 +1197,7 @@ describe('OnboardingWizard — Customize agents step', () => {
 describe('OnboardingWizard — Google Workspace OAuth button on Connect step', () => {
   function navigateToConnect() {
     fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 8; i++) {
       fireEvent.click(screen.getByTestId('skip-button')) // You/Name/FilesLocation/Profile/Customize/Theme/EnhanceClaude → Connect
     }
   }
@@ -1252,7 +1252,7 @@ describe('OnboardingWizard — Google Workspace OAuth button on Connect step', (
 describe('OnboardingWizard — Atlassian and GitHub setup cards', () => {
   function navigateToConnect() {
     fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 8; i++) {
       fireEvent.click(screen.getByTestId('skip-button')) // You/Name/FilesLocation/Profile/Customize/Theme/EnhanceClaude → Connect
     }
   }

@@ -569,6 +569,59 @@ async def test_enable_myos_hooks_success(client):
 
 
 @pytest.mark.asyncio
+async def test_enable_myos_hooks_scope_everywhere(client):
+    """scope=everywhere passes --global to myos-track.sh."""
+    with patch("routers.onboarding.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        resp = await client.post("/api/onboarding/enable-myos-hooks", json={"scope": "everywhere"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["enabled"] is True
+    assert data["method"] == "everywhere"
+    args = mock_run.call_args[0][0]
+    assert "--global" in args
+
+
+@pytest.mark.asyncio
+async def test_enable_myos_hooks_scope_repo_with_path(client):
+    """scope=repo passes the provided path to myos-track.sh."""
+    with patch("routers.onboarding.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        resp = await client.post(
+            "/api/onboarding/enable-myos-hooks",
+            json={"scope": "repo", "path": "/home/user/myproject"},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["enabled"] is True
+    assert data["method"] == "repo"
+    args = mock_run.call_args[0][0]
+    assert "/home/user/myproject" in args
+
+
+@pytest.mark.asyncio
+async def test_enable_myos_hooks_scope_repo_missing_path(client):
+    """scope=repo without path returns enabled:False."""
+    resp = await client.post("/api/onboarding/enable-myos-hooks", json={"scope": "repo"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["enabled"] is False
+    assert "path" in data["error"]
+
+
+@pytest.mark.asyncio
+async def test_enable_myos_hooks_scope_myos_only(client):
+    """scope=myos-only returns success without calling myos-track.sh."""
+    with patch("routers.onboarding.subprocess.run") as mock_run:
+        resp = await client.post("/api/onboarding/enable-myos-hooks", json={"scope": "myos-only"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["enabled"] is True
+    assert data["method"] == "myos-only"
+    mock_run.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_intent_endpoint_does_not_break_dream(client):
     """The dream endpoint still works after the intent endpoint is added."""
     with (

@@ -106,6 +106,32 @@ else
   fail "track_unknown_flag_exits_2" "exit code: $rc"
 fi
 
+# --- Test 10: positional path arg — enable in a separate directory ---
+SECOND_REPO="$tmp_dir/second-repo"
+mkdir -p "$SECOND_REPO"
+SECOND_SETTINGS="$SECOND_REPO/.claude/settings.local.json"
+(cd "$FAKE_REPO" && run_track "$SECOND_REPO") >/dev/null 2>&1
+if [ -f "$SECOND_SETTINGS" ] && grep -q "register-agent.sh" "$SECOND_SETTINGS" 2>/dev/null; then
+  pass "track_path_arg_enables_in_target_dir"
+else
+  fail "track_path_arg_enables_in_target_dir" "settings not created in target dir: $(cat "$SECOND_SETTINGS" 2>/dev/null)"
+fi
+
+# --- Test 11: positional path arg — does not affect caller directory ---
+if [ ! -f "$FAKE_REPO/.claude/settings.local.json" ] || ! grep -q "register-agent.sh" "$FAKE_REPO/.claude/settings.local.json" 2>/dev/null; then
+  pass "track_path_arg_does_not_touch_caller_dir"
+else
+  fail "track_path_arg_does_not_touch_caller_dir" "caller settings.local.json was modified"
+fi
+
+# --- Test 12: positional path arg — non-existent path exits 1 ---
+rc=$(cd "$FAKE_REPO" && run_track "/nonexistent/path/xyz" 2>/dev/null; echo $?)
+if [ "$rc" = "1" ]; then
+  pass "track_path_arg_nonexistent_exits_1"
+else
+  fail "track_path_arg_nonexistent_exits_1" "exit code: $rc"
+fi
+
 echo ""
 echo "passed: $PASS / failed: $FAIL"
 [ "$FAIL" -gt 0 ] && exit 1
