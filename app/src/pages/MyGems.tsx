@@ -144,8 +144,15 @@ export default function MyGems() {
             data-testid="gems-error"
             className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm mb-4"
           >
-            <Icon name="error" className="text-lg" />
-            <span>{error}</span>
+            <Icon name="error" className="text-lg flex-shrink-0" />
+            <span className="flex-1">{error}</span>
+            <button
+              data-testid="gems-retry"
+              onClick={fetchGems}
+              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-red-300 hover:text-white border border-red-500/40 hover:border-red-400 rounded-lg transition-colors"
+            >
+              Try again
+            </button>
           </div>
         )}
 

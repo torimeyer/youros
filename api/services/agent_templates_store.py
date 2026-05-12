@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -1920,6 +1921,8 @@ class AgentTemplatesStore:
             "attached_files": [],
             "provider": data.get("provider"),
             "gem_metadata": data.get("gem_metadata"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         overrides.append(new_template)
         self._save(overrides)
@@ -1948,6 +1951,7 @@ class AgentTemplatesStore:
                     t["provider"] = data["provider"]
                 if "gem_metadata" in data:
                     t["gem_metadata"] = data["gem_metadata"]
+                t["updated_at"] = datetime.now(timezone.utc).isoformat()
                 overrides[i] = t
                 self._save(overrides)
                 # Rename agentfile if name changed; always rewrite to stay in sync.
