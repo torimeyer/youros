@@ -288,3 +288,134 @@ async def test_save_async_snapshot_does_not_block_event_loop(tmp_path):
         f"Event loop blocked for {max_probe_delay * 1000:.0f}ms during async saves "
         f"(limit: 150ms). json.dumps may still be running on the event loop (→1192)."
     )
+
+
+# ---------------------------------------------------------------------------
+# Cache unbounded growth regression (→1192 total wedge / 6 GB RSS)
+# ---------------------------------------------------------------------------
+
+
+def test_candidates_cache_key_excludes_mtime():
+    """_candidates_cache must use (root, pattern) as the key — NOT including mtime.
+
+    Root cause of the 6 GB RSS / total TCP wedge (→1192):
+    The old key was (root, pattern, root_mtime_ns). Every new Claude Code session
+    JSONL file changed the directory mtime → new key added, old key NEVER removed.
+    With ~1300 session files and 826 subagent candidates per entry (~4.5 KB each),
+    the cache accumulated 1300 × 3.7 MB = ~4.8 GB. macOS swapped → event loop
+    stalled → accept() never called → TCP connect timed out.
+
+    Fix: key is (root, pattern) only; mtime is stored inside the value tuple
+    for validation. A changed mtime overwrites the same key in-place, so at most
+    one entry per (root, pattern) pair ever exists in the cache.
+    """
+    import inspect
+    src = inspect.getsource(agents_router._load_candidates)
+
+    # The cache key must NOT contain the mtime.
+    # The old buggy line was: key = (str(root), pattern, root_mtime)
+    # The new correct line is: key = (str(root), pattern)
+    assert "key = (str(root), pattern, root_mtime)" not in src, (
+        "_load_candidates must NOT include root_mtime in the cache key. "
+        "That causes unbounded accumulation of stale cache entries (→1192)."
+    )
+    assert "key = (str(root), pattern)" in src, (
+        "_load_candidates cache key must be (str(root), pattern) — mtime goes "
+        "in the VALUE so a directory change overwrites in-place, not adds a new key."
+    )
+
+
+def test_meta_candidates_cache_key_excludes_mtime():
+    """_meta_candidates_cache must use str(project_dir) as key — NOT including mtime."""
+    import inspect
+    src = inspect.getsource(agents_router._load_meta_candidates)
+
+    assert "key = (str(project_dir), root_mtime)" not in src, (
+        "_load_meta_candidates must NOT include root_mtime in the cache key (→1192)."
+    )
+    assert "key = str(project_dir)" in src, (
+        "_load_meta_candidates cache key must be str(project_dir) alone."
+    )
+
+
+def test_candidates_cache_does_not_accumulate_on_mtime_change(tmp_path):
+    """Each unique directory mtime must overwrite the cache entry, not add a new key.
+
+    Simulates 300 consecutive directory-mtime changes (as if 300 new Claude Code
+    session JSONL files were created). Each call to _load_candidates must result
+    in exactly ONE cache entry for that (root, pattern) pair — not 300.
+
+    Without the fix: len(_candidates_cache) grows to 300 (one per mtime).
+    With the fix:    len(_candidates_cache) stays at 1.
+
+    300 entries × 826 candidates × 4.5 KB ≈ 1.1 GB. With 1300 session files
+    (measured on the live system) the real accumulation exceeded 4.8 GB (→1192).
+    """
+    root = tmp_path / "projects" / "-Users-torimeyer-claude-torios"
+    root.mkdir(parents=True)
+    pattern = "*.jsonl"
+
+    # Patch the cache to use a fresh dict so this test doesn't pollute
+    # the module-level cache used by other tests.
+    fresh_cache: dict = {}
+
+    # Track how many unique mtime values were presented to the cache.
+    seen_mtimes: set = set()
+
+    def fake_dir_mtime(path: Path) -> int:
+        # Return a new unique int each call to simulate a directory that
+        # changes mtime on every access (worst case: every request sees a
+        # new session file).
+        val = len(seen_mtimes) + 1
+        seen_mtimes.add(val)
+        return val
+
+    with (
+        patch.object(agents_router, "_candidates_cache", fresh_cache),
+        patch("routers.agents._dir_mtime_ns", side_effect=fake_dir_mtime),
+    ):
+        # Simulate 300 consecutive calls where the directory mtime differs each time.
+        for _ in range(300):
+            agents_router._load_candidates(root, pattern)
+
+    # There should be exactly ONE cache entry for the (root, pattern) pair.
+    # Old code: 300 entries (one per unique mtime). New code: 1 entry.
+    assert len(fresh_cache) == 1, (
+        f"Expected 1 cache entry, got {len(fresh_cache)}. "
+        f"Stale entries accumulate memory (→1192): each entry is ~3-20 MB; "
+        f"300 entries = 1-6 GB depending on candidate count."
+    )
+    # The single entry's key must not include a mtime component.
+    the_key = list(fresh_cache.keys())[0]
+    assert isinstance(the_key, tuple) and len(the_key) == 2, (
+        f"Cache key must be a 2-tuple (root, pattern), got {the_key!r}"
+    )
+
+
+def test_meta_candidates_cache_does_not_accumulate_on_mtime_change(tmp_path):
+    """_meta_candidates_cache must not accumulate stale keys on repeated mtime changes."""
+    project_dir = tmp_path / "projects" / "-Users-torimeyer-claude-torios"
+    project_dir.mkdir(parents=True)
+
+    fresh_cache: dict = {}
+    seen_mtimes: set = set()
+
+    def fake_dir_mtime(path: Path) -> int:
+        val = len(seen_mtimes) + 1
+        seen_mtimes.add(val)
+        return val
+
+    with (
+        patch.object(agents_router, "_meta_candidates_cache", fresh_cache),
+        patch("routers.agents._dir_mtime_ns", side_effect=fake_dir_mtime),
+    ):
+        for _ in range(300):
+            agents_router._load_meta_candidates(project_dir)
+
+    assert len(fresh_cache) == 1, (
+        f"Expected 1 cache entry, got {len(fresh_cache)} (→1192 memory leak)."
+    )
+    the_key = list(fresh_cache.keys())[0]
+    assert isinstance(the_key, str), (
+        f"_meta_candidates_cache key must be a plain string, got {type(the_key)}"
+    )

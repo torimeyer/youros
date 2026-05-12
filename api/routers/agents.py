@@ -2520,7 +2520,13 @@ def _resolve_transcript_source_uncached(name: str) -> Optional[Path]:
 # immediately when a new subagent file appears. This means View Transcript
 # picks up a freshly-spawned agent's file on the very next request rather
 # than waiting for the old TTL to expire.
-_candidates_cache: dict[tuple[str, str, int], tuple[float, list[tuple[float, Path, str]]]] = {}
+# Key: (root, pattern) — NOT including mtime_ns. Mtime is stored in the VALUE
+# so that a changed directory busts the entry in-place rather than adding a new
+# key. The old design keyed on (root, pattern, mtime_ns): every new Claude Code
+# session JSONL file changed the directory mtime → new key added, old key never
+# removed → cache accumulated hundreds of 20MB entries → 6 GB RSS → TCP wedge
+# (→1192). One entry per (root, pattern) pair caps the cache at O(1) per scan.
+_candidates_cache: dict[tuple[str, str], tuple[float, int, list[tuple[float, Path, str]]]] = {}
 _CANDIDATES_TTL_SECONDS = 60.0  # 60 s — decoupled from flush interval (→1192)
 
 
@@ -2544,19 +2550,22 @@ def _load_candidates(root: Path, pattern: str) -> list[tuple[float, Path, str]]:
     """Return a cached list of ``(mtime, path, first_line_lower)`` tuples
     for every file under ``root`` matching ``pattern``.
 
-    First call for a (root, pattern, root_mtime_ns) triple does the real
-    filesystem work (glob, stat, open + readline per file). Subsequent calls
-    with the same triple return the cached list. A new file in ``root``
-    changes its directory mtime, which changes the key and forces a rescan.
-    Sorted freshest-first so callers can stop at the first match.
+    First call for a (root, pattern) pair does the real filesystem work (glob,
+    stat, open + readline per file). Subsequent calls return the cached list
+    when the directory mtime is unchanged AND the TTL has not expired. A new
+    file in ``root`` changes its directory mtime, which invalidates the cached
+    entry in-place (overwrites the same key) so only one entry per (root,
+    pattern) pair ever exists. Sorted freshest-first so callers can stop at the
+    first match.
     """
     import time as _time
     now = _time.monotonic()
     root_mtime = _dir_mtime_ns(root)
-    key = (str(root), pattern, root_mtime)
+    key = (str(root), pattern)
     entry = _candidates_cache.get(key)
-    if entry is not None and entry[0] > now:
-        return entry[1]
+    # Hit: TTL not expired AND directory mtime unchanged (same file set).
+    if entry is not None and entry[0] > now and entry[1] == root_mtime:
+        return entry[2]
 
     candidates: list[tuple[float, Path, str]] = []
     try:
@@ -2582,7 +2591,9 @@ def _load_candidates(root: Path, pattern: str) -> list[tuple[float, Path, str]]:
         candidates = []
 
     candidates.sort(key=lambda t: t[0], reverse=True)
-    _candidates_cache[key] = (now + _CANDIDATES_TTL_SECONDS, candidates)
+    # Store mtime in the value so a directory change overwrites this key
+    # in-place rather than adding a new key (→1192: unbounded cache growth).
+    _candidates_cache[key] = (now + _CANDIDATES_TTL_SECONDS, root_mtime, candidates)
     return candidates
 
 
@@ -2625,7 +2636,9 @@ def _first_line_matches_needle(first_line_lower: str, needle_lower: str) -> bool
 # Same shape as ``_candidates_cache`` but keyed on description rather than
 # first-line content. Used by the meta.description fallback path when the
 # strict needle match fails.
-_meta_candidates_cache: dict[tuple[str, int], tuple[float, list[tuple[float, Path, str]]]] = {}
+# Key: str(project_dir) only — mtime stored in value to prevent unbounded
+# accumulation of stale entries (same fix as _candidates_cache, →1192).
+_meta_candidates_cache: dict[str, tuple[float, int, list[tuple[float, Path, str]]]] = {}
 _META_CANDIDATES_TTL_SECONDS = 60.0  # 60 s — decoupled from flush interval (→1192)
 
 
@@ -2643,10 +2656,11 @@ def _load_meta_candidates(project_dir: Path) -> list[tuple[float, Path, str]]:
     import time as _time
     now = _time.monotonic()
     root_mtime = _dir_mtime_ns(project_dir)
-    key = (str(project_dir), root_mtime)
+    key = str(project_dir)
     entry = _meta_candidates_cache.get(key)
-    if entry is not None and entry[0] > now:
-        return entry[1]
+    # Hit: TTL not expired AND directory mtime unchanged.
+    if entry is not None and entry[0] > now and entry[1] == root_mtime:
+        return entry[2]
 
     candidates: list[tuple[float, Path, str]] = []
     try:
@@ -2680,7 +2694,8 @@ def _load_meta_candidates(project_dir: Path) -> list[tuple[float, Path, str]]:
         candidates = []
 
     candidates.sort(key=lambda t: t[0], reverse=True)
-    _meta_candidates_cache[key] = (now + _META_CANDIDATES_TTL_SECONDS, candidates)
+    # Store mtime in value so directory changes overwrite in-place (→1192).
+    _meta_candidates_cache[key] = (now + _META_CANDIDATES_TTL_SECONDS, root_mtime, candidates)
     return candidates
 
 
