@@ -742,6 +742,14 @@ describe('CostTracking page', () => {
     })
   })
 
+  it('restores period=all from localStorage and fetches with period=all', async () => {
+    localStorage.setItem('myos_cost_period', 'all')
+    renderCostTracking()
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/costs?period=all')
+    })
+  })
+
   it('switching from This Month to This Week triggers a new savings fetch with ?period=week', async () => {
     // Start on "month" so the initial mount fetches period=month
     localStorage.setItem('myos_cost_period', 'month')

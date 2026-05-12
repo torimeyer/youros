@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties }
 import { Link, useNavigate } from 'react-router-dom'
 import TopBar from '../components/TopBar'
 import Icon from '../components/Icon'
-import TimeFilter from '../components/TimeFilter'
+import TimeFilter, { type TimePeriod as Period } from '../components/TimeFilter'
 import { api } from '../lib/api'
 import { useAppStore } from '../stores/app'
 
@@ -587,8 +587,6 @@ function InfoTooltip({ text }: { text: string }) {
   )
 }
 
-type Period = 'today' | 'week' | 'month'
-
 interface ModelBreakdown {
   model: string
   count: number
@@ -674,6 +672,7 @@ const periodLabels: Record<Period, string> = {
   today: 'Today',
   week: 'This Week',
   month: 'This Month',
+  all: 'All Time',
 }
 
 const modelColors: Record<string, string> = {
@@ -815,7 +814,7 @@ export default function CostTracking() {
   // Period is read first so savings seed uses the correct per-period cache key.
   const [period, setPeriod] = useState<Period>(() => {
     const saved = localStorage.getItem('myos_cost_period') as Period | null
-    return saved === 'today' || saved === 'week' || saved === 'month' ? saved : 'week'
+    return saved === 'today' || saved === 'week' || saved === 'month' || saved === 'all' ? saved : 'week'
   })
   // Seed from localStorage (per-period first, then legacy global) so both
   // first paint and every filter swap are instant.
