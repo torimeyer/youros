@@ -213,7 +213,7 @@ async def test_build_auto_decomposes_when_plan_has_no_tasks(
             ]
         }
 
-    async def fake_doc_decompose(path):
+    async def fake_doc_decompose(path, auto=False):
         decompose_calls["count"] += 1
         return {"result": "ok", "task_ids": ["901", "902"]}
 
@@ -1430,7 +1430,7 @@ async def test_delete_spec_sweeps_builder_tasks_it_spawned(
             ]
         }
 
-    async def fake_doc_decompose(path):
+    async def fake_doc_decompose(path, auto=False):
         return {"result": "ok", "task_ids": ["901", "902"]}
 
     monkeypatch.setattr(ostk_module.ostk, "spec_build", fake_spec_build)
@@ -1524,7 +1524,7 @@ async def test_build_it_falls_back_to_ac_parsing_when_ostk_returns_empty(
     async def empty_spec_build(path):
         return {"agents": []}
 
-    async def empty_doc_decompose(path):
+    async def empty_doc_decompose(path, auto=False):
         return {"result": "nothing created", "task_ids": []}
 
     monkeypatch.setattr(ostk_module.ostk, "spec_build", empty_spec_build)
@@ -1612,7 +1612,7 @@ async def test_build_it_ac_fallback_parses_real_ostk_work_add_output(
     async def empty_spec_build(path):
         return {"agents": []}
 
-    async def empty_doc_decompose(path):
+    async def empty_doc_decompose(path, auto=False):
         return {"result": "", "task_ids": []}
 
     monkeypatch.setattr(ostk_module.ostk, "spec_build", empty_spec_build)
@@ -1758,7 +1758,7 @@ async def test_build_it_ignores_gemini_default_model_and_uses_sonnet(
     async def empty_spec_build(path):
         return {"agents": []}
 
-    async def empty_doc_decompose(path):
+    async def empty_doc_decompose(path, auto=False):
         return {"result": "", "task_ids": []}
 
     monkeypatch.setattr(ostk_module.ostk, "spec_build", empty_spec_build)
@@ -1987,7 +1987,7 @@ async def test_build_it_always_creates_tasks_for_unchecked_acs(
     async def broken_spec_build(path):
         raise OstkError("ostk: command not found")
 
-    async def broken_doc_decompose(path):
+    async def broken_doc_decompose(path, auto=False):
         raise OstkError("ostk: command not found")
 
     monkeypatch.setattr(ostk_module.ostk, "spec_build", broken_spec_build)
@@ -2060,7 +2060,7 @@ async def test_build_it_spawns_one_builder_per_task(
     async def broken_spec_build(path):
         raise OstkError("unreachable")
 
-    async def broken_doc_decompose(path):
+    async def broken_doc_decompose(path, auto=False):
         raise OstkError("unreachable")
 
     monkeypatch.setattr(ostk_module.ostk, "spec_build", broken_spec_build)
@@ -2143,7 +2143,7 @@ async def test_build_it_rebuild_creates_fresh_round_when_prior_closed(
     async def empty_spec_build(path):
         return {"agents": []}
 
-    async def noop_doc_decompose(path):
+    async def noop_doc_decompose(path, auto=False):
         return {"result": "", "task_ids": []}
 
     monkeypatch.setattr(ostk_module.ostk, "spec_build", empty_spec_build)
@@ -2301,7 +2301,7 @@ async def test_build_with_indented_ac_checkbox(client, tmp_path, monkeypatch):
         "- [ ] bar\n"
     )
 
-    async def broken(path):
+    async def broken(*args, **kwargs):
         raise OstkError("unreachable")
 
     monkeypatch.setattr(ostk_module.ostk, "spec_build", broken)
@@ -2359,7 +2359,7 @@ async def test_build_with_asterisk_ac_checkbox(client, tmp_path, monkeypatch):
         "* [ ] foo\n"
     )
 
-    async def broken(path):
+    async def broken(*args, **kwargs):
         raise OstkError("unreachable")
 
     monkeypatch.setattr(ostk_module.ostk, "spec_build", broken)
@@ -2424,7 +2424,7 @@ async def test_build_never_returns_could_not_create_when_acs_exist(
     async def empty_spec_build(path):
         return {"agents": []}
 
-    async def empty_doc_decompose(path):
+    async def empty_doc_decompose(path, auto=False):
         return {"result": "empty", "task_ids": []}
 
     monkeypatch.setattr(ostk_module.ostk, "spec_build", empty_spec_build)
@@ -2515,7 +2515,7 @@ async def test_build_scopes_to_acceptance_criteria_heading(
         "- [ ] real_ac\n"
     )
 
-    async def broken(path):
+    async def broken(*args, **kwargs):
         raise OstkError("unreachable")
 
     monkeypatch.setattr(ostk_module.ostk, "spec_build", broken)

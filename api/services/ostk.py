@@ -2026,15 +2026,20 @@ class OstkService:
         """Promote a draft to a spec. Returns the new file path."""
         return await self._run("doc", "promote", path)
 
-    async def doc_decompose(self, path: str) -> dict:
+    async def doc_decompose(self, path: str, auto: bool = False) -> dict:
         """Break a spec into tasks. Returns result text and extracted task IDs.
 
         After ostk decomposes the spec, this method:
         1. Parses the output for created needle IDs (lines matching ->NNN)
         2. Writes those IDs back to the spec's front matter ``tasks:`` field
         3. Returns ``{"result": "...", "task_ids": ["NNN", ...]}``
+
+        Pass ``auto=True`` to append ``--auto`` (no confirmation prompts).
         """
-        result = await self._run("doc", "decompose", path, "--auto")
+        args = ["doc", "decompose", path]
+        if auto:
+            args.append("--auto")
+        result = await self._run(*args)
 
         # Extract needle IDs from output lines like "->407" or "→407 Some task title"
         # ostk may emit ASCII "->NNN" or Unicode "→NNN"; handle both.
