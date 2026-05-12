@@ -934,28 +934,11 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
     })
   })
 
-  const backendDot = () => {
-    const label = screen.getByText('Backend')
-    const row = label.parentElement
-    if (!row) throw new Error('Backend row not found')
-    const dot = row.querySelector('span.rounded-full')
-    if (!dot) throw new Error('Backend dot not found')
-    return dot as HTMLElement
-  }
-
-  const ostkDot = () => {
-    const label = screen.getByText((_content, node) => {
-      return !!node && node.tagName === 'SPAN' && (node.textContent ?? '').startsWith('System')
-    })
-    const row = label.parentElement
-    if (!row) throw new Error('System row not found')
-    const dot = row.querySelector('span.rounded-full')
-    if (!dot) throw new Error('System dot not found')
-    return dot as HTMLElement
-  }
+  const backendDot = () => screen.getByTestId('backend-status-dot') as HTMLElement
 
   const isRed = (el: HTMLElement) => el.className.includes('bg-red-400')
   const isGreen = (el: HTMLElement) => el.className.includes('bg-green-400')
+  const isAmber = (el: HTMLElement) => el.className.includes('bg-amber-400')
 
   const collectDotStates = async (steps: Array<() => Promise<void>>): Promise<string[]> => {
     const states: string[] = []
@@ -998,13 +981,12 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
       expect(className).not.toContain('bg-red-400')
     }
     expect(isGreen(backendDot())).toBe(true)
-    expect(isGreen(ostkDot())).toBe(true)
     expect(clockCalls).toBe(3)
 
     vi.useRealTimers()
   })
 
-  it('flips red within five seconds when the backend is genuinely down', async () => {
+  it('flips amber after ~4 seconds then red after ~14 seconds when backend is genuinely down', async () => {
     vi.useFakeTimers()
     mockedApiGet.mockImplementation(async (url: string) => {
       if (url === '/status/clock') {
@@ -1022,10 +1004,14 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
     await vi.advanceTimersByTimeAsync(1)
     expect(isRed(backendDot())).toBe(false)
 
-    await vi.advanceTimersByTimeAsync(5_000)
+    // After 2 consecutive failures (~4s): amber, not red
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(isAmber(backendDot())).toBe(true)
+    expect(isRed(backendDot())).toBe(false)
 
+    // After 7 consecutive failures (~14s): red
+    await vi.advanceTimersByTimeAsync(10_000)
     expect(isRed(backendDot())).toBe(true)
-    expect(isRed(ostkDot())).toBe(true)
 
     vi.useRealTimers()
   })
@@ -1071,6 +1057,108 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
   })
 })
 
+describe('Sidebar backend status dot (→1229)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    _resetSidebarBus()
+    useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
+    useAppStore.setState({ osName: 'myOS', features: DEFAULT_FEATURES })
+  })
+
+  it('dot starts green when /api/status/clock returns 200', async () => {
+    vi.useFakeTimers()
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/status/clock') return { kernel: 'v2.5.0' }
+      if (url.startsWith('/agents')) return { active: [], agents: [] }
+      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      return {}
+    })
+    render(<MemoryRouter><Sidebar /></MemoryRouter>)
+    await vi.advanceTimersByTimeAsync(1)
+    const dot = screen.getByTestId('backend-status-dot')
+    expect(dot.className).toContain('bg-green-400')
+    vi.useRealTimers()
+  })
+
+  it('dot becomes amber (not red) after 2 consecutive failures (~4s)', async () => {
+    vi.useFakeTimers()
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/status/clock') throw new Error('ECONNREFUSED')
+      if (url.startsWith('/agents')) return { active: [], agents: [] }
+      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      return {}
+    })
+    render(<MemoryRouter><Sidebar /></MemoryRouter>)
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(4_000)
+    const dot = screen.getByTestId('backend-status-dot')
+    expect(dot.className).toContain('bg-amber-400')
+    expect(dot.className).not.toContain('bg-red-400')
+    vi.useRealTimers()
+  })
+
+  it('dot becomes red after 7 consecutive failures (~14s)', async () => {
+    vi.useFakeTimers()
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/status/clock') throw new Error('ECONNREFUSED')
+      if (url.startsWith('/agents')) return { active: [], agents: [] }
+      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      return {}
+    })
+    render(<MemoryRouter><Sidebar /></MemoryRouter>)
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(14_000)
+    const dot = screen.getByTestId('backend-status-dot')
+    expect(dot.className).toContain('bg-red-400')
+    vi.useRealTimers()
+  })
+
+  it('dot returns to green after recovery', async () => {
+    vi.useFakeTimers()
+    let calls = 0
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/status/clock') {
+        calls++
+        if (calls <= 8) throw new Error('ECONNREFUSED')
+        return { kernel: 'v2.5.0' }
+      }
+      if (url.startsWith('/agents')) return { active: [], agents: [] }
+      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      return {}
+    })
+    render(<MemoryRouter><Sidebar /></MemoryRouter>)
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(14_000)
+    expect(screen.getByTestId('backend-status-dot').className).toContain('bg-red-400')
+    await vi.advanceTimersByTimeAsync(2_000)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(screen.getByTestId('backend-status-dot').className).toContain('bg-green-400')
+    vi.useRealTimers()
+  })
+
+  it('exactly one backend-status-dot element rendered', () => {
+    render(<MemoryRouter><Sidebar /></MemoryRouter>)
+    const dots = screen.getAllByTestId('backend-status-dot')
+    expect(dots).toHaveLength(1)
+  })
+
+  it('tooltip contains the kernel name when present', async () => {
+    vi.useFakeTimers()
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/status/clock') return { kernel: 'v4.0.0' }
+      if (url.startsWith('/agents')) return { active: [], agents: [] }
+      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      return {}
+    })
+    render(<MemoryRouter><Sidebar /></MemoryRouter>)
+    await vi.advanceTimersByTimeAsync(1)
+    const dot = screen.getByTestId('backend-status-dot')
+    expect(dot.title).toContain('v4.0.0')
+    vi.useRealTimers()
+  })
+})
+
 describe('Sidebar status panel does not expose Claude indicator', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -1092,17 +1180,19 @@ describe('Sidebar status panel does not expose Claude indicator', () => {
     })
   })
 
-  it('shows Backend and System rows but not sessions and not a Claude row', async () => {
+  it('shows single Backend status dot but not sessions and not a Claude row', async () => {
     renderSidebar()
 
-    // Backend + System rows are rendered.
+    // Single backend status dot is rendered.
     await waitFor(() => {
       expect(screen.getByText('Backend')).toBeTruthy()
     })
-    const systemRow = screen.getByText((_content, node) => {
+    expect(screen.getByTestId('backend-status-dot')).toBeTruthy()
+
+    // System row is gone — kernel name is in the tooltip, not a separate row.
+    expect(screen.queryByText((_content, node) => {
       return !!node && node.tagName === 'SPAN' && (node.textContent ?? '').startsWith('System')
-    })
-    expect(systemRow).toBeTruthy()
+    })).toBeNull()
 
     // Sessions row is only rendered when count > 0. When active_count is
     // zero the row is omitted entirely (no "No sessions" text).
