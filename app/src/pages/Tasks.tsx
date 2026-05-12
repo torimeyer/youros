@@ -1397,7 +1397,7 @@ export default function Tasks() {
     filteredTasks = filteredTasks.filter((t) => {
       if (t.status === "shelved") return false;
       if (selectedStatus === "all") return true;
-      const effective: StatusPill = runningAgentTaskIds.has(t.id)
+      const effective: StatusPill = (runningAgentTaskIds.has(t.id) && t.status !== "closed")
         ? "in_progress"
         : t.status === "closed"
         ? "closed"
@@ -1416,7 +1416,7 @@ export default function Tasks() {
     filteredTasks = [...filteredTasks].sort((a, b) => {
       // 1. Status group: running agents first, closed last
       const statusPriority = (t: typeof a) => {
-        if (runningAgentTaskIds.has(t.id)) return 0;
+        if (runningAgentTaskIds.has(t.id) && t.status !== "closed") return 0;
         if (t.status === "closed") return 2;
         return 1;
       };
@@ -1455,8 +1455,8 @@ export default function Tasks() {
         return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       }
       if (sortBy === "date-desc") {
-        const aRun = runningAgentTaskIds.has(a.id);
-        const bRun = runningAgentTaskIds.has(b.id);
+        const aRun = runningAgentTaskIds.has(a.id) && a.status !== "closed";
+        const bRun = runningAgentTaskIds.has(b.id) && b.status !== "closed";
         if (aRun !== bRun) return aRun ? -1 : 1;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       }
@@ -1506,7 +1506,7 @@ export default function Tasks() {
       !runningAgentTaskIds.has(t.id)
   ).length;
   const inProgressCount = tasks.filter(
-    (t) => runningAgentTaskIds.has(t.id)
+    (t) => runningAgentTaskIds.has(t.id) && t.status !== "closed"
   ).length;
   const closedCount = tasks.filter((t) => t.status === "closed").length;
   const filterCounts: Partial<Record<StatusPill, number>> = {
@@ -2141,11 +2141,11 @@ export default function Tasks() {
                     ref={(el) => { taskRowRefs.current[task.id] = el; }}
                     data-testid={`task-row-${task.id}`}
                     data-in-progress={
-                      runningAgentTaskIds.has(task.id) ? "true" : undefined
+                      (runningAgentTaskIds.has(task.id) && task.status !== "closed") ? "true" : undefined
                     }
                     onClick={() => handleTaskClick(task.id)}
                     className={`group ${
-                      runningAgentTaskIds.has(task.id)
+                      (runningAgentTaskIds.has(task.id) && task.status !== "closed")
                         ? "ring-1 ring-blue-400/60 "
                         : ""
                     }bg-slate-900/60 border rounded-lg px-4 py-3 flex items-center gap-3 cursor-pointer transition-colors ${
@@ -2162,7 +2162,7 @@ export default function Tasks() {
                       className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-0 flex-shrink-0 cursor-pointer"
                       aria-label={`select ${task.title}`}
                     />
-                    {runningAgentTaskIds.has(task.id) && (
+                    {runningAgentTaskIds.has(task.id) && task.status !== "closed" && (
                       <span
                         data-testid={`task-in-progress-indicator-${task.id}`}
                         className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/40"
@@ -2262,7 +2262,7 @@ export default function Tasks() {
                             Paused
                           </span>
                         )}
-                        {runningAgentTaskIds.has(task.id) && (() => {
+                        {runningAgentTaskIds.has(task.id) && task.status !== "closed" && (() => {
                           const buildState = buildStateByTaskId.get(task.id);
                           if (buildState) {
                             return (

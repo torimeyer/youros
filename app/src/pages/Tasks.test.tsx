@@ -3143,6 +3143,44 @@ describe('real-time In progress pill via running agents store (→1118)', () => 
       { timeout: 1000 },
     )
   })
+
+  it('does NOT show In progress pill for a closed task even when an agent is linked (→1207)', async () => {
+    // task id '4' is closed in mockTasks
+    useRunningAgentsStore.setState({
+      count: 1,
+      agents: [{ name: 'stale-agent', status: 'running', task_id: '4' }],
+      connected: true,
+      lastUpdatedAt: null,
+    })
+
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByText('Old completed task')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId('task-in-progress-indicator-4')).not.toBeInTheDocument()
+  })
+
+  it('does NOT count closed tasks with running agents in the In progress filter bucket (→1207)', async () => {
+    // task id '4' closed; linking an agent to it must not move it to in_progress bucket
+    useRunningAgentsStore.setState({
+      count: 1,
+      agents: [{ name: 'stale-agent', status: 'running', task_id: '4' }],
+      connected: true,
+      lastUpdatedAt: null,
+    })
+
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByText('Old completed task')).toBeInTheDocument()
+    })
+
+    // Click In progress filter — closed task must NOT appear there
+    fireEvent.click(screen.getByTestId('status-filter-in_progress'))
+    await waitFor(() => {
+      expect(screen.queryByText('Old completed task')).not.toBeInTheDocument()
+    })
+  })
 })
 
 describe('Plan waves feature (→1181)', () => {
