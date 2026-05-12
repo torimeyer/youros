@@ -861,19 +861,23 @@ def test_explain_plain_agentfile_exists():
 
 
 def test_elit_agentfile_alias_exists():
-    """explain-plain.agent must declare ALIASES elit.
+    """explain-plain template must declare 'elit' as an alias in the sidecar manifest.
 
-    The ALIASES directive on the canonical file replaces the old stub-file
-    approach. This keeps scripts, memory notes, and older chat handlers
-    working when they reference 'elit' directly.
+    Aliases moved from inline directives to agents/manifest.json (Tier 1.2,
+    commit f44cbf0) so ostk agentfile validate stops failing on unknown directives.
+    The 'elit' alias remains required for scripts, memory notes, and older
+    chat handlers that reference it directly.
     """
+    import json
     from config import PROJECT_ROOT
 
-    path = PROJECT_ROOT / "agents" / "explain-plain.agent"
-    assert path.exists(), f"Expected agentfile at {path}"
-    text = path.read_text()
-    assert "ALIASES elit" in text, (
-        f"explain-plain.agent must declare 'ALIASES elit'. Got: {text!r}"
+    manifest_path = PROJECT_ROOT / "agents" / "manifest.json"
+    assert manifest_path.exists(), f"Expected manifest at {manifest_path}"
+    data = json.loads(manifest_path.read_text())
+    entry = data.get("templates", {}).get("explain-plain", {})
+    aliases = entry.get("aliases", [])
+    assert "elit" in aliases, (
+        f"explain-plain template must declare 'elit' alias in manifest.json. Got: {aliases!r}"
     )
 
 
