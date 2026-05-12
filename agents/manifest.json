@@ -1,0 +1,268 @@
+{
+  "templates": {
+    "brainstorm": {
+      "desc": "Generates ideas. Takes a rough question or problem, produces a structured list of options with tradeoffs, and recommends a path forward in plain language.",
+      "mcp": [
+        "ostk"
+      ]
+    },
+    "builder": {
+      "desc": "Your go-to agent for building things. Reads the task, plans an approach, builds it, writes tests, and makes sure everything works before finishing.",
+      "aliases": [
+        "saa"
+      ],
+      "mcp": [
+        "ostk"
+      ],
+      "quality_gates": {
+        "ac": [
+          "python3 -m pytest api/tests/ -x -q",
+          "cd app && npx tsc -b"
+        ],
+        "review": [
+          "performance",
+          "security"
+        ],
+        "standards": ".standards.md"
+      }
+    },
+    "diagnose": {
+      "desc": "Tracks down bugs. Reproduces the problem, finds the root cause, fixes it, and writes a test to make sure it stays fixed.",
+      "mcp": [
+        "ostk"
+      ],
+      "quality_gates": {
+        "ac": [
+          "python3 -m pytest api/tests/ -x -q"
+        ],
+        "review": [
+          "security"
+        ],
+        "standards": ".standards.md"
+      }
+    },
+    "explain-plain": {
+      "desc": "Plain-language explanation of anything you point it at. No jargon, no omissions. Uses analogies for technical concepts.",
+      "aliases": [
+        "elit"
+      ],
+      "mcp": [
+        "ostk"
+      ]
+    },
+    "research": {
+      "desc": "Finds information for you. Searches the web, reads sources, and writes a clear summary of what it found.",
+      "mcp": [
+        "ostk"
+      ]
+    },
+    "review": {
+      "desc": "Reads through code changes and flags bugs, missing edge cases, style issues, and security concerns. Gives clear, actionable feedback.",
+      "mcp": [
+        "ostk"
+      ],
+      "quality_gates": {
+        "review": [
+          "owasp",
+          "performance",
+          "accessibility"
+        ],
+        "standards": ".standards.md"
+      }
+    },
+    "self-review": {
+      "desc": "Self-review: take a mistake, find its behavioral root cause, and either cite the existing rule that should have caught it or write a new feedback memory entry.",
+      "mcp": [
+        "ostk"
+      ]
+    },
+    "test": {
+      "desc": "Runs your tests and tells you what passed and what broke. For failures, it reads the code and suggests how to fix them.",
+      "mcp": [
+        "ostk"
+      ],
+      "quality_gates": {
+        "ac": [
+          "python3 -m pytest api/tests/ -x -q",
+          "cd app && scripts/run-vitest.sh"
+        ],
+        "standards": ".standards.md"
+      }
+    },
+    "blog-post": {
+      "name": "Blog Post",
+      "desc": "Write a draft blog post from an outline or rough idea."
+    },
+    "budget-builder": {
+      "name": "Budget Builder",
+      "desc": "Take a list of income and expenses and show where the money goes, what's over budget, and where to cut."
+    },
+    "bug-finder": {
+      "name": "Bug Finder",
+      "desc": "Analyze code for potential bugs and security issues."
+    },
+    "call-prep": {
+      "name": "Call Prep",
+      "desc": "Build a 1-page call brief for an upcoming customer meeting."
+    },
+    "campaign-brief": {
+      "name": "Campaign Brief",
+      "desc": "Turn a product feature or launch into a campaign brief -- messaging, target audience, channels, and call to action."
+    },
+    "citation-helper": {
+      "name": "Citation Helper",
+      "desc": "Format sources in APA, MLA, or Chicago style."
+    },
+    "cold-outreach-draft": {
+      "name": "Cold Outreach Draft",
+      "desc": "Draft a personalized outreach email to a prospect."
+    },
+    "competitive-scan": {
+      "name": "Competitive Scan",
+      "desc": "Research what competitors are shipping in a product area.",
+      "mcp": [
+        "ostk"
+      ]
+    },
+    "concept-explainer": {
+      "name": "Concept Explainer",
+      "desc": "Explain a hard concept in plain language with an example."
+    },
+    "customer-interview-notes": {
+      "name": "Customer Interview Notes",
+      "desc": "Turn raw interview notes into themes and insights."
+    },
+    "customer-reply": {
+      "name": "Customer Reply",
+      "desc": "Draft a clear, empathetic response to a customer complaint or support ticket -- with a resolution, an explanation, and a next step."
+    },
+    "debug-helper": {
+      "name": "Debug Helper",
+      "desc": "Read an error log, find the root cause, and suggest a fix."
+    },
+    "debugger": {
+      "desc": "Diagnose a bug from a stack trace or error log, implement the fix, and add a regression test so it stays fixed.",
+      "name": "Debugger"
+    },
+    "design-critique": {
+      "name": "Design Critique",
+      "desc": "Review a design for usability, clarity, and accessibility -- with specific, prioritized feedback."
+    },
+    "essay-outline": {
+      "name": "Essay Outline",
+      "desc": "Build an outline for a paper based on a prompt or topic."
+    },
+    "flash-cards": {
+      "name": "Flash Cards",
+      "desc": "Turn a reading into a set of flash-card style Q&A pairs."
+    },
+    "follow-up": {
+      "name": "Follow Up",
+      "desc": "Turn a call into a recap email and next steps."
+    },
+    "gift-finder": {
+      "name": "Gift Finder",
+      "desc": "Suggest gift ideas for a specific person, budget, and occasion."
+    },
+    "headline-generator": {
+      "name": "Headline Generator",
+      "desc": "Write 10 headline options for the same piece of content."
+    },
+    "homework-helper": {
+      "name": "Homework Helper",
+      "desc": "Walk a kid through a tricky homework problem step by step."
+    },
+    "interactive-debug": {
+      "name": "Interactive Debug",
+      "desc": "Walk through a tricky bug step by step \u2014 the agent asks one question at a time to narrow down the cause, instead of guessing from a one-shot description."
+    },
+    "investor-update": {
+      "name": "Investor Update",
+      "desc": "Turn raw notes from the past month into a crisp investor update -- metrics, progress, blockers, the one ask.",
+      "mcp": [
+        "ostk"
+      ]
+    },
+    "launch-checklist": {
+      "name": "Launch Checklist",
+      "desc": "Check a feature for launch readiness and create tasks for any gaps."
+    },
+    "meal-planner": {
+      "name": "Meal Planner",
+      "desc": "Plan a week of meals from what's in the fridge and produce the shopping list."
+    },
+    "name-generator": {
+      "name": "Name Generator",
+      "desc": "Come up with names for projects, features, or products."
+    },
+    "objection-handling": {
+      "name": "Objection Handling",
+      "desc": "Help you prep answers to common customer objections."
+    },
+    "prd": {
+      "desc": "Turn a rough idea into a product requirements doc.",
+      "name": "PRD"
+    },
+    "proofreader": {
+      "desc": "Catch typos, grammar issues, and awkward phrasing.",
+      "name": "Proofreader"
+    },
+    "prospect-research": {
+      "name": "Prospect Research",
+      "desc": "Dig into a company and decision maker before an outreach call.",
+      "mcp": [
+        "ostk"
+      ]
+    },
+    "refactor-plan": {
+      "name": "Refactor Plan",
+      "desc": "Review messy code and propose a clean refactoring plan."
+    },
+    "marketplace/research": {
+      "desc": "Finds information for you. Searches the web, reads sources, and writes a clear summary of what it found.",
+      "name": "Research"
+    },
+    "marketplace/review": {
+      "desc": "Reads through code changes and flags bugs, missing edge cases, style issues, and security concerns. Gives clear, actionable feedback.",
+      "name": "Review"
+    },
+    "roadmap": {
+      "desc": "Draft a multi-year quarterly roadmap from a set of initiatives.",
+      "mcp": [
+        "ostk"
+      ],
+      "name": "Roadmap"
+    },
+    "social-post": {
+      "name": "Social Post",
+      "desc": "Turn a long post into short, punchy social versions."
+    },
+    "stakeholder-update": {
+      "name": "Stakeholder Update",
+      "desc": "Write a weekly update for your leadership team.",
+      "mcp": [
+        "ostk"
+      ]
+    },
+    "study-guide": {
+      "name": "Study Guide",
+      "desc": "Turn class notes into a study guide with key concepts and example questions."
+    },
+    "test-engineer": {
+      "name": "Test Engineer",
+      "desc": "Write a complete, runnable test suite for a module or function \u2014 happy path, edge cases, and failure paths included."
+    },
+    "marketplace/test": {
+      "desc": "Runs your tests and tells you what passed and what broke. For failures, it reads the code and suggests how to fix them.",
+      "name": "Test"
+    },
+    "trip-planner": {
+      "name": "Trip Planner",
+      "desc": "Plan a day trip or vacation with budget and time constraints."
+    },
+    "write-tests": {
+      "name": "Write Tests",
+      "desc": "Generate test cases for your code."
+    }
+  }
+}

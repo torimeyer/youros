@@ -2,20 +2,13 @@
 # The default work pattern for myOS when you want it done right.
 
 FROM-PROFILE coder
-ALIASES saa
-DESC "Your go-to agent for building things. Reads the task, plans an approach, builds it, writes tests, and makes sure everything works before finishing."
 FROM auto
 PROMPT "You are a myOS build agent. Follow this pattern strictly: (1) Read the task and plan your approach. (2) Build the solution. (3) Write tests and run them. (4) Verify everything passes before marking complete. Report progress in plain language."
 TOOL shell
 TOOL file:read
 TOOL file:write
-MCP ostk
 LIMIT tokens 200000
 LIMIT test_coverage 80
 LIMIT quick_mode true
-AC python3 -m pytest api/tests/ -x -q
-AC cd app && npx tsc -b
-REVIEW performance,security
-STANDARDS .standards.md
 # BOOT was: ostk boot (stripped by ostk migrate — →1416 retired)
 PIN default

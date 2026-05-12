@@ -29,12 +29,16 @@ human sentence. Never a bare traceback.
 
 from __future__ import annotations
 
+import json
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 from config import PROJECT_ROOT
+
+logger = logging.getLogger(__name__)
 
 AGENTS_DIR = PROJECT_ROOT / "agents"
 # Marketplace and custom agentfiles live outside the built-in dir so the
@@ -48,6 +52,45 @@ try:
     CUSTOM_DIR = Path.home() / ".myos" / "agents" / "custom"
 except Exception:
     CUSTOM_DIR = None  # type: ignore[assignment]
+
+
+MANIFEST_PATH = AGENTS_DIR / "manifest.json"
+
+_manifest_cache: Optional[dict] = None
+
+
+def _load_manifest() -> dict:
+    """Load agents/manifest.json, cached after first read."""
+    global _manifest_cache
+    if _manifest_cache is None:
+        try:
+            _manifest_cache = json.loads(MANIFEST_PATH.read_text()).get("templates", {})
+        except Exception:
+            _manifest_cache = {}
+    return _manifest_cache
+
+
+def _manifest_key(path: Path) -> str:
+    """Return the manifest key for a given .agent file path.
+
+    Marketplace files that collide with a main-agents stem are stored as
+    ``marketplace/<stem>``. All others use the plain stem.
+    """
+    stem = path.stem
+    if path.parent == MARKETPLACE_DIR and (AGENTS_DIR / f"{stem}.agent").exists():
+        return f"marketplace/{stem}"
+    return stem
+
+
+def _lookup_manifest(path: Path) -> Optional[dict]:
+    """Return the manifest entry for a .agent file, or None."""
+    manifest = _load_manifest()
+    # Try namespaced key first (marketplace collision), then plain stem.
+    for key in (_manifest_key(path), path.stem):
+        entry = manifest.get(key)
+        if entry is not None:
+            return entry
+    return None
 
 
 def _candidate_agentfile_paths(stem: str) -> list[Path]:
@@ -418,6 +461,8 @@ def parse_agentfile(path: Path) -> AgentfileConfig:
     if not path.exists():
         return config
 
+    _in_file: set[str] = set()
+
     for raw_line_number, raw_line in enumerate(path.read_text().splitlines(), start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -440,8 +485,10 @@ def parse_agentfile(path: Path) -> AgentfileConfig:
             config.model = value
         elif directive == "NAME":
             config.name = _strip_quotes(value)
+            _in_file.add("NAME")
         elif directive == "DESC":
             config.description = _strip_quotes(value)
+            _in_file.add("DESC")
         elif directive == "PROMPT":
             config.prompt = _strip_quotes(value)
         elif directive == "TOOL":
@@ -460,6 +507,7 @@ def parse_agentfile(path: Path) -> AgentfileConfig:
                     path,
                 )
             config.mcp_servers.append(value)
+            _in_file.add("MCP")
         elif directive == "SKILL":
             if not value:
                 raise AgentfileParseError(
@@ -520,6 +568,7 @@ def parse_agentfile(path: Path) -> AgentfileConfig:
             config.aliases.extend(
                 a.strip() for a in re.split(r"[,\s]+", value) if a.strip()
             )
+            _in_file.add("ALIASES")
         elif directive == "USER_INPUTS":
             try:
                 import json as _json
@@ -530,17 +579,81 @@ def parse_agentfile(path: Path) -> AgentfileConfig:
                 pass  # Malformed JSON is a no-op; unknown directives are ignored.
         elif directive == "AC":
             config.acceptance_criteria.append(value)
+            _in_file.add("AC")
         elif directive == "REVIEW":
             config.review_checklists.extend(
                 c.strip() for c in value.split(",") if c.strip()
             )
+            _in_file.add("REVIEW")
         elif directive == "STANDARDS":
             config.standards_path = value
+            _in_file.add("STANDARDS")
         # Unknown directives: ignored (forward-compat). We do not raise
         # so adding a new directive in a future ostk release does not
         # break existing myOS deployments.
 
+    # Apply manifest sidecar values for directives not present in the file.
+    _apply_manifest(path, config, _in_file)
+
     return config
+
+
+def _apply_manifest(path: Path, config: AgentfileConfig, in_file: set[str]) -> None:
+    """Populate config fields from manifest.json for directives absent from the file.
+
+    If a directive is still present in the file (backwards-compat WIP), prefer
+    the in-file value and log one warning so the author knows to migrate it.
+    """
+    entry = _lookup_manifest(path)
+    if not entry:
+        return
+
+    if "NAME" in in_file:
+        logger.warning("agentfile %s has NAME directive — should be in manifest.json", path.name)
+    elif "name" in entry:
+        config.name = entry["name"]
+
+    if "DESC" in in_file:
+        logger.warning("agentfile %s has DESC directive — should be in manifest.json", path.name)
+    elif "desc" in entry:
+        config.description = entry["desc"]
+
+    if "ALIASES" in in_file:
+        logger.warning("agentfile %s has ALIASES directive — should be in manifest.json", path.name)
+    elif entry.get("aliases"):
+        config.aliases = list(entry["aliases"])
+
+    if "MCP" in in_file:
+        logger.warning("agentfile %s has MCP directive — should be in manifest.json", path.name)
+    elif entry.get("mcp"):
+        config.mcp_servers = list(entry["mcp"])
+
+    # Quality gates from manifest sidecar.
+    qg = entry.get("quality_gates", {})
+
+    if "AC" in in_file:
+        if qg.get("ac"):
+            logger.warning(
+                "agentfile %s has AC directive — should be in manifest.json quality_gates", path.name
+            )
+    elif qg.get("ac"):
+        config.acceptance_criteria = list(qg["ac"])
+
+    if "REVIEW" in in_file:
+        if qg.get("review"):
+            logger.warning(
+                "agentfile %s has REVIEW directive — should be in manifest.json quality_gates", path.name
+            )
+    elif qg.get("review"):
+        config.review_checklists = list(qg["review"])
+
+    if "STANDARDS" in in_file:
+        if qg.get("standards"):
+            logger.warning(
+                "agentfile %s has STANDARDS directive — should be in manifest.json quality_gates", path.name
+            )
+    elif qg.get("standards"):
+        config.standards_path = qg["standards"]
 
 
 def find_agentfile(agent_name: str) -> Optional[Path]:
