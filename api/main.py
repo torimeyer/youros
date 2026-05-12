@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
     await backfill_stuck_in_progress_tasks()
     await sweep_stale_backend_sessions()
     await schedule_agent_reconciliation()
+    await schedule_agents_snapshotter()
     await agents.schedule_spawn_lock_sweep()
     await schedule_worktree_reaper()
     await schedule_recurring_task_spawner()
@@ -658,6 +659,13 @@ async def schedule_agent_reconciliation():
     from routers.agents import _reconcile_loop
 
     _keep(asyncio.create_task(_reconcile_loop()))
+
+
+async def schedule_agents_snapshotter():
+    """Start the background task that caches GET /api/agents every 500 ms (→1219)."""
+    import asyncio
+    from routers import agents as _agents_router
+    _keep(asyncio.create_task(_agents_router._agents_snapshot_loop()))
 
 
 async def schedule_recurring_task_spawner():
