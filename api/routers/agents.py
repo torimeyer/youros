@@ -4516,6 +4516,17 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     # way to write files when the hook blocks native fallbacks.
                     _main_sock = PROJECT_ROOT / ".ostk" / "ostk.sock"
                     _wt_sock = _wt_path / ".ostk" / "ostk.sock"
+                    # Point OSTK_SOCKET directly at the main daemon socket so the
+                    # subagent's ostk CLI connects there without any path computation.
+                    # agent_loop.rs resolve_socket_path() checks OSTK_SOCKET first,
+                    # bypassing the <cwd>/.ostk/ostk.sock fallback that would exceed
+                    # macOS sun_path (104) for long worktree names. This is the
+                    # primary mitigation for the degraded-MCP mode bug (→1177).
+                    _spawn_env["OSTK_SOCKET"] = str(_main_sock)
+                    logger.info(
+                        "spawn.ostk_socket_env.set name=%s socket=%s",
+                        body.name, _main_sock,
+                    )
                     if not _wt_sock.exists():  # always symlink, even if daemon not yet running
                         try:
                             os.symlink(str(_main_sock), str(_wt_sock))

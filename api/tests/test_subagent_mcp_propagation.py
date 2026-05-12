@@ -333,3 +333,78 @@ async def test_ostk_project_root_short_for_long_agent_name(tmp_path, monkeypatch
         active_agents.pop(long_agent_name, None)
         _reset_spawn_lock_registry_for_tests()
         shutil.rmtree(fixed_root, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_ostk_socket_env_set_for_worktree_spawn(tmp_path, monkeypatch):
+    """OSTK_SOCKET must be set in _spawn_env for worktree agents.
+
+    agent_loop.rs resolve_socket_path() checks OSTK_SOCKET before computing
+    <cwd>/.ostk/ostk.sock.  Setting it to the main daemon socket path (always
+    short) prevents the MCP server from falling back to degraded mode when the
+    worktree path is long (→1177).
+
+    This test verifies that OSTK_SOCKET is injected for any worktree spawn,
+    regardless of whether the path would trigger the short-cwd rewrite.
+    """
+    from services.spawn_isolation import _reset_spawn_lock_registry_for_tests
+    _reset_spawn_lock_registry_for_tests()
+
+    import config as config_module
+    from main import app
+    from routers.agents import active_agents, agent_metadata
+
+    fixed_root = Path("/tmp/myos-test-ostk-socket-env")
+    fixed_root.mkdir(exist_ok=True)
+    monkeypatch.setattr(config_module, "PROJECT_ROOT", fixed_root)
+    (fixed_root / ".claude" / "worktrees").mkdir(parents=True, exist_ok=True)
+    (fixed_root / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
+    (fixed_root / ".ostk").mkdir(parents=True, exist_ok=True)
+
+    long_agent_name = "fix-degraded-mcp-mode-ostk-socket-1177"
+    agent_metadata.pop(long_agent_name, None)
+    active_agents.pop(long_agent_name, None)
+
+    calls = _install_spawn_doubles_env(monkeypatch)
+
+    try:
+        from httpx import ASGITransport, AsyncClient
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": long_agent_name,
+                    "prompt": "fix degraded mcp mode for worktree agents",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "isolation": "worktree",
+                    "locks": ["/tmp/fix-degraded-mcp-1177.log"],
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        assert calls["fork_called"] is True, "git worktree add must be called"
+
+        spawn_env = calls["spawn_env"]
+        assert spawn_env is not None, "subprocess env was not captured"
+
+        # OSTK_SOCKET must be set and must point to the main daemon socket.
+        ostk_socket = spawn_env.get("OSTK_SOCKET", "")
+        expected_main_sock = str(fixed_root / ".ostk" / "ostk.sock")
+        assert ostk_socket == expected_main_sock, (
+            f"OSTK_SOCKET must point at the main daemon socket ({expected_main_sock!r}); "
+            f"got {ostk_socket!r}. Without this, agent_loop.rs computes the socket path "
+            "from <cwd>/.ostk/ostk.sock which exceeds macOS sun_path for long agent names "
+            "and the MCP server falls back to degraded mode (→1177)."
+        )
+
+        # OSTK_SOCKET must be short enough to fit sun_path on its own (it's
+        # the main project root's socket, not the worktree's).
+        assert len(ostk_socket) < SUN_PATH_MAX, (
+            f"OSTK_SOCKET {len(ostk_socket)} chars must fit under sun_path {SUN_PATH_MAX}"
+        )
+    finally:
+        agent_metadata.pop(long_agent_name, None)
+        active_agents.pop(long_agent_name, None)
+        _reset_spawn_lock_registry_for_tests()
+        shutil.rmtree(fixed_root, ignore_errors=True)
