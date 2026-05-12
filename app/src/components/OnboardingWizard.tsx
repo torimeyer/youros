@@ -3,6 +3,7 @@ import { useAppStore, TEAM_MODE_VISIBLE } from '../stores/app'
 import Icon from './Icon'
 import { api } from '../lib/api'
 import { AGENT_MARKETPLACE, PERSONA_ICONS, type MarketplaceCategory } from '../data/agentMarketplace'
+import { GoogleWorkspaceSetupCard } from './GoogleWorkspaceSetupCard'
 import {
   OrgNameStep,
   AdminEmailStep,
@@ -280,7 +281,7 @@ export default function OnboardingWizard() {
   const themeIdx = (STEPS as readonly string[]).indexOf('Theme')
   const [pickedDark, setPickedDark] = useState(darkMode)
   const effectiveDark = themeIdx >= 0 && stepIndex >= themeIdx ? pickedDark : false
-  const pickedDarkRef = useRef(false)
+  const pickedDarkRef = useRef(darkMode)
 
   const handleDarkModeChoice = (wantDark: boolean) => {
     setPickedDark(wantDark)
@@ -1069,186 +1070,209 @@ function ConnectStep({
     { name: 'Google Gemini', label: 'Google (Gemini)' },
   ]
 
+  const sectionDivider = `text-xs font-semibold uppercase tracking-wider mb-3 pb-1 border-b ${darkMode ? 'text-slate-500 border-slate-800' : 'text-slate-400 border-gray-200'}`
+
   return (
     <div data-testid="step-connect">
-      <h2 className="text-2xl font-bold mb-2">Connect your AI</h2>
+      <h2 className="text-2xl font-bold mb-2">Connect your providers</h2>
       <p className={`${subtextCls} mb-6`}>
         Pick a provider and sign in or paste an API key. You can change this
         anytime in Settings.
       </p>
 
-      {/* Provider selector */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        {providers.map((p) => {
-          const isSelected = selectedProvider === p.name
-          return (
-            <button
-              key={p.name}
-              onClick={() => onSelectProvider(p.name)}
-              className={`p-3 rounded-lg border-2 text-center transition-colors ${
-                isSelected
-                  ? 'border-blue-500 bg-blue-500/10'
-                  : darkMode
-                    ? 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
-                    : 'border-gray-200 bg-white hover:border-gray-300'
-              }`}
-              data-testid={`provider-${p.name}`}
-            >
-              <p className="text-sm font-medium">{p.label}</p>
-              {isSelected && (
-                <span className="text-xs text-blue-400 font-medium">Selected</span>
-              )}
-            </button>
-          )
-        })}
-      </div>
+      {/* ── Anthropic ─────────────────────────────────────── */}
+      <div className="mb-5">
+        <p className={sectionDivider}>Anthropic</p>
 
-      {/* Google Workspace OAuth — secondary, only when server-side OAuth is configured */}
-      {googleOAuthAvailable && (
-        <div className={`mb-4 pb-4 border-b ${darkMode ? 'border-slate-700' : 'border-gray-200'}`}>
-          <button
-            onClick={async () => {
-              try {
-                await api.patch('/settings', { onboarding_step: stepIndex })
-                const res = await api.get<{ url: string }>('/drive/auth/url?return_to=%2F')
-                window.location.href = res.url
-              } catch (err) {
-                console.error('Google Workspace sign-in failed to start:', err)
-                api.patch('/settings', { onboarding_step: null }).catch(() => {})
-              }
-            }}
-            className={`w-full px-4 py-2.5 border rounded-lg text-sm transition-colors flex items-center gap-2 ${
-              darkMode
-                ? 'bg-slate-800/50 border-slate-700 text-slate-300 hover:border-blue-500'
-                : 'bg-gray-50 border-gray-200 text-slate-600 hover:border-blue-500'
-            }`}
-            data-testid="connect-google-workspace"
-          >
-            <Icon name="folder_shared" size={18} />
-            Connect Google Workspace (Drive, Calendar, Gmail) — one click sign-in.
-          </button>
-        </div>
-      )}
-
-      {/* Connect option */}
-      {selectedProvider === 'Google Gemini' ? (
-        googleOAuthAvailable ? (
-          <button
-            onClick={() => {
-              api.patch('/settings', { onboarding_step: stepIndex }).catch(() => {})
-              window.open('/api/auth/google', '_self')
-            }}
-            className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
-              darkMode
-                ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
-                : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
-            }`}
-            data-testid="connect-google"
-          >
-            <Icon name="login" size={18} />
-            Connect via Google Cloud (Vertex AI)
-          </button>
-        ) : (
-          <p className={`text-sm mb-3 ${subtextCls}`}>
-            Google sign-in is not set up yet. Paste a Gemini API key below, or switch to Anthropic.
-          </p>
-        )
-      ) : (
-        <button
-          onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}
-          className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
-            darkMode
-              ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
-              : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
-          }`}
-          data-testid="connect-anthropic"
-        >
-          <Icon name="open_in_new" size={18} />
-          Sign in to Anthropic to get a key
-        </button>
-      )}
-
-      {/* Gemini: recommend Cloud Console first, AI Studio as fallback */}
-      {selectedProvider === 'Google Gemini' && (
-        <div
-          className={`mb-3 p-3 rounded-lg text-xs space-y-2 border bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border-blue-500/30 ${
-            darkMode ? 'text-slate-200' : 'text-slate-700'
-          }`}
-          data-testid="gemini-key-help"
-        >
-          <p>
-            <span className={darkMode ? 'text-white font-medium' : 'text-slate-900 font-medium'}>Recommended.</span>{' '}
-            Use the same{' '}
-            <a
-              href="https://console.cloud.google.com"
-              target="_blank"
-              rel="noreferrer"
-              className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
-            >
-              Google Cloud project
-            </a>{' '}
-            you already set up for Drive, Calendar, or Gmail. Three steps:
-          </p>
-          <ol className="list-decimal ml-5 space-y-1">
-            <li>
-              Enable{' '}
-              <a
-                href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com"
-                target="_blank"
-                rel="noreferrer"
-                className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+        {/* Provider selector — keep both tabs for switching */}
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          {providers.map((p) => {
+            const isSelected = selectedProvider === p.name
+            return (
+              <button
+                key={p.name}
+                onClick={() => onSelectProvider(p.name)}
+                className={`p-3 rounded-lg border-2 text-center transition-colors ${
+                  isSelected
+                    ? 'border-blue-500 bg-blue-500/10'
+                    : darkMode
+                      ? 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                }`}
+                data-testid={`provider-${p.name}`}
               >
-                "Generative Language API"
-              </a>{' '}
-              in the API library. It takes about 30 seconds.
-            </li>
-            <li>Open Credentials and click Create credentials, API key.</li>
-            <li>
-              Open the key you just created, scroll to "API restrictions", and select "Generative Language API" from the list. (This option only shows up after you complete step 1 above.)
-            </li>
-          </ol>
-          <p>
-            <span className={darkMode ? 'text-white font-medium' : 'text-slate-900 font-medium'}>Chat only.</span>{' '}
-            Only using Gemini chat and nothing else from Google? Grab a free key at{' '}
-            <a
-              href="https://aistudio.google.com/apikey"
-              target="_blank"
-              rel="noreferrer"
-              className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
-            >
-              Google AI Studio
-            </a>{' '}
-            instead. It ties to your personal Google account and is one click.
-          </p>
+                <p className="text-sm font-medium">{p.label}</p>
+                {isSelected && (
+                  <span className="text-xs text-blue-400 font-medium">Selected</span>
+                )}
+              </button>
+            )
+          })}
         </div>
-      )}
 
-      {/* API key paste */}
-      <div className="flex gap-2">
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => onApiKeyChange(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { onSaveKey(); onNext(); } }}
-          placeholder={selectedProvider === 'Anthropic' ? 'Paste API key (sk-ant-xxxx...)' : 'Paste API key (AIzaSy...)'}
-          className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
-          data-testid="api-key-input"
-        />
-        <button
-          onClick={onSaveKey}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors whitespace-nowrap"
-          data-testid="save-key-button"
-        >
-          {keySaved ? 'Saved!' : 'Save'}
-        </button>
+        {selectedProvider === 'Anthropic' && (
+          <>
+            <button
+              onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}
+              className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                darkMode
+                  ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
+                  : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
+              }`}
+              data-testid="connect-anthropic"
+            >
+              <Icon name="open_in_new" size={18} />
+              Sign in to Anthropic to get a key
+            </button>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => onApiKeyChange(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { onSaveKey(); onNext(); } }}
+                placeholder="Paste API key (sk-ant-xxxx...)"
+                className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+                data-testid="api-key-input"
+              />
+              <button
+                onClick={onSaveKey}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors whitespace-nowrap"
+                data-testid="save-key-button"
+              >
+                {keySaved ? 'Saved!' : 'Save'}
+              </button>
+            </div>
+            <p className={`text-xs mt-2 ${subtextCls}`}>
+              You can skip this step and connect later in Settings.
+            </p>
+          </>
+        )}
       </div>
 
-      <p className={`text-xs mt-3 ${subtextCls}`}>
-        You can skip this step and connect later in Settings.
-      </p>
+      {/* ── Google ────────────────────────────────────────── */}
+      <div className="mb-5">
+        <p className={sectionDivider}>Google</p>
 
-      <AtlassianSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} stepIndex={stepIndex} />
-      <GithubSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} stepIndex={stepIndex} />
+        {/* Workspace — always visible when OAuth is configured */}
+        {googleOAuthAvailable && (
+          <GoogleWorkspaceSetupCard darkMode={darkMode} subtextCls={subtextCls} stepIndex={stepIndex} />
+        )}
+
+        {/* Gemini chat — shown when Google Gemini is the selected AI provider */}
+        {selectedProvider === 'Google Gemini' && (
+          <div className="mt-3">
+            {googleOAuthAvailable ? (
+              <button
+                onClick={() => {
+                  api.patch('/settings', { onboarding_step: stepIndex }).catch(() => {})
+                  window.open('/api/auth/google', '_self')
+                }}
+                className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                  darkMode
+                    ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
+                    : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
+                }`}
+                data-testid="connect-google"
+              >
+                <Icon name="login" size={18} />
+                Connect via Google Cloud (Vertex AI)
+              </button>
+            ) : (
+              <p className={`text-sm mb-3 ${subtextCls}`}>
+                Google sign-in is not set up yet. Paste a Gemini API key below, or switch to Anthropic.
+              </p>
+            )}
+
+            {/* Gemini: recommend Cloud Console first, AI Studio as fallback */}
+            <div
+              className={`mb-3 p-3 rounded-lg text-xs space-y-2 border bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border-blue-500/30 ${
+                darkMode ? 'text-slate-200' : 'text-slate-700'
+              }`}
+              data-testid="gemini-key-help"
+            >
+              <p>
+                <span className={darkMode ? 'text-white font-medium' : 'text-slate-900 font-medium'}>Recommended.</span>{' '}
+                Use the same{' '}
+                <a
+                  href="https://console.cloud.google.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                >
+                  Google Cloud project
+                </a>{' '}
+                you already set up for Drive, Calendar, or Gmail. Three steps:
+              </p>
+              <ol className="list-decimal ml-5 space-y-1">
+                <li>
+                  Enable{' '}
+                  <a
+                    href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                  >
+                    "Generative Language API"
+                  </a>{' '}
+                  in the API library. It takes about 30 seconds.
+                </li>
+                <li>Open Credentials and click Create credentials, API key.</li>
+                <li>
+                  Open the key you just created, scroll to "API restrictions", and select "Generative Language API" from the list. (This option only shows up after you complete step 1 above.)
+                </li>
+              </ol>
+              <p>
+                <span className={darkMode ? 'text-white font-medium' : 'text-slate-900 font-medium'}>Chat only.</span>{' '}
+                Only using Gemini chat and nothing else from Google? Grab a free key at{' '}
+                <a
+                  href="https://aistudio.google.com/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                >
+                  Google AI Studio
+                </a>{' '}
+                instead. It ties to your personal Google account and is one click.
+              </p>
+            </div>
+
+            <p className={`text-xs font-medium mb-1 ${subtextCls}`}>Paste AI Studio key (for personal use)</p>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => onApiKeyChange(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { onSaveKey(); onNext(); } }}
+                placeholder="Paste API key (AIzaSy...)"
+                className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+                data-testid="api-key-input"
+              />
+              <button
+                onClick={onSaveKey}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors whitespace-nowrap"
+                data-testid="save-key-button"
+              >
+                {keySaved ? 'Saved!' : 'Save'}
+              </button>
+            </div>
+            <p className={`text-xs mt-2 ${subtextCls}`}>
+              You can skip this step and connect later in Settings.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ── Confluence ────────────────────────────────────── */}
+      <div className="mb-2">
+        <p className={sectionDivider}>Confluence</p>
+        <AtlassianSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} stepIndex={stepIndex} />
+      </div>
+
+      {/* ── GitHub ────────────────────────────────────────── */}
+      <div>
+        <p className={sectionDivider}>GitHub</p>
+        <GithubSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} stepIndex={stepIndex} />
+      </div>
     </div>
   )
 }

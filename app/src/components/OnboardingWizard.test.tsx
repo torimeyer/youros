@@ -288,6 +288,25 @@ describe('OnboardingWizard', () => {
     expect(helper).toHaveTextContent(/Generative Language API/i)
   })
 
+  it('shows "Paste AI Studio key (for personal use)" label when Gemini is selected', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(8)
+    fireEvent.click(screen.getByTestId('provider-Google Gemini'))
+    expect(screen.getByText(/Paste AI Studio key \(for personal use\)/i)).toBeInTheDocument()
+  })
+
+  it('Connect step sections show Anthropic, Google, Confluence, GitHub headings', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(8)
+    const connectEl = screen.getByTestId('step-connect')
+    expect(connectEl).toHaveTextContent(/Anthropic/i)
+    expect(connectEl).toHaveTextContent(/Google/i)
+    expect(connectEl).toHaveTextContent(/Confluence/i)
+    expect(connectEl).toHaveTextContent(/GitHub/i)
+  })
+
   it('advances to Ready step with summary', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
@@ -297,6 +316,24 @@ describe('OnboardingWizard', () => {
     expect(screen.getByTestId('summary-os-name')).toHaveTextContent('myOS')
     expect(screen.getByTestId('summary-theme')).toHaveTextContent('Dark')
     expect(screen.getByTestId('summary-provider')).toHaveTextContent('Anthropic')
+  })
+
+  it('theme summary reflects store darkMode even when the user never visits Theme step', () => {
+    // Store darkMode=true but user navigates straight through without interacting with Theme step.
+    // The pickedDarkRef must be initialized from the store, not hard-coded to false.
+    useAppStore.setState({ onboarded: false, osName: 'myOS', darkMode: true })
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(9) // skip through all steps including Theme without touching it
+    expect(screen.getByTestId('summary-theme')).toHaveTextContent('Dark')
+  })
+
+  it('theme summary shows Light when store darkMode is false and Theme step not interacted', () => {
+    useAppStore.setState({ onboarded: false, osName: 'myOS', darkMode: false })
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(9)
+    expect(screen.getByTestId('summary-theme')).toHaveTextContent('Light')
   })
 
   it('does not show Skip button on Ready step', () => {
