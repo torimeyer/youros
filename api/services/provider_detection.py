@@ -116,17 +116,12 @@ async def detect_providers() -> dict[str, bool]:
     Checks Claude Code subscription login, ANTHROPIC_API_KEY, GEMINI_API_KEY,
     Google Vertex AI ADC, and AWS Bedrock credentials. No secrets are returned.
     """
+    from services.ostk_secrets import get_anthropic_key, get_gemini_key
+
     claude_code = await is_claude_code_available()
 
-    anthropic_key = bool(
-        os.environ.get("ANTHROPIC_API_KEY")
-        or settings_store.get("anthropic_api_key")
-    )
-
-    gemini_key = bool(
-        os.environ.get("GEMINI_API_KEY")
-        or settings_store.get("gemini_api_key")
-    )
+    anthropic_key = bool(await get_anthropic_key())
+    gemini_key = bool(await get_gemini_key())
 
     vx = detect_vertex_gemini()
     return {

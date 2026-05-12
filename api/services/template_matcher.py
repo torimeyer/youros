@@ -363,7 +363,8 @@ async def match_template(
 
     # Resolve API key if not provided.
     if api_key is None:
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        from services.ostk_secrets import get_anthropic_key
+        api_key = await get_anthropic_key()
     if not api_key:
         # No classifier available. Cache NONE so we do not try again this
         # process lifetime for the same message.

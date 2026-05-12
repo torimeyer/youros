@@ -415,15 +415,8 @@ async def _call_claude(prompt: str) -> str:
             pass
 
     # Fall back to Anthropic API key
-    api_key = ""
-    try:
-        from services.ostk import ostk
-        api_key = await ostk.secret_get("ANTHROPIC_API_KEY") or ""
-    except Exception:
-        pass
-
-    if not api_key:
-        api_key = settings_store.get("anthropic_api_key", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+    from services.ostk_secrets import get_anthropic_key
+    api_key = await get_anthropic_key()
 
     if not api_key:
         return (

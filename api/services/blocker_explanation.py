@@ -104,26 +104,8 @@ def set_cached(task_id: str, blocker_id: str, explanation: str) -> None:
 
 async def _resolve_api_key() -> str:
     """Find an Anthropic API key from the usual places. Empty string if none."""
-    # Try ostk secret store first.
-    try:
-        from services.ostk import ostk
-        key = await ostk.secret_get("ANTHROPIC_API_KEY") or ""
-        if key:
-            return key
-    except Exception:
-        pass
-
-    # Then settings store.
-    try:
-        from services.settings_store import settings_store
-        key = settings_store.get("anthropic_api_key", "") or ""
-        if key:
-            return key
-    except Exception:
-        pass
-
-    # Finally, environment.
-    return os.environ.get("ANTHROPIC_API_KEY", "") or ""
+    from services.ostk_secrets import get_anthropic_key
+    return await get_anthropic_key()
 
 
 async def generate_explanation(

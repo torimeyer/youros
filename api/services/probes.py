@@ -26,7 +26,8 @@ async def probe_claude_api() -> dict:
     """
     PROBE_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    from services.ostk_secrets import get_anthropic_key
+    api_key = await get_anthropic_key()
     if not api_key:
         result = {
             "status": "fail",

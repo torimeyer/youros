@@ -184,21 +184,8 @@ def _read_agent_aliases(myos_dir: Path = MYOS_DIR) -> list[str]:
 
 async def _resolve_api_key() -> str:
     """Find an Anthropic API key from the usual places. Empty string if none."""
-    try:
-        from services.ostk import ostk
-        key = await ostk.secret_get("ANTHROPIC_API_KEY") or ""
-        if key:
-            return key
-    except Exception:
-        pass
-    try:
-        from services.settings_store import settings_store
-        key = settings_store.get("anthropic_api_key", "") or ""
-        if key:
-            return key
-    except Exception:
-        pass
-    return os.environ.get("ANTHROPIC_API_KEY", "") or ""
+    from services.ostk_secrets import get_anthropic_key
+    return await get_anthropic_key()
 
 
 def _build_prompt(

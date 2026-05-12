@@ -107,20 +107,8 @@ async def _call_claude(prompt: str) -> str:
     local claude binary as a subprocess (non-streaming, -p flag).
     """
     # Try API key first.
-    api_key = ""
-    try:
-        from services.ostk import ostk
-        api_key = await ostk.secret_get("ANTHROPIC_API_KEY") or ""
-    except Exception:
-        pass
-    if not api_key:
-        try:
-            from services.settings_store import settings_store
-            api_key = settings_store.get("anthropic_api_key", "") or ""
-        except Exception:
-            pass
-    if not api_key:
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    from services.ostk_secrets import get_anthropic_key
+    api_key = await get_anthropic_key()
 
     if api_key:
         try:

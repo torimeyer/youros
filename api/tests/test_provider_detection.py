@@ -18,11 +18,10 @@ async def test_detect_no_providers():
     from services.provider_detection import detect_providers
 
     with patch("services.provider_detection.is_claude_code_available", new=AsyncMock(return_value=False)):
-        with patch("services.provider_detection.settings_store") as mock_store:
-            mock_store.get.return_value = ""
-            with patch("services.provider_detection.detect_vertex_ai", return_value=False):
-                with patch("services.provider_detection.detect_bedrock", return_value=False):
-                    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "", "GEMINI_API_KEY": ""}):
+        with patch("services.ostk_secrets.get_anthropic_key", new=AsyncMock(return_value="")):
+            with patch("services.ostk_secrets.get_gemini_key", new=AsyncMock(return_value="")):
+                with patch("services.provider_detection.detect_vertex_ai", return_value=False):
+                    with patch("services.provider_detection.detect_bedrock", return_value=False):
                         result = await detect_providers()
 
     assert result == {
@@ -37,13 +36,12 @@ async def test_detect_no_providers():
 
 @pytest.mark.asyncio
 async def test_detect_anthropic_env():
-    """ANTHROPIC_API_KEY in env → anthropic_key True, others False."""
+    """ANTHROPIC_API_KEY set → anthropic_key True, gemini_key False."""
     from services.provider_detection import detect_providers
 
     with patch("services.provider_detection.is_claude_code_available", new=AsyncMock(return_value=False)):
-        with patch("services.provider_detection.settings_store") as mock_store:
-            mock_store.get.return_value = ""
-            with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test", "GEMINI_API_KEY": ""}):
+        with patch("services.ostk_secrets.get_anthropic_key", new=AsyncMock(return_value="sk-ant-test")):
+            with patch("services.ostk_secrets.get_gemini_key", new=AsyncMock(return_value="")):
                 result = await detect_providers()
 
     assert result["anthropic_key"] is True
@@ -53,13 +51,12 @@ async def test_detect_anthropic_env():
 
 @pytest.mark.asyncio
 async def test_detect_gemini_env():
-    """GEMINI_API_KEY in env → gemini_key True, others False."""
+    """GEMINI_API_KEY set → gemini_key True, anthropic_key False."""
     from services.provider_detection import detect_providers
 
     with patch("services.provider_detection.is_claude_code_available", new=AsyncMock(return_value=False)):
-        with patch("services.provider_detection.settings_store") as mock_store:
-            mock_store.get.return_value = ""
-            with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "", "GEMINI_API_KEY": "gemini-test"}):
+        with patch("services.ostk_secrets.get_anthropic_key", new=AsyncMock(return_value="")):
+            with patch("services.ostk_secrets.get_gemini_key", new=AsyncMock(return_value="gemini-test")):
                 result = await detect_providers()
 
     assert result["gemini_key"] is True
@@ -69,13 +66,12 @@ async def test_detect_gemini_env():
 
 @pytest.mark.asyncio
 async def test_detect_claude_code_available():
-    """Mocked is_claude_code_available True → claude_code True, others False."""
+    """Mocked is_claude_code_available True → claude_code True, keys False."""
     from services.provider_detection import detect_providers
 
     with patch("services.provider_detection.is_claude_code_available", new=AsyncMock(return_value=True)):
-        with patch("services.provider_detection.settings_store") as mock_store:
-            mock_store.get.return_value = ""
-            with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "", "GEMINI_API_KEY": ""}):
+        with patch("services.ostk_secrets.get_anthropic_key", new=AsyncMock(return_value="")):
+            with patch("services.ostk_secrets.get_gemini_key", new=AsyncMock(return_value="")):
                 result = await detect_providers()
 
     assert result["claude_code"] is True
@@ -93,9 +89,8 @@ def test_detect_endpoint_returns_dict():
     test_app.include_router(router, prefix="/api")
 
     with patch("services.provider_detection.is_claude_code_available", new=AsyncMock(return_value=False)):
-        with patch("services.provider_detection.settings_store") as mock_store:
-            mock_store.get.return_value = ""
-            with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "", "GEMINI_API_KEY": ""}):
+        with patch("services.ostk_secrets.get_anthropic_key", new=AsyncMock(return_value="")):
+            with patch("services.ostk_secrets.get_gemini_key", new=AsyncMock(return_value="")):
                 client = TestClient(test_app)
                 resp = client.get("/api/providers/detect")
 
@@ -264,11 +259,10 @@ async def test_detect_providers_includes_vertex_ai_project():
     }
 
     with patch("services.provider_detection.is_claude_code_available", new=AsyncMock(return_value=False)):
-        with patch("services.provider_detection.settings_store") as mock_store:
-            mock_store.get.return_value = ""
-            with patch("services.provider_detection.detect_vertex_gemini", return_value=mock_vx):
-                with patch("services.provider_detection.detect_bedrock", return_value=False):
-                    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "", "GEMINI_API_KEY": ""}):
+        with patch("services.ostk_secrets.get_anthropic_key", new=AsyncMock(return_value="")):
+            with patch("services.ostk_secrets.get_gemini_key", new=AsyncMock(return_value="")):
+                with patch("services.provider_detection.detect_vertex_gemini", return_value=mock_vx):
+                    with patch("services.provider_detection.detect_bedrock", return_value=False):
                         result = await detect_providers()
 
     assert result["vertex_ai"] is True
