@@ -14,6 +14,7 @@ from services.staticfiles_ws_guard import StaticFilesWSGuard
 from services.request_trace import TraceMiddleware
 from services.loopback_guard import LoopbackGuardMiddleware
 from services.security_headers import SecurityHeadersMiddleware
+from services.slow_call_middleware import SlowCallMiddleware
 
 from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, onboarding_pack, search, threads, secrets, activity, specs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, gmail_triage, meeting_prep, meeting_tasks as meeting_tasks_router, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, project_import, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace, providers, adoption, since_you_last_looked, agent_undo, mcp_catalog, team_catalog, org_settings, team_home, my_setup, gemini as gemini_router, inbox as inbox_router, team as team_router, atlassian, spec_drive, meeting_tasks
 from routers import adhd as adhd_router
@@ -21,6 +22,7 @@ from routers import memory as memory_router
 from routers import ostk as ostk_router
 from routers import agent_uploads as agent_uploads_router
 from routers import gems as gems_router
+from routers import internal as internal_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -91,6 +93,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(TraceMiddleware)
+app.add_middleware(SlowCallMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 # Defense-in-depth: reject non-loopback clients unless the operator opts
 # in with ALLOW_NON_LOOPBACK=1. See .ostk/plans/security-privacy-review.md
@@ -177,6 +180,7 @@ app.include_router(inbox_router.router, prefix="/api")
 app.include_router(memory_router.router)
 app.include_router(team_router.router, prefix="/api")
 app.include_router(ostk_router.router, prefix="/api")
+app.include_router(internal_router.router, prefix="/api")
 
 
 async def prune_stale_agent_state():
