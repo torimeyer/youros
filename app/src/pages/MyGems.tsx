@@ -157,16 +157,9 @@ export default function MyGems() {
           >
             <Icon name="auto_awesome" className="text-5xl mb-3 text-slate-600" />
             <p className="text-slate-300 font-medium mb-1">No Gems yet</p>
-            <p className="text-sm mb-6">
+            <p className="text-sm">
               Create your first Gem to give Gemini a custom persona and knowledge base.
             </p>
-            <button
-              onClick={openCreate}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors"
-            >
-              <Icon name="add" className="text-base" />
-              Create Gem
-            </button>
           </div>
         )}
 
