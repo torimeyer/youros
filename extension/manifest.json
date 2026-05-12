@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "myOS Gemini Capture",
+  "version": "0.1.0",
+  "description": "Captures your Gemini conversations and sends them to your local myOS instance.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://gemini.google.com/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "myOS Gemini Capture"
+  },
+  "options_page": "options.html"
+}
