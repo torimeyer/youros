@@ -35,6 +35,7 @@ import { api } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
 const mockedApiPost = vi.mocked(api.post)
+const mockedApiPatch = vi.mocked(api.patch)
 
 const mockTasks = [
   { id: '1', title: 'Fix login bug', priority: 'P0', status: 'open', created_at: '2026-05-11T12:00:03.000Z', goal: 'Auth', label_ids: ['l1'] },
@@ -3227,6 +3228,98 @@ describe('Plan waves feature (→1181)', () => {
     await waitFor(() => expect(screen.getByTestId('plan-waves-panel')).toBeInTheDocument())
     fireEvent.click(screen.getByTestId('plan-waves-close'))
     expect(screen.queryByTestId('plan-waves-panel')).not.toBeInTheDocument()
+  })
+})
+
+describe('inline title editing (→1195)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({})
+    mockedApiPatch.mockResolvedValue({ result: 'ok' })
+  })
+
+  it('clicking a task title opens an edit input with the current value', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByTestId('task-title-1')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('task-title-1'))
+
+    await waitFor(() => {
+      const input = screen.getByTestId('title-edit-input-1') as HTMLInputElement
+      expect(input).toBeInTheDocument()
+      expect(input.value).toBe('Fix login bug')
+    })
+  })
+
+  it('pressing Enter saves the new title and calls api.patch', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByTestId('task-title-1')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('task-title-1'))
+    const input = await screen.findByTestId('title-edit-input-1') as HTMLInputElement
+
+    fireEvent.change(input, { target: { value: 'Updated title' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(mockedApiPatch).toHaveBeenCalledWith('/tasks/1', { title: 'Updated title' })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('task-title-1')).toHaveTextContent('Updated title')
+    })
+  })
+
+  it('pressing Escape cancels without saving', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByTestId('task-title-1')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('task-title-1'))
+    const input = await screen.findByTestId('title-edit-input-1') as HTMLInputElement
+
+    fireEvent.change(input, { target: { value: 'Should not save' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByTestId('title-edit-input-1')).not.toBeInTheDocument())
+    expect(mockedApiPatch).not.toHaveBeenCalledWith('/tasks/1', expect.objectContaining({ title: expect.anything() }))
+    expect(screen.getByTestId('task-title-1')).toHaveTextContent('Fix login bug')
+  })
+
+  it('rejects an empty title and shows a banner', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByTestId('task-title-1')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('task-title-1'))
+    const input = await screen.findByTestId('title-edit-input-1') as HTMLInputElement
+
+    fireEvent.change(input, { target: { value: '   ' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(screen.queryByTestId('title-edit-input-1')).not.toBeInTheDocument())
+    expect(mockedApiPatch).not.toHaveBeenCalledWith('/tasks/1', expect.objectContaining({ title: expect.anything() }))
+    expect(screen.getByTestId('task-title-1')).toHaveTextContent('Fix login bug')
+  })
+
+  it('reverts to the original title on API error', async () => {
+    mockedApiPatch.mockRejectedValueOnce(new Error('Network error'))
+    renderTasks()
+    await waitFor(() => expect(screen.getByTestId('task-title-1')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('task-title-1'))
+    const input = await screen.findByTestId('title-edit-input-1') as HTMLInputElement
+
+    fireEvent.change(input, { target: { value: 'Will fail' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-title-1')).toHaveTextContent('Fix login bug')
+    })
   })
 })
 

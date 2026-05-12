@@ -356,6 +356,11 @@ export default function Tasks() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [auditModalOpen, setAuditModalOpen] = useState(false);
   const [wavesModalOpen, setWavesModalOpen] = useState(false);
+  // Inline title editing: which task row is in edit mode, the draft value,
+  // and a ref to suppress the blur-save when Escape was just pressed.
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingTitleDraft, setEditingTitleDraft] = useState("");
+  const titleEditCancelledRef = useRef(false);
   // Priority reason prompt: when a user changes priority, we show a small
   // input asking "Why?" before committing the change. The user can skip it.
   const [pendingPriorityChange, setPendingPriorityChange] = useState<{
@@ -925,6 +930,27 @@ export default function Tasks() {
     } catch (e) {
       console.error("Failed to update priority:", e);
       await fetchTasks();
+    }
+  };
+
+  const updateTaskTitle = async (taskId: string, newTitle: string) => {
+    const trimmed = newTitle.trim();
+    setEditingTaskId(null);
+    if (!trimmed) {
+      setBanner("Title can't be empty.");
+      setTimeout(() => setBanner(null), 3000);
+      return;
+    }
+    const prev = tasks.find((t) => t.id === taskId)?.title ?? "";
+    if (trimmed === prev) return;
+    setTasks((ts) => ts.map((t) => (t.id === taskId ? { ...t, title: trimmed } : t)));
+    try {
+      await api.patch(`/tasks/${taskId}`, { title: trimmed });
+    } catch (e) {
+      console.error("Failed to update title:", e);
+      setTasks((ts) => ts.map((t) => (t.id === taskId ? { ...t, title: prev } : t)));
+      setBanner("Couldn't save the title. Try again.");
+      setTimeout(() => setBanner(null), 4000);
     }
   };
 
@@ -2112,7 +2138,7 @@ export default function Tasks() {
                       runningAgentTaskIds.has(task.id) ? "true" : undefined
                     }
                     onClick={() => handleTaskClick(task.id)}
-                    className={`${
+                    className={`group ${
                       runningAgentTaskIds.has(task.id)
                         ? "ring-1 ring-blue-400/60 "
                         : ""
@@ -2166,9 +2192,62 @@ export default function Tasks() {
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-sm line-clamp-2 ${task.status === "closed" ? "line-through text-slate-500" : ""} ${task.status === "shelved" ? "text-slate-500" : ""}`} title={task.title}>
-                          {task.title}
-                        </span>
+                        {editingTaskId === task.id ? (
+                          <input
+                            data-testid={`title-edit-input-${task.id}`}
+                            autoFocus
+                            value={editingTitleDraft}
+                            onChange={(e) => setEditingTitleDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                titleEditCancelledRef.current = false;
+                                updateTaskTitle(task.id, editingTitleDraft);
+                              } else if (e.key === "Escape") {
+                                titleEditCancelledRef.current = true;
+                                setEditingTaskId(null);
+                              }
+                            }}
+                            onBlur={() => {
+                              if (!titleEditCancelledRef.current) {
+                                updateTaskTitle(task.id, editingTitleDraft);
+                              }
+                              titleEditCancelledRef.current = false;
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-sm bg-slate-800 border border-blue-500 rounded px-1.5 py-0.5 w-full focus:outline-none text-slate-200 min-w-0"
+                          />
+                        ) : (
+                          <>
+                            <span
+                              data-testid={`task-title-${task.id}`}
+                              className={`text-sm line-clamp-2 cursor-text ${task.status === "closed" ? "line-through text-slate-500" : ""} ${task.status === "shelved" ? "text-slate-500" : ""}`}
+                              title={task.title}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                titleEditCancelledRef.current = false;
+                                setEditingTaskId(task.id);
+                                setEditingTitleDraft(task.title);
+                              }}
+                            >
+                              {task.title}
+                            </span>
+                            <button
+                              data-testid={`edit-title-btn-${task.id}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                titleEditCancelledRef.current = false;
+                                setEditingTaskId(task.id);
+                                setEditingTitleDraft(task.title);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-slate-300 transition-opacity flex-shrink-0"
+                              title="Edit title"
+                              aria-label={`edit title of ${task.title}`}
+                            >
+                              <Icon name="edit" className="text-xs" />
+                            </button>
+                          </>
+                        )}
                         {task.status === "shelved" && (
                           <span
                             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-500/15 text-slate-400 border border-slate-500/30"
