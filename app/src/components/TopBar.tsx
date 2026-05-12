@@ -152,6 +152,8 @@ export default function TopBar({ title }: TopBarProps) {
   const displayOsName = useAppStore((s) => s.displayOsName())
   const chatOpen = useAppStore((s) => s.chatOpen)
   const chatWidth = useAppStore((s) => s.chatWidth)
+  const tourComplete = useAppStore((s) => s.tourComplete)
+  const setShowTour = useAppStore((s) => s.setShowTour)
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
   )
@@ -343,6 +345,17 @@ export default function TopBar({ title }: TopBarProps) {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-4">
+        {!tourComplete && (
+          <button
+            onClick={() => setShowTour(true)}
+            className="flex items-center gap-1.5 px-2 py-1 text-slate-400 hover:text-blue-400 transition-all text-xs"
+            title="Start tour"
+            data-testid="start-tour-btn"
+          >
+            <Icon name="play_circle" size={16} />
+            <span className="hidden sm:inline">Start tour</span>
+          </button>
+        )}
         <button
           onClick={() => navigate('/team')}
           className="p-2.5 sm:p-2 text-slate-400 hover:text-blue-400 transition-all"
