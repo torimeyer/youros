@@ -51,6 +51,8 @@ async def lifespan(app: FastAPI):
     await schedule_test_artifact_spec_sweep()
     await schedule_atlassian_sync()
     await install_signal_shutdown_hook()
+    from services.ostk import start_clock_refresher
+    await start_clock_refresher()
     yield
     await notify_chat_clients_on_shutdown()
 

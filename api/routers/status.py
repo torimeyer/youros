@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter
 
 from config import OSTK_DIR
-from services.ostk import ostk, OstkError
+from services.ostk import ostk, OstkError, get_cached_clock
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +31,18 @@ async def get_clock():
     The response includes kernel version, session age, audit event count,
     and wall clock time. When the clock command is unavailable, sensible
     defaults are returned so the UI always has something to display.
+
+    Uses an in-memory cache refreshed by a background task (default 30s
+    cadence) so this endpoint never spawns an ostk subprocess inline.
+    Falls back to a live subprocess call only on the very first request
+    before the cache has been primed.
     """
-    try:
-        clock = await ostk.os_clock()
-    except OstkError:
-        clock = {}
+    clock = get_cached_clock()
+    if not clock:
+        try:
+            clock = await ostk.os_clock()
+        except OstkError:
+            clock = {}
 
     return {
         "kernel": clock.get("kernel", "unknown"),
