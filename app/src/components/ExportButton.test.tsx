@@ -86,4 +86,9 @@ describe("ExportButton", () => {
     expect(screen.getByText("As Markdown")).toBeInTheDocument();
     expect(screen.queryByText("As CSV")).not.toBeInTheDocument();
   });
+
+  it("trigger button has w-full so it aligns with sibling rows in a dropdown", () => {
+    render(<ExportButton buildUrl={(f) => `/api/export/tasks?format=${f}`} />);
+    expect(screen.getByTestId("export-button")).toHaveClass("w-full");
+  });
 });
