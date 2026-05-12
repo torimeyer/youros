@@ -605,6 +605,88 @@ describe('ChatPanel', () => {
       expect(lastUser.content).toBe('did gemini miss anything?')
     })
 
+    // →1211: structured error categories from the backend must show the
+    // user_message directly without the "Error: " prefix.
+    it('shows auth_invalid message directly when category is present', () => {
+      const { rerender } = render(<ChatPanel />)
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'error',
+        category: 'auth_invalid',
+        data: 'Anthropic API key invalid or missing.',
+      } as unknown as typeof mockLastMessage
+      rerender(<ChatPanel />)
+
+      expect(screen.getByText('Anthropic API key invalid or missing.')).toBeTruthy()
+      expect(screen.queryByText(/^Error:/)).toBeNull()
+    })
+
+    it('shows quota_exceeded message directly when category is present', () => {
+      const { rerender } = render(<ChatPanel />)
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'error',
+        category: 'quota_exceeded',
+        data: 'Quota exceeded right now. Try again later or switch model.',
+      } as unknown as typeof mockLastMessage
+      rerender(<ChatPanel />)
+
+      expect(screen.getByText('Quota exceeded right now. Try again later or switch model.')).toBeTruthy()
+    })
+
+    it('shows provider_5xx message directly when category is present', () => {
+      const { rerender } = render(<ChatPanel />)
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'error',
+        category: 'provider_5xx',
+        data: 'Anthropic returned 500; their API may be having issues.',
+      } as unknown as typeof mockLastMessage
+      rerender(<ChatPanel />)
+
+      expect(screen.getByText('Anthropic returned 500; their API may be having issues.')).toBeTruthy()
+    })
+
+    it('shows network message directly when category is present', () => {
+      const { rerender } = render(<ChatPanel />)
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'error',
+        category: 'network',
+        data: 'Lost connection to backend.',
+      } as unknown as typeof mockLastMessage
+      rerender(<ChatPanel />)
+
+      expect(screen.getByText('Lost connection to backend.')).toBeTruthy()
+    })
+
+    it('falls back to Connection error prefix for unstructured errors (no category)', () => {
+      const { rerender } = render(<ChatPanel />)
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'error',
+        data: 'Something went wrong.',
+      }
+      rerender(<ChatPanel />)
+
+      expect(screen.getByText(/Connection error: Something went wrong/)).toBeTruthy()
+    })
+
     // Regression for the streaming render jitter Tori reported: the bubble
     // appeared to "type a sentence then delete it" mid-stream. Root cause
     // was CollapsibleText slicing to the last 200 characters and then
