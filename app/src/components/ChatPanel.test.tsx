@@ -3153,4 +3153,70 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('Right-click context menu', () => {
+    beforeEach(() => {
+      const messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello, please help me fix the login bug.' },
+        { id: 'msg-2', role: 'assistant', content: 'Sure, I can help with that.', model: 'claude' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+    })
+
+    it('shows the context menu when right-clicking a message bubble', () => {
+      render(<ChatPanel />)
+      const bubble = screen.getByTestId('bubble-msg-1')
+      fireEvent.contextMenu(bubble)
+      expect(screen.getByTestId('message-context-menu')).toBeTruthy()
+      expect(screen.getByTestId('context-menu-turn-into-needle')).toBeTruthy()
+    })
+
+    it('suppresses the browser native context menu on right-click', () => {
+      render(<ChatPanel />)
+      const bubble = screen.getByTestId('bubble-msg-1')
+      const event = fireEvent.contextMenu(bubble)
+      expect(event).toBe(false)
+    })
+
+    it('closes the context menu on outside click', () => {
+      render(<ChatPanel />)
+      const bubble = screen.getByTestId('bubble-msg-1')
+      fireEvent.contextMenu(bubble)
+      expect(screen.getByTestId('message-context-menu')).toBeTruthy()
+      fireEvent.mouseDown(document.body)
+      expect(screen.queryByTestId('message-context-menu')).toBeNull()
+    })
+
+    it('calls api.post /tasks with the message body when Turn into needle is clicked', async () => {
+      const { api } = await import('../lib/api')
+      vi.mocked(api.post).mockResolvedValueOnce({})
+
+      render(<ChatPanel />)
+      const bubble = screen.getByTestId('bubble-msg-1')
+      fireEvent.contextMenu(bubble)
+      const menuBtn = screen.getByTestId('context-menu-turn-into-needle')
+      fireEvent.click(menuBtn)
+
+      await waitFor(() => {
+        expect(vi.mocked(api.post)).toHaveBeenCalledWith('/tasks', {
+          title: 'Hello, please help me fix the login bug.',
+          priority: 'P1',
+        })
+      })
+    })
+
+    it('closes the menu after Turn into needle is clicked', async () => {
+      const { api } = await import('../lib/api')
+      vi.mocked(api.post).mockResolvedValueOnce({})
+
+      render(<ChatPanel />)
+      const bubble = screen.getByTestId('bubble-msg-1')
+      fireEvent.contextMenu(bubble)
+      fireEvent.click(screen.getByTestId('context-menu-turn-into-needle'))
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('message-context-menu')).toBeNull()
+      })
+    })
+  })
+
 })

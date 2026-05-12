@@ -461,6 +461,7 @@ export function ChatPanel() {
   // and then settles. Dedup'd in localStorage on the notification id so
   // re-mounting the panel on a later page visit does not re-pulse.
   const lastFeatureLive = useNotificationStore((s) => s.lastFeatureLive)
+  const addPersistentToast = useNotificationStore((s) => s.addPersistentToast)
   const [allPillPulse, setAllPillPulse] = useState(false)
   useEffect(() => {
     if (!lastFeatureLive) return
@@ -551,6 +552,7 @@ export function ChatPanel() {
   // server completes.
   const [placeholderAwaitingServer, setPlaceholderAwaitingServer] = useState(false)
   const [currentModel, setCurrentModel] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; msg: Message } | null>(null)
 
   const [activeTemplate, setActiveTemplate] = useState<{ name: string; description?: string } | null>(null)
   // Which pathway is powering this response: the local Claude subscription
@@ -1706,6 +1708,46 @@ export function ChatPanel() {
     setIsListening(true)
   }, [isListening])
 
+  const handleContextMenu = useCallback((e: React.MouseEvent, msg: Message) => {
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, msg })
+  }, [])
+
+  const handleTurnIntoNeedle = useCallback(async () => {
+    if (!contextMenu) return
+    const { msg } = contextMenu
+    setContextMenu(null)
+    const excerpt = (msg.content || '').slice(0, 200).trim() || 'Chat message'
+    try {
+      await api.post('/tasks', { title: excerpt, priority: 'P1' })
+      addPersistentToast({
+        id: `needle-filed-${Date.now()}`,
+        type: 'completed',
+        title: 'Added to your backlog',
+        body: excerpt.length > 60 ? excerpt.slice(0, 60) + '...' : excerpt,
+      })
+    } catch {
+      addPersistentToast({
+        id: `needle-failed-${Date.now()}`,
+        type: 'failed',
+        title: 'Could not add to backlog',
+        body: 'Something went wrong. Try again.',
+      })
+    }
+  }, [contextMenu, addPersistentToast])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setContextMenu(null) }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [contextMenu])
+
   if (!chatOpen) return null
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -2402,6 +2444,7 @@ export function ChatPanel() {
                 key={msg.id}
                 id={`msg-${msg.id}`}
                 data-testid={`bubble-${msg.id}`}
+                onContextMenu={(e) => handleContextMenu(e, msg)}
                 className={`group transition-all rounded-xl ${inBroadcastColumn ? 'min-w-0 w-full' : ''} ${msg.role === 'user' ? 'flex flex-col items-end' : ''} ${isThread ? 'ml-2' : ''}`}
               >
                 {/* Reply context within a thread */}
@@ -2960,6 +3003,23 @@ export function ChatPanel() {
         )}
       </div>
       <ConfirmModal {...confirmProps} />
+      {contextMenu && (
+        <div
+          data-testid="message-context-menu"
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x }}
+          className="z-[200] bg-slate-900 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[160px]"
+        >
+          <button
+            data-testid="context-menu-turn-into-needle"
+            onClick={handleTurnIntoNeedle}
+            className="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex items-center gap-2"
+          >
+            <Icon name="bookmark_add" className="text-sm text-blue-400" />
+            Turn into needle
+          </button>
+        </div>
+      )}
     </div>
   )
 }
