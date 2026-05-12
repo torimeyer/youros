@@ -33,6 +33,11 @@ describe("ExportButton", () => {
     expect(screen.getByTestId("export-button")).toBeInTheDocument();
   });
 
+  it("shows the Download label in the button", () => {
+    render(<ExportButton buildUrl={(f) => `/api/export/tasks?format=${f}`} />);
+    expect(screen.getByText("Download")).toBeInTheDocument();
+  });
+
   it("opens the dropdown menu on click", () => {
     render(<ExportButton buildUrl={(f) => `/api/export/tasks?format=${f}`} />);
     expect(screen.queryByTestId("export-menu")).not.toBeInTheDocument();
