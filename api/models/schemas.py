@@ -259,6 +259,15 @@ class AgentSpawn(BaseModel):
     # CODE_EDIT_VERBS. Setting follow_on=True forces isolation="none" before
     # the heuristic runs so these spawns are never rejected for missing locks.
     follow_on: Optional[bool] = None
+    # Opt-in flag to route the spawn through `ostk run <Agentfile>` instead
+    # of the bespoke claude-code subprocess path. Default False preserves
+    # existing behaviour for all callers. Set True only to pilot the kernel
+    # spawn path without touching anything in the normal flow.
+    use_ostk_run: bool = False
+    # Dry-run: when True (and use_ostk_run is True), passes --dry-run to
+    # `ostk run` so no process is actually spawned. Safe for integration
+    # tests and smoke checks.
+    dry_run: bool = False
 
 
 class AgentNudge(BaseModel):
