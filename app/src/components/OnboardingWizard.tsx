@@ -1146,7 +1146,7 @@ function ConnectStep({
             data-testid="connect-google"
           >
             <Icon name="login" size={18} />
-            Sign in with Google
+            Connect via Google Cloud (Vertex AI)
           </button>
         ) : (
           <p className={`text-sm mb-3 ${subtextCls}`}>
