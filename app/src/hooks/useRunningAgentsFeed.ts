@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useWebSocket } from './useWebSocket'
-import { useRunningAgentsStore, type RunningAgent } from '../stores/runningAgents'
+import { useRunningAgentsStore, type RunningAgent, type TerminatedAgent } from '../stores/runningAgents'
 import { api } from '../lib/api'
 
 const ACTIVE_STATUSES = new Set(['running', 'spawned', 'starting'])
@@ -11,12 +11,14 @@ interface AgentStateFrame {
   type: 'snapshot' | 'delta' | 'sweep' | 'ping' | string
   running_count?: number
   agents?: RunningAgent[]
+  changed?: { name: string; status: string; terminal?: boolean; feedback?: string }
 }
 
 export function useRunningAgentsFeed() {
   const { lastMessage, isConnected } = useWebSocket('/api/ws/agents/state', true)
   const setSnapshot = useRunningAgentsStore((s) => s.setSnapshot)
   const setConnected = useRunningAgentsStore((s) => s.setConnected)
+  const setTerminatedAgent = useRunningAgentsStore((s) => s.setTerminatedAgent)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -30,7 +32,18 @@ export function useRunningAgentsFeed() {
     ) {
       setSnapshot(frame.running_count, frame.agents ?? [])
     }
-  }, [lastMessage, setSnapshot])
+    if (
+      frame.type === 'delta' &&
+      frame.changed?.terminal === true &&
+      frame.changed.feedback
+    ) {
+      setTerminatedAgent({
+        name: frame.changed.name,
+        status: frame.changed.status,
+        feedback: frame.changed.feedback,
+      } as TerminatedAgent)
+    }
+  }, [lastMessage, setSnapshot, setTerminatedAgent])
 
   // Mirror WS connected state; start/stop REST fallback on disconnect
   useEffect(() => {

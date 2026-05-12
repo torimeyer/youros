@@ -22,11 +22,22 @@ from services.agent_events import bus as _agent_events_bus
 logger = logging.getLogger(__name__)
 
 
+_TERMINAL_STATUSES = frozenset({
+    "completed", "failed", "cancelled", "terminated_stale",
+    "killed", "stopped", "abandoned", "completed_timeout",
+})
+
+
 def _fire_delta(name: str, status: str) -> None:
     """Schedule a delta publish on the agent event bus without blocking the caller."""
+    payload: dict = {"name": name, "status": status}
+    if status in _TERMINAL_STATUSES:
+        meta = agent_metadata.get(name) or {}
+        payload["terminal"] = True
+        payload["feedback"] = _plain_language_feedback(name, meta)
     try:
         asyncio.get_running_loop().create_task(
-            _agent_events_bus.publish("delta", {"name": name, "status": status})
+            _agent_events_bus.publish("delta", payload)
         )
     except RuntimeError:
         pass  # no running loop (startup / test context)

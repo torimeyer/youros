@@ -9,13 +9,21 @@ export interface RunningAgent {
   build_state?: 'running' | 'queued' | null
 }
 
+export interface TerminatedAgent {
+  name: string
+  status: string
+  feedback: string
+}
+
 interface RunningAgentsState {
   count: number
   agents: RunningAgent[]
   connected: boolean
   lastUpdatedAt: string | null
+  lastTerminatedAgent: TerminatedAgent | null
   setSnapshot: (count: number, agents: RunningAgent[]) => void
   setConnected: (connected: boolean) => void
+  setTerminatedAgent: (agent: TerminatedAgent) => void
 }
 
 export const useRunningAgentsStore = create<RunningAgentsState>((set) => ({
@@ -23,7 +31,9 @@ export const useRunningAgentsStore = create<RunningAgentsState>((set) => ({
   agents: [],
   connected: false,
   lastUpdatedAt: null,
+  lastTerminatedAgent: null,
   setSnapshot: (count, agents) =>
     set({ count, agents, lastUpdatedAt: new Date().toISOString() }),
   setConnected: (connected) => set({ connected }),
+  setTerminatedAgent: (agent) => set({ lastTerminatedAgent: agent }),
 }))
