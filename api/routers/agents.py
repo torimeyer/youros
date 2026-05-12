@@ -3250,10 +3250,18 @@ async def list_agents(
             # this in the terminal set, the very next GET /agents would
             # see proc.returncode is None and revert the row to "running",
             # which is what made the demo smoke poll loop time out.
+            # NOTE: "completed" MUST be in this set. Without it, an agent
+            # whose /complete handler has already written status=completed +
+            # completed_at to disk but whose asyncio proc handle has not yet
+            # been reaped by the child watcher (returncode still None) will
+            # show as status="running" + completed_at set — the impossible
+            # state that breaks the standing-rules CURRENT RUNNING AGENTS
+            # filter and silently strands the parent session's view of what
+            # landed. (→1182)
             _TERMINAL_FROM_META = {
                 "cancelled", "failed", "terminated_stale",
                 "killed", "stopped", "abandoned",
-                "completed_timeout",
+                "completed_timeout", "completed",
             }
             persisted = meta.get("status", "")
             effective_status = persisted if persisted in _TERMINAL_FROM_META else "running"

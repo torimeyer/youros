@@ -313,3 +313,68 @@ async def test_nudges_does_not_refresh_heartbeat(tmp_path):
     # The heartbeat must NOT have been refreshed by the nudges endpoint
     assert meta["nudge-test-agent"]["last_heartbeat_at"] == old_heartbeat, \
         "GET /nudges must NOT refresh last_heartbeat_at (frontend polls this, not agents)"
+
+
+# ---------------------------------------------------------------------------
+# Test: GET /agents must not show status=running when completed_at is set
+# (→1182 regression: _TERMINAL_FROM_META missing "completed")
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_list_shows_completed_not_running_when_proc_not_reaped(tmp_path):
+    """GET /api/agents must return status=completed when metadata says completed,
+    even if the asyncio proc handle for the agent is still in active_agents
+    with returncode=None (not yet reaped by the event loop's child watcher).
+
+    Root cause (→1182): _TERMINAL_FROM_META in the step-2a listing path did not
+    include 'completed'. When meta['status']='completed' (set by /complete) but
+    proc.returncode is None, effective_status fell through to 'running'. The
+    **meta spread then injected completed_at into the response, producing the
+    impossible state: status='running' + completed_at set. The standing-rules
+    hook filters by status='running', so the parent session never removed the
+    agent from CURRENT RUNNING AGENTS and never ran git log to surface what landed.
+    """
+    import routers.agents as agents_mod
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Simulate the buggy state: /complete already wrote completed_at + status,
+    # but the asyncio proc handle in active_agents still has returncode=None.
+    completed_meta = {
+        "spawned_at": now,
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+        "source": "claude-code",
+        "status": "completed",
+        "completed_at": now,
+        "summary": "Done",
+    }
+
+    mock_proc = MagicMock()
+    mock_proc.returncode = None  # Not yet reaped by asyncio child watcher
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        mock_ps = {"raw": "no daemon running", "daemon_running": False, "agents": []}
+
+        with patch.object(agents_mod, "agent_metadata", {"stuck-complete-agent": dict(completed_meta)}), \
+             patch.object(agents_mod, "active_agents", {"stuck-complete-agent": mock_proc}), \
+             patch.object(agents_mod, "ostk") as mock_ostk:
+            mock_ostk.kernel_ps = AsyncMock(return_value=mock_ps)
+            mock_ostk.audit_agents = AsyncMock(return_value=[])
+
+            resp = await client.get("/api/agents")
+
+    assert resp.status_code == 200
+    data = resp.json()
+
+    agents_by_name = {a["name"]: a for a in data["agents"]}
+    assert "stuck-complete-agent" in agents_by_name, "Agent must appear in list"
+
+    agent_row = agents_by_name["stuck-complete-agent"]
+    assert agent_row["status"] == "completed", (
+        f"Agent with meta status='completed' and completed_at set must show as "
+        f"'completed' even when proc.returncode is None, got '{agent_row['status']}'. "
+        f"Root cause: 'completed' missing from _TERMINAL_FROM_META (→1182)."
+    )
+    assert agent_row.get("completed_at"), "completed_at must be present in the response"
