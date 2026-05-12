@@ -1813,15 +1813,13 @@ export default function Tasks() {
                   <Icon name="share" className="text-slate-400 text-sm" />
                   Share
                 </button>
-                <div className="px-3 py-1">
-                  <ExportButton
+                <ExportButton
                     contentLabel="tasks"
                     buildUrl={(format) => {
                       const exportStatus = statusFilter === "closed" ? "closed" : "open";
                       return `/api/export/tasks?format=${format}&status=${exportStatus}`;
                     }}
                   />
-                </div>
                 <button
                   onClick={() => { setShowOverflowMenu(false); copyTaskList(); }}
                   className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"

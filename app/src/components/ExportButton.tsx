@@ -66,11 +66,11 @@ export default function ExportButton({
   };
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative w-full" ref={ref}>
       <button
         data-testid="export-button"
         onClick={() => setOpen((v) => !v)}
-        className="text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+        className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
         title="Download as a file"
       >
         <Icon name="download" className="text-slate-400 text-sm" />
