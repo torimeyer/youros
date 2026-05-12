@@ -9864,23 +9864,31 @@ async def test_heartbeat_rejects_terminal_row(tmp_path):
         agent_metadata.pop(name, None)
 
 
-def test_active_tab_polls_at_most_3s():
-    """Frontend regression: the Agents page Active tab must poll at 3 s or
-    faster so a short running agent yields at least five polls showing
-    ``status=running``. The guard is a simple grep of the one location
-    that owns the polling interval.
+def test_active_tab_consumes_ws_feed_with_safety_net_poll():
+    """Frontend regression (→1219/→1220): the Agents page Active tab gets
+    realtime updates from the WS feed (useRunningAgentsStore), and keeps a
+    safety-net HTTP poll only for the case where the WS drops. The poll
+    interval should be a low-frequency fallback (>= 10 s, <= 60 s), not the
+    primary signal — sub-3-second polling was retired when the snapshotter
+    landed because every poller hammering /api/agents wedged the loop.
     """
     agents_page = Path(__file__).resolve().parent.parent.parent / "app" / "src" / "pages" / "Agents.tsx"
     assert agents_page.exists(), f"Missing {agents_page}"
     src = agents_page.read_text()
     import re
+    # WS store consumption is the primary signal — the page must subscribe.
+    assert "useRunningAgentsStore" in src, (
+        "Agents.tsx must consume useRunningAgentsStore for realtime updates. "
+        "Without the WS feed, status changes lag by up to the safety-net "
+        "poll interval."
+    )
+    # Safety-net poll exists, but should be slow (not the realtime path).
     match = re.search(r"setInterval\(fetchAgents,\s*(\d+)\s*\)", src)
     assert match, "Could not find setInterval(fetchAgents, <ms>) in Agents.tsx"
     ms = int(match.group(1))
-    assert ms <= 3000, (
-        f"Active tab polls every {ms} ms. A short agent run is "
-        "~20 s, so polling slower than every 3 s risks missing the "
-        "running window on a slow backend."
+    assert 10000 <= ms <= 60000, (
+        f"Safety-net poll is {ms} ms. Expected 10000-60000 ms — too fast "
+        "stacks on the backend, too slow defeats the fallback."
     )
 
 
