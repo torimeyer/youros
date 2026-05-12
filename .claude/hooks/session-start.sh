@@ -56,18 +56,9 @@ fi
 AGENT_NAME=$(echo "$AGENT_NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
 
 # ---- 2. Register as an agent in ToriOS. ----
-curl -sS --connect-timeout 2 -m 3 \
-    -X POST "http://localhost:8000/api/agents/register" \
-    -H 'Content-Type: application/json' \
-    -d "{
-        \"name\": \"$AGENT_NAME\",
-        \"model\": \"$MODEL\",
-        \"budget\": 0,
-        \"status\": \"running\",
-        \"description\": \"Claude Code session (cwd: $CWD)\"
-    }" > /dev/null 2>&1 || true
-
-# Also try https (backend may be HTTPS-only in release mode).
+# HTTPS only — plain HTTP returns empty reply (HTTP 000) because the backend
+# requires TLS. Attempting HTTP first was generating a failing TCP connection
+# on every session start (→1192).
 curl -sSk --connect-timeout 2 -m 3 \
     -X POST "https://localhost:8000/api/agents/register" \
     -H 'Content-Type: application/json' \
