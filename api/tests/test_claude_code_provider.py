@@ -957,6 +957,91 @@ class TestStreamTimeout:
         assert done, "Expected a done event for a fast successful response."
 
 
+class TestWsHeartbeat:
+    """Regression guard: stream_chat must send WS heartbeat frames during
+    silent subprocess phases so the vite proxy / browser never drops the
+    socket mid-stream.
+
+    Root cause (→1122): _read_stdout() ran with no concurrent heartbeat.
+    During extended thinking or tool-use planning the WebSocket was silent
+    for 30+ seconds, and the vite dev proxy closed the idle socket, surfacing
+    "Connection dropped before the response finished" in the UI.
+    """
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_sent_during_silent_subprocess_phase(self):
+        """A subprocess that is silent before its first output line must trigger heartbeats."""
+        import services.claude_code_provider as provider_mod
+
+        original_interval = provider_mod._WS_HEARTBEAT_INTERVAL_S
+        # Speed up so the test finishes in milliseconds: 10 ms intervals,
+        # subprocess silent for 60 ms → at least 5 heartbeat opportunities.
+        provider_mod._WS_HEARTBEAT_INTERVAL_S = 0.01
+
+        result_event = {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+
+        class _SlowStdout:
+            def __init__(self, lines):
+                self._lines = list(lines)
+                self._first = True
+
+            async def readline(self):
+                if self._first:
+                    self._first = False
+                    await asyncio.sleep(0.06)  # silent phase: ~6 heartbeat windows
+                if not self._lines:
+                    return b""
+                return self._lines.pop(0)
+
+        class _SlowProcess:
+            def __init__(self):
+                self.stdout = _SlowStdout(
+                    [(json.dumps(result_event) + "\n").encode()]
+                )
+                self.stderr = _StaticStderr(b"")
+                self._return_code = 0
+
+            async def wait(self):
+                return self._return_code
+
+            def kill(self):
+                pass
+
+        async def fake_create(*args, **kwargs):
+            return _SlowProcess()
+
+        websocket = FakeWebSocket()
+        try:
+            with patch(
+                "services.claude_code_provider._find_claude_binary",
+                return_value="/usr/local/bin/claude",
+            ), patch(
+                "asyncio.create_subprocess_exec",
+                new=fake_create,
+            ):
+                await stream_chat(
+                    [{"role": "user", "content": "think slowly"}],
+                    websocket,
+                    system_prompt=None,
+                )
+        finally:
+            provider_mod._WS_HEARTBEAT_INTERVAL_S = original_interval
+
+        heartbeats = websocket.of_type("heartbeat")
+        assert heartbeats, (
+            "stream_chat must send WS heartbeat frames during silent subprocess "
+            "phases to prevent the vite proxy from closing the idle socket (→1122). "
+            "No heartbeats received — the heartbeat loop is missing from stream_chat()."
+        )
+        done = websocket.of_type("done")
+        assert done, "Expected a done event after the stream completed."
+
+
 class TestSystemPromptOstkTools:
     """Verify the system prompt names mcp__ostk__* tools explicitly.
 
