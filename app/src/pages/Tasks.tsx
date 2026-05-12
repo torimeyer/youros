@@ -1811,7 +1811,7 @@ export default function Tasks() {
                   <Icon name="share" className="text-slate-400 text-sm" />
                   Share
                 </button>
-                <div className="px-3 py-1">
+                <div>
                   <ExportButton
                     contentLabel="tasks"
                     buildUrl={(format) => {
