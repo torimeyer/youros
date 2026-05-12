@@ -202,6 +202,152 @@ wait 2>/dev/null || true
 
 assert "watchdog_sigkills_deadlocked_pid_and_restarts" "$got_deadlock_restart"
 
+# --- Test 6: py-spy is invoked when the deadlock branch fires ---
+PYSPY_PORT=18802
+PYSPY_PIDFILE="/tmp/myos-backend-${PYSPY_PORT}.pid"
+MOCK_PYSPY_DIR="$WORKDIR/mock-pyspy-bin"
+PYSPY_SENTINEL="$WORKDIR/pyspy_called"
+
+mkdir -p "$MOCK_PYSPY_DIR"
+# Bake WORKDIR into the mock so it can write the sentinel using an absolute path.
+cat > "$MOCK_PYSPY_DIR/py-spy" <<MOCKSPY
+#!/usr/bin/env bash
+touch "${WORKDIR}/pyspy_called"
+echo "args: \$*" >> "${WORKDIR}/pyspy_args"
+exit 0
+MOCKSPY
+chmod +x "$MOCK_PYSPY_DIR/py-spy"
+
+sleep 300 &
+FAKE_PID6=$!
+echo "$FAKE_PID6" > "$PYSPY_PIDFILE"
+rm -f "$PYSPY_SENTINEL" "$SENTINEL"
+
+PATH="$MOCK_PYSPY_DIR:$PATH" \
+MYOS_WATCHDOG_INTERVAL=1 \
+MYOS_WATCHDOG_HEALTH_URL="http://127.0.0.1:${DEAD_PORT}/api/health" \
+MYOS_WATCHDOG_BACKEND_PORT="$PYSPY_PORT" \
+MYOS_WATCHDOG_PIDFILE="$WORKDIR/watchdog4.pid" \
+MYOS_WATCHDOG_LOGFILE="$WORKDIR/watchdog4.log" \
+MYOS_WATCHDOG_DEADLOCK_THRESHOLD=2 \
+MYOS_WATCHDOG_RESTART_WAIT=1 \
+MYOS_WATCHDOG_PYSPY_TIMEOUT=5 \
+MYOS_WATCHDOG_MAX_RESTARTS=3 \
+MYOS_NO_WATCHDOG=1 \
+bash "$WORKDIR/scripts/backend_watchdog.sh" >/dev/null 2>&1 &
+WD_PID6=$!
+
+got_pyspy=0
+for i in $(seq 1 60); do
+    sleep 1
+    if [ -f "$PYSPY_SENTINEL" ]; then
+        got_pyspy=1
+        break
+    fi
+done
+
+kill "$WD_PID6" 2>/dev/null || true
+kill "$FAKE_PID6" 2>/dev/null || true
+rm -f "$PYSPY_PIDFILE"
+wait "$WD_PID6" 2>/dev/null || true
+wait "$FAKE_PID6" 2>/dev/null || true
+
+assert "pyspy_invoked_on_deadlock_detection" "$got_pyspy"
+
+# --- Test 7: SIGKILL still fires when py-spy is absent from PATH ---
+NOPYSPY_PORT=18803
+NOPYSPY_PIDFILE="/tmp/myos-backend-${NOPYSPY_PORT}.pid"
+
+sleep 300 &
+FAKE_PID7=$!
+echo "$FAKE_PID7" > "$NOPYSPY_PIDFILE"
+rm -f "$SENTINEL"
+
+# Restrict PATH to standard bins only — no py-spy available.
+PATH="/usr/bin:/bin" \
+MYOS_WATCHDOG_INTERVAL=1 \
+MYOS_WATCHDOG_HEALTH_URL="http://127.0.0.1:${DEAD_PORT}/api/health" \
+MYOS_WATCHDOG_BACKEND_PORT="$NOPYSPY_PORT" \
+MYOS_WATCHDOG_PIDFILE="$WORKDIR/watchdog5.pid" \
+MYOS_WATCHDOG_LOGFILE="$WORKDIR/watchdog5.log" \
+MYOS_WATCHDOG_DEADLOCK_THRESHOLD=2 \
+MYOS_WATCHDOG_RESTART_WAIT=1 \
+MYOS_WATCHDOG_MAX_RESTARTS=3 \
+MYOS_NO_WATCHDOG=1 \
+bash "$WORKDIR/scripts/backend_watchdog.sh" >/dev/null 2>&1 &
+WD_PID7=$!
+
+got_nopyspy_restart=0
+for i in $(seq 1 60); do
+    sleep 1
+    if [ -f "$SENTINEL" ]; then
+        got_nopyspy_restart=1
+        break
+    fi
+done
+
+kill "$WD_PID7" 2>/dev/null || true
+kill "$FAKE_PID7" 2>/dev/null || true
+rm -f "$NOPYSPY_PIDFILE"
+wait "$WD_PID7" 2>/dev/null || true
+wait "$FAKE_PID7" 2>/dev/null || true
+
+assert "sigkill_still_fires_when_pyspy_absent" "$got_nopyspy_restart"
+
+# --- Test 8: MYOS_WATCHDOG_PYSPY_TIMEOUT is respected ---
+# A slow mock py-spy that sleeps 300s would block the watchdog indefinitely
+# if the timeout is not enforced. With PYSPY_TIMEOUT=2, the watchdog must
+# kill it and proceed to SIGKILL + restart within the 60s window.
+TIMEOUT_PORT=18804
+TIMEOUT_PIDFILE="/tmp/myos-backend-${TIMEOUT_PORT}.pid"
+SLOW_PYSPY_DIR="$WORKDIR/slow-pyspy-bin"
+
+mkdir -p "$SLOW_PYSPY_DIR"
+cat > "$SLOW_PYSPY_DIR/py-spy" <<'SLOWSPY'
+#!/usr/bin/env bash
+sleep 300
+exit 0
+SLOWSPY
+chmod +x "$SLOW_PYSPY_DIR/py-spy"
+
+sleep 300 &
+FAKE_PID8=$!
+echo "$FAKE_PID8" > "$TIMEOUT_PIDFILE"
+rm -f "$SENTINEL"
+
+PATH="$SLOW_PYSPY_DIR:$PATH" \
+MYOS_WATCHDOG_INTERVAL=1 \
+MYOS_WATCHDOG_HEALTH_URL="http://127.0.0.1:${DEAD_PORT}/api/health" \
+MYOS_WATCHDOG_BACKEND_PORT="$TIMEOUT_PORT" \
+MYOS_WATCHDOG_PIDFILE="$WORKDIR/watchdog6.pid" \
+MYOS_WATCHDOG_LOGFILE="$WORKDIR/watchdog6.log" \
+MYOS_WATCHDOG_DEADLOCK_THRESHOLD=2 \
+MYOS_WATCHDOG_PYSPY_TIMEOUT=2 \
+MYOS_WATCHDOG_RESTART_WAIT=1 \
+MYOS_WATCHDOG_MAX_RESTARTS=3 \
+MYOS_NO_WATCHDOG=1 \
+bash "$WORKDIR/scripts/backend_watchdog.sh" >/dev/null 2>&1 &
+WD_PID8=$!
+
+# If PYSPY_TIMEOUT=2 is respected, restart sentinel appears ~34-40s in.
+# If not (slow py-spy runs 300s), sentinel will not appear within 60s.
+got_timeout_restart=0
+for i in $(seq 1 60); do
+    sleep 1
+    if [ -f "$SENTINEL" ]; then
+        got_timeout_restart=1
+        break
+    fi
+done
+
+kill "$WD_PID8" 2>/dev/null || true
+kill "$FAKE_PID8" 2>/dev/null || true
+rm -f "$TIMEOUT_PIDFILE"
+wait "$WD_PID8" 2>/dev/null || true
+wait "$FAKE_PID8" 2>/dev/null || true
+
+assert "pyspy_timeout_is_respected" "$got_timeout_restart"
+
 echo ""
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] && exit 0 || exit 1
