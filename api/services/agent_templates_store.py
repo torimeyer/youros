@@ -1918,6 +1918,8 @@ class AgentTemplatesStore:
             "user_inputs": data.get("user_inputs", []),
             "produces_doc": bool(data.get("produces_doc", False)),
             "attached_files": [],
+            "provider": data.get("provider"),
+            "gem_metadata": data.get("gem_metadata"),
         }
         overrides.append(new_template)
         self._save(overrides)
@@ -1942,6 +1944,10 @@ class AgentTemplatesStore:
                     t["user_inputs"] = list(data["user_inputs"])
                 if "produces_doc" in data:
                     t["produces_doc"] = bool(data["produces_doc"])
+                if "provider" in data:
+                    t["provider"] = data["provider"]
+                if "gem_metadata" in data:
+                    t["gem_metadata"] = data["gem_metadata"]
                 overrides[i] = t
                 self._save(overrides)
                 # Rename agentfile if name changed; always rewrite to stay in sync.
