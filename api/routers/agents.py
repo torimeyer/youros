@@ -3165,6 +3165,13 @@ async def list_agents(
                 "cancelled", "failed", "terminated_stale",
                 "killed", "stopped", "abandoned",
                 "completed_timeout",
+                # (→1182) /complete sets status='completed' before the asyncio
+                # child watcher reaps the proc (returncode stays None briefly).
+                # Without 'completed' here, effective_status falls through to
+                # 'running', producing the impossible state: status=running +
+                # completed_at set, which keeps the agent in CURRENT RUNNING
+                # AGENTS and silences the parent's stop-notification.
+                "completed",
             }
             persisted = meta.get("status", "")
             effective_status = persisted if persisted in _TERMINAL_FROM_META else "running"
