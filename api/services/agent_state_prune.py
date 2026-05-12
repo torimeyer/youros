@@ -3,6 +3,33 @@
 Keeps the cold-cache enrich pass fast by dropping terminal agent rows
 older than ``retention_days``. Only rows that are both terminal AND
 expired are removed; running/recent rows are always kept.
+
+Boundary vs. services.kernel_fleet
+------------------------------------
+This module and ``kernel_fleet`` both deal with agent data but operate on
+completely different sources and serve different purposes:
+
+* **agent_state_prune** (this file):
+  - Source: ``<OSTK_DIR>/agent_state.json`` — myOS's own FastAPI registry.
+    The myOS API server writes this file when agents register, heartbeat,
+    complete, or are cancelled via the /api/agents endpoints.
+  - Purpose: housekeeping. Drops old terminal rows at server startup so the
+    cold-cache enrich pass iterates a small dict rather than hundreds of
+    stale entries. Pure function — no live I/O during the prune itself.
+  - Called once per server startup from ``api/main.py::prune_stale_agent_state``.
+
+* **kernel_fleet** (services/kernel_fleet.py):
+  - Source: ``~/.ostk/journal.jsonl`` and ``<OSTK_DIR>/agents.jsonl`` —
+    the ostk daemon's own append-only JSONL files.
+    These record agents spawned via ``ostk run`` (not via myOS FastAPI).
+  - Purpose: surfacing kernel-authoritative agent data so GET /api/agents
+    can include agents that myOS never registered directly (peer-session
+    agents, worktree agents, etc.).
+  - Called on every GET /api/agents; reads are file-size/mtime-cached.
+
+Do NOT delete this module thinking kernel_fleet is its replacement — they
+are complementary. Removing prune would let agent_state.json grow unbounded
+and slow down every server startup's enrich pass.
 """
 from __future__ import annotations
 
