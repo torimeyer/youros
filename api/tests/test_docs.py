@@ -38,8 +38,7 @@ class TestDocService:
 
     @pytest.mark.asyncio
     async def test_doc_decompose_calls_cli_and_returns_task_ids(self):
-        """Decompose now returns a dict with result text and parsed task IDs."""
-        # Create the spec file so _write_tasks_to_frontmatter can find it
+        """Decompose with auto=True passes --auto flag and parses task IDs."""
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
         spec_dir.mkdir(parents=True)
         spec_dir.joinpath("my-plan.md").write_text(
@@ -48,13 +47,29 @@ class TestDocService:
 
         with patch.object(self.svc, "_run", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = "->001 task A\n->002 task B"
-            result = await self.svc.doc_decompose("docs/spec/my-plan.md")
+            result = await self.svc.doc_decompose("docs/spec/my-plan.md", auto=True)
 
         mock_run.assert_called_once_with(
             "doc", "decompose", "docs/spec/my-plan.md", "--auto"
         )
         assert result["result"] == "->001 task A\n->002 task B"
         assert result["task_ids"] == ["001", "002"]
+
+    @pytest.mark.asyncio
+    async def test_doc_decompose_no_auto_flag_omitted(self):
+        """Decompose with auto=False (default) does not pass --auto to the CLI."""
+        spec_dir = Path(self.tmpdir) / "docs" / "spec"
+        spec_dir.mkdir(parents=True)
+        spec_dir.joinpath("my-plan.md").write_text(
+            "---\ntitle: my plan\nstatus: spec\n---\n\n- [ ] criterion A"
+        )
+
+        with patch.object(self.svc, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = "->003 task C"
+            result = await self.svc.doc_decompose("docs/spec/my-plan.md")
+
+        mock_run.assert_called_once_with("doc", "decompose", "docs/spec/my-plan.md")
+        assert result["task_ids"] == ["003"]
 
     @pytest.mark.asyncio
     async def test_doc_decompose_writes_task_ids_to_frontmatter(self):
@@ -602,7 +617,7 @@ async def test_decompose_endpoint(client):
     data = resp.json()
     assert "->001" in data["result"]
     assert data["task_ids"] == ["001", "002"]
-    mock_ostk.doc_decompose.assert_called_once_with("docs/spec/plan.md")
+    mock_ostk.doc_decompose.assert_called_once_with("docs/spec/plan.md", auto=True)
 
 
 @pytest.mark.asyncio
@@ -641,6 +656,53 @@ async def test_decompose_returns_task_ids_in_response(client):
     data = resp.json()
     assert data["task_ids"] == ["531", "532", "533"]
     assert len(data["task_ids"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_decompose_kernel_endpoint_default_no_auto(client):
+    """POST /specs/{path}/decompose-kernel with no body uses auto=False."""
+    with patch("routers.specs.ostk") as mock_ostk:
+        mock_ostk.doc_decompose = AsyncMock(
+            return_value={"result": "->010 task A", "task_ids": ["010"]}
+        )
+        resp = await client.post(
+            "/api/specs/docs/spec/plan.md/decompose-kernel", json={}
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["task_ids"] == ["010"]
+    mock_ostk.doc_decompose.assert_called_once_with("docs/spec/plan.md", auto=False)
+
+
+@pytest.mark.asyncio
+async def test_decompose_kernel_endpoint_with_auto(client):
+    """POST /specs/{path}/decompose-kernel with auto=true passes --auto."""
+    with patch("routers.specs.ostk") as mock_ostk:
+        mock_ostk.doc_decompose = AsyncMock(
+            return_value={"result": "->011 task B\n->012 task C", "task_ids": ["011", "012"]}
+        )
+        resp = await client.post(
+            "/api/specs/docs/spec/plan.md/decompose-kernel", json={"auto": True}
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["task_ids"] == ["011", "012"]
+    mock_ostk.doc_decompose.assert_called_once_with("docs/spec/plan.md", auto=True)
+
+
+@pytest.mark.asyncio
+async def test_decompose_kernel_endpoint_error(client):
+    """POST /specs/{path}/decompose-kernel returns 400 on OstkError."""
+    with patch("routers.specs.ostk") as mock_ostk:
+        mock_ostk.doc_decompose = AsyncMock(side_effect=OstkError("already decomposed"))
+        resp = await client.post(
+            "/api/specs/docs/spec/plan.md/decompose-kernel", json={}
+        )
+
+    assert resp.status_code == 400
+    assert "already decomposed" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio

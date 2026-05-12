@@ -740,8 +740,28 @@ async def decompose_spec(body: SpecDecompose):
     """
     _validate_doc_path(body.path)
     try:
-        result = await ostk.doc_decompose(body.path)
+        result = await ostk.doc_decompose(body.path, auto=True)
         return result  # already a dict with "result" and "task_ids"
+    except OstkError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class DecomposeKernelBody(BaseModel):
+    auto: bool = False
+
+
+@router.post("/specs/{spec_path:path}/decompose-kernel")
+async def decompose_spec_kernel(spec_path: str, body: DecomposeKernelBody):
+    """Decompose a spec into sub-needles via the ostk kernel.
+
+    Unlike /specs/decompose (which always passes --auto), this endpoint
+    lets the caller control whether ostk runs non-interactively. Pass
+    ``auto: true`` to skip confirmation prompts.
+    """
+    _validate_doc_path(spec_path)
+    try:
+        result = await ostk.doc_decompose(spec_path, auto=body.auto)
+        return result
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -1500,7 +1520,7 @@ async def _resolve_task_configs(spec_path: str) -> list[dict]:
     # spec was already decomposed; that is fine. spec_build still
     # running empty falls through to the AC fallback below.
     try:
-        await ostk.doc_decompose(spec_path)
+        await ostk.doc_decompose(spec_path, auto=True)
         result = await ostk.spec_build(spec_path)
         configs = result.get("agents", []) or []
         if configs:
