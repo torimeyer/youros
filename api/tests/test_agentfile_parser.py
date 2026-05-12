@@ -942,3 +942,203 @@ def test_build_template_instructions_omits_mcp_section_when_empty():
     assert "MCP servers" not in instructions
 
 
+# ---- Manifest sidecar tests (→1157) ----------------------------------------
+
+
+def test_manifest_lookup_plain_name(tmp_path, monkeypatch):
+    """Parser populates name/desc/aliases/mcp from manifest when not in file."""
+    import services.agentfile_parser as _mod
+    monkeypatch.setattr(_mod, "_manifest_cache", {
+        "myagent": {
+            "name": "My Agent",
+            "desc": "Does things.",
+            "aliases": ["ma", "myagent"],
+            "mcp": ["ostk"],
+        }
+    })
+    af = tmp_path / "myagent.agent"
+    af.write_text('FROM auto\nPROMPT "Test prompt."\n')
+    config = parse_agentfile(af)
+    assert config.name == "My Agent"
+    assert config.description == "Does things."
+    assert config.aliases == ["ma", "myagent"]
+    assert config.mcp_servers == ["ostk"]
+
+
+def test_manifest_lookup_marketplace_namespace(tmp_path, monkeypatch):
+    """Parser looks up marketplace-namespaced key when _lookup_manifest returns it."""
+    import services.agentfile_parser as _mod
+
+    af = tmp_path / "research.agent"
+    af.write_text('FROM auto\nPROMPT "Research prompt."\n')
+
+    # Simulate _lookup_manifest returning the marketplace-namespaced entry.
+    monkeypatch.setattr(
+        _mod,
+        "_lookup_manifest",
+        lambda p: {"name": "Research", "desc": "Marketplace research agent."} if p.stem == "research" else None,
+    )
+
+    config = parse_agentfile(af)
+    assert config.name == "Research"
+    assert config.description == "Marketplace research agent."
+
+
+def test_manifest_in_file_directive_wins_over_manifest(tmp_path, monkeypatch):
+    """In-file NAME/DESC/ALIASES/MCP values take precedence over manifest (backwards compat)."""
+    import services.agentfile_parser as _mod
+    monkeypatch.setattr(_mod, "_manifest_cache", {
+        "legacy": {
+            "name": "Manifest Name",
+            "desc": "Manifest desc.",
+            "aliases": ["mfst"],
+            "mcp": ["ostk"],
+        }
+    })
+    af = tmp_path / "legacy.agent"
+    af.write_text(
+        'FROM auto\n'
+        'NAME "In-File Name"\n'
+        'DESC "In-file desc."\n'
+        'ALIASES file-alias\n'
+        'MCP custom-server\n'
+        'PROMPT "prompt"\n'
+    )
+    config = parse_agentfile(af)
+    # File values win.
+    assert config.name == "In-File Name"
+    assert config.description == "In-file desc."
+    assert config.aliases == ["file-alias"]
+    assert config.mcp_servers == ["custom-server"]
+
+
+def test_manifest_missing_entry_no_error(tmp_path, monkeypatch):
+    """Parser does not error when the manifest has no entry for the file."""
+    import services.agentfile_parser as _mod
+    monkeypatch.setattr(_mod, "_manifest_cache", {})
+    af = tmp_path / "unknown.agent"
+    af.write_text('FROM auto\nPROMPT "x"\n')
+    config = parse_agentfile(af)
+    # Defaults: name from stem, description empty, aliases empty.
+    assert config.name == "unknown"
+    assert config.description == ""
+    assert config.aliases == []
+    assert config.mcp_servers == []
+
+
+# ---- Manifest quality_gates sidecar (→1157 extension) ----------------------
+
+
+def test_manifest_quality_gates_ac(tmp_path, monkeypatch):
+    """Parser populates acceptance_criteria from manifest quality_gates.ac."""
+    import services.agentfile_parser as _mod
+    monkeypatch.setattr(_mod, "_manifest_cache", {
+        "gated": {
+            "quality_gates": {
+                "ac": ["python3 -m pytest -x -q", "cd app && npx tsc -b"],
+            }
+        }
+    })
+    af = tmp_path / "gated.agent"
+    af.write_text('FROM auto\nPROMPT "x"\n')
+    config = parse_agentfile(af)
+    assert config.acceptance_criteria == ["python3 -m pytest -x -q", "cd app && npx tsc -b"]
+
+
+def test_manifest_quality_gates_review(tmp_path, monkeypatch):
+    """Parser populates review_checklists from manifest quality_gates.review."""
+    import services.agentfile_parser as _mod
+    monkeypatch.setattr(_mod, "_manifest_cache", {
+        "gated": {
+            "quality_gates": {
+                "review": ["owasp", "performance", "accessibility"],
+            }
+        }
+    })
+    af = tmp_path / "gated.agent"
+    af.write_text('FROM auto\nPROMPT "x"\n')
+    config = parse_agentfile(af)
+    assert config.review_checklists == ["owasp", "performance", "accessibility"]
+
+
+def test_manifest_quality_gates_standards(tmp_path, monkeypatch):
+    """Parser populates standards_path from manifest quality_gates.standards."""
+    import services.agentfile_parser as _mod
+    monkeypatch.setattr(_mod, "_manifest_cache", {
+        "gated": {
+            "quality_gates": {
+                "standards": ".standards.md",
+            }
+        }
+    })
+    af = tmp_path / "gated.agent"
+    af.write_text('FROM auto\nPROMPT "x"\n')
+    config = parse_agentfile(af)
+    assert config.standards_path == ".standards.md"
+
+
+def test_manifest_quality_gates_missing_block_no_error(tmp_path, monkeypatch):
+    """Manifest entry without quality_gates does not error; fields stay at defaults."""
+    import services.agentfile_parser as _mod
+    monkeypatch.setattr(_mod, "_manifest_cache", {
+        "plain": {"name": "Plain", "desc": "No gates."}
+    })
+    af = tmp_path / "plain.agent"
+    af.write_text('FROM auto\nPROMPT "x"\n')
+    config = parse_agentfile(af)
+    assert config.acceptance_criteria == []
+    assert config.review_checklists == []
+    assert config.standards_path is None
+
+
+def test_manifest_quality_gates_directive_form_fallback(tmp_path, monkeypatch):
+    """In-file AC/REVIEW/STANDARDS values take precedence over manifest quality_gates."""
+    import services.agentfile_parser as _mod
+    monkeypatch.setattr(_mod, "_manifest_cache", {
+        "legacy": {
+            "quality_gates": {
+                "ac": ["manifest-cmd"],
+                "review": ["manifest-check"],
+                "standards": "manifest.md",
+            }
+        }
+    })
+    af = tmp_path / "legacy.agent"
+    af.write_text(
+        'FROM auto\n'
+        'PROMPT "x"\n'
+        'AC file-cmd\n'
+        'REVIEW file-check\n'
+        'STANDARDS file.md\n'
+    )
+    config = parse_agentfile(af)
+    # File values win over manifest.
+    assert config.acceptance_criteria == ["file-cmd"]
+    assert config.review_checklists == ["file-check"]
+    assert config.standards_path == "file.md"
+
+
+def test_builder_quality_gates_come_from_manifest():
+    """builder.agent has no AC/REVIEW/STANDARDS directives; gates come from manifest."""
+    from config import PROJECT_ROOT
+    path = PROJECT_ROOT / "agents" / "builder.agent"
+    if not path.exists():
+        pytest.skip("builder.agent not present")
+    content = path.read_text()
+    assert not any(line.startswith("AC ") for line in content.splitlines()), \
+        "builder.agent must not contain AC directive"
+    config = parse_agentfile(path)
+    assert len(config.acceptance_criteria) >= 1, "builder must have AC gates via manifest"
+    assert len(config.review_checklists) >= 1, "builder must have review checklists via manifest"
+    assert config.standards_path is not None, "builder must have standards_path via manifest"
+
+
+def test_review_quality_gates_come_from_manifest():
+    """review.agent has no REVIEW/STANDARDS directives; gates come from manifest."""
+    from config import PROJECT_ROOT
+    path = PROJECT_ROOT / "agents" / "review.agent"
+    if not path.exists():
+        pytest.skip("review.agent not present")
+    config = parse_agentfile(path)
+    assert len(config.review_checklists) >= 1, "review must have review checklists via manifest"
+    assert config.standards_path is not None, "review must have standards_path via manifest"

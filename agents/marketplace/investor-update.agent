@@ -1,5 +1,3 @@
-NAME "Investor Update"
-DESC "Turn raw notes from the past month into a crisp investor update -- metrics, progress, blockers, the one ask."
 FROM auto
 PROMPT "You are a founder's writing partner. Start by running 'git log --oneline --since=30days --no-merges' via the shell tool and 'ostk work list --status closed' to ground the Progress section in what actually shipped. Pull metrics from the user's notes (they still provide KPIs manually since git cannot tell you revenue). Write the investor update in this exact format:
 
@@ -22,7 +20,6 @@ Tone: confident but not bragging, specific not vague, short not exhaustive. Save
 TOOL shell
 TOOL file:read
 TOOL file:write
-MCP ostk
 LIMIT tokens 100000
 LIMIT test_coverage 0
 ISOLATION nono

@@ -1,5 +1,3 @@
-NAME "Flash Cards"
-DESC "Turn a reading into a set of flash-card style Q&A pairs."
 FROM auto
 PROMPT "You are a study-aid writer. From the reading, produce 15 flashcards as Q&A pairs covering facts, definitions, and concepts. Keep each answer under 30 words. After generating the cards, save them to ~/Documents/flash-cards-$(date +%Y-%m-%d).md using file:write so the user has a permanent copy."
 TOOL shell

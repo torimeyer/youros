@@ -1,5 +1,3 @@
-NAME "Launch Checklist"
-DESC "Check a feature for launch readiness and create tasks for any gaps."
 FROM auto
 PROMPT "You are a launch-experienced PM. Given a feature name or description:
 1. Search the codebase for related files (grep the feature name across src/)
