@@ -257,8 +257,32 @@ while [ "$i" -lt "${#absorbed_branches[@]}" ]; do
   _agent_name="${pa##*/agent-}"
 
   # Skip if the owning agent is still alive.
+  # Guard (→1194): the worktree ID may be a short_worktree_id-truncated version
+  # of the registered agent name (truncation kicks in at 30 chars). Compare
+  # both the worktree ID itself AND the short_worktree_id of every active agent
+  # name so long-named agents are not falsely unprotected.
   if [ "$_ACTIVE_NAMES_LOADED" -eq 1 ] && [ -n "$ACTIVE_AGENT_NAMES" ]; then
-    if echo ",$ACTIVE_AGENT_NAMES," | grep -qF ",$_agent_name,"; then
+    _is_protected=$(python3 - "$_agent_name" "$ACTIVE_AGENT_NAMES" <<'PYEOF'
+import hashlib, sys
+
+wt_id = sys.argv[1]
+active_csv = sys.argv[2]
+
+def short_id(name, max_len=30):
+    if len(name) <= max_len:
+        return name
+    digest = hashlib.blake2s(name.encode(), digest_size=4).hexdigest()
+    prefix = name[:max_len - 9].rstrip("-_")
+    return f"{prefix}-{digest}"
+
+for name in (n for n in active_csv.split(",") if n):
+    if name == wt_id or short_id(name) == wt_id:
+        print("protected")
+        sys.exit(0)
+print("unprotected")
+PYEOF
+)
+    if [ "$_is_protected" = "protected" ]; then
       echo "  protected (agent '$_agent_name' still active; leaving worktree in place): $br"
       protected_count=$((protected_count + 1))
       continue
