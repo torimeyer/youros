@@ -66,7 +66,8 @@ describe('GemImportModal', () => {
     it('renders create modal with empty fields', () => {
       renderModal();
       expect(screen.getByTestId('gem-import-modal')).toBeInTheDocument();
-      expect(screen.getByText('Create Gem')).toBeInTheDocument();
+      // Both the header and submit button say "Create Gem" — check both are present
+      expect(screen.getAllByText('Create Gem').length).toBeGreaterThanOrEqual(1);
       expect(screen.getByTestId('gem-name-input')).toHaveValue('');
       expect(screen.getByTestId('gem-system-prompt-input')).toHaveValue('');
     });

@@ -109,7 +109,7 @@ export default function MyGems() {
   };
 
   const handleChat = (gem: Gem) => {
-    setToast({ kind: 'info', message: `Chat with "${gem.name}" will be wired in next pass.` });
+    setToast({ kind: 'info', message: `Chat will be wired in next pass.` });
   };
 
   return (

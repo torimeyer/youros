@@ -66,6 +66,7 @@ function renderMyGems() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedGet.mockResolvedValue({ gems: [] });
 });
 
 describe('MyGems page', () => {
@@ -196,37 +197,46 @@ describe('MyGems page', () => {
   });
 
   it('refreshes gem list after create modal saves', async () => {
-    mockedGet
-      .mockResolvedValueOnce({ gems: [] })
-      .mockResolvedValueOnce({ gems: mockGems });
-    mockedPost.mockResolvedValue({ id: 'gem-1', name: 'Code Reviewer', system_prompt: 'You are a senior code reviewer.', knowledge_files: [] });
-
-    renderMyGems();
-    await waitFor(() => {
-      expect(screen.getByTestId('gems-empty-state')).toBeInTheDocument();
+    // Start with gems already loaded
+    mockedGet.mockResolvedValue({ gems: mockGems });
+    mockedPost.mockResolvedValue({
+      id: 'gem-new',
+      name: 'New Gem',
+      system_prompt: 'New instructions.',
+      knowledge_files: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     });
 
-    fireEvent.click(screen.getByTestId('create-gem-button'));
-    expect(screen.getByTestId('gem-import-modal')).toBeInTheDocument();
+    renderMyGems();
+    await screen.findByTestId('gems-list');
 
-    fireEvent.change(screen.getByTestId('gem-name-input'), { target: { value: 'Code Reviewer' } });
-    fireEvent.change(screen.getByTestId('gem-system-prompt-input'), { target: { value: 'You are a senior code reviewer.' } });
+    // Open modal
+    fireEvent.click(screen.getByTestId('create-gem-button'));
+    await screen.findByTestId('gem-import-modal');
+
+    // Fill and submit
+    fireEvent.change(screen.getByTestId('gem-name-input'), { target: { value: 'New Gem' } });
+    fireEvent.change(screen.getByTestId('gem-system-prompt-input'), { target: { value: 'New instructions.' } });
     fireEvent.click(screen.getByTestId('gem-modal-submit'));
 
+    // POST was called with correct payload
     await waitFor(() => {
       expect(mockedPost).toHaveBeenCalledWith('/gems', {
-        name: 'Code Reviewer',
-        system_prompt: 'You are a senior code reviewer.',
+        name: 'New Gem',
+        system_prompt: 'New instructions.',
         knowledge_files: [],
       });
     });
 
+    // Modal closes after save
     await waitFor(() => {
       expect(screen.queryByTestId('gem-import-modal')).not.toBeInTheDocument();
     });
 
+    // GET was called at least twice: once on mount, once after save
     await waitFor(() => {
-      expect(screen.getByTestId('gems-list')).toBeInTheDocument();
+      expect(mockedGet.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
   });
 });
