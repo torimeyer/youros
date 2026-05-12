@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, fireEvent } from '@testing-library/react'
+import { render, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { Layout } from './Layout'
 import { useAppStore } from '../stores/app'
@@ -320,6 +320,23 @@ describe('Layout', () => {
       renderLayout()
       fireEvent.keyDown(document, { key: 'l', ctrlKey: true })
       expect(useAppStore.getState().chatOpen).toBe(true)
+    })
+  })
+
+  describe('guided tour opt-in', () => {
+    it('does not auto-start tour when tourComplete is false', async () => {
+      vi.useFakeTimers()
+      useAppStore.setState({ tourComplete: false, showTour: false })
+      renderLayout()
+      await act(async () => { vi.advanceTimersByTime(1200) })
+      expect(useAppStore.getState().showTour).toBe(false)
+      vi.useRealTimers()
+    })
+
+    it('tour stays hidden when showTour is false', () => {
+      useAppStore.setState({ showTour: false })
+      renderLayout()
+      expect(document.querySelector('.z-\\[9999\\]')).toBeNull()
     })
   })
 })
