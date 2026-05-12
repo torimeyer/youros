@@ -5,7 +5,7 @@ import os
 import re
 from difflib import SequenceMatcher
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from models.schemas import (
     TaskCreate, TaskClose, TaskLink, TaskUpdate, CommitCreate, TaskReorder,
@@ -1456,7 +1456,11 @@ _recent_closes: list[float] = []
 
 
 @router.post("/tasks/{task_id}/close")
-async def close_task(task_id: str, body: TaskClose = TaskClose()):
+async def close_task(
+    task_id: str,
+    body: TaskClose = TaskClose(),
+    source: Optional[str] = Query(None),
+):
     """Close a task. ``reason`` is the structured audit tag.
 
     Only accepts the controlled vocabulary ``completed``, ``duplicate`` or
@@ -1464,25 +1468,28 @@ async def close_task(task_id: str, body: TaskClose = TaskClose()):
     callers that still send free-form text continue to work.
 
     Batch-close guard: rejects the request when more than 3 tasks have
-    been closed in the last 60 seconds. Use the audit review flow for
-    bulk operations so Tori approves each one.
+    been closed in the last 60 seconds. Pass ``?source=user`` to bypass
+    the guard for direct user actions (checkbox clicks in the UI).
     """
     import time as _time
 
     now = _time.time()
-    cutoff = now - _CLOSE_WINDOW_SECONDS
-    # Prune stale entries.
-    while _recent_closes and _recent_closes[0] < cutoff:
-        _recent_closes.pop(0)
-    if len(_recent_closes) >= _CLOSE_BURST_LIMIT:
-        raise HTTPException(
-            status_code=429,
-            detail=(
-                f"Too many tasks closed in the last {_CLOSE_WINDOW_SECONDS} seconds. "
-                "Use the Audit review to close tasks in bulk so each one "
-                "gets reviewed first."
-            ),
-        )
+    user_initiated = source == "user"
+
+    if not user_initiated:
+        cutoff = now - _CLOSE_WINDOW_SECONDS
+        # Prune stale entries.
+        while _recent_closes and _recent_closes[0] < cutoff:
+            _recent_closes.pop(0)
+        if len(_recent_closes) >= _CLOSE_BURST_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Too many tasks closed in the last {_CLOSE_WINDOW_SECONDS} seconds. "
+                    "Use the Audit review to close tasks in bulk so each one "
+                    "gets reviewed first."
+                ),
+            )
 
     # Normalise pure numeric IDs like "1067" to "→1067" for ostk. This
     # lets the post-commit hook pass a bare number from the URL without
@@ -1495,7 +1502,8 @@ async def close_task(task_id: str, body: TaskClose = TaskClose()):
     structured_reason = raw_reason if raw_reason in allowed_reasons else None
     try:
         result = await ostk.close_task(normalised_id, closed_reason=structured_reason)
-        _recent_closes.append(now)
+        if not user_initiated:
+            _recent_closes.append(now)
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

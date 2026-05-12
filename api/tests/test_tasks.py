@@ -347,6 +347,43 @@ async def test_close_task_batch_guard_rejects_rapid_closes(client):
     assert mock_ostk.close_task.call_count == 3
 
 
+@pytest.mark.asyncio
+async def test_close_task_user_source_bypasses_burst_guard(client):
+    """Needle 1208: ?source=user skips the rate limit so the user can close
+    more than 3 tasks in 60 seconds from the Tasks page checkbox.
+    """
+    from routers.tasks import _recent_closes
+    _recent_closes.clear()
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.close_task = AsyncMock(return_value="closed")
+
+        # 5 rapid user-initiated closes — all should succeed.
+        for i in range(5):
+            resp = await client.post(f"/api/tasks/t-{i}/close?source=user")
+            assert resp.status_code == 200, f"user close {i} should not be rate-limited"
+
+    # User closes must NOT be counted in the burst window.
+    assert len(_recent_closes) == 0
+
+
+@pytest.mark.asyncio
+async def test_close_task_agent_still_rate_limited_without_user_source(client):
+    """The burst guard still fires for automated/agent closes (no ?source=user)."""
+    from routers.tasks import _recent_closes
+    _recent_closes.clear()
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.close_task = AsyncMock(return_value="closed")
+
+        for i in range(3):
+            resp = await client.post(f"/api/tasks/t-{i}/close")
+            assert resp.status_code == 200
+
+        # 4th agent close is rejected.
+        resp = await client.post("/api/tasks/t-extra/close")
+        assert resp.status_code == 429
+        assert "Audit review" in resp.json()["detail"]
+
+
 # --- POST /api/tasks/{id}/reopen ---
 
 @pytest.mark.asyncio
