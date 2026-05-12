@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re as _re
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -15,6 +16,8 @@ from services.task_visibility import (
     is_visible_task,
 )
 from services.dashboard_events import bus as _dashboard_events_bus
+
+_SERVER_START = time.time()
 
 router = APIRouter(tags=["dashboard"])
 
@@ -332,6 +335,16 @@ async def get_session_diff():
 
 async def _build_dashboard_data() -> dict:
     """Build snapshot of dashboard state: active agents, tasks, system health."""
+    from routers.agents import agent_metadata
+    from services.agent_filters import is_user_spawned_agent
+
+    agents_count = sum(
+        1
+        for name, meta in agent_metadata.items()
+        if is_user_spawned_agent({"name": name, **meta})
+        and meta.get("status") == "running"
+    )
+
     try:
         all_tasks = await ostk.list_tasks()
     except OstkError:
@@ -340,11 +353,26 @@ async def _build_dashboard_data() -> dict:
     open_tasks = [t for t in all_tasks if t.get("status") != "closed" and not is_session_task(t) and not is_e2e_task(t)]
 
     return {
-        "agents_count": 0,
+        "agents_count": agents_count,
         "tasks_count": len(open_tasks),
-        "system_uptime": 0,
+        "system_uptime": int(time.time() - _SERVER_START),
         "last_sync_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+async def _publish_dashboard_state() -> None:
+    """Recompute dashboard data and push to WS subscribers. Best-effort."""
+    try:
+        data = await _build_dashboard_data()
+        await _dashboard_events_bus.publish("snapshot", data)
+    except Exception:
+        pass
+
+
+@router.get("/coordination/dashboard")
+async def get_coordination_dashboard():
+    """Fallback HTTP endpoint for dashboard data when WS is unavailable."""
+    return await _build_dashboard_data()
 
 
 @router.websocket("/ws/dashboard/data")
@@ -356,6 +384,13 @@ async def dashboard_data_ws(websocket: WebSocket) -> None:
     Keepalive ping every 15 seconds.
     """
     await websocket.accept()
+
+    async def _periodic_publish() -> None:
+        while True:
+            await asyncio.sleep(5)
+            await _publish_dashboard_state()
+
+    periodic_task = asyncio.create_task(_periodic_publish())
     try:
         data = await _build_dashboard_data()
         await websocket.send_json({"type": "snapshot", **data})
@@ -370,3 +405,5 @@ async def dashboard_data_ws(websocket: WebSocket) -> None:
         pass
     except Exception:
         pass
+    finally:
+        periodic_task.cancel()

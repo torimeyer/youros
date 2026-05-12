@@ -10,6 +10,8 @@ import { Card, SkeletonLine } from '../components/ui';
 import { api } from '../lib/api';
 import { renderMarkdown } from '../lib/markdown';
 import { useAppStore } from '../stores/app';
+import { useDashboardStore } from '../stores/dashboardStore';
+import { useDashboardFeed } from '../hooks/useDashboardFeed';
 import { ADVENTURE_DISMISSED_KEY, type AdventureTemplate } from '../lib/adventures';
 
 interface ActionItem {
@@ -189,8 +191,11 @@ function readCalendarRange(): CalendarRange {
 }
 
 export default function Dashboard() {
+  useDashboardFeed();
   const navigate = useNavigate();
   const toggleChat = useAppStore((s) => s.toggleChat);
+  const liveAgentsCount = useDashboardStore((s) => s.agentsCount);
+  const liveTasksCount = useDashboardStore((s) => s.tasksCount);
   const displayOsName = useAppStore((s) => s.displayOsName());
   const dashboardWidgets = useAppStore((s) => s.dashboardWidgets);
   const setDashboardWidgets = useAppStore((s) => s.setDashboardWidgets);
@@ -1101,7 +1106,11 @@ export default function Dashboard() {
   });
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div
+      className="min-h-dvh bg-slate-950 text-white"
+      data-live-agents={String(liveAgentsCount)}
+      data-live-tasks={String(liveTasksCount)}
+    >
       <TopBar title="Home" />
 
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
