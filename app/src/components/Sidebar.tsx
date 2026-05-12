@@ -336,8 +336,8 @@ export function Sidebar() {
   const [unfinishedSpecs, setUnfinishedSpecs] = useState(0)
   const [gmailUnread, setGmailUnread] = useState(0)
   const [version, setVersion] = useState('')
-  const [backendUp, setBackendUp] = useState<boolean | null>(null)
-  const [ostkUp, setOstkUp] = useState<boolean | null>(null)
+  const [healthState, setHealthState] = useState<'healthy' | 'checking' | 'down' | null>(null)
+  const [lastHealthyAt, setLastHealthyAt] = useState<number | null>(null)
   const [ostkKernel, setOstkKernel] = useState('')
   const [, setSessionCount] = useState(0)
 
@@ -494,7 +494,8 @@ export function Sidebar() {
     let consecutiveFailures = 0
     const SUCCESS_INTERVAL = 15_000
     const FAILURE_INTERVAL = 2_000
-    const FAILURE_THRESHOLD = 2
+    const AMBER_THRESHOLD = 2
+    const RED_THRESHOLD = 7
 
     const scheduleNext = (delayMs: number) => {
       if (cancelled) return
@@ -508,18 +509,18 @@ export function Sidebar() {
         const res = await api.get<{ kernel: string }>('/status/clock')
         if (cancelled) return
         consecutiveFailures = 0
-        setBackendUp(true)
+        setHealthState('healthy')
+        setLastHealthyAt(Date.now())
         const k = res.kernel || ''
-        setOstkUp(k !== 'unknown' && k !== '')
         setOstkKernel(k)
         scheduleNext(SUCCESS_INTERVAL)
       } catch {
         if (cancelled) return
         consecutiveFailures += 1
-        if (consecutiveFailures >= FAILURE_THRESHOLD) {
-          setBackendUp(false)
-          setOstkUp(false)
-          setOstkKernel('')
+        if (consecutiveFailures >= RED_THRESHOLD) {
+          setHealthState('down')
+        } else if (consecutiveFailures >= AMBER_THRESHOLD) {
+          setHealthState('checking')
         }
         scheduleNext(FAILURE_INTERVAL)
       }
@@ -530,6 +531,18 @@ export function Sidebar() {
       if (timer) clearTimeout(timer)
     }
   }, [])
+
+  const dotTooltip = (() => {
+    if (healthState === null) return 'Connecting...'
+    if (healthState === 'healthy') {
+      return `Backend healthy${ostkKernel ? ` (${ostkKernel})` : ''}. Last checked just now.`
+    }
+    if (healthState === 'checking') {
+      return `Backend slow to respond. Checking...${ostkKernel ? ` (${ostkKernel})` : ''}`
+    }
+    const t = lastHealthyAt ? new Date(lastHealthyAt).toLocaleTimeString() : 'unknown'
+    return `Backend not responding. Last healthy at ${t}. To restart: bash scripts/restart-backend.sh`
+  })()
 
   // Build feature-filtered view of all nav items
   const featureOrder = new Map(features.map((f, i) => [f.label, i]))
@@ -787,30 +800,41 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* System status indicators */}
+      {/* Backend status indicator */}
       <div className="px-5 pt-3 pb-2 border-t border-slate-800/50 flex flex-col gap-1.5">
         {statusDotStyle === 'badges' ? (
-          <>
-            <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full w-fit ${backendUp === null ? 'bg-slate-700 text-slate-400' : backendUp ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-              Backend {backendUp === null ? '' : backendUp ? 'up' : 'down'}
-            </span>
-            <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full w-fit ${ostkUp === null ? 'bg-slate-700 text-slate-400' : ostkUp ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-              System{ostkKernel ? ` ${ostkKernel}` : ''} {ostkUp === null ? '' : ostkUp ? 'running' : 'offline'}
-            </span>
-
-          </>
+          <span
+            data-testid="backend-status-dot"
+            title={dotTooltip}
+            className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full w-fit ${
+              healthState === null
+                ? 'bg-slate-700 text-slate-400'
+                : healthState === 'healthy'
+                ? 'bg-green-500/20 text-green-400'
+                : healthState === 'checking'
+                ? 'bg-amber-500/20 text-amber-400'
+                : 'bg-red-500/20 text-red-400'
+            }`}
+          >
+            Backend {healthState === null ? '' : healthState === 'healthy' ? 'up' : healthState === 'checking' ? 'checking' : 'down'}
+          </span>
         ) : (
-          <>
-            <div className="flex items-center gap-2">
-              <span className={`w-1.5 h-1.5 rounded-full ${backendUp === null ? 'bg-slate-600' : backendUp ? 'bg-green-400' : 'bg-red-400'}`} />
-              <span className="text-[10px] text-slate-500">Backend</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`w-1.5 h-1.5 rounded-full ${ostkUp === null ? 'bg-slate-600' : ostkUp ? 'bg-green-400' : 'bg-red-400'}`} />
-              <span className="text-[10px] text-slate-500">System{ostkKernel ? ` ${ostkKernel}` : ''}</span>
-            </div>
-
-          </>
+          <div className="flex items-center gap-2">
+            <span
+              data-testid="backend-status-dot"
+              title={dotTooltip}
+              className={`w-1.5 h-1.5 rounded-full ${
+                healthState === null
+                  ? 'bg-slate-600'
+                  : healthState === 'healthy'
+                  ? 'bg-green-400'
+                  : healthState === 'checking'
+                  ? 'bg-amber-400'
+                  : 'bg-red-400'
+              }`}
+            />
+            <span className="text-[10px] text-slate-500">Backend</span>
+          </div>
         )}
       </div>
     </aside>
