@@ -3,10 +3,10 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import TopBar from './TopBar'
 import { useNotificationStore } from '../stores/notifications'
+import { useNotificationsStore } from '../stores/notificationsStore'
 import { useAppStore } from '../stores/app'
 
-// Mock the api module so the persistent notifications endpoint
-// does not hit the network. Tests can override these per case.
+// Mock the api module so HTTP endpoints do not hit the network.
 vi.mock('../lib/api', () => ({
   api: {
     get: vi.fn(),
@@ -15,6 +15,12 @@ vi.mock('../lib/api', () => ({
     patch: vi.fn().mockResolvedValue({}),
     delete: vi.fn().mockResolvedValue({}),
   },
+}))
+
+// Mock useNotificationsFeed so the WS connection does not run in tests.
+// Tests populate useNotificationsStore directly to control badge/drawer state.
+vi.mock('../hooks/useNotificationsFeed', () => ({
+  useNotificationsFeed: vi.fn(),
 }))
 
 // Mock push notifications module so tests don't touch real Push API
@@ -43,7 +49,6 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 })
 
-const mockedApiGet = vi.mocked(api.get)
 const mockedApiPost = vi.mocked(api.post)
 
 function renderTopBar() {
@@ -54,7 +59,7 @@ function renderTopBar() {
   )
 }
 
-// Helper that seeds the notification store with `count` unread items.
+// Helper that seeds the agent notification store with `count` unread items.
 function seedUnreadNotifications(count: number) {
   const items = Array.from({ length: count }, (_, i) => ({
     id: `notif-${i}`,
@@ -67,24 +72,21 @@ function seedUnreadNotifications(count: number) {
   useNotificationStore.setState({ notifications: items, toastIds: [] })
 }
 
-// Build a persistent notification fixture.
-function makePersistent(id: string, read = false) {
+// Build a WS notification fixture.
+function makeWsNotif(id: string, read = false) {
   return {
     id,
     type: 'agent',
     title: `Item ${id}`,
     body: `body ${id}`,
-    action_label: null,
-    action_url: null,
+    action_label: null as string | null,
+    action_url: null as string | null,
     read,
     created_at: new Date().toISOString(),
-    metadata: {},
   }
 }
 
-// Find the notifications bell button by walking up from its icon span,
-// which is more reliable than matching the badge number text since
-// other components on the bar may render similar text.
+// Find the notifications bell button by walking up from its icon span.
 function getBellButton(): HTMLButtonElement {
   const icons = Array.from(
     document.querySelectorAll('span.material-symbols-outlined')
@@ -115,11 +117,7 @@ function getBadgeCount(): number {
 }
 
 // Count the rendered list items inside the dropdown body.
-// The dropdown body uses a flex container with hover classes. We locate
-// items by their top-level class signature. When the empty state is
-// shown, this returns 0.
 function getRenderedItemCount(): number {
-  // Empty state shows the notifications_none icon inside a p-6 wrapper.
   const emptyState = document.querySelector('.p-6.text-center')
   if (emptyState) return 0
   const listContainer = document.querySelector('.max-h-80.overflow-y-auto')
@@ -128,9 +126,6 @@ function getRenderedItemCount(): number {
 }
 
 // Count the rendered UNREAD list items inside the dropdown body.
-// Read items are rendered with the opacity-60 class to dim them, so
-// we exclude those from the count. The badge should match this number
-// exactly on every render.
 function getRenderedUnreadCount(): number {
   const emptyState = document.querySelector('.p-6.text-center')
   if (emptyState) return 0
@@ -143,28 +138,17 @@ function getRenderedUnreadCount(): number {
   return unread
 }
 
-// The core invariant this whole file is defending:
-// the badge on the bell must always equal the number of UNREAD items
-// the dropdown would render. If this ever fails, Tori sees "9+" on the
-// bell and "You're all caught up" in the dropdown.
+// The core invariant: the badge on the bell must always equal the number
+// of UNREAD items the dropdown would render.
 function assertBadgeMatchesDropdown(context: string) {
   const badge = getBadgeCount()
-  // When the drawer is closed we still assert the dropdown body, if
-  // rendered, would match. We open via state inspection instead of
-  // a click here.
   const drawerOpen = !!screen.queryByText('Notifications')
-  if (!drawerOpen) {
-    // Drawer is closed. The invariant is tested once the dropdown opens.
-    return
-  }
+  if (!drawerOpen) return
   const unreadVisible = getRenderedUnreadCount()
   expect(
     badge,
     `${context}: badge=${badge} but dropdown shows ${unreadVisible} unread items`
   ).toBe(unreadVisible)
-
-  // Extra guard: if the badge is > 0, the dropdown must NOT show the
-  // empty state. This is the exact bug from the screenshot.
   if (badge > 0) {
     expect(
       screen.queryByText(/You.*all caught up/i),
@@ -177,36 +161,21 @@ describe('TopBar badge and dropdown invariant', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useNotificationStore.setState({ notifications: [], toastIds: [] })
+    useNotificationsStore.setState({ notifications: [], wsConnected: false })
     useAppStore.setState({
       osName: 'myOS',
       chatOpen: false,
       chatWidth: 400,
-    })
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications/unread/count') return { count: 0 }
-      if (url === '/notifications') return []
-      return {}
     })
     mockedApiPost.mockResolvedValue({})
   })
 
   it('Case A: only agent store has unread, badge equals dropdown unread count', async () => {
     seedUnreadNotifications(3)
-    // Persistent endpoint is empty.
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications/unread/count') return { count: 0 }
-      if (url === '/notifications') return []
-      return {}
-    })
+    // No persistent notifications.
+    useNotificationsStore.setState({ notifications: [], wsConnected: false })
 
     renderTopBar()
-
-    // Wait for the mount effect fetch to settle.
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/notifications')
-    })
-
-    // Badge should be 3 before opening.
     expect(getBadgeCount()).toBe(3)
 
     await act(async () => {
@@ -221,24 +190,14 @@ describe('TopBar badge and dropdown invariant', () => {
     expect(getRenderedUnreadCount()).toBe(3)
   })
 
-  it('Case B: only persistent endpoint returns items, badge equals dropdown unread count', async () => {
-    // Server returns 2 persistent unread items and a stale count of 9.
-    // Before the fix, the badge would read from the stale count and
-    // show 9 while the dropdown only has 2 items.
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications/unread/count') return { count: 9 }
-      if (url === '/notifications')
-        return [makePersistent('p-1'), makePersistent('p-2')]
-      return {}
+  it('Case B: only persistent store has items, badge equals dropdown unread count', async () => {
+    useNotificationsStore.setState({
+      notifications: [makeWsNotif('p-1'), makeWsNotif('p-2')],
+      wsConnected: true,
     })
 
     renderTopBar()
 
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/notifications')
-    })
-
-    // Badge must reflect the 2 actual list items, NOT the stale count.
     await waitFor(() => {
       expect(getBadgeCount()).toBe(2)
     })
@@ -255,30 +214,16 @@ describe('TopBar badge and dropdown invariant', () => {
     expect(getRenderedUnreadCount()).toBe(2)
   })
 
-  it('Case C: screenshot case, count endpoint says 9 but list is empty, badge must be 0', async () => {
-    // This is the exact bug Tori screenshotted. The /unread/count
-    // endpoint returns a stale 9 while /notifications returns []. The
-    // badge must NOT display 9+ when there is nothing to show.
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications/unread/count') return { count: 9 }
-      if (url === '/notifications') return []
-      return {}
-    })
+  it('Case C: persistent store is empty, badge must be 0', async () => {
+    useNotificationsStore.setState({ notifications: [], wsConnected: true })
 
     renderTopBar()
 
-    // Wait for the proactive list fetch to land.
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/notifications')
-    })
-
-    // Badge must be 0, not 9 and not "9+".
     await waitFor(() => {
       expect(getBadgeCount()).toBe(0)
     })
     expect(getBadgeText()).toBeNull()
 
-    // Open the drawer and confirm the empty state is consistent.
     await act(async () => {
       fireEvent.click(getBellButton())
     })
@@ -288,25 +233,18 @@ describe('TopBar badge and dropdown invariant', () => {
     })
 
     expect(screen.getByText(/You.*all caught up/i)).toBeInTheDocument()
-    assertBadgeMatchesDropdown('Case C stale count, empty list')
+    assertBadgeMatchesDropdown('Case C empty store')
   })
 
   it('Mark all read zeroes the badge and shows the empty state branch for unread', async () => {
-    // Seed both sources with unread items.
     seedUnreadNotifications(2)
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications/unread/count') return { count: 1 }
-      if (url === '/notifications') return [makePersistent('p-1')]
-      return {}
+    useNotificationsStore.setState({
+      notifications: [makeWsNotif('p-1')],
+      wsConnected: true,
     })
 
     renderTopBar()
 
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/notifications')
-    })
-
-    // Badge is 3 before opening (2 agent + 1 persistent).
     await waitFor(() => {
       expect(getBadgeCount()).toBe(3)
     })
@@ -326,30 +264,19 @@ describe('TopBar badge and dropdown invariant', () => {
       expect(mockedApiPost).toHaveBeenCalledWith('/notifications/read-all')
     })
 
-    // Badge must now be 0 since everything is flushed.
     await waitFor(() => {
       expect(getBadgeCount()).toBe(0)
     })
 
-    // Dropdown is still open (mark all read does not close it) but the
-    // items are now rendered with opacity-60, so unread count is 0.
     expect(screen.getByText('Notifications')).toBeInTheDocument()
     assertBadgeMatchesDropdown('after mark all read')
   })
 
   it('opening the drawer does not change the badge count', async () => {
     seedUnreadNotifications(4)
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications/unread/count') return { count: 0 }
-      if (url === '/notifications') return []
-      return {}
-    })
+    useNotificationsStore.setState({ notifications: [], wsConnected: false })
 
     renderTopBar()
-
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/notifications')
-    })
 
     const before = getBadgeCount()
     expect(before).toBe(4)
@@ -362,13 +289,11 @@ describe('TopBar badge and dropdown invariant', () => {
       expect(screen.getByText('Notifications')).toBeInTheDocument()
     })
 
-    // Badge must not have changed just from opening.
     expect(getBadgeCount()).toBe(before)
     assertBadgeMatchesDropdown('after open, no mark read')
   })
 
   it('invariant holds when both sources have a mix of read and unread items', async () => {
-    // Seed agent store with 2 unread + 1 read.
     useNotificationStore.setState({
       notifications: [
         { id: 'a-1', agentName: 'one', prevStatus: 'spawned', status: 'completed', timestamp: new Date().toISOString(), read: false },
@@ -378,22 +303,16 @@ describe('TopBar badge and dropdown invariant', () => {
       toastIds: [],
     })
     // Persistent: 1 unread + 2 read.
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications/unread/count') return { count: 1 }
-      if (url === '/notifications')
-        return [
-          makePersistent('p-1', false),
-          makePersistent('p-2', true),
-          makePersistent('p-3', true),
-        ]
-      return {}
+    useNotificationsStore.setState({
+      notifications: [
+        makeWsNotif('p-1', false),
+        makeWsNotif('p-2', true),
+        makeWsNotif('p-3', true),
+      ],
+      wsConnected: true,
     })
 
     renderTopBar()
-
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/notifications')
-    })
 
     // 2 agent unread + 1 persistent unread = 3 badge.
     await waitFor(() => {
@@ -408,28 +327,18 @@ describe('TopBar badge and dropdown invariant', () => {
       expect(screen.getByText('Notifications')).toBeInTheDocument()
     })
 
-    // Dropdown renders all 6 items (3 agent + 3 persistent) but only 3
-    // are unread. Badge must match unread count.
     expect(getRenderedItemCount()).toBe(6)
     expect(getRenderedUnreadCount()).toBe(3)
     assertBadgeMatchesDropdown('mixed read and unread in both sources')
   })
 
   it('invariant holds when the server returns zero unread but stale items exist', async () => {
-    // All items exist on server but are already marked read. The
-    // dropdown renders them dimmed, the badge must show 0.
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications/unread/count') return { count: 0 }
-      if (url === '/notifications')
-        return [makePersistent('p-1', true), makePersistent('p-2', true)]
-      return {}
+    useNotificationsStore.setState({
+      notifications: [makeWsNotif('p-1', true), makeWsNotif('p-2', true)],
+      wsConnected: true,
     })
 
     renderTopBar()
-
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/notifications')
-    })
 
     await waitFor(() => {
       expect(getBadgeCount()).toBe(0)
@@ -443,7 +352,6 @@ describe('TopBar badge and dropdown invariant', () => {
       expect(screen.getByText('Notifications')).toBeInTheDocument()
     })
 
-    // Dropdown shows 2 items but both are read, so unread count is 0.
     expect(getRenderedItemCount()).toBe(2)
     expect(getRenderedUnreadCount()).toBe(0)
     assertBadgeMatchesDropdown('all stale items already read')
@@ -453,18 +361,12 @@ describe('TopBar badge and dropdown invariant', () => {
 describe('TopBar notifications drawer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // Reset stores so state from a previous test does not leak in.
     useNotificationStore.setState({ notifications: [], toastIds: [] })
+    useNotificationsStore.setState({ notifications: [], wsConnected: false })
     useAppStore.setState({
       osName: 'myOS',
       chatOpen: false,
       chatWidth: 400,
-    })
-    // Default API responses: no persistent notifications.
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications/unread/count') return { count: 0 }
-      if (url === '/notifications') return []
-      return {}
     })
     mockedApiPost.mockResolvedValue({})
   })
@@ -473,22 +375,17 @@ describe('TopBar notifications drawer', () => {
     seedUnreadNotifications(3)
     renderTopBar()
 
-    // Drawer is not visible yet.
     expect(screen.queryByText('Notifications')).not.toBeInTheDocument()
 
-    // Click the bell.
     fireEvent.click(getBellButton())
 
-    // Drawer is now visible.
     await waitFor(() => {
       expect(screen.getByText('Notifications')).toBeInTheDocument()
     })
 
-    // None of the agent notifications were marked read.
     const state = useNotificationStore.getState()
     expect(state.notifications.every((n) => !n.read)).toBe(true)
 
-    // The mark-all-read API was NOT called on open.
     expect(mockedApiPost).not.toHaveBeenCalledWith('/notifications/read-all')
   })
 
@@ -504,7 +401,6 @@ describe('TopBar notifications drawer', () => {
   })
 
   it('does not show the "Mark all read" button when there are no unread notifications', async () => {
-    // No unread agent notifications and no persistent unread.
     useNotificationStore.setState({ notifications: [], toastIds: [] })
     renderTopBar()
 
@@ -526,43 +422,25 @@ describe('TopBar notifications drawer', () => {
     const markAllButton = await screen.findByText('Mark all read')
     fireEvent.click(markAllButton)
 
-    // Agent notifications are flushed to read.
     await waitFor(() => {
       const state = useNotificationStore.getState()
       expect(state.notifications.every((n) => n.read)).toBe(true)
     })
 
-    // Drawer is still open.
     expect(screen.getByText('Notifications')).toBeInTheDocument()
   })
 
   it('clicking "Mark all read" also marks persistent notifications read on the server', async () => {
-    // Server reports 1 persistent unread item so the persistent path runs.
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications/unread/count') return { count: 1 }
-      if (url === '/notifications')
-        return [
-          {
-            id: 'p-1',
-            type: 'agent',
-            title: 'Agent done',
-            body: 'finished work',
-            action_label: null,
-            action_url: null,
-            read: false,
-            created_at: new Date().toISOString(),
-            metadata: {},
-          },
-        ]
-      return {}
+    // Seed one persistent unread item via the WS store.
+    useNotificationsStore.setState({
+      notifications: [makeWsNotif('p-1')],
+      wsConnected: true,
     })
 
     renderTopBar()
 
-    // Wait for the persistent list to land in component state
-    // (the bell badge appears once the effect runs).
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/notifications')
+      expect(getBadgeCount()).toBe(1)
     })
 
     await act(async () => {
@@ -579,7 +457,6 @@ describe('TopBar notifications drawer', () => {
       expect(mockedApiPost).toHaveBeenCalledWith('/notifications/read-all')
     })
 
-    // Drawer is still open.
     expect(screen.getByText('Notifications')).toBeInTheDocument()
   })
 
@@ -593,20 +470,15 @@ describe('TopBar notifications drawer', () => {
       expect(screen.getByText('Notifications')).toBeInTheDocument()
     })
 
-    // The backdrop is the fixed inset-0 div that sits right before
-    // the drawer panel. It is the first child of the relative wrapper
-    // and lives at z-40. Find it by its class signature.
     const backdrop = document.querySelector('.fixed.inset-0.z-40') as HTMLElement
     expect(backdrop).toBeTruthy()
 
     fireEvent.click(backdrop)
 
-    // Drawer is gone.
     await waitFor(() => {
       expect(screen.queryByText('Notifications')).not.toBeInTheDocument()
     })
 
-    // Remaining unread items were flushed.
     const state = useNotificationStore.getState()
     expect(state.notifications.every((n) => n.read)).toBe(true)
   })
@@ -621,8 +493,6 @@ describe('TopBar notifications drawer', () => {
       expect(screen.getByText('Notifications')).toBeInTheDocument()
     })
 
-    // The X button is the only button in the drawer header containing
-    // the "close" icon. Find it by walking from the close icon up.
     const closeIcon = Array.from(
       document.querySelectorAll('span.material-symbols-outlined')
     ).find((el) => el.textContent === 'close')
@@ -645,16 +515,12 @@ describe('TopBar What\'s New button', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useNotificationStore.setState({ notifications: [], toastIds: [] })
+    useNotificationsStore.setState({ notifications: [], wsConnected: false })
     useAppStore.setState({
       osName: 'myOS',
       chatOpen: false,
       chatWidth: 400,
       whatsNewLastSeen: '',
-    })
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications/unread/count') return { count: 0 }
-      if (url === '/notifications') return []
-      return {}
     })
     mockedApiPost.mockResolvedValue({})
   })
@@ -662,8 +528,6 @@ describe('TopBar What\'s New button', () => {
   it('the What\'s New sparkle button is no longer rendered inside the TopBar header', () => {
     renderTopBar()
 
-    // The What's New button lives in the Sidebar now, not the header.
-    // Confirm that no sparkle button is mounted inside the TopBar header.
     const header = document.querySelector('header')
     expect(header).toBeTruthy()
     const whatsNewButton = header!.querySelector('[data-testid="whats-new-button"]')
@@ -680,12 +544,8 @@ describe('TopBar keyboard modifier key by platform', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useNotificationStore.setState({ notifications: [], toastIds: [] })
+    useNotificationsStore.setState({ notifications: [], wsConnected: false })
     useAppStore.setState({ osName: 'myOS', chatOpen: false, chatWidth: 400 })
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications/unread/count') return { count: 0 }
-      if (url === '/notifications') return []
-      return {}
-    })
   })
 
   it('shows Ctrl+ on a non-Mac platform (Win32)', async () => {
@@ -695,18 +555,13 @@ describe('TopBar keyboard modifier key by platform', () => {
       writable: true,
     })
     renderTopBar()
-    // Wait for effects to settle then check that Ctrl+ appears
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/notifications')
-    })
-    // modKey+K shortcut hint should use Ctrl+ prefix on non-Mac
+    await act(async () => {})
     expect(document.body.textContent).toContain('Ctrl+')
     expect(document.body.textContent).not.toContain('⌘')
     Object.defineProperty(navigator, 'platform', { value: '', configurable: true, writable: true })
   })
 
   it('shows ⌘ on macOS (MacIntel)', async () => {
-    // modKey is a module-level constant — reload TopBar with Mac platform
     Object.defineProperty(navigator, 'platform', {
       value: 'MacIntel',
       configurable: true,
@@ -721,7 +576,6 @@ describe('TopBar keyboard modifier key by platform', () => {
 
     r(createElement(BR as any, null, createElement(FreshTopBar as any, { title: 'Home' })))
 
-    // modKey+K shortcut hint should use ⌘ prefix on Mac
     await wf(() => expect(document.body.textContent).toContain('⌘'))
     expect(document.body.textContent).not.toContain('Ctrl+')
 
@@ -741,6 +595,7 @@ describe('TopBar persistent-notification toast', () => {
       firedKeys: new Set<string>(),
       persistentToastIds: new Set<string>(),
     })
+    useNotificationsStore.setState({ notifications: [], wsConnected: false })
     useAppStore.setState({
       osName: 'myOS',
       chatOpen: false,
@@ -749,50 +604,44 @@ describe('TopBar persistent-notification toast', () => {
     mockedApiPost.mockResolvedValue({})
   })
 
-  it('does not toast rows that were already on screen at mount', async () => {
-    // First poll returns an existing roadmap_ready notification. The
-    // component should seed its seen-set on the initial fetch and NOT
-    // toast rows that predate the render.
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications')
-        return [
-          {
-            id: 'existing-1',
-            type: 'roadmap_ready',
-            title: 'Roadmap ready',
-            body: '',
-            action_label: null,
-            action_url: '/files',
-            read: false,
-            created_at: new Date().toISOString(),
-            metadata: {},
-          },
-        ]
-      return {}
+  it('does not toast rows that were already in the store at mount', async () => {
+    // Pre-seed the store before rendering. The component should seed its
+    // seen-set on mount and NOT toast rows that predate the render.
+    useNotificationsStore.setState({
+      notifications: [
+        {
+          id: 'existing-1',
+          type: 'roadmap_ready',
+          title: 'Roadmap ready',
+          body: '',
+          action_label: null,
+          action_url: '/files',
+          read: false,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      wsConnected: true,
     })
 
     renderTopBar()
 
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/notifications')
-    })
+    // Let effects settle.
+    await act(async () => {})
 
     const state = useNotificationStore.getState()
-    // The row existed before mount, so no toast should have fired.
     expect(state.toastIds).toHaveLength(0)
     expect(state.persistentToastIds.has('existing-1')).toBe(false)
   })
 
-  it('fires a toast when a new roadmap_ready row appears between polls', async () => {
-    // Start with no notifications, then return one on the next poll.
-    // After the 10s interval the diff should detect the new id and
-    // push it into the toast store.
-    let pollCount = 0
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications') {
-        pollCount += 1
-        if (pollCount === 1) return []
-        return [
+  it('fires a toast when a new roadmap_ready notification arrives via WS', async () => {
+    // Start with empty store, then simulate a WS push.
+    renderTopBar()
+    await act(async () => {})
+
+    // Simulate WS snapshot arriving with a new notification.
+    await act(async () => {
+      useNotificationsStore.setState({
+        notifications: [
           {
             id: 'new-roadmap-1',
             type: 'roadmap_ready',
@@ -802,32 +651,13 @@ describe('TopBar persistent-notification toast', () => {
             action_url: '/files',
             read: false,
             created_at: new Date().toISOString(),
-            metadata: {},
           },
-        ]
-      }
-      return {}
+        ],
+        wsConnected: true,
+      })
     })
 
-    vi.useFakeTimers()
-    renderTopBar()
-
-    // Initial fetch resolves and seeds the seen-set.
-    await vi.waitFor(() => {
-      expect(pollCount).toBeGreaterThanOrEqual(1)
-    })
-
-    // Advance past the 10s poll interval.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000)
-    })
-
-    await vi.waitFor(() => {
-      expect(pollCount).toBeGreaterThanOrEqual(2)
-    })
-
-    // Wait for the toast push to land in the store.
-    await vi.waitFor(() => {
+    await waitFor(() => {
       const s = useNotificationStore.getState()
       expect(s.persistentToastIds.has('new-roadmap-1')).toBe(true)
     })
@@ -836,19 +666,16 @@ describe('TopBar persistent-notification toast', () => {
     expect(s.toastIds).toContain('new-roadmap-1')
     expect(s.notifications[0].agentName).toBe('Your roadmap is ready')
     expect(s.notifications[0].status).toBe('roadmap_ready')
-
-    vi.useRealTimers()
   })
 
   it('does not toast notification types outside the allow-list', async () => {
-    // "other" is not in TOAST_WORTHY_PERSISTENT_TYPES, so it should
-    // land in the drawer silently without a toast.
-    let pollCount = 0
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/notifications') {
-        pollCount += 1
-        if (pollCount === 1) return []
-        return [
+    renderTopBar()
+    await act(async () => {})
+
+    // Simulate WS snapshot with a non-allow-listed type.
+    await act(async () => {
+      useNotificationsStore.setState({
+        notifications: [
           {
             id: 'other-1',
             type: 'other',
@@ -858,38 +685,18 @@ describe('TopBar persistent-notification toast', () => {
             action_url: null,
             read: false,
             created_at: new Date().toISOString(),
-            metadata: {},
           },
-        ]
-      }
-      return {}
+        ],
+        wsConnected: true,
+      })
     })
 
-    vi.useFakeTimers()
-    renderTopBar()
-
-    await vi.waitFor(() => {
-      expect(pollCount).toBeGreaterThanOrEqual(1)
-    })
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000)
-    })
-
-    await vi.waitFor(() => {
-      expect(pollCount).toBeGreaterThanOrEqual(2)
-    })
-
-    // Give the effect a tick to settle.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(50)
-    })
+    // Give effects a tick to settle.
+    await act(async () => {})
 
     const s = useNotificationStore.getState()
     expect(s.persistentToastIds.has('other-1')).toBe(false)
     expect(s.toastIds).not.toContain('other-1')
-
-    vi.useRealTimers()
   })
 
   describe('Start tour button', () => {
@@ -913,4 +720,3 @@ describe('TopBar persistent-notification toast', () => {
     })
   })
 })
-
