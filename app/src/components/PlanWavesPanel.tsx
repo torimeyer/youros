@@ -142,7 +142,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-slate-200 leading-snug">{needle.title}</p>
                       {needle.scope_hint && needle.scope_hint !== 'general' && (
-                        <p className="text-xs text-slate-500 mt-0.5 truncate">{needle.scope_hint}</p>
+                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{needle.scope_hint.replace(/⊕/g, ' ').trim()}</p>
                       )}
                     </div>
                   </div>
