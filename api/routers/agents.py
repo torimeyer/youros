@@ -3964,6 +3964,54 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             body.name, _loop_latency,
         )
 
+    # --- Opt-in ostk run path (Tier 2.2) ---
+    # Early-return BEFORE isolation/lock logic: `ostk run` has its own
+    # isolation model via the Agentfile's ISOLATION directive and does not
+    # need worktree management or lock registration. Default (False) falls
+    # through to the existing code below. Purely additive.
+    if getattr(body, "use_ostk_run", False):
+        try:
+            from services.agentfile_parser import (
+                _find_any_agentfile as _ostk_find_agentfile,
+                get_template_aliases as _ostk_get_aliases,
+            )
+            _ostk_stem = body.template or body.name
+            if body.template:
+                _ostk_aliases = _ostk_get_aliases()
+                _ostk_stem = _ostk_aliases.get(body.template, body.template)
+            _ostk_agentfile_path = _ostk_find_agentfile(_ostk_stem)
+            if _ostk_agentfile_path is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"ostk run: no agentfile found for '{_ostk_stem}'. "
+                        f"Check that agents/{_ostk_stem}.agent exists."
+                    ),
+                )
+            _ostk_dry_run = getattr(body, "dry_run", False)
+            _ostk_result = await ostk.run_agentfile(
+                str(_ostk_agentfile_path),
+                dry_run=_ostk_dry_run,
+            )
+        except HTTPException:
+            raise
+        except Exception as _ostk_exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"ostk run failed: {_ostk_exc}",
+            )
+        logger.info(
+            "spawn.ostk_run name=%s agentfile=%s dry_run=%s exit_code=%s",
+            body.name, _ostk_agentfile_path, _ostk_dry_run,
+            _ostk_result.get("exit_code"),
+        )
+        return {
+            "result": f"Agent '{body.name}' spawned via ostk run",
+            "name": body.name,
+            "status": "dry_run" if _ostk_dry_run else "running",
+            "ostk_run": _ostk_result,
+        }
+
     # Decide isolation BEFORE any I/O so a later worktree fork can honor
     # the result. decide_isolation respects an explicit caller value and
     # otherwise picks "worktree" for code-edit verbs, "none" for

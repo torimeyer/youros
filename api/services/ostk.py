@@ -3254,5 +3254,53 @@ class OstkService:
         except json.JSONDecodeError:
             return []
 
+    # --- ostk run <Agentfile> wrapper (Tier 2.2) ---
+
+    async def run_agentfile(
+        self,
+        agentfile_path: str,
+        env_passthrough: list[str] | None = None,
+        runtime: str = "host",
+        dry_run: bool = False,
+    ) -> dict:
+        """Wrap ``ostk run <agentfile> [--env-passthrough K] [--runtime R] [--dry-run]``.
+
+        Returns a dict with stdout/stderr/exit_code/pid (pid is None; subprocess.run
+        does not expose pid after completion). Dry-run mode emits what would happen
+        without spawning anything.
+        """
+        import subprocess
+
+        cmd: list[str] = ["ostk", "run", agentfile_path]
+        if env_passthrough:
+            for key in env_passthrough:
+                cmd += ["--env-passthrough", key]
+        if runtime != "host":
+            cmd += ["--runtime", runtime]
+        if dry_run:
+            cmd.append("--dry-run")
+
+        timeout = 30 if dry_run else 300
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=self.cwd,
+                timeout=timeout,
+                stdin=subprocess.DEVNULL,
+            )
+        except subprocess.TimeoutExpired:
+            raise OstkError(f"ostk run timed out after {timeout}s: {agentfile_path}")
+
+        return {
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+            "exit_code": result.returncode,
+            "pid": None,
+            "cmd": cmd,
+        }
+
 
 ostk = OstkService()
