@@ -118,6 +118,35 @@ case "$TOOL" in
     *) exit 0 ;;
 esac
 
+# ADHD-mode tightening (retro 2026-05-12, plan
+# retro-this-session-and-declarative-charm.md): when ~/.myos/.adhd_mode exists
+# and no Monitor was armed in the last 120s for this session, deny BEFORE the
+# REST POST below. Without this check the bridge's POST to /api/agents/spawn
+# silently bypasses the sibling adhd-mode-monitor-enforcer.sh deny: both
+# hooks fire on PreToolUse:Agent and run concurrently, so the bridge's REST
+# spawn races to completion before the enforcer's exit 2 takes effect. Net
+# effect today: agents spawned without Monitor pairing even though the
+# enforcer fired a deny.
+if [ -f "$HOME/.myos/.adhd_mode" ]; then
+    _ADHD_SID=$(INPUT_JSON="$INPUT" python3 -c "
+import os, json
+try:
+    d = json.loads(os.environ.get('INPUT_JSON','') or '{}')
+    sid = (d.get('session_id') or '').strip() or os.environ.get('CLAUDE_SESSION_ID','').strip() or 'default'
+    print(sid)
+except Exception:
+    print('default')
+" 2>/dev/null)
+    _ADHD_SENTINEL="$HOME/.myos/.adhd-monitor-armed-${_ADHD_SID:-default}"
+    if [ ! -f "$_ADHD_SENTINEL" ]; then
+        deny "ADHD mode is active and no Monitor sentinel exists for this session (per feedback_adhd_mode_auto_arm_monitor.md). Arm a Monitor in the SAME tool batch as this Agent call, with Monitor listed first."
+    fi
+    _ADHD_AGE=$(( $(date +%s) - $(stat -f %m "$_ADHD_SENTINEL" 2>/dev/null || stat -c %Y "$_ADHD_SENTINEL" 2>/dev/null || echo 0) ))
+    if [ "$_ADHD_AGE" -ge 120 ]; then
+        deny "ADHD mode is active and the Monitor sentinel is ${_ADHD_AGE}s old (>120s threshold). Arm a fresh Monitor in the SAME tool batch as this Agent call, with Monitor listed first."
+    fi
+fi
+
 # Explicit opt-out. An operator may tag a spawn isolation:"none" when
 # they genuinely want the native Task path, e.g. a local grep agent.
 if [ "$ISOLATION" = "none" ]; then
