@@ -5711,11 +5711,19 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     # haiku/opus spawn-time assignments on first register.
     spawn_time_model = existing.get("model") if existing.get("pid") else None
     model = spawn_time_model or resolved_model
+    # When an agent was REST-spawned (has a pid), preserve the spawn-time source
+    # rather than letting the agent's self-register overwrite it. Bridge-spawned
+    # agents (source="task-bridge") self-register with source="claude-code", which
+    # makes them eligible for _autocomplete_exited_subagents — the sweep that
+    # prematurely marks agents "completed" while their subprocess is still alive
+    # (→1227, Bug 1).
+    spawn_time_source = existing.get("source") if existing.get("pid") else None
+    source = spawn_time_source or body.source
     record: dict = {
         "spawned_at": spawned_at,
         "budget": str(body.budget),
         "model": model,
-        "source": body.source,
+        "source": source,
         "status": status,
         # Heartbeat field. Set on register and refreshed on every re-register
         # or /heartbeat call. The list endpoint compares this to
@@ -5807,6 +5815,14 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     for wt_field in ("worktree_path", "worktree_branch", "isolation"):
         if existing.get(wt_field) and wt_field not in record:
             record[wt_field] = existing[wt_field]
+    # Preserve PID from spawn: the spawn endpoint stores proc.pid in metadata
+    # before the agent boots. A subsequent /register call (e.g. self-registration)
+    # must not drop it. After a backend restart active_agents is cleared, leaving
+    # meta.get("pid") as the only liveness guard in _autocomplete_exited_subagents
+    # (if pid and _is_pid_alive(pid): continue). Without this the guard is bypassed
+    # and agents are prematurely completed (→1227, Bug 2).
+    if existing.get("pid") and "pid" not in record:
+        record["pid"] = existing["pid"]
     # Task and needle linkage: persist from the request body, or carry
     # forward from existing metadata on re-register. Without this, a
     # spawn-set task_id is erased when the subagent self-registers, and
