@@ -10,6 +10,37 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v3.14.0
+  {
+    date: '2026-05-11',
+    label: 'May 11, 2026',
+    entries: [
+      {
+        title: 'Live updates across the app',
+        description: 'Dashboard, notifications, sessions, locks, grants, workflows, and calendar now update in real time instead of polling every few seconds. You see new agent activity the moment it happens.',
+      },
+      {
+        title: 'Agent finishes show up while you chat',
+        description: 'When a background agent completes during a chat turn, you get a notification right away instead of waiting for the next message.',
+      },
+      {
+        title: 'Long chat replies finish cleanly',
+        description: 'Some long replies used to end with a "Connection dropped before response finished" error. Fixed.',
+      },
+      {
+        title: 'Onboarding\'s starter-agents step works for everyone',
+        description: 'The starter-agents step was blank for a subset of users mid-flow. It now loads correctly.',
+      },
+      {
+        title: '"All Time" filter on transcripts is back',
+        description: 'The All Time pill on the transcripts page was missing or broken depending on which filter you tried. Restored.',
+      },
+      {
+        title: 'Sign-in redirects land on the right page',
+        description: 'Login no longer occasionally redirects to a stale or wrong URL. It now goes to the local app every time.',
+      },
+    ],
+  },
   // v3.11.3
   {
     date: '2026-05-05',
