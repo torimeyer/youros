@@ -98,6 +98,13 @@ _AUTH_STATUS_TIMEOUT_SECONDS: float = 3.0
 # this value is a safety net for hung processes, not a workload limit.
 _STREAM_TIMEOUT_SECONDS: float = 1800.0
 
+# How often to send a WS keep-alive frame during silent subprocess phases
+# (thinking, tool-use planning). The vite dev proxy and browsers treat a
+# WebSocket as idle when no frames flow for ~60-120 s and close it, which
+# surfaces in the UI as "Connection dropped before the response finished".
+# 10 s matches the interval used by the direct Anthropic API path.
+_WS_HEARTBEAT_INTERVAL_S: float = 10.0
+
 
 # Module-level cache for detection results. Not perfect across processes
 # but good enough: the detection command itself is cheap and the cache
@@ -727,21 +734,41 @@ async def stream_chat(
                 if usage:
                     final_usage = usage
 
+    # Run a heartbeat loop alongside _read_stdout() so the WebSocket stays
+    # warm during silent phases (thinking, tool-use planning). Without this,
+    # the vite dev proxy closes the idle socket and the UI shows "Connection
+    # dropped before the response finished" (→1122).
+    async def _heartbeat_loop() -> None:
+        while True:
+            await asyncio.sleep(_WS_HEARTBEAT_INTERVAL_S)
+            try:
+                await _send_safe(websocket, {"type": "heartbeat"})
+            except Exception:
+                return
+
+    _heartbeat_task = asyncio.create_task(_heartbeat_loop())
     try:
-        await asyncio.wait_for(_read_stdout(), timeout=_STREAM_TIMEOUT_SECONDS)
-    except asyncio.TimeoutError:
         try:
-            proc.kill()
-        except ProcessLookupError:
+            await asyncio.wait_for(_read_stdout(), timeout=_STREAM_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            await _send_safe(
+                websocket,
+                {
+                    "type": "error",
+                    "data": "Your Claude subscription took too long to respond. Try again.",
+                },
+            )
+            return full_text
+    finally:
+        _heartbeat_task.cancel()
+        try:
+            await _heartbeat_task
+        except (asyncio.CancelledError, Exception):
             pass
-        await _send_safe(
-            websocket,
-            {
-                "type": "error",
-                "data": "Your Claude subscription took too long to respond. Try again.",
-            },
-        )
-        return full_text
 
     return_code = await proc.wait()
 
