@@ -3,6 +3,7 @@ import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import ConfirmModal from '../components/ConfirmModal';
 import GemImportModal from '../components/GemImportModal';
+import GemChatPanel from '../components/GemChatPanel';
 import { useConfirm } from '../hooks/useConfirm';
 import { api } from '../lib/api';
 
@@ -35,6 +36,7 @@ export default function MyGems() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Gem | null>(null);
+  const [chatTarget, setChatTarget] = useState<Gem | null>(null);
 
   const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; message: string } | null>(null);
 
@@ -105,7 +107,7 @@ export default function MyGems() {
   };
 
   const handleChat = (gem: Gem) => {
-    setToast({ kind: 'info', message: `Chat with "${gem.name}" will be wired in next pass.` });
+    setChatTarget(gem);
   };
 
   return (
@@ -243,6 +245,11 @@ export default function MyGems() {
           onClose={closeModal}
           onSaved={handleSaved}
         />
+      )}
+
+      {/* Gem chat panel */}
+      {chatTarget && (
+        <GemChatPanel gem={chatTarget} onClose={() => setChatTarget(null)} />
       )}
 
       {/* In-app confirm dialog */}

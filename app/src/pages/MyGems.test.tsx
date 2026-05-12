@@ -220,7 +220,7 @@ describe('MyGems page', () => {
     expect(screen.queryByTestId('gems-error')).not.toBeInTheDocument();
   });
 
-  it('shows a toast when Chat is clicked (stub)', async () => {
+  it('opens GemChatPanel when Chat is clicked', async () => {
     mockedGet.mockResolvedValue(mockGems);
     renderMyGems();
     await waitFor(() => {
@@ -228,8 +228,7 @@ describe('MyGems page', () => {
     });
 
     fireEvent.click(screen.getByTestId('gem-chat-gem-1'));
-    expect(screen.getByTestId('gems-toast')).toBeInTheDocument();
-    expect(screen.getByText(/will be wired in next pass/i)).toBeInTheDocument();
+    expect(screen.getByTestId('gem-chat-panel')).toBeInTheDocument();
   });
 
   it('refreshes gem list after create modal saves', async () => {
