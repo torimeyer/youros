@@ -2111,6 +2111,38 @@ export default function Agents() {
   // which needs terminal-status rows.
   const _storeAgents = useRunningAgentsStore((s) => s.agents)
   const runningAgentNames = useMemo(() => new Set(_storeAgents.map((a) => a.name)), [_storeAgents])
+
+  // Real-time fast path: merge WS store updates into allAgents so the
+  // Active tab reflects new running agents within milliseconds of a WS
+  // event rather than waiting up to 30s for the safety-net poll above.
+  useEffect(() => {
+    if (_storeAgents.length === 0) return;
+    setAllAgents((prev) => {
+      const byName = new Map(prev.map((a) => [a.name, a]));
+      let changed = false;
+      for (const sa of _storeAgents) {
+        const existing = byName.get(sa.name);
+        if (existing) {
+          if (existing.status !== sa.status) {
+            byName.set(sa.name, { ...existing, status: sa.status });
+            changed = true;
+          }
+        } else {
+          // Agent is running per WS but not yet in allAgents (e.g. just
+          // spawned). Add a minimal stub so isVisibleActive includes it
+          // immediately without waiting for the safety-net poll.
+          byName.set(sa.name, {
+            name: sa.name,
+            status: sa.status,
+            source: "claude-code",
+          } as AgentInfo);
+          changed = true;
+        }
+      }
+      return changed ? Array.from(byName.values()) : prev;
+    });
+  }, [_storeAgents]);
+
   const [, setConnectionStatus] = useState("Connecting...");
   const [, setDaemonRunning] = useState(false);
   // Rolling median of recent agent durations, used by AgentStatusBar
@@ -2639,10 +2671,17 @@ export default function Agents() {
       const filtered = newAgents.filter(
         (a) => a.name !== 'daemon' && !isDismissed(a.name)
       );
-      setAllAgents(filtered);
       // Persist the last good response so the next cold visit paints
       // real rows from the first render. Needle 299.
       writeAgentsCache(filtered);
+      // Merge in any WS-store agents not yet in the HTTP snapshot
+      // (race window between agent spawn and the next /agents poll).
+      // HTTP data is authoritative when both sources know the same name.
+      const httpNames = new Set(filtered.map((a) => a.name));
+      const wsOnly = useRunningAgentsStore.getState().agents
+        .filter((sa) => !httpNames.has(sa.name))
+        .map((sa) => ({ name: sa.name, status: sa.status, source: "claude-code" }) as AgentInfo);
+      setAllAgents([...filtered, ...wsOnly]);
       setActiveAgents(data.active || []);
       setDaemonRunning(data.daemon_running ?? false);
       setConnectionStatus(data.daemon_running ? "Connected" : "Standby");
@@ -3193,9 +3232,10 @@ export default function Agents() {
     fetchUserTemplates();
     fetchMarketplaceCatalog();
 
-    // Poll for agent updates every 2 seconds so status changes
-    // (running -> completed) propagate quickly without a page reload.
-    const interval = setInterval(fetchAgents, 2000);
+    // Safety-net poll: the WS fast path (useEffect below) handles live
+    // updates; this catches dropped connections and backend-initiated
+    // changes that the WS feed misses.
+    const interval = setInterval(fetchAgents, 30000);
     return () => clearInterval(interval);
   }, []);
 

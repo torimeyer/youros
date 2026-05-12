@@ -1501,9 +1501,9 @@ describe('Agents page - Recent tab filtering', () => {
       await vi.advanceTimersByTimeAsync(0)
       const initial = callCount
 
-      // Advance by 5 seconds and assert at least one additional /agents
-      // poll fired. If the interval is >5s this assertion fails.
-      await vi.advanceTimersByTimeAsync(5000)
+      // Advance by 31 seconds and assert at least one additional /agents
+      // poll fired. The safety-net interval is 30s; WS delivers live updates.
+      await vi.advanceTimersByTimeAsync(31000)
       expect(callCount).toBeGreaterThan(initial)
     } finally {
       vi.useRealTimers()
@@ -1558,31 +1558,30 @@ describe('Agents page - Recent tab filtering', () => {
       return {}
     })
 
-    render(<MemoryRouter><Agents /></MemoryRouter>)
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+    try {
+      render(<MemoryRouter><Agents /></MemoryRouter>)
+      // Flush initial mount effects + first /agents call.
+      await act(async () => { await Promise.resolve() })
+      await act(async () => { await vi.advanceTimersByTimeAsync(50) })
 
-    // Render 1: agent is running, visible in Active tab.
-    await waitFor(() => {
+      // Render 1: agent is running, visible in Active tab.
       expect(screen.getByTitle(/^flash-agent(\s|$)/)).toBeInTheDocument()
-    })
-    expect(screen.getByText('Active Sessions')).toBeInTheDocument()
+      expect(screen.getByText('Active Sessions')).toBeInTheDocument()
 
-    // Wait for the second poll (status flips to completed_timeout).
-    await waitFor(() => {
+      // Advance past the 30s safety-net poll; second call returns terminal status.
+      await act(async () => { await vi.advanceTimersByTimeAsync(31000) })
       expect(callCount).toBeGreaterThanOrEqual(2)
-    }, { timeout: 6000 })
 
-    // Render 2: after the status flip the agent MUST still be visible,
-    // either because Active auto-switched to Recent (current behavior)
-    // or because the row lands in Recent with a visible title. The
-    // key assertion is that the title is findable somewhere on the
-    // page, never "neither tab".
-    await waitFor(() => {
+      // Render 2: agent MUST still be visible after status flip
+      // (flash-and-vanish regression: title must be findable somewhere).
       expect(screen.getByTitle(/^flash-agent(\s|$)/)).toBeInTheDocument()
-    })
-
-    // And the "Recent Agents" heading is on screen (auto-switch fired).
-    expect(screen.getByText('Recent Agents')).toBeInTheDocument()
-  }, 10000)
+      // Auto-switched to Recent.
+      expect(screen.getByText('Recent Agents')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 15000)
 })
 
 // 2 user-created templates in the store (custom, non-builtin)
@@ -4762,7 +4761,7 @@ describe('Transcript viewer', () => {
 // Regression for live-tab-move: when an agent status flips from running
 // to completed the row must move from Active to Recent on the next poll
 // without a manual page reload.
-describe('Agents page - live Active-to-Recent move (2s poll)', () => {
+describe('Agents page - live Active-to-Recent move (30s safety-net poll)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
@@ -4815,39 +4814,34 @@ describe('Agents page - live Active-to-Recent move (2s poll)', () => {
       return {}
     })
 
-    render(<MemoryRouter><Agents /></MemoryRouter>)
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+    try {
+      render(<MemoryRouter><Agents /></MemoryRouter>)
+      // Flush initial mount effects + first /agents call.
+      await act(async () => { await Promise.resolve() })
+      await act(async () => { await vi.advanceTimersByTimeAsync(50) })
 
-    // Verify the agent starts visible in the Active tab.
-    await waitFor(() => {
+      // Agent starts visible in the Active tab.
       expect(screen.getByTitle(/^flip-agent(\s|$)/)).toBeInTheDocument()
-    })
-    expect(screen.getByText('Active Sessions')).toBeInTheDocument()
+      expect(screen.getByText('Active Sessions')).toBeInTheDocument()
 
-    // Wait for a second poll to fire (2s interval) and return the
-    // completed status. With real timers this happens within 3s.
-    await waitFor(() => {
-      // The mock returns completed on calls > 1. Wait until at least
-      // two GET /agents calls have been made so the completed state
-      // is in the component.
+      // Advance past the 30s safety-net poll; second call returns completed.
+      await act(async () => { await vi.advanceTimersByTimeAsync(31000) })
       expect(callCount).toBeGreaterThanOrEqual(2)
-    }, { timeout: 6000 })
 
-    // Switch to the Recent tab and verify the agent appears there.
-    const recentTab = screen.getByRole('button', { name: 'Recent' })
-    fireEvent.click(recentTab)
-
-    await waitFor(() => {
+      // Switch to the Recent tab and verify the agent appears there.
+      const recentTab = screen.getByRole('button', { name: 'Recent' })
+      fireEvent.click(recentTab)
       expect(screen.getByTitle(/^flip-agent(\s|$)/)).toBeInTheDocument()
-    })
 
-    // Switch back to Active and confirm the completed agent is gone.
-    const activeTab = screen.getByRole('button', { name: 'Active' })
-    fireEvent.click(activeTab)
-
-    await waitFor(() => {
+      // Switch back to Active — completed agent must be gone.
+      const activeTab = screen.getByRole('button', { name: 'Active' })
+      fireEvent.click(activeTab)
       expect(screen.getByText('No agents running right now')).toBeInTheDocument()
-    })
-  }, 10000)
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 15000)
 
   it('auto-switches to Recent tab when a running agent completes without manual tab click', async () => {
     // First call: agent is running.
@@ -4892,33 +4886,31 @@ describe('Agents page - live Active-to-Recent move (2s poll)', () => {
       return {}
     })
 
-    render(<MemoryRouter><Agents /></MemoryRouter>)
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+    try {
+      render(<MemoryRouter><Agents /></MemoryRouter>)
+      // Flush initial mount effects + first /agents call.
+      await act(async () => { await Promise.resolve() })
+      await act(async () => { await vi.advanceTimersByTimeAsync(50) })
 
-    // Agent starts on Active tab (default).
-    await waitFor(() => {
+      // Agent starts on Active tab.
       expect(screen.getByTitle(/^auto-flip-agent(\s|$)/)).toBeInTheDocument()
-    })
-    expect(screen.getByText('Active Sessions')).toBeInTheDocument()
+      expect(screen.getByText('Active Sessions')).toBeInTheDocument()
 
-    // Wait for the second poll to return completed status.
-    await waitFor(() => {
+      // Advance past the 30s safety-net poll; second call returns completed.
+      await act(async () => { await vi.advanceTimersByTimeAsync(31000) })
       expect(callCount).toBeGreaterThanOrEqual(2)
-    }, { timeout: 6000 })
 
-    // The page must automatically switch to Recent without any manual tab
-    // click. The "Recent Agents" heading confirms the tab switched.
-    await waitFor(() => {
+      // Page auto-switches to Recent without a manual tab click.
       expect(screen.getByText('Recent Agents')).toBeInTheDocument()
-    })
-
-    // The completed agent must be visible in the Recent list.
-    await waitFor(() => {
+      // Completed agent visible in Recent list.
       expect(screen.getByTitle(/^auto-flip-agent(\s|$)/)).toBeInTheDocument()
-    })
-
-    // Active Sessions heading must no longer be visible (tab switched away).
-    expect(screen.queryByText('Active Sessions')).not.toBeInTheDocument()
-  }, 10000)
+      // Active Sessions heading gone (tab switched away).
+      expect(screen.queryByText('Active Sessions')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 15000)
 })
 
 describe('Agents page - Enter key submit', () => {
@@ -6198,9 +6190,9 @@ describe('Agents page - chat session isolation (→1095)', () => {
       // Switch the /agents mock to return t2 (simulates the backend respawn).
       returnT2 = true
 
-      // Advance past the 2s fetchAgents poll interval so it fires with t2.
+      // Advance past the 30s fetchAgents safety-net interval so it fires with t2.
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(2500)
+        await vi.advanceTimersByTimeAsync(31000)
       })
 
       // After allAgents updates with new spawned_at the cleanup effect fires
@@ -6210,4 +6202,114 @@ describe('Agents page - chat session isolation (→1095)', () => {
       vi.useRealTimers()
     }
   }, 15000)
+})
+
+// →1220: WS fast-path tests — verify Active tab is driven by the WS store,
+// not by the 30s safety-net poll.
+describe('Agents page - WS realtime fast path (→1220)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
+  })
+
+  it('renders a WS-store agent even when /agents returns empty, with no extra poll calls', async () => {
+    let agentsCalls = 0
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') { agentsCalls++; return { daemon_running: true, status: 'ok', active: [], agents: [] } }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path.includes('/persona-templates')) return { templates: [] }
+      if (path.includes('/user-templates')) return { templates: [] }
+      if (path.includes('/pm-templates')) return { templates: [] }
+      if (path.includes('/duration-stats')) return { median_seconds: 60, p75_seconds: 90, sample_count: 5, window_days: 7 }
+      return {}
+    })
+
+    useRunningAgentsStore.setState({
+      count: 1,
+      agents: [{ name: 'ws-fast-agent', status: 'running' }],
+      connected: true,
+      lastUpdatedAt: new Date().toISOString(),
+    })
+    preExpandAgents('ws-fast-agent')
+
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+    try {
+      render(<MemoryRouter><Agents /></MemoryRouter>)
+
+      // Settle mount effects including the async fetchAgents call.
+      await act(async () => { await Promise.resolve() })
+      await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+
+      // Agent appears from WS store even though HTTP returned empty list.
+      expect(screen.getByTitle(/^ws-fast-agent(\s|$)/)).toBeInTheDocument()
+
+      const callsAfterMount = agentsCalls // 1 for the initial hydration call
+
+      // Advance 35s — old 2s interval would have fired ~17 more times;
+      // new 30s safety-net fires at most once.
+      await act(async () => { await vi.advanceTimersByTimeAsync(35000) })
+
+      expect(agentsCalls).toBeLessThanOrEqual(callsAfterMount + 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 15000)
+
+  it('removes an agent from Active immediately on WS delta without an HTTP call', async () => {
+    let agentsCalls = 0
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') { agentsCalls++; return { daemon_running: true, status: 'ok', active: [], agents: [] } }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path.includes('/persona-templates')) return { templates: [] }
+      if (path.includes('/user-templates')) return { templates: [] }
+      if (path.includes('/pm-templates')) return { templates: [] }
+      if (path.includes('/duration-stats')) return { median_seconds: 60, p75_seconds: 90, sample_count: 5, window_days: 7 }
+      return {}
+    })
+
+    // Two agents running; both seeded in the WS store.
+    useRunningAgentsStore.setState({
+      count: 2,
+      agents: [
+        { name: 'ws-agent-keep', status: 'running' },
+        { name: 'ws-agent-done', status: 'running' },
+      ],
+      connected: true,
+      lastUpdatedAt: new Date().toISOString(),
+    })
+    preExpandAgents('ws-agent-keep', 'ws-agent-done')
+
+    render(<MemoryRouter><Agents /></MemoryRouter>)
+    await act(async () => { await Promise.resolve() })
+
+    // Both agents appear via the WS store (HTTP returned empty).
+    await waitFor(() => {
+      expect(screen.getByTitle(/^ws-agent-keep(\s|$)/)).toBeInTheDocument()
+      expect(screen.getByTitle(/^ws-agent-done(\s|$)/)).toBeInTheDocument()
+    })
+
+    const callsBeforeDelta = agentsCalls
+
+    // WS delta: ws-agent-done terminates — removed from the store snapshot.
+    await act(async () => {
+      useRunningAgentsStore.setState({
+        count: 1,
+        agents: [{ name: 'ws-agent-keep', status: 'running' }],
+        connected: true,
+        lastUpdatedAt: new Date().toISOString(),
+      })
+    })
+
+    // ws-agent-done vanishes from Active immediately (runningAgentNames no
+    // longer includes it; hasSummary=true because ws-agent-keep remains).
+    await waitFor(() => {
+      expect(screen.queryByTitle(/^ws-agent-done(\s|$)/)).not.toBeInTheDocument()
+    })
+    expect(screen.getByTitle(/^ws-agent-keep(\s|$)/)).toBeInTheDocument()
+    // No extra HTTP call was needed.
+    expect(agentsCalls).toBe(callsBeforeDelta)
+  })
 })
