@@ -239,14 +239,45 @@ async def test_delete_gem_404_wrong_provider(client):
 
 
 @pytest.mark.asyncio
-async def test_chat_stub_returns_response(client, gem):
-    resp = await client.post(f"/api/gems/{gem['id']}/chat", json={"message": "Hello"})
+async def test_chat_streams_gemini_response(client, gem, monkeypatch):
+    """chat_with_gem returns text/event-stream with token + done frames."""
+    async def _fake_stream_gemini(self, messages, websocket, system_instruction=None):
+        await websocket.send_json({"type": "token", "data": "Hello"})
+        await websocket.send_json({"type": "token", "data": " world"})
+        await websocket.send_json({"type": "token", "data": "!"})
+        await websocket.send_json({"type": "done"})
+
+    import services.chat_providers as cp_mod
+    monkeypatch.setattr(cp_mod.ChatService, "stream_gemini", _fake_stream_gemini)
+
+    resp = await client.post(f"/api/gems/{gem['id']}/chat", json={"message": "Hi"})
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["gem_id"] == gem["id"]
-    assert data["message"] == "Hello"
-    assert data["provider"] == "gemini"
-    assert "response" in data
+    assert "text/event-stream" in resp.headers["content-type"]
+    frames = [line for line in resp.text.splitlines() if line.startswith("data:")]
+    assert len(frames) == 4  # 3 tokens + done
+
+
+@pytest.mark.asyncio
+async def test_chat_passes_system_instruction(client, monkeypatch):
+    """chat_with_gem passes the gem's prompt_template as system_instruction."""
+    captured: list = []
+
+    async def _fake_stream_gemini(self, messages, websocket, system_instruction=None):
+        captured.append(system_instruction)
+        await websocket.send_json({"type": "done"})
+
+    import services.chat_providers as cp_mod
+    monkeypatch.setattr(cp_mod.ChatService, "stream_gemini", _fake_stream_gemini)
+
+    resp = await client.post("/api/gems", json={
+        "name": "System Gem",
+        "system_prompt": "Always respond in haiku.",
+    })
+    assert resp.status_code == 201
+    gem_id = resp.json()["id"]
+
+    await client.post(f"/api/gems/{gem_id}/chat", json={"message": "Hello"})
+    assert captured == ["Always respond in haiku."]
 
 
 @pytest.mark.asyncio
