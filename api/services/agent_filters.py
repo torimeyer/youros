@@ -56,6 +56,8 @@ def is_user_spawned_agent(agent: Mapping[str, Any]) -> bool:
         return False
     if source == "hook":
         return False
+    if source == "daemon":
+        return False
     if agent.get("model") == "claude-code-subscription":
         return False
     # Pre-registration placeholder rows must not appear in the user-spawned list.

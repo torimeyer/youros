@@ -6338,3 +6338,103 @@ describe('Agents page - WS realtime fast path (→1220)', () => {
     expect(agentsCalls).toBe(callsBeforeDelta)
   })
 })
+
+// →1266 / →1271: template-spawned agents must remain visible after
+// fetchAgents replaces the optimistic 'spawned' placeholder with a
+// 'running' server row, even when the WS store hasn't yet confirmed them.
+describe('Agents page - template-spawned agent visibility (→1266 →1271)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+  })
+
+  it('shows template-spawned running agent in Active list when WS has another agent (hasSummary=true)', async () => {
+    const templateAgent = {
+      name: 'template-spawned-agent',
+      status: 'running',
+      source: 'claude-code',
+      model: 'sonnet',
+      spawned_at: new Date().toISOString(),
+      agent_metadata: { template_id: 'my-template' },
+    }
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') {
+        return {
+          daemon_running: true,
+          status: 'ok',
+          active: [templateAgent.name],
+          agents: [templateAgent],
+        }
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path.includes('/nudges')) return { agent: templateAgent.name, nudges: [], session_nudges: [] }
+      return {}
+    })
+
+    // Seed WS store with a *different* agent so hasSummary=true but the
+    // template agent is NOT in runningAgentNames — this is the exact race
+    // the →1266 bug triggered.
+    useRunningAgentsStore.setState({
+      count: 1,
+      agents: [{ name: 'other-ws-agent', status: 'running' }],
+      connected: true,
+      lastUpdatedAt: new Date().toISOString(),
+    })
+
+    preExpandAgents(templateAgent.name)
+    render(<MemoryRouter><Agents /></MemoryRouter>)
+    await act(async () => { await Promise.resolve() })
+
+    // The template-spawned running agent must be visible in the Active list.
+    await waitFor(() => {
+      expect(screen.getByTitle(/^template-spawned-agent(\s|$)/)).toBeInTheDocument()
+    })
+  })
+
+  it('Active button count includes template-spawned running agent not yet in WS store', async () => {
+    const templateAgent = {
+      name: 'template-spawned-agent',
+      status: 'running',
+      source: 'claude-code',
+      model: 'sonnet',
+      spawned_at: new Date().toISOString(),
+      agent_metadata: { template_id: 'my-template' },
+    }
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') {
+        return {
+          daemon_running: true,
+          status: 'ok',
+          active: [templateAgent.name],
+          agents: [templateAgent],
+        }
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path.includes('/nudges')) return { agent: templateAgent.name, nudges: [], session_nudges: [] }
+      return {}
+    })
+
+    // Another agent in WS store so hasSummary=true; template agent absent.
+    useRunningAgentsStore.setState({
+      count: 1,
+      agents: [{ name: 'other-ws-agent', status: 'running' }],
+      connected: true,
+      lastUpdatedAt: new Date().toISOString(),
+    })
+
+    preExpandAgents(templateAgent.name)
+    render(<MemoryRouter><Agents /></MemoryRouter>)
+    await act(async () => { await Promise.resolve() })
+
+    // Cancel all button count must be >= 1 (the template agent counts).
+    await waitFor(() => {
+      const btn = screen.queryByTestId('cancel-all-agents-btn')
+      expect(btn).not.toBeNull()
+      expect(btn!.textContent).toMatch(/Cancel all \(\d*[1-9]\d*\)/)
+    })
+  })
+})

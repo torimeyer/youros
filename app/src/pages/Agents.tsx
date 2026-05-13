@@ -3862,7 +3862,7 @@ export default function Agents() {
                 const runningCount = allAgents.filter(
                   (a) =>
                     isUserSpawnedAgent(a) &&
-                    (hasSummary ? runningAgentNames.has(a.name) || a.status === 'spawned' : isAgentActive(a))
+                    (hasSummary ? runningAgentNames.has(a.name) || a.status === 'spawned' || (isAgentActive(a) && !!a.spawned_at && Date.now() - Date.parse(a.spawned_at) < 30_000) : isAgentActive(a))
                 ).length;
                 return (
                   <button
@@ -3903,13 +3903,20 @@ export default function Agents() {
               // are still in the first poll window) so the list is not
               // blank on first paint.
               const hasSummary = runningAgentNames.size > 0;
+              // Three-way gate when WS is connected (hasSummary=true):
+              // 1. WS confirmed running (runningAgentNames) — primary/authoritative
+              // 2. Optimistic placeholder not yet in WS feed (status='spawned')
+              // 3. Recently started running agent within 30s grace period — covers the race
+              //    where fetchAgents replaces the status='spawned' stub with status='running'
+              //    before the WS push arrives (→1266 regression with status='spawned' alone).
+              //    WS stubs added by the merge effect have no spawned_at so they are not
+              //    affected; terminated agents whose allAgents row is stale have an old
+              //    spawned_at (>30s) so they stay hidden. WS remains authoritative after grace.
               const isVisibleActive = (a: typeof allAgents[number]) =>
                 isUserSpawnedAgent(a) &&
-                // Include optimistic placeholders (status='spawned') that have not
-                // yet reached the WS feed — covers quick_mode agents that complete
-                // before the next poll tick. For running agents, the WS store is
-                // authoritative: only show them if the store confirms they're live.
-                (hasSummary ? runningAgentNames.has(a.name) || a.status === 'spawned' : isAgentActive(a));
+                (hasSummary
+                  ? runningAgentNames.has(a.name) || a.status === 'spawned' || (isAgentActive(a) && !!a.spawned_at && Date.now() - Date.parse(a.spawned_at) < 30_000)
+                  : isAgentActive(a));
 
               const visibleAgents = allAgents.filter(isVisibleActive);
 
