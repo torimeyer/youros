@@ -16,7 +16,7 @@ import pytest
 
 BRIDGE_PATH = (
     Path(__file__).parent.parent.parent
-    / ".claude" / "hooks" / "task-isolation-bridge.sh"
+    / ".claude" / "hooks" / "lib" / "rules" / "isolation_bridge.sh"
 )
 AGENTS_PY_PATH = (
     Path(__file__).parent.parent / "routers" / "agents.py"
@@ -28,12 +28,14 @@ AGENTS_PY_PATH = (
 # ---------------------------------------------------------------------------
 
 def test_bridge_spawn_body_has_no_budget_field():
-    """The task-isolation-bridge must not hardcode a budget into the spawn body.
+    """The isolation-bridge rule must not hardcode a budget into the spawn body.
 
     The bridge posts JSON to /api/agents/spawn. If it includes a "budget"
     field the server will pass --max-budget-usd to `claude --print`, which
     kills agents prematurely on subscription auth. Verified by reading the
-    bridge source and checking the Python inline script.
+    rule source and checking the Python inline script. Wave 2 of →1288 moved
+    the bridge body assembly from task-isolation-bridge.sh into
+    .claude/hooks/lib/rules/isolation_bridge.sh.
     """
     source = BRIDGE_PATH.read_text()
 
@@ -42,7 +44,7 @@ def test_bridge_spawn_body_has_no_budget_field():
     # the inline Python block. A numeric budget sentinel like budget=5 or
     # "budget": <anything> in the body dict is the regression we're guarding.
     assert '"budget":' not in source.replace(" ", ""), (
-        'task-isolation-bridge.sh must not set "budget" in the spawn body. '
+        'isolation_bridge.sh must not set "budget" in the spawn body. '
         "On subscription auth the cap only kills agents early."
     )
 

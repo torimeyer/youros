@@ -93,7 +93,8 @@ fi
 #    tool and must never block the caller. We measure under two
 #    conditions: backend reachable (fast path) and backend simulated
 #    unreachable (slow path). Both must stay under the hook threshold.
-HOOK="$ROOT/.claude/hooks/heartbeat-agent.sh"
+#    Wave 2 of →1288 folded heartbeat-agent.sh into heartbeat-and-drain.sh.
+HOOK="$ROOT/.claude/hooks/heartbeat-and-drain.sh"
 if [ ! -x "$HOOK" ]; then
     echo "test skipped: $HOOK is not executable" >&2
     exit 0

@@ -2,13 +2,17 @@
 
 Root cause: bridge-spawned agents stopped after analysis with no commit and no
 needle because the spawn prompt contained no obligation to produce output.
-scaffold-commit-watcher.sh PostToolUse:Agent never fires after task-isolation-bridge.sh
-exits 2 (blocks native call), so it cannot enforce the scaffold-commit rule.
+The post-agent watchers never fire after the isolation bridge exits 2 (blocks
+native call), so they cannot enforce the scaffold-commit rule.
 
-Fix: task-isolation-bridge.sh injects a COMPLETION REQUIREMENT clause into
+Fix: the isolation_bridge rule injects a COMPLETION REQUIREMENT clause into
 every REST-spawned prompt before POSTing to /api/agents/spawn.
 
-These tests verify the injection is present in the hook source so a future
+Wave 2 of →1288 consolidated the per-hook bash files into rule files under
+.claude/hooks/lib/rules/. The isolation-bridge logic now lives at
+lib/rules/isolation_bridge.sh, dispatched by pre-agent-guard.sh.
+
+These tests verify the injection is present in the rule source so a future
 refactor cannot silently remove it.
 """
 from __future__ import annotations
@@ -19,7 +23,7 @@ from pathlib import Path
 
 BRIDGE_PATH = (
     Path(__file__).resolve().parent.parent.parent
-    / ".claude" / "hooks" / "task-isolation-bridge.sh"
+    / ".claude" / "hooks" / "lib" / "rules" / "isolation_bridge.sh"
 )
 
 
