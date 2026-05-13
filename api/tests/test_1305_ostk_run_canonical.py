@@ -461,3 +461,42 @@ async def test_env_flag_passes_through_required_env_vars():
     env_pt = kw.get("env_passthrough", [])
     assert "ANTHROPIC_API_KEY" in env_pt, f"ANTHROPIC_API_KEY missing from env_passthrough: {env_pt}"
     assert "MYOS_AGENT_NAME" in env_pt, f"MYOS_AGENT_NAME missing from env_passthrough: {env_pt}"
+
+
+# ---------------------------------------------------------------------------
+# Test 8: env flag accepts "true" and "yes" in addition to "1"
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("flag_value", ["1", "true", "yes"])
+@pytest.mark.asyncio
+async def test_env_flag_truthy_values_route_to_ostk_run(flag_value):
+    """MYOS_SPAWN_USE_OSTK_RUN accepts '1', 'true', and 'yes' as truthy."""
+    from main import app
+    from httpx import ASGITransport, AsyncClient
+
+    with patch.dict("os.environ", {"MYOS_SPAWN_USE_OSTK_RUN": flag_value}):
+        with patch(
+            "services.ostk.OstkService.run_agentfile",
+            new=AsyncMock(return_value=_OSTK_RUN_OK),
+        ):
+            with patch(
+                "services.agentfile_parser._find_any_agentfile",
+                return_value=Path("agents/research.agent"),
+            ):
+                transport = ASGITransport(app=app)
+                async with AsyncClient(transport=transport, base_url="http://test") as client:
+                    resp = await client.post(
+                        "/api/agents/spawn",
+                        json={
+                            "name": f"test-1305-flag-{flag_value}",
+                            "template": "research",
+                            "prompt": "test",
+                            "model": "sonnet",
+                            "budget": 1.0,
+                            "source": "test",
+                        },
+                    )
+
+    assert resp.status_code == 200
+    assert "ostk_run" in resp.json(), f"flag_value={flag_value!r} should route to ostk run"
