@@ -439,28 +439,38 @@ class OstkService:
             )
         async with _get_close_task_lock():
             result = await self._run("work", "close", task_id)
-            if closed_reason is not None:
-                issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
-                if issues_path.exists():
-                    # Normalize ids on both sides so the stored
-                    # arrow-prefixed id ("→832") matches a bare id
-                    # ("832") coming in from the spec-builder close
-                    # path. Without this the rewrite always missed and
-                    # closed_reason was silently dropped for every
-                    # spec-builder close.
-                    norm_target = self._normalize_task_id(task_id)
-                    lines = issues_path.read_text().strip().splitlines()
-                    updated: list[str] = []
-                    for line in lines:
-                        try:
-                            entry = json.loads(line)
-                        except json.JSONDecodeError:
-                            updated.append(line)
-                            continue
-                        if self._normalize_task_id(entry.get("id")) == norm_target:
-                            entry["closed_reason"] = closed_reason
-                        updated.append(json.dumps(entry, ensure_ascii=False))
-                    issues_path.write_text("\n".join(updated) + "\n")
+            # ``ostk work close`` appends a new closed entry to issues.jsonl
+            # but leaves the original open entry intact — producing duplicate
+            # rows for the same ID.  The CLI reads first-occurrence (open);
+            # the API reads last-occurrence (closed).  Deduplicate now, keeping
+            # the last row per ID, then stamp closed_reason on the survivor so
+            # both readers see a single, consistent closed entry.
+            issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+            if issues_path.exists():
+                norm_target = self._normalize_task_id(task_id)
+                lines = issues_path.read_text().strip().splitlines()
+                seen_order: list[str] = []
+                entries: dict[str, dict] = {}
+                for line in lines:
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    eid = entry.get("id", "")
+                    if eid and eid not in entries:
+                        seen_order.append(eid)
+                    if eid:
+                        entries[eid] = entry  # last occurrence wins
+                if closed_reason is not None:
+                    for eid in seen_order:
+                        if self._normalize_task_id(eid) == norm_target:
+                            entries[eid]["closed_reason"] = closed_reason
+                issues_path.write_text(
+                    "\n".join(
+                        json.dumps(entries[eid], ensure_ascii=False)
+                        for eid in seen_order
+                    ) + "\n"
+                )
             return result
 
     async def reopen_task(self, task_id: str) -> str:
