@@ -331,6 +331,168 @@ describe('iMessage page', () => {
   })
 })
 
+describe('IMessage unread state persistence', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.imessageCache.v1')
+    window.localStorage.removeItem('myos.imessageConnection.v1')
+    window.localStorage.removeItem('myos.imessageLocallyRead.v1')
+  })
+
+  it('persists locally-read state to localStorage when a chat is opened', async () => {
+    const convos = [
+      {
+        id: 1,
+        identifier: '+15550001111',
+        display_name: 'Alice',
+        service: 'iMessage',
+        last_message_date: '2026-04-10T10:00:00+00:00',
+        last_message_preview: 'Hey',
+        message_count: 5,
+        unread_count: 2,
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/messages')) return Promise.resolve({ messages: [] })
+      if (path.includes('/imessage/conversations')) return Promise.resolve({ conversations: convos })
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+    await screen.findByText('Alice')
+    fireEvent.click(screen.getByText('Alice'))
+
+    await waitFor(() => {
+      expect(screen.queryByText('2')).not.toBeInTheDocument()
+    })
+
+    const stored = window.localStorage.getItem('myos.imessageLocallyRead.v1')
+    expect(stored).not.toBeNull()
+    const parsed = JSON.parse(stored!)
+    expect(parsed['1']).toBe('2026-04-10T10:00:00+00:00')
+  })
+
+  it('keeps unread dot cleared on simulated page reload if no new messages arrived', async () => {
+    const convos = [
+      {
+        id: 1,
+        identifier: '+15550001111',
+        display_name: 'Alice',
+        service: 'iMessage',
+        last_message_date: '2026-04-10T10:00:00+00:00',
+        last_message_preview: 'Hey',
+        message_count: 5,
+        unread_count: 3,
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/messages')) return Promise.resolve({ messages: [] })
+      if (path.includes('/imessage/conversations')) return Promise.resolve({ conversations: convos })
+      return Promise.resolve({})
+    })
+
+    // Seed localStorage to simulate a previous session where the user opened chat 1
+    window.localStorage.setItem(
+      'myos.imessageLocallyRead.v1',
+      JSON.stringify({ '1': '2026-04-10T10:00:00+00:00' }),
+    )
+
+    renderIMessage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Alice')).toBeInTheDocument()
+    })
+
+    // Backend returns unread_count: 3, but localStorage says we already read up to
+    // the same last_message_date — dot must stay cleared.
+    expect(screen.queryByText('3')).not.toBeInTheDocument()
+  })
+
+  it('restores the unread dot when new messages arrive after a chat was locally marked read', async () => {
+    const convos = [
+      {
+        id: 1,
+        identifier: '+15550001111',
+        display_name: 'Alice',
+        service: 'iMessage',
+        last_message_date: '2026-04-10T11:00:00+00:00', // newer than the date we recorded
+        last_message_preview: 'A new message!',
+        message_count: 6,
+        unread_count: 1,
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/imessage/conversations')) return Promise.resolve({ conversations: convos })
+      return Promise.resolve({})
+    })
+
+    // Seed: user previously read chat 1 at 10:00, but a new message arrived at 11:00
+    window.localStorage.setItem(
+      'myos.imessageLocallyRead.v1',
+      JSON.stringify({ '1': '2026-04-10T10:00:00+00:00' }),
+    )
+
+    renderIMessage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Alice')).toBeInTheDocument()
+    })
+
+    // New message arrived — unread dot should be visible again
+    expect(screen.getByText('1')).toBeInTheDocument()
+    // Also verify the locally-read entry was removed from localStorage
+    const stored = window.localStorage.getItem('myos.imessageLocallyRead.v1')
+    const parsed = stored ? JSON.parse(stored) : {}
+    expect(parsed['1']).toBeUndefined()
+  })
+
+  it('keeps unread dot cleared after window focus refetch when no new messages', async () => {
+    const convos = [
+      {
+        id: 1,
+        identifier: '+15550001111',
+        display_name: 'Alice',
+        service: 'iMessage',
+        last_message_date: '2026-04-10T10:00:00+00:00',
+        last_message_preview: 'Hey',
+        message_count: 5,
+        unread_count: 3,
+      },
+    ]
+    let fetchCount = 0
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/messages')) return Promise.resolve({ messages: [] })
+      if (path.includes('/imessage/conversations')) {
+        fetchCount++
+        return Promise.resolve({ conversations: convos })
+      }
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+    await screen.findByText('Alice')
+    fireEvent.click(screen.getByText('Alice'))
+
+    await waitFor(() => {
+      expect(screen.queryByText('3')).not.toBeInTheDocument()
+    })
+
+    // Simulate window focus triggering a background refetch
+    fireEvent.focus(window)
+
+    await waitFor(() => {
+      expect(fetchCount).toBeGreaterThan(1)
+    })
+
+    // Dot stays cleared — same last_message_date, no new messages
+    expect(screen.queryByText('3')).not.toBeInTheDocument()
+  })
+})
+
 describe('IMessage ConnectCard (chunk-d migration)', () => {
   beforeEach(() => {
     vi.clearAllMocks()

@@ -50,6 +50,9 @@ interface StatusResponse {
 // Seed from localStorage so the page paints immediately
 const IMESSAGE_CACHE_KEY = 'myos.imessageCache.v1'
 const IMESSAGE_CONNECTION_KEY = 'myos.imessageConnection.v1'
+// Tracks chats the user has opened in this app: chatId → last_message_date when marked read.
+// Persisted so unread dots don't re-appear on page reload if no new messages arrived.
+const LOCALLY_READ_KEY = 'myos.imessageLocallyRead.v1'
 
 type ConnectionState = 'loading' | 'connected' | 'not_connected'
 
@@ -94,6 +97,29 @@ function writeConnectionCache(state: 'connected' | 'not_connected') {
   }
 }
 
+function readLocallyRead(): Map<number, string> {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return new Map()
+    const raw = window.localStorage.getItem(LOCALLY_READ_KEY)
+    if (!raw) return new Map()
+    const obj = JSON.parse(raw) as Record<string, string>
+    return new Map(Object.entries(obj).map(([k, v]) => [parseInt(k, 10), v]))
+  } catch {
+    return new Map()
+  }
+}
+
+function writeLocallyRead(map: Map<number, string>) {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return
+    const obj: Record<string, string> = {}
+    map.forEach((v, k) => { obj[String(k)] = v })
+    window.localStorage.setItem(LOCALLY_READ_KEY, JSON.stringify(obj))
+  } catch {
+    // Quota or serialization errors are not fatal.
+  }
+}
+
 function formatDate(dateStr: string): string {
   if (!dateStr) return ''
   try {
@@ -123,7 +149,9 @@ export default function IMessage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
-  const locallyReadRef = useRef<Set<number>>(new Set())
+  // Map of chatId → last_message_date when the user opened that chat.
+  // Seeded from localStorage so unread dots stay cleared across page reloads.
+  const locallyReadRef = useRef<Map<number, string>>(readLocallyRead())
 
   // When a conversation opens or new messages load, jump to the bottom
   // so the user sees the latest message first (iMessage native behavior).
@@ -152,9 +180,18 @@ export default function IMessage() {
   const fetchConversations = useCallback(async () => {
     try {
       const res = await api.get<{ conversations: Conversation[] }>('/imessage/conversations')
-      const fetched = (res.conversations || []).map(c =>
-        locallyReadRef.current.has(c.id) ? { ...c, unread_count: 0 } : c
-      )
+      const fetched = (res.conversations || []).map(c => {
+        const readDate = locallyReadRef.current.get(c.id)
+        if (readDate === undefined) return c
+        // New messages arrived since we marked this chat as read — clear the entry
+        // so the real unread count shows again.
+        if (c.last_message_date && c.last_message_date > readDate) {
+          locallyReadRef.current.delete(c.id)
+          writeLocallyRead(locallyReadRef.current)
+          return c
+        }
+        return { ...c, unread_count: 0 }
+      })
       setConversations(fetched)
       writeCache(fetched)
     } catch {
@@ -213,8 +250,11 @@ export default function IMessage() {
     setReplyError(null)
     setReplySuccess(false)
     fetchMessages(chatId)
-    locallyReadRef.current.add(chatId)
     setConversations(prev => {
+      const chat = prev.find(c => c.id === chatId)
+      const readDate = chat?.last_message_date ?? new Date(0).toISOString()
+      locallyReadRef.current.set(chatId, readDate)
+      writeLocallyRead(locallyReadRef.current)
       const updated = prev.map(c =>
         c.id === chatId ? { ...c, unread_count: 0 } : c
       )
