@@ -47,6 +47,7 @@ def _run(agents: list) -> list:
         patch("routers.agents._estimate_cost", return_value=0.0),
         patch("routers.agents.MAX_RECOVERY_ATTEMPTS", 3),
         patch("routers.agents._SANITIZE_FIELDS", []),
+        patch("routers.agents._RESPONSE_STALE_SECONDS", 86400),
     ):
         return _run_enrich_pipeline(
             all_agents=agents,
