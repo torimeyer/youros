@@ -2,11 +2,29 @@
 # Post-commit hook to automatically close needles when commit message contains →NNNN
 # Idempotent: closing already-closed needles is silent ok.
 # Never blocks commits: always exits 0 even on errors.
+#
+# Auto-close ONLY fires for fix-shaped commit types: fix, feat, perf, refactor.
+# docs, test, chore, style, ci, build commits may reference needles (e.g.
+# "filed →NNN", "see →NNN") without triggering close — they are tracking
+# mentions, not resolutions.
 
 set -u
 
 # Get the latest commit message
 msg=$(git log -1 --pretty=%B 2>/dev/null || true)
+
+# Extract the subject line (first line) and check its Conventional Commit type.
+# Only fix/feat/perf/refactor subjects may auto-close needles.
+subject=$(echo "$msg" | head -1)
+commit_type=$(echo "$subject" | sed -n 's/^\([a-z][a-z]*\)[:(].*/\1/p' | tr '[:upper:]' '[:lower:]')
+
+case "$commit_type" in
+  fix|feat|perf|refactor) ;;  # allowed — proceed to close
+  *)
+    # docs/test/chore/style/ci/build/etc. — needle refs are mentions, not closes
+    exit 0
+    ;;
+esac
 
 # Find all →NNN or →NNNN patterns (2-4 digits) and close them
 if [ -n "$msg" ]; then
