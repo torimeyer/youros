@@ -27,6 +27,7 @@ def _isolate_store(tmp_path, monkeypatch):
     """Redirect store paths so tests don't touch real data."""
     monkeypatch.setattr(ats_mod, "AGENT_TEMPLATES_PATH", tmp_path / "agent_templates.json")
     monkeypatch.setattr(ats_mod, "CUSTOM_AGENTS_DIR", tmp_path / "custom_agents")
+    monkeypatch.setattr(gk_mod, "STORE_ROOT", tmp_path / "gem_knowledge")
     AgentTemplatesStore._invalidate_persona_cache()
     yield
     AgentTemplatesStore._invalidate_persona_cache()
@@ -92,8 +93,6 @@ def test_chunk_text_exact_size():
 @pytest.mark.asyncio
 async def test_index_and_retrieve(tmp_path, monkeypatch):
     """Index a small .md fixture; a query with a unique phrase should rank first."""
-    monkeypatch.setattr(gk_mod, "STORE_ROOT", tmp_path / "gem_knowledge")
-
     unique_phrase = "quantumflux_zebra_17"
     md_content = (
         f"# Intro\n\nThis document is about nothing in particular.\n\n"
@@ -120,15 +119,13 @@ async def test_index_and_retrieve(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_retrieve_empty_when_no_files(tmp_path, monkeypatch):
-    monkeypatch.setattr(gk_mod, "STORE_ROOT", tmp_path / "gem_knowledge")
+async def test_retrieve_empty_when_no_files():
     results = await retrieve("gem-missing", "query")
     assert results == []
 
 
 @pytest.mark.asyncio
-async def test_index_unsupported_type(tmp_path, monkeypatch):
-    monkeypatch.setattr(gk_mod, "STORE_ROOT", tmp_path / "gem_knowledge")
+async def test_index_unsupported_type(tmp_path):
     bad_file = tmp_path / "doc.pdf"
     bad_file.write_bytes(b"%PDF-1.4")
     with pytest.raises(ValueError, match="Unsupported file type"):
