@@ -7,8 +7,8 @@ WRAPPER="$SCRIPT_DIR/myos-handoff.sh"
 PASS=0
 FAIL=0
 
-pass() { echo "PASS: $1"; ((PASS++)); }
-fail() { echo "FAIL: $1" >&2; ((FAIL++)); }
+pass() { echo "PASS: $1"; PASS=$((PASS + 1)); }
+fail() { echo "FAIL: $1" >&2; FAIL=$((FAIL + 1)); }
 
 # ── setup ─────────────────────────────────────────────────────────────────────
 tmpdir="$(mktemp -d)"
