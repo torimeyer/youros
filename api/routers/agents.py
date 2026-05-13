@@ -2226,7 +2226,8 @@ def _run_enrich_pipeline(
     if filter_source:
         filtered = [a for a in filtered if a.get("source") == filter_source]
     if limit is not None and limit >= 0:
-        filtered = sorted(filtered, key=lambda a: a.get("spawned_at") or "")[:limit]
+        # Newest-first so limit=N returns the N most recently spawned agents (→1238).
+        filtered = sorted(filtered, key=lambda a: a.get("spawned_at") or "", reverse=True)[:limit]
     # 3. Enrich the filtered subset with transcript metrics and cost.
     # Skip transcript I/O for old stopped agents: cold-cache walk over
     # 1000+ entries takes 14s. Only running and recently-spawned agents
@@ -3648,7 +3649,10 @@ async def list_agents(
     if filter_source:
         agents = [a for a in agents if a.get("source") == filter_source]
     if limit is not None and limit >= 0:
-        agents = sorted(agents, key=lambda a: a.get("spawned_at") or "")[:limit]
+        # Newest-first so limit=N returns the N most recently spawned agents.
+        # With many historical rows (683+), ascending sort returned only ancient
+        # rows and made any agent spawned after the 200th-oldest invisible (→1238).
+        agents = sorted(agents, key=lambda a: a.get("spawned_at") or "", reverse=True)[:limit]
     if summary:
         compact_keys = ("name", "source", "status", "spawned_at", "transcript_bytes", "last_heartbeat_at", "description", "model")
         return {"agents": [{k: a.get(k) for k in compact_keys if a.get(k) is not None} for a in agents]}
