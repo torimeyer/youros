@@ -5,7 +5,7 @@ import os
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
@@ -2554,11 +2554,17 @@ def _resolve_transcript_source_uncached(name: str) -> Optional[Path]:
 #   common "match this agent name" path skips the linear pattern walk that
 #   otherwise costs ~6s of GIL time when 162 agents × 826 candidates ×
 #   12 patterns must be compared (→1192).
-_candidates_cache: dict[tuple[str, str, int], tuple[float, list[tuple[float, Path, str]], dict[str, Path]]] = {}
+# →1272: key is (root, pattern) only — mtime was defeating the cache because any new
+# session dir under ~/.claude/projects/<label>/ changed the root mtime and forced a full
+# rescan of 1500+ session dirs on every /api/agents request. TTL alone is sufficient.
+_candidates_cache: dict[tuple[str, str], tuple[float, list[tuple[float, Path, str]], dict[str, Path]]] = {}
 # 60 s (not 30 s) — decoupled from _TRANSCRIPT_FLUSH_INTERVAL (25 s) so the
 # two timers don't expire at the same moment and trigger a synchronized
 # cold-rebuild spike on every flush cycle (→1192, morning fix).
 _CANDIDATES_TTL_SECONDS = 60.0
+# Cap glob to the N most recently modified session dirs (→1272).
+# 50 covers several days of active sessions; cold scan stays well under 30s.
+_MAX_SESSION_DIRS = 50
 
 
 def _reset_candidates_cache() -> None:
@@ -2577,20 +2583,41 @@ def _dir_mtime_ns(path: Path) -> int:
         return 0
 
 
+def _recent_session_dirs(root: Path, max_dirs: int) -> list[Path]:
+    """Return the max_dirs most recently modified direct subdirectories of root.
+
+    Used to cap glob scope when root has 1000+ session dirs — scanning all of
+    them for subagent files is prohibitively slow (→1272).
+    """
+    try:
+        subdirs: list[tuple[float, Path]] = []
+        for entry in root.iterdir():
+            if not entry.is_dir():
+                continue
+            try:
+                subdirs.append((entry.stat().st_mtime, entry))
+            except OSError:
+                continue
+        subdirs.sort(reverse=True)
+        return [d for _, d in subdirs[:max_dirs]]
+    except OSError:
+        return []
+
+
 def _load_candidates(root: Path, pattern: str) -> list[tuple[float, Path, str]]:
     """Return a cached list of ``(mtime, path, first_line_lower)`` tuples
     for every file under ``root`` matching ``pattern``.
 
-    First call for a (root, pattern, root_mtime_ns) triple does the real
-    filesystem work (glob, stat, open + readline per file). Subsequent calls
-    with the same triple return the cached list. A new file in ``root``
-    changes its directory mtime, which changes the key and forces a rescan.
+    First call for a (root, pattern) pair does the real filesystem work
+    (glob, stat, open + readline per file). Subsequent calls within the TTL
+    return the cached list. The cache key is TTL-only (no mtime) so a new
+    session dir under root does not invalidate the cache and force a 30s
+    rescan of 1500+ session dirs (→1272).
     Sorted freshest-first so callers can stop at the first match.
     """
     import time as _time
     now = _time.monotonic()
-    root_mtime = _dir_mtime_ns(root)
-    key = (str(root), pattern, root_mtime)
+    key = (str(root), pattern)
     entry = _candidates_cache.get(key)
     if entry is not None and entry[0] > now:
         return entry[1]
@@ -2598,7 +2625,17 @@ def _load_candidates(root: Path, pattern: str) -> list[tuple[float, Path, str]]:
     candidates: list[tuple[float, Path, str]] = []
     try:
         _i = 0
-        for p in root.glob(pattern):
+        # For "*/subagents/..." patterns, cap the scan to the _MAX_SESSION_DIRS
+        # most recent session dirs instead of globbing all of root (→1272).
+        if pattern.startswith("*/"):
+            sub_pattern = pattern[2:]
+            session_dirs = _recent_session_dirs(root, _MAX_SESSION_DIRS)
+            paths: Iterable[Path] = (
+                p for sd in session_dirs for p in sd.glob(sub_pattern)
+            )
+        else:
+            paths = root.glob(pattern)
+        for p in paths:
             _i += 1
             if _i % 10 == 0:
                 import time as _t; _t.sleep(0)  # yield GIL every 10 iters (→1192)
@@ -2703,11 +2740,12 @@ def _extract_agent_name(first_line_lower: str) -> Optional[str]:
     return None
 
 
-# (project_dir, row_mtime_ns) -> (expires_at_monotonic, [(mtime, jsonl_path, description)])
+# project_dir_str -> (expires_at_monotonic, [(mtime, jsonl_path, description)])
 # Same shape as ``_candidates_cache`` but keyed on description rather than
 # first-line content. Used by the meta.description fallback path when the
-# strict needle match fails.
-_meta_candidates_cache: dict[tuple[str, int], tuple[float, list[tuple[float, Path, str]]]] = {}
+# strict needle match fails. Key is TTL-only (no mtime) for same reason as
+# _candidates_cache (→1272).
+_meta_candidates_cache: dict[str, tuple[float, list[tuple[float, Path, str]]]] = {}
 _META_CANDIDATES_TTL_SECONDS = 60.0  # 60 s — decoupled from flush interval (→1192)
 
 
@@ -2721,11 +2759,13 @@ def _load_meta_candidates(project_dir: Path) -> list[tuple[float, Path, str]]:
     for every ``agent-<id>.meta.json`` under ``project_dir``.
 
     Sorted freshest-first so callers can stop at the first match.
+    Cache key is TTL-only — mtime was invalidating the cache on every new
+    Claude Code session, forcing a full rescan of 1500+ session dirs (→1272).
+    Scope is capped to the _MAX_SESSION_DIRS most recent session directories.
     """
     import time as _time
     now = _time.monotonic()
-    root_mtime = _dir_mtime_ns(project_dir)
-    key = (str(project_dir), root_mtime)
+    key = str(project_dir)
     entry = _meta_candidates_cache.get(key)
     if entry is not None and entry[0] > now:
         return entry[1]
@@ -2733,29 +2773,33 @@ def _load_meta_candidates(project_dir: Path) -> list[tuple[float, Path, str]]:
     candidates: list[tuple[float, Path, str]] = []
     try:
         _i = 0
-        for meta_path in project_dir.glob("*/subagents/agent-*.meta.json"):
-            _i += 1
-            if _i % 10 == 0:
-                import time as _t; _t.sleep(0)  # yield GIL every 10 iters (→1192)
-            jsonl_path = meta_path.with_suffix("")  # strips ".json"
-            if jsonl_path.suffix != ".meta":
-                continue
-            jsonl_path = jsonl_path.with_suffix(".jsonl")
-            try:
-                stat = jsonl_path.stat()
-            except OSError:
-                continue
-            try:
-                with open(meta_path, "r", errors="replace") as f:
-                    meta_obj = json.load(f)
-            except (OSError, json.JSONDecodeError, ValueError):
-                continue
-            if not isinstance(meta_obj, dict):
-                continue
-            desc = meta_obj.get("description")
-            if not isinstance(desc, str) or not desc.strip():
-                continue
-            candidates.append((stat.st_mtime, jsonl_path, desc.strip()))
+        session_dirs = _recent_session_dirs(project_dir, _MAX_SESSION_DIRS)
+        for session_dir in session_dirs:
+            for meta_path in session_dir.glob("subagents/agent-*.meta.json"):
+                _i += 1
+                if _i % 10 == 0:
+                    import time as _t; _t.sleep(0)  # yield GIL every 10 iters (→1192)
+                jsonl_path = meta_path.with_suffix("")  # strips ".json"
+                if jsonl_path.suffix != ".meta":
+                    continue
+                jsonl_path = jsonl_path.with_suffix(".jsonl")
+                try:
+                    stat = jsonl_path.stat()
+                except OSError:
+                    continue
+                try:
+                    with open(meta_path, "r", errors="replace") as f:
+                        meta_obj = json.load(f)
+                except (OSError, json.JSONDecodeError, ValueError):
+                    continue
+                if not isinstance(meta_obj, dict):
+                    continue
+                desc = meta_obj.get("description")
+                if not isinstance(desc, str) or not desc.strip():
+                    continue
+                candidates.append((stat.st_mtime, jsonl_path, desc.strip()))
+                if len(candidates) >= _MAX_GLOB_FILES:
+                    break
             if len(candidates) >= _MAX_GLOB_FILES:
                 break
     except OSError:

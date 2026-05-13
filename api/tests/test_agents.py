@@ -8252,14 +8252,21 @@ async def test_transcript_missing_returns_actionable_empty_response(tmp_path):
     assert len(reason) > 10, f"Reason must be non-empty and descriptive: {reason!r}"
 
 
-def test_candidates_cache_busts_on_dir_mtime_change(tmp_path):
-    """The _load_candidates cache must return fresh results when a new session
-    directory is created under root (which changes root's mtime), rather than
-    serving stale data until the TTL expires.
+def test_candidates_cache_ttl_behavior(tmp_path):
+    """The _load_candidates cache uses TTL-only keys (no mtime) so new session
+    dirs do NOT invalidate the cache mid-TTL (→1272).
 
-    This models the real use case: a new Claude Code agent spawns and creates
-    a new session directory under the project_dir root. That creation changes
-    project_dir's mtime, which busts the cache key so the next call rescans.
+    Previously the cache key included root dir mtime, which meant any new
+    Claude Code session created under the project root (~30/day) would force
+    a full rescan of 1500+ session dirs. With TTL-only keys the cold scan
+    happens at most once per 60 seconds.
+
+    Contract:
+    - First call does the scan and caches; new files created BEFORE the call
+      are visible; file1 must appear.
+    - Second call within TTL returns the cached list; file2 added AFTER the
+      first call is NOT visible yet (accepted staleness, max 60 s).
+    - After cache reset, a fresh scan picks up both files.
     """
     from routers.agents import _load_candidates, _reset_candidates_cache
 
@@ -8272,28 +8279,32 @@ def test_candidates_cache_busts_on_dir_mtime_change(tmp_path):
 
     _reset_candidates_cache()
 
-    # First call: picks up file1
+    # First call: scans and caches; file1 must appear
     result1 = _load_candidates(tmp_path, "*/subagents/agent-*.jsonl")
     paths1 = {r[1] for r in result1}
     assert file1 in paths1, "file1 must appear in first scan"
 
-    # A new agent spawns: Claude Code creates a new session directory under tmp_path.
-    # This changes tmp_path's own mtime, so the cache key changes.
-    import time as _time
-    _time.sleep(0.01)  # ensure filesystem mtime resolution catches the change
+    # New session dir created AFTER the first call
     session2 = tmp_path / "session-bbb"
     subdir2 = session2 / "subagents"
     subdir2.mkdir(parents=True)
     file2 = subdir2 / "agent-222.jsonl"
     file2.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "world"}}) + "\n")
 
-    # Second call: root mtime changed (new session dir created), cache busts, rescan returns file2
+    # Second call within TTL: returns cached result; file2 NOT yet visible
     result2 = _load_candidates(tmp_path, "*/subagents/agent-*.jsonl")
     paths2 = {r[1] for r in result2}
-    assert file2 in paths2, (
-        "file2 must appear after root dir mtime change (new session dir). "
+    assert file2 not in paths2, (
+        "file2 must NOT appear while cache is warm (TTL-only key, accepted staleness). "
         f"Got paths: {paths2}"
     )
+
+    # After cache reset a fresh scan sees both files
+    _reset_candidates_cache()
+    result3 = _load_candidates(tmp_path, "*/subagents/agent-*.jsonl")
+    paths3 = {r[1] for r in result3}
+    assert file1 in paths3, "file1 must appear after cache reset"
+    assert file2 in paths3, "file2 must appear after cache reset (new session dir now visible)"
 
 
 # ---------------------------------------------------------------------------
