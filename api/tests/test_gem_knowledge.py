@@ -126,10 +126,126 @@ async def test_retrieve_empty_when_no_files():
 
 @pytest.mark.asyncio
 async def test_index_unsupported_type(tmp_path):
-    bad_file = tmp_path / "doc.pdf"
-    bad_file.write_bytes(b"%PDF-1.4")
+    bad_file = tmp_path / "data.csv"
+    bad_file.write_text("col1,col2\n1,2\n")
     with pytest.raises(ValueError, match="Unsupported file type"):
         await index_file("gem-1", "file-b", str(bad_file))
+
+
+# ---------------------------------------------------------------------------
+# PDF helpers for fixtures
+# ---------------------------------------------------------------------------
+
+def _make_pdf_with_text(tmp_path: Path, text: str) -> Path:
+    """Build a minimal valid PDF containing *text* in a Type1 content stream."""
+    pdf_str = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    stream = f"BT /F1 12 Tf 72 720 Td ({pdf_str}) Tj ET\n".encode("latin-1")
+
+    parts: list[bytes] = [b"%PDF-1.4\n"]
+    offs: dict[int, int] = {}
+
+    def emit(n: int, raw: bytes) -> None:
+        offs[n] = sum(len(p) for p in parts)
+        parts.append(f"{n} 0 obj\n".encode() + raw + b"\nendobj\n")
+
+    emit(1, b"<< /Type /Catalog /Pages 2 0 R >>")
+    emit(2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+    emit(3, (
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]\n"
+        b"   /Contents 4 0 R\n"
+        b"   /Resources << /Font << /F1 5 0 R >> >> >>"
+    ))
+    emit(4, (
+        f"<< /Length {len(stream)} >>\nstream\n".encode()
+        + stream
+        + b"endstream"
+    ))
+    emit(5, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+
+    xref_start = sum(len(p) for p in parts)
+    xref = "xref\n0 6\n0000000000 65535 f \n"
+    for i in range(1, 6):
+        xref += f"{offs[i]:010d} 00000 n \n"
+    parts.append(xref.encode())
+    parts.append(f"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n".encode())
+
+    pdf_path = tmp_path / "test.pdf"
+    pdf_path.write_bytes(b"".join(parts))
+    return pdf_path
+
+
+def _make_blank_page_pdf(tmp_path: Path) -> Path:
+    """Build a minimal PDF whose single page has no content stream (no text)."""
+    parts: list[bytes] = [b"%PDF-1.4\n"]
+    offs: dict[int, int] = {}
+
+    def emit(n: int, raw: bytes) -> None:
+        offs[n] = sum(len(p) for p in parts)
+        parts.append(f"{n} 0 obj\n".encode() + raw + b"\nendobj\n")
+
+    emit(1, b"<< /Type /Catalog /Pages 2 0 R >>")
+    emit(2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+    emit(3, b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>")  # no /Contents
+
+    xref_start = sum(len(p) for p in parts)
+    xref = "xref\n0 4\n0000000000 65535 f \n"
+    for i in range(1, 4):
+        xref += f"{offs[i]:010d} 00000 n \n"
+    parts.append(xref.encode())
+    parts.append(f"trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n".encode())
+
+    pdf_path = tmp_path / "blank.pdf"
+    pdf_path.write_bytes(b"".join(parts))
+    return pdf_path
+
+
+# ---------------------------------------------------------------------------
+# test_index_pdf / test_index_docx
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_index_pdf_with_text(tmp_path, monkeypatch):
+    """Uploading a PDF with readable text should index the extracted content."""
+    unique_phrase = "pdf_unique_kw_42"
+    pdf_path = _make_pdf_with_text(tmp_path, unique_phrase)
+
+    async def _fake_embed(chunks, api_key=None):
+        return [_match_vector(c, unique_phrase) for c in chunks]
+
+    monkeypatch.setattr(gk_mod, "embed_chunks", _fake_embed)
+
+    doc = await index_file("gem-pdf", "file-pdf", str(pdf_path))
+    all_text = " ".join(ch["text"] for ch in doc["chunks"])
+    assert unique_phrase in all_text, "extracted PDF text was not indexed"
+
+
+@pytest.mark.asyncio
+async def test_index_docx_with_text(tmp_path, monkeypatch):
+    """Uploading a DOCX with text should index the extracted content."""
+    import docx as docx_lib
+
+    unique_phrase = "docx_unique_kw_99"
+    docx_path = tmp_path / "test.docx"
+    doc_obj = docx_lib.Document()
+    doc_obj.add_paragraph(f"{unique_phrase} lives in this document")
+    doc_obj.save(str(docx_path))
+
+    async def _fake_embed(chunks, api_key=None):
+        return [_match_vector(c, unique_phrase) for c in chunks]
+
+    monkeypatch.setattr(gk_mod, "embed_chunks", _fake_embed)
+
+    doc = await index_file("gem-docx", "file-docx", str(docx_path))
+    all_text = " ".join(ch["text"] for ch in doc["chunks"])
+    assert unique_phrase in all_text, "extracted DOCX text was not indexed"
+
+
+@pytest.mark.asyncio
+async def test_index_pdf_no_text_rejected(tmp_path):
+    """A PDF with no readable text raises ValueError with a friendly message."""
+    pdf_path = _make_blank_page_pdf(tmp_path)
+    with pytest.raises(ValueError, match="no readable text"):
+        await index_file("gem-empty", "file-empty", str(pdf_path))
 
 
 # ---------------------------------------------------------------------------

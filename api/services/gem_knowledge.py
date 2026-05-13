@@ -10,10 +10,9 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import os
 from pathlib import Path
 from typing import Optional
-
-from services.ostk_secrets import get_gemini_key
 
 STORE_ROOT = Path.home() / ".myos" / "gem_knowledge"
 EMBED_MODEL = "text-embedding-004"
@@ -78,7 +77,7 @@ async def embed_chunks(chunks: list[str], api_key: Optional[str] = None) -> list
     if not chunks:
         return []
 
-    key = api_key or await get_gemini_key()
+    key = api_key or os.environ.get("GEMINI_API_KEY", "")
 
     def _run():
         from google import genai
@@ -86,6 +85,28 @@ async def embed_chunks(chunks: list[str], api_key: Optional[str] = None) -> list
         return _embed_sync(client, chunks)
 
     return await asyncio.to_thread(_run)
+
+
+# ---------------------------------------------------------------------------
+# Text extractors
+# ---------------------------------------------------------------------------
+
+def _extract_pdf_text(path: Path) -> str:
+    """Return plain text from a PDF. Empty string if no text layer."""
+    from pypdf import PdfReader
+    reader = PdfReader(str(path))
+    parts = [page.extract_text() or "" for page in reader.pages]
+    return "\n".join(t.strip() for t in parts if t.strip())
+
+
+def _extract_docx_text(path: Path) -> str:
+    """Return plain text from a DOCX file."""
+    import docx
+    doc = docx.Document(str(path))
+    return "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
+
+
+_SUPPORTED_SUFFIXES = {".txt", ".md", ".pdf", ".docx"}
 
 
 # ---------------------------------------------------------------------------
@@ -100,15 +121,26 @@ async def index_file(
 ) -> dict:
     """Chunk + embed *file_path* and persist at the gem store.
 
-    Supports .txt and .md (UTF-8). PDF is not yet handled.
+    Supports .txt, .md, .pdf, and .docx.
     Returns the stored document dict.
     """
     path = Path(file_path)
     suffix = path.suffix.lower()
-    if suffix not in {".txt", ".md"}:
-        raise ValueError(f"Unsupported file type: {suffix!r}. Only .txt and .md are supported.")
+    if suffix not in _SUPPORTED_SUFFIXES:
+        raise ValueError(
+            f"Unsupported file type: {suffix!r}. Supported: {', '.join(sorted(_SUPPORTED_SUFFIXES))}."
+        )
 
-    text = path.read_text(encoding="utf-8", errors="replace")
+    if suffix in {".txt", ".md"}:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    elif suffix == ".pdf":
+        text = _extract_pdf_text(path)
+        if not text.strip():
+            raise ValueError(
+                "This PDF has no readable text — it looks like a scanned image. Try a different file."
+            )
+    else:  # .docx
+        text = _extract_docx_text(path)
     chunks = chunk_text(text)
     if not chunks:
         chunks = [""]
