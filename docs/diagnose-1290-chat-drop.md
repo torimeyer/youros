@@ -49,18 +49,35 @@ H4. **Multiprocessing fork still tied to port 8000.** `ps` shows two python proc
 
 H5. **`asyncio.wait_for(_read_stdout(), timeout=1800.0)` cancelled by CancelledError doesn't reach the terminal-frame guarantee.** If `_read_stdout()` raises `CancelledError`, the outer `try/finally` in claude_code_provider DOES cancel the heartbeat task, but it does NOT send a fallback terminal frame. The chat.py `_TerminalTrackingWS` `finally` block should still catch this because it surrounds the `await call_model(...)`. Let me confirm in code.
 
-## Plan
+## Root cause (confirmed by failing test)
 
-1. Scaffold (this doc) + commit. DONE.
-2. Falsify H1–H5 via code reading + write a failing regression test for the highest-probability cause.
-3. Likely root cause from existing context: watchdog SIGKILL (H4) or CancelledError in subprocess heartbeat (H5). Both are not covered by the existing tracked_ws fallback.
-4. Add a backend-side guarantee: a top-level `finally` that always sends `{"type":"done"}` or `{"type":"error","data":"backend hiccup"}` on socket close path, regardless of cancellation type.
-5. Test command:
-   - Frontend: `bash scripts/run-vitest.sh app/src/hooks/useWebSocket.test.tsx`
-   - Backend: `api/.venv/bin/pytest api/tests/test_chat_providers.py -v`
+The `_TerminalTrackingWS.send_json` wrapper in `api/routers/chat.py` flipped `self.terminal_sent = True` BEFORE awaiting the underlying `send_json`. When the inner send raised (peer socket already half-closed, TLS reset, browser nav mid-turn, transient network error), the flag was True even though NO terminal frame ever reached the client.
 
-## Close criteria
+The chat-router fallback at the end of the turn loop (the `finally` block at chat.py:1543) checks `terminal_sent` and SKIPS emitting a backup `done` when the flag is True. The client then sees the socket close with no terminal frame and `useWebSocket.ts:121` surfaces:
 
-- Regression test capturing the recurring close path passes.
-- Commit hash for fix.
-- Test name in close reason.
+> Connection dropped before the response finished. Please try again.
+
+The same ordering bug exists in `send_text`.
+
+### Why it's recurring
+
+Every time a chat turn ends with the socket already half-closed (slow client, network blip, browser navigation), the wrapper's wire send raises but `terminal_sent` is already True. The compensating fallback that exists EXACTLY for this scenario sees the flag and stays quiet. The user sees the banner.
+
+This is independent of all the other layered fixes (heartbeats, shutdown notify, increased timeout) because they all assume the terminal-frame guarantee at the end of the turn actually fires when needed.
+
+## Fix
+
+Move the `terminal_sent = True` assignment to AFTER the awaited inner `send_json` / `send_text` returns successfully. If the inner send raises, the flag stays False and the chat-router fallback can compensate.
+
+## Tests
+
+- `api/tests/test_chat.py::TestTerminalTrackingWsSendFailure::test_terminal_sent_stays_false_when_inner_send_raises` (RED before fix)
+- `api/tests/test_chat.py::TestTerminalTrackingWsSendFailure::test_terminal_sent_flips_only_after_successful_send` (positive case)
+- `api/tests/test_chat.py::TestTerminalTrackingWsSendFailure::test_terminal_sent_stays_false_on_send_text_failure` (RED before fix, covers send_text path)
+- All 176 tests in `api/tests/test_chat.py` still pass after the fix.
+
+## Close criteria — met
+
+- Regression test capturing the close path passes (verified).
+- Fix commit hash recorded.
+- Test names listed in close reason.

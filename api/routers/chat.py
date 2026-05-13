@@ -1151,24 +1151,42 @@ class _TerminalTrackingWS:
         self._tab_id = tab_id
 
     async def send_json(self, data: dict) -> None:
-        if isinstance(data, dict) and data.get("type") in _TERMINAL_FRAME_TYPES:
-            self.terminal_sent = True
         # Inject tab_id into every streaming frame so the frontend can filter by tab
+        is_terminal = (
+            isinstance(data, dict) and data.get("type") in _TERMINAL_FRAME_TYPES
+        )
         if isinstance(data, dict) and self._tab_id and "tab_id" not in data:
             data = {**data, "tab_id": self._tab_id}
+        # Send first, then flip terminal_sent. The previous order flipped
+        # the flag BEFORE awaiting the inner send. If the inner send
+        # raised (socket already half-closed, TLS reset, browser nav
+        # mid-turn), the flag was True but no terminal frame ever
+        # reached the client. The chat-router fallback at the end of
+        # the turn loop checks terminal_sent and skipped emitting a
+        # backup done because it thought the client got one. The client
+        # then saw the socket close with no terminal frame and surfaced
+        # "Connection dropped before the response finished" (→1290).
         await self._inner.send_json(data)
+        if is_terminal:
+            self.terminal_sent = True
 
     async def send_text(self, data: str) -> None:
         # Best-effort peek at the type field so raw send_text callers are
         # tracked too. If the payload is not JSON or not a dict with a
         # known terminal type, just forward untouched.
+        is_terminal = False
         try:
             parsed = _json.loads(data)
             if isinstance(parsed, dict) and parsed.get("type") in _TERMINAL_FRAME_TYPES:
-                self.terminal_sent = True
+                is_terminal = True
         except Exception:
             pass
+        # Same ordering rule as send_json: flip terminal_sent only after
+        # the inner send returns successfully so a failed send does not
+        # falsely advertise that the client received a terminal frame.
         await self._inner.send_text(data)
+        if is_terminal:
+            self.terminal_sent = True
 
     async def receive_json(self) -> dict:
         return await self._inner.receive_json()
