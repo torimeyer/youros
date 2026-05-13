@@ -319,13 +319,32 @@ export default function MyGems() {
               {!capturesLoading && captures.length === 0 && (
                 <div
                   data-testid="captures-empty-state"
-                  className="text-sm text-slate-500 py-4 border border-slate-800 rounded-xl px-5"
+                  className="text-sm py-4 border border-slate-800 rounded-xl px-5"
                 >
-                  <p className="mb-1 text-slate-400">No captures yet.</p>
-                  <p>
-                    Install the myOS Gemini extension to start capturing your gemini.google.com chats.
-                    See <code className="text-slate-400">extension/README.md</code>.
-                  </p>
+                  <p className="mb-3 font-medium text-slate-300">No captures yet</p>
+                  <p className="mb-3 text-slate-400">To start capturing your Gemini chats, follow these steps:</p>
+                  <ol className="list-decimal list-inside space-y-2 text-slate-400">
+                    <li>
+                      Open Chrome and go to{' '}
+                      <code className="text-slate-300 bg-slate-800/60 px-1 rounded text-xs">chrome://extensions</code>.
+                      Turn on <strong className="text-slate-300">Developer mode</strong> (toggle in the top right corner).
+                    </li>
+                    <li>
+                      Click <strong className="text-slate-300">Load unpacked</strong> and select the{' '}
+                      <code className="text-slate-300 bg-slate-800/60 px-1 rounded text-xs">extension</code>{' '}
+                      folder inside your myOS installation.
+                    </li>
+                    <li>
+                      Click the myOS icon in your Chrome toolbar, then open{' '}
+                      <strong className="text-slate-300">Settings</strong>. Paste your auth token — find it
+                      by opening a terminal and running{' '}
+                      <code className="text-slate-300 bg-slate-800/60 px-1 rounded text-xs">cat ~/.myos/extension_token</code>.
+                    </li>
+                    <li>
+                      Toggle <strong className="text-slate-300">Capture conversations</strong> on, then open{' '}
+                      <strong className="text-slate-300">gemini.google.com</strong>. Your chats will appear here automatically.
+                    </li>
+                  </ol>
                 </div>
               )}
 

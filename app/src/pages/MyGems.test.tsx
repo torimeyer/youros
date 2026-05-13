@@ -283,7 +283,7 @@ const mockConversations = [
 ];
 
 describe('MyGems captures section', () => {
-  it('shows captures empty state when no captures returned', async () => {
+  it('shows captures empty state with numbered install steps when no captures returned', async () => {
     mockedGet.mockImplementation((path: string) => {
       if (path === '/gemini-captures/conversations') return Promise.resolve([]);
       return Promise.resolve(mockGems);
@@ -292,8 +292,14 @@ describe('MyGems captures section', () => {
     await waitFor(() => {
       expect(screen.getByTestId('captures-empty-state')).toBeInTheDocument();
     });
+    // Container still renders with the "No captures yet" heading
     expect(screen.getByText(/No captures yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/Install the myOS Gemini extension/i)).toBeInTheDocument();
+    // 4 numbered steps present
+    const emptyState = screen.getByTestId('captures-empty-state');
+    const steps = emptyState.querySelectorAll('li');
+    expect(steps).toHaveLength(4);
+    // extension/README.md no longer visible anywhere on the page
+    expect(screen.queryByText(/extension\/README\.md/i)).not.toBeInTheDocument();
   });
 
   it('shows captures list when conversations are returned', async () => {
