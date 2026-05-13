@@ -491,6 +491,68 @@ def _prune_stale_completed_agents() -> int:
     return pruned
 
 
+_last_reaped_prune_time: float = -999999.0
+
+
+def _prune_reaped_worktree_agents() -> int:
+    """Soft-delete agents whose worktree dir is gone and PID (if any) is dead.
+
+    Rule quoted from feedback_ghost_reaper_live_pid_check.md:
+    "add os.kill(int(pid), 0) check before heartbeat staleness check. If
+    ProcessLookupError → dead, fall through. If success or PermissionError/OSError
+    → alive, skip."
+
+    This function applies the same principle at the list-endpoint level: an agent
+    with isolation=worktree whose directory has been reaped and whose process no
+    longer exists is noise. We mark it terminal and add it to deleted_names so it
+    no longer appears in GET /api/agents.
+
+    The agent_state.json record is preserved (audit trail). Only the display filter
+    (deleted_agents.json) is updated.
+    """
+    global _last_reaped_prune_time
+    import time as _time
+    now_mono = _time.monotonic()
+    if now_mono - _last_reaped_prune_time < _PRUNE_INTERVAL_SECONDS:
+        return 0
+    _last_reaped_prune_time = now_mono
+
+    deleted = _load_deleted_agents()
+    pruned = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for name, meta in list(agent_metadata.items()):
+        if name in deleted:
+            continue
+        worktree_path = meta.get("worktree_path")
+        if not worktree_path:
+            continue
+        # Worktree dir still present — agent may still be active.
+        if Path(worktree_path).exists():
+            continue
+        # PID alive — agent is running even though the worktree dir is absent.
+        pid = meta.get("pid")
+        if pid:
+            try:
+                import os as _os
+                _os.kill(int(pid), 0)
+                continue  # alive: PermissionError or success both mean the PID exists
+            except (ProcessLookupError, OSError):
+                pass  # dead — fall through to prune
+        # Both worktree and PID are gone: mark terminal if not already, then hide.
+        if meta.get("status") not in _TERMINAL_STATUSES:
+            _set_agent_status(
+                name, "terminated_stale",
+                terminated_at=now_iso,
+                terminated_reason="reaped: worktree dir gone and PID dead",
+            )
+        deleted.add(name)
+        pruned += 1
+    if pruned:
+        _save_deleted_agents(deleted)
+        logger.info("prune.reaped_worktree_agents count=%d", pruned)
+    return pruned
+
+
 # How long a running agent can go without a heartbeat before the list
 # endpoint marks it ``terminated_stale``. Fifteen minutes is long enough
 # to cover a slow pytest run, a tsc build, or a large write where the
@@ -3226,6 +3288,7 @@ async def _compute_agents_snapshot_async() -> dict:
     here rather than on the request path.
     """
     _prune_stale_completed_agents()
+    _prune_reaped_worktree_agents()
     ps_result = await ostk.kernel_ps()
     audit_agents_list = await ostk.audit_agents()
     daemon_running = ps_result.get("daemon_running", False)
@@ -3353,6 +3416,23 @@ async def _compute_agents_snapshot_async() -> dict:
                     "source": meta.get("source", "api"),
                     **meta,
                     "status": "completed",
+                }
+                continue
+            # Worktree-reaped fast path: worktree dir gone and no live PID → terminated.
+            _wt_path = meta.get("worktree_path")
+            if _wt_path and not Path(_wt_path).exists() and not pid_for_check:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                _set_agent_status(
+                    name, "terminated_stale",
+                    terminated_at=now_iso,
+                    terminated_reason="reaped: worktree dir gone and PID dead",
+                )
+                persisted_pass_changed = True
+                agents_map[name] = {
+                    "name": name,
+                    "source": meta.get("source", "api"),
+                    **meta,
+                    "status": "terminated_stale",
                 }
                 continue
             spawned_at_str = meta.get("spawned_at", "")
