@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import OnboardingWizard from './OnboardingWizard'
+import { OrgNameStep, AdminEmailStep } from './TeamOnboardingSteps'
 import { useAppStore } from '../stores/app'
 import { api } from '../lib/api'
 import { AGENT_MARKETPLACE } from '../data/agentMarketplace'
@@ -787,6 +788,72 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     expect(link).toHaveAttribute('href', '/privacy')
   })
 
+  it('Enter on the FilesLocation step (window) advances to Profile', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(3) // Welcome -> You -> Name -> FilesLocation
+
+    expect(screen.getByTestId('step-files-location')).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('step-files-location')).not.toBeInTheDocument()
+      expect(screen.getByTestId('step-profile')).toBeInTheDocument()
+    })
+  })
+
+  it('Enter on the FilesLocation input advances to Profile', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(3) // Welcome -> You -> Name -> FilesLocation
+
+    const input = screen.getByTestId('files-dir-input')
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('step-profile')).toBeInTheDocument()
+    })
+  })
+
+  it('Enter on the Customize step (window) advances to Theme', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(5) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize
+
+    expect(screen.getByTestId('step-customize')).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('step-theme')).toBeInTheDocument()
+    })
+  })
+
+  it('Enter on the EnhanceClaude step (window) advances to Tracking', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(7) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize -> Theme -> EnhanceClaude
+
+    expect(screen.getByTestId('step-enhance-claude')).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('step-tracking')).toBeInTheDocument()
+    })
+  })
+
+  it('Enter on the Tracking step (window) advances to Connect', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(8) // Welcome -> ... -> EnhanceClaude -> Tracking
+
+    expect(screen.getByTestId('step-tracking')).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('step-connect')).toBeInTheDocument()
+    })
+  })
+
 })
 
 describe('OnboardingWizard — Customize step starter pack', () => {
@@ -1463,5 +1530,31 @@ describe('OnboardingWizard — FilesLocation step', () => {
       expect(vi.mocked(api.put)).toHaveBeenCalledWith('/settings', { files_dir: '/Users/me/custom' })
     })
     expect(screen.getByTestId('step-profile')).toBeInTheDocument()
+  })
+})
+
+describe('TeamOnboardingSteps — Enter key on inputs', () => {
+  it('Enter on OrgName input calls onNext', () => {
+    const onNext = vi.fn()
+    render(<OrgNameStep orgName="Acme" setOrgName={vi.fn()} onNext={onNext} inputCls="" subtextCls="" />)
+    const input = screen.getByTestId('org-name-input')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onNext).toHaveBeenCalledOnce()
+  })
+
+  it('Enter on AdminEmail input calls onNext', () => {
+    const onNext = vi.fn()
+    render(<AdminEmailStep adminEmail="admin@co.com" setAdminEmail={vi.fn()} onNext={onNext} inputCls="" subtextCls="" />)
+    const input = screen.getByTestId('admin-email-input')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onNext).toHaveBeenCalledOnce()
+  })
+
+  it('Other keys on OrgName input do not call onNext', () => {
+    const onNext = vi.fn()
+    render(<OrgNameStep orgName="" setOrgName={vi.fn()} onNext={onNext} inputCls="" subtextCls="" />)
+    const input = screen.getByTestId('org-name-input')
+    fireEvent.keyDown(input, { key: 'Tab' })
+    expect(onNext).not.toHaveBeenCalled()
   })
 })

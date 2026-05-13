@@ -269,19 +269,28 @@ export default function OnboardingWizard() {
 
   const skip = () => next()
 
-  // Global Enter handler: advance (or finish) when Enter is pressed on any non-input element.
-  // Input/textarea elements handle Enter themselves so we skip them here to avoid double-fires.
-  const handleGlobalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== 'Enter') return
-    const tag = (e.target as HTMLElement).tagName
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON') return
+  // Stable ref holds the latest advance logic. Registered on window once (empty-deps effect)
+  // so Enter fires globally regardless of which element has focus.
+  const advanceOnEnterRef = useRef<(e: KeyboardEvent) => void>(() => {})
+  advanceOnEnterRef.current = (e: KeyboardEvent) => {
+    if (e.key !== 'Enter' || e.isComposing) return
+    const target = e.target as HTMLElement
+    const tag = target.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON' || target.contentEditable === 'true') return
     // Fork step: no action (user must click a card)
     if (step === 'Fork') return
     // TeamReady and Ready both finish.
     if (step === 'TeamReady') { finish(); return }
     if (step === 'Ready') { finish(); return }
+    // FilesLocation saves the dir before advancing.
+    if (step === 'FilesLocation') { handleFilesLocationNext(); return }
     next()
   }
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => advanceOnEnterRef.current(e)
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   // Theme: purely local state. Zero store interaction during the wizard.
   // The store is synced ONLY when the user finishes onboarding.
@@ -324,7 +333,6 @@ export default function OnboardingWizard() {
         transition: 'background-color 0.3s, color 0.3s',
       }}
       data-testid="onboarding-wizard"
-      onKeyDown={handleGlobalKeyDown}
     >
       <div className="w-full max-w-lg px-8">
         {/* Progress dots */}
@@ -380,6 +388,7 @@ export default function OnboardingWizard() {
               defaultPath={DEFAULT_FILES_DIR}
               inputCls={inputCls}
               subtextCls={subtextCls}
+              onNext={handleFilesLocationNext}
             />
           )}
           {step === 'Profile' && (
@@ -552,10 +561,10 @@ export default function OnboardingWizard() {
           )}
           {/* Team steps */}
           {step === 'OrgName' && (
-            <OrgNameStep orgName={teamOrgName} setOrgName={setTeamOrgName} inputCls={inputCls} subtextCls={subtextCls} />
+            <OrgNameStep orgName={teamOrgName} setOrgName={setTeamOrgName} onNext={next} inputCls={inputCls} subtextCls={subtextCls} />
           )}
           {step === 'AdminEmail' && (
-            <AdminEmailStep adminEmail={teamAdminEmail} setAdminEmail={setTeamAdminEmail} inputCls={inputCls} subtextCls={subtextCls} />
+            <AdminEmailStep adminEmail={teamAdminEmail} setAdminEmail={setTeamAdminEmail} onNext={next} inputCls={inputCls} subtextCls={subtextCls} />
           )}
           {step === 'InviteTeam' && (
             <InviteTeamStep inviteEmails={teamInviteEmails} setInviteEmails={setTeamInviteEmails} inputCls={inputCls} subtextCls={subtextCls} darkMode={effectiveDark} />
@@ -921,12 +930,14 @@ function FilesLocationStep({
   defaultPath,
   inputCls,
   subtextCls,
+  onNext,
 }: {
   filesDir: string
   setFilesDir: (v: string) => void
   defaultPath: string
   inputCls: string
   subtextCls: string
+  onNext: () => void
 }) {
   return (
     <div data-testid="step-files-location">
@@ -939,6 +950,7 @@ function FilesLocationStep({
           type="text"
           value={filesDir}
           onChange={(e) => setFilesDir(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') onNext() }}
           placeholder={defaultPath}
           data-testid="files-dir-input"
           className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
