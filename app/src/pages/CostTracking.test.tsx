@@ -1255,3 +1255,73 @@ describe('CostTracking page', () => {
     }
   })
 })
+
+const mockUsageData = {
+  claude: {
+    auth_source: 'subscription',
+    messages_today: 8,
+    tokens_today: 9600,
+    total_messages: 30,
+    recent_daily: [
+      { date: '2026-05-09', messages: 4, input_tokens: 20000, output_tokens: 4000 },
+      { date: '2026-05-10', messages: 7, input_tokens: 30000, output_tokens: 6000 },
+      { date: '2026-05-11', messages: 6, input_tokens: 25000, output_tokens: 5000 },
+      { date: '2026-05-12', messages: 8, input_tokens: 15000, output_tokens: 3000 },
+      { date: '2026-05-13', messages: 10, input_tokens: 10000, output_tokens: 2000 },
+    ],
+    session_tokens: { cache_read: 267061, output: 3467, billed: 393521, cache_hit_rate_pct: 67.9 },
+    quota_available: false,
+    quota_note: 'Subscription quota not available without Anthropic account API auth.',
+  },
+  gemini: {
+    auth_source: 'gemini_cli',
+    messages_today: 2,
+    tokens_today: 2400,
+    total_messages: 5,
+    recent_daily: [
+      { date: '2026-05-09', messages: 0, input_tokens: 0, output_tokens: 0 },
+      { date: '2026-05-10', messages: 1, input_tokens: 5000, output_tokens: 1000 },
+      { date: '2026-05-11', messages: 0, input_tokens: 0, output_tokens: 0 },
+      { date: '2026-05-12', messages: 2, input_tokens: 3000, output_tokens: 600 },
+      { date: '2026-05-13', messages: 2, input_tokens: 2000, output_tokens: 400 },
+    ],
+    quota_available: false,
+    quota_note: 'Gemini CLI has no native quota command.',
+  },
+}
+
+describe('CostTracking — Subscription tab (→1299)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    useAppStore.setState({ chatOpen: false, osName: 'myOS', darkMode: true, showBudgetCaps: false })
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.startsWith('/costs/savings')) return Promise.resolve(mockSavingsData)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/usage') return Promise.resolve(mockUsageData)
+      return Promise.resolve({})
+    })
+  })
+
+  it('shows a Subscription tab', async () => {
+    renderCostTracking()
+    await waitFor(() => expect(screen.getByTestId('tab-subscription')).toBeInTheDocument())
+  })
+
+  it('renders Claude and Gemini cards on click', async () => {
+    renderCostTracking()
+    await waitFor(() => expect(screen.getByTestId('tab-subscription')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('tab-subscription'))
+    await waitFor(() => expect(screen.getByTestId('subscription-panel')).toBeInTheDocument())
+    expect(screen.getByTestId('provider-card-claude')).toBeInTheDocument()
+    expect(screen.getByTestId('provider-card-gemini')).toBeInTheDocument()
+  })
+
+  it('shows messages today for Claude', async () => {
+    renderCostTracking()
+    await waitFor(() => expect(screen.getByTestId('tab-subscription')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('tab-subscription'))
+    await waitFor(() => expect(screen.getByTestId('provider-card-claude')).toBeInTheDocument())
+    expect(screen.getByTestId('provider-card-claude')).toHaveTextContent('8')
+  })
+})
