@@ -458,6 +458,40 @@ async def delete_file(path: str = Query(..., description="Relative path to the f
 from pydantic import BaseModel
 
 
+# ---------------------------------------------------------------------------
+# ostk VFS endpoints — surface .ostk/ contents for the Files page
+# ---------------------------------------------------------------------------
+
+
+@router.get("/files/decisions")
+async def get_decisions(limit: int = Query(200, ge=1, le=1000)):
+    """Return .ostk/*.md decision docs, newest first."""
+    from services.ostk_files import list_decisions
+
+    return {"decisions": list_decisions(limit=limit)}
+
+
+@router.get("/files/needles")
+async def get_needles(limit: int = Query(500, ge=1, le=2000)):
+    """Return needle history from .ostk/needles/issues.jsonl, newest first."""
+    from services.ostk_files import list_needles_history
+
+    return {"needles": list_needles_history(limit=limit)}
+
+
+@router.get("/files/audit")
+async def get_audit(limit: int = Query(100, ge=1, le=500)):
+    """Return recent audit events from .ostk/journal.jsonl, newest first."""
+    from services.ostk_files import list_audit_recent
+
+    return {"events": list_audit_recent(limit=limit)}
+
+
+# ---------------------------------------------------------------------------
+# Drive import
+# ---------------------------------------------------------------------------
+
+
 class DriveImportBody(BaseModel):
     drive_file_id: str
 
