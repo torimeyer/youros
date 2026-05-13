@@ -945,9 +945,12 @@ export function ChatPanel() {
           const reused = { ...last, id: newBubbleId, model: data.model }
           return [...prev.slice(0, -1), reused]
         }
+        // Inherit thread_id from the last assistant message so parallel
+        // broadcast bubbles stay scoped to the correct thread (→1243).
+        const inheritedThreadId = last?.role === 'assistant' ? last?.thread_id : undefined
         return [
           ...prev,
-          { id: newBubbleId, role: 'assistant', content: '', model: data.model },
+          { id: newBubbleId, role: 'assistant', content: '', model: data.model, thread_id: inheritedThreadId },
         ]
       })
       currentBubbleIdRef.current = newBubbleId
@@ -1784,6 +1787,10 @@ export function ChatPanel() {
       if (m.model) base.model = m.model
       if (m.imageUrl) { base.content = m.content || '[image]'; (base as any).image = m.imageUrl }
       if (m.gifUrl) base.content = `[gif:${m.gifUrl}]`
+      // Include id and thread_id so the backend's build_thread_context can
+      // isolate the AI's context to the correct thread (→1243).
+      if (m.id) base.id = m.id
+      if (m.thread_id) base.thread_id = m.thread_id
       return base
     })
     if (userMessage.replyTo) {
