@@ -5,6 +5,9 @@
 
 # Write user-turn stamp so edit-cycle hooks can reset their per-turn counters.
 mkdir -p "${HOME}/.myos/hooks" 2>/dev/null || true
+# Read the PREVIOUS stamp epoch before overwriting it.
+# Used later to detect background Bash tasks that completed since the last turn.
+_SR_PREV_EPOCH=$(cat "${HOME}/.myos/hooks/last-user-turn.stamp" 2>/dev/null | tr -d '[:space:]')
 date +%s > "${HOME}/.myos/hooks/last-user-turn.stamp" 2>/dev/null || true
 
 cat <<'EOF'
@@ -223,6 +226,49 @@ PYEOF_CADENCE
             printf '%s\n' "$CADENCE_OUTPUT"
         fi
     fi
+
+    # --- Background Bash task completion snapshot ---
+    # Surfaces harness-tracked Bash run_in_background=true tasks that finished
+    # since the last user turn. Without this, pclaude goes silent after launching
+    # a background task until tori asks "how's it going" — a recurring pattern
+    # (restart-backend, loadavg call-site commit, fix-1240 commit).
+    #
+    # Output files: /private/tmp/claude-<uid>/<proj-key>/<sid>/tasks/*.output
+    # Harness writes these on Bash tool exit. We compare mtime vs
+    # last-user-turn.stamp (written at the top of this hook each turn).
+    _SR_UID=$(id -u)
+    # Allow tests to redirect the base dir; production path is /private/tmp/claude-<uid>
+    _SR_BASE="${MYOS_TASK_BASE_DIR:-/private/tmp/claude-${_SR_UID}}"
+    _SR_TASK_DIR="${_SR_BASE}/${PROJ_KEY}/${SID}/tasks"
+    # Build a temp reference file with the previous stamp's mtime so we can use
+    # find -newer (macOS find -newermt with a date string is unreliable).
+    _SR_COMPLETED=""
+    _SR_REF_FILE=""
+    if [ -d "$_SR_TASK_DIR" ] && [ -n "$_SR_PREV_EPOCH" ]; then
+        _SR_REF_FILE=$(mktemp -t sr-ref.XXXXXX 2>/dev/null) || _SR_REF_FILE=""
+        if [ -n "$_SR_REF_FILE" ]; then
+            _SR_TOUCH_FMT=$(date -r "$_SR_PREV_EPOCH" "+%Y%m%d%H%M.%S" 2>/dev/null)
+            touch -t "$_SR_TOUCH_FMT" "$_SR_REF_FILE" 2>/dev/null || true
+            _SR_COMPLETED=$(find "$_SR_TASK_DIR" -name "*.output" -newer "$_SR_REF_FILE" 2>/dev/null | sort)
+            rm -f "$_SR_REF_FILE" 2>/dev/null || true
+        fi
+    fi
+    if [ -n "$_SR_COMPLETED" ]; then
+        _SR_COUNT=$(printf '%s\n' "$_SR_COMPLETED" | wc -l | tr -d ' ')
+        printf '\nBACKGROUND BASH TASKS COMPLETED SINCE YOUR LAST TURN (%s task(s)):\n' "$_SR_COUNT"
+        printf 'These ran as run_in_background=true and finished while you were inactive.\n'
+        printf 'Surface their outcome in your next reply before doing other work.\n'
+        while IFS= read -r _SR_OFILE; do
+            _SR_TID=$(basename "$_SR_OFILE" .output)
+            _SR_SZ=$(wc -c < "$_SR_OFILE" 2>/dev/null | tr -d ' ')
+            printf -- '- task=%s (%s bytes)\n' "$_SR_TID" "${_SR_SZ:-0}"
+            if [ "${_SR_SZ:-0}" -gt 0 ]; then
+                printf '  Last output line(s):\n'
+                tail -3 "$_SR_OFILE" 2>/dev/null | sed 's/^/    /'
+            fi
+        done <<< "$_SR_COMPLETED"
+    fi
+    unset _SR_UID _SR_BASE _SR_TASK_DIR _SR_REF_FILE _SR_TOUCH_FMT _SR_COMPLETED _SR_COUNT _SR_OFILE _SR_TID _SR_SZ
 fi
 
 # Live agent snapshot. Backed by /api/agents on the myOS backend.
