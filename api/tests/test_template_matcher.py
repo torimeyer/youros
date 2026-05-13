@@ -281,8 +281,9 @@ class TestClassifier:
             client.messages.create = AsyncMock(return_value=_fake_classifier_response("writer"))
             mock_anth.AsyncAnthropic.return_value = client
 
-            # Force the env var to be empty so the matcher cannot find a key.
-            with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}, clear=False):
+            # Force both the env var and ostk secrets to return no key.
+            with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}, clear=False), \
+                 patch("services.ostk_secrets.get_anthropic_key", new=AsyncMock(return_value=None)):
                 result = await match_template(
                     "draft a tweet",
                     templates,

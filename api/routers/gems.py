@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from services.agent_templates_store import agent_templates_store
 from services.gem_knowledge import retrieve as _rag_retrieve
+from services import recent_deletes
 
 _UPLOAD_DIR = Path.home() / ".myos" / "gem_knowledge" / "uploads"
 _ALLOWED_SUFFIXES = {".txt", ".md", ".pdf", ".docx"}
@@ -121,6 +122,7 @@ async def delete_gem(gem_id: str):
     t = agent_templates_store.get_by_id(gem_id)
     if t is None or t.get("provider") != "gemini":
         raise HTTPException(status_code=404, detail="Gem not found")
+    recent_deletes.record(f"gem:{t.get('name', gem_id)}")
     agent_templates_store.delete(gem_id)
 
 

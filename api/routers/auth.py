@@ -17,13 +17,14 @@ from services.oauth_state import (
     oauth_states as _oauth_states,
     save_drive_oauth_states,
 )
+from config import FRONTEND_URL_DEFAULT
 from services.settings_store import settings_store
 
 router = APIRouter(tags=["auth"])
 
 
 def _frontend_url(request: Request) -> str:
-    return os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    return os.environ.get("FRONTEND_URL", FRONTEND_URL_DEFAULT)
 
 
 GOOGLE_SCOPES = "https://www.googleapis.com/auth/cloud-platform"

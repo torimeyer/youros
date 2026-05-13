@@ -19,6 +19,7 @@ from typing import Optional
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
+from config import FRONTEND_URL_DEFAULT
 from services import connections_cache, recent_deletes
 from services.google_auth import (
     CREDENTIALS_PATH,
@@ -228,7 +229,7 @@ async def drive_auth_url_for_gmail(request: Request, return_to: str = ""):
 
 
 def _frontend_url(request: Request) -> str:
-    return os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    return os.environ.get("FRONTEND_URL", FRONTEND_URL_DEFAULT)
 
 
 # Module-level anchor for regression tests: the post-auth redirect

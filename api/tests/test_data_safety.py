@@ -48,6 +48,7 @@ STORE_PATH_CONSTANTS = {
     "services.dogwalk_store": "DOGWALK_LEADS_PATH",
     "services.prototypes_store": "PROTOTYPES_PATH",
     "services.task_source_store": "TASK_SOURCE_PATH",
+    "services.gemini_captures_store": "GEMINI_CAPTURES_PATH",
 }
 
 

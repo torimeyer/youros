@@ -9,3 +9,5 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OSTK_DIR = PROJECT_ROOT / ".ostk"
 AGENTS_DIR = PROJECT_ROOT / "agents"
+
+FRONTEND_URL_DEFAULT = "https://localhost:3010"

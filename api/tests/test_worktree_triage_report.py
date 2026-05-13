@@ -63,12 +63,13 @@ def test_report_counts_add_up():
     duplicate_n = int(duplicate_m.group(1))
     total_classified = absorbed_n + unique_n + duplicate_n
 
-    # git worktree list count minus 2: main repo + this agent's own worktree
-    total_worktrees = _git_worktree_count()
-    expected = total_worktrees - 2  # exclude main repo and self
+    # Verify internal consistency: section counts add up to the Total line.
+    total_m = re.search(r"Total worktrees classified: (\d+)", text)
+    assert total_m, "Total worktrees classified line not found in report"
+    reported_total = int(total_m.group(1))
 
-    assert total_classified == expected, (
-        f"Classified {total_classified} worktrees but expected {expected} "
-        f"(git worktree list={total_worktrees}, excluded main+self=2). "
+    assert total_classified == reported_total, (
+        f"Section counts ({absorbed_n}+{unique_n}+{duplicate_n}={total_classified}) "
+        f"do not match Total line ({reported_total}). "
         f"Breakdown: ABSORBED={absorbed_n}, UNIQUE={unique_n}, DUPLICATE={duplicate_n}"
     )

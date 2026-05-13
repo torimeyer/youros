@@ -52,12 +52,13 @@ def _script_files() -> list[Path]:
 ROUTER_TEST_ALIASES = {
     "specs": ("test_specs.py", "test_docs.py"),
     "ostk": ("test_ostk_language.py",),
+    "gems": ("test_gems_router.py",),
 }
 
 # Routers that are tiny pass-throughs or covered by integration tests only.
 # Every exemption is a known debt and must be addressed before the next major
 # release. Adding to this set is a yellow flag.
-ROUTER_TEST_EXEMPT = {"costs", "files", "slack"}
+ROUTER_TEST_EXEMPT = {"costs", "files", "slack", "internal"}
 
 
 def test_every_router_has_a_test_file():

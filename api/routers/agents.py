@@ -19,6 +19,7 @@ from services import agent_chat_responder
 from services.tracing import trace_event
 from services.agent_events import bus as _agent_events_bus
 from services.grants_events import GrantsEventBus
+import services.locks_events as _locks_events_mod
 
 _grants_bus: GrantsEventBus = GrantsEventBus()
 
@@ -3629,6 +3630,9 @@ async def list_agents(
     all_agents = list(snapshot.get("agents", []))
     # Overlay live statuses from agent_metadata (snapshot is up to 500ms stale).
     # This ensures /complete and other status mutations are immediately visible.
+    # Exception: don't let agent_metadata "running" overwrite a terminal status
+    # that the kernel fleet computed in the snapshot (e.g., kernel says completed
+    # but metadata still shows running from before the kernel check ran).
     snapshot_names: set = set()
     for _a in all_agents:
         _n = _a.get("name")
@@ -3637,7 +3641,9 @@ async def list_agents(
         if _live is not None:
             _live_status = _live.get("status")
             if _live_status is not None:
-                _a["status"] = _live_status
+                _snap_status = _a.get("status")
+                if _live_status != "running" or _snap_status not in _TERMINAL_STATUSES:
+                    _a["status"] = _live_status
     # Include agents registered since the last snapshot run.
     for _n, _meta in list(agent_metadata.items()):
         if _n not in snapshot_names:
@@ -8488,6 +8494,14 @@ async def _publish_grants_state() -> None:
         logger.exception("_publish_grants_state failed")
 
 
+async def _publish_locks_state() -> None:
+    try:
+        locks = await ostk.list_locks()
+        await _locks_events_mod.bus.publish(locks)
+    except Exception:
+        logger.exception("_publish_locks_state failed")
+
+
 @router.get("/agents/grants")
 async def list_grants(status: str = "pending"):
     """List agent permission requests, filtered by status (default: pending).
@@ -9000,6 +9014,30 @@ async def grants_state_ws(websocket: WebSocket):
                 try:
                     event = await asyncio.wait_for(q.get(), timeout=15.0)
                     await websocket.send_json({"type": event.type, **event.payload})
+                except asyncio.TimeoutError:
+                    await websocket.send_json({"type": "ping"})
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+
+
+@router.websocket("/ws/locks/state")
+async def locks_state_ws(websocket: WebSocket):
+    """Push coordination lock state to clients in real time.
+
+    On connect: sends one snapshot frame with all active locks.
+    Then subscribes to the locks event bus and forwards each frame.
+    """
+    await websocket.accept()
+    try:
+        locks = await ostk.list_locks()
+        await websocket.send_json({"type": "snapshot", "locks": locks})
+        async with _locks_events_mod.bus.subscribe() as q:
+            while True:
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=15.0)
+                    await websocket.send_json({"type": "snapshot", "locks": event})
                 except asyncio.TimeoutError:
                     await websocket.send_json({"type": "ping"})
     except WebSocketDisconnect:

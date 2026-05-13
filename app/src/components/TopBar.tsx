@@ -63,7 +63,8 @@ function statusMessage(status: string): string {
   }
 }
 
-function formatTimeAgo(isoStr: string): string {
+function formatTimeAgo(isoStr: string | undefined): string {
+  if (!isoStr) return ''
   const diff = Date.now() - new Date(isoStr).getTime()
   const seconds = Math.floor(diff / 1000)
   if (seconds < 60) return 'just now'

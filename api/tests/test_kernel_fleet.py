@@ -280,10 +280,13 @@ async def test_agents_list_includes_kernel_only_row(tmp_path):
     }
 
     transport = ASGITransport(app=app)
+    # Reset the snapshot cache so list_agents recomputes fresh under our patches.
+    fresh_cache = {"agents": [], "computed_at": None, "daemon_running": False}
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         with (
             patch("routers.agents.AGENT_STATE_PATH", tmp_path / "agent_state.json"),
             patch("routers.agents.DELETED_AGENTS_PATH", tmp_path / "deleted_agents.json"),
+            patch("routers.agents._cached_snapshot", fresh_cache),
             patch("routers.agents.agent_metadata", {}),
             patch("routers.agents.active_agents", {}),
             patch("routers.agents.ostk") as mock_ostk,
@@ -329,10 +332,13 @@ async def test_agents_list_kernel_updates_status_of_existing_row(tmp_path):
     }
 
     transport = ASGITransport(app=app)
+    # Reset the snapshot cache so list_agents recomputes fresh under our patches.
+    fresh_cache = {"agents": [], "computed_at": None, "daemon_running": False}
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         with (
             patch("routers.agents.AGENT_STATE_PATH", tmp_path / "agent_state.json"),
             patch("routers.agents.DELETED_AGENTS_PATH", tmp_path / "deleted_agents.json"),
+            patch("routers.agents._cached_snapshot", fresh_cache),
             patch("routers.agents.agent_metadata", {
                 "shared-agent": {
                     "status": "running",

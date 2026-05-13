@@ -153,7 +153,20 @@ def test_worktree_without_needles_symlink_fails_ostk_add(ostk_main_repo: Path, t
 
     This documents the pre-fix behaviour so the regression test is
     self-explanatory: the fix is the needles/ symlink.
+
+    Skipped when the ostk daemon is running: the daemon routes around the
+    missing directory, which is correct behaviour but means the daemon-down
+    path cannot be exercised in this environment.
     """
+    # Detect if the ostk daemon is running — the daemon routes around the
+    # missing needles/ dir, making this test impossible to exercise.
+    probe = subprocess.run(
+        ["ostk", "kernel", "ps"],
+        capture_output=True, text=True, timeout=5,
+    )
+    if "daemon running" in probe.stdout or "daemon running" in probe.stderr:
+        pytest.skip("ostk daemon is running — routes around missing needles/, daemon-down path not exercisable")
+
     wt_path = tmp_path / "broken_worktree"
     wt_path.mkdir()
     (wt_path / ".ostk").mkdir()
@@ -167,9 +180,7 @@ def test_worktree_without_needles_symlink_fails_ostk_add(ostk_main_repo: Path, t
         text=True,
     )
     assert result.returncode != 0, (
-        "Expected ostk work add to fail without needles/ directory, but it succeeded. "
-        "The daemon may be running and routing around the missing directory — "
-        "this is acceptable but means the daemon-down path is not exercised."
+        "Expected ostk work add to fail without needles/ directory, but it succeeded."
     )
     assert "issues.lock" in result.stderr or "No such file" in result.stderr, (
         f"Expected lock/missing-file error in stderr, got: {result.stderr!r}"
