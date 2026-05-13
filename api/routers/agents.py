@@ -3289,7 +3289,16 @@ async def _compute_agents_snapshot_async() -> dict:
     """
     _prune_stale_completed_agents()
     _prune_reaped_worktree_agents()
-    ps_result = await ostk.kernel_ps()
+    if os.environ.get("MYOS_AGENTS_USE_REGISTRY") == "1":
+        # Read .ostk/agents.jsonl directly — no subprocess, no text parsing.
+        # agent_metadata still overlays myOS-specific fields (task, model,
+        # budget, etc.) in passes 2b and 3 below. Registry wins for the
+        # fields it provides: status, pid, registered_at → spawned_at,
+        # last_seen → last_heartbeat_at.
+        from services.registry_reader import read_registry_for_snapshot as _rfs
+        ps_result = _rfs()
+    else:
+        ps_result = await ostk.kernel_ps()
     audit_agents_list = await ostk.audit_agents()
     daemon_running = ps_result.get("daemon_running", False)
     daemon_agent_names = {a["name"] for a in ps_result.get("agents", [])}
