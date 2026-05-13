@@ -3867,3 +3867,98 @@ class TestTabIdIsolation:
         # All should have tab_id
         for msg in websocket.messages:
             assert msg["tab_id"] == "tab-multi"
+
+
+class TestTerminalTrackingWsSendFailure:
+    """Regression for →1290.
+
+    The _TerminalTrackingWS wrapper used to flip ``terminal_sent`` BEFORE
+    awaiting the underlying ``send_json``. When the inner send raised
+    (socket already half-closed, TLS reset, browser nav, etc.), the flag
+    was True but no terminal frame ever reached the client. The chat
+    router's fallback at the end of the turn loop checks
+    ``terminal_sent`` and skips emitting a backup ``done`` because it
+    THINKS the client got one. The client then sees the socket close
+    with no terminal frame and surfaces "Connection dropped before the
+    response finished" - the exact symptom the user reported.
+
+    The fix is to only flip ``terminal_sent`` AFTER the inner send
+    returns successfully. If the inner send raises, the wrapper leaves
+    the flag False so the fallback can compensate.
+    """
+
+    @pytest.mark.asyncio
+    async def test_terminal_sent_stays_false_when_inner_send_raises(self):
+        from routers.chat import _TerminalTrackingWS
+
+        class _RaisingWS:
+            """WebSocket facade whose send_json always raises.
+
+            Mirrors the real failure mode: starlette raises
+            ``RuntimeError("Cannot call 'send' once a close message has
+            been sent")`` (or ``WebSocketDisconnect``) when the peer
+            already closed the socket.
+            """
+            async def send_json(self, data):
+                raise RuntimeError("Cannot call 'send' once a close message has been sent")
+
+        inner = _RaisingWS()
+        tracked = _TerminalTrackingWS(inner, tab_id="t")
+
+        # Try to send a done frame. The inner send raises.
+        with pytest.raises(RuntimeError):
+            await tracked.send_json({"type": "done"})
+
+        # Bug today: terminal_sent is True even though no frame reached
+        # the client. The fix flips it only AFTER the inner send
+        # succeeds, so this assertion must hold.
+        assert tracked.terminal_sent is False, (
+            "terminal_sent must NOT be True when the inner send_json raised "
+            "before the frame reached the client. Otherwise the chat router's "
+            "fallback in the turn-loop finally block skips emitting a backup "
+            "done frame, and the frontend's onclose handler surfaces "
+            "\"Connection dropped before the response finished\"."
+        )
+
+    @pytest.mark.asyncio
+    async def test_terminal_sent_flips_only_after_successful_send(self):
+        """Positive case: a successful send still flips the flag."""
+        from routers.chat import _TerminalTrackingWS
+
+        class _OkWS:
+            def __init__(self):
+                self.messages = []
+
+            async def send_json(self, data):
+                self.messages.append(data)
+
+        inner = _OkWS()
+        tracked = _TerminalTrackingWS(inner, tab_id="t")
+
+        assert tracked.terminal_sent is False
+        await tracked.send_json({"type": "done"})
+        assert tracked.terminal_sent is True
+        # The frame reached the inner wire as expected.
+        assert len(inner.messages) == 1
+        assert inner.messages[0]["type"] == "done"
+
+    @pytest.mark.asyncio
+    async def test_terminal_sent_stays_false_on_send_text_failure(self):
+        """Same ordering rule applies to the send_text path."""
+        from routers.chat import _TerminalTrackingWS
+        import json as _json
+
+        class _RaisingWS:
+            async def send_text(self, data):
+                raise RuntimeError("socket closed")
+
+        inner = _RaisingWS()
+        tracked = _TerminalTrackingWS(inner, tab_id="t")
+
+        with pytest.raises(RuntimeError):
+            await tracked.send_text(_json.dumps({"type": "done"}))
+
+        assert tracked.terminal_sent is False, (
+            "send_text must follow the same ordering rule as send_json: "
+            "terminal_sent only flips after the inner send returns."
+        )
