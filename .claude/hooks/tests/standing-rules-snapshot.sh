@@ -95,6 +95,20 @@ cat > "$FIXTURE" <<JSON
       "spawned_at": "${TWO_MIN_AGO}",
       "completed_at": "${TEN_S_AGO}",
       "transcript_bytes": 900
+    },
+    {
+      "name": "diagnose-bridge-spawned",
+      "source": "task-bridge",
+      "status": "running",
+      "spawned_at": "${FORTY_FIVE_S_AGO}",
+      "transcript_bytes": 55000
+    },
+    {
+      "name": "api-probe-bot",
+      "source": "api",
+      "status": "running",
+      "spawned_at": "${FORTY_FIVE_S_AGO}",
+      "transcript_bytes": 100
     }
   ]
 }
@@ -195,6 +209,20 @@ if echo "$OUT_HAPPY" | grep -q "fix-beta"; then
   pass "fix-beta listed"
 else
   fail "fix-beta not listed"
+fi
+
+# Bridge-spawned agent (source=task-bridge) must appear — this is the regression case.
+if echo "$OUT_HAPPY" | grep -q "diagnose-bridge-spawned"; then
+  pass "task-bridge agent listed (regression: was filtered by source=claude-code guard)"
+else
+  fail "task-bridge agent missing from running list (source filter bug not fixed)"
+fi
+
+# Non-user source (api) must be filtered out.
+if echo "$OUT_HAPPY" | grep -q "api-probe-bot"; then
+  fail "api-sourced agent should be filtered from running list"
+else
+  pass "api-sourced agent filtered"
 fi
 
 # Main-session row filtered out.

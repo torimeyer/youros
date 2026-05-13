@@ -223,7 +223,7 @@ BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}"
 # trips the curl timeout. Server-side filter matches what the python
 # renderer below expects (source=claude-code, status=running), capped
 # at 20 rows so the payload stays under 5KB even on a busy fleet.
-SUMMARY_PATH="/api/agents?summary=1&status=running&source=claude-code&limit=20"
+SUMMARY_PATH="/api/agents?summary=1&status=running&limit=20"
 
 # Companion query for newly-terminal agents the parent hasn't seen yet.
 # Claude Code's native <task-notification> reminder fires when the Agent
@@ -240,7 +240,7 @@ SUMMARY_PATH="/api/agents?summary=1&status=running&source=claude-code&limit=20"
 # Contents: ISO-8601 UTC timestamp of the newest completed_at we've
 # already shown. Missing/empty = show up to MAX_COMPLETED recent ones.
 COMPLETED_STAMP="${HOME}/.myos/subagents/last-seen-completions.stamp"
-COMPLETED_PATH="/api/agents?source=claude-code&limit=200"
+COMPLETED_PATH="/api/agents?limit=200"
 
 # Spool curl output to a temp file so we keep binary fidelity (the payload
 # can contain embedded control bytes that bash `echo "$var"` corrupts).
@@ -282,6 +282,7 @@ AGENTS_FILE="$TMP_JSON" python3 - <<'PYEOF'
 import json, os, sys
 from datetime import datetime, timezone
 
+INCLUDE_SOURCES = {"claude-code", "task-bridge"}
 EXCLUDE_SOURCES = {"ack-bot", "heartbeat-bot", "e2e-smoke"}
 MAX_ROWS = 8
 
@@ -327,9 +328,7 @@ for a in data.get("agents", []) or []:
     if a.get("status") != "running":
         continue
     src = a.get("source")
-    if src != "claude-code":
-        continue
-    if src in EXCLUDE_SOURCES:
+    if src not in INCLUDE_SOURCES or src in EXCLUDE_SOURCES:
         continue
     name = a.get("name") or ""
     if not name or name.startswith("claude-code-"):
@@ -396,6 +395,7 @@ TERMINAL_STATUSES = {
     "completed_timeout",
     "stopped",
 }
+INCLUDE_SOURCES = {"claude-code", "task-bridge"}
 EXCLUDE_SOURCES = {"ack-bot", "heartbeat-bot", "e2e-smoke"}
 
 def parse_iso(s):
@@ -424,9 +424,7 @@ except Exception:
 
 rows = []
 for a in data.get("agents", []) or []:
-    if a.get("source") != "claude-code":
-        continue
-    if a.get("source") in EXCLUDE_SOURCES:
+    if a.get("source") not in INCLUDE_SOURCES or a.get("source") in EXCLUDE_SOURCES:
         continue
     name = a.get("name") or ""
     if not name or name.startswith("claude-code-"):
