@@ -19,6 +19,8 @@ keywords=(
   "no-pager"
   "current_step"
   "two reads"
+  "0% CPU"
+  "bridge"
 )
 
 missing_count=0
