@@ -13,11 +13,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from services.agent_templates_store import agent_templates_store
-from services.gem_knowledge import retrieve as _rag_retrieve
+from services.gem_knowledge import retrieve as _rag_retrieve, index_file as _rag_index_file
 from services import recent_deletes
 
 _UPLOAD_DIR = Path.home() / ".myos" / "gem_knowledge" / "uploads"
-_ALLOWED_SUFFIXES = {".txt", ".md", ".pdf", ".docx"}
+_ALLOWED_SUFFIXES = {".txt", ".md"}
 
 router = APIRouter(tags=["gems"])
 
@@ -76,6 +76,13 @@ async def create_gem(body: GemCreate):
         "provider": "gemini",
         "gem_metadata": gem_metadata,
     })
+    for fname in body.knowledge_files or []:
+        src = _UPLOAD_DIR / fname
+        if src.exists():
+            try:
+                await _rag_index_file(t["id"], fname, str(src))
+            except (ValueError, FileNotFoundError):
+                pass
     return _to_gem(t)
 
 
@@ -114,6 +121,14 @@ async def update_gem(gem_id: str, body: GemUpdate):
     updated = agent_templates_store.update(gem_id, data)
     if updated is None:
         raise HTTPException(status_code=404, detail="Gem not found")
+    if body.knowledge_files is not None:
+        for fname in body.knowledge_files:
+            src = _UPLOAD_DIR / fname
+            if src.exists():
+                try:
+                    await _rag_index_file(gem_id, fname, str(src))
+                except (ValueError, FileNotFoundError):
+                    pass
     return _to_gem(updated)
 
 
