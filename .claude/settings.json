@@ -1,7 +1,8 @@
 {
   "permissions": {},
-  "_comment_agent_register": "PreToolUse Agent register-agent.sh is wired globally in ~/.claude/settings.json so non-torios projects also register subagents. Do not re-add here or the hook will double-fire.",
+  "_comment_agent_register": "PreToolUse Agent register-agent.sh is wired globally in ~/.claude/settings.json (restored in →1304 pilot). SubagentStart/Stop dual-write hooks (ostk-agent-start/stop.sh) are wired globally too. Project-level entries here are belt+suspenders for torios-specific runs.",
   "_comment_wave2": "Wave 2 of →1288: 22 hooks consolidated into 9. Old 22 hook files stay on disk (deleted in wave 3) but are no longer registered here.",
+  "_comment_1304": "→1304 pilot: ostk-agent-start/stop.sh added to SubagentStart/Stop. These wrap `ostk hook agent-start/stop` (kernel journal) + POST to /api/agents (UI sync).",
   "hooks": {
     "SessionStart": [
       {
@@ -52,6 +53,26 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/prompt-header.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/ostk-agent-start.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/ostk-agent-stop.sh"
           }
         ]
       }
