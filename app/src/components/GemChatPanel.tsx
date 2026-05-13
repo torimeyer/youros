@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
 import Icon from './Icon';
 import type { Gem } from '../pages/MyGems';
 
@@ -152,18 +153,22 @@ export default function GemChatPanel({ gem, onClose }: Props) {
                 className={`max-w-[80%] px-3 py-2 rounded-xl text-sm border ${
                   entry.role === 'user'
                     ? 'bg-slate-700 border-slate-600 text-slate-100'
-                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 prose prose-sm prose-invert max-w-none'
                 }`}
               >
-                {entry.text}
+                {entry.role === 'user' ? (
+                  entry.text
+                ) : (
+                  <ReactMarkdown>{entry.text}</ReactMarkdown>
+                )}
               </div>
             </div>
           ))}
 
           {streamingText && (
             <div className="flex justify-start" data-testid="gem-chat-streaming">
-              <div className="max-w-[80%] px-3 py-2 rounded-xl text-sm border bg-emerald-500/10 border-emerald-500/30 text-emerald-400">
-                {streamingText}
+              <div className="max-w-[80%] px-3 py-2 rounded-xl text-sm border bg-emerald-500/10 border-emerald-500/30 text-emerald-400 prose prose-sm prose-invert max-w-none">
+                <ReactMarkdown>{streamingText}</ReactMarkdown>
               </div>
             </div>
           )}
