@@ -81,7 +81,8 @@ print('not-found')
 }
 
 git_has_sentinel() {
-  git log --oneline -20 2>/dev/null | grep -qi "${GIT_SENTINEL}"
+  # --all: worktree-branch commits are invisible to the parent's checkout without it
+  git log --all --oneline -20 2>/dev/null | grep -qi "${GIT_SENTINEL}"
 }
 
 while true; do
