@@ -10,6 +10,45 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v3.16.0
+  {
+    date: '2026-05-13',
+    label: 'May 13, 2026',
+    entries: [
+      {
+        title: 'Files page',
+        description: 'A new Files section shows your decisions, needles, and recent activity directly in the app. Three tabs, a search box, a card per entry.',
+      },
+      {
+        title: 'iMessage contacts',
+        description: 'Your macOS contacts now show up in myOS so messages can be addressed by name. Loaded from your local Contacts app and stays on your machine.',
+      },
+      {
+        title: 'See your model usage',
+        description: 'The Costs page now shows your Claude Code subscription quota and Gemini equivalent next to the cost numbers, so you can see what you have left without leaving myOS.',
+      },
+      {
+        title: 'PDF and Word doc support for Gems',
+        description: 'Drag a PDF or Word document into a Gem and myOS extracts the text and indexes it. No setup, no extra steps.',
+      },
+      {
+        title: 'Rules page',
+        description: 'A new Settings → Rules page where every enforcement rule can be toggled on or off. Quick link in the sidebar.',
+      },
+      {
+        title: 'Delete all data button',
+        description: 'Settings now has a danger-zone button to wipe your local myOS data. Useful for starting fresh.',
+      },
+      {
+        title: 'Jira imports keep working',
+        description: 'Atlassian deprecated their old search endpoint. We migrated to the new one so Jira imports continue to work.',
+      },
+      {
+        title: 'Faster app startup',
+        description: 'The per-prompt header that runs before each turn went from 7 seconds to under a second.',
+      },
+    ],
+  },
   // v3.14.0
   {
     date: '2026-05-11',
