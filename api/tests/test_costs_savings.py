@@ -116,8 +116,14 @@ def test_get_ostk_savings_handles_missing_keys():
 
 
 @pytest.mark.asyncio
-async def test_costs_savings_route_returns_data(client):
-    with patch("services.token_metrics.subprocess.run") as mock_run:
+async def test_costs_savings_route_returns_data(client, tmp_path):
+    # Patch _METRICS_PATH to an empty file so the test never reads the real
+    # 500+ MB metrics.jsonl (which causes a >30s timeout on accumulated envs).
+    empty_metrics = tmp_path / "metrics.jsonl"
+    empty_metrics.write_text("")
+    with patch("services.token_metrics.subprocess.run") as mock_run, \
+         patch("services.token_metrics._METRICS_PATH", empty_metrics), \
+         patch("routers.costs.token_metrics._METRICS_PATH", empty_metrics):
         mock_run.return_value = _fake_completed(json.dumps(SAMPLE_METRICS))
         resp = await client.get("/api/costs/savings")
 

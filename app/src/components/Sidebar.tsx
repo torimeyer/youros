@@ -774,6 +774,18 @@ export function Sidebar() {
             </>
           )}
         </NavLink>
+        <NavLink
+          to="/settings/rules"
+          onClick={() => setMobileOpen(false)}
+          className={({ isActive }) => utilLinkClass(isActive)}
+        >
+          {({ isActive }) => (
+            <>
+              <Icon name="tune" filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
+              <span className="text-xs font-medium">Rules</span>
+            </>
+          )}
+        </NavLink>
       </div>
 
       {/* Theme toggle */}
