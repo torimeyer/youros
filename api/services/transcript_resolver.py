@@ -34,6 +34,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+__all__ = ["resolve_transcript", "clear_cache"]
+
 _PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
 # TTL cache: agent_name -> (expires_monotonic, result_path_or_None)
