@@ -165,3 +165,77 @@ async def test_upload_md_still_succeeds(client, tmp_path, monkeypatch):
     )
     assert resp.status_code == 200
     assert resp.json()["filename"].endswith("_notes.md")
+
+
+# ---------------------------------------------------------------------------
+# Smoke test (→1283): upload → create gem → chat references uploaded content
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_upload_then_chat_references_file_content(client, tmp_path, monkeypatch):
+    """Full pipeline smoke test (→1283).
+
+    1. POST /gems/upload — upload a .md file via the real HTTP endpoint.
+    2. POST /gems — create a gem with the uploaded file as knowledge.
+    3. POST /gems/{id}/chat — chat with the gem.
+    4. Assert the system_instruction passed to the chat service includes the
+       uploaded file's distinctive content.
+    """
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(gems_mod, "_UPLOAD_DIR", upload_dir)
+
+    passphrase = "COBALT-19-OSPREY"
+    file_content = f"# Knowledge base\n\n{passphrase} is the key fact.\n"
+    monkeypatch.setattr(gk_mod, "embed_chunks", _fake_embed(passphrase))
+
+    # Step 1: upload the file through the real endpoint.
+    upload_resp = await client.post(
+        "/api/gems/upload",
+        files={"file": ("knowledge.md", io.BytesIO(file_content.encode()), "text/markdown")},
+    )
+    assert upload_resp.status_code == 200
+    fname = upload_resp.json()["filename"]
+    assert fname.endswith("_knowledge.md"), f"unexpected filename: {fname!r}"
+
+    # Step 2: create a gem referencing the uploaded file.
+    create_resp = await client.post("/api/gems", json={
+        "name": "Smoke Gem",
+        "system_prompt": "Answer from knowledge.",
+        "knowledge_files": [fname],
+    })
+    assert create_resp.status_code == 201
+    gem_id = create_resp.json()["id"]
+
+    # Verify chunks were indexed.
+    store_dir = (tmp_path / "gem_knowledge") / gem_id
+    assert store_dir.exists(), "RAG store dir not created after gem create"
+    assert list(store_dir.glob("*.json")), "no chunk files after gem create"
+
+    # Step 3: chat with the gem.
+    import services.chat_providers as cp_mod
+    from unittest.mock import patch
+
+    captured_system: list = []
+
+    async def _fake_stream(self, messages, websocket, system_instruction=None):
+        captured_system.append(system_instruction)
+        await websocket.send_json({"type": "done"})
+
+    monkeypatch.setattr(cp_mod.ChatService, "stream_gemini", _fake_stream)
+
+    chat_resp = await client.post(
+        f"/api/gems/{gem_id}/chat",
+        json={"message": passphrase},
+    )
+    assert chat_resp.status_code == 200
+
+    # Step 4: assert the system_instruction includes the uploaded content.
+    assert captured_system, "stream_gemini never called"
+    si = captured_system[0]
+    assert passphrase in si, (
+        f"uploaded passphrase not found in system_instruction.\n"
+        f"system_instruction: {si!r}"
+    )
+    assert "Reference material" in si, "expected RAG preamble in system_instruction"
+    assert "Answer from knowledge." in si, "gem system_prompt missing from instruction"
