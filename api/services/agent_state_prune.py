@@ -35,7 +35,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
+import subprocess
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -113,6 +115,32 @@ def prune_agent_state(
     return kept, removed
 
 
+def _run_ostk_recovery_prune() -> tuple[int, int]:
+    """Delegate fleet cleanup to `ostk recovery rescue`.
+
+    Called when MYOS_REAPER_USE_OSTK_RECOVERY=1 is set. Returns (0, 0)
+    because kept/removed counts are not available from the ostk command.
+    """
+    try:
+        result = subprocess.run(
+            ["ostk", "recovery", "rescue"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            logger.info("ostk recovery rescue succeeded: %s", result.stdout.strip())
+        else:
+            logger.warning(
+                "ostk recovery rescue exited %d: %s",
+                result.returncode,
+                result.stderr.strip(),
+            )
+    except Exception as exc:
+        logger.warning("ostk recovery rescue failed: %s", exc)
+    return 0, 0  # counts not available when delegating to ostk recovery
+
+
 def run_startup_prune(
     agent_state_path: Path,
     agent_metadata: dict,
@@ -125,7 +153,13 @@ def run_startup_prune(
 
     The backup is written BEFORE any mutation so a crash mid-write cannot
     lose data. Backup path: <original>.bak-prune-<YYYYmmddHHMMSS>.
+
+    When MYOS_REAPER_USE_OSTK_RECOVERY=1 is set, delegates to
+    `ostk recovery rescue` instead of running the Python prune logic.
     """
+    if os.getenv("MYOS_REAPER_USE_OSTK_RECOVERY"):
+        return _run_ostk_recovery_prune()
+
     now = datetime.now(timezone.utc)
     ts_str = now.strftime("%Y%m%d%H%M%S")
 
