@@ -2738,7 +2738,7 @@ export function ChatPanel() {
       {trackedAgents.length > 0 && (
         <div
           data-testid="agent-running-banner"
-          className="mx-3 mb-1 flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/25 text-xs text-blue-300"
+          className="mx-3 mt-2 mb-1 flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/25 text-xs text-blue-300"
         >
           <span className="inline-flex items-center gap-1 shrink-0">
             <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />

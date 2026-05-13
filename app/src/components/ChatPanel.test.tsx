@@ -3022,6 +3022,55 @@ describe('ChatPanel', () => {
       // The banner must still be shown.
       expect(screen.getByTestId('agent-running-banner')).toBeTruthy()
     })
+
+    // →1291: the banner sat flush against the content above it with no
+    // top margin, so the last message bubble (or the empty-state title)
+    // visually ran into the banner. The fix is `mt-2` on the banner so
+    // it always has breathing room above. This structural assertion
+    // guards against a future refactor accidentally dropping that gap.
+    it('reserves top spacing above the banner so it does not overlap content above (→1291)', async () => {
+      const apiMod = await import('../lib/api')
+      const getMock = apiMod.api.get as unknown as ReturnType<typeof vi.fn>
+
+      getMock.mockImplementation((path: string) => {
+        if (path === '/chat/history') {
+          return Promise.resolve({ tabs: [], active_tab_id: '' })
+        }
+        if (path.startsWith('/agents/')) {
+          return Promise.resolve({
+            exists: true,
+            terminal: false,
+            status: 'running',
+            feedback: null,
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'saa spacing test' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'tool_use',
+        data: {
+          tool: 'spawn_agent',
+          id: 'tc-spacing-1',
+          input: { name: 'spacing-agent', prompt: 'go' },
+        },
+      }
+      rerender(<ChatPanel />)
+
+      const banner = await screen.findByTestId('agent-running-banner')
+      // The banner must have an explicit top-margin class so it does not
+      // sit flush against whatever is above it in the flex column. Any
+      // mt-N where N >= 2 (>= 8px) is acceptable visual breathing room.
+      const classes = banner.className.split(/\s+/)
+      const hasTopMargin = classes.some(c => /^mt-(?:[2-9]|1[0-2])$/.test(c))
+      expect(hasTopMargin).toBe(true)
+    })
   })
 
   describe('single-tab streaming', () => {
