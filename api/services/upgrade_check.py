@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
+import signal
 import subprocess
 import tempfile
 from datetime import datetime, timezone, timedelta
@@ -230,6 +232,44 @@ def _upgrade_myos() -> str:
         return f"Error updating myOS: {e}"
 
 
+def _read_anchor_pid(project_root: Path) -> dict | None:
+    """Read the ostk daemon anchor.pid file. Returns None if absent or unreadable."""
+    anchor_path = project_root / ".ostk" / "anchor.pid"
+    try:
+        return json.loads(anchor_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _restart_stale_daemon(new_version: str) -> None:
+    """Terminate the running ostk daemon if it predates new_version.
+
+    The daemon runs from a cached binary (~/.cache/ostk/daemon-<version>).
+    After a binary upgrade, the cached binary is not automatically replaced;
+    only the anchor.pid file records which version the daemon was started with.
+    When the running daemon's ostk_version differs from new_version the boot
+    splash and ``ostk --version`` disagree. Sending SIGTERM forces the daemon
+    to stop so the next ``ostk boot`` starts a fresh process from the new
+    binary's embedded daemon.
+    """
+    anchor = _read_anchor_pid(PROJECT_ROOT)
+    if anchor is None:
+        return
+
+    daemon_version = anchor.get("ostk_version", "")
+    if daemon_version == new_version:
+        return
+
+    pid = anchor.get("pid")
+    if not pid:
+        return
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass  # Already stopped or not ours to kill
+
+
 async def _upgrade_ostk() -> str:
     """Download and install the latest ostk binary from GitHub releases."""
     import platform as _platform
@@ -298,6 +338,8 @@ async def _upgrade_ostk() -> str:
                     binary.chmod(0o755)
                     binary.replace(dest)
 
+        # Restart any stale daemon so the boot splash and --version agree.
+        _restart_stale_daemon(version)
         return f"ostk updated to {version} successfully."
     except (httpx.HTTPError, OSError, subprocess.TimeoutExpired) as e:
         return f"Error updating ostk: {e}"

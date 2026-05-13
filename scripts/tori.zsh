@@ -82,6 +82,21 @@ tori() {
       # rejection). Surface it instead of letting the splash lie.
       if [[ "$ostk_current" != "$ostk_latest" ]]; then
         printf '\033[38;2;255;80;80m  ✗ ostk upgrade did not take: still %s, wanted %s\033[0m\n' "$ostk_current" "$ostk_latest"
+      else
+        # Restart a stale daemon so the boot splash and --version agree.
+        # The daemon runs from ~/.cache/ostk/daemon-<old-version> and does not
+        # automatically pick up the new binary. Read the PID from anchor.pid;
+        # if the recorded ostk_version differs from what we just installed,
+        # send SIGTERM so the next `ostk boot` starts a fresh daemon.
+        local _anchor="$HOME/claude/torios/.ostk/anchor.pid"
+        if [[ -f "$_anchor" ]]; then
+          local _daemon_ver _daemon_pid
+          _daemon_ver=$(python3 -c "import json,sys; d=json.load(open('$_anchor')); print(d.get('ostk_version',''))" 2>/dev/null)
+          _daemon_pid=$(python3 -c "import json,sys; d=json.load(open('$_anchor')); print(d.get('pid',''))" 2>/dev/null)
+          if [[ -n "$_daemon_pid" && "$_daemon_ver" != "$ostk_current" ]]; then
+            kill -TERM "$_daemon_pid" 2>/dev/null || true
+          fi
+        fi
       fi
     fi
     echo "$ostk_current" > "$_ostk_tmp"
