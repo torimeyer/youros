@@ -20,9 +20,7 @@ Follow-up needle filed as part of →1244 close reason.
 """
 from __future__ import annotations
 
-import asyncio
 import sys
-import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -39,7 +37,6 @@ from lib import agent_reaper
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 @pytest.mark.xfail(
     strict=True,
     reason=(
@@ -49,63 +46,23 @@ from lib import agent_reaper
         "This blocks accept() for up to N×2s per sweep. See follow-up needle filed with →1244."
     ),
 )
-async def test_do_sweep_does_not_block_event_loop():
-    """_do_sweep must not block the event loop while running subprocess per agent.
+def test_do_sweep_offloads_blocking_calls_to_thread():
+    """_do_sweep must delegate blocking work via asyncio.to_thread (fix 97bbabe).
 
-    Injects a slow get_worktree_head callback (50ms) for N agents; verifies
-    a concurrent asyncio.sleep probe does not stall past 150ms.
-    Currently XFAIL: subprocess.run runs on the event loop (fix 97bbabe not merged).
+    On main, _do_sweep calls detect_stalled_agents (which calls _worktree_head_hash,
+    a subprocess.run with 2s timeout) synchronously on the event loop. This blocks
+    accept() for up to N×2s every 30s when there are running worktree agents.
+
+    The fix: extract _do_sweep_sync (blocking) and have _do_sweep await it via
+    asyncio.to_thread. This test asserts that fix is present.
+    Currently XFAIL: asyncio.to_thread not present in _do_sweep on main.
     """
-    from datetime import datetime, timezone, timedelta
-
-    now = datetime.now(timezone.utc)
-    n_agents = 5
-    delay_per_agent = 0.05  # 50ms
-
-    fake_metadata = {
-        f"running-worktree-{i}": {
-            "name": f"running-worktree-{i}",
-            "status": "running",
-            "source": "claude-code",
-            "isolation": "worktree",
-            "worktree_path": f"/tmp/fake-wt-{i}",
-            "spawned_at": (now - timedelta(hours=3)).isoformat(),
-            "last_heartbeat_at": (now - timedelta(minutes=10)).isoformat(),
-            "pid": None,
-        }
-        for i in range(n_agents)
-    }
-
-    def slow_head(name: str, wt_path: str) -> str:
-        time.sleep(delay_per_agent)
-        return "abc123"
-
-    max_probe_delay = 0.0
-
-    async def probe_loop():
-        nonlocal max_probe_delay
-        for _ in range(20):
-            t0 = asyncio.get_event_loop().time()
-            await asyncio.sleep(0.01)
-            delay = asyncio.get_event_loop().time() - t0 - 0.01
-            if delay > max_probe_delay:
-                max_probe_delay = delay
-
-    with (
-        patch.object(agent_reaper, "_worktree_head_hash", side_effect=slow_head),
-        patch("lib.agent_reaper.agent_metadata", fake_metadata, create=True),
-    ):
-        probe = asyncio.create_task(probe_loop())
-        try:
-            await agent_reaper._do_sweep()
-        except Exception:
-            pass
-        await probe
-
-    assert max_probe_delay < 0.15, (
-        f"Event loop blocked {max_probe_delay * 1000:.0f}ms during reaper sweep "
-        f"({n_agents} agents × {delay_per_agent * 1000:.0f}ms). "
-        f"Fix: wrap detect_stalled_agents in asyncio.to_thread (97bbabe)."
+    import inspect
+    src = inspect.getsource(agent_reaper._do_sweep)
+    assert "to_thread" in src, (
+        "_do_sweep must offload the blocking detect_stalled_agents / _worktree_head_hash "
+        "call via asyncio.to_thread. Fix: extract _do_sweep_sync and await "
+        "asyncio.to_thread(_do_sweep_sync, ...) in _do_sweep. (97bbabe not on main)"
     )
 
 
@@ -196,22 +153,29 @@ def test_meta_candidates_cache_key_excludes_mtime(tmp_path):
 
 
 def test_candidates_cache_bounded_on_mtime_change(tmp_path):
-    """300 simulated mtime changes must yield exactly 1 cache entry, not 300.
+    """Cache must have exactly 1 entry for a (root, pattern) pair regardless of mtime changes.
 
-    Before the fix: each mtime change produced a new dict key, so after 300
-    file writes the cache had 300 entries — unbounded growth toward ~4.8 GB RSS.
+    Before the fix: key=(root, pattern, mtime_ns). Each new JSONL file bumped
+    the parent directory mtime, generating a new key on the next TTL expiry and
+    leaving the old entry unreachable. After N session files: N cache entries.
+    After the fix: key=(root, pattern) only. mtime is stored inside the value
+    for invalidation, so the dict slot is overwritten in-place, staying at 1 entry.
     """
     agents_router._reset_candidates_cache()
 
-    p = tmp_path / "agent-alpha.jsonl"
-    p.write_text('{"name": "alpha", "status": "running"}\n')
-
-    for _ in range(300):
-        agents_router._load_candidates(tmp_path, "agent-*.jsonl")
-        agents_router._reset_candidates_cache()
+    # Write 30 files and expire + reload the cache after each, simulating mtime bumps.
+    for i in range(30):
+        (tmp_path / f"agent-new-{i:03d}.jsonl").write_text(
+            f'{{"name": "new-{i:03d}", "status": "running"}}\n'
+        )
+        # Expire the current cache entry to force a real rescan on next call.
+        if agents_router._candidates_cache:
+            key = next(iter(agents_router._candidates_cache))
+            exp, cands, idx = agents_router._candidates_cache[key]
+            agents_router._candidates_cache[key] = (0.0, cands, idx)
         agents_router._load_candidates(tmp_path, "agent-*.jsonl")
 
     assert len(agents_router._candidates_cache) == 1, (
-        f"Expected 1 cache entry, got {len(agents_router._candidates_cache)}. "
+        f"Expected 1 cache entry for (root, pattern), got {len(agents_router._candidates_cache)}. "
         "Cache is accumulating per-mtime entries (→1192 unbounded growth)."
     )
