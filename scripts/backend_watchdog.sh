@@ -26,6 +26,9 @@
 #   MYOS_WATCHDOG_RESTART_WAIT seconds to wait for the new backend to become
 #                              healthy after a restart before releasing the
 #                              restart lock (default 15; tests use 1)
+#   MYOS_WATCHDOG_PYSPY_TIMEOUT seconds to wait for py-spy to capture a stack
+#                              dump before proceeding to SIGKILL (default 5;
+#                              tests use a smaller value)
 #   MYOS_WATCHDOG_PIDFILE      path to the watchdog pidfile (default
 #                              /tmp/myos-backend-watchdog.pid; tests use a
 #                              temp path to avoid dedup-guard conflicts with
@@ -202,6 +205,48 @@ restart_backend() {
         fi
         _locked_pid=$(cat "$BACKEND_PIDFILE" 2>/dev/null || true)
         log "WARNING backend pid $_locked_pid alive but health probe failed ${consecutive_pid_alive_failures}x -- event loop likely deadlocked; sending SIGKILL"
+        # Capture a py-spy thread dump before killing so we can diagnose what
+        # was blocking the asyncio event loop.
+        _pyspy_out="/tmp/myos-deadlock-$(date +%s)-pid${_locked_pid}.txt"
+        _pyspy_timeout="${MYOS_WATCHDOG_PYSPY_TIMEOUT:-5}"
+        if command -v py-spy >/dev/null 2>&1; then
+            _pyspy_exit=0
+            if command -v timeout >/dev/null 2>&1; then
+                _pyspy_timeout_cmd="timeout"
+            elif command -v gtimeout >/dev/null 2>&1; then
+                _pyspy_timeout_cmd="gtimeout"
+            else
+                _pyspy_timeout_cmd=""
+            fi
+            if [ -n "$_pyspy_timeout_cmd" ]; then
+                "$_pyspy_timeout_cmd" "$_pyspy_timeout" py-spy dump --pid "$_locked_pid" > "$_pyspy_out" 2>&1 || _pyspy_exit=$?
+            else
+                py-spy dump --pid "$_locked_pid" > "$_pyspy_out" 2>&1 &
+                _pyspy_bg=$!
+                _pyspy_waited=0
+                while [ "$_pyspy_waited" -lt "$_pyspy_timeout" ] && kill -0 "$_pyspy_bg" 2>/dev/null; do
+                    sleep 1
+                    _pyspy_waited=$((_pyspy_waited + 1))
+                done
+                if kill -0 "$_pyspy_bg" 2>/dev/null; then
+                    kill "$_pyspy_bg" 2>/dev/null || true
+                    wait "$_pyspy_bg" 2>/dev/null || true
+                    _pyspy_exit=124
+                else
+                    wait "$_pyspy_bg" 2>/dev/null || true
+                    _pyspy_exit=$?
+                fi
+            fi
+            if [ "$_pyspy_exit" -eq 0 ]; then
+                log "INFO captured py-spy dump for pid $_locked_pid to $_pyspy_out"
+            elif grep -qi "permission\|insufficient" "$_pyspy_out" 2>/dev/null; then
+                log "INFO py-spy needs sudo on macOS; run: sudo py-spy dump --pid $_locked_pid"
+            else
+                log "WARNING py-spy dump failed for pid $_locked_pid (exit=$_pyspy_exit)"
+            fi
+        else
+            log "INFO py-spy not found on PATH; skipping stack dump before SIGKILL"
+        fi
         kill -9 "$_locked_pid" 2>/dev/null || true
         # Wait up to 5s for the process to actually die before spawning a replacement.
         _kw=0
