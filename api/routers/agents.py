@@ -4105,12 +4105,36 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             body.name, _loop_latency,
         )
 
-    # --- Opt-in ostk run path (Tier 2.2) ---
-    # Early-return BEFORE isolation/lock logic: `ostk run` has its own
-    # isolation model via the Agentfile's ISOLATION directive and does not
-    # need worktree management or lock registration. Default (False) falls
-    # through to the existing code below. Purely additive.
-    if getattr(body, "use_ostk_run", False):
+    # --- ostk run path: env-level canonical (MYOS_SPAWN_USE_OSTK_RUN=1, →1305) or per-request opt-in ---
+    # MYOS_SPAWN_USE_OSTK_RUN=1 makes `ostk run <Agentfile>` the default for every spawn.
+    # The bespoke claude-code subprocess path is the fallback when:
+    #   (a) flag is off and use_ostk_run=False (existing default — no behaviour change)
+    #   (b) flag is on but no agentfile resolves for this name  → silent fallback to bespoke
+    #   (c) flag is on but ostk run itself errors               → silent fallback to bespoke
+    # Explicit use_ostk_run=True (per-request) always routes here; errors raise HTTP 5xx.
+    #
+    # Pre-flight status (→1305): ostk run path skips the bespoke worktree dance,
+    # so three features established in the bespoke path are NOT yet preserved:
+    #   1. Worktree isolation (worktree creation loop ~line 4600): ostk run uses its
+    #      own ISOLATION directive; our .claude/worktrees/agent-* dance is bypassed.
+    #   2. Scaffold-commit watcher (_worktree_has_new_work, line 1314): relies on
+    #      worktree_path in agent_metadata, which is only set by the bespoke path.
+    #   3. OSTK_PROJECT_ROOT short-cwd trick (commit a5b64c7, →1148): short-cwd is
+    #      computed during worktree creation; ostk run inherits the server's cwd.
+    # These gaps are acceptable for read-only/research pilots (no file writes, no
+    # commits). Full adoption for code-edit agents requires extending run_agentfile
+    # or cherry-picking the isolation env-injection. See plan Tier 2.2.
+    _env_use_ostk_run = os.environ.get("MYOS_SPAWN_USE_OSTK_RUN", "").strip() in ("1", "true", "yes")
+    _req_use_ostk_run = getattr(body, "use_ostk_run", False)
+    _use_ostk_run = _req_use_ostk_run or _env_use_ostk_run
+    if _use_ostk_run:
+        # _ostk_fallback_ok: True when the env flag is the only reason we're here.
+        # In that case, "no agentfile" and ostk errors silently fall through to bespoke.
+        _ostk_fallback_ok = _env_use_ostk_run and not _req_use_ostk_run
+        _ostk_ran = False
+        _ostk_result = None
+        _ostk_dry_run = getattr(body, "dry_run", False)
+        _ostk_agentfile_path = None
         try:
             from services.agentfile_parser import (
                 _find_any_agentfile as _ostk_find_agentfile,
@@ -4122,36 +4146,53 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                 _ostk_stem = _ostk_aliases.get(body.template, body.template)
             _ostk_agentfile_path = _ostk_find_agentfile(_ostk_stem)
             if _ostk_agentfile_path is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"ostk run: no agentfile found for '{_ostk_stem}'. "
-                        f"Check that agents/{_ostk_stem}.agent exists."
-                    ),
+                if _ostk_fallback_ok:
+                    logger.info(
+                        "spawn.ostk_run.fallback name=%s reason=no_agentfile stem=%s",
+                        body.name, _ostk_stem,
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"ostk run: no agentfile found for '{_ostk_stem}'. "
+                            f"Check that agents/{_ostk_stem}.agent exists."
+                        ),
+                    )
+            else:
+                _ostk_result = await ostk.run_agentfile(
+                    str(_ostk_agentfile_path),
+                    env_passthrough=["ANTHROPIC_API_KEY", "MYOS_AGENT_NAME"],
+                    dry_run=_ostk_dry_run,
                 )
-            _ostk_dry_run = getattr(body, "dry_run", False)
-            _ostk_result = await ostk.run_agentfile(
-                str(_ostk_agentfile_path),
-                dry_run=_ostk_dry_run,
-            )
+                _ostk_ran = True
         except HTTPException:
             raise
         except Exception as _ostk_exc:
-            raise HTTPException(
-                status_code=500,
-                detail=f"ostk run failed: {_ostk_exc}",
+            if _ostk_fallback_ok:
+                logger.warning(
+                    "spawn.ostk_run.fallback name=%s reason=error error=%s",
+                    body.name, _ostk_exc,
+                )
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"ostk run failed: {_ostk_exc}",
+                )
+        if _ostk_ran:
+            logger.info(
+                "spawn.ostk_run name=%s agentfile=%s dry_run=%s exit_code=%s via_env=%s",
+                body.name, _ostk_agentfile_path, _ostk_dry_run,
+                _ostk_result.get("exit_code"), _env_use_ostk_run,
             )
-        logger.info(
-            "spawn.ostk_run name=%s agentfile=%s dry_run=%s exit_code=%s",
-            body.name, _ostk_agentfile_path, _ostk_dry_run,
-            _ostk_result.get("exit_code"),
-        )
-        return {
-            "result": f"Agent '{body.name}' spawned via ostk run",
-            "name": body.name,
-            "status": "dry_run" if _ostk_dry_run else "running",
-            "ostk_run": _ostk_result,
-        }
+            return {
+                "result": f"Agent '{body.name}' spawned via ostk run",
+                "name": body.name,
+                "status": "dry_run" if _ostk_dry_run else "running",
+                "ostk_run": _ostk_result,
+            }
+        # _ostk_ran is False: no agentfile found or ostk errored with fallback allowed.
+        # Fall through to the bespoke claude-code subprocess path below.
 
     # Decide isolation BEFORE any I/O so a later worktree fork can honor
     # the result. decide_isolation respects an explicit caller value and
