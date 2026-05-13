@@ -1129,6 +1129,7 @@ export function ChatPanel() {
       // tool result could arrive while Gemini's bubble is still
       // streaming tokens.
       let matchedToolName: string | undefined
+      let matchedToolInput: Record<string, unknown> | undefined
       setMessages(prev => {
         const updated = [...prev]
         const ownerIdx = updated.findIndex(
@@ -1140,6 +1141,7 @@ export function ChatPanel() {
           const calls = target.toolCalls.map(tc => {
             if (tc.id === data.id) {
               matchedToolName = tc.tool
+              matchedToolInput = tc.input as Record<string, unknown> | undefined
               return { ...tc, result: data.result }
             }
             return tc
@@ -1163,6 +1165,38 @@ export function ChatPanel() {
         data.result.startsWith('Created calendar event')
       ) {
         bumpCalendar()
+      }
+      // Phantom-agent fix (→1291): when a spawn_agent tool_result reports
+      // failure, drop the entry from trackedAgents so the "is running"
+      // banner clears instead of staying stuck forever.
+      //
+      // Why this is needed: the tool_use handler at line ~1058 adds the
+      // agent name to trackedAgents on intent. If the backend rejects
+      // the spawn (HTTP 409 lock conflict, name collision with a
+      // previously-completed agent, validation error, network error),
+      // the agent never registers, never appears in the running WS
+      // snapshot, and never produces a terminal event. The
+      // seenRunningRef cleanup gate then permanently protects the entry
+      // from removal because the agent was never observed running.
+      //
+      // The success path stays untouched: WS snapshot / terminal event
+      // removal is the canonical path for completed runs.
+      if (
+        matchedToolName === 'spawn_agent' &&
+        typeof data.result === 'string' &&
+        !data.result.startsWith("Agent '")
+      ) {
+        const spawnName =
+          typeof matchedToolInput?.name === 'string'
+            ? (matchedToolInput.name as string).trim()
+            : ''
+        if (spawnName) {
+          setTrackedAgents(prev => prev.filter(a => a.name !== spawnName))
+          // The agent never went running, so it must not stay in the
+          // "seen running" set. Clearing here means a later spawn of
+          // the same name re-enters the normal lifecycle cleanly.
+          seenRunningRef.current.delete(spawnName)
+        }
       }
     } else if (lastMessage.type === 'mcp_tool_result') {
       const data = lastMessage.data as unknown as { id: string; result: string; is_error: boolean }
