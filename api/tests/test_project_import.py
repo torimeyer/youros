@@ -1,6 +1,6 @@
 """Tests for project import endpoints (Linear, Jira)."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -185,3 +185,32 @@ class TestProjectImportService:
         from services.project_import import JIRA_PRIORITY_MAP
         assert JIRA_PRIORITY_MAP["highest"] == "P0"
         assert JIRA_PRIORITY_MAP["low"] == "P3"
+
+    @pytest.mark.asyncio
+    async def test_import_from_jira_uses_search_jql_post(self):
+        """Guard: import_from_jira must POST to /rest/api/3/search/jql with jql string and fields list."""
+        from services.project_import import import_from_jira
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json = MagicMock(return_value={"issues": [], "nextPageToken": None})
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(return_value=mock_resp)
+
+        with patch("services.project_import.httpx.AsyncClient", return_value=mock_client):
+            await import_from_jira(
+                domain="mycompany.atlassian.net",
+                email="user@example.com",
+                api_token="tok",
+                project_key="PROJ",
+            )
+
+        call_args = mock_client.post.call_args
+        url = call_args.args[0] if call_args.args else call_args.kwargs.get("url", "")
+        assert url.endswith("/rest/api/3/search/jql"), f"Expected POST to /rest/api/3/search/jql, got: {url}"
+        body = call_args.kwargs["json"]
+        assert isinstance(body.get("jql"), str), "body['jql'] must be a string"
+        assert isinstance(body.get("fields"), list), "body['fields'] must be a list, not a comma-separated string"
