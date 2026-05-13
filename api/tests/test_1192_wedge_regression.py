@@ -33,29 +33,18 @@ from lib import agent_reaper
 
 
 # ---------------------------------------------------------------------------
-# 1. Reaper sweep: event-loop blocking gap (xfail until fix lands)
+# 1. Reaper sweep: event-loop blocking gap (fixed by 48bd04d)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "→1192 fix 97bbabe (offload _do_sweep to asyncio.to_thread) not on main. "
-        "_do_sweep calls detect_stalled_agents with _worktree_head_hash "
-        "(subprocess.run, 2s timeout) synchronously on the event loop. "
-        "This blocks accept() for up to N×2s per sweep. See follow-up needle filed with →1244."
-    ),
-)
 def test_do_sweep_offloads_blocking_calls_to_thread():
-    """_do_sweep must delegate blocking work via asyncio.to_thread (fix 97bbabe).
+    """_do_sweep must delegate blocking work via asyncio.to_thread.
 
-    On main, _do_sweep calls detect_stalled_agents (which calls _worktree_head_hash,
-    a subprocess.run with 2s timeout) synchronously on the event loop. This blocks
-    accept() for up to N×2s every 30s when there are running worktree agents.
+    Pre-fix, _do_sweep called detect_stalled_agents (which calls _worktree_head_hash,
+    a subprocess.run with 2s timeout) synchronously on the event loop. This blocked
+    accept() for up to N×2s every 30s when there were running worktree agents.
 
-    The fix: extract _do_sweep_sync (blocking) and have _do_sweep await it via
-    asyncio.to_thread. This test asserts that fix is present.
-    Currently XFAIL: asyncio.to_thread not present in _do_sweep on main.
+    Fix: _do_sweep delegates to _do_sweep_sync via asyncio.to_thread.
     """
     import inspect
     src = inspect.getsource(agent_reaper._do_sweep)
