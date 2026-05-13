@@ -1,6 +1,7 @@
 {
   "permissions": {},
   "_comment_agent_register": "PreToolUse Agent register-agent.sh is wired globally in ~/.claude/settings.json so non-torios projects also register subagents. Do not re-add here or the hook will double-fire.",
+  "_comment_wave2": "Wave 2 of →1288: 22 hooks consolidated into 9. Old 22 hook files stay on disk (deleted in wave 3) but are no longer registered here.",
   "hooks": {
     "SessionStart": [
       {
@@ -24,89 +25,23 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/measure-before-edit.sh"
-          }
-        ]
-      },
-      {
         "matcher": "Agent",
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adhd-mode-monitor-enforcer.sh"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/pre-agent-guard.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/heartbeat-and-drain.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/task-isolation-bridge.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__ostk__needle",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/needle-hygiene.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__ostk__add",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/needle-hygiene.sh"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/heartbeat-agent.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/agent-completion-drain.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|Monitor|mcp__ostk__bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/bash-guards.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|Read|Edit|Write|Grep|Glob",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/ostk-first.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/saa-must-spawn.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Monitor",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adhd-mode-monitor-enforcer.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/monitor-misuse-guard.sh"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/pre-tool-guard.sh"
           }
         ]
       }
@@ -116,37 +51,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/standing-rules.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/scaffold-commit-alert.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/incremental-commit.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/keep-going-on-pending-tasks.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/permission-deny-detector.sh"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/prompt-header.sh"
           }
         ]
       }
     ],
     "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/edit-postwatch.sh"
-          }
-        ]
-      },
       {
         "matcher": "Agent",
         "hooks": [
@@ -156,20 +66,15 @@
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/auto-monitor-spawn.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/scaffold-commit-watcher.sh"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-agent-watch.sh"
           }
         ]
       },
       {
-        "matcher": "Bash|Read|Edit|Write|Grep|Glob",
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/bash-postwatch.sh"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-tool-watch.sh"
           }
         ]
       }

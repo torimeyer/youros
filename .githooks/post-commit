@@ -3,41 +3,53 @@
 # Idempotent: closing already-closed needles is silent ok.
 # Never blocks commits: always exits 0 even on errors.
 #
-# Auto-close ONLY fires for fix-shaped commit types: fix, feat, perf, refactor.
-# docs, test, chore, style, ci, build commits may reference needles (e.g.
-# "filed →NNN", "see →NNN") without triggering close — they are tracking
-# mentions, not resolutions.
+# Auto-close ONLY fires for fix-shaped commit types (configurable via rules.json).
+# Default: fix, feat, perf, refactor.
 
 set -u
+
+# Load subject_types_close from rules.json (with fallback to hardcoded defaults).
+_REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+_DEFAULTS="${_REPO_ROOT}/.claude/hooks/lib/default-rules.json"
+_USER_RULES="${HOME}/.myos/rules.json"
+SUBJECT_TYPES=$(python3 -c "
+import json, os, sys
+def load(p):
+    try:
+        with open(p) as f: return json.load(f)
+    except: return {}
+def deep_merge(a, b):
+    out = dict(a)
+    for k, v in b.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict): out[k] = deep_merge(out[k], v)
+        else: out[k] = v
+    return out
+try:
+    cfg = deep_merge(load('${_DEFAULTS}'), load(os.path.expanduser('${_USER_RULES}')))
+    types = cfg.get('rules',{}).get('post_commit_auto_close',{}).get('subject_types_close', ['fix','feat','perf','refactor'])
+    print('|'.join(str(t) for t in types))
+except Exception:
+    print('fix|feat|perf|refactor')
+" 2>/dev/null || echo "fix|feat|perf|refactor")
 
 # Get the latest commit message
 msg=$(git log -1 --pretty=%B 2>/dev/null || true)
 
 # Extract the subject line (first line) and check its Conventional Commit type.
-# Only fix/feat/perf/refactor subjects may auto-close needles.
 subject=$(echo "$msg" | head -1)
 commit_type=$(echo "$subject" | sed -n 's/^\([a-z][a-z]*\)[:(].*/\1/p' | tr '[:upper:]' '[:lower:]')
 
-case "$commit_type" in
-  fix|feat|perf|refactor) ;;  # allowed — proceed to close
-  *)
-    # docs/test/chore/style/ci/build/etc. — needle refs are mentions, not closes
+# Gate: only proceed for allowed commit types
+if ! echo "|${SUBJECT_TYPES}|" | grep -qF "|${commit_type}|"; then
     exit 0
-    ;;
-esac
+fi
 
 # Find all →NNN or →NNNN patterns (2-4 digits) in the SUBJECT LINE ONLY and close them.
-# Body lines may mention needles for context ("this addresses →NNN", "found in →NNN")
-# without those needles being resolutions — scanning only the subject prevents false closes.
 if [ -n "$subject" ]; then
   while IFS= read -r needle; do
     if [ -n "$needle" ]; then
-      # Run ostk work close, silently ignore if already closed or error
       if ostk work close "$needle" 2>/dev/null | grep -q "closed"; then
         echo "Auto-closed $needle"
-        # Sync the close to the myOS Tasks backend. The API uses bare
-        # numeric IDs in URLs (no → prefix) to avoid Unicode in paths.
-        # Look up the real task_id first, then close by that bare ID.
         _bare="${needle#→}"
         _task_json=$(curl -sk --connect-timeout 2 -m 4 \
           "https://127.0.0.1:8000/api/tasks/by-needle/${_bare}" 2>/dev/null || echo "")
