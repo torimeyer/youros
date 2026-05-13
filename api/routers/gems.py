@@ -13,11 +13,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from services.agent_templates_store import agent_templates_store
-from services.gem_knowledge import retrieve as _rag_retrieve, index_file as _rag_index_file
+from services.gem_knowledge import retrieve as _rag_retrieve, index_file as _rag_index_file, _extract_pdf_text
 from services import recent_deletes
 
 _UPLOAD_DIR = Path.home() / ".myos" / "gem_knowledge" / "uploads"
-_ALLOWED_SUFFIXES = {".txt", ".md"}
+_ALLOWED_SUFFIXES = {".txt", ".md", ".pdf", ".docx"}
 
 router = APIRouter(tags=["gems"])
 
@@ -155,6 +155,17 @@ async def upload_knowledge_file(file: UploadFile = File(...)):
     dest = _UPLOAD_DIR / safe_name
     content = await file.read()
     dest.write_bytes(content)
+    if suffix == ".pdf":
+        try:
+            extracted = _extract_pdf_text(dest)
+        except Exception:
+            extracted = ""
+        if not extracted.strip():
+            dest.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=422,
+                detail="This PDF has no readable text — it looks like a scanned image. Try a different file.",
+            )
     return {"filename": safe_name}
 
 
