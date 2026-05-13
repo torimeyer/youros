@@ -59,6 +59,24 @@ acquire_launcher_lock() {
         local holder
         holder=$(cat "$LAUNCHER_LOCK" 2>/dev/null || true)
         if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+            # If the lock PID matches PIDFILE, the previous launcher exec'd
+            # uvicorn without releasing the lock (intentional — prevents a
+            # concurrent launcher from racing in during the startup window
+            # before uvicorn has bound the port). Wait up to 10s for uvicorn
+            # to actually bind, then clear the stale launcher lock so
+            # kill-and-replace can proceed normally.
+            local _pidfile_pid
+            _pidfile_pid=$(cat "$PIDFILE" 2>/dev/null || true)
+            if [ -n "$_pidfile_pid" ] && [ "$holder" = "$_pidfile_pid" ]; then
+                for _bw in 1 2 3 4 5 6 7 8 9 10; do
+                    sleep 1
+                    if [ -n "$(lsof -tiTCP:$UVICORN_PORT -sTCP:LISTEN 2>/dev/null || true)" ]; then
+                        break
+                    fi
+                done
+                rm -f "$LAUNCHER_LOCK" 2>/dev/null || true
+                continue
+            fi
             if [ "$waited" -ge 15 ]; then
                 echo "Another dev-backend.sh launcher (pid $holder) is holding $LAUNCHER_LOCK after 15s. Exiting." >&2
                 return 1
@@ -302,13 +320,16 @@ fi
 # backend is actually alive before deciding to restart.
 echo $$ > "$PIDFILE"
 
-# Release the launcher lock now. The kill-and-wait phase is complete and
-# uvicorn is about to take over the socket. Leaving the lock held beyond
-# this point would block legitimate manual restarts (operator hits
-# Ctrl-C on a running uvicorn and re-runs dev-backend.sh to pick up a
-# code change). The PIDFILE remains the source of truth for "is the
-# backend alive"; the lock only serializes concurrent LAUNCHERS.
-release_launcher_lock
+# Keep LAUNCHER_LOCK held through exec. After exec, the shell PID becomes
+# the uvicorn PID — the same value written to PIDFILE. A concurrent
+# launcher that races in before uvicorn binds the port will see that
+# LAUNCHER_LOCK contains the PIDFILE PID, wait for the port to be bound
+# (up to 10s in acquire_launcher_lock), then clear the lock and proceed
+# with kill-and-replace. This closes the SO_REUSEPORT double-bind window
+# that existed when the lock was released before uvicorn finished binding.
+#
+# We still clear the EXIT trap so the shell cleanup does not fire if exec
+# fails and bash falls through to an unexpected exit path.
 trap - EXIT INT TERM
 
 if [ "${RELEASE_MODE:-0}" = "1" ]; then
