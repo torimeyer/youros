@@ -89,7 +89,7 @@ def _mcp_tool_call(proc: subprocess.Popen, call_id: int, name: str, args: dict) 
 
 
 @pytest.mark.integration
-@pytest.mark.skip(reason="→1268: ostk 6.0.5 binary uses stale cached register for [loadavg]; upstream fix needed before this test can run")
+@pytest.mark.skip(reason="→1269: ostk 6.0.5 binary uses stale cached register for [loadavg]; upstream fix needed before this test can run")
 def test_loadavg_line_present_and_nonzero():
     """[loadavg] must appear in MCP tool responses and show non-zero needle count.
 
@@ -98,7 +98,7 @@ def test_loadavg_line_present_and_nonzero():
     per-session cached register (always 0).
 
     →1264: ostk 6.0.5 still uses the cached register for [loadavg] despite [ctx]
-    reading live disk correctly. The binary fix is tracked upstream in →1268.
+    reading live disk correctly. The binary fix is tracked upstream in →1269.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         ostk_dir = Path(tmpdir) / ".ostk"
@@ -159,12 +159,12 @@ def test_loadavg_line_present_and_nonzero():
 
 
 @pytest.mark.integration
-@pytest.mark.skip(reason="→1268: ostk 6.0.5 binary uses stale cached register for [loadavg]; upstream fix needed before this test can run")
+@pytest.mark.skip(reason="→1269: ostk 6.0.5 binary uses stale cached register for [loadavg]; upstream fix needed before this test can run")
 def test_loadavg_fleet_nonzero():
     """[loadavg] fleet count must reflect alive agents from agents.jsonl.
 
     →1264: ostk 6.0.5 still uses the cached register for [loadavg], binary fix pending.
-    Upstream binary fix tracked in →1268.
+    Upstream binary fix tracked in →1269.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         ostk_dir = Path(tmpdir) / ".ostk"
