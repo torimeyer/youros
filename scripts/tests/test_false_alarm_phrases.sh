@@ -17,6 +17,8 @@ keywords=(
   "ground truth"
   "independent"
   "no-pager"
+  "current_step"
+  "two reads"
 )
 
 missing_count=0
