@@ -31,7 +31,9 @@ set -u
 LOCK_DIR="/tmp/myos-vitest.lock"
 LOG_FILE="/tmp/myos-vitest.log"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_DIR="${REPO_DIR}/app"
+# Allow callers running in a git worktree to override APP_DIR so vitest
+# picks up test files from the worktree rather than the main checkout.
+APP_DIR="${VITEST_APP_DIR:-${REPO_DIR}/app}"
 
 # Try to acquire the lock atomically. mkdir is atomic on macOS and Linux,
 # so this works without flock (flock is not on macOS by default).

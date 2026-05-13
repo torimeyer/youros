@@ -2043,6 +2043,63 @@ describe('ChatPanel', () => {
         })
       )
     })
+
+    it('streaming assistant response after a threaded reply renders inside the thread block, not in main chat', () => {
+      const messages = [
+        { id: 'root-1', role: 'user', content: 'Root message' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+
+      const { rerender } = render(<ChatPanel />)
+
+      // Click reply on the root user message
+      const replyBtn = screen.getByTestId('reply-btn-root-1')
+      fireEvent.click(replyBtn)
+
+      // Type and send a reply
+      const input = screen.getByPlaceholderText('Type your reply...')
+      fireEvent.change(input, { target: { value: 'My threaded reply' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Simulate a token arriving from the backend (streaming response)
+      mockLastMessage = { type: 'token', data: 'Thread response.' }
+      rerender(<ChatPanel />)
+
+      // The thread block for root-1 should exist
+      const threadBlock = screen.getByTestId('thread-block-root-1')
+      expect(threadBlock).toBeTruthy()
+
+      // The assistant's streaming text should be INSIDE the thread block
+      const assistantText = screen.getByText('Thread response.')
+      expect(threadBlock.contains(assistantText)).toBe(true)
+    })
+
+    it('streaming assistant response when replying to a thread child also stays in the thread block', () => {
+      const messages = [
+        { id: 'root-1', role: 'user', content: 'Root message' },
+        { id: 'child-1', role: 'assistant', content: 'First reply', model: 'claude', thread_id: 'root-1' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+
+      const { rerender } = render(<ChatPanel />)
+
+      // Click reply on the child (which is inside the thread)
+      const replyBtn = screen.getByTestId('reply-btn-child-1')
+      fireEvent.click(replyBtn)
+
+      const input = screen.getByPlaceholderText('Type your reply...')
+      fireEvent.change(input, { target: { value: 'Reply to child' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Simulate assistant streaming response
+      mockLastMessage = { type: 'token', data: 'Nested thread response.' }
+      rerender(<ChatPanel />)
+
+      // The thread block should contain the streaming response
+      const threadBlock = screen.getByTestId('thread-block-root-1')
+      const assistantText = screen.getByText('Nested thread response.')
+      expect(threadBlock.contains(assistantText)).toBe(true)
+    })
   })
 
   // ---------------------------------------------------------------------------
