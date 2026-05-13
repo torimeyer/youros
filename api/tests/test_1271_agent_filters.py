@@ -1,6 +1,6 @@
 """Tests for is_user_spawned_agent — daemon source exclusion (→1271)."""
 import pytest
-from api.services.agent_filters import is_user_spawned_agent
+from services.agent_filters import is_user_spawned_agent
 
 
 def _agent(**kwargs):
