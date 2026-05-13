@@ -255,13 +255,13 @@ async def list_assigned_issues() -> list[dict]:
         return cached  # type: ignore[return-value]
 
     jql = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
-    fields = "summary,status,priority,issuetype,updated,assignee,reporter"
+    fields = ["summary", "status", "priority", "issuetype", "updated", "assignee", "reporter"]
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"{base_url}/rest/api/3/search",
+            resp = await client.post(
+                f"{base_url}/rest/api/3/search/jql",
                 **auth_kwargs,
-                params={"jql": jql, "fields": fields, "maxResults": 50},
+                json={"jql": jql, "fields": fields, "maxResults": 50},
             )
             if resp.status_code == 401:
                 raise RuntimeError("Atlassian credentials expired. Please reconnect.")

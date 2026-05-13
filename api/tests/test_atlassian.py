@@ -643,3 +643,31 @@ class TestAtlassianServiceActions:
 
         sent_json = mock_client.put.call_args.kwargs["json"]
         assert sent_json == {"accountId": None}
+
+    @pytest.mark.asyncio
+    async def test_list_assigned_issues_uses_search_jql_post(self):
+        from services.atlassian import list_assigned_issues
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"issues": []}
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(return_value=mock_resp)
+
+        with patch("services.atlassian._get_auth_and_base", AsyncMock(
+            return_value=({"auth": MagicMock()}, "https://example.atlassian.net", "example.atlassian.net")
+        )):
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                with patch("services.atlassian._cache_get", return_value=None):
+                    with patch("services.atlassian._cache_set"):
+                        await list_assigned_issues()
+
+        call_args = mock_client.post.call_args
+        url = call_args.args[0] if call_args.args else call_args.kwargs.get("url", "")
+        assert url.endswith("/rest/api/3/search/jql"), f"Expected POST to /rest/api/3/search/jql, got: {url}"
+        body = call_args.kwargs["json"]
+        assert "jql" in body, "Body must contain 'jql'"
+        assert isinstance(body["fields"], list), "fields must be a list, not a comma-separated string"

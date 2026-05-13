@@ -194,21 +194,23 @@ async def import_from_jira(
         jql = f"project = {project_key} AND status != Done AND status != Closed AND status != Resolved ORDER BY updated DESC"
 
     try:
-        start_at = 0
         max_results = 100
-        total = None
+        next_page_token: str | None = None
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            while total is None or start_at < total:
-                resp = await client.get(
-                    f"{domain}/rest/api/3/search",
+            while True:
+                body: dict = {
+                    "jql": jql,
+                    "maxResults": max_results,
+                    "fields": ["summary", "description", "priority", "status", "labels", "assignee", "created", "updated"],
+                }
+                if next_page_token:
+                    body["nextPageToken"] = next_page_token
+
+                resp = await client.post(
+                    f"{domain}/rest/api/3/search/jql",
                     auth=(email, api_token),
-                    params={
-                        "jql": jql,
-                        "startAt": str(start_at),
-                        "maxResults": str(max_results),
-                        "fields": "summary,description,priority,status,labels,assignee,created,updated",
-                    },
+                    json=body,
                 )
 
                 if resp.status_code == 401:
@@ -222,7 +224,6 @@ async def import_from_jira(
                     break
 
                 data = resp.json()
-                total = data.get("total", 0)
                 issues = data.get("issues", [])
 
                 for issue in issues:
@@ -239,14 +240,11 @@ async def import_from_jira(
 
                     labels = fields.get("labels", []) or []
 
-                    # Jira description can be Atlassian Document Format (ADF)
-                    # or plain text. Extract text content from ADF if needed.
                     desc_raw = fields.get("description")
                     description = ""
                     if isinstance(desc_raw, str):
                         description = desc_raw
                     elif isinstance(desc_raw, dict):
-                        # ADF format: extract text from content nodes
                         description = _extract_adf_text(desc_raw)
 
                     issue_key = issue.get("key", "")
@@ -261,8 +259,8 @@ async def import_from_jira(
                         "source_url": f"{domain}/browse/{issue_key}",
                     })
 
-                start_at += len(issues)
-                if not issues:
+                next_page_token = data.get("nextPageToken")
+                if not issues or not next_page_token:
                     break
 
     except httpx.HTTPError as exc:
