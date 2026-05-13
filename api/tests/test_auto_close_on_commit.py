@@ -1,9 +1,12 @@
 """Tests for auto-close-needle-on-commit hook behavior (needle →1019).
 
-The .githooks/post-commit hook greps commit messages for →NN–→NNNN patterns
-and runs `ostk work close` for each match. Auto-close ONLY fires for
-fix-shaped commit types: fix, feat, perf, refactor. docs/test/chore/style/
-ci/build commits may reference needles without triggering close.
+The .githooks/post-commit hook greps the SUBJECT LINE for →NN–→NNNN patterns
+and runs `ostk work close` for each match. Two guards must BOTH pass:
+  1. Commit type (first line) must be fix/feat/perf/refactor.
+  2. Needle refs are extracted from the subject line ONLY — body mentions
+     ("see →NNN", "found in →NNN") are not resolutions and must be ignored.
+
+docs/test/chore/style/ci/build commits are always skipped entirely.
 """
 
 import re
@@ -22,6 +25,17 @@ def _extract_needle_refs(commit_message: str) -> list[str]:
     return re.findall(r'→\d{2,4}', commit_message)
 
 
+def _extract_subject_needle_refs(commit_message: str) -> list[str]:
+    """Extract →NN to →NNNN refs from the SUBJECT LINE ONLY.
+
+    Mirrors the updated hook logic: only the first line is scanned for
+    needle refs to close. Body lines may mention needles for context
+    without triggering closure.
+    """
+    subject = commit_message.splitlines()[0] if commit_message else ""
+    return re.findall(r'→\d{2,4}', subject)
+
+
 def _is_auto_close_subject(commit_message: str) -> bool:
     """Return True only when the commit type permits auto-close.
 
@@ -37,6 +51,17 @@ def _is_auto_close_subject(commit_message: str) -> bool:
     if not m:
         return False
     return m.group(1) in {"fix", "feat", "perf", "refactor"}
+
+
+def _needles_that_would_close(commit_message: str) -> list[str]:
+    """Return the needle refs that the hook would actually close.
+
+    Both guards must pass: fix-shaped type AND ref appears in subject line.
+    Body-only refs are never closed even for fix-type commits.
+    """
+    if not _is_auto_close_subject(commit_message):
+        return []
+    return _extract_subject_needle_refs(commit_message)
 
 
 def test_auto_close_no_arrow_4018():
@@ -149,19 +174,41 @@ def test_auto_close_combined_no_close_when_docs_type():
     # The regex finds refs — the old hook would have closed them
     assert "→1281" in refs, "regression: test must find →1281 in the docs commit"
     # But the type guard must block execution
-    assert not _is_auto_close_subject(msg), (
-        "docs commit must be blocked by type guard even when refs are present"
+    assert _needles_that_would_close(msg) == [], (
+        "docs commit must close nothing even when refs are present"
     )
 
 
-def test_auto_close_combined_closes_when_fix_type():
-    """End-to-end: fix commit with →NNN refs must be allowed to close.
+def test_auto_close_combined_closes_when_fix_type_and_subject_ref():
+    """End-to-end: fix commit with →NNN in the SUBJECT closes that needle.
 
-    Both conditions must be true: refs extracted AND subject allowed.
+    Both conditions must be true: fix-shaped type AND ref in subject line.
     """
-    msg = "fix(hook): commit auto-close only fires from fix/feat/perf/refactor subjects →1282"
-    refs = _extract_needle_refs(msg)
-    assert "→1282" in refs
-    assert _is_auto_close_subject(msg), (
-        "fix commit must be allowed to auto-close"
+    msg = "fix(hook): resolve auto-close false-positive →1282"
+    assert _needles_that_would_close(msg) == ["→1282"], (
+        "fix commit with subject ref must close that needle"
+    )
+
+
+def test_auto_close_body_mention_does_not_close():
+    """Body-only needle refs must not be closed even in a fix-type commit.
+
+    A fix commit that mentions a needle in the body for context/traceability
+    must not auto-close that needle. Only subject-line refs are resolutions.
+
+    Regression case: fix(hook): ... body mentions →1281 for context
+    previously closed →1281 because the hook scanned the full message.
+    """
+    msg = (
+        "fix(hook): commit auto-close only fires from fix/feat/perf/refactor subjects\n"
+        "\n"
+        "Previously the auto-close grep matched any →1281 token in the commit message,\n"
+        "so a docs commit mentioning a needle would close it. Refiled as →1282."
+    )
+    # Body contains refs but subject does not
+    assert _extract_subject_needle_refs(msg) == [], (
+        "subject line must contain no refs"
+    )
+    assert _needles_that_would_close(msg) == [], (
+        "fix commit with refs only in body must not close any needle"
     )

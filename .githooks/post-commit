@@ -26,9 +26,10 @@ case "$commit_type" in
     ;;
 esac
 
-# Find all →NNN or →NNNN patterns (2-4 digits) and close them
-if [ -n "$msg" ]; then
-  # Extract all needle references: →NN, →NNN, →NNNN (case-sensitive arrow, 2-4 digits)
+# Find all →NNN or →NNNN patterns (2-4 digits) in the SUBJECT LINE ONLY and close them.
+# Body lines may mention needles for context ("this addresses →NNN", "found in →NNN")
+# without those needles being resolutions — scanning only the subject prevents false closes.
+if [ -n "$subject" ]; then
   while IFS= read -r needle; do
     if [ -n "$needle" ]; then
       # Run ostk work close, silently ignore if already closed or error
@@ -51,7 +52,7 @@ if [ -n "$msg" ]; then
         fi
       fi
     fi
-  done < <(echo "$msg" | grep -oE '→[0-9]{2,4}' | sort -u)
+  done < <(echo "$subject" | grep -oE '→[0-9]{2,4}' | sort -u)
 fi
 
 exit 0
