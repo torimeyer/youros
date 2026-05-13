@@ -18,6 +18,9 @@ from services import recent_deletes
 from services import agent_chat_responder
 from services.tracing import trace_event
 from services.agent_events import bus as _agent_events_bus
+from services.grants_events import GrantsEventBus
+
+_grants_bus: GrantsEventBus = GrantsEventBus()
 
 logger = logging.getLogger(__name__)
 
@@ -8458,6 +8461,33 @@ async def get_template_description(template_id: str):
 # ── Grants / Permission Requests ────────────────────────────────────
 
 
+def _normalize_grants(raw_grants: list) -> list[dict]:
+    normalized: list[dict] = []
+    for g in raw_grants:
+        agent = g.get("agent_alias") or g.get("agent") or ""
+        if not agent or agent == "unknown":
+            continue
+        normalized.append({
+            "id": g.get("id", ""),
+            "agent": agent,
+            "type": g.get("request_type") or g.get("type") or "other",
+            "target": g.get("target", ""),
+            "status": g.get("status", "pending"),
+            "detail": g.get("reason") or g.get("detail") or "",
+            "requested_at": g.get("timestamp") or g.get("requested_at") or "",
+        })
+    return normalized
+
+
+async def _publish_grants_state() -> None:
+    try:
+        raw_grants = await ostk.list_grants("pending")
+        normalized = _normalize_grants(raw_grants)
+        await _grants_bus.publish("snapshot", {"grants": normalized})
+    except Exception:
+        logger.exception("_publish_grants_state failed")
+
+
 @router.get("/agents/grants")
 async def list_grants(status: str = "pending"):
     """List agent permission requests, filtered by status (default: pending).
@@ -8472,21 +8502,7 @@ async def list_grants(status: str = "pending"):
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    normalized: list[dict] = []
-    for g in raw_grants:
-        agent = g.get("agent_alias") or g.get("agent") or ""
-        # Skip stale "unknown" agent requests (usually orphaned secret lookups).
-        if not agent or agent == "unknown":
-            continue
-        normalized.append({
-            "id": g.get("id", ""),
-            "agent": agent,
-            "type": g.get("request_type") or g.get("type") or "other",
-            "target": g.get("target", ""),
-            "status": g.get("status", status),
-            "detail": g.get("reason") or g.get("detail") or "",
-            "requested_at": g.get("timestamp") or g.get("requested_at") or "",
-        })
+    normalized = _normalize_grants(raw_grants)
     return {"grants": normalized, "status_filter": status}
 
 
@@ -8497,6 +8513,7 @@ async def approve_grant(grant_id: str, body: Optional[GrantApprove] = None):
     scope = body.scope if body else None
     try:
         result = await ostk.approve_grant(grant_id, ttl=ttl, scope=scope)
+        asyncio.create_task(_publish_grants_state())
         return {"result": result, "grant_id": grant_id, "action": "approved"}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -8508,6 +8525,7 @@ async def deny_grant(grant_id: str, body: Optional[GrantDeny] = None):
     reason = body.reason if body else "not permitted"
     try:
         result = await ostk.deny_grant(grant_id, reason=reason)
+        asyncio.create_task(_publish_grants_state())
         return {"result": result, "grant_id": grant_id, "action": "denied"}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -8963,6 +8981,31 @@ def _compute_running_snapshot() -> dict:
                 "build_state": _meta.get("build_state"),
             })
     return {"running_count": len(running), "agents": running}
+
+
+@router.websocket("/ws/grants/state")
+async def grants_state_ws(websocket: WebSocket):
+    """Push grants state to clients in real time.
+
+    On connect: sends one snapshot frame with all pending grants.
+    Then subscribes to _grants_bus and forwards each event as a frame.
+    """
+    await websocket.accept()
+    try:
+        raw_grants = await ostk.list_grants("pending")
+        normalized = _normalize_grants(raw_grants)
+        await websocket.send_json({"type": "snapshot", "grants": normalized})
+        async with _grants_bus.subscribe() as q:
+            while True:
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=15.0)
+                    await websocket.send_json({"type": event.type, **event.payload})
+                except asyncio.TimeoutError:
+                    await websocket.send_json({"type": "ping"})
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
 
 
 async def _ws_keepalive(websocket: WebSocket) -> None:
