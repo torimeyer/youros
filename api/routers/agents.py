@@ -6718,9 +6718,17 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     # Persist final completion status. The sentinel "completing" was set
     # before the AC gate; now stamp the real terminal status and timestamp.
     completed_at = datetime.now(timezone.utc).isoformat()
+    _completion_summary = (body.summary or "").strip() if body else ""
     if name in agent_metadata:
         agent_metadata[name]["completed_at"] = completed_at
         agent_metadata[name]["status"] = "completed"
+        if _completion_summary:
+            agent_metadata[name]["summary"] = _completion_summary
+        # Generate actionable_doc for template-run agents so the Recent tab
+        # can surface a plain-language one-liner of what the run produced.
+        _tpl = str(agent_metadata[name].get("template") or "").strip()
+        if _tpl and _completion_summary:
+            agent_metadata[name]["actionable_doc"] = _completion_summary
     else:
         # Agent was deleted from metadata before /complete arrived (deleted
         # agents are blocked above, so this branch is an unlikely edge case
@@ -6878,6 +6886,21 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
         logger.warning("failed to stop ack bot for %s: %s", name, _ack_exc)
 
     return {"result": f"Agent '{name}' marked complete", "status": "completed"}
+
+
+@router.post("/agents/{name}/gem")
+async def save_agent_gem(name: str):
+    """Bookmark an agent run as a gem so the user can revisit its output.
+
+    Sets ``is_gem=True`` on the agent metadata row. The Files tab can
+    filter by this flag to surface bookmarked runs separately.
+    Best-effort: always returns 200 so UI button does not show errors.
+    """
+    name = _resolve_agent_name(name)
+    if name in agent_metadata:
+        agent_metadata[name]["is_gem"] = True
+        await _save_agent_state_async()
+    return {"result": "saved", "name": name}
 
 
 @router.post("/agents/{name}/heartbeat")

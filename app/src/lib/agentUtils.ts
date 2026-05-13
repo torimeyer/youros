@@ -79,6 +79,8 @@ export interface AgentInfo {
   template?: string;
   /** True when the spawning template had produces_doc=True. */
   template_produces_doc?: boolean;
+  /** Plain-language summary generated at completion for template-run agents. */
+  actionable_doc?: string;
 }
 
 /**
