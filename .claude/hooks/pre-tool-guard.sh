@@ -74,6 +74,8 @@ except Exception:
             rule_enabled ostk_first && _ostk_first_check "$TOOL" "$CMD"
             . "$LIB/rules/saa_must_spawn.sh"
             rule_enabled saa_must_spawn && _saa_must_spawn_check "$TOOL" "$CMD"
+            . "$LIB/rules/worktree_cwd_guard.sh"
+            rule_enabled worktree_cwd_guard && _worktree_cwd_guard_bash "$TOOL" "$INPUT"
         fi
         ;;
 
@@ -118,6 +120,12 @@ for line in reversed(lines):
                 _measure_before_edit_check "$TOOL" "${LAST_MSG:-}"
             fi
         fi
+        ;;
+
+    # --- mcp__ostk__fs_ops: worktree path guard ---
+    mcp__ostk__fs_ops)
+        . "$LIB/rules/worktree_cwd_guard.sh"
+        rule_enabled worktree_cwd_guard && _worktree_cwd_guard_fs_ops "$TOOL" "$INPUT"
         ;;
 
     # --- mcp__ostk__needle* / mcp__ostk__add* ---

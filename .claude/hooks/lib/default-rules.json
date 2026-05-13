@@ -343,6 +343,16 @@
       }
     },
 
+    "worktree_cwd_guard": {
+      "enabled": true,
+      "_meta": {
+        "title": "Block cwd-leaks in git-worktree subagents (→1311)",
+        "description": "When CLAUDE_PROJECT_DIR points to a .claude/worktrees/agent-* path, blocks two leak paths: (1) mcp__ostk__bash git write ops (commit/add/push/stash) without cwd= or with cwd= pointing to the parent repo; (2) mcp__ostk__fs_ops with an absolute path under the parent repo root instead of the worktree. Both patterns cause writes/commits to land on main instead of the agent's isolated branch.",
+        "category": "tool_guards",
+        "params": {}
+      }
+    },
+
     "permission_deny_detector": {
       "enabled": false,
       "lookback_seconds": 60,
