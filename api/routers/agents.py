@@ -6738,6 +6738,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             )
 
     _set_agent_status(name, "completed")
+    await _save_agent_state_async()
 
     # Auto-close the spec builder task if this agent was spawned from a
     # Build it click. The spec_build prompt tells the agent to edit
