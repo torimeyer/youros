@@ -63,14 +63,15 @@ except Exception:
     return 0
   fi
 
+  # Block only when cwd= is ABSENT. When an agent explicitly passes cwd=
+  # (even to the parent repo), treat it as intentional — blocking would
+  # prevent legitimate parent-repo commits (e.g. committing hook files
+  # from a worktree agent). The incidents (→1304, →1310) were always
+  # MISSING cwd=, never an explicit wrong one.
   if [ -z "$cwd_val" ]; then
     log_rule_fire "worktree_cwd_guard" "$tool" "block" \
       "git-write bash without cwd= in worktree agent"
     deny "git operation without cwd= in a worktree agent: the ostk daemon runs git from the main checkout. Add cwd=\"${wt_path}\" so the commit lands on your branch, not main. (→1311)"
-  elif [[ "$cwd_val" == "$parent_repo" || "$cwd_val" == "${parent_repo}/" ]]; then
-    log_rule_fire "worktree_cwd_guard" "$tool" "block" \
-      "git-write bash cwd= is parent repo not worktree"
-    deny "git operation with cwd= pointing to the parent repo (${parent_repo}). Use cwd=\"${wt_path}\" to keep the commit on your branch. (→1311)"
   fi
 }
 
