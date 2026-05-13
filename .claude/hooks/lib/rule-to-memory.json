@@ -1,0 +1,70 @@
+{
+  "adhd_monitor_pairing": [
+    "feedback_adhd_mode_auto_arm_monitor.md",
+    "feedback_monitor_for_60s_checkins.md"
+  ],
+  "bash_guards": [
+    "feedback_curl_http_code_pattern.md",
+    "feedback_ostk_bash_raw_for_tests.md",
+    "feedback_spawn_interact_for_long_commands.md",
+    "feedback_no_grep_word.md",
+    "feedback_monitor_zsh_status_collision.md"
+  ],
+  "ghost_reaper_live_pid_check": [
+    "feedback_ghost_reaper_live_pid_check.md"
+  ],
+  "incremental_commit_warning": [
+    "feedback_no_parallel_commits_without_worktrees.md",
+    "feedback_spawn_burst_commit_contamination.md"
+  ],
+  "isolation_bridge": [
+    "feedback_bridge_locks_contract.md",
+    "feedback_bridge_spawn_409_is_lock_conflict.md",
+    "feedback_subagent_cwd_must_be_worktree.md",
+    "feedback_subagent_worktree_misses_uncommitted_main.md"
+  ],
+  "keep_going_pending_tasks": [
+    "feedback_pending_task_hook_not_autonomous.md",
+    "feedback_dont_stall_waiting_for_subagents.md",
+    "feedback_dont_defer_when_time_available.md"
+  ],
+  "needle_hygiene": [
+    "feedback_needles_are_backlog_not_cleanup.md",
+    "feedback_every_commit_needs_a_needle.md"
+  ],
+  "ostk_first": [
+    "feedback_ostk_over_bash.md",
+    "feedback_ostk_rules.md",
+    "feedback_always_announce_native_fallback.md"
+  ],
+  "post_commit_auto_close": [
+    "feedback_scaffold_commits_dont_close_needles.md",
+    "feedback_check_git_log_before_destructive_ops.md",
+    "feedback_every_commit_needs_a_needle.md"
+  ],
+  "saa_must_spawn": [
+    "feedback_saa_rules.md",
+    "feedback_plan_is_part_of_saa.md",
+    "feedback_subagent_prompt_template.md",
+    "feedback_saa_fixes_preexisting_failures.md",
+    "feedback_subagent_brief_pin_to_single_needle.md"
+  ],
+  "scaffold_commit_alert": [
+    "feedback_scaffold_commits_dont_close_needles.md"
+  ],
+  "standing_rules_blocks.receipts_check": [
+    "feedback_receipts_for_every_done_claim.md"
+  ],
+  "standing_rules_blocks.stall_death_check": [
+    "feedback_never_declare_agent_dead_without_full_probe.md",
+    "feedback_false_alarm_meta_pattern.md",
+    "feedback_check_git_log_before_respawn.md"
+  ],
+  "standing_rules_blocks.zero_byte_transcript_check": [
+    "feedback_zero_byte_transcript_diagnose_order.md",
+    "feedback_quota_silent_fail.md"
+  ],
+  "task_state_hygiene": [
+    "feedback_task_states.md"
+  ]
+}
