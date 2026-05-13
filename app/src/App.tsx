@@ -18,6 +18,7 @@ import DocsRedirect from './pages/DocsRedirect'
 import Calendar from './pages/Calendar'
 import Gmail from './pages/Gmail'
 import IMessage from './pages/IMessage'
+import Contacts from './pages/Contacts'
 import Slack from './pages/Slack'
 import GitHub from './pages/GitHub'
 import Jira from './pages/Jira'
@@ -168,6 +169,7 @@ export default function App() {
           <Route path="calendar" element={<Calendar />} />
           <Route path="gmail" element={<Gmail />} />
           <Route path="imessage" element={<IMessage />} />
+          <Route path="contacts" element={<Contacts />} />
           <Route path="slack" element={<Slack />} />
           <Route path="github" element={<GitHub />} />
           <Route path="jira" element={<Jira />} />
