@@ -83,13 +83,16 @@ class TestWorktreeBashGuard:
         )
         assert result.returncode == 2
 
-    def test_git_commit_with_parent_repo_cwd_is_blocked(self):
+    def test_git_commit_with_parent_repo_cwd_is_allowed(self):
+        # Explicit cwd= (even to the parent repo) is treated as intentional.
+        # The incident pattern (→1304, →1310) is always MISSING cwd=, not a
+        # wrong one — blocking an explicit cwd would break legitimate parent-repo
+        # commits (e.g. committing hook files from a worktree agent).
         result = _run_hook(
             "mcp__ostk__bash",
-            {"cmd": "git commit -m 'fix: landed on main'", "cwd": FAKE_PARENT},
+            {"cmd": "git commit -m 'fix: intentional parent commit'", "cwd": FAKE_PARENT},
         )
-        assert result.returncode == 2
-        assert "parent" in result.stderr.lower() or "worktree" in result.stderr.lower()
+        assert result.returncode == 0
 
     def test_git_commit_with_correct_worktree_cwd_is_allowed(self):
         result = _run_hook(
