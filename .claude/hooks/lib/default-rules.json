@@ -1,0 +1,363 @@
+{
+  "schema_version": 1,
+  "rules": {
+    "saa_must_spawn": {
+      "enabled": false,
+      "trigger_words": ["saa", "diagnose", "fix"],
+      "allowed_followup_tools": ["Agent", "Task"],
+      "ancillary_cmd_prefixes": [
+        "scripts/dev-",
+        "scripts/run-vitest.sh",
+        "scripts/e2e_smoke.sh",
+        "ostk work "
+      ],
+      "_meta": {
+        "title": "Always spawn agents for fix/diagnose/saa",
+        "description": "When a message starts with saa, diagnose, or fix, block inline edits and require an Agent spawn instead. No inline work, even for small items.",
+        "category": "agent_flow",
+        "params": {
+          "trigger_words": {
+            "type": "list[str]",
+            "label": "Trigger words",
+            "help": "Message prefixes that must be followed by an Agent call, not inline tools."
+          },
+          "allowed_followup_tools": {
+            "type": "list[str]",
+            "label": "Allowed tools after trigger",
+            "help": "Tool names that are always allowed even after a trigger word (e.g. Agent, Task)."
+          },
+          "ancillary_cmd_prefixes": {
+            "type": "list[str]",
+            "label": "Ancillary command prefixes (always allowed)",
+            "help": "Bash command prefixes that are never blocked regardless of trigger word (e.g. scripts/dev-)."
+          }
+        }
+      }
+    },
+
+    "adhd_monitor_pairing": {
+      "enabled": false,
+      "sentinel_ttl_seconds": 120,
+      "depth_probe_cadence_seconds": 60,
+      "_meta": {
+        "title": "Require Monitor paired with every Agent spawn",
+        "description": "When ADHD mode is active (~/.myos/.adhd_mode exists), every Agent spawn must be accompanied by a Monitor call in the same turn. Blocks Agent if no Monitor was armed within the sentinel window.",
+        "category": "agent_flow",
+        "params": {
+          "sentinel_ttl_seconds": {
+            "type": "int",
+            "label": "Monitor sentinel lifetime (seconds)",
+            "help": "How long after a Monitor call the pairing sentinel stays valid. Agent spawns within this window are allowed."
+          },
+          "depth_probe_cadence_seconds": {
+            "type": "int",
+            "label": "Depth-probe check-in interval (seconds)",
+            "help": "How often the Monitor should emit a status update for in-flight agents."
+          }
+        }
+      }
+    },
+
+    "bash_guards": {
+      "enabled": false,
+      "require_curl_timeout": true,
+      "stash_min_label_chars": 6,
+      "block_npm_dev": true,
+      "block_bare_vitest": true,
+      "block_auto_server_start": true,
+      "zsh_reserved_vars": [
+        "status", "pipestatus", "path", "cdpath", "fpath",
+        "manpath", "prompt", "psvar", "argv", "signals", "options"
+      ],
+      "_meta": {
+        "title": "Guard against common Bash foot-guns",
+        "description": "Blocks several easy mistakes in Bash calls: curl without a timeout, bare npm run dev, raw vitest, auto-starting servers, assigning to zsh read-only variables, and git stash without a descriptive label.",
+        "category": "tool_guards",
+        "params": {
+          "require_curl_timeout": {
+            "type": "bool",
+            "label": "Require --connect-timeout on curl",
+            "help": "Blocks curl commands that omit --connect-timeout, which can hang indefinitely."
+          },
+          "stash_min_label_chars": {
+            "type": "int",
+            "label": "Minimum git stash label length",
+            "help": "git stash push -m labels shorter than this are blocked as too vague."
+          },
+          "block_npm_dev": {
+            "type": "bool",
+            "label": "Block npm/pnpm/yarn run dev",
+            "help": "Redirects to scripts/dev-backend.sh and scripts/dev-frontend.sh, which manage the server lifecycle correctly."
+          },
+          "block_bare_vitest": {
+            "type": "bool",
+            "label": "Block bare vitest commands",
+            "help": "Redirects to scripts/run-vitest.sh to avoid orphan worker processes."
+          },
+          "block_auto_server_start": {
+            "type": "bool",
+            "label": "Block auto-starting dev servers",
+            "help": "Prevents scripts/dev-backend.sh and scripts/dev-frontend.sh from being called without MYOS_EXPLICIT_START=1."
+          },
+          "zsh_reserved_vars": {
+            "type": "list[str]",
+            "label": "Protected zsh variable names",
+            "help": "Assignments to these variable names are blocked because zsh declares them read-only at startup."
+          }
+        }
+      }
+    },
+
+    "incremental_commit_warning": {
+      "enabled": false,
+      "max_uncommitted_files": 5,
+      "_meta": {
+        "title": "Warn when too many uncommitted files pile up",
+        "description": "On each new message, checks how many files have uncommitted changes. If the count is at or above the threshold, surfaces a non-blocking reminder to commit before stacking more work.",
+        "category": "quality",
+        "params": {
+          "max_uncommitted_files": {
+            "type": "int",
+            "label": "Uncommitted file threshold",
+            "help": "Number of uncommitted files that triggers the reminder. Five is the default from the 2026-04-27 retro."
+          }
+        }
+      }
+    },
+
+    "post_commit_auto_close": {
+      "enabled": false,
+      "subject_types_close": ["fix", "feat", "perf", "refactor"],
+      "scan_subject_only": true,
+      "_meta": {
+        "title": "Auto-close tracked tasks when a commit references them",
+        "description": "After each git commit, scans the subject line for →NNN references. If the commit type is in the allowed list (fix, feat, perf, refactor), the matching task is closed automatically.",
+        "category": "infrastructure",
+        "params": {
+          "subject_types_close": {
+            "type": "list[str]",
+            "label": "Commit types that trigger auto-close",
+            "help": "Conventional commit prefixes (e.g. fix, feat) that count as resolutions. docs, test, chore do not auto-close."
+          },
+          "scan_subject_only": {
+            "type": "bool",
+            "label": "Scan subject line only (not body)",
+            "help": "When true, only →NNN references in the first commit line trigger a close. Body references are treated as mentions."
+          }
+        }
+      }
+    },
+
+    "ostk_first": {
+      "enabled": false,
+      "mode": "advisory",
+      "_meta": {
+        "title": "Prefer ostk tools over native Claude tools",
+        "description": "When the ostk kernel is running, redirects native Bash/Read/Edit/Write/Grep/Glob calls to their ostk equivalents. In advisory mode it prints a hint; in enforce mode it blocks.",
+        "category": "tool_guards",
+        "params": {
+          "mode": {
+            "type": "str",
+            "label": "Enforcement mode",
+            "help": "advisory = emit a hint and allow the native call through. enforce = block native calls and require the ostk equivalent."
+          }
+        }
+      }
+    },
+
+    "isolation_bridge": {
+      "enabled": false,
+      "edit_verbs": [
+        "edit", "write", "fix", "commit", "saa", "diagnose",
+        "build", "add", "refactor", "rename", "create", "delete",
+        "update", "modify", "replace", "remove"
+      ],
+      "_meta": {
+        "title": "Route Task spawns through the backend for real isolation",
+        "description": "Native Task/Agent calls that look like they will mutate the repo are intercepted and rerouted through /api/agents/spawn, which creates a proper git worktree. Read-only Task calls pass through unchanged.",
+        "category": "agent_flow",
+        "params": {
+          "edit_verbs": {
+            "type": "list[str]",
+            "label": "Verbs that signal a mutation task",
+            "help": "If the Task prompt contains any of these words (whole-word, case-insensitive), the call is treated as a mutation and rerouted."
+          }
+        }
+      }
+    },
+
+    "humanfile_render": {
+      "enabled": false,
+      "path": "~/.ostk/HUMANFILE",
+      "_meta": {
+        "title": "Re-inject HUMANFILE rules on every turn",
+        "description": "Reads a HUMANFILE and prepends a curated section of behavioral rules to every user turn, so rules stay active in the model's context throughout a long session.",
+        "category": "prompt_header",
+        "params": {
+          "path": {
+            "type": "str",
+            "label": "HUMANFILE path",
+            "help": "Absolute or ~ path to the HUMANFILE to read. Default is ~/.ostk/HUMANFILE."
+          }
+        }
+      }
+    },
+
+    "standing_rules_blocks": {
+      "enabled": false,
+      "receipts_check": false,
+      "stall_death_check": false,
+      "zero_byte_transcript_check": false,
+      "_meta": {
+        "title": "Standing rules blocks in every turn header",
+        "description": "Injects enforcement blocks into the system prompt on each turn. Each sub-flag controls one block independently: receipts (require evidence before claiming done), stall/death (require 3+ signals before declaring an agent dead), zero-byte transcript (require auth gate before diagnosing silent failures).",
+        "category": "prompt_header",
+        "params": {
+          "receipts_check": {
+            "type": "bool",
+            "label": "Receipts check block",
+            "help": "Requires a commit hash, command output, testid, or file quote for any done/fixed/landed claim."
+          },
+          "stall_death_check": {
+            "type": "bool",
+            "label": "Stall/death assertion check block",
+            "help": "Requires at least 3 of 5 signals (ps, git log, worktree status, transcript tail, /api/agents) before declaring an agent stalled or dead."
+          },
+          "zero_byte_transcript_check": {
+            "type": "bool",
+            "label": "Zero-byte transcript diagnosis block",
+            "help": "Requires showing auth status, completed_at/spawned_at, and a verbatim memory quote before citing a root cause for a 0-byte subagent transcript."
+          }
+        }
+      }
+    },
+
+    "needle_hygiene": {
+      "enabled": true,
+      "ban_words": ["misc", "stuff", "various", "wip", "todo"],
+      "single_word_blocklist": [
+        "sort", "fix", "update", "test", "todo", "done", "work",
+        "task", "thing", "stuff", "misc", "other", "temp", "wip"
+      ],
+      "garbage_prefixes": ["session in", "untitled", "fix it", "todo", "test"],
+      "min_title_length": 5,
+      "require_ac_for_priorities": ["P0", "P1"],
+      "_meta": {
+        "title": "Block garbage-titled tasks",
+        "description": "Blocks task creation when the title is too short, starts with a placeholder phrase, or is a single throwaway word. Also requires acceptance criteria for P0 and P1 tasks.",
+        "category": "quality",
+        "params": {
+          "ban_words": {
+            "type": "list[str]",
+            "label": "Banned words (anywhere in title)",
+            "help": "Task titles containing these words are blocked as too vague."
+          },
+          "single_word_blocklist": {
+            "type": "list[str]",
+            "label": "Blocked single-word titles",
+            "help": "If the entire title is one of these words, it is blocked as meaningless."
+          },
+          "garbage_prefixes": {
+            "type": "list[str]",
+            "label": "Blocked title prefixes",
+            "help": "Titles starting with any of these strings are blocked as auto-generated or placeholder names."
+          },
+          "min_title_length": {
+            "type": "int",
+            "label": "Minimum title length (characters)",
+            "help": "Titles shorter than this are blocked."
+          },
+          "require_ac_for_priorities": {
+            "type": "list[str]",
+            "label": "Priorities that require acceptance criteria",
+            "help": "Task priorities (e.g. P0, P1) that must include an ac field before the task can be created."
+          }
+        }
+      }
+    },
+
+    "ghost_reaper_live_pid_check": {
+      "enabled": true,
+      "_meta": {
+        "title": "Check process is actually dead before reaping it",
+        "description": "Prevents the ghost reaper from deleting agents that still have a live process. Uses os.kill(pid, 0) to check whether the process exists before acting on a stale heartbeat.",
+        "category": "infrastructure",
+        "params": {}
+      }
+    },
+
+    "task_state_hygiene": {
+      "enabled": false,
+      "_meta": {
+        "title": "Keep task states accurate",
+        "description": "Enforces that in_progress tasks are actually being worked on this turn, pending means waiting on the user, and completed means the deliverable is done and verified.",
+        "category": "quality",
+        "params": {}
+      }
+    },
+
+    "monitor_misuse_guard": {
+      "enabled": false,
+      "_meta": {
+        "title": "Block Monitor as a file-read substitute",
+        "description": "Monitor is for streaming events (tail -f, polling loops), not one-shot file reads. Blocks Monitor calls that use cat, head, tail without -f, or open/read heredocs.",
+        "category": "tool_guards",
+        "params": {}
+      }
+    },
+
+    "scaffold_commit_alert": {
+      "enabled": false,
+      "max_age_seconds": 1800,
+      "_meta": {
+        "title": "Surface scaffold-commit warnings from background watchers",
+        "description": "Background watchers write warnings to ~/.myos/subagents/scaffold-warnings.jsonl when they detect commits that are structural setup without real functionality. This rule injects those warnings into the next user turn.",
+        "category": "quality",
+        "params": {
+          "max_age_seconds": {
+            "type": "int",
+            "label": "Warning expiry (seconds)",
+            "help": "Warnings older than this are silently dropped. Default is 1800 (30 minutes)."
+          }
+        }
+      }
+    },
+
+    "keep_going_pending_tasks": {
+      "enabled": false,
+      "trigger_phrases": [
+        "keep going", "continue", "next", "what's next",
+        "what next", "whats next", "go"
+      ],
+      "_meta": {
+        "title": "Surface open tasks when asked to keep going",
+        "description": "When the user says keep going / continue / next and no agents are running, emits a directive listing open tasks to work on. Never fires on idle turns to avoid autonomous spawning.",
+        "category": "agent_flow",
+        "params": {
+          "trigger_phrases": {
+            "type": "list[str]",
+            "label": "Trigger phrases",
+            "help": "Message prefixes that activate the open-task listing. The check is case-insensitive and matches from the start of the message."
+          }
+        }
+      }
+    },
+
+    "permission_deny_detector": {
+      "enabled": false,
+      "lookback_seconds": 60,
+      "_meta": {
+        "title": "Distinguish hook denies from settings-level denies",
+        "description": "Claude Code shows the same message for both hook-based blocks and settings.json permission rules. This rule detects when the canned deny string appears in a recent tool result with no matching hook log entry, indicating a settings-level deny, and surfaces it clearly.",
+        "category": "tool_guards",
+        "params": {
+          "lookback_seconds": {
+            "type": "int",
+            "label": "Tool result lookback window (seconds)",
+            "help": "How far back to scan tool-result files for the canned deny string."
+          }
+        }
+      }
+    }
+  }
+}
