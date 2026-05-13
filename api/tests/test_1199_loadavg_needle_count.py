@@ -29,26 +29,35 @@ ISSUES_JSONL = OSTK_DIR / "needles" / "issues.jsonl"
 
 
 def _count_open_from_disk(issues_path: Path) -> int:
-    """Count strictly-open needles from issues.jsonl — matches the CLI definition.
+    """Count strictly-open needles using last-write-wins across rotated files.
 
-    `ostk work list --status open --count` counts only status=="open".
-    This is what [loadavg] should display (matching the CLI), so we use the
-    same filter here for the regression test comparison.
+    JSONL files are append-only logs: the last entry for each needle ID is
+    the authoritative status. The CLI (`ostk work list --status open --count`)
+    reads issues.jsonl.1 (older rotation) then issues.jsonl (current), so
+    current-file entries override older ones. We mirror that here.
     """
     if not issues_path.exists():
         return 0
-    count = 0
-    for line in issues_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if rec.get("status") == "open":
-            count += 1
-    return count
+
+    # Build ordered list of files: rotated first, current last (current wins)
+    rotated = issues_path.parent / (issues_path.name + ".1")
+    files = [f for f in [rotated, issues_path] if f.exists()]
+
+    state: dict = {}  # id -> last status seen
+    for fpath in files:
+        for line in fpath.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            nid = rec.get("id", "")
+            if nid:
+                state[nid] = rec.get("status", "")
+
+    return sum(1 for s in state.values() if s == "open")
 
 
 def _ostk_work_count() -> int:

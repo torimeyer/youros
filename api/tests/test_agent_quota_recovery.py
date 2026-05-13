@@ -187,18 +187,19 @@ async def test_list_agents_includes_budget_info(tmp_path):
     }
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        with patch("routers.agents.AGENT_STATE_PATH", state_path), \
-             patch("routers.agents.agent_metadata", meta), \
-             patch("routers.agents.active_agents", {}), \
-             patch("routers.agents.ostk") as mock_ostk:
-            mock_ostk.kernel_ps = AsyncMock(return_value={
-                "raw": "no daemon",
-                "daemon_running": False,
-                "agents": [],
-            })
-            mock_ostk.audit_agents = AsyncMock(return_value=[])
+    with patch("routers.agents.AGENT_STATE_PATH", state_path), \
+         patch("routers.agents.agent_metadata", meta), \
+         patch("routers.agents.active_agents", {}), \
+         patch("routers.agents._cached_snapshot", {}), \
+         patch("routers.agents.ostk") as mock_ostk:
+        mock_ostk.kernel_ps = AsyncMock(return_value={
+            "raw": "no daemon",
+            "daemon_running": False,
+            "agents": [],
+        })
+        mock_ostk.audit_agents = AsyncMock(return_value=[])
 
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/api/agents")
 
     assert resp.status_code == 200

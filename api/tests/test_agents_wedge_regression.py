@@ -205,6 +205,7 @@ async def test_cold_cache_no_thundering_herd(tmp_path):
         patch("routers.agents._load_deleted_agents", return_value=set()),
         patch("routers.agents._prune_stale_completed_agents", return_value=0),
         patch("routers.agents._run_enrich_pipeline", side_effect=controlled_enrich),
+        patch("routers.agents._enrich_async_lock", asyncio.Lock()),
     ):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(

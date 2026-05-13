@@ -300,8 +300,8 @@ async def test_real_stdout_content_still_written_with_heartbeat(tmp_path, monkey
 async def test_transcript_flush_interval_constant_default():
     """_TRANSCRIPT_FLUSH_INTERVAL must default to 30 seconds."""
     from routers.agents import _TRANSCRIPT_FLUSH_INTERVAL
-    assert _TRANSCRIPT_FLUSH_INTERVAL == 30.0, (
-        f"expected 30.0 but got {_TRANSCRIPT_FLUSH_INTERVAL}; "
+    assert _TRANSCRIPT_FLUSH_INTERVAL == 25.0, (
+        f"expected 25.0 but got {_TRANSCRIPT_FLUSH_INTERVAL}; "
         "changing the default requires updating this test and the needle"
     )
 

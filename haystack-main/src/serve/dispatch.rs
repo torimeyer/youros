@@ -309,6 +309,16 @@ impl McpDispatcher {
                     }
                 }
 
+                // →1199: [loadavg] line — live read from disk, replaces the per-session
+                // cached register that init_full.rs initialised to 0 and never refreshed.
+                // generate_loadavg_line() reads needles/issues.jsonl, agents.jsonl, nudges/
+                // on every tool call, so the counts always reflect the current state.
+                {
+                    let la = crate::commands::helpers::generate_loadavg_line(&self.state.ostk_dir);
+                    text.push('\n');
+                    text.push_str(&la);
+                }
+
                 // →928: One-shot context note. Fires once per session to tell the model
                 // that system_warning from clear_tool_uses is routine, not context death.
                 if !self.state.context_note_sent.swap(true, std::sync::atomic::Ordering::Relaxed) {

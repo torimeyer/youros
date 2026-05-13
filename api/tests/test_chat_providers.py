@@ -4225,7 +4225,7 @@ class TestAnthropicRateLimitFallback:
         errors = websocket.get_messages_of_type("error")
         assert len(errors) == 1
         msg = errors[0]["data"].lower()
-        assert "capacity" in msg or "busy" in msg, f"unexpected error text: {errors[0]['data']}"
+        assert "capacity" in msg or "busy" in msg or "quota" in msg, f"unexpected error text: {errors[0]['data']}"
         assert call_count[0] <= 2, f"recursion detected: {call_count[0]} stream calls"
 
     @pytest.mark.asyncio

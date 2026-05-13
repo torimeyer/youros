@@ -34,7 +34,8 @@ def _fire_delta(name: str, status: str) -> None:
     if status in _TERMINAL_STATUSES:
         meta = agent_metadata.get(name) or {}
         payload["terminal"] = True
-        payload["feedback"] = _plain_language_feedback(name, meta)
+        _plf = globals().get("_plain_language_feedback")
+        payload["feedback"] = _plf(name, meta) if _plf else ""
     try:
         asyncio.get_running_loop().create_task(
             _agent_events_bus.publish("delta", payload)
@@ -6710,6 +6711,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     completed_at = datetime.now(timezone.utc).isoformat()
     if name in agent_metadata:
         agent_metadata[name]["completed_at"] = completed_at
+        agent_metadata[name]["status"] = "completed"
     else:
         # Agent was deleted from metadata before /complete arrived (deleted
         # agents are blocked above, so this branch is an unlikely edge case
