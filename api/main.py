@@ -600,6 +600,10 @@ async def backfill_stuck_in_progress_tasks():
     Any tasks that have in_progress written directly in the DB (from before
     this rule, or from an agent that died without cleanup) are stuck and
     should be moved back to open so they appear in the queue again.
+
+    Scans both issues.jsonl and issues.jsonl.1. Tasks stuck in the rotated
+    file (issues.jsonl.1) are fixed by appending an open override entry to
+    issues.jsonl so the CLI's last-occurrence-wins read returns them as open.
     """
     import asyncio
 
@@ -612,22 +616,72 @@ async def backfill_stuck_in_progress_tasks():
             import json
 
             svc = _ostk_svc.OstkService()
-            issues_path = Path(svc.cwd) / ".ostk" / "needles" / "issues.jsonl"
+            needles_dir = Path(svc.cwd) / ".ostk" / "needles"
+            issues_path = needles_dir / "issues.jsonl"
             if not issues_path.exists():
                 return
 
             live_ids = get_running_task_ids()
+
+            # Collect task IDs present in issues.jsonl (the active file).
+            ids_in_active: set[str] = set()
+            for line in issues_path.read_text().strip().splitlines():
+                try:
+                    entry = json.loads(line)
+                    nid = str(entry.get("id", ""))
+                    if nid:
+                        ids_in_active.add(nid)
+                except json.JSONDecodeError:
+                    pass
+
+            # Reset stuck tasks in the active file via update_task_status.
             lines = issues_path.read_text().strip().splitlines()
-            stuck = [
+            stuck_in_active = [
                 json.loads(line) for line in lines
                 if json.loads(line).get("status") == "in_progress"
                 and str(json.loads(line).get("id", "")) not in live_ids
             ]
-            for task in stuck:
+            for task in stuck_in_active:
                 try:
                     await svc.update_task_status(str(task["id"]), "open")
                 except Exception:
                     pass
+
+            # Also scan the rotated file for tasks not present in the active
+            # file. A stuck in_progress entry there would be invisible to
+            # update_task_status (which only edits issues.jsonl). Fix by
+            # writing an open override to issues.jsonl so the CLI's
+            # last-occurrence-wins read across both files resolves to open.
+            rotated_path = needles_dir / "issues.jsonl.1"
+            if not rotated_path.exists():
+                return
+
+            # last-occurrence-wins across the rotated file
+            by_id: dict[str, dict] = {}
+            for line in rotated_path.read_text().strip().splitlines():
+                try:
+                    entry = json.loads(line)
+                    nid = str(entry.get("id", ""))
+                    if nid:
+                        by_id[nid] = entry
+                except json.JSONDecodeError:
+                    pass
+
+            for nid, entry in by_id.items():
+                if (
+                    entry.get("status") == "in_progress"
+                    and nid not in live_ids
+                    and nid not in ids_in_active
+                ):
+                    override = dict(entry)
+                    override["status"] = "open"
+                    override.pop("closed_at", None)
+                    override.pop("closed_reason", None)
+                    try:
+                        with open(issues_path, "a") as fh:
+                            fh.write(json.dumps(override, ensure_ascii=False) + "\n")
+                    except Exception:
+                        pass
         except Exception:
             pass
 
