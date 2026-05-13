@@ -8,6 +8,7 @@ import Tasks from './pages/Tasks'
 import Timeline from './pages/Timeline'
 import Agents from './pages/Agents'
 import Settings from './pages/Settings'
+import SettingsRules from './pages/SettingsRules'
 import Transcripts from './pages/Transcripts'
 import Activity from './pages/Activity'
 import CostTracking from './pages/CostTracking'
@@ -192,6 +193,7 @@ export default function App() {
           <Route path="team-setup" element={<TeamStart />} />
           <Route path="adoption" element={<Navigate to="/settings" replace />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="settings/rules" element={<SettingsRules />} />
           <Route path="settings/upgrade" element={<Upgrade />} />
           <Route path="privacy" element={<PrivacyPolicy />} />
           <Route path="about" element={<AboutMyOS />} />
