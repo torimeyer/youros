@@ -170,4 +170,44 @@ describe('GemChatPanel', () => {
 
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it('assistant message renders markdown: bold, italic, list items, no raw markers', async () => {
+    const mdText = '**bold** and *italic* and\n\n1. listed';
+    const frames = [
+      JSON.stringify({ type: 'token', data: mdText }),
+      JSON.stringify({ type: 'done' }),
+    ];
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(makeSseResponse(frames));
+
+    renderPanel();
+    fireEvent.change(screen.getByTestId('gem-chat-input'), { target: { value: 'hi' } });
+    fireEvent.click(screen.getByTestId('gem-chat-send'));
+
+    await waitFor(() => {
+      const bubble = screen.getByTestId('gem-chat-assistant-bubble-1');
+      expect(bubble.querySelector('strong')).toBeTruthy();
+      expect(bubble.querySelector('strong')?.textContent).toBe('bold');
+      expect(bubble.querySelector('em')).toBeTruthy();
+      expect(bubble.querySelector('em')?.textContent).toBe('italic');
+      expect(bubble.querySelector('li')).toBeTruthy();
+      expect(bubble.textContent).not.toContain('**');
+      expect(bubble.textContent).not.toContain('*italic*');
+    });
+  });
+
+  it('user message is plain text and does not render markdown tags', async () => {
+    const frames = [JSON.stringify({ type: 'done' })];
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(makeSseResponse(frames));
+
+    renderPanel();
+    const userMsg = '**not bold**';
+    fireEvent.change(screen.getByTestId('gem-chat-input'), { target: { value: userMsg } });
+    fireEvent.click(screen.getByTestId('gem-chat-send'));
+
+    await waitFor(() => {
+      const userBubble = screen.getByTestId('gem-chat-user-bubble-0');
+      expect(userBubble.querySelector('strong')).toBeNull();
+      expect(userBubble.textContent).toContain('**not bold**');
+    });
+  });
 });
