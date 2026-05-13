@@ -1,11 +1,53 @@
 import { useEffect } from 'react'
 import { useNotificationsStore } from '../stores/notificationsStore'
 
+const POLL_MS = 5000
+
 export function useNotificationsFeed() {
   useEffect(() => {
     let ws: WebSocket | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-    let pollTimer: ReturnType<typeof setInterval> | null = null
+    let pollTimer: ReturnType<typeof setTimeout> | null = null
+    let controller: AbortController | null = null
+    let cancelled = false
+    let backoff = 0
+
+    const stopPolling = () => {
+      if (pollTimer) {
+        clearTimeout(pollTimer)
+        pollTimer = null
+      }
+      if (controller) {
+        controller.abort()
+        controller = null
+      }
+    }
+
+    const tick = async () => {
+      if (cancelled) return
+      controller = new AbortController()
+      try {
+        const res = await fetch('/api/notifications', { signal: controller.signal })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        useNotificationsStore.setState({
+          notifications: Array.isArray(data) ? data : [],
+        })
+        backoff = 0
+      } catch (e: unknown) {
+        if (e instanceof Error && e.name === 'AbortError') return
+        console.error('Notifications poll error:', e)
+        backoff = backoff === 0 ? 1000 : Math.min(backoff * 2, 60_000)
+      }
+      if (!cancelled) {
+        pollTimer = setTimeout(tick, backoff || POLL_MS)
+      }
+    }
+
+    const startPolling = () => {
+      if (pollTimer || cancelled) return
+      tick()
+    }
 
     const connect = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -15,6 +57,7 @@ export function useNotificationsFeed() {
 
       ws.onopen = () => {
         useNotificationsStore.setState({ wsConnected: true })
+        stopPolling()
       }
 
       ws.onmessage = (event) => {
@@ -38,33 +81,17 @@ export function useNotificationsFeed() {
 
       ws.onclose = () => {
         useNotificationsStore.setState({ wsConnected: false })
-        // Fallback to polling
         startPolling()
-        // Try to reconnect after 5s
         reconnectTimer = setTimeout(connect, 5000)
       }
-    }
-
-    const startPolling = () => {
-      pollTimer = setInterval(async () => {
-        try {
-          const res = await fetch('/api/notifications')
-          if (!res.ok) return
-          const data = await res.json()
-          useNotificationsStore.setState({
-            notifications: Array.isArray(data) ? data : [],
-          })
-        } catch (e) {
-          console.error('Notifications poll error:', e)
-        }
-      }, 5000)
     }
 
     connect()
 
     return () => {
+      cancelled = true
       if (reconnectTimer) clearTimeout(reconnectTimer)
-      if (pollTimer) clearInterval(pollTimer)
+      stopPolling()
       if (ws) ws.close()
     }
   }, [])
