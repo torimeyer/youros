@@ -10,9 +10,10 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-import os
 from pathlib import Path
 from typing import Optional
+
+from services.ostk_secrets import get_gemini_key
 
 STORE_ROOT = Path.home() / ".myos" / "gem_knowledge"
 EMBED_MODEL = "text-embedding-004"
@@ -77,7 +78,7 @@ async def embed_chunks(chunks: list[str], api_key: Optional[str] = None) -> list
     if not chunks:
         return []
 
-    key = api_key or os.environ.get("GEMINI_API_KEY", "")
+    key = api_key or await get_gemini_key()
 
     def _run():
         from google import genai
