@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { api } from '../lib/api'
 
 export interface AdhdConfig {
   enabled: boolean
@@ -57,35 +56,38 @@ export function useAdhdMode() {
   const [checkIn, setCheckIn] = useState<CheckInData | null>(null)
   const [showWelcomeBack, setShowWelcomeBack] = useState(false)
   const [contextRebuild, setContextRebuild] = useState<ContextRebuild | null>(null)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pollAbortRef = useRef<AbortController | null>(null)
   const lastActivityRef = useRef(Date.now())
   const awayThresholdMs = 5 * 60 * 1000
 
   useEffect(() => {
-    api.get<AdhdConfig>('/adhd/config').then(setConfig).catch(() => {})
+    fetch('/api/adhd/config')
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((data: AdhdConfig) => setConfig(data))
+      .catch(() => {})
   }, [])
 
   const updateConfig = useCallback(async (patch: Partial<AdhdConfig>) => {
     try {
-      const updated = await api.patch<AdhdConfig>('/adhd/config', patch)
+      const res = await fetch('/api/adhd/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!res.ok) return
+      const updated = (await res.json()) as AdhdConfig
       setConfig(updated)
     } catch {
       // keep local state
     }
   }, [])
 
-  const fetchCheckIn = useCallback(async () => {
-    try {
-      const data = await api.get<CheckInData>('/adhd/check-in')
-      setCheckIn(data)
-    } catch {
-      // silent
-    }
-  }, [])
-
   const fetchContextRebuild = useCallback(async () => {
     try {
-      const data = await api.get<ContextRebuild>('/adhd/context-rebuild')
+      const res = await fetch('/api/adhd/context-rebuild')
+      if (!res.ok) return
+      const data = (await res.json()) as ContextRebuild
       setContextRebuild(data)
     } catch {
       // silent
@@ -94,23 +96,50 @@ export function useAdhdMode() {
 
   useEffect(() => {
     if (!config.enabled) {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-        intervalRef.current = null
+      if (pollRef.current !== null) {
+        clearTimeout(pollRef.current)
+        pollRef.current = null
+      }
+      if (pollAbortRef.current !== null) {
+        pollAbortRef.current.abort()
+        pollAbortRef.current = null
       }
       return
     }
 
-    fetchCheckIn()
-    intervalRef.current = setInterval(fetchCheckIn, config.check_in_seconds * 1000)
+    let backoff = 0
 
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-        intervalRef.current = null
+    const tick = async () => {
+      const controller = new AbortController()
+      pollAbortRef.current = controller
+      try {
+        const res = await fetch('/api/adhd/check-in', { signal: controller.signal })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = (await res.json()) as CheckInData
+        setCheckIn(data)
+        backoff = 0
+      } catch (e: unknown) {
+        if (controller.signal.aborted) return
+        backoff = backoff === 0 ? 1000 : Math.min(backoff * 2, 30_000)
+      }
+      if (!controller.signal.aborted) {
+        pollRef.current = setTimeout(tick, backoff || config.check_in_seconds * 1000)
       }
     }
-  }, [config.enabled, config.check_in_seconds, fetchCheckIn])
+
+    tick()
+
+    return () => {
+      if (pollRef.current !== null) {
+        clearTimeout(pollRef.current)
+        pollRef.current = null
+      }
+      if (pollAbortRef.current !== null) {
+        pollAbortRef.current.abort()
+        pollAbortRef.current = null
+      }
+    }
+  }, [config.enabled, config.check_in_seconds])
 
   useEffect(() => {
     if (!config.enabled) return

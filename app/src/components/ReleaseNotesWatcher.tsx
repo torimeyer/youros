@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from '../lib/api'
 import { onSpecsChange } from '../lib/sidebarBus'
 import Icon from './Icon'
 import { Button } from './ui'
@@ -128,88 +127,113 @@ export default function ReleaseNotesWatcher() {
   }, [onboarded])
 
   useEffect(() => {
-    let cancelled = false
+    let pollTimer: ReturnType<typeof setTimeout> | null = null
+    let pollController: AbortController | null = null
+    let backoff = 0
+    let active = true
 
-    const check = async () => {
-      try {
-        const data = await api.get<SpecsResponse>('/specs')
-        if (cancelled) return
-        const docs = data.docs || []
+    const processResult = (docs: Spec[]) => {
+      const prevByPath = lastStatusByPathRef.current
+      const nextByPath: Record<string, string> = {}
+      const firstPoll = !initializedRef.current
+      let toCelebrate: Spec | null = null
 
-        const prevByPath = lastStatusByPathRef.current
-        const nextByPath: Record<string, string> = {}
-        const firstPoll = !initializedRef.current
-        let toCelebrate: Spec | null = null
-
-        const nowMs = Date.now()
-        for (const d of docs) {
-          const status = d.status || ''
-          nextByPath[d.path] = status
-          const isComplete = COMPLETE_STATUSES.has(status)
-          if (!isComplete) continue
-          if (celebratedRef.current.has(d.path)) continue
-          if (firstPoll) {
-            // Mount can land AFTER the transition already happened
-            // (hard refresh right after Build-it lands, watcher
-            // remount, etc). Two sub-cases:
-            //   a) The spec completed seconds ago and the user has
-            //      not seen the modal yet. We must still celebrate.
-            //   b) The spec completed hours or days ago and is just
-            //      sitting on disk from a previous run. We must
-            //      stay silent so old specs do not re-celebrate on
-            //      every login.
-            // The server stamps each doc with its file mtime
-            // (updated_at_ms). If that mtime is within the recent
-            // window, treat it as case (a) and open the modal.
-            // Otherwise seed the dedup set silently (case b).
-            const updatedAt = d.updated_at_ms || 0
-            const isRecent =
-              updatedAt > 0 && nowMs - updatedAt <= RECENT_COMPLETION_WINDOW_MS
-            if (isRecent && !toCelebrate) {
-              toCelebrate = d
-            } else {
-              celebratedRef.current.add(d.path)
-            }
+      const nowMs = Date.now()
+      for (const d of docs) {
+        const status = d.status || ''
+        nextByPath[d.path] = status
+        const isComplete = COMPLETE_STATUSES.has(status)
+        if (!isComplete) continue
+        if (celebratedRef.current.has(d.path)) continue
+        if (firstPoll) {
+          // Mount can land AFTER the transition already happened
+          // (hard refresh right after Build-it lands, watcher
+          // remount, etc). Two sub-cases:
+          //   a) The spec completed seconds ago and the user has
+          //      not seen the modal yet. We must still celebrate.
+          //   b) The spec completed hours or days ago and is just
+          //      sitting on disk from a previous run. We must
+          //      stay silent so old specs do not re-celebrate on
+          //      every login.
+          // The server stamps each doc with its file mtime
+          // (updated_at_ms). If that mtime is within the recent
+          // window, treat it as case (a) and open the modal.
+          // Otherwise seed the dedup set silently (case b).
+          const updatedAt = d.updated_at_ms || 0
+          const isRecent =
+            updatedAt > 0 && nowMs - updatedAt <= RECENT_COMPLETION_WINDOW_MS
+          if (isRecent && !toCelebrate) {
+            toCelebrate = d
           } else {
-            const prev = prevByPath[d.path]
-            if (prev && !COMPLETE_STATUSES.has(prev)) {
-              // Clean transition observed this session.
-              toCelebrate = d
-            }
+            celebratedRef.current.add(d.path)
+          }
+        } else {
+          const prev = prevByPath[d.path]
+          if (prev && !COMPLETE_STATUSES.has(prev)) {
+            // Clean transition observed this session.
+            toCelebrate = d
           }
         }
+      }
 
-        lastStatusByPathRef.current = nextByPath
-        if (firstPoll) {
-          // Persist the seed so a remount inside the same
-          // localStorage-era does not re-fire either.
-          saveCelebratedToStorage(celebratedRef.current)
-        }
-        initializedRef.current = true
+      lastStatusByPathRef.current = nextByPath
+      if (firstPoll) {
+        // Persist the seed so a remount inside the same
+        // localStorage-era does not re-fire either.
+        saveCelebratedToStorage(celebratedRef.current)
+      }
+      initializedRef.current = true
 
-        if (toCelebrate) {
-          celebratedRef.current.add(toCelebrate.path)
-          saveCelebratedToStorage(celebratedRef.current)
-          setCurrent(toCelebrate)
-        }
-      } catch {
-        // Transient fetch failure is not fatal; next poll will retry.
+      if (toCelebrate) {
+        celebratedRef.current.add(toCelebrate.path)
+        saveCelebratedToStorage(celebratedRef.current)
+        setCurrent(toCelebrate)
       }
     }
 
     // Initial + 2s poll. Matches the cadence the Specs page uses
     // during an active build, so transitions land within 2s.
-    check()
-    const interval = window.setInterval(check, 2000)
+    const tick = async () => {
+      const controller = new AbortController()
+      pollController = controller
+      try {
+        const res = await fetch('/api/specs', { signal: controller.signal })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = (await res.json()) as SpecsResponse
+        if (!controller.signal.aborted) {
+          processResult(data.docs || [])
+          backoff = 0
+        }
+      } catch (e: unknown) {
+        if (controller.signal.aborted) return
+        backoff = backoff === 0 ? 1000 : Math.min(backoff * 2, 30_000)
+      }
+      if (active && !controller.signal.aborted) {
+        pollTimer = setTimeout(tick, backoff || 2000)
+      }
+    }
+
+    tick()
+
     // Bus hook: any write to /specs/* anywhere in the app also nudges
     // us so we refetch within a single frame of the write that caused
-    // the transition.
+    // the transition. Cancel any pending sleep and fire immediately.
     const off = onSpecsChange(() => {
-      check()
+      if (pollTimer !== null) {
+        clearTimeout(pollTimer)
+        pollTimer = null
+      }
+      if (pollController !== null) {
+        pollController.abort()
+        pollController = null
+      }
+      backoff = 0
+      tick()
     })
     return () => {
-      cancelled = true
-      window.clearInterval(interval)
+      active = false
+      if (pollTimer !== null) clearTimeout(pollTimer)
+      if (pollController !== null) pollController.abort()
       off()
     }
   }, [])
