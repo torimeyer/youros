@@ -810,6 +810,100 @@ function saveSavingsDataToCache(d: SavingsData, period: Period) {
   }
 }
 
+interface SubscriptionDailyEntry {
+  date: string
+  messages: number
+  input_tokens: number
+  output_tokens: number
+}
+
+interface SubscriptionProvider {
+  auth_source: string
+  messages_today: number
+  tokens_today: number
+  total_messages: number
+  recent_daily: SubscriptionDailyEntry[]
+  session_tokens?: Record<string, number>
+  quota_available: boolean
+  quota_note: string
+}
+
+interface SubscriptionData {
+  claude: SubscriptionProvider
+  gemini: SubscriptionProvider
+}
+
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`
+  return String(n)
+}
+
+function ProviderUsageCard({
+  name,
+  icon,
+  color,
+  data,
+}: {
+  name: string
+  icon: string
+  color: string
+  data: SubscriptionProvider
+}) {
+  const todayTokens = data.tokens_today
+  const maxMessages = Math.max(...data.recent_daily.map((d) => d.messages), 1)
+
+  return (
+    <div data-testid={`provider-card-${name.toLowerCase()}`} className="bg-slate-800/50 rounded-xl p-5 border border-slate-700">
+      <div className="flex items-center gap-3 mb-4">
+        <div className={`w-10 h-10 rounded-full ${color} flex items-center justify-center`}>
+          <Icon name={icon} size={20} className="text-white" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-base">{name}</h3>
+          <p className="text-xs text-slate-400 capitalize">{data.auth_source.replace(/_/g, ' ')}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="bg-slate-900/60 rounded-lg p-3">
+          <p className="text-xs text-slate-400 mb-1">Messages today</p>
+          <p className="text-xl font-bold">{data.messages_today.toLocaleString()}</p>
+        </div>
+        <div className="bg-slate-900/60 rounded-lg p-3">
+          <p className="text-xs text-slate-400 mb-1">Tokens today</p>
+          <p className="text-xl font-bold">{todayTokens > 0 ? fmtTokens(todayTokens) : '—'}</p>
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <p className="text-xs text-slate-400 mb-2">Messages — last 5 days</p>
+        <div className="flex items-end gap-1 h-12">
+          {data.recent_daily.map((d) => {
+            const pct = maxMessages > 0 ? (d.messages / maxMessages) * 100 : 0
+            return (
+              <div key={d.date} className="flex-1 flex flex-col items-center gap-1">
+                <div className="w-full flex items-end justify-center" style={{ height: '36px' }}>
+                  <div
+                    className={`w-full rounded-t transition-all ${color.replace('bg-', 'bg-')}`}
+                    style={{ height: `${Math.max(pct, d.messages > 0 ? 8 : 0)}%`, minHeight: d.messages > 0 ? '4px' : '0' }}
+                    title={`${d.date}: ${d.messages} messages`}
+                  />
+                </div>
+                <span className="text-[9px] text-slate-500">{d.date.slice(5)}</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {data.quota_available ? null : (
+        <p className="text-xs text-slate-500 italic">{data.quota_note}</p>
+      )}
+    </div>
+  )
+}
+
 export default function CostTracking() {
   // Period is read first so savings seed uses the correct per-period cache key.
   const [period, setPeriod] = useState<Period>(() => {
@@ -826,11 +920,13 @@ export default function CostTracking() {
   // indicator without blanking the existing data.
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [activeTab, setActiveTab] = useState<'spending' | 'whats-working'>('spending')
+  const [activeTab, setActiveTab] = useState<'spending' | 'whats-working' | 'subscription'>('spending')
   const navigate = useNavigate()
   const [wwData, setWwData] = useState<WhatsWorkingData | null>(null)
   const [wwLoading, setWwLoading] = useState(true)
   const [wwError, setWwError] = useState(false)
+  const [subData, setSubData] = useState<SubscriptionData | null>(null)
+  const [subLoading, setSubLoading] = useState(false)
   // fetchId increments on every period change. The effect captures its
   // own snapshot; if a newer fetch fires before an older one resolves,
   // the older one discards its stale response instead of overwriting state.
@@ -914,6 +1010,14 @@ export default function CostTracking() {
       .then((d) => { setWwData(d); setWwLoading(false) })
       .catch(() => { setWwError(true); setWwLoading(false) })
   }, [])
+
+  useEffect(() => {
+    if (activeTab !== 'subscription' || subData !== null) return
+    setSubLoading(true)
+    api.get<SubscriptionData>('/usage')
+      .then((d) => { setSubData(d); setSubLoading(false) })
+      .catch(() => setSubLoading(false))
+  }, [activeTab, subData])
 
   // Derived values are memoized on the data reference so a filter swap (which
   // only replaces `data` with a cached object) does not re-run the reducers
@@ -1023,6 +1127,13 @@ export default function CostTracking() {
             className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'whats-working' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white'}`}
           >
             What's Working
+          </button>
+          <button
+            data-testid="tab-subscription"
+            onClick={() => setActiveTab('subscription')}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'subscription' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white'}`}
+          >
+            Subscription
           </button>
         </div>
 
@@ -1462,6 +1573,52 @@ export default function CostTracking() {
             navigate={navigate}
             cardClass={cardClass}
           />
+        )}
+        {activeTab === 'subscription' && (
+          <div data-testid="subscription-panel">
+            {subLoading && !subData ? (
+              <p className="text-sm text-slate-400">Loading subscription data...</p>
+            ) : !subData ? (
+              <p className="text-sm text-slate-400">Subscription data unavailable.</p>
+            ) : (
+              <>
+                <div className="mb-6">
+                  <h2 className="text-lg font-semibold mb-1">Subscription usage</h2>
+                  <p className="text-sm text-slate-400">Messages and tokens sent today and over the last 5 days, from your local activity log.</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <ProviderUsageCard
+                    name="Claude"
+                    icon="auto_awesome"
+                    color="bg-purple-500/20"
+                    data={subData.claude}
+                  />
+                  <ProviderUsageCard
+                    name="Gemini"
+                    icon="stars"
+                    color="bg-blue-500/20"
+                    data={subData.gemini}
+                  />
+                </div>
+                {subData.claude.session_tokens && Object.keys(subData.claude.session_tokens).length > 0 && (
+                  <div className={`${cardClass} mt-4`}>
+                    <h3 className="text-sm font-semibold mb-3 text-slate-300">Current session — Claude token snapshot</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                      {(['cache_read', 'cache_create', 'output', 'billed'] as const).map((k) => {
+                        const v = subData.claude.session_tokens?.[k] ?? 0
+                        return v > 0 ? (
+                          <div key={k} className="bg-slate-800 rounded-lg p-3">
+                            <p className="text-xs text-slate-400 mb-1 capitalize">{k.replace(/_/g, ' ')}</p>
+                            <p className="font-bold">{fmtTokens(v)}</p>
+                          </div>
+                        ) : null
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>
