@@ -185,6 +185,44 @@ else
   fail "RECEIPTS CHECK missing memory-entry citation"
 fi
 
+# STALL/DEATH ASSERTION CHECK block present (new: blocks false dead/stalled claims).
+if echo "$OUT_HAPPY" | grep -q "STALL/DEATH ASSERTION CHECK (run before sending any reply):"; then
+  pass "STALL/DEATH ASSERTION CHECK block present"
+else
+  fail "STALL/DEATH ASSERTION CHECK block missing"
+fi
+if echo "$OUT_HAPPY" | grep -q "feedback_false_alarm_meta_pattern.md"; then
+  pass "STALL/DEATH CHECK cites memory entry"
+else
+  fail "STALL/DEATH CHECK missing memory-entry citation"
+fi
+# Verify all 5 required check types are listed.
+if echo "$OUT_HAPPY" | grep -q "ps -p"; then
+  pass "STALL/DEATH CHECK lists ps check"
+else
+  fail "STALL/DEATH CHECK missing ps check"
+fi
+if echo "$OUT_HAPPY" | grep -q "git log --all"; then
+  pass "STALL/DEATH CHECK lists git log check"
+else
+  fail "STALL/DEATH CHECK missing git log check"
+fi
+if echo "$OUT_HAPPY" | grep -q "git status of the worktree"; then
+  pass "STALL/DEATH CHECK lists git status check"
+else
+  fail "STALL/DEATH CHECK missing git status check"
+fi
+if echo "$OUT_HAPPY" | grep -q "transcript tail via"; then
+  pass "STALL/DEATH CHECK lists transcript tail check"
+else
+  fail "STALL/DEATH CHECK missing transcript tail check"
+fi
+if echo "$OUT_HAPPY" | grep -q "two reads, not one snapshot"; then
+  pass "STALL/DEATH CHECK lists api/agents delta check (two reads)"
+else
+  fail "STALL/DEATH CHECK missing api/agents delta check"
+fi
+
 # ACTIVE HUMANFILE RULES block present (re-injected every turn).
 if echo "$OUT_HAPPY" | grep -q "ACTIVE HUMANFILE RULES (read every turn):"; then
   pass "ACTIVE HUMANFILE RULES block present"
@@ -311,6 +349,12 @@ if echo "$OUT_DOWN" | grep -q "RECEIPTS CHECK (run before sending any reply):"; 
   pass "RECEIPTS CHECK block present when backend is down"
 else
   fail "RECEIPTS CHECK block missing when backend is down"
+fi
+
+if echo "$OUT_DOWN" | grep -q "STALL/DEATH ASSERTION CHECK (run before sending any reply):"; then
+  pass "STALL/DEATH ASSERTION CHECK block present when backend is down"
+else
+  fail "STALL/DEATH ASSERTION CHECK block missing when backend is down"
 fi
 
 if echo "$OUT_DOWN" | grep -q "ACTIVE HUMANFILE RULES"; then
