@@ -4617,6 +4617,30 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     "spawn.prompt_path_remap name=%s rewrote main-checkout paths to worktree",
                     body.name,
                 )
+        # →1240: Inject worktree cwd header so agents always pass cwd= to bash.
+        # mcp__ostk__bash routes through the MAIN ostk daemon (OSTK_SOCKET
+        # points to the shared main socket). sh_run.rs defaults cwd to the
+        # daemon's project_root (= main checkout) when no cwd arg is given.
+        # Agents that call bash without cwd= commit and write to main instead
+        # of their worktree branch. The header below is prepended to every
+        # worktree agent prompt so the instruction is visible before any task.
+        if _worktree_path:
+            _wt_cwd_header = (
+                f"[WORKTREE CWD →1240] Your git worktree is: {_worktree_path}\n"
+                f"REQUIRED — every mcp__ostk__bash call MUST include "
+                f'cwd="{_worktree_path}". Without it, bash runs in the MAIN '
+                f"repo and commits land on main instead of your branch.\n"
+                f"REQUIRED — every mcp__ostk__fs_ops call MUST use absolute "
+                f"paths starting with {_worktree_path}/ (paths in this prompt "
+                f"are already remapped)."
+            )
+            prompt_with_memory = (
+                _wt_cwd_header + "\n\n---\n\n" + (prompt_with_memory or "")
+            ).strip() or None
+            logger.info(
+                "spawn.worktree_cwd_header.injected name=%s worktree=%s",
+                body.name, _worktree_path,
+            )
         # Create the transcript file immediately so the resolver can find it
         # even before the subprocess writes its first byte. The _drain_stdout
         # coroutine below writes+flushes each chunk so the file grows in real
