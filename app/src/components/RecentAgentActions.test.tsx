@@ -17,18 +17,23 @@ function makeAgent(overrides: Partial<AgentInfo> = {}): AgentInfo {
 }
 
 describe("RecentAgentActions", () => {
-  it("renders Replan button for planner template", () => {
-    render(<RecentAgentActions agent={makeAgent({ template: "planner" })} />);
+  it("renders Replan button for Meal Planner template", () => {
+    render(<RecentAgentActions agent={makeAgent({ template: "Meal Planner" })} />);
     expect(screen.getByTestId("action-replan")).toBeInTheDocument();
     expect(screen.getByText("Replan")).toBeInTheDocument();
   });
 
-  it("renders Replan button for daily planner template (case insensitive)", () => {
-    render(<RecentAgentActions agent={makeAgent({ template: "daily planner" })} />);
+  it("renders Replan button for Trip Planner template", () => {
+    render(<RecentAgentActions agent={makeAgent({ template: "Trip Planner" })} />);
     expect(screen.getByTestId("action-replan")).toBeInTheDocument();
   });
 
-  it("renders Replan button for daily-planner template", () => {
+  it("renders Replan button for any template name containing planner (case insensitive)", () => {
+    render(<RecentAgentActions agent={makeAgent({ template: "Daily Planning" })} />);
+    expect(screen.getByTestId("action-replan")).toBeInTheDocument();
+  });
+
+  it("renders Replan button for daily-planner template slug", () => {
     render(<RecentAgentActions agent={makeAgent({ template: "daily-planner" })} />);
     expect(screen.getByTestId("action-replan")).toBeInTheDocument();
   });
@@ -68,5 +73,11 @@ describe("RecentAgentActions", () => {
     );
     getByTestId("action-save-to-gems").click();
     expect(onSaveGem).toHaveBeenCalledWith("my-agent");
+  });
+
+  it("renders Replan for Review template (not a planner — no Replan)", () => {
+    render(<RecentAgentActions agent={makeAgent({ template: "Review" })} />);
+    expect(screen.queryByTestId("action-replan")).not.toBeInTheDocument();
+    expect(screen.getByTestId("action-run-again")).toBeInTheDocument();
   });
 });

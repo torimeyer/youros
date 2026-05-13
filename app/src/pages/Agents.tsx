@@ -2775,7 +2775,7 @@ export default function Agents() {
     // resulting agent row with its template. Without this the POST body
     // drops the `template` field entirely and the backend loses the
     // hook it uses to map agents back to their source template.
-    setEditorBuiltInName(tpl.builtin ? tpl.name : null);
+    setEditorBuiltInName(tpl.name);
     setEditorPromptTemplate(tpl.prompt_template);
     setEditorTemplateId(tpl.id);
     setEditorSource(tpl.source ?? (tpl.builtin ? "builtin" : "marketplace"));
@@ -4843,7 +4843,7 @@ export default function Agents() {
                   const extractedPrompt = promptMatch ? promptMatch[1] : tpl.description;
                   setEditorInitial({ name: tpl.name, description: tpl.description, icon: tpl.icon, model: tpl.model, budget: tpl.budget });
                   setEditorIsNew(false);
-                  setEditorBuiltInName(tpl.isBuiltIn ? tpl.name : null);
+                  setEditorBuiltInName(tpl.name);
                   setEditorPromptTemplate(extractedPrompt || undefined);
                   setEditorTemplateId(tpl.templateId);
                   setEditorSource(tpl.isBuiltIn ? "builtin" : (tpl.source ?? "custom"));

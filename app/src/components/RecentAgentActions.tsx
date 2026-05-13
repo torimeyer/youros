@@ -7,18 +7,21 @@ interface Props {
   onSaveGem?: (agentName: string) => void;
 }
 
-const KNOWN_TEMPLATE_ACTIONS: Record<string, { label: string; icon: string }> = {
-  planner: { label: "Replan", icon: "refresh" },
-  "daily-planner": { label: "Replan", icon: "refresh" },
-  "daily planner": { label: "Replan", icon: "refresh" },
-  "gem-builder": { label: "Save to gems", icon: "star" },
-};
+function templateAction(tpl: string): { label: string; icon: string } | null {
+  if (tpl.includes("planner") || tpl.includes("planning")) {
+    return { label: "Replan", icon: "refresh" };
+  }
+  if (tpl === "gem-builder") {
+    return { label: "Save to gems", icon: "star" };
+  }
+  return null;
+}
 
 export function RecentAgentActions({ agent, onRunAgain, onSaveGem }: Props) {
   const tpl = (agent.template || "").toLowerCase().trim();
   if (!tpl) return null;
 
-  const specific = KNOWN_TEMPLATE_ACTIONS[tpl];
+  const specific = templateAction(tpl);
   const runAgainName = `${tpl.replace(/\s+/g, "-")}-${Date.now()}`;
 
   const handleRunAgain = () => onRunAgain?.(runAgainName, agent.template!);
