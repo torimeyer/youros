@@ -23,6 +23,7 @@ import AgentTemplateFileUpload from "../components/AgentTemplateFileUpload";
 import { RoadmapCards } from "../components/RoadmapCards";
 import { parseRoadmapJson, type RoadmapQuarter } from "../lib/parseRoadmapJson";
 import { formatTokenBudget } from "../lib/budgetDisplay";
+import { RecentAgentActions } from "../components/RecentAgentActions";
 
 
 // Re-export so tests can still import these from './Agents'
@@ -4585,6 +4586,25 @@ export default function Agents() {
                             </button>
                           </div>
                         </div>
+                        {agent.actionable_doc && agent.status === 'completed' && (
+                          <p className="mt-2 text-sm text-slate-400 leading-snug" data-testid="recent-actionable-doc">
+                            {agent.actionable_doc}
+                          </p>
+                        )}
+                        {agent.status === 'completed' && (
+                          <RecentAgentActions
+                            agent={agent}
+                            onRunAgain={(name, template) => {
+                              handleSpawn(name, undefined, undefined, undefined, undefined, template);
+                              navigate('/agents');
+                            }}
+                            onSaveGem={async (agentName) => {
+                              try {
+                                await api.post(`/agents/${encodeURIComponent(agentName)}/gem`, {});
+                              } catch { /* best-effort */ }
+                            }}
+                          />
+                        )}
                         {isRoadmapAgent(agent) && agent.status === 'completed' && agentRoadmaps[agent.name] && (
                           <RoadmapCards
                             quarters={agentRoadmaps[agent.name]}
