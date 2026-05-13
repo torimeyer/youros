@@ -16,11 +16,13 @@ export interface TeamOnboardingData {
 export function OrgNameStep({
   orgName,
   setOrgName,
+  onNext,
   inputCls,
   subtextCls,
 }: {
   orgName: string
   setOrgName: (v: string) => void
+  onNext?: () => void
   inputCls: string
   subtextCls: string
 }) {
@@ -34,6 +36,7 @@ export function OrgNameStep({
         type="text"
         value={orgName}
         onChange={(e) => setOrgName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && onNext) onNext() }}
         placeholder="e.g. Acme, Engineering, Product"
         className={`w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
         data-testid="org-name-input"
@@ -53,11 +56,13 @@ export function OrgNameStep({
 export function AdminEmailStep({
   adminEmail,
   setAdminEmail,
+  onNext,
   inputCls,
   subtextCls,
 }: {
   adminEmail: string
   setAdminEmail: (v: string) => void
+  onNext?: () => void
   inputCls: string
   subtextCls: string
 }) {
@@ -71,6 +76,7 @@ export function AdminEmailStep({
         type="email"
         value={adminEmail}
         onChange={(e) => setAdminEmail(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && onNext) onNext() }}
         placeholder="you@company.com"
         className={`w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
         data-testid="admin-email-input"
