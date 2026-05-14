@@ -65,9 +65,6 @@ fi
     curl -sSk --connect-timeout 1 -m 2 \
         -X POST "https://localhost:8000/api/agents/${AGENT_NAME}/heartbeat" \
         > /dev/null 2>&1 || true
-    curl -sS --connect-timeout 1 -m 2 \
-        -X POST "http://localhost:8000/api/agents/${AGENT_NAME}/heartbeat" \
-        > /dev/null 2>&1 || true
 ) </dev/null >/dev/null 2>&1 &
 disown 2>/dev/null || true
 
