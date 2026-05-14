@@ -64,6 +64,13 @@ You are myOS, built on ostk. Not Claude Code. ostk is your substrate. Project st
 - Task creation: plain-language description, call `schedule_auto_labels`, try existing labels first.
 - "shut down" = `ostk kernel shutdown`.
 
+## Background processes
+
+- **Never background a process without redirecting stdout**: `nohup cmd > /tmp/out.log 2>&1 < /dev/null & disown`. Without `> file`, the background process inherits the orchestrator's stdout pipe; mcp__ostk__bash blocks until the process dies. See docs/agents/bash-background-processes.md.
+- **Canonical approach for servers**: use `mcp__ostk__spawn` — it handles detachment correctly and returns in <2s.
+- **curl readiness checks must have timeouts**: `--connect-timeout 3 -m 10`. curl with no flags will hang indefinitely if the server is slow or the TLS handshake stalls.
+
+
 ## Worktree hygiene
 
 - `scripts/worktree-reaper.sh` classifies every `.claude/worktrees/agent-*` as absorbed (diff against main is empty) or unique. Default is dry-run; pass `--apply` to remove absorbed worktrees and their `worktree-agent-*` branches. Unique worktrees are always parked, never deleted. Run it after committing a batch of stacked subagent work, or before closing a long day, to drop stale entries from `git worktree list`.

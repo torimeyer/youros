@@ -11,6 +11,11 @@
 #
 # Usage:
 #   scripts/dev-backend.sh          # starts uvicorn on port 8000
+#
+# IMPORTANT: when backgrounding this script from mcp__ostk__bash, always redirect
+# stdout and stderr, or the tool call will block until uvicorn is killed:
+#   nohup scripts/dev-backend.sh > /tmp/dev-backend.log 2>#   scripts/dev-backend.sh          # starts uvicorn on port 80001 < /dev/null & disown
+# See docs/agents/bash-background-processes.md. Prefer mcp__ostk__spawn instead.
 
 set -e
 set +m 2>/dev/null  # suppress job-control noise ([N] PID lines)

@@ -22,6 +22,11 @@
 #
 # Usage:
 #   scripts/dev-frontend.sh         # starts Vite on port 3010 (one shot)
+#
+# IMPORTANT: when backgrounding this script from mcp__ostk__bash, always redirect
+# stdout and stderr, or the tool call will block until Vite is killed:
+#   nohup scripts/dev-frontend.sh > /tmp/dev-frontend.log 2>#   scripts/dev-frontend.sh         # starts Vite on port 3010 (one shot)1 < /dev/null & disown
+# See docs/agents/bash-background-processes.md. Prefer mcp__ostk__spawn instead.
 #   scripts/watch-frontend.sh       # resilient loop (use for demos)
 #
 # HTTPS cert: if Chrome shows "Not Secure", run once:
