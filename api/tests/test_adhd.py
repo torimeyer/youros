@@ -100,6 +100,63 @@ class TestCheckIn:
             r = client.get("/api/adhd/check-in")
             assert r.json()["running_count"] == 0
 
+    def test_check_in_skips_chat_agents(self):
+        """chat-source agents must not appear in the check-in count.
+
+        The active-sessions panel uses is_user_spawned_agent() which excludes
+        source='chat'. The check-in endpoint must use the same filter so both
+        surfaces agree. Regression for: widget showed 'chat-6cc7fb0f working'
+        but the agent was absent from Active Sessions.
+        """
+        meta = {
+            "chat-6cc7fb0f": {
+                "status": "running",
+                "task": "some chat task",
+                "current_step": "thinking",
+                "source": "chat",
+            }
+        }
+        with patch("routers.agents.agent_metadata", meta):
+            r = client.get("/api/adhd/check-in")
+            data = r.json()
+            assert data["running_count"] == 0, (
+                "chat-source agent should not count: excluded from Active Sessions "
+                "by is_user_spawned_agent() but was counted by check-in's hand-rolled filter"
+            )
+            assert data["agents"] == []
+
+    def test_check_in_skips_audit_and_daemon_agents(self):
+        """audit and daemon source agents must be excluded from check-in count."""
+        meta = {
+            "audit-watcher": {
+                "status": "running",
+                "task": "auditing",
+                "source": "audit",
+            },
+            "daemon-proc": {
+                "status": "running",
+                "task": "daemon work",
+                "source": "daemon",
+            },
+        }
+        with patch("routers.agents.agent_metadata", meta):
+            r = client.get("/api/adhd/check-in")
+            assert r.json()["running_count"] == 0
+
+    def test_check_in_skips_main_session(self):
+        """The main Claude Code session must not count as a running agent."""
+        meta = {
+            "claude-code-abcd1234": {
+                "status": "running",
+                "task": "",
+                "source": "claude-code",
+                "description": "Claude Code session (cwd: /Users/tori/project)",
+            }
+        }
+        with patch("routers.agents.agent_metadata", meta):
+            r = client.get("/api/adhd/check-in")
+            assert r.json()["running_count"] == 0
+
 
 class TestAdhdPersistence:
     """Regression tests for ADHD mode server-side persistence.

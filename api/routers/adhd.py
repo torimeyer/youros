@@ -51,16 +51,17 @@ async def context_rebuild():
     agents, and last chat message to give a quick orientation on return.
     """
     from routers.agents import agent_metadata
+    from services.agent_filters import is_user_spawned_agent
 
     now = datetime.now(timezone.utc)
 
     active_agents = []
     recent_agents = []
     for name, meta in agent_metadata.items():
-        status = meta.get("status", "")
-        source = meta.get("source", "")
-        if source in ("hook", "system"):
+        row = {"name": name, **meta}
+        if not is_user_spawned_agent(row):
             continue
+        status = meta.get("status", "")
         if status in ("running", "in_progress"):
             active_agents.append({
                 "name": name,
@@ -109,14 +110,13 @@ async def context_rebuild():
 async def check_in():
     """Lightweight status for periodic ADHD check-in notifications."""
     from routers.agents import agent_metadata
+    from services.agent_filters import is_user_spawned_agent
 
+    _ACTIVE = frozenset({"running", "in_progress"})
     running = []
     for name, meta in agent_metadata.items():
-        status = meta.get("status", "")
-        source = meta.get("source", "")
-        if source in ("hook", "system"):
-            continue
-        if status in ("running", "in_progress"):
+        row = {"name": name, **meta}
+        if is_user_spawned_agent(row) and meta.get("status") in _ACTIVE:
             running.append({
                 "name": name,
                 "task": meta.get("task") or meta.get("description") or "",
