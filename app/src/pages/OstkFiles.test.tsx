@@ -155,4 +155,43 @@ describe('OstkFiles', () => {
     })
     expect(screen.getByText('No decision docs found in .ostk/.')).toBeDefined()
   })
+
+  // Regression guard for →1353: tab counts must be correct on first paint
+  // without clicking each tab. Before the fix, Tasks and Audit tabs showed
+  // (0) until the user clicked them, because only the initial decisions tab
+  // was fetched on mount.
+  it('shows correct tab counts for Tasks and Audit without clicking those tabs (→1353)', async () => {
+    const { api } = await import('../lib/api')
+    const mockGet = api.get as ReturnType<typeof vi.fn>
+    mockGet.mockImplementation((url: string) => {
+      if (url.includes('/files/decisions')) return Promise.resolve({ decisions: [] })
+      if (url.includes('/files/needles')) return Promise.resolve({
+        needles: [
+          { id: '→1', title: 'Task one', status: 'open', priority: 'P1', created_at: new Date().toISOString() },
+          { id: '→2', title: 'Task two', status: 'open', priority: 'P2', created_at: new Date().toISOString() },
+        ],
+      })
+      if (url.includes('/files/audit')) return Promise.resolve({
+        events: [
+          { event: 'hook.session.start', ts: new Date().toISOString() },
+          { event: 'hook.session.end', ts: new Date().toISOString() },
+          { event: 'tool.call', ts: new Date().toISOString() },
+        ],
+      })
+      return Promise.resolve({})
+    })
+
+    renderPage()
+
+    // Wait for prefetch to land — Tasks tab should show (2), Audit should show (3)
+    // without any click interaction.
+    await waitFor(() => {
+      const tasksTab = screen.getByTestId('tab-needles')
+      expect(tasksTab.textContent).toContain('(2)')
+    })
+    await waitFor(() => {
+      const auditTab = screen.getByTestId('tab-audit')
+      expect(auditTab.textContent).toContain('(3)')
+    })
+  })
 })

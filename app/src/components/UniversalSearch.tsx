@@ -435,11 +435,11 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
           {/* Needles + Audit */}
           {q && (
             deepLoading
-              ? spinnerRow('Searching needles & audit...', 'deep-loading')
+              ? spinnerRow('Searching tasks & audit...', 'deep-loading')
               : deepResults.length > 0
                 ? (
                   <div data-testid="section-deep">
-                    {sectionHeader('Needles & Audit', 'text-orange-400')}
+                    {sectionHeader('Tasks & Audit', 'text-orange-400')}
                     {deepResults.map((d, i) => {
                       const idx = deepOffset + i
                       const sel = idx === selectedIndex

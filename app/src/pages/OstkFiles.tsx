@@ -217,6 +217,20 @@ export default function OstkFiles() {
     fetchTab(tab);
   }, [tab, fetchTab]);
 
+  // Pre-fetch counts for inactive tabs on mount so the (##) badges are
+  // correct on first paint rather than showing (0) until each tab is clicked.
+  useEffect(() => {
+    const prefetch = async () => {
+      const [needlesRes, auditRes] = await Promise.allSettled([
+        api.get<{ needles: Needle[] }>('/files/needles'),
+        api.get<{ events: AuditEvent[] }>('/files/audit'),
+      ]);
+      if (needlesRes.status === 'fulfilled') setNeedles(needlesRes.value.needles ?? []);
+      if (auditRes.status === 'fulfilled') setAudit(auditRes.value.events ?? []);
+    };
+    prefetch();
+  }, []); // mount-only: seeds inactive-tab counts without touching loading state
+
   const q = query.toLowerCase();
 
   const filteredDecisions = decisions.filter(
@@ -231,7 +245,7 @@ export default function OstkFiles() {
 
   const tabs: { id: Tab; label: string; icon: string; count: number }[] = [
     { id: 'decisions', label: 'Decisions', icon: 'article', count: filteredDecisions.length },
-    { id: 'needles', label: 'Needles', icon: 'push_pin', count: filteredNeedles.length },
+    { id: 'needles', label: 'Tasks', icon: 'push_pin', count: filteredNeedles.length },
     { id: 'audit', label: 'Audit', icon: 'receipt_long', count: filteredAudit.length },
   ];
 
@@ -243,7 +257,7 @@ export default function OstkFiles() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold">ostk browser</h1>
-            <p className="text-xs text-slate-500 mt-0.5">Decisions, needles, and audit events from .ostk/</p>
+            <p className="text-xs text-slate-500 mt-0.5">Decisions, tasks, and audit events from .ostk/</p>
           </div>
           <button
             onClick={() => fetchTab(tab)}
@@ -322,7 +336,7 @@ export default function OstkFiles() {
             {filteredNeedles.length === 0 ? (
               <div className="text-center py-12 text-slate-500">
                 <Icon name="push_pin" className="text-3xl mb-2" />
-                <p>{query ? 'No needles match your search.' : 'No needles found.'}</p>
+                <p>{query ? 'No tasks match your search.' : 'No tasks found.'}</p>
               </div>
             ) : (
               filteredNeedles.map((n, i) => (
