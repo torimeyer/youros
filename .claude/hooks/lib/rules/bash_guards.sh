@@ -14,15 +14,46 @@ import os, re
 cmd = os.environ.get("HOOK_CMD", "")
 RESERVED = ['status', 'pipestatus', 'path', 'cdpath', 'fpath',
             'manpath', 'prompt', 'psvar', 'argv', 'signals', 'options']
+
+def strip_quoted(s):
+    """Replace content inside single/double quotes with X placeholders.
+    Prevents false positives when a reserved name appears inside a string
+    literal (e.g. 'where status=completed' or "status=done")."""
+    result = []
+    i = 0
+    while i < len(s):
+        c = s[i]
+        if c in ('"', "'"):
+            quote = c
+            result.append(c)
+            i += 1
+            while i < len(s) and s[i] != quote:
+                if s[i] == '\\' and quote == '"' and i + 1 < len(s):
+                    result.append('XX')
+                    i += 2
+                else:
+                    result.append('X')
+                    i += 1
+            if i < len(s):
+                result.append(s[i])  # closing quote
+                i += 1
+        else:
+            result.append(c)
+            i += 1
+    return ''.join(result)
+
+# Scan the command with quoted content stripped so we only detect real
+# shell-level assignments, not reserved names inside string arguments.
+stripped = strip_quoted(cmd)
 strict = re.compile(
     r'(?:(?:^|[;\s|&(]))'
     r'(' + '|'.join(re.escape(v) for v in RESERVED) + r')'
     r'(?=[^a-zA-Z0-9_])',
     re.MULTILINE,
 )
-for m in strict.finditer(cmd):
+for m in strict.finditer(stripped):
     var = m.group(1)
-    after = cmd[m.end():]
+    after = stripped[m.end():]
     if re.match(r'\s*=(?!=)', after):
         print(var)
         break
