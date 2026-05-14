@@ -636,11 +636,22 @@ describe('TopBar persistent-notification toast', () => {
   })
 
   it('fires a toast when a new roadmap_ready notification arrives via WS', async () => {
-    // Start with empty store, then simulate a WS snapshot arriving.
+    // Start with empty store, render, then simulate the first (empty) WS
+    // snapshot so seenNotifIdsRef seeds. After that, a NEW notification
+    // arriving should fire a toast.
     renderTopBar()
     await act(async () => {})
 
-    // Simulate WS snapshot arriving with a new notification.
+    // First snapshot — empty list — primes the seen-set.
+    await act(async () => {
+      useNotificationsStore.setState({
+        notifications: [],
+        wsConnected: true,
+        snapshotReceived: true,
+      })
+    })
+
+    // Now a NEW notification arrives via WS.
     await act(async () => {
       useNotificationsStore.setState({
         notifications: [
