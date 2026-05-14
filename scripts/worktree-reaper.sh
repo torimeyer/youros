@@ -187,22 +187,19 @@ echo "summary: absorbed=$absorbed_count unique=$unique_count error=$error_count"
 
 if [ "$APPLY" -eq 0 ]; then
   echo "(dry-run. pass --apply to remove absorbed worktrees.)"
-  if [ "$error_count" -gt 0 ]; then
-    exit 1
-  fi
-  exit 0
 fi
 
-if [ "$absorbed_count" -eq 0 ]; then
-  echo "nothing to remove."
-  if [ "$error_count" -gt 0 ]; then
-    exit 1
-  fi
-  exit 0
-fi
+# Initialise before APPLY block so phase 2 can reference these in dry-run mode.
+_ACTIVE_NAMES_LOADED=0
+ACTIVE_AGENT_NAMES=""
 
-echo
-echo "applying: removing $absorbed_count absorbed worktree(s)..."
+if [ "$APPLY" -eq 1 ]; then
+  if [ "$absorbed_count" -eq 0 ]; then
+    echo "nothing to remove."
+  else
+
+    echo
+    echo "applying: removing $absorbed_count absorbed worktree(s)..."
 
 # ------------------------------------------------------------------
 # Active-agent guard (→947): never remove a worktree whose owning
@@ -321,8 +318,22 @@ PYEOF
       removal_fail=$((removal_fail + 1))
     fi
   else
-    echo "  error: failed to remove worktree at $pa (branch $br)" >&2
-    removal_fail=$((removal_fail + 1))
+    # git worktree remove --force can fail when the worktree dir has
+    # untracked files that need --force --force to remove. Fall back to
+    # rm -rf (which handles .ostk/ sockets and state files that git
+    # won't touch) then deregister via git worktree prune.
+    if rm -rf "$pa" 2>/dev/null; then
+      git worktree prune >/dev/null 2>&1 || true
+      if git branch -D "$br" >/dev/null 2>&1; then
+        echo "  removed $br (via rm -rf fallback)"
+      else
+        echo "  error: dir removed but branch $br could not be deleted" >&2
+        removal_fail=$((removal_fail + 1))
+      fi
+    else
+      echo "  error: failed to remove worktree at $pa (branch $br)" >&2
+      removal_fail=$((removal_fail + 1))
+    fi
   fi
 done
 
@@ -330,7 +341,133 @@ _actually_removed=$((absorbed_count - removal_fail - protected_count))
 echo
 echo "done. removed=$_actually_removed protected=$protected_count failed=$removal_fail"
 
-if [ "$removal_fail" -gt 0 ] || [ "$error_count" -gt 0 ]; then
+  fi  # end: absorbed_count > 0 branch
+fi  # end: APPLY == 1 block
+
+# ------------------------------------------------------------------
+# Phase 2: disk-first orphan sweep (→1333)
+#
+# The main loop above iterates `git worktree list --porcelain` and is
+# therefore BLIND to dirs that exist on disk but have no git registration.
+# These "orphan" dirs accumulate when:
+#   - The backend restarts mid-spawn (event loop dies, _drain_stderr
+#     never calls remove_worktree(), later git prune drops the entry)
+#   - ghost_reaper / agent_state_prune delete registry rows without
+#     calling remove_worktree(), the worktree git entry later gets pruned
+#   - create_worktree() pre-clean removes the git registration but
+#     shutil.rmtree fails, leaving the dir behind
+#
+# This sweep finds those dirs and safely removes them.
+# Only removes under --apply (dry-run just prints the orphan list).
+# ------------------------------------------------------------------
+echo
+echo "phase 2: orphan sweep (dirs on disk with no git registration)..."
+
+# Build the set of registered worktree paths (absolute, one per line).
+_registered_paths=$(git worktree list --porcelain | awk '/^worktree / {print $2}')
+
+orphan_count=0
+orphan_removed=0
+orphan_skipped=0
+orphan_fail=0
+
+for _orphan_dir in "$WORKTREE_BASE"/agent-*/; do
+  # Strip trailing slash for consistent comparison.
+  _orphan_dir="${_orphan_dir%/}"
+  [ -d "$_orphan_dir" ] || continue
+
+  # Skip if this dir IS in git worktree list (handled by phase 1).
+  _is_registered=0
+  while IFS= read -r _rp; do
+    if [ "$_rp" = "$_orphan_dir" ]; then
+      _is_registered=1
+      break
+    fi
+  done <<< "$_registered_paths"
+  [ "$_is_registered" -eq 1 ] && continue
+
+  orphan_count=$((orphan_count + 1))
+  _orphan_agent_name="${_orphan_dir##*/agent-}"
+
+  if [ "$APPLY" -eq 0 ]; then
+    echo "  orphan (dry-run): $_orphan_dir"
+    continue
+  fi
+
+  # Active-agent guard: never remove an orphan whose agent is still running.
+  if [ "$_ACTIVE_NAMES_LOADED" -eq 1 ] && [ -n "$ACTIVE_AGENT_NAMES" ]; then
+    _orphan_is_protected=$(python3 - "$_orphan_agent_name" "$ACTIVE_AGENT_NAMES" <<'PYEOF'
+import hashlib, sys
+
+wt_id = sys.argv[1]
+active_csv = sys.argv[2]
+
+def short_id(name, max_len=30):
+    if len(name) <= max_len:
+        return name
+    digest = hashlib.blake2s(name.encode(), digest_size=4).hexdigest()
+    prefix = name[:max_len - 9].rstrip("-_")
+    return f"{prefix}-{digest}"
+
+for name in (n for n in active_csv.split(",") if n):
+    if name == wt_id or short_id(name) == wt_id:
+        print("protected")
+        sys.exit(0)
+print("unprotected")
+PYEOF
+)
+    if [ "${_orphan_is_protected:-}" = "protected" ]; then
+      echo "  orphan protected (agent '$_orphan_agent_name' still active): $_orphan_dir"
+      orphan_skipped=$((orphan_skipped + 1))
+      continue
+    fi
+  fi
+
+  # Safety: skip orphans that have uncommitted tracked changes.
+  # Orphan dirs have no git registration, so we cannot use `git diff`
+  # from the repo root. Instead check whether the dir contains a
+  # .git file (worktree gitdir pointer) and if so whether there are
+  # staged or unstaged tracked changes.
+  if [ -f "$_orphan_dir/.git" ]; then
+    _orphan_unstaged=0
+    _orphan_staged=0
+    git -C "$_orphan_dir" diff --quiet 2>/dev/null || _orphan_unstaged=1
+    git -C "$_orphan_dir" diff --cached --quiet 2>/dev/null || _orphan_staged=1
+    if [ "$_orphan_unstaged" -eq 1 ] || [ "$_orphan_staged" -eq 1 ]; then
+      echo "  orphan skipped (has uncommitted tracked changes): $_orphan_dir" >&2
+      orphan_skipped=$((orphan_skipped + 1))
+      continue
+    fi
+  fi
+
+  # Remove the orphan dir. No git worktree remove needed (it has no registration).
+  if rm -rf "$_orphan_dir" 2>/dev/null; then
+    echo "  orphan removed: $_orphan_dir"
+    orphan_removed=$((orphan_removed + 1))
+  else
+    echo "  error: failed to remove orphan dir $_orphan_dir" >&2
+    orphan_fail=$((orphan_fail + 1))
+  fi
+done
+
+if [ "$APPLY" -eq 0 ]; then
+  echo "  found $orphan_count orphan dir(s) (dry-run, not removed)"
+else
+  echo "  orphans: found=$orphan_count removed=$orphan_removed skipped=$orphan_skipped failed=$orphan_fail"
+fi
+
+# ------------------------------------------------------------------
+# Phase 3: git worktree prune
+#
+# Clean up the reverse case: git registrations that point to dirs that
+# no longer exist on disk. These accumulate when rm-rf succeeds but git
+# worktree remove was never called (e.g., the _drain_stderr rmtree
+# fallback path). `git worktree prune` is idempotent and fast.
+# ------------------------------------------------------------------
+git worktree prune >/dev/null 2>&1 || true
+
+_total_fail=$((removal_fail + orphan_fail))
+if [ "$_total_fail" -gt 0 ] || [ "$error_count" -gt 0 ]; then
   exit 1
 fi
 exit 0
