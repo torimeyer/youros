@@ -14,8 +14,8 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'EnhanceClaude', 'Tracking', 'Connect', 'Ready'] as const
-const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'EnhanceClaude', 'Tracking', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
 
 const DEFAULT_FILES_DIR = '~/.myos/files'
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
@@ -492,36 +492,6 @@ export default function OnboardingWizard() {
           )}
           {step === 'Theme' && (
             <ThemeStep darkMode={pickedDark} onChoose={handleDarkModeChoice} subtextCls={subtextCls} />
-          )}
-          {step === 'EnhanceClaude' && (
-            <div data-testid="step-enhance-claude">
-              <h2 className="text-2xl font-bold mb-2">Connect Claude Code to myOS</h2>
-              <p className={`mb-6 ${subtextCls}`}>
-                myOS runs on ostk, a coordination kernel that tracks your tasks, agents, and working style. When you enable this, ostk plugs into Claude Code so it automatically knows what you're working on — no need to explain each time. It also enforces your rules (like "always spawn agents") across every session.
-              </p>
-              <p className={`mb-6 text-xs ${subtextCls}`}>You can turn this off any time in Settings.</p>
-              <div className="space-y-3">
-                <button
-                  onClick={async () => {
-                    try {
-                      await api.post('/onboarding/enable-myos-hooks', {})
-                    } catch (e) {
-                      console.error('enable myos hooks failed:', e)
-                    }
-                    setStepIndex(i => Math.min(i + 1, STEPS.length - 1))
-                  }}
-                  className={`w-full flex items-center gap-4 p-5 rounded-xl border ${cardCls} hover:border-blue-500 hover:bg-blue-500/10 text-left transition-all`}
-                >
-                  <span className="font-medium">Yes, connect Claude Code to myOS</span>
-                </button>
-                <button
-                  onClick={() => setStepIndex(i => Math.min(i + 1, STEPS.length - 1))}
-                  className={`w-full flex items-center gap-4 p-5 rounded-xl border ${cardCls} hover:border-slate-400 text-left transition-all`}
-                >
-                  <span className={`font-medium ${subtextCls}`}>Skip for now</span>
-                </button>
-              </div>
-            </div>
           )}
           {step === 'Tracking' && (
             <TrackingStep
