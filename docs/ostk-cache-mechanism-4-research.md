@@ -112,10 +112,10 @@ A template populate script is at: `scripts/populate-ostk-file-cache.py`
 
 ### Step 3: Keep entries fresh
 
-Anthropic Files API files expire (currently ~30 days, subject to change).
-When a file is modified locally, its SHA-256 changes, so the old entry becomes
-a miss and the entry should be re-uploaded + updated. A refresh cron or
-hook on session start is recommended.
+Anthropic Files API files persist indefinitely until explicitly deleted (per
+empirical confirmation in →1339 follow-up research). When a file is modified
+locally, its SHA-256 changes, so the old entry becomes a miss and the entry
+should be re-uploaded + updated. Re-upload is only needed on content change.
 
 ---
 
