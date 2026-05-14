@@ -1104,6 +1104,46 @@ async def _terminate_with_sigkill_fallback(proc) -> bool:
     return True
 
 
+async def _terminate_pid_with_sigkill_fallback(pid: int) -> bool:
+    """Signal a raw PID we no longer hold a Popen for: SIGTERM, then SIGKILL.
+
+    Used by ``cancel_agent`` when ``active_agents`` no longer holds a handle
+    for this agent (backend restarted between spawn and cancel, autocomplete
+    watcher removed the entry, etc.). Without this, cancel marked the row
+    ``cancelled`` but the subagent kept running because nothing ever sent a
+    signal to ``meta.get('pid')``. Repro: →1344, PID 94656 alive 7+ hours
+    after cancel returned ``process_killed: false``.
+
+    Returns True if SIGTERM was successfully sent (process existed at the
+    time of the call). Escalates to SIGKILL in the background after
+    ``CANCEL_SIGKILL_GRACE_SECONDS``.
+    """
+    import os
+    import signal as _signal
+
+    if not _is_pid_alive(pid):
+        return False
+    try:
+        os.kill(pid, _signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+    async def _ensure_dead_pid():
+        deadline = asyncio.get_event_loop().time() + CANCEL_SIGKILL_GRACE_SECONDS
+        while asyncio.get_event_loop().time() < deadline:
+            if not _is_pid_alive(pid):
+                return
+            await asyncio.sleep(0.1)
+        try:
+            os.kill(pid, _signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+
+    asyncio.create_task(_ensure_dead_pid())
+    return True
+
+
+
 def _now_iso() -> str:
     """Return an ISO-8601 UTC timestamp. Wrapped so tests can patch it."""
     return datetime.now(timezone.utc).isoformat()
@@ -7357,6 +7397,18 @@ async def cancel_agent(
     killed = False
     if proc is not None:
         killed = await _terminate_with_sigkill_fallback(proc)
+    else:
+        # (→1344) The bridge no longer holds a Popen handle for this agent.
+        # Fall back to ``meta.get('pid')`` so a cancel from the UI actually
+        # stops the subagent process. Without this, the row flips to
+        # cancelled but the Claude Code subprocess keeps running silently
+        # and continues consuming API quota.
+        _pid = meta.get("pid")
+        if _pid:
+            try:
+                killed = await _terminate_pid_with_sigkill_fallback(int(_pid))
+            except (TypeError, ValueError):
+                killed = False
 
     # Chat-attribution gate: if this agent never recorded any tokens, any
     # text in transcripts/<name>.md is subprocess stdout that was already
