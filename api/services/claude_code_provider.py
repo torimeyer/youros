@@ -75,6 +75,13 @@ import uuid as _uuid_mod
 
 _known_sessions: set[str] = set()
 
+# Per-tab response cache — keyed by tab_id, value is the last full response
+# text produced by stream_chat for that tab.  Populated on every successful
+# (or partial) stream so the frontend can retrieve the response via
+# GET /api/chat/last-response?tab_id=<id> if its WebSocket was torn down
+# mid-stream (e.g. uvicorn reload, browser navigation). Capped at 100 entries.
+_last_response_cache: dict[str, str] = {}
+
 
 def _session_id_for_tab(tab_id: str) -> str:
     """Deterministic UUID from a tab ID so the same tab always resumes."""
@@ -721,12 +728,16 @@ async def stream_chat(
                 # When streaming deltas already forwarded it chunk-by-chunk,
                 # sending it again would duplicate the entire response.
                 if etype == "assistant" and saw_deltas:
-                    if not saw_partial:
-                        full_text += text
-                    # Skip WebSocket send, deltas already delivered this text
+                    # Deltas already delivered this text chunk-by-chunk; skip
+                    # both accumulation (would double-count) and WebSocket send
+                    # (would duplicate the entire response to the frontend).
+                    pass
                 else:
-                    if not saw_partial:
-                        full_text += text
+                    # Always accumulate regardless of saw_partial. The old
+                    # `if not saw_partial` guard prevented full_text from being
+                    # built in session mode (saw_partial=True), making
+                    # stream_chat always return "" → empty bubble regression.
+                    full_text += text
                     await _send_safe(websocket, {"type": "token", "data": text})
             if extra_msg:
                 await _send_safe(websocket, extra_msg)
@@ -849,5 +860,14 @@ async def stream_chat(
         )
     except Exception:
         pass
+
+    # Cache the completed response so the frontend can recover it via
+    # GET /api/chat/last-response?tab_id=<id> if the WebSocket was torn
+    # down mid-stream (e.g. uvicorn reload, browser navigation).
+    if tab_id and full_text:
+        _last_response_cache[tab_id] = full_text
+        if len(_last_response_cache) > 100:
+            oldest = next(iter(_last_response_cache))
+            del _last_response_cache[oldest]
 
     return full_text

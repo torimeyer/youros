@@ -1059,3 +1059,219 @@ class TestSystemPromptOstkTools:
                 f"System prompt must name {tool} explicitly so the Claude Code "
                 "subprocess uses ostk MCP tools instead of native Grep/Read/Bash."
             )
+
+
+# ---------------------------------------------------------------------------
+# Regression: 0-byte chat response (empty bubble) — 2026-05-14
+# ---------------------------------------------------------------------------
+#
+# Root cause (two bugs):
+#
+# Bug 1 — saw_partial silences full_text accumulation in session mode:
+#   In stream_chat, when tab_id is provided, saw_partial is set to True
+#   before spawning. Inside _read_stdout the else-branch is:
+#
+#       if not saw_partial:   ← False in session mode
+#           full_text += text
+#       await _send_safe(...)
+#
+#   So WebSocket tokens are sent, but full_text stays "". If the WebSocket
+#   dies (uvicorn reload), there is nothing left to recover.
+#
+# Bug 2 — _send_safe swallows every WebSocket exception silently:
+#   When uvicorn reloads, in-flight WebSockets are torn down. _send_safe
+#   catches the resulting exceptions and discards them. The subprocess keeps
+#   running as an orphan (billing real tokens), but every token frame is
+#   lost. No error surfaces in the UI — the user sees an empty bubble.
+#
+# Fix:
+#   1. Remove the `if not saw_partial` guard from the stream_event branch
+#      so full_text is always accumulated, even in session mode.
+#   2. After the stream completes, write full_text to a per-tab response
+#      cache (_last_response_cache) so the frontend can retrieve it on
+#      reconnect via GET /api/chat/last-response?tab_id=<id>.
+
+
+class FakeBrokenWebSocket:
+    """WebSocket that raises on every send_json call.
+
+    Simulates a connection torn down mid-stream (e.g. uvicorn reload).
+    """
+
+    def __init__(self) -> None:
+        self.messages: list[dict] = []
+        self.send_count = 0
+
+    async def send_json(self, data: dict) -> None:
+        self.send_count += 1
+        raise RuntimeError("WebSocket closed mid-stream")
+
+    def of_type(self, msg_type: str) -> list[dict]:
+        return [m for m in self.messages if m.get("type") == msg_type]
+
+
+def _make_delta_lines(text: str) -> list[bytes]:
+    """Build the minimal stream-json lines Claude CLI emits for a text response."""
+    delta = {
+        "type": "stream_event",
+        "event": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": text},
+        },
+    }
+    result = {
+        "type": "result",
+        "subtype": "success",
+        "usage": {"input_tokens": 500, "output_tokens": len(text.split())},
+    }
+    return [
+        (json.dumps(delta) + "\n").encode(),
+        (json.dumps(result) + "\n").encode(),
+    ]
+
+
+class TestSessionModeFullTextAccumulation:
+    """Bug regression: full_text must be accumulated in session mode.
+
+    When tab_id is set (session mode), saw_partial=True was applied as a guard
+    on the full_text accumulation path, making stream_chat always return "".
+    This test verifies the fix: full_text is built from streaming deltas
+    regardless of saw_partial.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_returns_text_in_session_mode(self):
+        """stream_chat must return the response text even when tab_id is set."""
+        import services.claude_code_provider as provider_mod
+
+        ws = FakeWebSocket()
+        lines = _make_delta_lines("Hello from session mode")
+
+        class _FakeProc:
+            stdout = FakeStdout(lines)
+            stderr = _StaticStderr(b"")
+            _return_code = 0
+
+            async def wait(self):
+                return self._return_code
+
+            def kill(self):
+                pass
+
+        with (
+            patch(
+                "services.claude_code_provider._find_claude_binary",
+                return_value="/usr/local/bin/claude",
+            ),
+            patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=_FakeProc())),
+            patch("routers.agents.register_chat_session", new=AsyncMock()),
+            patch("routers.agents.complete_chat_session", new=AsyncMock()),
+        ):
+            result = await stream_chat(
+                [{"role": "user", "content": "hi"}],
+                ws,
+                tab_id="6cc7fb0f-test-tab",
+            )
+
+        assert "Hello from session mode" in result, (
+            "stream_chat returned empty string in session mode — the saw_partial "
+            "guard is incorrectly blocking full_text accumulation from streaming "
+            "deltas (Bug 1 in the 0-byte chat response regression)."
+        )
+
+    @pytest.mark.asyncio
+    async def test_response_saved_to_cache_after_stream(self):
+        """Per-tab response cache must be populated after a successful stream.
+
+        This is the recovery mechanism: if the WebSocket dies during streaming
+        (uvicorn reload, browser navigation), the frontend can call
+        GET /api/chat/last-response?tab_id=<id> to retrieve what was generated.
+        """
+        import services.claude_code_provider as provider_mod
+        provider_mod._last_response_cache.clear()
+
+        ws = FakeWebSocket()
+        tab = "6cc7fb0f-recovery-tab"
+        lines = _make_delta_lines("Recovered response text")
+
+        class _FakeProc:
+            stdout = FakeStdout(lines)
+            stderr = _StaticStderr(b"")
+            _return_code = 0
+
+            async def wait(self):
+                return self._return_code
+
+            def kill(self):
+                pass
+
+        with (
+            patch(
+                "services.claude_code_provider._find_claude_binary",
+                return_value="/usr/local/bin/claude",
+            ),
+            patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=_FakeProc())),
+            patch("routers.agents.register_chat_session", new=AsyncMock()),
+            patch("routers.agents.complete_chat_session", new=AsyncMock()),
+        ):
+            await stream_chat(
+                [{"role": "user", "content": "recover me"}],
+                ws,
+                tab_id=tab,
+            )
+
+        cached = provider_mod._last_response_cache.get(tab, "")
+        assert "Recovered response text" in cached, (
+            f"_last_response_cache['{tab}'] is empty after stream completed. "
+            "The per-tab response cache must be populated so the frontend can "
+            "retrieve the response on reconnect if the WebSocket was torn down "
+            "(Bug 2: uvicorn reload kills in-flight WS, _send_safe eats errors)."
+        )
+
+    @pytest.mark.asyncio
+    async def test_cache_populated_even_when_websocket_dies(self):
+        """Cache must be written even when all WebSocket sends fail.
+
+        Simulates the exact failure: uvicorn reloads, WebSocket closes,
+        _send_safe eats every error. The response must still be cached
+        so recovery is possible.
+        """
+        import services.claude_code_provider as provider_mod
+        provider_mod._last_response_cache.clear()
+
+        broken_ws = FakeBrokenWebSocket()
+        tab = "6cc7fb0f-broken-ws"
+        lines = _make_delta_lines("Orphan subprocess output")
+
+        class _FakeProc:
+            stdout = FakeStdout(lines)
+            stderr = _StaticStderr(b"")
+            _return_code = 0
+
+            async def wait(self):
+                return self._return_code
+
+            def kill(self):
+                pass
+
+        with (
+            patch(
+                "services.claude_code_provider._find_claude_binary",
+                return_value="/usr/local/bin/claude",
+            ),
+            patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=_FakeProc())),
+            patch("routers.agents.register_chat_session", new=AsyncMock()),
+            patch("routers.agents.complete_chat_session", new=AsyncMock()),
+        ):
+            result = await stream_chat(
+                [{"role": "user", "content": "test"}],
+                broken_ws,
+                tab_id=tab,
+            )
+
+        cached = provider_mod._last_response_cache.get(tab, "")
+        assert "Orphan subprocess output" in cached, (
+            "Response cache must be populated even when WebSocket sends all fail. "
+            "This enables recovery after uvicorn reload kills the in-flight socket."
+        )
