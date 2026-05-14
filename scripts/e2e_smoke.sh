@@ -338,6 +338,36 @@ except Exception:
     pass
 " 2>/dev/null || true
 
+    # Delete any tasks (needles) whose title starts with "e2e". The
+    # per-journey DELETE calls in each test section cover the happy path but
+    # are fire-and-forget and silently swallow failures. This sweep catches
+    # anything left behind when a journey phase exits early, an ID extraction
+    # fails, or a curl call is interrupted. Without this sweep, failed cleanup
+    # leaves real needles in .ostk/needles/issues.jsonl that appear on the
+    # Tasks page and can overwrite existing needle IDs (→1323 incident).
+    python3 -c "
+import json, urllib.request, urllib.parse, ssl
+ctx = ssl._create_unverified_context() if '${API_BASE}'.startswith('https://') else None
+try:
+    url = '${API_BASE}/api/tasks?include_test_data=true'
+    resp = urllib.request.urlopen(url, timeout=5, context=ctx)
+    data = json.loads(resp.read())
+    tasks = data.get('tasks', [])
+    for task in tasks:
+        title = (task.get('title') or '').lower()
+        tid = task.get('id') or ''
+        if title.startswith('e2e') and tid:
+            req = urllib.request.Request(
+                '${API_BASE}/api/tasks/' + urllib.parse.quote(tid, safe=''),
+                method='DELETE')
+            try:
+                urllib.request.urlopen(req, timeout=3, context=ctx)
+            except Exception:
+                pass
+except Exception:
+    pass
+" 2>/dev/null || true
+
     # Delete any knowledge notes whose title starts with "e2e-".
     python3 -c "
 import json, urllib.request, ssl

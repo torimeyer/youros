@@ -506,6 +506,99 @@ def _check_no_live_agents(curl_stdout: str) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_tasks_ostk(tmp_path, monkeypatch):
+    """Redirect routers.tasks.ostk to a tmp OstkService so no test writes
+    to the real .ostk/needles/issues.jsonl.
+
+    Tests that already patch routers.tasks.ostk with their own ``with patch(...)``
+    are unaffected — their inner patch wins for that scope. This fixture is a
+    safety net for any test that hits the tasks router via the ASGI client
+    without its own ostk mock.
+
+    Root cause of →1323: the real ostk singleton's cwd pointed at the project
+    root, so any POST /api/tasks call (including those from e2e_smoke.sh phase 4)
+    wrote real needles into .ostk/needles/issues.jsonl.
+    """
+    from services.ostk import OstkService
+    import routers.tasks as tasks_mod
+
+    # Use a dedicated subdirectory so we don't collide with tests that also
+    # create .ostk/needles/ inside tmp_path for their own fixtures.
+    tmp_root = tmp_path / "_ostk_isolation"
+    tmp_needles = tmp_root / ".ostk" / "needles"
+    tmp_needles.mkdir(parents=True, exist_ok=True)
+    (tmp_needles / "issues.jsonl").write_text("")
+
+    tmp_svc = OstkService(cwd=str(tmp_root))
+    monkeypatch.setattr(tasks_mod, "ostk", tmp_svc)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_threads_store(tmp_path, monkeypatch):
+    """Redirect threads_store to a per-test tmp file so no test writes to
+    the real ~/.myos/threads.json.
+
+    Patches both routers.threads and routers.tasks, which each hold a
+    module-level reference imported from services.threads_store.
+
+    Root cause of →1323: the ThreadsStore singleton was initialised at import
+    time with THREADS_PATH = ~/.myos/threads.json. Any POST /api/threads call
+    from the test suite wrote directly to the live file, surfacing ghost groups
+    in the sidebar.
+    """
+    from services.threads_store import ThreadsStore
+    import routers.threads as threads_mod
+    import routers.tasks as tasks_mod
+
+    tmp_store = ThreadsStore(path=tmp_path / "threads.json")
+    monkeypatch.setattr(threads_mod, "threads_store", tmp_store)
+    monkeypatch.setattr(tasks_mod, "threads_store", tmp_store)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _guard_real_store_writes():
+    """Fail any test that silently writes to the real ostk or myOS data stores.
+
+    Records the mtime and size of issues.jsonl and threads.json before the test,
+    then asserts both are unchanged after. Writes that sneak past the isolation
+    fixtures (e.g. via a raw subprocess call to the real ostk binary) are caught
+    here instead of persisting silently into the live store.
+
+    Defined last so its teardown assertion runs while the isolation fixtures are
+    still patched — it can see the real on-disk files, not the tmp copies.
+    """
+    from pathlib import Path
+    from config import PROJECT_ROOT
+
+    def _snap(path: Path):
+        if not path.exists():
+            return None
+        st = path.stat()
+        return (st.st_mtime_ns, st.st_size)
+
+    issues_path = PROJECT_ROOT / ".ostk" / "needles" / "issues.jsonl"
+    threads_path = Path.home() / ".myos" / "threads.json"
+
+    snap_issues = _snap(issues_path)
+    snap_threads = _snap(threads_path)
+
+    yield
+
+    assert _snap(issues_path) == snap_issues, (
+        f"Real issues.jsonl was modified during test — "
+        f"a code path bypassed _isolate_tasks_ostk. "
+        f"Snapshot before: {snap_issues}, after: {_snap(issues_path)}"
+    )
+    assert _snap(threads_path) == snap_threads, (
+        f"Real threads.json was modified during test — "
+        f"a code path bypassed _isolate_threads_store. "
+        f"Snapshot before: {snap_threads}, after: {_snap(threads_path)}"
+    )
+
+
+@pytest.fixture(autouse=True)
 def _preflight_no_live_agents(request):
     """Block test execution if live claude-code agents are running.
 
