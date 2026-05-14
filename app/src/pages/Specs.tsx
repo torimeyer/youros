@@ -152,7 +152,7 @@ function TaskProgressBar({ summary }: { summary: TaskSummary }) {
 
 // --- Simple markdown body renderer ---
 
-function SpecBody({ body }: { body: string }) {
+export function SpecBody({ body }: { body: string }) {
   // Render markdown body as simple formatted text.
   // Splits on headings and renders paragraphs, bold, inline code, and lists.
   const lines = body.split("\n");
@@ -161,7 +161,13 @@ function SpecBody({ body }: { body: string }) {
 
   for (const line of lines) {
     const trimmed = line.trimStart();
-    if (trimmed.startsWith("## ")) {
+    if (trimmed.startsWith("### ")) {
+      elements.push(
+        <h4 key={key++} className="text-xs font-semibold text-slate-200 mt-2 mb-0.5">
+          {trimmed.slice(4)}
+        </h4>
+      );
+    } else if (trimmed.startsWith("## ")) {
       elements.push(
         <h3 key={key++} className="text-sm font-semibold text-white mt-3 mb-1">
           {trimmed.slice(3)}

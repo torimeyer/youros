@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import Specs, { displayStatus } from './Specs'
+import Specs, { displayStatus, SpecBody } from './Specs'
 
 vi.mock('../lib/api', () => ({
   api: {
@@ -1549,5 +1549,23 @@ describe('Specs page real-time bus', () => {
       'title',
       'Every task is already closed. The spec is done.'
     )
+  })
+})
+
+describe('SpecBody', () => {
+  it('renders ### headings as h4 elements, not literal ### text', () => {
+    render(<SpecBody body={'### Block 1: Foo\nsome paragraph'} />)
+    expect(screen.getByRole('heading', { level: 4, name: 'Block 1: Foo' })).toBeInTheDocument()
+    expect(screen.queryByText('### Block 1: Foo')).toBeNull()
+  })
+
+  it('renders ## headings as h3 elements', () => {
+    render(<SpecBody body={'## Overview\nsome text'} />)
+    expect(screen.getByRole('heading', { level: 3, name: 'Overview' })).toBeInTheDocument()
+  })
+
+  it('renders # headings as h2 elements', () => {
+    render(<SpecBody body={'# Title\nsome text'} />)
+    expect(screen.getByRole('heading', { level: 2, name: 'Title' })).toBeInTheDocument()
   })
 })
