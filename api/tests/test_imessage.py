@@ -1681,3 +1681,109 @@ def test_get_conversations_sync_unmuted_thread_shows_unread(tmp_path):
 
     assert len(result) == 1
     assert result[0]["unread_count"] == 1, "unmuted thread should surface the unread message"
+
+
+# ---------------------------------------------------------------------------
+# Save-to-contacts endpoint (→1328)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_save_contact_stores_name(client, tmp_path):
+    """POST /api/imessage/contacts/save persists the name and returns ok."""
+    from services import imessage
+
+    cache_path = tmp_path / "contacts.json"
+
+    with (
+        patch.object(imessage, "CONTACTS_CACHE_PATH", cache_path),
+        patch.object(imessage, "_contacts_cache", None),
+        patch.object(imessage, "invalidate_conversations_cache"),
+    ):
+        resp = await client.post(
+            "/api/imessage/contacts/save",
+            json={"identifier": "+15551234567", "name": "Test Person"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["name"] == "Test Person"
+    assert cache_path.exists()
+    saved = json.loads(cache_path.read_text())
+    assert saved.get("+15551234567") == "Test Person"
+
+
+@pytest.mark.asyncio
+async def test_save_contact_empty_name_returns_400(client):
+    """POST /api/imessage/contacts/save rejects an empty name."""
+    resp = await client.post(
+        "/api/imessage/contacts/save",
+        json={"identifier": "+15551234567", "name": "  "},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_save_contact_appears_in_conversations(tmp_path):
+    """After save_contact, get_conversations_sync returns the new name."""
+    from services import imessage
+
+    db_path = tmp_path / "chat.db"
+    cache_path = tmp_path / "contacts.json"
+
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    conn.executescript("""
+        CREATE TABLE chat (
+            ROWID INTEGER PRIMARY KEY,
+            guid TEXT,
+            chat_identifier TEXT,
+            display_name TEXT,
+            service_name TEXT,
+            properties BLOB,
+            room_name TEXT,
+            is_archived INTEGER DEFAULT 0,
+            last_read_message_timestamp INTEGER DEFAULT 0
+        );
+        CREATE TABLE message (
+            ROWID INTEGER PRIMARY KEY,
+            text TEXT,
+            date INTEGER,
+            is_from_me INTEGER,
+            is_read INTEGER,
+            service TEXT,
+            handle_id INTEGER
+        );
+        CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
+        CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT);
+    """)
+    conn.execute(
+        "INSERT INTO chat VALUES (1, 'guid1', '+15559876543', '', 'iMessage', NULL, NULL, 0, 0)"
+    )
+    conn.execute("INSERT INTO message VALUES (1, 'hello', 700000000000000000, 0, 1, 'iMessage', 0)")
+    conn.execute("INSERT INTO chat_message_join VALUES (1, 1)")
+    conn.commit()
+    conn.close()
+
+    with (
+        patch.object(imessage, "CHAT_DB_PATH", db_path),
+        patch.object(imessage, "CONTACTS_CACHE_PATH", cache_path),
+        patch.object(imessage, "_contacts_cache", None),
+        patch.object(imessage, "_bulk_contacts_loaded", True),
+    ):
+        # Before save: display_name is formatted phone and has_contact_name is False
+        result_before = imessage.get_conversations_sync(limit=10)
+        assert len(result_before) == 1
+        assert result_before[0]["has_contact_name"] is False
+
+        # Save the contact
+        imessage.save_contact("+15559876543", "Saved Person")
+
+        # Patch the in-memory cache reset for re-load
+        with patch.object(imessage, "_contacts_cache", None):
+            result_after = imessage.get_conversations_sync(limit=10)
+
+    assert len(result_after) == 1
+    assert result_after[0]["display_name"] == "Saved Person"
+    assert result_after[0]["has_contact_name"] is True

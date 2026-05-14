@@ -39,6 +39,11 @@ class ReplyRequest(BaseModel):
     text: str
 
 
+class SaveContactRequest(BaseModel):
+    identifier: str
+    name: str
+
+
 @router.get("/imessage/status")
 async def imessage_status():
     """Return whether iMessage integration is available on this machine.
@@ -250,6 +255,24 @@ async def imessage_contacts_search(
     except Exception:
         results = []
     return {"contacts": results, "query": q}
+
+
+@router.post("/imessage/contacts/save")
+async def imessage_save_contact(body: SaveContactRequest):
+    """Save a name for a phone number or email to the local contacts cache.
+
+    Does NOT modify macOS Contacts. The name is stored in
+    ~/.myos/imessage_cache/contacts.json and takes effect on the next
+    conversations refresh.
+    """
+    name = body.name.strip()
+    identifier = body.identifier.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty.")
+    if not identifier:
+        raise HTTPException(status_code=400, detail="Identifier cannot be empty.")
+    imessage_service.save_contact(identifier=identifier, name=name)
+    return {"ok": True, "identifier": identifier, "name": name}
 
 
 @router.get("/imessage/search")

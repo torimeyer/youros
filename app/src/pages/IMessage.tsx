@@ -8,6 +8,7 @@ interface Conversation {
   id: number
   identifier: string
   display_name: string
+  has_contact_name: boolean
   service: string
   last_message_date: string
   last_message_preview: string
@@ -258,6 +259,10 @@ export default function IMessage() {
   const [replySending, setReplySending] = useState(false)
   const [replyError, setReplyError] = useState<string | null>(null)
   const [replySuccess, setReplySuccess] = useState(false)
+  const [saveContactChatId, setSaveContactChatId] = useState<number | null>(null)
+  const [saveContactName, setSaveContactName] = useState('')
+  const [saveContactSaving, setSaveContactSaving] = useState(false)
+  const [saveContactError, setSaveContactError] = useState<string | null>(null)
 
   const fetchConversations = useCallback(async () => {
     try {
@@ -394,6 +399,22 @@ export default function IMessage() {
       setSendError((err as Error)?.message || 'Failed to send the message.')
     } finally {
       setSending(false)
+    }
+  }
+
+  const handleSaveContact = async (identifier: string, name: string) => {
+    if (!name.trim()) return
+    setSaveContactSaving(true)
+    setSaveContactError(null)
+    try {
+      await api.post('/imessage/contacts/save', { identifier, name: name.trim() })
+      setSaveContactChatId(null)
+      setSaveContactName('')
+      await fetchConversations()
+    } catch (err: unknown) {
+      setSaveContactError((err as Error)?.message || 'Could not save the contact.')
+    } finally {
+      setSaveContactSaving(false)
     }
   }
 
@@ -633,6 +654,60 @@ export default function IMessage() {
 
                     {isSelected && (
                       <div className="px-3 pb-3">
+                        {/* Save to Contacts — shown only when no contact name is known */}
+                        {!convo.has_contact_name && (
+                          <div className="mb-3 p-2.5 bg-slate-800/60 border border-slate-700 rounded-xl">
+                            {saveContactChatId === convo.id ? (
+                              <div className="flex flex-col gap-2">
+                                <p className="text-xs text-slate-400">What name should we use for {convo.identifier}?</p>
+                                <div className="flex gap-2">
+                                  <input
+                                    data-testid="save-contact-name-input"
+                                    type="text"
+                                    placeholder="Enter a name"
+                                    value={saveContactName}
+                                    onChange={(e) => setSaveContactName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleSaveContact(convo.identifier, saveContactName)
+                                      if (e.key === 'Escape') { setSaveContactChatId(null); setSaveContactName('') }
+                                    }}
+                                    autoFocus
+                                    className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                                  />
+                                  <button
+                                    data-testid="save-contact-submit"
+                                    onClick={() => handleSaveContact(convo.identifier, saveContactName)}
+                                    disabled={saveContactSaving || !saveContactName.trim()}
+                                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                                  >
+                                    {saveContactSaving ? (
+                                      <Icon name="progress_activity" size={14} className="animate-spin" />
+                                    ) : 'Save'}
+                                  </button>
+                                  <button
+                                    onClick={() => { setSaveContactChatId(null); setSaveContactName('') }}
+                                    className="px-2 py-1.5 text-slate-400 hover:text-slate-200 rounded-lg text-sm transition-colors"
+                                  >
+                                    <Icon name="close" size={14} />
+                                  </button>
+                                </div>
+                                {saveContactError && (
+                                  <p className="text-xs text-red-400">{saveContactError}</p>
+                                )}
+                              </div>
+                            ) : (
+                              <button
+                                data-testid="save-to-contacts-btn"
+                                onClick={() => { setSaveContactChatId(convo.id); setSaveContactName(''); setSaveContactError(null) }}
+                                className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                              >
+                                <Icon name="person_add" size={14} />
+                                Save to Contacts
+                              </button>
+                            )}
+                          </div>
+                        )}
+
                         <div
                           ref={messagesScrollRef}
                           className="bg-slate-900 border border-slate-800 rounded-xl p-4 max-h-96 overflow-y-auto"

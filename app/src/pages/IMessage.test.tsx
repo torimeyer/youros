@@ -37,11 +37,12 @@ const mockedApiPost = vi.mocked(api.post)
 const AVAILABLE_STATUS = { available: true, reason: null }
 const UNAVAILABLE_STATUS = { available: false, reason: 'iMessage database not found. This feature only works on macOS.' }
 
-function makeConversations(n: number = 3) {
+function makeConversations(n: number = 3, hasContactName: boolean = true) {
   return Array.from({ length: n }, (_, i) => ({
     id: i,
     identifier: `+1555000${String(i).padStart(4, '0')}`,
-    display_name: `Contact ${i}`,
+    display_name: hasContactName ? `Contact ${i}` : `+1555000${String(i).padStart(4, '0')}`,
+    has_contact_name: hasContactName,
     service: 'iMessage',
     last_message_date: `2026-04-10T10:${String(i).padStart(2, '0')}:00+00:00`,
     last_message_preview: `Hey, this is message ${i}`,
@@ -561,5 +562,99 @@ describe('IMessage connection tri-state', () => {
     expect(screen.getByText('Contact 0')).toBeInTheDocument()
 
     resolveStatus({ available: true, reason: null })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Save to Contacts (→1328)
+  // ---------------------------------------------------------------------------
+
+  it('hides Save to Contacts button when conversation has a known contact name', async () => {
+    const convos = makeConversations(1, true) // has_contact_name: true
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/imessage/conversations')) return Promise.resolve({ conversations: convos })
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+    await waitFor(() => expect(screen.getByText('Contact 0')).toBeInTheDocument())
+
+    // Expand the conversation
+    fireEvent.click(screen.getByText('Contact 0'))
+
+    expect(screen.queryByTestId('save-to-contacts-btn')).not.toBeInTheDocument()
+  })
+
+  it('shows Save to Contacts button when conversation has no known contact name', async () => {
+    const convos = makeConversations(1, false) // has_contact_name: false
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/imessage/conversations')) return Promise.resolve({ conversations: convos })
+      if (path.includes('/imessage/conversations/0/messages')) return Promise.resolve({ messages: [] })
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+    await waitFor(() => expect(screen.getByText(convos[0].identifier)).toBeInTheDocument())
+
+    // Expand the conversation
+    fireEvent.click(screen.getByText(convos[0].identifier))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('save-to-contacts-btn')).toBeInTheDocument()
+    )
+  })
+
+  it('shows name input after clicking Save to Contacts', async () => {
+    const convos = makeConversations(1, false)
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/imessage/conversations')) return Promise.resolve({ conversations: convos })
+      if (path.includes('/imessage/conversations/0/messages')) return Promise.resolve({ messages: [] })
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+    await waitFor(() => expect(screen.getByText(convos[0].identifier)).toBeInTheDocument())
+    fireEvent.click(screen.getByText(convos[0].identifier))
+
+    await waitFor(() => expect(screen.getByTestId('save-to-contacts-btn')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('save-to-contacts-btn'))
+
+    expect(screen.getByTestId('save-contact-name-input')).toBeInTheDocument()
+  })
+
+  it('calls save endpoint and refreshes conversations on submit', async () => {
+    const convos = makeConversations(1, false)
+    const refreshed = [{ ...convos[0], display_name: 'New Name', has_contact_name: true }]
+
+    let convosCallCount = 0
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/imessage/conversations')) {
+        convosCallCount++
+        return Promise.resolve({ conversations: convosCallCount > 1 ? refreshed : convos })
+      }
+      if (path.includes('/imessage/conversations/0/messages')) return Promise.resolve({ messages: [] })
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ ok: true })
+
+    renderIMessage()
+    await waitFor(() => expect(screen.getByText(convos[0].identifier)).toBeInTheDocument())
+    fireEvent.click(screen.getByText(convos[0].identifier))
+
+    await waitFor(() => expect(screen.getByTestId('save-to-contacts-btn')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('save-to-contacts-btn'))
+    fireEvent.change(screen.getByTestId('save-contact-name-input'), { target: { value: 'New Name' } })
+    fireEvent.click(screen.getByTestId('save-contact-submit'))
+
+    await waitFor(() =>
+      expect(mockedApiPost).toHaveBeenCalledWith(
+        '/imessage/contacts/save',
+        { identifier: convos[0].identifier, name: 'New Name' }
+      )
+    )
+    await waitFor(() => expect(convosCallCount).toBeGreaterThan(1))
   })
 })

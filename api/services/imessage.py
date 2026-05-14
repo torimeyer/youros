@@ -285,6 +285,35 @@ def _get_contact_display_name_cached(identifier: str) -> str:
     return _format_phone(identifier)
 
 
+def _is_contact_known(identifier: str) -> bool:
+    """Return True if this identifier has a resolved name in the contacts cache."""
+    cache = _load_contacts_cache()
+    if identifier in cache:
+        return True
+    if "@" not in identifier:
+        key = _normalize_phone_key(identifier)
+        if key and key in cache:
+            return True
+    return False
+
+
+def save_contact(identifier: str, name: str) -> None:
+    """Save a name for an identifier to the local contacts cache only.
+
+    Does NOT modify macOS Contacts. Persists to
+    ~/.myos/imessage_cache/contacts.json so the name survives backend restarts.
+    Also invalidates the conversations cache so the new name appears immediately.
+    """
+    cache = _load_contacts_cache()
+    cache[identifier] = name
+    if "@" not in identifier:
+        key = _normalize_phone_key(identifier)
+        if key:
+            cache[key] = name
+    _save_contacts_cache()
+    invalidate_conversations_cache()
+
+
 def _get_first_name_for_identifier(identifier: str) -> str:
     """Return the first name of a contact, or the raw identifier if unknown.
 
@@ -414,11 +443,16 @@ def get_conversations_sync(limit: int = 50) -> list[dict]:
             # For group chats (UUID identifiers), show "Group Chat" if no
             # display_name is set. For direct chats, show the contact name
             # or formatted phone number.
+            has_contact_name: bool
             if not display_name:
                 if _is_direct_identifier(identifier):
+                    has_contact_name = _is_contact_known(identifier)
                     display_name = _get_contact_display_name_cached(identifier)
                 else:
+                    has_contact_name = True
                     display_name = _synthesize_group_display_name(conn, chat_id)
+            else:
+                has_contact_name = True
 
             last_date = _apple_epoch_to_unix(row["last_message_date"])
             last_text = row["last_message_text"] or ""
@@ -430,6 +464,7 @@ def get_conversations_sync(limit: int = 50) -> list[dict]:
                 "id": chat_id,
                 "identifier": identifier,
                 "display_name": display_name,
+                "has_contact_name": has_contact_name,
                 "service": row["service_name"] or "iMessage",
                 "last_message_date": _unix_to_iso(last_date),
                 "last_message_preview": last_text,
