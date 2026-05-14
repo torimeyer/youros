@@ -76,6 +76,8 @@ except Exception:
             rule_enabled saa_must_spawn && _saa_must_spawn_check "$TOOL" "$CMD"
             . "$LIB/rules/worktree_cwd_guard.sh"
             rule_enabled worktree_cwd_guard && _worktree_cwd_guard_bash "$TOOL" "$INPUT"
+            . "$LIB/rules/main_commit_guard.sh"
+            rule_enabled main_commit_guard && _main_commit_guard_check "$TOOL" "$CMD" "$INPUT"
         fi
         ;;
 
