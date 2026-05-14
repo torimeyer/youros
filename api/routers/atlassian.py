@@ -231,12 +231,13 @@ async def atlassian_connect(req: AtlassianConnectRequest):
 
 @router.get("/atlassian/status")
 async def atlassian_status():
-    """Return Atlassian connection status without making an API call."""
+    """Return Atlassian connection status, including whether the token has expired."""
     connected = atlassian_service.is_connected()
     email = ""
     site = ""
     jira_url = ""
     confluence_url = ""
+    expired = False
     if connected:
         try:
             config = atlassian_service.get_config()
@@ -247,12 +248,17 @@ async def atlassian_status():
                 confluence_url = f"https://{site}/wiki"
         except Exception:
             pass
+        try:
+            expired = not await atlassian_service.probe_token_validity()
+        except Exception:
+            expired = False
     return {
         "connected": connected,
         "email": email,
         "site": site,
         "jira_url": jira_url,
         "confluence_url": confluence_url,
+        "expired": expired,
     }
 
 

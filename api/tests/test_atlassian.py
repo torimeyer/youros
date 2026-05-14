@@ -98,6 +98,7 @@ async def test_atlassian_status_connected(client):
     with patch("routers.atlassian.atlassian_service") as mock_svc:
         mock_svc.is_connected.return_value = True
         mock_svc.get_config.return_value = {"email": "user@example.com", "site": "example.atlassian.net"}
+        mock_svc.probe_token_validity = AsyncMock(return_value=True)
         resp = await client.get("/api/atlassian/status")
 
     assert resp.status_code == 200

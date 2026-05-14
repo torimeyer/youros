@@ -203,7 +203,8 @@ async def test_atlassian_status_returns_jira_and_confluence_urls(client):
     config = {"email": "user@acme.com", "site": "acme.atlassian.net"}
     with patch("routers.atlassian.atlassian_service.is_connected", return_value=True):
         with patch("routers.atlassian.atlassian_service.get_config", return_value=config):
-            resp = await client.get("/api/atlassian/status")
+            with patch("routers.atlassian.atlassian_service.probe_token_validity", new_callable=AsyncMock, return_value=True):
+                resp = await client.get("/api/atlassian/status")
     assert resp.status_code == 200
     data = resp.json()
     assert data["connected"] is True
