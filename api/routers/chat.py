@@ -674,6 +674,13 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
     except Exception:
         pass
 
+    # Rewrite cross-model assistant turns so this provider only sees its own
+    # prior responses as role:assistant. Other models' turns become user-role
+    # context with a [ModelName]: prefix, enabling cross-model references in
+    # single-model follow-ups after an all-mode broadcast exchange.
+    from services.chat_providers import _transform_messages_for_provider
+    messages = _transform_messages_for_provider(messages, provider)
+
     full_text = ""
     status = "completed"
     try:

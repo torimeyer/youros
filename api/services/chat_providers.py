@@ -3708,6 +3708,55 @@ async def stream_multi_ai_conversation(
         await websocket.send_json({"type": "done"})
 
 
+def _transform_messages_for_provider(
+    messages: list[dict], target_model: str
+) -> list[dict]:
+    """Rewrite cross-model assistant turns so each provider only sees its own
+    prior responses as ``role: "assistant"``.
+
+    In all-mode broadcast the conversation history accumulates assistant turns
+    from multiple models (each carrying a ``"model"`` field). When that history
+    is fed back into a subsequent call, the target provider would otherwise see
+    another model's responses as if it had generated them, breaking attribution
+    and making it impossible to reference what "the other model" said.
+
+    For every assistant turn whose ``"model"`` field differs from
+    ``target_model``, this function rewrites the turn to ``role: "user"`` with
+    a ``[ModelName]:`` prefix so the provider understands the source. Turns
+    with no ``"model"`` field (plain single-model history) are passed through
+    unchanged.
+
+    Consecutive ``user`` messages produced by the rewrite are merged (joined
+    with ``\\n\\n``) so the resulting list alternates user/assistant as both
+    the Anthropic and Gemini APIs require.
+    """
+    result: list[dict] = []
+    for msg in messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        msg_model = msg.get("model", "")
+
+        if role == "assistant" and msg_model and msg_model != target_model:
+            label = msg_model.capitalize()
+            text = content if isinstance(content, str) else str(content)
+            new_msg: dict = {"role": "user", "content": f"[{label}]: {text}"}
+        else:
+            new_msg = dict(msg)
+
+        if result and result[-1]["role"] == "user" and new_msg["role"] == "user":
+            prev_content = result[-1].get("content", "")
+            new_content = new_msg.get("content", "")
+            if isinstance(prev_content, str) and isinstance(new_content, str):
+                result[-1] = dict(result[-1])
+                result[-1]["content"] = prev_content + "\n\n" + new_content
+            else:
+                result.append(new_msg)
+        else:
+            result.append(new_msg)
+
+    return result
+
+
 async def stream_group_broadcast(
     *,
     websocket: WebSocket,
@@ -3719,8 +3768,10 @@ async def stream_group_broadcast(
 
     Used when the user addresses multiple AIs collectively (e.g. "you guys",
     "both of you", "everyone") or toggles the All pill. Every AI receives
-    the full conversation history and responds directly to the user. Models
-    do not read each other's answers.
+    the full conversation history and responds directly to the user. Each
+    model sees the other model's prior turns rewritten as user-role context
+    with a ``[ModelName]:`` prefix so models can reference each other's
+    previous responses (see ``_transform_messages_for_provider``).
 
     Execution is parallel (asyncio.gather) so the user sees both bubbles
     update simultaneously rather than waiting for Claude to finish before
@@ -3761,12 +3812,15 @@ async def stream_group_broadcast(
     async def _run_one(model: str) -> None:
         proxy = _MultiAiTurnWebSocket(websocket, model_tag=model)
         proxy._attach_lock(write_lock)
+        # Each model gets a transformed view: the other model's prior assistant
+        # turns become user-role context with a [ModelName]: prefix.
+        provider_messages = _transform_messages_for_provider(messages, model)
         try:
             if model == "gemini":
-                await chat_service.stream_gemini(messages, proxy)  # type: ignore[arg-type]
+                await chat_service.stream_gemini(provider_messages, proxy)  # type: ignore[arg-type]
             elif model == "claude":
                 if use_tools:
-                    await chat_service.agent_anthropic(messages, proxy)  # type: ignore[arg-type]
+                    await chat_service.agent_anthropic(provider_messages, proxy)  # type: ignore[arg-type]
                 else:
                     # Pass disable_tools=True so the Claude Code CLI
                     # backend runs in pure text mode. Without this the
@@ -3778,7 +3832,7 @@ async def stream_group_broadcast(
                     # that made Claude's first token arrive tens of
                     # seconds after Gemini's. See stream_anthropic for
                     # the fallback behavior when no key is present.
-                    await chat_service.stream_anthropic(messages, proxy, disable_tools=True, force_api=True)  # type: ignore[arg-type]
+                    await chat_service.stream_anthropic(provider_messages, proxy, disable_tools=True, force_api=True)  # type: ignore[arg-type]
             else:
                 await _safe_send(
                     {"type": "error", "data": f"Unknown model: {model}", "model": model}
