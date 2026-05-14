@@ -2355,16 +2355,59 @@ class ChatService:
                                             })
                     return await stream.get_final_message()
             else:
+                # →1355/→1354: switch from stream.text_stream to raw event
+                # iteration so we can detect text-block boundaries.
+                #
+                # stream.text_stream is a convenience iterator that yields
+                # text from ALL text blocks in sequence with NO separator.
+                # When a response has [text_block] [tool_use] [text_block]
+                # the two text chunks arrive back-to-back with no space or
+                # newline, smashing sentences together and breaking code
+                # fences that rely on being on their own line.
+                #
+                # By watching content_block_start / content_block_stop we
+                # know when one text block ends and a new one begins (with
+                # a non-text block in between).  At that boundary we emit a
+                # "\n\n" token so the frontend accumulates a proper
+                # paragraph separator.
                 async with client.messages.stream(**stream_kwargs) as stream:
-                    async for text in stream.text_stream:
-                        if not _first_token_logged[0]:
-                            _anthropic_log.info(
-                                "anthropic_phase=first_token ms=%.0f",
-                                (_time.perf_counter() - _t0) * 1000,
-                            )
-                            _first_token_logged[0] = True
-                        full_text += text
-                        await websocket.send_json({"type": "token", "data": text})
+                    _in_text_block = False
+                    _had_text_block = False
+                    async for event in stream:
+                        if not hasattr(event, "type"):
+                            continue
+                        if event.type == "content_block_start":
+                            block = getattr(event, "content_block", None)
+                            if block and getattr(block, "type", "") == "text":
+                                # Starting a new text block.  If a previous
+                                # text block already ended (and something
+                                # non-text came between), inject a separator.
+                                if _had_text_block and not _in_text_block:
+                                    sep = "\n\n"
+                                    full_text += sep
+                                    await websocket.send_json(
+                                        {"type": "token", "data": sep}
+                                    )
+                                _in_text_block = True
+                        elif event.type == "content_block_stop":
+                            if _in_text_block:
+                                _had_text_block = True
+                                _in_text_block = False
+                        elif event.type == "content_block_delta":
+                            delta = getattr(event, "delta", None)
+                            if delta and getattr(delta, "type", "") == "text_delta":
+                                text = getattr(delta, "text", "")
+                                if text:
+                                    if not _first_token_logged[0]:
+                                        _anthropic_log.info(
+                                            "anthropic_phase=first_token ms=%.0f",
+                                            (_time.perf_counter() - _t0) * 1000,
+                                        )
+                                        _first_token_logged[0] = True
+                                    full_text += text
+                                    await websocket.send_json(
+                                        {"type": "token", "data": text}
+                                    )
                     return await stream.get_final_message()
 
         try:
