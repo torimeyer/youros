@@ -4,11 +4,6 @@ import Icon from "../../components/Icon";
 // not just stored status. "all" shows every non-shelved task.
 export type StatusFilter = "all" | "open" | "in_progress" | "closed";
 
-interface Thread {
-  id: string;
-  name: string;
-}
-
 export type ClosedSortOrder = "newest" | "oldest";
 
 export type SortBy = "date-desc" | "date-asc" | "status" | "label";
@@ -16,12 +11,9 @@ export type SortBy = "date-desc" | "date-asc" | "status" | "label";
 interface FilterDrawerProps {
   open?: boolean;
   selectedStatus: StatusFilter;
-  threadFilter: string | null;
-  threads: Thread[];
   filterCounts: Partial<Record<Exclude<StatusFilter, "all">, number>>;
   sortBy?: SortBy;
   onStatusChange: (s: StatusFilter) => void;
-  onThreadChange: (id: string | null) => void;
   onSortByChange?: (s: SortBy) => void;
 }
 
@@ -35,12 +27,9 @@ const STATUS_LABELS: Record<StatusFilter, string> = {
 export function FilterDrawer({
   open: _open,
   selectedStatus,
-  threadFilter,
-  threads,
   filterCounts,
   sortBy = "date-desc",
   onStatusChange,
-  onThreadChange,
   onSortByChange,
 }: FilterDrawerProps) {
   const pillClass = (active: boolean) =>
@@ -118,38 +107,6 @@ export function FilterDrawer({
                 {label}
               </button>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* Groups row */}
-      {threads.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-500 uppercase tracking-wide w-16 shrink-0">
-            Groups
-          </span>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {threads.map((thread) => (
-              <button
-                key={thread.id}
-                onClick={() => onThreadChange(threadFilter === thread.id ? null : thread.id)}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-all bg-teal-500/20 text-teal-400 ${
-                  threadFilter === thread.id ? "ring-1 ring-white/30" : "opacity-60 hover:opacity-100"
-                }`}
-              >
-                <Icon name="folder" className="text-[10px]" />
-                {thread.name}
-              </button>
-            ))}
-            {threadFilter && (
-              <button
-                onClick={() => onThreadChange(null)}
-                className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 px-1"
-                title="Clear group filter"
-              >
-                <Icon name="close" className="text-sm" />
-              </button>
-            )}
           </div>
         </div>
       )}
