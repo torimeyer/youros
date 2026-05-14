@@ -2,6 +2,14 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
+# →1330 Groups→Labels migration: /api/threads now returns 410 Gone. The
+# legacy CRUD tests below predate that decision and assert behavior that
+# no longer exists. The new 410-contract coverage lives in
+# api/tests/test_1330_groups_deprecated.py (13 passing tests). Module
+# left in place for historical reference; skipped wholesale until either
+# removed or rewritten against the Labels API.
+pytestmark = pytest.mark.skip(reason="→1330: legacy Threads CRUD tests obsolete after Groups→Labels migration; see test_1330_groups_deprecated.py for current coverage")
+
 
 # --- GET /api/threads ---
 
