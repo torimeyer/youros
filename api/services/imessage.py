@@ -285,6 +285,61 @@ def _get_contact_display_name_cached(identifier: str) -> str:
     return _format_phone(identifier)
 
 
+def _get_first_name_for_identifier(identifier: str) -> str:
+    """Return the first name of a contact, or the raw identifier if unknown.
+
+    Looks up the contact in the cache by exact key and normalized 10-digit
+    phone key. If found, returns the first whitespace-delimited token of the
+    full name. If not found, returns the raw identifier (phone or email) so
+    group chat names still degrade gracefully.
+    """
+    cache = _load_contacts_cache()
+    name: str | None = None
+    if identifier in cache:
+        name = cache[identifier]
+    elif "@" not in identifier:
+        key = _normalize_phone_key(identifier)
+        if key and key in cache:
+            name = cache[key]
+    if name:
+        parts = name.split()
+        return parts[0] if parts else identifier
+    return identifier
+
+
+def _synthesize_group_display_name(conn: sqlite3.Connection, chat_id: int) -> str:
+    """Build a display name for a group chat from participant first names.
+
+    Queries chat_handle_join + handle for all participants, maps each
+    handle.id to a contact first name (or raw identifier as fallback),
+    then formats the result:
+      - 1-3 names  → "Alice, Bob, Carol"
+      - 4+ names   → "Alice, Bob & N others"
+
+    Falls back to "Group Chat" if the table is missing or empty.
+    """
+    try:
+        rows = conn.execute(
+            """SELECT h.id
+               FROM chat_handle_join chj
+               JOIN handle h ON h.ROWID = chj.handle_id
+               WHERE chj.chat_id = ?""",
+            (chat_id,),
+        ).fetchall()
+    except Exception:
+        return "Group Chat"
+
+    if not rows:
+        return "Group Chat"
+
+    first_names = [_get_first_name_for_identifier(row["id"]) for row in rows]
+    count = len(first_names)
+    if count <= 3:
+        return ", ".join(first_names)
+    others = count - 2
+    return f"{first_names[0]}, {first_names[1]} & {others} others"
+
+
 def _lookup_contact_name(identifier: str) -> str | None:
     """Look up a single contact name via AppleScript. Returns None on miss."""
     if not identifier or "@" in identifier:
@@ -363,7 +418,7 @@ def get_conversations_sync(limit: int = 50) -> list[dict]:
                 if _is_direct_identifier(identifier):
                     display_name = _get_contact_display_name_cached(identifier)
                 else:
-                    display_name = "Group Chat"
+                    display_name = _synthesize_group_display_name(conn, chat_id)
 
             last_date = _apple_epoch_to_unix(row["last_message_date"])
             last_text = row["last_message_text"] or ""

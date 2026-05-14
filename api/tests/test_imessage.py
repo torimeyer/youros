@@ -1394,6 +1394,239 @@ def test_get_conversations_sync_muted_thread_has_zero_unread(tmp_path):
     assert result[0]["last_message_preview"] == "sup"
 
 
+# ---------------------------------------------------------------------------
+# Group chat participant naming (→1326)
+# ---------------------------------------------------------------------------
+
+_GROUP_SCHEMA = """
+    CREATE TABLE chat (
+        ROWID INTEGER PRIMARY KEY,
+        guid TEXT,
+        chat_identifier TEXT,
+        display_name TEXT,
+        service_name TEXT,
+        properties BLOB,
+        room_name TEXT,
+        is_archived INTEGER DEFAULT 0,
+        last_read_message_timestamp INTEGER DEFAULT 0
+    );
+    CREATE TABLE message (
+        ROWID INTEGER PRIMARY KEY,
+        text TEXT,
+        date INTEGER,
+        is_from_me INTEGER,
+        is_read INTEGER,
+        service TEXT,
+        handle_id INTEGER
+    );
+    CREATE TABLE chat_message_join (
+        chat_id INTEGER,
+        message_id INTEGER
+    );
+    CREATE TABLE chat_handle_join (
+        chat_id INTEGER,
+        handle_id INTEGER
+    );
+    CREATE TABLE handle (
+        ROWID INTEGER PRIMARY KEY,
+        id TEXT
+    );
+"""
+
+
+def _build_group_db(tmp_path, participants: list[str], display_name: str = "") -> "Path":
+    """Create a minimal chat.db with one group chat and the given participants."""
+    import sqlite3 as _sqlite3
+
+    db_path = tmp_path / "chat.db"
+    conn = _sqlite3.connect(str(db_path))
+    conn.executescript(_GROUP_SCHEMA)
+
+    group_id = "chat00000000-0000-0000-0000-000000000042"
+    conn.execute(
+        "INSERT INTO chat VALUES (1, 'guid1', ?, ?, 'iMessage', NULL, NULL, 0, 0)",
+        (group_id, display_name),
+    )
+    conn.execute("INSERT INTO message VALUES (1, 'hello group', 700000000000000000, 0, 1, 'iMessage', 0)")
+    conn.execute("INSERT INTO chat_message_join VALUES (1, 1)")
+
+    for i, identifier in enumerate(participants, start=1):
+        conn.execute("INSERT INTO handle VALUES (?, ?)", (i, identifier))
+        conn.execute("INSERT INTO chat_handle_join VALUES (1, ?)", (i,))
+
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+def test_get_conversations_sync_group_chat_two_participants(tmp_path):
+    """Two participants → 'Alice, Bob'."""
+    from services import imessage
+
+    db_path = _build_group_db(tmp_path, ["+15550000001", "+15550000002"])
+    contacts = {"5550000001": "Alice Smith", "5550000002": "Bob Jones"}
+
+    with patch.object(imessage, "CHAT_DB_PATH", db_path), \
+         patch.object(imessage, "_contacts_cache", contacts):
+        result = imessage.get_conversations_sync(limit=10)
+
+    assert len(result) == 1
+    assert result[0]["display_name"] == "Alice, Bob"
+
+
+def test_get_conversations_sync_group_chat_three_participants(tmp_path):
+    """Three participants → 'Alice, Bob, Carol'."""
+    from services import imessage
+
+    db_path = _build_group_db(tmp_path, ["+15550000001", "+15550000002", "+15550000003"])
+    contacts = {
+        "5550000001": "Alice Smith",
+        "5550000002": "Bob Jones",
+        "5550000003": "Carol White",
+    }
+
+    with patch.object(imessage, "CHAT_DB_PATH", db_path), \
+         patch.object(imessage, "_contacts_cache", contacts):
+        result = imessage.get_conversations_sync(limit=10)
+
+    assert len(result) == 1
+    assert result[0]["display_name"] == "Alice, Bob, Carol"
+
+
+def test_get_conversations_sync_group_chat_four_participants(tmp_path):
+    """Four participants → 'Alice, Bob & 2 others'."""
+    from services import imessage
+
+    db_path = _build_group_db(
+        tmp_path, ["+15550000001", "+15550000002", "+15550000003", "+15550000004"]
+    )
+    contacts = {
+        "5550000001": "Alice Smith",
+        "5550000002": "Bob Jones",
+        "5550000003": "Carol White",
+        "5550000004": "Dave Black",
+    }
+
+    with patch.object(imessage, "CHAT_DB_PATH", db_path), \
+         patch.object(imessage, "_contacts_cache", contacts):
+        result = imessage.get_conversations_sync(limit=10)
+
+    assert len(result) == 1
+    assert result[0]["display_name"] == "Alice, Bob & 2 others"
+
+
+def test_get_conversations_sync_group_chat_five_participants(tmp_path):
+    """Five participants → 'Alice, Bob & 3 others'."""
+    from services import imessage
+
+    db_path = _build_group_db(
+        tmp_path,
+        ["+15550000001", "+15550000002", "+15550000003", "+15550000004", "+15550000005"],
+    )
+    contacts = {
+        "5550000001": "Alice Smith",
+        "5550000002": "Bob Jones",
+        "5550000003": "Carol White",
+        "5550000004": "Dave Black",
+        "5550000005": "Eve Green",
+    }
+
+    with patch.object(imessage, "CHAT_DB_PATH", db_path), \
+         patch.object(imessage, "_contacts_cache", contacts):
+        result = imessage.get_conversations_sync(limit=10)
+
+    assert len(result) == 1
+    assert result[0]["display_name"] == "Alice, Bob & 3 others"
+
+
+def test_get_conversations_sync_group_chat_no_contacts_match(tmp_path):
+    """When no contacts match, display name falls back to raw identifiers."""
+    from services import imessage
+
+    db_path = _build_group_db(tmp_path, ["+15550000001", "+15550000002"])
+
+    with patch.object(imessage, "CHAT_DB_PATH", db_path), \
+         patch.object(imessage, "_contacts_cache", {}):
+        result = imessage.get_conversations_sync(limit=10)
+
+    assert len(result) == 1
+    # Raw identifiers used as-is when no contact found
+    assert result[0]["display_name"] == "+15550000001, +15550000002"
+
+
+def test_get_conversations_sync_group_chat_named_by_user(tmp_path):
+    """When the user set a group name in iMessage, use it unchanged."""
+    from services import imessage
+
+    db_path = _build_group_db(
+        tmp_path,
+        ["+15550000001", "+15550000002"],
+        display_name="The Squad",
+    )
+    contacts = {"5550000001": "Alice Smith", "5550000002": "Bob Jones"}
+
+    with patch.object(imessage, "CHAT_DB_PATH", db_path), \
+         patch.object(imessage, "_contacts_cache", contacts):
+        result = imessage.get_conversations_sync(limit=10)
+
+    assert len(result) == 1
+    assert result[0]["display_name"] == "The Squad"
+
+
+def test_synthesize_group_display_name_missing_table():
+    """Falls back to 'Group Chat' when chat_handle_join table does not exist."""
+    import sqlite3 as _sqlite3
+    from services import imessage
+
+    conn = _sqlite3.connect(":memory:")
+    conn.row_factory = _sqlite3.Row
+
+    # No tables created — simulates older iMessage DB
+    result = imessage._synthesize_group_display_name(conn, 1)
+    assert result == "Group Chat"
+
+
+def test_synthesize_group_display_name_no_participants():
+    """Falls back to 'Group Chat' when chat has no handle rows."""
+    import sqlite3 as _sqlite3
+    from services import imessage
+
+    conn = _sqlite3.connect(":memory:")
+    conn.row_factory = _sqlite3.Row
+    conn.executescript("""
+        CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER);
+        CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT);
+    """)
+
+    result = imessage._synthesize_group_display_name(conn, 99)
+    assert result == "Group Chat"
+
+
+def test_get_first_name_for_identifier_known_contact():
+    """Returns the first name token when the contact is in cache."""
+    from services import imessage
+
+    with patch.object(imessage, "_contacts_cache", {"5550000001": "Alice Smith"}):
+        assert imessage._get_first_name_for_identifier("+15550000001") == "Alice"
+
+
+def test_get_first_name_for_identifier_single_word_name():
+    """Single-word names are returned in full."""
+    from services import imessage
+
+    with patch.object(imessage, "_contacts_cache", {"5550000001": "Mom"}):
+        assert imessage._get_first_name_for_identifier("+15550000001") == "Mom"
+
+
+def test_get_first_name_for_identifier_unknown_returns_raw():
+    """Unknown identifier returns the raw value."""
+    from services import imessage
+
+    with patch.object(imessage, "_contacts_cache", {}):
+        assert imessage._get_first_name_for_identifier("+15550000001") == "+15550000001"
+        assert imessage._get_first_name_for_identifier("user@example.com") == "user@example.com"
+
+
 def test_get_conversations_sync_unmuted_thread_shows_unread(tmp_path):
     """An unmuted thread with unread messages shows a nonzero unread_count."""
     import plistlib
