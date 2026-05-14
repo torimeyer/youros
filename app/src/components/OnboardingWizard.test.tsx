@@ -613,10 +613,10 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('other-role-input')).not.toBeInTheDocument()
   })
 
-  it('step count for personal mode is 11', () => {
+  it('step count for personal mode is 10', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    expect(dots.children).toHaveLength(11)
+    expect(dots.children).toHaveLength(10)
   })
 })
 

@@ -26,7 +26,7 @@ const localStorageMock = (() => {
 })()
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
-// Navigate to Tracking step (index 8 in PERSONAL_STEPS_NO_FORK)
+// Navigate to Tracking step (index 7 in PERSONAL_STEPS_NO_FORK)
 function clickNext(n: number) {
   for (let i = 0; i < n; i++) {
     fireEvent.click(screen.getByTestId('next-button'))
@@ -34,7 +34,7 @@ function clickNext(n: number) {
 }
 
 function goToTrackingStep() {
-  clickNext(8) // Welcome(0)->You->Name->FilesLocation->Profile->Customize->Theme->EnhanceClaude->Tracking(8)
+  clickNext(7) // Welcome(0)->You->Name->FilesLocation->Profile->Customize->Theme->Tracking(7)
 }
 
 describe('OnboardingWizard - Tracking step', () => {
@@ -60,7 +60,7 @@ describe('OnboardingWizard - Tracking step', () => {
     vi.mocked(api.patch).mockResolvedValue({})
   })
 
-  it('renders the Tracking step after EnhanceClaude', () => {
+  it('renders the Tracking step after Theme', () => {
     render(<OnboardingWizard />)
     goToTrackingStep()
     expect(screen.getByTestId('step-tracking')).toBeInTheDocument()
