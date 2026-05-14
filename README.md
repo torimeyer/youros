@@ -214,6 +214,12 @@ To use Gemini through your Google account:
 4. Add redirect URI: `http://localhost:8000/api/auth/google/callback`
 5. Copy client ID and secret into `api/.env` (see `api/.env.example`)
 
+## Atlassian (Jira and Confluence) Setup
+
+Connect Jira and Confluence in **Settings > Atlassian**. myOS uses OAuth, no password needed. Full setup instructions, permission details, and troubleshooting: [docs/integrations/atlassian.md](docs/integrations/atlassian.md).
+
+**If you connected before May 2026:** Disconnect and reconnect once. Atlassian deprecated the old permission names used in earlier versions of myOS, and newer API endpoints reject tokens that only carry them. The reconnect takes about 30 seconds and is a one-time step.
+
 ## Pre-commit Test Hook
 
 myOS ships a lightweight git pre-commit hook that runs pytest, vitest, and `tsc -b` only on the files you staged. It catches broken tests at the commit that introduces them, instead of letting them pile up until release day. A typical commit stays under 30 seconds because only the relevant tests run.
