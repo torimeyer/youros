@@ -1378,6 +1378,93 @@ def _worktree_has_new_work(worktree_path: str) -> bool:
     return False
 
 
+def _is_scaffold_only_with_dirty_worktree(
+    worktree_path: str,
+    branch: str,
+) -> tuple[bool, str]:
+    """Return (True, reason) when a worktree has only scaffold commits AND dirty files.
+
+    A "premature close" pattern is:
+      1. All commits on the branch since main are chore(→…): scaffold … style
+         (subject starts with "chore(" and contains ": scaffold")
+      2. AND the worktree has uncommitted changes — staged, unstaged, OR
+         untracked new files that were written but never `git add`-ed
+
+    Both conditions must hold. A scaffold-only branch with a clean worktree
+    is fine (agent scaffolded and stopped cleanly). A dirty worktree with
+    real fix commits is also fine.
+
+    Used by mark_agent_complete (→1346) to block premature closure.
+    """
+    import subprocess as _sp
+    from pathlib import Path as _P
+
+    wt = _P(worktree_path)
+    if not wt.exists():
+        return False, ""
+
+    try:
+        # 1. Find merge-base with main
+        r_base = _sp.run(
+            ["git", "merge-base", "HEAD", "main"],
+            cwd=worktree_path, capture_output=True, text=True, timeout=5,
+        )
+        if r_base.returncode != 0 or not r_base.stdout.strip():
+            return False, ""
+        merge_base = r_base.stdout.strip()
+
+        # 2. Count total commits ahead of main
+        r_count = _sp.run(
+            ["git", "rev-list", "--count", f"{merge_base}..HEAD"],
+            cwd=worktree_path, capture_output=True, text=True, timeout=5,
+        )
+        if r_count.returncode != 0:
+            return False, ""
+        total_commits = int(r_count.stdout.strip() or "0")
+        if total_commits == 0:
+            return False, ""  # no commits at all — not a scaffold pattern
+
+        # 3. Count non-scaffold commits (subject must start "chore(" and contain ": scaffold")
+        r_log = _sp.run(
+            ["git", "log", "--format=%s", f"{merge_base}..HEAD"],
+            cwd=worktree_path, capture_output=True, text=True, timeout=5,
+        )
+        if r_log.returncode != 0:
+            return False, ""
+        subjects = [s.strip() for s in r_log.stdout.splitlines() if s.strip()]
+        non_scaffold = [
+            s for s in subjects
+            if not (s.startswith("chore(") and ": scaffold" in s)
+        ]
+        if non_scaffold:
+            return False, ""  # has real commits — not premature
+
+        # 4. Check for dirty state: staged, unstaged, or untracked files
+        # git status --porcelain covers all three: M, A, ??, etc.
+        r_status = _sp.run(
+            ["git", "status", "--porcelain"],
+            cwd=worktree_path, capture_output=True, text=True, timeout=5,
+        )
+        if r_status.returncode != 0:
+            return False, ""
+        dirty_lines = [l for l in r_status.stdout.splitlines() if l.strip()]
+        if not dirty_lines:
+            return False, ""  # clean worktree — scaffolded and stopped intentionally
+
+        # Both conditions met: scaffold-only history + dirty working tree
+        last_scaffold = subjects[0] if subjects else "(unknown)"
+        dirty_summary = ", ".join(l.strip() for l in dirty_lines[:3])
+        reason = (
+            f"scaffold-only-commits ({total_commits} scaffold, 0 real) "
+            f"+ {len(dirty_lines)} dirty file(s): {dirty_summary}"
+        )
+        return True, reason
+
+    except Exception as _exc:
+        logger.debug("_is_scaffold_only_with_dirty_worktree: error wt=%s err=%s", worktree_path, _exc)
+        return False, ""
+
+
 def _is_ghost_completion(meta: dict, name: str) -> tuple:
     """Return (True, reason) if this agent completed with zero real work.
 
@@ -6954,6 +7041,60 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             "source": "claude-code",
         }
     await _save_agent_state_async()
+
+    # Scaffold-only + dirty worktree guard (→1346).
+    # Block completion when the agent's worktree has ONLY scaffold commits AND
+    # uncommitted/untracked changes. This means the agent exited after writing
+    # files but before `git add` + commit — closing the needle here would lose
+    # the work. Reset to "running" so the needle stays open, write a warning,
+    # and surface the alert so the parent session can intervene.
+    _sc_branch = existing_meta.get("worktree_branch")
+    _sc_wt_path = existing_meta.get("worktree_path")
+    if (
+        existing_meta.get("isolation") == "worktree"
+        and _sc_branch
+        and _sc_wt_path
+    ):
+        _sc_premature, _sc_reason = _is_scaffold_only_with_dirty_worktree(
+            worktree_path=_sc_wt_path,
+            branch=_sc_branch,
+        )
+        if _sc_premature:
+            import json as _json_sc
+            _warn_path = Path(os.path.expanduser("~/.myos/subagents/scaffold-warnings.jsonl"))
+            _warn_path.parent.mkdir(parents=True, exist_ok=True)
+            _warn_entry = _json_sc.dumps({
+                "agent": name,
+                "spawned_at": existing_meta.get("spawned_at", ""),
+                "worktree_path": _sc_wt_path,
+                "branch": _sc_branch,
+                "reason": _sc_reason,
+                "ts": now_iso,
+                "warning": "premature-close blocked: scaffold-only commits + uncommitted changes in worktree",
+            })
+            try:
+                with open(_warn_path, "a") as _wf:
+                    _wf.write(_warn_entry + "\n")
+            except Exception as _we:
+                logger.warning("scaffold_premature_close_guard: failed to write warning: %s", _we)
+            # Reset sentinel to "running" so the UI keeps the agent active
+            # and the needle stays open.
+            _set_agent_status(name, "running")
+            await _save_agent_state_async()
+            logger.warning(
+                "mark_agent_complete.scaffold_premature_close_blocked name=%s reason=%s",
+                name, _sc_reason,
+            )
+            return {
+                "result": (
+                    f"Agent '{name}' blocked: scaffold-only commits exist but worktree "
+                    "has uncommitted changes. Commit the real work before closing. "
+                    "Warning written to ~/.myos/subagents/scaffold-warnings.jsonl."
+                ),
+                "status": "running",
+                "scaffold_premature_close": True,
+                "reason": _sc_reason,
+            }
 
     # Auto-merge worktree branch onto main when a bridge-spawned agent completes.
     # The PostToolUse complete-agent.sh hook handles this for native Agent-tool spawns
