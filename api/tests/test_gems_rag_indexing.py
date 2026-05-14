@@ -132,25 +132,25 @@ async def test_create_gem_skips_missing_file_gracefully(client, tmp_path, monkey
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_upload_pdf_returns_400(client):
-    """POST /gems/upload with .pdf must return 400 — not silent success."""
+async def test_upload_pdf_no_text_returns_422(client):
+    """POST /gems/upload with an image-only PDF must return 422 (no readable text)."""
     resp = await client.post(
         "/api/gems/upload",
         files={"file": ("report.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
     )
-    assert resp.status_code == 400
-    assert "Unsupported" in resp.json()["detail"]
+    assert resp.status_code == 422
+    assert "text" in resp.json()["detail"].lower()
 
 
 @pytest.mark.asyncio
-async def test_upload_docx_returns_400(client):
-    """POST /gems/upload with .docx must return 400."""
+async def test_upload_docx_returns_200(client):
+    """POST /gems/upload with .docx must return 200 — accepted since →1284."""
     resp = await client.post(
         "/api/gems/upload",
         files={"file": ("doc.docx", io.BytesIO(b"PK\x03\x04fake"), "application/vnd.openxmlformats")},
     )
-    assert resp.status_code == 400
-    assert "Unsupported" in resp.json()["detail"]
+    assert resp.status_code == 200
+    assert "filename" in resp.json()
 
 
 @pytest.mark.asyncio
