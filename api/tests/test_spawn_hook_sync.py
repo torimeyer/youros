@@ -79,9 +79,9 @@ def test_hook_sync_returns_false_on_missing_src():
         assert result is False
 
 
-def test_hooks_dir_is_symlink_to_main():
-    # →971: hooks/ is now a live symlink so edits on main land immediately
-    # in every worktree. The old copy-isolation behaviour was replaced.
+def test_hooks_dir_is_copy_not_symlink():
+    # →1349: hooks/ is now an rsync copy, not a live symlink. A symlink caused
+    # write-back leakage: worktree edits to hooks files went to the parent repo.
     with tempfile.TemporaryDirectory() as tmp:
         tmp_p = Path(tmp)
         _make_fake_claude(tmp_p)
@@ -92,8 +92,9 @@ def test_hooks_dir_is_symlink_to_main():
             sync_claude_dir_to_worktree(tmp_p / ".claude", wt / ".claude")
         )
         dst_hooks = wt / ".claude" / "hooks"
-        assert dst_hooks.is_symlink(), "hooks/ must be a symlink, not a copy"
-        assert dst_hooks.resolve() == (tmp_p / ".claude" / "hooks").resolve()
+        assert not dst_hooks.is_symlink(), "hooks/ must be a real copy, not a symlink (→1349)"
+        assert dst_hooks.is_dir(), "hooks/ must exist as a real directory"
+        assert (dst_hooks / "example.sh").is_file(), "hook files must be copied"
 
 
 def _git(args: list[str], cwd: str, check: bool = True) -> "subprocess.CompletedProcess[str]":

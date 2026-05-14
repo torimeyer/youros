@@ -1,9 +1,15 @@
-"""Tests for →971: worktree hook symlink — live hook updates reach worktrees.
+"""Tests for →1349: worktree hook copy isolation — writes stay in the worktree.
 
-When a worktree is spawned, .claude/hooks/ is now a symlink pointing to the
-parent repo's .claude/hooks/ directory. This means a hook edit on main lands
-immediately in every active worktree without a re-sync. Tests here verify
-that invariant end-to-end on the sync helper.
+When a worktree is spawned, .claude/hooks/ is rsync-copied (not symlinked)
+from the parent repo. This means writes inside a worktree's .claude/hooks/
+stay isolated and do NOT leak back to the parent repo. Tests here verify
+that isolation invariant end-to-end on the sync helper.
+
+Background: →971 switched from copy to symlink so hook edits on main would
+propagate instantly to all worktrees. →1349 reverts that because the symlink
+is bidirectional — agent writes to hooks files in any worktree went straight
+to the parent repo's .claude/hooks/, clobbering main's hooks from every
+active subagent.
 """
 
 from __future__ import annotations
@@ -32,8 +38,8 @@ def _make_fake_claude(root: Path) -> None:
     (root / ".claude" / "settings.json").write_text('{"permissions":{}}')
 
 
-def test_hook_edit_on_main_appears_in_worktree_immediately():
-    """Main edit flows through the symlink without a re-sync (→971 core invariant)."""
+def test_worktree_write_does_not_leak_to_parent():
+    """Write inside worktree hooks/ must NOT appear in parent (→1349 core invariant)."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp_p = Path(tmp)
         _make_fake_claude(tmp_p)
@@ -45,21 +51,18 @@ def test_hook_edit_on_main_appears_in_worktree_immediately():
         )
         assert ok is True
 
-        # Simulate a hook fix landing on main after the worktree was already created.
-        (tmp_p / ".claude" / "hooks" / "register-agent.sh").write_text(
-            "#!/bin/bash\ncurl --connect-timeout 3 -m 5 -sSk --fixed ...\n"
-        )
+        # Write a file inside the worktree's hooks dir.
+        (wt / ".claude" / "hooks" / "worktree-only.sh").write_text("#!/bin/bash\necho wt\n")
 
-        # The worktree must see the new content immediately — no re-sync required.
-        worktree_content = (wt / ".claude" / "hooks" / "register-agent.sh").read_text()
-        assert "--fixed" in worktree_content, (
-            "Worktree did not pick up the hook edit on main. "
-            "hooks/ must be a symlink, not a copy."
+        # That file must NOT appear in the parent's hooks dir.
+        assert not (tmp_p / ".claude" / "hooks" / "worktree-only.sh").exists(), (
+            "Worktree write leaked into parent hooks dir. "
+            "hooks/ must be a real copy, not a symlink (→1349)."
         )
 
 
-def test_hooks_symlink_target_is_absolute():
-    """Symlink uses an absolute path so it resolves from any cwd."""
+def test_hooks_dir_is_real_directory_not_symlink():
+    """hooks/ in the worktree must be a real directory, not a symlink to the parent."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp_p = Path(tmp)
         _make_fake_claude(tmp_p)
@@ -70,15 +73,14 @@ def test_hooks_symlink_target_is_absolute():
             sync_claude_dir_to_worktree(tmp_p / ".claude", wt / ".claude")
         )
         dst_hooks = wt / ".claude" / "hooks"
-        assert dst_hooks.is_symlink()
-        link_target = Path(dst_hooks.readlink() if hasattr(dst_hooks, "readlink") else str(dst_hooks.resolve()))
-        # resolve() always returns absolute; the symlink target itself must be absolute.
-        assert dst_hooks.resolve().is_absolute()
-        assert dst_hooks.resolve() == (tmp_p / ".claude" / "hooks").resolve()
+        assert not dst_hooks.is_symlink(), (
+            "hooks/ must NOT be a symlink — symlinks cause write-back leakage (→1349)"
+        )
+        assert dst_hooks.is_dir(), "hooks/ must exist as a real directory"
 
 
-def test_new_hook_added_to_main_visible_in_worktree():
-    """A brand-new hook file created after spawn shows up in the worktree."""
+def test_hooks_content_copied_at_spawn_time():
+    """Hooks present in the parent at spawn time are available in the worktree."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp_p = Path(tmp)
         _make_fake_claude(tmp_p)
@@ -89,17 +91,14 @@ def test_new_hook_added_to_main_visible_in_worktree():
             sync_claude_dir_to_worktree(tmp_p / ".claude", wt / ".claude")
         )
 
-        # Add a completely new hook to main AFTER the worktree was created.
-        (tmp_p / ".claude" / "hooks" / "new-hook.sh").write_text("#!/bin/bash\necho new\n")
-
-        assert (wt / ".claude" / "hooks" / "new-hook.sh").exists(), (
-            "New hook added to main was not visible in worktree. "
-            "hooks/ must be a live symlink."
-        )
+        # Files that existed in parent at spawn time must be in the worktree copy.
+        assert (wt / ".claude" / "hooks" / "register-agent.sh").is_file()
+        content = (wt / ".claude" / "hooks" / "register-agent.sh").read_text()
+        assert "curl" in content
 
 
-def test_non_hooks_content_is_still_rsynced():
-    """lib/ and settings.json are still copied (not symlinked) into the worktree."""
+def test_non_hooks_content_is_rsynced():
+    """lib/ and settings.json are copied into the worktree."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp_p = Path(tmp)
         _make_fake_claude(tmp_p)
@@ -115,3 +114,4 @@ def test_non_hooks_content_is_still_rsynced():
         assert not (wt / ".claude" / "lib").is_symlink(), (
             "lib/ should be an rsynced copy, not a symlink"
         )
+

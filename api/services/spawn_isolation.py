@@ -801,16 +801,19 @@ async def remove_worktree(
 
 
 async def sync_claude_dir_to_worktree(src_claude_dir, dst_claude_dir, timeout=10.0):
-    """Sync .claude/ (hooks + lib) into a new worktree via rsync + symlink.
+    """Sync .claude/ (hooks + lib) into a new worktree via rsync copy.
 
     L2.3 (→902): git worktree add does not copy untracked dirs, so without
     this every "isolated" worktree runs main's hooks by reference. Hook
     file mutations race across sessions. rsync the dir at fork time.
 
-    →971: hooks/ is now a live symlink to the parent repo's hooks/ instead
-    of a rsynced copy. This means hook edits on main land immediately in
-    every worktree without a re-sync, eliminating the stale-hook failure
-    mode where a worktree spawned after a hook fix still runs the old file.
+    →1349: hooks/ is rsync-copied (not symlinked) so writes inside a
+    worktree's .claude/hooks/ stay in that worktree and never leak back to
+    the parent repo. The →971 symlink approach solved stale-hook propagation
+    but introduced a write-back leakage bug: any agent editing hooks files
+    in its worktree was actually editing the parent's hooks/ through the
+    symlink. New worktrees already receive the latest hooks at spawn time
+    via rsync, so the propagation benefit of the symlink is not needed.
 
     Excludes nested worktrees/ (infinite recursion) and session-history/
     (bloat). Failure is logged WARN but never raises; the worktree remains
@@ -818,7 +821,6 @@ async def sync_claude_dir_to_worktree(src_claude_dir, dst_claude_dir, timeout=10
 
     Returns True on success, False on any failure. Never raises.
     """
-    import os
     import shutil as _shutil
     from pathlib import Path as _P
 
@@ -831,11 +833,20 @@ async def sync_claude_dir_to_worktree(src_claude_dir, dst_claude_dir, timeout=10
             )
             return False
         dst.mkdir(parents=True, exist_ok=True)
+
+        # If a stale symlink exists from a previous →971 spawn, remove it so
+        # rsync writes real files instead of writing through the symlink.
+        dst_hooks = dst / "hooks"
+        if dst_hooks.is_symlink():
+            dst_hooks.unlink()
+            logger.info(
+                "spawn.hook_sync.removed_stale_symlink dst=%s", dst_hooks,
+            )
+
         proc = await asyncio.create_subprocess_exec(
             "rsync", "-a",
             "--exclude=worktrees/",
             "--exclude=session-history/",
-            "--exclude=hooks/",
             f"{src}/", f"{dst}/",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -859,74 +870,6 @@ async def sync_claude_dir_to_worktree(src_claude_dir, dst_claude_dir, timeout=10
                 (err or b"").decode(errors="replace")[:200],
             )
             return False
-
-        # →971: symlink hooks/ so live edits on main land immediately in
-        # every worktree. A copied hooks/ drifts the moment main is patched;
-        # a symlink has zero lag and requires no re-sync.
-        src_hooks = src / "hooks"
-        dst_hooks = dst / "hooks"
-        if src_hooks.is_dir():
-            # Remove any stale copy or symlink before creating the live link.
-            if dst_hooks.is_symlink():
-                dst_hooks.unlink()
-            elif dst_hooks.exists():
-                _shutil.rmtree(str(dst_hooks))
-            try:
-                dst_hooks.symlink_to(src_hooks.resolve())
-                logger.info(
-                    "spawn.hook_sync.hooks_symlinked src=%s dst=%s",
-                    src_hooks, dst_hooks,
-                )
-                # git does not descend into directory symlinks during status
-                # walks (lstat sees a symlink, not a directory). Every file
-                # tracked under .claude/hooks/ in the index would appear as
-                # " D" (phantom-deleted) without this. Mark them skip-worktree
-                # so git status ignores the divergence intentionally.
-                wt_root = dst.parent
-                rel_hooks = str(dst_hooks.relative_to(wt_root))
-                try:
-                    proc_ls = await asyncio.create_subprocess_exec(
-                        "git", "-C", str(wt_root), "ls-files", rel_hooks,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-                    ls_out, _ = await asyncio.wait_for(proc_ls.communicate(), timeout=5.0)
-                    hooks_tracked = [p for p in ls_out.decode(errors="replace").splitlines() if p]
-                    if hooks_tracked:
-                        proc_idx = await asyncio.create_subprocess_exec(
-                            "git", "-C", str(wt_root),
-                            "update-index", "--skip-worktree", "--", *hooks_tracked,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE,
-                        )
-                        await asyncio.wait_for(proc_idx.communicate(), timeout=5.0)
-                        logger.info(
-                            "spawn.hook_sync.skip_worktree_set count=%d wt=%s",
-                            len(hooks_tracked), wt_root,
-                        )
-                except Exception as idx_exc:
-                    logger.warning(
-                        "spawn.hook_sync.skip_worktree_failed wt=%s err=%s",
-                        wt_root, idx_exc,
-                    )
-            except Exception as sym_exc:
-                logger.warning(
-                    "spawn.hook_sync.hooks_symlink_failed src=%s dst=%s err=%s "
-                    "-- falling back to rsync copy",
-                    src_hooks, dst_hooks, sym_exc,
-                )
-                proc2 = await asyncio.create_subprocess_exec(
-                    "rsync", "-a", f"{src_hooks}/", f"{dst_hooks}/",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                try:
-                    await asyncio.wait_for(proc2.communicate(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    try:
-                        proc2.kill()
-                    except Exception:
-                        pass
 
         logger.info("spawn.hook_sync.ok src=%s dst=%s", src, dst)
         return True
