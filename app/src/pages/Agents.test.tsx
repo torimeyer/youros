@@ -811,6 +811,21 @@ describe('Agents page - page-level subtitle', () => {
     })
     expect(screen.getByTestId('agents-page-subtitle')).toHaveTextContent(/workers you send off to run jobs/i)
   })
+
+  it('subtitle has no negative top margin (overlap regression)', async () => {
+    renderAgents()
+    const subtitle = await screen.findByTestId('agents-page-subtitle')
+    const classes = subtitle.className
+    expect(classes).not.toMatch(/-mt-/)
+  })
+
+  it('subtitle renders after the h1 in DOM order', async () => {
+    renderAgents()
+    const h1 = await screen.findByRole('heading', { name: /^agents$/i })
+    const subtitle = await screen.findByTestId('agents-page-subtitle')
+    // Node.DOCUMENT_POSITION_FOLLOWING (4) means subtitle comes after h1
+    expect(h1.compareDocumentPosition(subtitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
 })
 
 describe('Agents page - Status bar', () => {
