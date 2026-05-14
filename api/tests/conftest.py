@@ -548,11 +548,10 @@ def _isolate_threads_store(tmp_path, monkeypatch):
     in the sidebar.
     """
     from services.threads_store import ThreadsStore
-    import routers.threads as threads_mod
     import routers.tasks as tasks_mod
 
     tmp_store = ThreadsStore(path=tmp_path / "threads.json")
-    monkeypatch.setattr(threads_mod, "threads_store", tmp_store)
+    # routers.threads no longer imports threads_store (→1330: routes return 410)
     monkeypatch.setattr(tasks_mod, "threads_store", tmp_store)
     yield
 
