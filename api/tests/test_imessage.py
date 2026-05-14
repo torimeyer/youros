@@ -1224,3 +1224,227 @@ def test_search_by_prefix_skips_contacts_with_no_identifier():
 
     assert len(results) == 1
     assert results[0]["name"] == "Real User"
+
+
+# ---------------------------------------------------------------------------
+# _is_chat_muted — unit tests
+# ---------------------------------------------------------------------------
+
+
+def _make_muted_blob(muted_until_dt) -> bytes:
+    """Build a binary plist with CKDMutedUntilDateKey set to the given datetime.
+
+    plistlib requires naive (UTC-implied) datetimes for binary plist encoding.
+    """
+    import plistlib
+    from datetime import datetime, timezone
+    # Strip tzinfo — plistlib's binary writer requires naive datetimes
+    if hasattr(muted_until_dt, "tzinfo") and muted_until_dt.tzinfo is not None:
+        muted_until_dt = muted_until_dt.replace(tzinfo=None)
+    return plistlib.dumps({"CKDMutedUntilDateKey": muted_until_dt}, fmt=plistlib.FMT_BINARY)
+
+
+def test_is_chat_muted_future_date_returns_true():
+    """A CKDMutedUntilDateKey far in the future means the thread is muted."""
+    from datetime import datetime
+    from services import imessage
+
+    # Use a naive datetime far in the future — plistlib treats it as UTC
+    far_future = datetime(3000, 1, 1)
+    blob = _make_muted_blob(far_future)
+    assert imessage._is_chat_muted(blob) is True
+
+
+def test_is_chat_muted_past_date_returns_false():
+    """A CKDMutedUntilDateKey in the past means the mute has expired."""
+    from datetime import datetime
+    from services import imessage
+
+    past = datetime(2020, 1, 1)
+    blob = _make_muted_blob(past)
+    assert imessage._is_chat_muted(blob) is False
+
+
+def test_is_chat_muted_no_key_returns_false():
+    """A plist without CKDMutedUntilDateKey or isMuted is not muted."""
+    import plistlib
+    from services import imessage
+
+    blob = plistlib.dumps({"lastSeenMessageGuid": "abc-def", "pv": 0}, fmt=plistlib.FMT_BINARY)
+    assert imessage._is_chat_muted(blob) is False
+
+
+def test_is_chat_muted_is_muted_true_returns_true():
+    """isMuted=True (boolean fallback key) marks a thread as muted."""
+    import plistlib
+    from services import imessage
+
+    blob = plistlib.dumps({"isMuted": True}, fmt=plistlib.FMT_BINARY)
+    assert imessage._is_chat_muted(blob) is True
+
+
+def test_is_chat_muted_is_muted_false_returns_false():
+    """isMuted=False (boolean fallback key) is not muted."""
+    import plistlib
+    from services import imessage
+
+    blob = plistlib.dumps({"isMuted": False}, fmt=plistlib.FMT_BINARY)
+    assert imessage._is_chat_muted(blob) is False
+
+
+def test_is_chat_muted_none_blob_returns_false():
+    """None properties blob is handled gracefully."""
+    from services import imessage
+
+    assert imessage._is_chat_muted(None) is False
+
+
+def test_is_chat_muted_bad_blob_returns_false_no_raise():
+    """Corrupt plist bytes return False without raising."""
+    from services import imessage
+
+    assert imessage._is_chat_muted(b"\x00\x01\x02corrupt") is False
+
+
+def test_is_chat_muted_bad_blob_logs_only_once(caplog):
+    """The parse-failure warning is emitted at most once per backend lifetime."""
+    import logging
+    from services import imessage
+
+    with patch.object(imessage, "_muted_parse_logged", False):
+        with caplog.at_level(logging.WARNING, logger="services.imessage"):
+            imessage._is_chat_muted(b"bad1")
+            imessage._is_chat_muted(b"bad2")
+            imessage._is_chat_muted(b"bad3")
+
+    warning_count = sum(1 for r in caplog.records if "chat.properties" in r.message)
+    assert warning_count == 1, f"Expected 1 warning, got {warning_count}"
+
+
+# ---------------------------------------------------------------------------
+# get_conversations_sync — muted thread suppresses unread badge
+# ---------------------------------------------------------------------------
+
+
+def test_get_conversations_sync_muted_thread_has_zero_unread(tmp_path):
+    """A muted thread keeps its preview but shows unread_count=0."""
+    import plistlib
+    import sqlite3 as _sqlite3
+    from datetime import datetime
+    from services import imessage
+
+    # Build the muted properties blob (plistlib needs naive datetimes)
+    far_future = datetime(3000, 1, 1)
+    muted_blob = plistlib.dumps(
+        {"CKDMutedUntilDateKey": far_future}, fmt=plistlib.FMT_BINARY
+    )
+
+    db_path = tmp_path / "chat.db"
+    conn = _sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE chat (
+            ROWID INTEGER PRIMARY KEY,
+            guid TEXT,
+            chat_identifier TEXT,
+            display_name TEXT,
+            service_name TEXT,
+            properties BLOB,
+            room_name TEXT,
+            is_archived INTEGER DEFAULT 0,
+            last_read_message_timestamp INTEGER DEFAULT 0
+        );
+        CREATE TABLE message (
+            ROWID INTEGER PRIMARY KEY,
+            text TEXT,
+            date INTEGER,
+            is_from_me INTEGER,
+            is_read INTEGER,
+            service TEXT,
+            handle_id INTEGER
+        );
+        CREATE TABLE chat_message_join (
+            chat_id INTEGER,
+            message_id INTEGER
+        );
+        CREATE TABLE handle (
+            ROWID INTEGER PRIMARY KEY,
+            id TEXT
+        );
+    """)
+    # Insert one muted chat with 3 unread inbound messages
+    conn.execute(
+        "INSERT INTO chat VALUES (1, 'guid1', '+15551234567', '', 'iMessage', ?, NULL, 0, 0)",
+        (muted_blob,),
+    )
+    conn.execute("INSERT INTO message VALUES (1, 'hi', 700000000000000000, 0, 0, 'iMessage', 0)")
+    conn.execute("INSERT INTO message VALUES (2, 'hey', 700000001000000000, 0, 0, 'iMessage', 0)")
+    conn.execute("INSERT INTO message VALUES (3, 'sup', 700000002000000000, 0, 0, 'iMessage', 0)")
+    conn.execute("INSERT INTO chat_message_join VALUES (1, 1)")
+    conn.execute("INSERT INTO chat_message_join VALUES (1, 2)")
+    conn.execute("INSERT INTO chat_message_join VALUES (1, 3)")
+    conn.commit()
+    conn.close()
+
+    with patch.object(imessage, "CHAT_DB_PATH", db_path):
+        result = imessage.get_conversations_sync(limit=10)
+
+    assert len(result) == 1
+    assert result[0]["message_count"] == 3, "message_count should reflect real messages"
+    assert result[0]["unread_count"] == 0, "muted thread must show zero unread"
+    assert result[0]["last_message_preview"] == "sup"
+
+
+def test_get_conversations_sync_unmuted_thread_shows_unread(tmp_path):
+    """An unmuted thread with unread messages shows a nonzero unread_count."""
+    import plistlib
+    import sqlite3 as _sqlite3
+    from services import imessage
+
+    unmuted_blob = plistlib.dumps({"lastSeenMessageGuid": "abc"}, fmt=plistlib.FMT_BINARY)
+
+    db_path = tmp_path / "chat.db"
+    conn = _sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE chat (
+            ROWID INTEGER PRIMARY KEY,
+            guid TEXT,
+            chat_identifier TEXT,
+            display_name TEXT,
+            service_name TEXT,
+            properties BLOB,
+            room_name TEXT,
+            is_archived INTEGER DEFAULT 0,
+            last_read_message_timestamp INTEGER DEFAULT 0
+        );
+        CREATE TABLE message (
+            ROWID INTEGER PRIMARY KEY,
+            text TEXT,
+            date INTEGER,
+            is_from_me INTEGER,
+            is_read INTEGER,
+            service TEXT,
+            handle_id INTEGER
+        );
+        CREATE TABLE chat_message_join (
+            chat_id INTEGER,
+            message_id INTEGER
+        );
+        CREATE TABLE handle (
+            ROWID INTEGER PRIMARY KEY,
+            id TEXT
+        );
+    """)
+    conn.execute(
+        "INSERT INTO chat VALUES (1, 'guid1', '+15559876543', '', 'iMessage', ?, NULL, 0, 0)",
+        (unmuted_blob,),
+    )
+    conn.execute("INSERT INTO message VALUES (1, 'hello', 700000000000000000, 0, 0, 'iMessage', 0)")
+    conn.execute("INSERT INTO chat_message_join VALUES (1, 1)")
+    conn.commit()
+    conn.close()
+
+    with patch.object(imessage, "CHAT_DB_PATH", db_path):
+        result = imessage.get_conversations_sync(limit=10)
+
+    assert len(result) == 1
+    assert result[0]["unread_count"] == 1, "unmuted thread should surface the unread message"

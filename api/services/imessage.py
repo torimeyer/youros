@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import plistlib
 import re
 import sqlite3
 import subprocess
@@ -64,6 +65,40 @@ def _breaker_record_success() -> None:
     global _breaker_failures, _breaker_tripped_at
     _breaker_failures = 0
     _breaker_tripped_at = 0.0
+
+
+# Emit the mute-parse warning at most once per backend lifetime.
+_muted_parse_logged: bool = False
+
+
+def _is_chat_muted(properties_blob: bytes | None) -> bool:
+    """Return True when the chat has Hide Alerts active.
+
+    Checks CKDMutedUntilDateKey (a future datetime) in the binary plist stored
+    in chat.properties. Falls back to a boolean isMuted key. Returns False on
+    any parse error and logs a warning once per backend lifetime.
+    """
+    if not properties_blob:
+        return False
+    global _muted_parse_logged
+    try:
+        pl = plistlib.loads(bytes(properties_blob))
+        if not isinstance(pl, dict):
+            return False
+        muted_until = pl.get("CKDMutedUntilDateKey")
+        if muted_until is not None:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            if isinstance(muted_until, datetime):
+                if muted_until.tzinfo is None:
+                    muted_until = muted_until.replace(tzinfo=timezone.utc)
+                return muted_until > now
+        return bool(pl.get("isMuted", False))
+    except Exception as exc:
+        if not _muted_parse_logged:
+            logger.warning("Could not parse chat.properties plist: %s", exc)
+            _muted_parse_logged = True
+        return False
 
 
 def _ensure_dirs() -> None:
@@ -298,6 +333,7 @@ def get_conversations_sync(limit: int = 50) -> list[dict]:
                 c.chat_identifier,
                 c.display_name,
                 c.service_name,
+                c.properties,
                 MAX(m.date) as last_message_date,
                 lm_text.text as last_message_text,
                 COUNT(m.ROWID) as message_count,
@@ -343,7 +379,7 @@ def get_conversations_sync(limit: int = 50) -> list[dict]:
                 "last_message_date": _unix_to_iso(last_date),
                 "last_message_preview": last_text,
                 "message_count": row["message_count"] or 0,
-                "unread_count": row["unread_count"] or 0,
+                "unread_count": 0 if _is_chat_muted(row["properties"]) else (row["unread_count"] or 0),
             })
 
         return conversations
