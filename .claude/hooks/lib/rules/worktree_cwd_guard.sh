@@ -63,15 +63,20 @@ except Exception:
     return 0
   fi
 
-  # Block only when cwd= is ABSENT. When an agent explicitly passes cwd=
-  # (even to the parent repo), treat it as intentional — blocking would
-  # prevent legitimate parent-repo commits (e.g. committing hook files
-  # from a worktree agent). The incidents (→1304, →1310) were always
-  # MISSING cwd=, never an explicit wrong one.
+  # Block when cwd= is ABSENT (no cwd given → daemon defaults to main checkout).
   if [ -z "$cwd_val" ]; then
     log_rule_fire "worktree_cwd_guard" "$tool" "block" \
       "git-write bash without cwd= in worktree agent"
     deny "git operation without cwd= in a worktree agent: the ostk daemon runs git from the main checkout. Add cwd=\"${wt_path}\" so the commit lands on your branch, not main. (→1311)"
+  # Block when cwd= explicitly points at the parent repo root (or any subdir
+  # not under the worktree). This catches the second leak path where an agent
+  # sets cwd= to the parent repo rather than omitting it entirely.
+  elif [[ "$cwd_val" == "${parent_repo}" || "$cwd_val" == "${parent_repo}/"* ]]; then
+    if [[ "$cwd_val" != "${wt_path}"* ]]; then
+      log_rule_fire "worktree_cwd_guard" "$tool" "block" \
+        "git-write bash with parent repo cwd in worktree agent"
+      deny "git operation with cwd='${cwd_val}' points to the parent repo, not your worktree. Use cwd=\"${wt_path}\" so the commit lands on your branch, not main. (→1311)"
+    fi
   fi
 }
 
