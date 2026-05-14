@@ -32,6 +32,9 @@ export function useNotificationsFeed() {
         const data = await res.json()
         useNotificationsStore.setState({
           notifications: Array.isArray(data) ? data : [],
+          // Signal that the initial data has arrived so TopBar can seed
+          // seenNotifIdsRef from the real list (mirrors WS snapshot path).
+          snapshotReceived: true,
         })
         backoff = 0
       } catch (e: unknown) {
@@ -66,6 +69,10 @@ export function useNotificationsFeed() {
           if (msg.type === 'snapshot') {
             useNotificationsStore.setState({
               notifications: msg.notifications || [],
+              // Signal that the initial snapshot has been delivered so
+              // TopBar can seed seenNotifIdsRef from the real list, not
+              // from an empty Set that was built before the WS connected.
+              snapshotReceived: true,
             })
           } else if (msg.type === 'ping') {
             // Keepalive received

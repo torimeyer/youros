@@ -595,7 +595,7 @@ describe('TopBar persistent-notification toast', () => {
       firedKeys: new Set<string>(),
       persistentToastIds: new Set<string>(),
     })
-    useNotificationsStore.setState({ notifications: [], wsConnected: false })
+    useNotificationsStore.setState({ notifications: [], wsConnected: false, snapshotReceived: false })
     useAppStore.setState({
       osName: 'myOS',
       chatOpen: false,
@@ -605,8 +605,9 @@ describe('TopBar persistent-notification toast', () => {
   })
 
   it('does not toast rows that were already in the store at mount', async () => {
-    // Pre-seed the store before rendering. The component should seed its
-    // seen-set on mount and NOT toast rows that predate the render.
+    // Pre-seed the store before rendering with snapshotReceived: true so
+    // the component can seed seenNotifIdsRef from the existing list and
+    // NOT toast rows that predate the render.
     useNotificationsStore.setState({
       notifications: [
         {
@@ -621,6 +622,7 @@ describe('TopBar persistent-notification toast', () => {
         },
       ],
       wsConnected: true,
+      snapshotReceived: true,
     })
 
     renderTopBar()
@@ -634,7 +636,7 @@ describe('TopBar persistent-notification toast', () => {
   })
 
   it('fires a toast when a new roadmap_ready notification arrives via WS', async () => {
-    // Start with empty store, then simulate a WS push.
+    // Start with empty store, then simulate a WS snapshot arriving.
     renderTopBar()
     await act(async () => {})
 
@@ -654,6 +656,7 @@ describe('TopBar persistent-notification toast', () => {
           },
         ],
         wsConnected: true,
+        snapshotReceived: true,
       })
     })
 
@@ -688,6 +691,7 @@ describe('TopBar persistent-notification toast', () => {
           },
         ],
         wsConnected: true,
+        snapshotReceived: true,
       })
     })
 

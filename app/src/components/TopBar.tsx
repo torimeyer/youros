@@ -165,6 +165,12 @@ export default function TopBar({ title }: TopBarProps) {
   const addPersistentToast = useNotificationStore((s) => s.addPersistentToast)
   const clearAll = useNotificationStore((s) => s.clearAll)
   const wsNotifications = useNotificationsStore((s) => s.notifications)
+  // True once the first WS snapshot (or first REST poll) has been
+  // delivered. We gate seenNotifIdsRef seeding on this flag so we never
+  // seed from the empty list that exists before the WS connects, which
+  // would cause every notification in the real first snapshot to look
+  // "new" and fire a stale toast (→1342).
+  const snapshotReceived = useNotificationsStore((s) => s.snapshotReceived)
 
   // Single source of truth. The badge count and the dropdown body must read
   // from the exact same arrays, otherwise the bell can show "9+" while the
@@ -180,11 +186,17 @@ export default function TopBar({ title }: TopBarProps) {
   const unreadCount = agentUnreadCount + persistentUnread
 
   // Track WS notification ids seen so far and fire toasts only for new
-  // arrivals. Seeded on the first render so existing notifications don't
-  // spam toasts when the page loads.
+  // arrivals. Seeded on the first snapshot so existing notifications don't
+  // spam toasts when the page loads or the WS reconnects.
+  // IMPORTANT: we must wait until snapshotReceived is true before seeding.
+  // On first render wsNotifications is [] (WS not connected yet). Seeding
+  // from that empty list means every notification in the real first
+  // snapshot looks "new" and fires a stale toast (→1342 root cause).
   const seenNotifIdsRef = useRef<Set<string> | null>(null)
 
   useEffect(() => {
+    // Do not seed until the first real snapshot has arrived.
+    if (!snapshotReceived) return
     if (seenNotifIdsRef.current === null) {
       seenNotifIdsRef.current = new Set(wsNotifications.map((n) => n.id))
       return
@@ -203,7 +215,7 @@ export default function TopBar({ title }: TopBarProps) {
         })
       }
     }
-  }, [wsNotifications, addPersistentToast])
+  }, [wsNotifications, addPersistentToast, snapshotReceived])
 
   // Re-render every minute so "X min ago" stays fresh
   useEffect(() => {
