@@ -751,7 +751,16 @@ async def remove_worktree(
             "diff", "--cached", "--quiet",
             cwd=str(wt), timeout=5.0,
         )
-        if rc_unstaged != 0 or rc_staged != 0:
+        # Also check for untracked new files (never staged). `git diff` only
+        # checks tracked-file changes; new files written but never `git add`-ed
+        # are invisible to it. Use `git ls-files --others --exclude-standard` so
+        # we catch the →1342 pattern: agent wrote files but exited before staging.
+        rc_untracked, _ut_out, _ = await _run_git(
+            "ls-files", "--others", "--exclude-standard",
+            cwd=str(wt), timeout=5.0,
+        )
+        _has_untracked = rc_untracked == 0 and bool(_ut_out.strip())
+        if rc_unstaged != 0 or rc_staged != 0 or _has_untracked:
             logger.warning(
                 "spawn.worktree.dirty_safety branch=%s -- refusing removal (uncommitted changes)",
                 branch,
