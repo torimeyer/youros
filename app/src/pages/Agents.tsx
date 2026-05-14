@@ -3728,7 +3728,7 @@ export default function Agents() {
               New Agent
             </Button>
           </div>
-          <p data-testid="agents-page-subtitle" className="text-sm text-slate-400 mb-4 sm:mb-6 -mt-3 sm:-mt-4">
+          <p data-testid="agents-page-subtitle" className="text-sm text-slate-400 mt-0.5 mb-4 sm:mb-6">
             Workers you send off to run jobs. They edit files, run tests, and commit code in the background.
           </p>
           <div className="flex gap-2 sm:gap-4 flex-wrap">
