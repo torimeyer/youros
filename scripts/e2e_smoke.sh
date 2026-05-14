@@ -1204,27 +1204,17 @@ print(s.get('features',{}).get('Specs', True))
         # --- Journey: Agent transcript ---
         check_http_json "journey: agent transcript endpoint"        "/api/agents/${nudge_agent}/transcript" ""
 
-        # --- Journey: Threads CRUD ---
-        thread_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/threads" \
+        # --- Journey: Threads CRUD (post-→1330: /api/threads returns 410 Gone) ---
+        # Threads/Groups have been replaced by Labels with project: prefix.
+        # The endpoint deliberately returns 410. Verify that contract instead
+        # of trying to create a thread.
+        thread_resp=$(curl -sS $CURL_OPTS -o /dev/null -w "%{http_code}" -X POST "${API_BASE}/api/threads" \
             -H 'content-type: application/json' \
             -d '{"name":"e2e-test-thread"}' 2>/dev/null)
-        thread_id=$(echo "$thread_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',json.load(sys.stdin).get('thread_id','')) if False else json.load(open('/dev/stdin')).get('id',json.load(open('/dev/stdin')).get('thread_id','')))" 2>/dev/null || true)
-        # Simpler extraction
-        thread_id=$(echo "$thread_resp" | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-print(d.get('id', d.get('thread_id', d.get('thread',{}).get('id',''))))
-" 2>/dev/null || true)
-        if [ -n "$thread_id" ] && [ "$thread_id" != "None" ] && [ "$thread_id" != "" ]; then
-            phase_pass "journey: create thread"
-            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/threads/${thread_id}" > /dev/null 2>&1
+        if [ "$thread_resp" = "410" ]; then
+            phase_pass "journey: /api/threads returns 410 Gone (→1330 deprecation)"
         else
-            # Thread creation might return a different shape
-            if echo "$thread_resp" | grep -q '"id"\|"thread_id"\|"result"'; then
-                phase_pass "journey: create thread (response ok)"
-            else
-                phase_fail "journey: create thread failed (body: $thread_resp)"
-            fi
+            phase_fail "journey: /api/threads expected 410, got $thread_resp"
         fi
         check_http_json "journey: list threads"                     "/api/threads"               ""
 
