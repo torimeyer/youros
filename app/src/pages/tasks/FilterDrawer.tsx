@@ -1,4 +1,3 @@
-import Icon from "../../components/Icon";
 
 // Single-select status filter. "In progress" reflects live agent activity,
 // not just stored status. "all" shows every non-shelved task.
