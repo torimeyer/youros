@@ -170,6 +170,63 @@ async def _refresh_atlassian_token() -> bool:
         return False
 
 
+async def _request_with_refresh(product: str, fn):
+    """Execute fn(client, auth_kwargs, base_url, site); retry once on 401 after refresh.
+
+    fn must be an async callable that performs ONE httpx request and returns the response.
+    On 401 we attempt _refresh_atlassian_token() once; on success we re-resolve auth and redo the call.
+    Returns (resp, base_url, site).
+    """
+    auth_kwargs, base_url, site = await _get_auth_and_base(product=product)
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await fn(client, auth_kwargs, base_url, site)
+        if resp.status_code != 401:
+            return resp, base_url, site
+        ok = await _refresh_atlassian_token()
+        if not ok:
+            return resp, base_url, site
+        auth_kwargs, base_url, site = await _get_auth_and_base(product=product)
+        resp = await fn(client, auth_kwargs, base_url, site)
+        return resp, base_url, site
+
+
+_STATUS_PROBE_TTL = 60.0  # 60s: fast enough for UI polling, slow enough not to hammer Atlassian
+_status_probe_cache: dict[str, tuple[float, bool]] = {}
+
+
+async def probe_token_validity() -> bool:
+    """Return True if the OAuth token is valid (after one refresh attempt).
+
+    Probes GET /rest/api/3/myself via _request_with_refresh.
+    PAT auth (no saved access_token) returns True (treated as valid).
+    Cache TTL is 60s.
+    """
+    access_token = await ostk.secret_get(ATLASSIAN_ACCESS_TOKEN_KEY)
+    if not access_token:
+        return True  # PAT path; caller treats this as valid
+    cache_key = "probe_token_validity"
+    entry = _status_probe_cache.get(cache_key)
+    if entry is not None:
+        expires_at, result = entry
+        if time.time() < expires_at:
+            return result
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.get(f"{base_url}/rest/api/3/myself", **auth_kwargs)
+
+    try:
+        resp, _, _ = await _request_with_refresh("jira", call)
+        result = resp.status_code == 200
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning(
+            "atlassian probe_token_validity failed: %s", exc, exc_info=True,
+        )
+        result = False
+    _status_probe_cache[cache_key] = (time.time() + _STATUS_PROBE_TTL, result)
+    return result
+
+
 async def verify_creds(email: str, api_token: str, site: str) -> dict:
     """Verify credentials by calling /rest/api/3/myself.
 
@@ -248,30 +305,32 @@ async def disconnect() -> None:
 
 async def list_assigned_issues() -> list[dict]:
     """Return issues assigned to the current user that are not done."""
-    auth_kwargs, base_url, site = await _get_auth_and_base(product="jira")
-    cache_key = ("list_assigned_issues", base_url)
+    cache_key = ("list_assigned_issues",)
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached  # type: ignore[return-value]
 
     jql = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
     fields = ["summary", "status", "priority", "issuetype", "updated", "assignee", "reporter"]
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.post(
+            f"{base_url}/rest/api/3/search/jql",
+            **auth_kwargs,
+            json={"jql": jql, "fields": fields, "maxResults": 50},
+        )
+
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{base_url}/rest/api/3/search/jql",
-                **auth_kwargs,
-                json={"jql": jql, "fields": fields, "maxResults": 50},
-            )
-            if resp.status_code == 401:
-                raise RuntimeError("Atlassian credentials expired. Please reconnect.")
-            if resp.status_code == 403:
-                raise RuntimeError("Access denied. Check your API token permissions.")
-            if resp.status_code >= 400:
-                raise RuntimeError(f"Jira API error ({resp.status_code}).")
-            data = resp.json()
+        resp, base_url, site = await _request_with_refresh("jira", call)
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+    if resp.status_code == 401:
+        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    if resp.status_code == 403:
+        raise RuntimeError("Access denied. Check your API token permissions.")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Jira API error ({resp.status_code}).")
+    data = resp.json()
 
     issues = []
     for item in data.get("issues", []):
@@ -295,30 +354,37 @@ async def list_assigned_issues() -> list[dict]:
 
 async def get_issue(key: str) -> dict:
     """Return full issue detail including rendered description and comments."""
-    auth_kwargs, base_url, site = await _get_auth_and_base(product="jira")
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"{base_url}/rest/api/3/issue/{key}",
-                **auth_kwargs,
-                params={"fields": "*all", "expand": "renderedFields"},
-            )
-            if resp.status_code == 401:
-                raise RuntimeError("Atlassian credentials expired. Please reconnect.")
-            if resp.status_code == 404:
-                raise RuntimeError(f"Issue {key} not found.")
-            if resp.status_code >= 400:
-                raise RuntimeError(f"Jira API error ({resp.status_code}).")
-            issue_data = resp.json()
+    async def call_issue(client, auth_kwargs, base_url, site):
+        return await client.get(
+            f"{base_url}/rest/api/3/issue/{key}",
+            **auth_kwargs,
+            params={"fields": "*all", "expand": "renderedFields"},
+        )
 
-            comment_resp = await client.get(
-                f"{base_url}/rest/api/3/issue/{key}/comment",
-                **auth_kwargs,
-                params={"maxResults": 50, "orderBy": "created"},
-            )
-            comment_data = comment_resp.json() if comment_resp.status_code == 200 else {"comments": []}
+    try:
+        resp, base_url, site = await _request_with_refresh("jira", call_issue)
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+    if resp.status_code == 401:
+        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    if resp.status_code == 404:
+        raise RuntimeError(f"Issue {key} not found.")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Jira API error ({resp.status_code}).")
+    issue_data = resp.json()
+
+    async def call_comments(client, auth_kwargs, base_url, site):
+        return await client.get(
+            f"{base_url}/rest/api/3/issue/{key}/comment",
+            **auth_kwargs,
+            params={"maxResults": 50, "orderBy": "created"},
+        )
+
+    try:
+        comment_resp, _, _ = await _request_with_refresh("jira", call_comments)
+        comment_data = comment_resp.json() if comment_resp.status_code == 200 else {"comments": []}
+    except httpx.HTTPError:
+        comment_data = {"comments": []}
 
     fields_data = issue_data.get("fields", {})
     rendered = issue_data.get("renderedFields", {})
@@ -359,28 +425,29 @@ async def get_issue(key: str) -> dict:
 
 async def list_recent_pages(limit: int = 25) -> list[dict]:
     """Return recently-updated Confluence pages via the v2 API."""
-    auth_kwargs, base_url, site = await _get_auth_and_base(product="confluence")
-    cache_key = ("list_recent_pages", base_url, limit)
+    cache_key = ("list_recent_pages", limit)
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached  # type: ignore[return-value]
 
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.get(
+            f"{base_url}/wiki/api/v2/pages",
+            **auth_kwargs,
+            params={"sort": "-modified-date", "limit": limit},
+        )
+
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"{base_url}/wiki/api/v2/pages",
-                **auth_kwargs,
-                params={"sort": "-modified-date", "limit": limit},
-            )
-            if resp.status_code == 401:
-                raise RuntimeError("Atlassian credentials expired. Please reconnect.")
-            if resp.status_code == 403:
-                raise RuntimeError("Access denied. Check your API token Confluence permissions.")
-            if resp.status_code >= 400:
-                raise RuntimeError(f"Confluence API error ({resp.status_code}).")
-            data = resp.json()
+        resp, base_url, site = await _request_with_refresh("confluence", call)
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+    if resp.status_code == 401:
+        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    if resp.status_code == 403:
+        raise RuntimeError("Access denied. Check your API token Confluence permissions.")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Confluence API error ({resp.status_code}).")
+    data = resp.json()
 
     pages = []
     for page in data.get("results", []):
@@ -399,23 +466,24 @@ async def list_recent_pages(limit: int = 25) -> list[dict]:
 
 async def get_page(page_id: str) -> dict:
     """Return Confluence page detail with body HTML."""
-    auth_kwargs, base_url, site = await _get_auth_and_base(product="confluence")
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.get(
+            f"{base_url}/wiki/api/v2/pages/{page_id}",
+            **auth_kwargs,
+            params={"body-format": "view"},
+        )
+
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"{base_url}/wiki/api/v2/pages/{page_id}",
-                **auth_kwargs,
-                params={"body-format": "view"},
-            )
-            if resp.status_code == 401:
-                raise RuntimeError("Atlassian credentials expired. Please reconnect.")
-            if resp.status_code == 404:
-                raise RuntimeError(f"Page {page_id} not found.")
-            if resp.status_code >= 400:
-                raise RuntimeError(f"Confluence API error ({resp.status_code}).")
-            data = resp.json()
+        resp, base_url, site = await _request_with_refresh("confluence", call)
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+    if resp.status_code == 401:
+        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    if resp.status_code == 404:
+        raise RuntimeError(f"Page {page_id} not found.")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Confluence API error ({resp.status_code}).")
+    data = resp.json()
 
     page_id_str = str(data.get("id", page_id))
     space_id = str(data.get("spaceId", ""))
@@ -438,7 +506,6 @@ async def get_page(page_id: str) -> dict:
 
 async def add_comment(issue_key: str, body: str) -> dict:
     """Post a comment on a Jira issue. Returns the created comment dict."""
-    auth_kwargs, base_url, _ = await _get_auth_and_base(product="jira")
     payload = {
         "body": {
             "type": "doc",
@@ -451,42 +518,46 @@ async def add_comment(issue_key: str, body: str) -> dict:
             ],
         }
     }
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.post(
+            f"{base_url}/rest/api/3/issue/{issue_key}/comment",
+            **auth_kwargs,
+            json=payload,
+        )
+
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{base_url}/rest/api/3/issue/{issue_key}/comment",
-                **auth_kwargs,
-                json=payload,
-            )
-            if resp.status_code == 401:
-                raise RuntimeError("Atlassian credentials expired. Please reconnect.")
-            if resp.status_code == 404:
-                raise RuntimeError(f"Issue {issue_key} not found.")
-            if resp.status_code >= 400:
-                raise RuntimeError(f"Jira API error ({resp.status_code}).")
-            return resp.json()
+        resp, _, _ = await _request_with_refresh("jira", call)
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+    if resp.status_code == 401:
+        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    if resp.status_code == 404:
+        raise RuntimeError(f"Issue {issue_key} not found.")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Jira API error ({resp.status_code}).")
+    return resp.json()
 
 
 async def list_transitions(issue_key: str) -> list[dict]:
     """Return available transitions for a Jira issue."""
-    auth_kwargs, base_url, _ = await _get_auth_and_base(product="jira")
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.get(
+            f"{base_url}/rest/api/3/issue/{issue_key}/transitions",
+            **auth_kwargs,
+        )
+
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"{base_url}/rest/api/3/issue/{issue_key}/transitions",
-                **auth_kwargs,
-            )
-            if resp.status_code == 401:
-                raise RuntimeError("Atlassian credentials expired. Please reconnect.")
-            if resp.status_code == 404:
-                raise RuntimeError(f"Issue {issue_key} not found.")
-            if resp.status_code >= 400:
-                raise RuntimeError(f"Jira API error ({resp.status_code}).")
-            data = resp.json()
+        resp, _, _ = await _request_with_refresh("jira", call)
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+    if resp.status_code == 401:
+        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    if resp.status_code == 404:
+        raise RuntimeError(f"Issue {issue_key} not found.")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Jira API error ({resp.status_code}).")
+    data = resp.json()
 
     return [
         {
@@ -500,41 +571,45 @@ async def list_transitions(issue_key: str) -> list[dict]:
 
 async def transition_issue(issue_key: str, transition_id: str) -> None:
     """Move a Jira issue to a new status via a transition ID."""
-    auth_kwargs, base_url, _ = await _get_auth_and_base(product="jira")
     payload = {"transition": {"id": transition_id}}
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.post(
+            f"{base_url}/rest/api/3/issue/{issue_key}/transitions",
+            **auth_kwargs,
+            json=payload,
+        )
+
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{base_url}/rest/api/3/issue/{issue_key}/transitions",
-                **auth_kwargs,
-                json=payload,
-            )
-            if resp.status_code == 401:
-                raise RuntimeError("Atlassian credentials expired. Please reconnect.")
-            if resp.status_code == 404:
-                raise RuntimeError(f"Issue {issue_key} not found.")
-            if resp.status_code not in (200, 204):
-                raise RuntimeError(f"Jira API error ({resp.status_code}).")
+        resp, _, _ = await _request_with_refresh("jira", call)
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+    if resp.status_code == 401:
+        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    if resp.status_code == 404:
+        raise RuntimeError(f"Issue {issue_key} not found.")
+    if resp.status_code not in (200, 204):
+        raise RuntimeError(f"Jira API error ({resp.status_code}).")
 
 
 async def assign_issue(issue_key: str, account_id: Optional[str]) -> None:
     """Assign a Jira issue to a user by account ID. Pass None to unassign."""
-    auth_kwargs, base_url, _ = await _get_auth_and_base(product="jira")
     payload = {"accountId": account_id}
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.put(
+            f"{base_url}/rest/api/3/issue/{issue_key}/assignee",
+            **auth_kwargs,
+            json=payload,
+        )
+
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.put(
-                f"{base_url}/rest/api/3/issue/{issue_key}/assignee",
-                **auth_kwargs,
-                json=payload,
-            )
-            if resp.status_code == 401:
-                raise RuntimeError("Atlassian credentials expired. Please reconnect.")
-            if resp.status_code == 404:
-                raise RuntimeError(f"Issue {issue_key} not found.")
-            if resp.status_code not in (200, 204):
-                raise RuntimeError(f"Jira API error ({resp.status_code}).")
+        resp, _, _ = await _request_with_refresh("jira", call)
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+    if resp.status_code == 401:
+        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    if resp.status_code == 404:
+        raise RuntimeError(f"Issue {issue_key} not found.")
+    if resp.status_code not in (200, 204):
+        raise RuntimeError(f"Jira API error ({resp.status_code}).")
