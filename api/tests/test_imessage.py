@@ -1076,3 +1076,151 @@ async def test_imessage_conversations_darwin_passes_guard(client):
                new=AsyncMock(return_value=[])):
         resp = await client.get("/api/imessage/conversations")
     assert resp.status_code != 503
+
+
+# ---------------------------------------------------------------------------
+# Contacts search endpoint (Phase 6)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_imessage_contacts_search_returns_matches(client):
+    """Contacts search endpoint returns JSON with name/identifier shape."""
+    fake_contacts = [
+        {"name": "Alice Smith", "phone": "+15550001234", "email": None, "identifier": "+15550001234"},
+    ]
+    with patch("services.imessage_contacts.search_by_prefix", return_value=fake_contacts):
+        resp = await client.get("/api/imessage/contacts/search?q=ali")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "contacts" in data
+    assert len(data["contacts"]) == 1
+    assert data["contacts"][0]["name"] == "Alice Smith"
+    assert data["contacts"][0]["identifier"] == "+15550001234"
+
+
+@pytest.mark.asyncio
+async def test_imessage_contacts_search_empty_on_no_match(client):
+    """Contacts search returns empty list when nothing matches."""
+    with patch("services.imessage_contacts.search_by_prefix", return_value=[]):
+        resp = await client.get("/api/imessage/contacts/search?q=zzznobody")
+
+    assert resp.status_code == 200
+    assert resp.json()["contacts"] == []
+
+
+@pytest.mark.asyncio
+async def test_imessage_contacts_search_requires_query(client):
+    """Contacts search without a q param returns 422."""
+    resp = await client.get("/api/imessage/contacts/search")
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_imessage_contacts_search_works_without_macos_guard(client):
+    """Contacts search endpoint does not require macOS — returns 200 on any platform."""
+    with patch("platform.system", return_value="Windows"), \
+         patch("services.imessage_contacts.search_by_prefix", return_value=[]):
+        resp = await client.get("/api/imessage/contacts/search?q=alice")
+    assert resp.status_code == 200
+    assert resp.json()["contacts"] == []
+
+
+# ---------------------------------------------------------------------------
+# search_by_prefix service unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_search_by_prefix_matches_name():
+    """search_by_prefix finds contacts whose name contains the query."""
+    from services import imessage_contacts
+
+    fake_contacts = [
+        {"name": "Alice Smith", "phone_numbers": ["+15550001234"], "emails": []},
+        {"name": "Bob Jones", "phone_numbers": ["+15550005678"], "emails": []},
+    ]
+    with patch.object(imessage_contacts, "_cache_data", fake_contacts), \
+         patch.object(imessage_contacts, "_cache_ts", 9999999999.0):
+        results = imessage_contacts.search_by_prefix("ali")
+
+    assert len(results) == 1
+    assert results[0]["name"] == "Alice Smith"
+    assert results[0]["identifier"] == "+15550001234"
+
+
+def test_search_by_prefix_case_insensitive():
+    """search_by_prefix matches regardless of case."""
+    from services import imessage_contacts
+
+    fake_contacts = [
+        {"name": "Alice Smith", "phone_numbers": ["+15550001234"], "emails": []},
+    ]
+    with patch.object(imessage_contacts, "_cache_data", fake_contacts), \
+         patch.object(imessage_contacts, "_cache_ts", 9999999999.0):
+        results = imessage_contacts.search_by_prefix("ALICE")
+
+    assert len(results) == 1
+    assert results[0]["name"] == "Alice Smith"
+
+
+def test_search_by_prefix_returns_empty_for_no_match():
+    """search_by_prefix returns [] when nothing matches."""
+    from services import imessage_contacts
+
+    fake_contacts = [
+        {"name": "Alice Smith", "phone_numbers": ["+15550001234"], "emails": []},
+    ]
+    with patch.object(imessage_contacts, "_cache_data", fake_contacts), \
+         patch.object(imessage_contacts, "_cache_ts", 9999999999.0):
+        results = imessage_contacts.search_by_prefix("zzznobody")
+
+    assert results == []
+
+
+def test_search_by_prefix_respects_limit():
+    """search_by_prefix returns at most limit results."""
+    from services import imessage_contacts
+
+    fake_contacts = [
+        {"name": f"Alice {i}", "phone_numbers": [f"+1555000{i:04d}"], "emails": []}
+        for i in range(20)
+    ]
+    with patch.object(imessage_contacts, "_cache_data", fake_contacts), \
+         patch.object(imessage_contacts, "_cache_ts", 9999999999.0):
+        results = imessage_contacts.search_by_prefix("alice", limit=3)
+
+    assert len(results) == 3
+
+
+def test_search_by_prefix_uses_email_when_no_phone():
+    """search_by_prefix uses email as identifier when no phone number exists."""
+    from services import imessage_contacts
+
+    fake_contacts = [
+        {"name": "Eve Online", "phone_numbers": [], "emails": ["eve@example.com"]},
+    ]
+    with patch.object(imessage_contacts, "_cache_data", fake_contacts), \
+         patch.object(imessage_contacts, "_cache_ts", 9999999999.0):
+        results = imessage_contacts.search_by_prefix("eve")
+
+    assert len(results) == 1
+    assert results[0]["identifier"] == "eve@example.com"
+    assert results[0]["email"] == "eve@example.com"
+    assert results[0]["phone"] is None
+
+
+def test_search_by_prefix_skips_contacts_with_no_identifier():
+    """search_by_prefix omits contacts that have neither phone nor email."""
+    from services import imessage_contacts
+
+    fake_contacts = [
+        {"name": "Ghost User", "phone_numbers": [], "emails": []},
+        {"name": "Real User", "phone_numbers": ["+15550001111"], "emails": []},
+    ]
+    with patch.object(imessage_contacts, "_cache_data", fake_contacts), \
+         patch.object(imessage_contacts, "_cache_ts", 9999999999.0):
+        results = imessage_contacts.search_by_prefix("user")
+
+    assert len(results) == 1
+    assert results[0]["name"] == "Real User"

@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from services import imessage as imessage_service
+from services import imessage_contacts as contacts_service
 
 router = APIRouter(tags=["imessage"])
 
@@ -231,6 +232,24 @@ async def imessage_resolve_contact(phrase: str = Query(..., min_length=2)):
         ) from exc
 
     return result
+
+
+@router.get("/imessage/contacts/search")
+async def imessage_contacts_search(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(8, ge=1, le=20),
+):
+    """Search contacts by name (case-insensitive substring match).
+
+    Returns up to `limit` matches as [{name, phone, email, identifier}].
+    Returns an empty list on non-macOS platforms — no 503.
+    identifier is the primary phone or email used to address a message.
+    """
+    try:
+        results = await asyncio.to_thread(contacts_service.search_by_prefix, q, limit)
+    except Exception:
+        results = []
+    return {"contacts": results, "query": q}
 
 
 @router.get("/imessage/search")

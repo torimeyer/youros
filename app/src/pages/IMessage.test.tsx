@@ -179,6 +179,7 @@ describe('iMessage page', () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
       if (path.includes('/imessage/conversations')) return Promise.resolve({ conversations: [] })
+      if (path.includes('/imessage/contacts/search')) return Promise.resolve({ contacts: [] })
       return Promise.resolve({})
     })
     mockedApiPost.mockResolvedValue({ ok: true })
@@ -189,7 +190,7 @@ describe('iMessage page', () => {
       expect(screen.getByText('Send a message')).toBeInTheDocument()
     })
 
-    const recipientInput = screen.getByPlaceholderText('Phone number or email')
+    const recipientInput = screen.getByTestId('contact-picker-input')
     const messageInput = screen.getByPlaceholderText('Type your message...')
 
     fireEvent.change(recipientInput, { target: { value: '+15550001234' } })
@@ -328,6 +329,126 @@ describe('iMessage page', () => {
       expect(screen.getByText('Found this message')).toBeInTheDocument()
     })
     expect(screen.getByText('Alice')).toBeInTheDocument()
+  })
+})
+
+describe('Contact picker in new-message composer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.imessageCache.v1')
+    window.localStorage.removeItem('myos.imessageConnection.v1')
+  })
+
+  it('typing a partial name shows contact suggestions', async () => {
+    const contacts = [
+      { name: 'Alice Smith', phone: '+15550001234', email: null, identifier: '+15550001234' },
+    ]
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/imessage/conversations')) return Promise.resolve({ conversations: [] })
+      if (path.includes('/imessage/contacts/search')) return Promise.resolve({ contacts })
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+
+    await waitFor(() => expect(screen.getByText('Send a message')).toBeInTheDocument())
+
+    const recipientInput = screen.getByTestId('contact-picker-input')
+    fireEvent.change(recipientInput, { target: { value: 'Ali' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('Alice Smith')).toBeInTheDocument()
+    })
+    expect(screen.getByText('+15550001234')).toBeInTheDocument()
+  })
+
+  it('selecting a contact populates recipient with phone number, not display name', async () => {
+    const contacts = [
+      { name: 'Alice Smith', phone: '+15550001234', email: null, identifier: '+15550001234' },
+    ]
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/imessage/conversations')) return Promise.resolve({ conversations: [] })
+      if (path.includes('/imessage/contacts/search')) return Promise.resolve({ contacts })
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ ok: true })
+
+    renderIMessage()
+
+    await waitFor(() => expect(screen.getByText('Send a message')).toBeInTheDocument())
+
+    const recipientInput = screen.getByTestId('contact-picker-input')
+    fireEvent.change(recipientInput, { target: { value: 'Ali' } })
+
+    await waitFor(() => expect(screen.getByText('Alice Smith')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText('Alice Smith'))
+
+    // Send a message and verify the raw phone number (not the display name) is sent
+    const messageInput = screen.getByPlaceholderText('Type your message...')
+    fireEvent.change(messageInput, { target: { value: 'Hey' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/imessage/send', {
+        recipient: '+15550001234',
+        text: 'Hey',
+      })
+    })
+  })
+
+  it('raw phone number entry still works without contact selection', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/imessage/conversations')) return Promise.resolve({ conversations: [] })
+      if (path.includes('/imessage/contacts/search')) return Promise.resolve({ contacts: [] })
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ ok: true })
+
+    renderIMessage()
+
+    await waitFor(() => expect(screen.getByText('Send a message')).toBeInTheDocument())
+
+    const recipientInput = screen.getByTestId('contact-picker-input')
+    fireEvent.change(recipientInput, { target: { value: '+15550001234' } })
+
+    const messageInput = screen.getByPlaceholderText('Type your message...')
+    fireEvent.change(messageInput, { target: { value: 'Direct number' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/imessage/send', {
+        recipient: '+15550001234',
+        text: 'Direct number',
+      })
+    })
+  })
+
+  it('dropdown is hidden when search returns no results', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/imessage/conversations')) return Promise.resolve({ conversations: [] })
+      if (path.includes('/imessage/contacts/search')) return Promise.resolve({ contacts: [] })
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+
+    await waitFor(() => expect(screen.getByText('Send a message')).toBeInTheDocument())
+
+    const recipientInput = screen.getByTestId('contact-picker-input')
+    fireEvent.change(recipientInput, { target: { value: 'zzznobody' } })
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith(expect.stringContaining('/imessage/contacts/search'))
+    })
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 })
 

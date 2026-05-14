@@ -101,3 +101,34 @@ def invalidate_cache() -> None:
     global _cache_data, _cache_ts
     _cache_data = None
     _cache_ts = 0.0
+
+
+def search_by_prefix(q: str, limit: int = 8) -> list[dict]:
+    """Return contacts whose name contains q (case-insensitive), up to limit.
+
+    Each result: {name, phone, email, identifier}
+    identifier is the primary phone or email used to address a message.
+    Returns [] on non-macOS or if Contacts access is not granted.
+    """
+    q_lower = q.lower().strip()
+    if not q_lower:
+        return []
+    results: list[dict] = []
+    for c in list_contacts():
+        name = c.get("name", "")
+        if not name or q_lower not in name.lower():
+            continue
+        phones = c.get("phone_numbers", [])
+        emails = c.get("emails", [])
+        identifier = phones[0] if phones else (emails[0] if emails else "")
+        if not identifier:
+            continue
+        results.append({
+            "name": name,
+            "phone": phones[0] if phones else None,
+            "email": emails[0] if emails else None,
+            "identifier": identifier,
+        })
+        if len(results) >= limit:
+            break
+    return results

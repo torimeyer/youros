@@ -42,6 +42,13 @@ interface SearchResult {
   sender: string
 }
 
+interface ContactSuggestion {
+  name: string
+  phone: string | null
+  email: string | null
+  identifier: string
+}
+
 interface StatusResponse {
   available: boolean
   reason: string | null
@@ -112,6 +119,109 @@ function formatDate(dateStr: string): string {
   } catch {
     return dateStr
   }
+}
+
+function ContactPicker({
+  value,
+  onChange,
+  className,
+}: {
+  value: string
+  onChange: (identifier: string) => void
+  className?: string
+}) {
+  const [inputValue, setInputValue] = useState(value)
+  const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([])
+  const [open, setOpen] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!value) setInputValue('')
+  }, [value])
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [])
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value
+    setInputValue(v)
+    onChange(v)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (!v.trim()) {
+      setSuggestions([])
+      setOpen(false)
+      return
+    }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await api.get<{ contacts: ContactSuggestion[] }>(
+          `/imessage/contacts/search?q=${encodeURIComponent(v)}`
+        )
+        const list = res.contacts || []
+        setSuggestions(list)
+        setOpen(list.length > 0)
+      } catch {
+        setSuggestions([])
+        setOpen(false)
+      }
+    }, 200)
+  }
+
+  const handleSelect = (c: ContactSuggestion) => {
+    setInputValue(`${c.name} (${c.identifier})`)
+    onChange(c.identifier)
+    setSuggestions([])
+    setOpen(false)
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <input
+        type="text"
+        placeholder="Name, phone number, or email"
+        value={inputValue}
+        onChange={handleChange}
+        onFocus={() => suggestions.length > 0 && setOpen(true)}
+        className={className}
+        data-testid="contact-picker-input"
+      />
+      {open && suggestions.length > 0 && (
+        <ul
+          role="listbox"
+          className="absolute z-10 left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden"
+        >
+          {suggestions.map((s, i) => (
+            <li key={i}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={false}
+                onClick={() => handleSelect(s)}
+                className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm transition-colors flex items-center gap-2"
+              >
+                <span className="font-medium text-white">{s.name}</span>
+                <span className="text-slate-400 text-xs truncate">{s.identifier}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 export default function IMessage() {
@@ -420,11 +530,9 @@ export default function IMessage() {
             <h2 className="text-base font-semibold">Send a message</h2>
           </div>
           <div className="space-y-2">
-            <input
-              type="text"
-              placeholder="Phone number or email"
+            <ContactPicker
               value={sendRecipient}
-              onChange={(e) => setSendRecipient(e.target.value)}
+              onChange={setSendRecipient}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
             <div className="flex gap-2">
