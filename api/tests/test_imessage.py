@@ -1035,3 +1035,42 @@ def test_archived_chats_excluded_from_conversations(tmp_path):
 
     assert len(convos) == 1
     assert convos[0]["display_name"] == "Active Chat"
+
+
+# ---------------------------------------------------------------------------
+# →1323: cache mtime invalidation
+# ---------------------------------------------------------------------------
+
+
+def test_conversations_cache_stale_on_chatdb_mtime_change(tmp_path):
+    """Cache is invalidated when chat.db mtime advances past the saved stamp."""
+    import os
+    from services import imessage
+
+    # Create a fake chat.db with a known old mtime
+    fake_db = tmp_path / "chat.db"
+    fake_db.write_bytes(b"")
+    old_mtime = time.time() - 10
+    os.utime(fake_db, (old_mtime, old_mtime))
+
+    cache_dir = tmp_path / "imessage_cache"
+    cache_dir.mkdir()
+    cache_path = cache_dir / "conversations.json"
+
+    with (
+        patch.object(imessage, "CONVERSATIONS_CACHE_PATH", cache_path),
+        patch.object(imessage, "CHAT_DB_PATH", fake_db),
+        patch.object(imessage, "IMESSAGE_CACHE_DIR", cache_dir),
+    ):
+        # Save cache — stamps with old chat.db mtime
+        imessage._save_conversations_cache(_make_conversations(2))
+
+        # Should load fine immediately
+        assert imessage._load_conversations_cache() is not None
+
+        # Advance chat.db mtime to simulate a new message arriving
+        new_mtime = time.time() + 5
+        os.utime(fake_db, (new_mtime, new_mtime))
+
+        # Cache must now be treated as stale
+        assert imessage._load_conversations_cache() is None

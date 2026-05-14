@@ -333,24 +333,40 @@ def get_conversations_sync(limit: int = 50) -> list[dict]:
 
 
 def _load_conversations_cache() -> list[dict] | None:
-    """Return cached conversations if fresh and non-empty."""
+    """Return cached conversations if fresh, non-empty, and chat.db is unchanged."""
     if not CONVERSATIONS_CACHE_PATH.exists():
         return None
     age = time.time() - CONVERSATIONS_CACHE_PATH.stat().st_mtime
     if age > _CONVERSATIONS_CACHE_TTL:
         return None
     try:
-        data = json.loads(CONVERSATIONS_CACHE_PATH.read_text())
+        wrapper = json.loads(CONVERSATIONS_CACHE_PATH.read_text())
+        if not isinstance(wrapper, dict):
+            return None
+        data = wrapper.get("conversations")
+        if not data:
+            return None
+        if CHAT_DB_PATH.exists():
+            current_mtime = CHAT_DB_PATH.stat().st_mtime
+            if current_mtime > wrapper.get("chatdb_mtime", 0):
+                return None
     except Exception:
-        return None
-    if not data:
         return None
     return data
 
 
 def _save_conversations_cache(conversations: list[dict]) -> None:
     _ensure_dirs()
-    atomic_write_text(CONVERSATIONS_CACHE_PATH, json.dumps(conversations))
+    chatdb_mtime = 0.0
+    try:
+        if CHAT_DB_PATH.exists():
+            chatdb_mtime = CHAT_DB_PATH.stat().st_mtime
+    except Exception:
+        pass
+    atomic_write_text(
+        CONVERSATIONS_CACHE_PATH,
+        json.dumps({"chatdb_mtime": chatdb_mtime, "conversations": conversations}),
+    )
 
 
 def invalidate_conversations_cache() -> None:
