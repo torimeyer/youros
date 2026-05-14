@@ -58,7 +58,6 @@ interface Task {
   auto_label_ids?: string[];
   blocks?: string[];
   depends_on?: string[];
-  thread_id?: string | null;
   unblocks?: number;
   closed_at?: string | null;
   closed_reason?: "completed" | "duplicate" | "archived" | null;
@@ -88,17 +87,6 @@ function isActiveTask(t: { status: string }): boolean {
   return t.status !== "closed" && t.status !== "shelved";
 }
 
-
-interface Thread {
-  id: string;
-  name: string;
-  needle_ids: string[];
-  created_at: string;
-}
-
-interface ThreadsResponse {
-  threads: Thread[];
-}
 
 interface BlockerTask {
   id: string;
@@ -317,18 +305,13 @@ export default function Tasks() {
   const [banner, setBanner] = useState<string | null>(null);
   const [openPriorityDropdown, setOpenPriorityDropdown] = useState<string | null>(null);
   const [openLabelDropdown, setOpenLabelDropdown] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"tasks" | "labels" | "groups" | "health">("tasks");
+  const [activeTab, setActiveTab] = useState<"tasks" | "labels" | "health">("tasks");
   const [openLinkDropdown, setOpenLinkDropdown] = useState<string | null>(null);
   const [linkTarget, setLinkTarget] = useState("");
   const [commitTaskId, setCommitTaskId] = useState<string | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
   const [commitLoading, setCommitLoading] = useState(false);
   const [commitResult, setCommitResult] = useState<string | null>(null);
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [threadFilter, setThreadFilter] = useState<string | null>(null);
-  const [openThreadDropdown, setOpenThreadDropdown] = useState<string | null>(null);
-  const [newThreadName, setNewThreadName] = useState("");
-  const [showNewThreadInput, setShowNewThreadInput] = useState(false);
   const [autoLabelingTaskId, setAutoLabelingTaskId] = useState<string | null>(null);
   const [labelAllLoading, setLabelAllLoading] = useState(false);
   const [labelAllResult, setLabelAllResult] = useState<string | null>(null);
@@ -414,70 +397,6 @@ export default function Tasks() {
     }
   }, []);
 
-  const fetchThreads = useCallback(async () => {
-    try {
-      const res = await api.get<ThreadsResponse>("/threads");
-      setThreads(res.threads ?? []);
-    } catch (e) {
-      console.error("Failed to fetch groups:", e);
-    }
-  }, []);
-
-
-  const createThread = async (name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    try {
-      await api.post("/threads", { name: trimmed });
-      setNewThreadName("");
-      setShowNewThreadInput(false);
-      await fetchThreads();
-    } catch (e) {
-      console.error("Failed to create group:", e);
-    }
-  };
-
-  const deleteThread = async (threadId: string) => {
-    try {
-      await api.delete(`/threads/${threadId}`);
-      if (threadFilter === threadId) setThreadFilter(null);
-      await fetchThreads();
-    } catch (e) {
-      console.error("Failed to delete group:", e);
-    }
-  };
-
-  const assignTaskToThread = async (taskId: string, threadId: string) => {
-    try {
-      // Remove from current thread if assigned
-      const currentThreadId = tasks.find((t) => t.id === taskId)?.thread_id;
-      if (currentThreadId) {
-        await api.delete(`/threads/${currentThreadId}/tasks/${taskId}`);
-      }
-      await api.post(`/threads/${threadId}/tasks/${taskId}`);
-      // Optimistic update
-      setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, thread_id: threadId } : t))
-      );
-      setOpenThreadDropdown(null);
-      fetchThreads();
-    } catch (e) {
-      console.error("Failed to assign task to group:", e);
-    }
-  };
-
-  const removeTaskFromThread = async (taskId: string, threadId: string) => {
-    try {
-      await api.delete(`/threads/${threadId}/tasks/${taskId}`);
-      // Optimistic update
-      setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, thread_id: null } : t))
-      );
-      fetchThreads();
-    } catch (e) {
-      console.error("Failed to remove task from group:", e);
-    }
-  };
 
   const fetchBriefing = useCallback(async (taskId: string) => {
     setBriefingLoading(true);
@@ -544,8 +463,7 @@ export default function Tasks() {
   useEffect(() => {
     fetchTasks();
     fetchLabels();
-    fetchThreads();
-  }, [fetchTasks, fetchLabels, fetchThreads]);
+  }, [fetchTasks, fetchLabels]);
 
   // Poll running agents every 3s to drive the per-row in-progress indicator
   // (needle: no live feedback that the agent is working on a task). The
@@ -705,11 +623,6 @@ export default function Tasks() {
       setSelectedStatus("open");
     }
 
-    // Clear any thread filter that would hide the task.
-    if (threadFilter && match.thread_id !== threadFilter) {
-      setThreadFilter(null);
-    }
-
     // Expand the briefing for this task.
     setSelectedTaskId(match.id);
     setDetailTab("context");
@@ -728,7 +641,7 @@ export default function Tasks() {
     const next = new URLSearchParams(searchParams);
     next.delete("focus");
     setSearchParams(next, { replace: true });
-  }, [focusParam, tasks, statusFilter, threadFilter, fetchBriefing, fetchTrace, searchParams, setSearchParams]);
+  }, [focusParam, tasks, statusFilter, fetchBriefing, fetchTrace, searchParams, setSearchParams]);
 
   // Listen for quick-add-task event from TopBar
   useEffect(() => {
@@ -752,18 +665,17 @@ export default function Tasks() {
 
   // Close dropdowns when clicking outside
   useEffect(() => {
-    if (!openPriorityDropdown && !openLabelDropdown && !openLinkDropdown && !openThreadDropdown && !openActionMenu) return;
+    if (!openPriorityDropdown && !openLabelDropdown && !openLinkDropdown && !openActionMenu) return;
     const handleClick = () => {
       setOpenPriorityDropdown(null);
       setOpenLabelDropdown(null);
       setOpenLinkDropdown(null);
-      setOpenThreadDropdown(null);
       setOpenActionMenu(null);
       setOpenBuildHelp(null);
     };
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
-  }, [openPriorityDropdown, openLabelDropdown, openLinkDropdown, openThreadDropdown, openActionMenu]);
+  }, [openPriorityDropdown, openLabelDropdown, openLinkDropdown, openActionMenu]);
 
   // Overflow menu closes on outside click.
   useEffect(() => {
@@ -1367,9 +1279,6 @@ export default function Tasks() {
   // Build a lookup map: task id -> Task (for showing dependency titles)
   const tasksById = new Map(tasks.map((t) => [t.id, t]));
 
-  // Build a lookup map: thread id -> Thread
-  const threadsById = new Map(threads.map((th) => [th.id, th]));
-
   // Filtering logic
   let filteredTasks = tasks;
 
@@ -1404,10 +1313,6 @@ export default function Tasks() {
         : "open";
       return effective === selectedStatus;
     });
-  }
-
-  if (threadFilter) {
-    filteredTasks = filteredTasks.filter((t) => t.thread_id === threadFilter);
   }
 
   const onlyClosedSelected = !isLegacyView && selectedStatus === "closed";
@@ -1520,19 +1425,10 @@ export default function Tasks() {
   // session hide). Use it as the source of truth for the displayed count.
   const visibleCount = filteredTasks.length;
 
-  // Whether any secondary filter (thread) is narrowing the
-  // result further. Used to show "0 match · Clear filters" when the user has
-  // filters set but nothing is visible.
-  const hasSecondaryFilter = Boolean(threadFilter);
-  const filtersHidingAllTasks =
-    statusFilter === "open" &&
-    hasSecondaryFilter &&
-    visibleCount === 0 &&
-    openCount > 0;
+  const filtersHidingAllTasks = false;
 
   const clearAllFilters = () => {
     setStatusFilter("open");
-    setThreadFilter(null);
   };
 
   /** Render dependency pills showing what blocks/depends-on this task */
@@ -1909,112 +1805,6 @@ export default function Tasks() {
 
         {activeTab === "health" ? (
           <HealthCheckView />
-        ) : activeTab === "groups" ? (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-slate-400">
-                Organize related tasks into groups, like mini-projects.
-              </p>
-              <button
-                onClick={() => setShowNewThreadInput(true)}
-                className="flex items-center gap-1.5 bg-blue-500 hover:bg-blue-600 text-sm px-3 py-1.5 rounded-lg text-white"
-              >
-                <Icon name="add" className="text-base" />
-                New group
-              </button>
-            </div>
-
-            {showNewThreadInput && (
-              <div className="flex items-center gap-2 bg-slate-900/60 border border-slate-800 rounded-lg px-4 py-3">
-                <input
-                  type="text"
-                  value={newThreadName}
-                  onChange={(e) => setNewThreadName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") createThread(newThreadName); }}
-                  placeholder="Group name..."
-                  className="flex-1 bg-transparent text-sm text-slate-300 placeholder-slate-600 focus:outline-none"
-                  autoFocus
-                />
-                <button
-                  onClick={() => createThread(newThreadName)}
-                  className="px-3 py-1 bg-blue-500 hover:bg-blue-600 rounded text-xs text-white"
-                >
-                  Create
-                </button>
-                <button
-                  onClick={() => { setShowNewThreadInput(false); setNewThreadName(""); }}
-                  className="text-slate-500 hover:text-slate-300"
-                >
-                  <Icon name="close" className="text-base" />
-                </button>
-              </div>
-            )}
-
-            {threads.length === 0 && !showNewThreadInput && (
-              <div className="text-center py-12">
-                <Icon name="folder_open" className="text-4xl text-slate-700 mb-2" />
-                <p className="text-sm text-slate-500">No groups yet. Create one to organize your tasks.</p>
-              </div>
-            )}
-
-            {threads.map((thread) => {
-              const threadTasks = tasks.filter((t) => t.thread_id === thread.id);
-              const openTasks = threadTasks.filter(isActiveTask);
-              const closedTasks = threadTasks.filter((t) => t.status === "closed");
-              return (
-                <div key={thread.id} className="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <Icon name="folder" className="text-teal-400 text-lg" />
-                      <h3 className="text-sm font-medium text-white">{thread.name}</h3>
-                      <span className="text-xs text-slate-500">
-                        {openTasks.length} open, {closedTasks.length} done
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => { setThreadFilter(thread.id); setActiveTab("tasks"); }}
-                        className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1"
-                      >
-                        View tasks
-                      </button>
-                      <button
-                        onClick={() => deleteThread(thread.id)}
-                        className="text-slate-600 hover:text-red-400 transition-colors"
-                        title="Delete this group"
-                      >
-                        <Icon name="delete" className="text-sm" />
-                      </button>
-                    </div>
-                  </div>
-                  {threadTasks.length === 0 ? (
-                    <p className="text-xs text-slate-600">
-                      No tasks in this group yet. Use the folder icon on any task to add it here.
-                    </p>
-                  ) : (
-                    <div className="space-y-1">
-                      {threadTasks.slice(0, 5).map((t) => (
-                        <div key={t.id} className="flex items-center gap-2 text-xs">
-                          <span className={`w-1.5 h-1.5 rounded-full ${
-                            t.status === "closed" ? "bg-green-500" : priorityDotColors[t.priority] || "bg-slate-500"
-                          }`} />
-                          <span className="text-slate-500 font-mono">#{t.id}</span>
-                          <span className={t.status === "closed" ? "text-slate-500 line-through" : "text-slate-300"}>
-                            {t.title}
-                          </span>
-                        </div>
-                      ))}
-                      {threadTasks.length > 5 && (
-                        <p className="text-xs text-slate-600 pl-4">
-                          and {threadTasks.length - 5} more...
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
         ) : activeTab === "labels" ? (
           <LabelsView
             onFilterByLabel={(id) => {
@@ -2053,8 +1843,6 @@ export default function Tasks() {
             <FilterDrawer
               open={true}
               selectedStatus={selectedStatus}
-              threadFilter={threadFilter}
-              threads={threads}
               filterCounts={filterCounts}
               sortBy={sortBy}
               onStatusChange={(s) => {
@@ -2063,7 +1851,6 @@ export default function Tasks() {
                 // so legacy branches become no-ops.
                 setStatusFilter("all");
               }}
-              onThreadChange={setThreadFilter}
               onSortByChange={setSortBy}
             />
 
@@ -2314,20 +2101,6 @@ export default function Tasks() {
                         )}
                         {renderDependencyPills(task)}
                         {renderTaskLabels(task)}
-                        {task.thread_id && threadsById.get(task.thread_id) && (
-                          <span
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium cursor-pointer hover:opacity-80 bg-teal-500/15 text-teal-400 border border-teal-500/30"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeTaskFromThread(task.id, task.thread_id!);
-                            }}
-                            title={`In group "${threadsById.get(task.thread_id!)?.name}". Click to remove.`}
-                          >
-                            <Icon name="folder" className="text-[9px]" />
-                            {threadsById.get(task.thread_id!)?.name}
-                            <Icon name="close" className="text-[9px]" />
-                          </span>
-                        )}
                       </div>
                       {task.description && (
                         <p
@@ -2500,52 +2273,6 @@ export default function Tasks() {
                               <Icon name="hourglass_empty" className="text-sm animate-spin" />
                               Working...
                             </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    {/* Thread assignment dropdown */}
-                    <div className="relative">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenThreadDropdown(openThreadDropdown === task.id ? null : task.id);
-                        }}
-                        className="p-1 text-slate-600 hover:text-slate-400 transition-colors"
-                        title="Add to a group"
-                      >
-                        <Icon name="folder" className="text-sm" />
-                      </button>
-                      {openThreadDropdown === task.id && (
-                        <div className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[160px]">
-                          {threads.length === 0 ? (
-                            <p className="px-3 py-2 text-xs text-slate-500">
-                              No groups yet. Create one in the Groups tab.
-                            </p>
-                          ) : (
-                            threads.map((thread) => (
-                              <button
-                                key={thread.id}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (task.thread_id === thread.id) {
-                                    removeTaskFromThread(task.id, thread.id);
-                                    setOpenThreadDropdown(null);
-                                  } else {
-                                    assignTaskToThread(task.id, thread.id);
-                                  }
-                                }}
-                                className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors ${
-                                  task.thread_id === thread.id ? "text-teal-400" : "text-slate-300"
-                                }`}
-                              >
-                                <Icon name={task.thread_id === thread.id ? "folder" : "folder_open"} className="text-sm text-teal-400" />
-                                {thread.name}
-                                {task.thread_id === thread.id && (
-                                  <Icon name="check" className="text-xs text-teal-400 ml-auto" />
-                                )}
-                              </button>
-                            ))
                           )}
                         </div>
                       )}
