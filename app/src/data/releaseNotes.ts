@@ -40,10 +40,6 @@ const releaseNotes: ReleaseGroup[] = [
         description: 'Settings now has a danger-zone button to wipe your local myOS data. Useful for starting fresh.',
       },
       {
-        title: 'Jira imports keep working',
-        description: 'Atlassian deprecated their old search endpoint. We migrated to the new one so Jira imports continue to work.',
-      },
-      {
         title: 'Faster app startup',
         description: 'The per-prompt header that runs before each turn went from 7 seconds to under a second.',
       },
@@ -61,22 +57,6 @@ const releaseNotes: ReleaseGroup[] = [
       {
         title: 'Agent finishes show up while you chat',
         description: 'When a background agent completes during a chat turn, you get a notification right away instead of waiting for the next message.',
-      },
-      {
-        title: 'Long chat replies finish cleanly',
-        description: 'Some long replies used to end with a "Connection dropped before response finished" error. Fixed.',
-      },
-      {
-        title: 'Onboarding\'s starter-agents step works for everyone',
-        description: 'The starter-agents step was blank for a subset of users mid-flow. It now loads correctly.',
-      },
-      {
-        title: '"All Time" filter on transcripts is back',
-        description: 'The All Time pill on the transcripts page was missing or broken depending on which filter you tried. Restored.',
-      },
-      {
-        title: 'Sign-in redirects land on the right page',
-        description: 'Login no longer occasionally redirects to a stale or wrong URL. It now goes to the local app every time.',
       },
     ],
   },
@@ -96,10 +76,6 @@ const releaseNotes: ReleaseGroup[] = [
       {
         title: 'Settings reorganized',
         description: 'The Settings tabs were reordered, Notifications and ADHD were combined into one tab, and the Privacy tab was removed (its contents moved into About).',
-      },
-      {
-        title: '"What\'s working" page now has the top bar',
-        description: 'The What\'s Working page picked up the same top navigation bar as the rest of the app.',
       },
       {
         title: 'Chat picks up your Claude subscription automatically',
