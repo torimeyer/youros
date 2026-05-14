@@ -1333,6 +1333,10 @@ export function ChatPanel() {
         }
         const target = updated[idx]
         if (target && target.role === 'assistant') {
+          // Guard: only mark error on an active streaming bubble.
+          // If we are not currently streaming (idle between turns), a background
+          // WS reconnect failure must not overwrite a completed response.
+          if (!isStreaming && !placeholderAwaitingServer) return prev
           // Flag the bubble so the UI renders an inline Retry button.
           // Re-send logic: the Retry button finds the last user message
           // in this tab and replays its content through sendMessage, so

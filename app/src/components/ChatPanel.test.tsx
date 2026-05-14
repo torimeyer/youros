@@ -688,6 +688,36 @@ describe('ChatPanel', () => {
       expect(screen.getByText(/Connection error: Something went wrong/)).toBeTruthy()
     })
 
+    // →1329: background WS reconnect errors (fired when idle between turns)
+    // must NOT overwrite a completed assistant response with error text.
+    it('idle WS error does not overwrite a completed response bubble', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'what time is it?' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Complete the turn: token + done.
+      mockLastMessage = { type: 'token', data: 'It is noon.' }
+      rerender(<ChatPanel />)
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+
+      // The response text is visible.
+      expect(screen.getByText('It is noon.')).toBeTruthy()
+
+      // Now an idle WS reconnect error fires (background, not mid-turn).
+      mockLastMessage = { type: 'error', data: 'Connection error. Please try again.' }
+      rerender(<ChatPanel />)
+
+      // The completed response must still be visible — NOT replaced by the error.
+      expect(screen.getByText('It is noon.')).toBeTruthy()
+      // The error text must NOT appear (it was an idle reconnect, not a user turn).
+      expect(screen.queryByText(/Connection error/i)).toBeNull()
+      // No Retry button should appear on an already-completed bubble.
+      expect(screen.queryByTestId('retry-last-turn')).toBeNull()
+    })
+
     // Regression for the streaming render jitter Tori reported: the bubble
     // appeared to "type a sentence then delete it" mid-stream. Root cause
     // was CollapsibleText slicing to the last 200 characters and then
