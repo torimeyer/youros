@@ -636,11 +636,24 @@ describe('TopBar persistent-notification toast', () => {
   })
 
   it('fires a toast when a new roadmap_ready notification arrives via WS', async () => {
-    // Start with empty store, then simulate a WS snapshot arriving.
+    // Correct sequence:
+    //   1. TopBar mounts — empty store, snapshotReceived: false
+    //   2. WS connects and delivers an initial snapshot (empty in this case)
+    //      → snapshotReceived: true, seenNotifIdsRef seeded from []
+    //   3. New notification arrives → not in seenNotifIdsRef → toast fires
     renderTopBar()
     await act(async () => {})
 
-    // Simulate WS snapshot arriving with a new notification.
+    // Step 2: initial snapshot (empty).
+    await act(async () => {
+      useNotificationsStore.setState({
+        notifications: [],
+        wsConnected: true,
+        snapshotReceived: true,
+      })
+    })
+
+    // Step 3: genuinely new notification pushed after the initial snapshot.
     await act(async () => {
       useNotificationsStore.setState({
         notifications: [
@@ -701,6 +714,85 @@ describe('TopBar persistent-notification toast', () => {
     const s = useNotificationStore.getState()
     expect(s.persistentToastIds.has('other-1')).toBe(false)
     expect(s.toastIds).not.toContain('other-1')
+  })
+
+  it('test_1342_stale_notifications_do_not_toast_when_ws_snapshot_arrives_after_empty_mount', async () => {
+    // Regression for →1342: orphan "Finished" toasts appearing for agents
+    // that completed hours ago.
+    //
+    // Sequence that triggered the bug:
+    //   1. TopBar mounts — wsNotifications is [] (WS not connected yet)
+    //   2. seenNotifIdsRef was seeded from the empty list → empty Set
+    //   3. WS connects and delivers snapshot of N stale notifications
+    //   4. Every notification looked "new" (not in the empty Set) → N toasts
+    //
+    // Fix: gate seeding on snapshotReceived so the ref stays null until
+    // the first real snapshot arrives, then seeds from it (no toasts for
+    // the pre-existing rows).
+    renderTopBar()
+    await act(async () => {})
+
+    // Confirm: before snapshot, no seeding has happened, no toasts.
+    expect(useNotificationStore.getState().toastIds).toHaveLength(0)
+
+    // Simulate the WS delivering its first snapshot — N stale unread rows
+    // from agents that completed hours ago (the →1342 scenario).
+    const staleRows = Array.from({ length: 5 }, (_, i) => ({
+      id: `stale-agent-${i}`,
+      type: 'agent',
+      title: `Agent done: e2e-nudge-177872120${i}`,
+      body: 'E2E test agent completed hours ago.',
+      action_label: null,
+      action_url: '/agents',
+      read: false,
+      created_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    }))
+
+    await act(async () => {
+      useNotificationsStore.setState({
+        notifications: staleRows,
+        wsConnected: true,
+        snapshotReceived: true,
+      })
+    })
+
+    // None of the stale rows should have toasted — they were present in the
+    // initial snapshot, so seenNotifIdsRef should have swallowed them all.
+    const afterSnapshot = useNotificationStore.getState()
+    expect(afterSnapshot.toastIds).toHaveLength(0)
+    for (const row of staleRows) {
+      expect(afterSnapshot.persistentToastIds.has(row.id)).toBe(false)
+    }
+
+    // A genuinely new notification arriving AFTER the snapshot should still toast.
+    await act(async () => {
+      useNotificationsStore.setState({
+        notifications: [
+          ...staleRows,
+          {
+            id: 'brand-new-agent-notif',
+            type: 'agent',
+            title: 'Agent done: fresh-task-agent',
+            body: 'Just finished.',
+            action_label: null,
+            action_url: '/agents',
+            read: false,
+            created_at: new Date().toISOString(),
+          },
+        ],
+        wsConnected: true,
+        snapshotReceived: true,
+      })
+    })
+
+    await waitFor(() => {
+      expect(
+        useNotificationStore.getState().persistentToastIds.has('brand-new-agent-notif'),
+      ).toBe(true)
+    })
+    expect(useNotificationStore.getState().toastIds).toContain('brand-new-agent-notif')
+    // Still only one toast — the stale ones never fired.
+    expect(useNotificationStore.getState().toastIds).toHaveLength(1)
   })
 
   describe('Start tour button', () => {
