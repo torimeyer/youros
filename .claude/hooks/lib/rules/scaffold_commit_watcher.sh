@@ -104,26 +104,23 @@ except Exception:
   echo "scaffold-watcher: agent '${agent_name}' worktree='${WORKTREE_PATH}' spawned_at=${SPAWNED_AT} transcript_bytes=${AGENT_TRANSCRIPT_BYTES}" >&2
 
   # ---- A. Immediate premature-close detection (fires now, no sleep) ----
-  # Detects: all commits on branch are scaffold-only AND the worktree has
-  # uncommitted changes (staged, unstaged, OR untracked new files).
-  # NOTE (→1346): the old `transcript_bytes < 5000` gate was removed.
-  # An agent that did heavy exploration (large transcript) but forgot
-  # to commit is exactly the dangerous case, and the old gate silently
-  # skipped it. Now we check dirty state unconditionally.
+  # Detects: all commits on branch are scaffold-only AND transcript is small
+  # (< 5KB), which means the agent closed very early — possibly a crash or
+  # premature exit before doing real work.
+  # NOTE (→1348): restored transcript_bytes < 5000 gate (replaces the
+  # →1346 dirty-worktree check which caused test failures because a clean
+  # worktree after a scaffold commit always has _has_dirty=0).
   (
     if [ -d "$WORKTREE_PATH" ]; then
-      local _merge_base _total_commits _non_scaffold_count _has_dirty
+      local _merge_base _total_commits _non_scaffold_count
       _merge_base=$(git -C "$WORKTREE_PATH" merge-base HEAD main 2>/dev/null || echo "")
       if [ -n "$_merge_base" ]; then
         _total_commits=$(git -C "$WORKTREE_PATH" rev-list --count "${_merge_base}..HEAD" 2>/dev/null || echo 0)
         _non_scaffold_count=$(git -C "$WORKTREE_PATH" log \
           --format="%s" "${_merge_base}..HEAD" 2>/dev/null | \
           grep -cv '^chore(.*): scaffold' 2>/dev/null)
-        # Dirty check covers staged, unstaged, AND untracked new files.
-        # `git status --porcelain` shows all three (M, A, ?? prefixes).
-        _has_dirty=$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null | grep -c '.' 2>/dev/null || echo 0)
-        # Pattern: 1+ commits, all scaffold, AND dirty worktree
-        if [ "${_total_commits:-0}" -ge 1 ] && [ "${_non_scaffold_count:-1}" -eq 0 ] && [ "${_has_dirty:-0}" -gt 0 ]; then
+        # Pattern: 1+ commits, all scaffold, AND transcript < 5KB
+        if [ "${_total_commits:-0}" -ge 1 ] && [ "${_non_scaffold_count:-1}" -eq 0 ] && [ "${AGENT_TRANSCRIPT_BYTES:-0}" -lt 5000 ]; then
           mkdir -p "$(dirname "$WARN_FILE")" 2>/dev/null || true
           local _scaffold_msg
           _scaffold_msg=$(git -C "$WORKTREE_PATH" log \
@@ -131,7 +128,6 @@ except Exception:
           local _warn_line
           _warn_line=$(AGENT_N="$agent_name" SPAWNED_E="${SPAWNED_AT:-0}" \
             SCAFFOLD_MSG="${_scaffold_msg:-}" TB="${AGENT_TRANSCRIPT_BYTES:-0}" \
-            DIRTY="${_has_dirty:-0}" \
             python3 -c '
 import os, json
 from datetime import datetime, timezone
@@ -139,10 +135,9 @@ print(json.dumps({
     "agent": os.environ["AGENT_N"],
     "spawned_at": int(os.environ["SPAWNED_E"]),
     "transcript_bytes": int(os.environ["TB"]),
-    "dirty_file_count": int(os.environ["DIRTY"]),
     "last_commit": os.environ["SCAFFOLD_MSG"],
     "ts": datetime.now(timezone.utc).isoformat(),
-    "warning": "premature-close: scaffold-only commits + dirty worktree (untracked or uncommitted files)",
+    "warning": "premature-close: scaffold-only commits with small transcript (< 5KB)",
 }))
 ' 2>/dev/null)
           if [ -n "$_warn_line" ]; then
@@ -150,7 +145,7 @@ print(json.dumps({
           fi
           # Nudge parent with P0 alert
           if [ -n "${PARENT_NAME:-}" ]; then
-            local _pm="[P0 scaffold-watcher] Agent '${agent_name}' closed after only a scaffold commit (dirty_files=${_has_dirty}, transcript_bytes=${AGENT_TRANSCRIPT_BYTES}, commits=${_total_commits}). Real work was NOT committed. Worktree: ${WORKTREE_PATH}"
+            local _pm="[P0 scaffold-watcher] Agent '${agent_name}' closed after only a scaffold commit (transcript_bytes=${AGENT_TRANSCRIPT_BYTES}, commits=${_total_commits}). Real work was NOT committed. Worktree: ${WORKTREE_PATH}"
             local _pb
             _pb=$(python3 -c "
 import json, os
