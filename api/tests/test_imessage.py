@@ -912,3 +912,126 @@ async def test_imessage_conversations_darwin_passes_guard(client):
                new=AsyncMock(return_value=[])):
         resp = await client.get("/api/imessage/conversations")
     assert resp.status_code != 503
+
+
+# ---------------------------------------------------------------------------
+# →1322: unread accuracy via last_read_message_timestamp
+# ---------------------------------------------------------------------------
+
+
+def _make_test_chat_db(tmp_path, chats, messages, message_joins):
+    """Build a minimal chat.db replica for unit testing the SQL query."""
+    import sqlite3 as _sqlite3
+
+    db_path = tmp_path / "chat.db"
+    conn = _sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE chat (
+            ROWID INTEGER PRIMARY KEY,
+            chat_identifier TEXT,
+            display_name TEXT,
+            service_name TEXT,
+            last_read_message_timestamp INTEGER DEFAULT 0,
+            is_archived INTEGER DEFAULT 0,
+            room_name TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE message (
+            ROWID INTEGER PRIMARY KEY,
+            text TEXT,
+            date INTEGER DEFAULT 0,
+            is_from_me INTEGER DEFAULT 0,
+            is_read INTEGER DEFAULT 0,
+            service TEXT,
+            handle_id INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE chat_message_join (
+            chat_id INTEGER,
+            message_id INTEGER
+        )
+    """)
+    conn.executemany("INSERT INTO chat VALUES (?, ?, ?, ?, ?, ?, ?)", chats)
+    conn.executemany("INSERT INTO message VALUES (?, ?, ?, ?, ?, ?, ?)", messages)
+    conn.executemany("INSERT INTO chat_message_join VALUES (?, ?)", message_joins)
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+def test_unread_count_zero_when_last_read_timestamp_is_newer(tmp_path):
+    """unread_count is 0 when last_read_message_timestamp >= message date.
+
+    This is the cross-device-read case: the iPhone read the message and
+    advanced the cursor, but is_read=0 is still stale in chat.db.
+    """
+    from services import imessage
+
+    # last_read_ts (1000) is newer than message date (500) → already read
+    db_path = _make_test_chat_db(
+        tmp_path,
+        chats=[
+            # (ROWID, chat_identifier, display_name, service_name, last_read_ts, is_archived, room_name)
+            (1, "+15550001111", "Test Contact", "iMessage", 1000, 0, None),
+        ],
+        messages=[
+            # (ROWID, text, date, is_from_me, is_read, service, handle_id)
+            (1, "Hey", 500, 0, 0, "iMessage", 1),
+        ],
+        message_joins=[(1, 1)],
+    )
+
+    with patch.object(imessage, "CHAT_DB_PATH", db_path):
+        convos = imessage.get_conversations_sync()
+
+    assert len(convos) == 1
+    assert convos[0]["unread_count"] == 0
+
+
+def test_unread_count_positive_when_message_newer_than_last_read(tmp_path):
+    """unread_count > 0 when an inbound message arrives after last_read_message_timestamp."""
+    from services import imessage
+
+    # message date (1000) is newer than last_read_ts (500) and is_read=0 → genuinely unread
+    db_path = _make_test_chat_db(
+        tmp_path,
+        chats=[
+            (1, "+15550001111", "Test Contact", "iMessage", 500, 0, None),
+        ],
+        messages=[
+            (1, "Hey", 1000, 0, 0, "iMessage", 1),
+        ],
+        message_joins=[(1, 1)],
+    )
+
+    with patch.object(imessage, "CHAT_DB_PATH", db_path):
+        convos = imessage.get_conversations_sync()
+
+    assert len(convos) == 1
+    assert convos[0]["unread_count"] == 1
+
+
+def test_archived_chats_excluded_from_conversations(tmp_path):
+    """Archived chats (is_archived=1) are filtered out of the conversations list."""
+    from services import imessage
+
+    db_path = _make_test_chat_db(
+        tmp_path,
+        chats=[
+            (1, "+15550001111", "Active Chat", "iMessage", 0, 0, None),
+            (2, "+15550002222", "Archived Chat", "iMessage", 0, 1, None),
+        ],
+        messages=[
+            (1, "Hi", 100, 0, 0, "iMessage", 1),
+            (2, "Old message", 50, 0, 0, "iMessage", 2),
+        ],
+        message_joins=[(1, 1), (2, 2)],
+    )
+
+    with patch.object(imessage, "CHAT_DB_PATH", db_path):
+        convos = imessage.get_conversations_sync()
+
+    assert len(convos) == 1
+    assert convos[0]["display_name"] == "Active Chat"

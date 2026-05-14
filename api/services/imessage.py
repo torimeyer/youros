@@ -28,7 +28,7 @@ CONVERSATIONS_CACHE_PATH = IMESSAGE_CACHE_DIR / "conversations.json"
 CONTACTS_CACHE_PATH = IMESSAGE_CACHE_DIR / "contacts.json"
 CHAT_DB_PATH = Path.home() / "Library" / "Messages" / "chat.db"
 
-# Cache TTL: 60 seconds for conversations list.
+# Cache TTL: 15 seconds for conversations list.
 _CONVERSATIONS_CACHE_TTL = 15
 
 # Contact name cache: loaded once from disk, updated in background.
@@ -271,16 +271,22 @@ def get_conversations_sync(limit: int = 50) -> list[dict]:
                 c.chat_identifier,
                 c.display_name,
                 c.service_name,
+                c.last_read_message_timestamp,
+                c.is_archived,
                 MAX(m.date) as last_message_date,
                 lm_text.text as last_message_text,
                 COUNT(m.ROWID) as message_count,
-                SUM(CASE WHEN m.is_read = 0 AND m.is_from_me = 0
+                SUM(CASE
+                    WHEN m.is_from_me = 0
+                     AND m.date > COALESCE(c.last_read_message_timestamp, 0)
+                     AND m.is_read = 0
                     THEN 1 ELSE 0 END) as unread_count
             FROM chat c
             LEFT JOIN chat_message_join cmj ON c.ROWID = cmj.chat_id
             LEFT JOIN message m ON cmj.message_id = m.ROWID
             LEFT JOIN latest_msg lm ON lm.chat_id = c.ROWID
             LEFT JOIN message lm_text ON lm_text.ROWID = lm.max_msg_id
+            WHERE c.is_archived = 0
             GROUP BY c.ROWID
             ORDER BY last_message_date DESC
             LIMIT ?
