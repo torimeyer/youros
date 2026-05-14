@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 from services.atomic_io import atomic_write_text
+from services.imessage_contacts import list_contacts
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +29,14 @@ CONVERSATIONS_CACHE_PATH = IMESSAGE_CACHE_DIR / "conversations.json"
 CONTACTS_CACHE_PATH = IMESSAGE_CACHE_DIR / "contacts.json"
 CHAT_DB_PATH = Path.home() / "Library" / "Messages" / "chat.db"
 
-# Cache TTL: 60 seconds for conversations list.
+# Cache TTL: 15 seconds for conversations list.
 _CONVERSATIONS_CACHE_TTL = 15
 
 # Contact name cache: loaded once from disk, updated in background.
 _contacts_cache: dict[str, str] | None = None
+
+# Set to True after the bulk Swift loader has run (or failed) once per boot.
+_bulk_contacts_loaded: bool = False
 
 # Circuit breaker: after 2 consecutive failures, stop for 5 minutes.
 _BREAKER_THRESHOLD = 2
@@ -189,15 +193,60 @@ def _format_phone(identifier: str) -> str:
     return identifier
 
 
+def _normalize_phone_key(phone: str) -> str:
+    """Return the last 10 digits of a phone number for cache indexing."""
+    digits = re.sub(r"\D", "", phone)
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
+def _populate_contacts_from_bulk_loader() -> None:
+    """Populate _contacts_cache from the Swift bulk loader.
+
+    Runs the Swift subprocess (~1s) once per backend boot. Indexes contacts by:
+    - Last 10 digits of each phone number (handles +1 prefix variation)
+    - Lowercased email address
+
+    Merges into the existing on-disk cache so previously-resolved names are
+    retained. Persists the result so next boot serves from disk instantly.
+    """
+    global _contacts_cache
+    try:
+        contacts = list_contacts()
+        if not contacts:
+            logger.info("Bulk contact loader: no contacts returned")
+            return
+        cache = _load_contacts_cache()
+        for contact in contacts:
+            name = contact.get("name", "")
+            if not name:
+                continue
+            for phone in contact.get("phone_numbers", []):
+                key = _normalize_phone_key(phone)
+                if key:
+                    cache[key] = name
+            for email in contact.get("emails", []):
+                if email:
+                    cache[email.lower()] = name
+        _contacts_cache = cache
+        _save_contacts_cache()
+        logger.info("Bulk contact loader: %d contacts indexed", len(contacts))
+    except Exception as exc:
+        logger.warning("Bulk contact loader failed, AppleScript fallback available: %s", exc)
+
+
 def _get_contact_display_name_cached(identifier: str) -> str:
     """Return a display name from the persistent cache, or the formatted number.
 
-    Never blocks on AppleScript. If the name isn't cached yet, returns the
-    formatted phone number. Background refresh will fill in names over time.
+    Never blocks. Checks the cache by exact identifier, then by normalized
+    10-digit phone key (handles +1 vs local-number differences).
     """
     cache = _load_contacts_cache()
     if identifier in cache:
         return cache[identifier]
+    if "@" not in identifier:
+        key = _normalize_phone_key(identifier)
+        if key and key in cache:
+            return cache[key]
     return _format_phone(identifier)
 
 
@@ -223,28 +272,6 @@ def _lookup_contact_name(identifier: str) -> str | None:
         pass
     return None
 
-
-def _refresh_contacts_for_identifiers(identifiers: list[str]) -> None:
-    """Look up contact names for uncached identifiers and persist results.
-
-    This runs in a background thread. It does one AppleScript call per
-    uncached identifier but the results persist on disk, so subsequent
-    requests are instant.
-    """
-    cache = _load_contacts_cache()
-    uncached = [i for i in identifiers if i and "@" not in i and i not in cache]
-    if not uncached:
-        return
-
-    for identifier in uncached:
-        name = _lookup_contact_name(identifier)
-        if name:
-            cache[identifier] = name
-        else:
-            # Store the formatted version so we don't retry on every request.
-            cache[identifier] = _format_phone(identifier)
-
-    _save_contacts_cache()
 
 
 def get_conversations_sync(limit: int = 50) -> list[dict]:
@@ -287,7 +314,6 @@ def get_conversations_sync(limit: int = 50) -> list[dict]:
         """, (limit,)).fetchall()
 
         conversations = []
-        identifiers_to_lookup: list[str] = []
         for row in rows:
             chat_id = row["chat_id"]
             identifier = row["chat_identifier"] or ""
@@ -300,7 +326,6 @@ def get_conversations_sync(limit: int = 50) -> list[dict]:
             if not display_name:
                 if _is_direct_identifier(identifier):
                     display_name = _get_contact_display_name_cached(identifier)
-                    identifiers_to_lookup.append(identifier)
                 else:
                     display_name = "Group Chat"
 
@@ -356,13 +381,19 @@ def invalidate_conversations_cache() -> None:
 async def get_conversations(limit: int = 50) -> list[dict]:
     """Return recent conversations.
 
-    Checks the on-disk cache first (60 second TTL). On cache miss, reads
-    from chat.db in a thread so the async event loop is not blocked.
-    Circuit breaker stops attempts after 2 consecutive failures for 5 minutes.
-
-    Contact name lookups are non-blocking: uses cached names immediately,
-    schedules a background refresh for uncached identifiers.
+    On the first call after backend boot, runs the Swift bulk contact loader
+    (~1s) so names appear immediately instead of trickling in one-by-one.
+    Subsequent calls use the on-disk contact cache and conversations cache
+    (15s TTL). Circuit breaker stops attempts after 2 consecutive failures
+    for 5 minutes.
     """
+    global _bulk_contacts_loaded
+    if not _bulk_contacts_loaded:
+        _bulk_contacts_loaded = True
+        await asyncio.get_event_loop().run_in_executor(
+            None, _populate_contacts_from_bulk_loader
+        )
+
     cached = _load_conversations_cache()
     if cached is not None:
         return cached
@@ -385,20 +416,6 @@ async def get_conversations(limit: int = 50) -> list[dict]:
         return []
 
     _save_conversations_cache(conversations)
-
-    # Schedule background contact name refresh for uncached identifiers.
-    # This doesn't block the response. Next request will have real names.
-    uncached_ids = [
-        c["identifier"] for c in conversations
-        if c["identifier"] and "@" not in c["identifier"]
-        and c["identifier"] not in (_contacts_cache or {})
-    ]
-    if uncached_ids:
-        loop = asyncio.get_event_loop()
-        loop.run_in_executor(
-            None, lambda: _refresh_contacts_for_identifiers(uncached_ids)
-        )
-
     return conversations
 
 

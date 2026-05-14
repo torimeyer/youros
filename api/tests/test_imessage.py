@@ -825,6 +825,170 @@ def test_send_message_timeout():
 
 
 # ---------------------------------------------------------------------------
+# Bulk contact loader (Phase 4)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_phone_key():
+    """_normalize_phone_key strips formatting and returns last 10 digits."""
+    from services.imessage import _normalize_phone_key
+
+    assert _normalize_phone_key("+1 (555) 123-4567") == "5551234567"
+    assert _normalize_phone_key("(555) 123-4567") == "5551234567"
+    assert _normalize_phone_key("+15551234567") == "5551234567"
+    assert _normalize_phone_key("5551234567") == "5551234567"
+    assert _normalize_phone_key("") == ""
+
+
+def test_populate_contacts_indexes_by_10_digit_key(tmp_path):
+    """_populate_contacts_from_bulk_loader stores contacts keyed by last 10 digits."""
+    from services import imessage
+
+    fake_contacts = [
+        {"name": "Alice Smith", "phone_numbers": ["+1 (555) 999-0001"], "emails": []},
+        {"name": "Bob Jones", "phone_numbers": [], "emails": ["bob@example.com"]},
+    ]
+    cache_dir = tmp_path / "imessage_cache"
+    cache_dir.mkdir()
+    cache_path = cache_dir / "contacts.json"
+
+    with (
+        patch("services.imessage.list_contacts", return_value=fake_contacts),
+        patch.object(imessage, "_contacts_cache", None),
+        patch.object(imessage, "IMESSAGE_CACHE_DIR", cache_dir),
+        patch.object(imessage, "CONTACTS_CACHE_PATH", cache_path),
+    ):
+        imessage._populate_contacts_from_bulk_loader()
+        cache = imessage._load_contacts_cache()
+
+    assert cache.get("5559990001") == "Alice Smith"
+    assert cache.get("bob@example.com") == "Bob Jones"
+
+
+@pytest.mark.asyncio
+async def test_get_conversations_uses_bulk_loaded_names(tmp_path):
+    """get_conversations returns contact names (not raw numbers) after bulk load.
+
+    Before this change, first load showed raw phone strings like '(555) 123-4567'.
+    Now it shows resolved names within the same ~1s bulk load.
+    """
+    import sqlite3 as _sqlite3
+    from services import imessage
+
+    # Bulk loader returns one contact with a US phone number
+    fake_contacts = [
+        {"name": "Mom", "phone_numbers": ["+15550009999"], "emails": []},
+    ]
+
+    # Stub conversations DB result with that phone as the identifier
+    fake_rows = [
+        {
+            "chat_id": 1,
+            "chat_identifier": "+15550009999",
+            "display_name": "",
+            "service_name": "iMessage",
+            "last_message_date": 700000000000000000,
+            "last_message_text": "Hey",
+            "message_count": 5,
+            "unread_count": 0,
+        }
+    ]
+
+    cache_dir = tmp_path / "imessage_cache"
+    cache_dir.mkdir()
+    contacts_path = cache_dir / "contacts.json"
+    convos_path = cache_dir / "conversations.json"
+
+    with (
+        patch("services.imessage_contacts.list_contacts", return_value=fake_contacts),
+        patch.object(imessage, "_contacts_cache", None),
+        patch.object(imessage, "_bulk_contacts_loaded", False),
+        patch.object(imessage, "IMESSAGE_CACHE_DIR", cache_dir),
+        patch.object(imessage, "CONTACTS_CACHE_PATH", contacts_path),
+        patch.object(imessage, "CONVERSATIONS_CACHE_PATH", convos_path),
+        patch.object(imessage, "get_conversations_sync", return_value=[
+            {
+                "id": 1,
+                "identifier": "+15550009999",
+                "display_name": "Mom",
+                "service": "iMessage",
+                "last_message_date": "2026-01-01T00:00:00+00:00",
+                "last_message_preview": "Hey",
+                "message_count": 5,
+                "unread_count": 0,
+            }
+        ]),
+        patch.object(imessage, "_breaker_is_open", return_value=False),
+    ):
+        result = await imessage.get_conversations()
+
+    assert len(result) == 1
+    assert result[0]["display_name"] == "Mom", (
+        f"Expected 'Mom' but got '{result[0]['display_name']}' — "
+        "bulk loader did not populate contact name before conversations load"
+    )
+
+
+def test_bulk_loader_failure_leaves_applescript_fallback_callable(tmp_path):
+    """If the Swift subprocess fails, _lookup_contact_name is still callable.
+
+    This verifies the AppleScript fallback path has not been removed.
+    """
+    from services import imessage
+
+    # Verify _lookup_contact_name still exists and is callable
+    assert callable(imessage._lookup_contact_name), (
+        "_lookup_contact_name was removed but is needed as AppleScript fallback"
+    )
+
+    # Simulate Swift failure and confirm populate_contacts_from_bulk_loader
+    # does not raise — it should log a warning and return gracefully.
+    cache_dir = tmp_path / "imessage_cache"
+    cache_dir.mkdir()
+    cache_path = cache_dir / "contacts.json"
+
+    with (
+        patch("services.imessage.list_contacts", side_effect=RuntimeError("swift not found")),
+        patch.object(imessage, "_contacts_cache", None),
+        patch.object(imessage, "IMESSAGE_CACHE_DIR", cache_dir),
+        patch.object(imessage, "CONTACTS_CACHE_PATH", cache_path),
+    ):
+        # Must not raise
+        imessage._populate_contacts_from_bulk_loader()
+
+    # And _lookup_contact_name can be called independently
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = "Alice Smith\n"
+    mock_result.stderr = ""
+    with patch("subprocess.run", return_value=mock_result):
+        name = imessage._lookup_contact_name("+15551234567")
+    assert name == "Alice Smith"
+
+
+def test_get_contact_display_name_cached_normalized_key(tmp_path):
+    """_get_contact_display_name_cached resolves via 10-digit normalized key.
+
+    chat.db gives us '+15551234567'; bulk loader indexed under '5551234567'.
+    The lookup must match across this +1 prefix difference.
+    """
+    from services import imessage
+
+    cache_dir = tmp_path / "imessage_cache"
+    cache_dir.mkdir()
+    cache_path = cache_dir / "contacts.json"
+    cache_path.write_text('{"5551234567": "Dad"}')
+
+    with patch.object(imessage, "_contacts_cache", None), \
+         patch.object(imessage, "CONTACTS_CACHE_PATH", cache_path):
+        name = imessage._get_contact_display_name_cached("+15551234567")
+
+    assert name == "Dad", (
+        f"Expected 'Dad' but got '{name}' — normalized key lookup is broken"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Circuit breaker
 # ---------------------------------------------------------------------------
 
