@@ -331,14 +331,6 @@ export default function TopBar({ title }: TopBarProps) {
           </button>
         )}
         <button
-          onClick={() => navigate('/team')}
-          className="p-2.5 sm:p-2 text-slate-400 hover:text-blue-400 transition-all"
-          title="Team"
-          data-testid="topbar-team-link"
-        >
-          <Icon name="group" />
-        </button>
-        <button
           onClick={() => {
             navigate('/tasks')
             setTimeout(() => window.dispatchEvent(new CustomEvent('myos-quick-add-task')), 100)
