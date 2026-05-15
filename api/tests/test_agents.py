@@ -1189,13 +1189,18 @@ async def test_list_nudges_empty_when_no_directory(tmp_path):
 
 @pytest.mark.asyncio
 async def test_list_agents_daemon_agents_override_audit():
-    """Daemon agents should take priority over audit log entries for the same name."""
+    """Registry agents should take priority over audit log entries for the same name.
+
+    Previously kernel_ps() (source="daemon") was used; now registry_reader
+    (source="registry") replaces it to avoid the gen_table scan (->1379).
+    The priority logic is unchanged: registry/daemon wins over audit.
+    """
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         mock_ps = {
             "raw": "my-agent   running   opus",
             "daemon_running": True,
-            "agents": [{"name": "my-agent", "status": "running", "source": "daemon"}],
+            "agents": [{"name": "my-agent", "status": "running", "source": "registry"}],
         }
         mock_audit = [
             {
@@ -1206,8 +1211,8 @@ async def test_list_agents_daemon_agents_override_audit():
         ]
 
         with patch("routers.agents.ostk") as mock_ostk, \
+             patch("services.registry_reader.read_registry_for_snapshot", return_value=mock_ps), \
              patch("routers.agents._load_deleted_agents", return_value=set()):
-            mock_ostk.kernel_ps = AsyncMock(return_value=mock_ps)
             mock_ostk.audit_agents = AsyncMock(return_value=mock_audit)
 
             resp = await client.get("/api/agents")
@@ -1215,8 +1220,8 @@ async def test_list_agents_daemon_agents_override_audit():
         data = resp.json()
         my_agent = [a for a in data["agents"] if a["name"] == "my-agent"]
         assert len(my_agent) == 1
-        # Daemon source should win
-        assert my_agent[0]["source"] == "daemon"
+        # Registry source should win over audit
+        assert my_agent[0]["source"] == "registry"
 
 
 # ── Regression tests: stale audit agents shown as RUNNING ────────────
