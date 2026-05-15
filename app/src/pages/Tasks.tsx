@@ -75,6 +75,9 @@ interface Task {
   notes?: string | null;
   // Relative path to a plan file if one exists for this needle.
   plan_path?: string | null;
+  // Wave number assigned by the last wave-planning run (1-indexed). null when
+  // no wave plan has been run yet.
+  wave_number?: number | null;
 }
 
 // A task is "active" (shown under the Open tab and counted in the
@@ -340,6 +343,8 @@ export default function Tasks() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [auditModalOpen, setAuditModalOpen] = useState(false);
   const [wavesModalOpen, setWavesModalOpen] = useState(false);
+  // task_id → wave number from the last planning run. Empty when never planned.
+  const [waveAssignments, setWaveAssignments] = useState<Record<string, number>>({});
   // Inline title editing: which task row is in edit mode, the draft value,
   // and a ref to suppress the blur-save when Escape was just pressed.
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -463,6 +468,11 @@ export default function Tasks() {
   useEffect(() => {
     fetchTasks();
     fetchLabels();
+    // Load any previously saved wave assignments so task rows can show badges
+    // without having to open the plan-waves panel first.
+    api.get<{ assignments: Record<string, number> }>('/tasks/waves/assignments')
+      .then((res) => setWaveAssignments(res.assignments ?? {}))
+      .catch(() => { /* silent — no assignments yet */ });
   }, [fetchTasks, fetchLabels]);
 
   // Poll running agents every 3s to drive the per-row in-progress indicator
@@ -1690,15 +1700,33 @@ export default function Tasks() {
           </div>
 
           {/* Primary AI action */}
-          <button
-            onClick={handleNext}
-            data-testid="what-should-i-do-next"
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-700 shrink-0"
-          >
-            <Icon name="auto_awesome" className="text-amber-400 text-base" />
-            <span className="hidden sm:inline">What should I do next?</span>
-            <span className="sm:hidden">Next?</span>
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setWavesModalOpen(true)}
+              data-testid="plan-waves-btn"
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-700"
+            >
+              <Icon name="account_tree" className="text-purple-400 text-base" />
+              <span className="hidden sm:inline">
+                {Object.keys(waveAssignments).length > 0 ? "Update waves" : "Plan waves"}
+              </span>
+              <span className="sm:hidden">Waves</span>
+            </button>
+            <div className="relative group/wavesinfo">
+              <button
+                data-testid="plan-waves-info"
+                className="p-1.5 text-slate-500 hover:text-slate-300 transition-colors"
+                aria-label="What are waves?"
+                tabIndex={0}
+              >
+                <Icon name="info" className="text-sm" />
+              </button>
+              <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover/wavesinfo:block group-focus-within/wavesinfo:block w-72 bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-3 text-xs text-slate-300 leading-relaxed pointer-events-none">
+                <p className="font-semibold text-slate-100 mb-1">What are waves?</p>
+                <p>Waves group your tasks into batches. Tasks in the same wave can run at the same time. Each wave waits for the one before it to finish — so you always know what to start next.</p>
+              </div>
+            </div>
+          </div>
 
           {/* Overflow menu */}
           <div className="relative" ref={overflowMenuRef}>
@@ -1764,14 +1792,6 @@ export default function Tasks() {
                 >
                   <Icon name="fact_check" className="text-blue-400 text-sm" />
                   Audit for review
-                </button>
-                <button
-                  onClick={() => { setShowOverflowMenu(false); setWavesModalOpen(true); }}
-                  data-testid="plan-waves-button"
-                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-purple-300"
-                >
-                  <Icon name="account_tree" className="text-purple-400 text-sm" />
-                  Plan waves
                 </button>
                 <div className="border-t border-slate-700 my-1" />
                 <button
@@ -2097,6 +2117,14 @@ export default function Tasks() {
                           <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
                             <Icon name="schedule" className="text-[11px] text-slate-500" />
                             stale
+                          </span>
+                        )}
+                        {waveAssignments[task.id] != null && (
+                          <span
+                            data-testid={`wave-badge-${task.id}`}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/25"
+                          >
+                            W{waveAssignments[task.id]}
                           </span>
                         )}
                         {renderDependencyPills(task)}
@@ -2895,7 +2923,13 @@ export default function Tasks() {
 
       <PlanWavesPanel
         open={wavesModalOpen}
-        onClose={() => setWavesModalOpen(false)}
+        onClose={() => {
+          setWavesModalOpen(false);
+          // Refresh wave assignments so badges update after a plan run.
+          api.get<{ assignments: Record<string, number> }>('/tasks/waves/assignments')
+            .then((res) => setWaveAssignments(res.assignments ?? {}))
+            .catch(() => {});
+        }}
       />
 
       <ConfirmModal

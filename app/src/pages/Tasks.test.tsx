@@ -3381,3 +3381,59 @@ describe('getFirstSentence (→1057)', () => {
     expect(getFirstSentence('   Title.   Rest of body')).toBe('Title.')
   })
 })
+
+describe('Plan waves button (→1370)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  it('shows "Plan waves" when no wave assignments exist', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path === '/tasks/waves/assignments') return Promise.resolve({ assignments: {} })
+      return Promise.resolve({})
+    })
+    renderTasks()
+
+    await waitFor(() => screen.getByTestId('plan-waves-btn'))
+    expect(screen.getByTestId('plan-waves-btn')).toHaveTextContent('Plan waves')
+  })
+
+  it('shows "Update waves" when wave assignments already exist', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path === '/tasks/waves/assignments')
+        return Promise.resolve({ assignments: { '1': 1, '2': 1, '3': 2 } })
+      return Promise.resolve({})
+    })
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('plan-waves-btn')).toHaveTextContent('Update waves')
+    })
+  })
+
+  it('renders wave badge on task row when assignment exists', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path === '/tasks/waves/assignments')
+        return Promise.resolve({ assignments: { '1': 1, '2': 2 } })
+      return Promise.resolve({})
+    })
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('wave-badge-1')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('wave-badge-1')).toHaveTextContent('W1')
+    expect(screen.getByTestId('wave-badge-2')).toHaveTextContent('W2')
+    // task 3 has no assignment — no badge
+    expect(screen.queryByTestId('wave-badge-3')).not.toBeInTheDocument()
+  })
+})

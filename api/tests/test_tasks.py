@@ -4456,3 +4456,85 @@ async def test_list_tasks_overlay_ignores_agents_without_task_linkage(client):
         assert resp.json()["tasks"][0]["status"] == "open"
     finally:
         agent_metadata.pop("agent-freelance", None)
+
+
+# --- Wave planning tests (→1370) ---
+
+@pytest.mark.asyncio
+async def test_plan_waves_returns_response_shape(client, tmp_path, monkeypatch):
+    """GET /tasks/waves returns the expected JSON shape with waves + total_needles."""
+    import routers.tasks as rt
+    monkeypatch.setattr(rt, "_WAVES_PATH", tmp_path / "waves.json")
+
+    tasks = [
+        _make_task(id="a", title="Fix auth bug", priority="P0"),
+        _make_task(id="b", title="Add dark mode", priority="P1"),
+    ]
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=tasks)):
+        resp = await client.get("/api/tasks/waves")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "waves" in body
+    assert "total_needles" in body
+    assert body["total_needles"] == 2
+    # Every wave has the required keys
+    for wave in body["waves"]:
+        assert "wave" in wave
+        assert "needles" in wave
+        assert "blocked_by_prior" in wave
+        for n in wave["needles"]:
+            assert "id" in n
+            assert "title" in n
+            assert "priority" in n
+            assert "scope_hint" in n
+
+
+@pytest.mark.asyncio
+async def test_plan_waves_persists_assignments(client, tmp_path, monkeypatch):
+    """GET /tasks/waves writes a waves.json sidecar with task_id → wave_number."""
+    import routers.tasks as rt
+    waves_path = tmp_path / "waves.json"
+    monkeypatch.setattr(rt, "_WAVES_PATH", waves_path)
+
+    tasks = [
+        _make_task(id="x1", title="Fix login", priority="P0"),
+        _make_task(id="x2", title="Update docs", priority="P2"),
+    ]
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=tasks)):
+        resp = await client.get("/api/tasks/waves")
+
+    assert resp.status_code == 200
+    assert waves_path.exists(), "waves.json should have been written"
+    import json
+    data = json.loads(waves_path.read_text())
+    assert "assignments" in data
+    assert "x1" in data["assignments"]
+    assert "x2" in data["assignments"]
+    assert isinstance(data["assignments"]["x1"], int)
+
+
+@pytest.mark.asyncio
+async def test_get_wave_assignments_returns_empty_when_no_file(client, tmp_path, monkeypatch):
+    """GET /tasks/waves/assignments returns {} when no waves.json exists."""
+    import routers.tasks as rt
+    monkeypatch.setattr(rt, "_WAVES_PATH", tmp_path / "missing.json")
+
+    resp = await client.get("/api/tasks/waves/assignments")
+    assert resp.status_code == 200
+    assert resp.json() == {"assignments": {}}
+
+
+@pytest.mark.asyncio
+async def test_get_wave_assignments_returns_saved_data(client, tmp_path, monkeypatch):
+    """GET /tasks/waves/assignments returns previously saved assignments."""
+    import json
+    import routers.tasks as rt
+    waves_path = tmp_path / "waves.json"
+    waves_path.write_text(json.dumps({"assignments": {"t1": 1, "t2": 2}}))
+    monkeypatch.setattr(rt, "_WAVES_PATH", waves_path)
+
+    resp = await client.get("/api/tasks/waves/assignments")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["assignments"] == {"t1": 1, "t2": 2}

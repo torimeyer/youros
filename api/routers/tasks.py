@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 from difflib import SequenceMatcher
+from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
@@ -523,6 +525,7 @@ _WAVE_TOKEN_RE = re.compile(r"\b[a-z][a-z0-9_]{3,}\b")
 
 _WAVE_PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 _WAVE_MAX = 4  # max tasks per wave (matches feedback_saa_split_when_scope_is_big.md)
+_WAVES_PATH = Path.home() / ".myos" / "waves.json"
 
 
 def _wave_scope_tokens(task: dict) -> set[str]:
@@ -618,7 +621,34 @@ async def plan_waves():
             "blocked_by_prior": i > 0,
         })
 
+    # Persist assignments so task rows can show their wave badge.
+    assignments: dict[str, int] = {}
+    for wave_obj in result:
+        for needle in wave_obj["needles"]:
+            if needle["id"]:
+                assignments[needle["id"]] = wave_obj["wave"]
+    try:
+        _WAVES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _WAVES_PATH.write_text(json.dumps({"assignments": assignments}))
+    except Exception:
+        pass  # persistence is best-effort; don't fail the response
+
     return {"waves": result, "total_needles": len(sorted_tasks)}
+
+
+@router.get("/tasks/waves/assignments")
+async def get_wave_assignments():
+    """Return persisted wave assignments keyed by task id: {task_id: wave_number}.
+
+    Returns an empty dict when no wave plan has been run yet.
+    """
+    if not _WAVES_PATH.exists():
+        return {"assignments": {}}
+    try:
+        data = json.loads(_WAVES_PATH.read_text())
+        return {"assignments": data.get("assignments", {})}
+    except Exception:
+        return {"assignments": {}}
 
 # Matches a task id reference like "→160" inside a blocker text line.
 _BLOCKER_ID_RE = re.compile(r"\u2192\d+")
