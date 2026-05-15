@@ -12,6 +12,7 @@ Covers:
 
 import time
 import pytest
+import httpx
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from services import atlassian as svc
@@ -171,6 +172,77 @@ async def test_status_endpoint_expired_false_when_probe_true(client):
     data = resp.json()
     assert data["connected"] is True
     assert data["expired"] is False
+
+
+# ---------------------------------------------------------------------------
+# Test 8: Confluence fallback — Jira fails (403), Confluence returns 200 → valid
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_probe_confluence_fallback_when_jira_fails(clean_probe_cache):
+    """When Jira returns 403 and Confluence returns 200, probe reports valid."""
+    resp_403 = _make_resp(403)
+    resp_200 = _make_resp(200)
+
+    jira_base = "https://api.atlassian.com/ex/jira/cloud-1"
+    confluence_base = "https://api.atlassian.com/ex/confluence/cloud-1"
+
+    call_count = 0
+
+    async def mock_request_with_refresh(product, fn):
+        nonlocal call_count
+        call_count += 1
+        if product == "jira":
+            return resp_403, jira_base, "acme.atlassian.net"
+        return resp_200, confluence_base, "acme.atlassian.net"
+
+    with patch.object(svc.ostk, "secret_get", AsyncMock(return_value="oauth-access-token")):
+        with patch("services.atlassian._request_with_refresh", side_effect=mock_request_with_refresh):
+            result = await svc.probe_token_validity()
+
+    assert result is True
+    assert call_count == 2  # Jira tried first, then Confluence
+
+
+# ---------------------------------------------------------------------------
+# Test 9: Both Jira and Confluence fail → expired
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_probe_expired_when_both_jira_and_confluence_fail(clean_probe_cache):
+    """When both Jira and Confluence return non-200, probe reports expired."""
+    resp_401 = _make_resp(401)
+
+    async def mock_request_with_refresh(product, fn):
+        return resp_401, "https://api.atlassian.com/ex/jira/cloud-1", "acme.atlassian.net"
+
+    with patch.object(svc.ostk, "secret_get", AsyncMock(return_value="oauth-access-token")):
+        with patch("services.atlassian._request_with_refresh", side_effect=mock_request_with_refresh):
+            result = await svc.probe_token_validity()
+
+    assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Test 10: Jira exception, Confluence returns 200 → valid
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_probe_confluence_fallback_when_jira_raises(clean_probe_cache):
+    """When Jira raises a network error and Confluence returns 200, probe reports valid."""
+    resp_200 = _make_resp(200)
+    confluence_base = "https://api.atlassian.com/ex/confluence/cloud-1"
+
+    async def mock_request_with_refresh(product, fn):
+        if product == "jira":
+            raise httpx.ConnectError("connection refused")
+        return resp_200, confluence_base, "acme.atlassian.net"
+
+    with patch.object(svc.ostk, "secret_get", AsyncMock(return_value="oauth-access-token")):
+        with patch("services.atlassian._request_with_refresh", side_effect=mock_request_with_refresh):
+            result = await svc.probe_token_validity()
+
+    assert result is True
 
 
 # ---------------------------------------------------------------------------

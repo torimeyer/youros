@@ -197,10 +197,16 @@ _status_probe_cache: dict[str, tuple[float, bool]] = {}
 async def probe_token_validity() -> bool:
     """Return True if the OAuth token is valid (after one refresh attempt).
 
-    Probes GET /rest/api/3/myself via _request_with_refresh.
+    Tries Jira first (GET /rest/api/3/myself). If Jira is not accessible,
+    falls back to Confluence (GET /wiki/rest/api/user/current). Returns True
+    if either endpoint responds 200. Only reports expired when both fail —
+    this keeps Confluence-only setups from showing as expired.
     PAT auth (no saved access_token) returns True (treated as valid).
     Cache TTL is 60s.
     """
+    import logging
+    _log = logging.getLogger(__name__)
+
     access_token = await ostk.secret_get(ATLASSIAN_ACCESS_TOKEN_KEY)
     if not access_token:
         return True  # PAT path; caller treats this as valid
@@ -211,18 +217,35 @@ async def probe_token_validity() -> bool:
         if time.time() < expires_at:
             return result
 
-    async def call(client, auth_kwargs, base_url, site):
+    # Try Jira first.
+    async def call_jira(client, auth_kwargs, base_url, site):
         return await client.get(f"{base_url}/rest/api/3/myself", **auth_kwargs)
 
+    jira_ok = False
     try:
-        resp, _, _ = await _request_with_refresh("jira", call)
-        result = resp.status_code == 200
+        resp, _, _ = await _request_with_refresh("jira", call_jira)
+        jira_ok = resp.status_code == 200
     except Exception as exc:
-        import logging
-        logging.getLogger(__name__).warning(
-            "atlassian probe_token_validity failed: %s", exc, exc_info=True,
+        _log.warning("atlassian probe_token_validity jira probe failed: %s", exc, exc_info=True)
+
+    if jira_ok:
+        _status_probe_cache[cache_key] = (time.time() + _STATUS_PROBE_TTL, True)
+        return True
+
+    # Jira unavailable — try Confluence so Confluence-only setups stay valid.
+    async def call_confluence(client, auth_kwargs, base_url, site):
+        return await client.get(f"{base_url}/wiki/rest/api/user/current", **auth_kwargs)
+
+    confluence_ok = False
+    try:
+        resp, _, _ = await _request_with_refresh("confluence", call_confluence)
+        confluence_ok = resp.status_code == 200
+    except Exception as exc:
+        _log.warning(
+            "atlassian probe_token_validity confluence fallback failed: %s", exc, exc_info=True
         )
-        result = False
+
+    result = confluence_ok
     _status_probe_cache[cache_key] = (time.time() + _STATUS_PROBE_TTL, result)
     return result
 
