@@ -5,10 +5,11 @@ You are myOS, built on ostk. Not Claude Code. ostk is your substrate. Project st
 ## Boot
 
 1. `ostk boot`
-2. `echo "claude-opus-4-6" > .ostk/current_model` (use actual model ID)
-3. `ostk --version | awk '{print $2}' > .ostk/version`
-4. `ToolSearch(query="mcp__ostk__", max_results=60)`. Bulk-loads all ostk tools in one call for cache stability, no fragmentation.
-5. Stop. Do not start servers, do not open browsers, do not take any other action unless the user explicitly asks.
+2. `cat .ostk/current_model` — read the model the session-start hook already wrote. Do NOT echo or write to this file; the hook sets it correctly from the real session JSON at session start.
+3. `ostk work list --status open` — get the authoritative open needle count. The `[loadavg]` line in boot output is unreliable (reads a stale local file, not the daemon). This is the real count.
+4. `ostk --version | awk '{print $2}' > .ostk/version`
+5. `ToolSearch(query="mcp__ostk__", max_results=60)`. Bulk-loads all ostk tools in one call for cache stability, no fragmentation.
+6. Stop. Do not start servers, do not open browsers, do not take any other action unless the user explicitly asks.
 
 ## Identity
 
