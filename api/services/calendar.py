@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -22,6 +23,20 @@ EVENTS_CACHE_PATH = CALENDAR_CACHE_DIR / "events.json"
 
 # 15 minutes TTL for the events cache.
 _CACHE_TTL_SECONDS = 900
+
+# Matches Google Calendar "where I'm working from" / WFH location markers.
+# These are all-day recurring events that show up every day and carry no
+# actionable info, so we strip them before the events reach the UI.
+_WFH_PATTERN = re.compile(
+    r"work\s+from|WFH|where\s+i'?m\s+working|working\s+from\s+home",
+    re.IGNORECASE,
+)
+
+
+def _is_wfh_event(event: dict) -> bool:
+    """Return True if the event is a daily WFH location marker."""
+    summary = event.get("summary") or ""
+    return bool(_WFH_PATTERN.search(summary))
 
 
 def _ensure_dirs() -> None:
@@ -163,11 +178,12 @@ async def get_upcoming_events(days: int = 7) -> list[dict]:
     """
     cached = _load_cache()
     if cached is not None:
-        return cached
+        return [e for e in cached if not _is_wfh_event(e)]
 
     events = await asyncio.get_event_loop().run_in_executor(
         None, lambda: _fetch_events_sync(days)
     )
+    events = [e for e in events if not _is_wfh_event(e)]
     _save_cache(events)
     return events
 
@@ -179,9 +195,10 @@ async def fetch_events_uncached(days: int = 7) -> list[dict]:
     back as a 1-day or 30-day result. Cache writes are also skipped here
     so a Day fetch cannot poison the default 7-day cache.
     """
-    return await asyncio.get_event_loop().run_in_executor(
+    events = await asyncio.get_event_loop().run_in_executor(
         None, lambda: _fetch_events_sync(days)
     )
+    return [e for e in events if not _is_wfh_event(e)]
 
 
 

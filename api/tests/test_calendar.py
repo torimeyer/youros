@@ -1022,3 +1022,110 @@ def test_build_calendar_service_passes_client_credentials():
     assert creds.client_id == "test-client-id", f"client_id={creds.client_id!r}"
     assert creds.client_secret == "test-client-secret", f"client_secret={creds.client_secret!r}"
 
+
+# ---------------------------------------------------------------------------
+# WFH event filter
+# ---------------------------------------------------------------------------
+
+
+def test_is_wfh_event_matches_common_patterns():
+    """_is_wfh_event recognises all common WFH summary variants."""
+    from services.calendar import _is_wfh_event
+
+    assert _is_wfh_event({"summary": "WFH"}) is True
+    assert _is_wfh_event({"summary": "wfh"}) is True
+    assert _is_wfh_event({"summary": "Work from home"}) is True
+    assert _is_wfh_event({"summary": "Working from home"}) is True
+    assert _is_wfh_event({"summary": "work from: office"}) is True
+    assert _is_wfh_event({"summary": "Where I'm working from"}) is True
+    assert _is_wfh_event({"summary": "Where im working"}) is True
+
+
+def test_is_wfh_event_does_not_match_regular_events():
+    """_is_wfh_event must not filter out normal events."""
+    from services.calendar import _is_wfh_event
+
+    assert _is_wfh_event({"summary": "Team Standup"}) is False
+    assert _is_wfh_event({"summary": "Design Review"}) is False
+    assert _is_wfh_event({"summary": "1:1 with manager"}) is False
+    assert _is_wfh_event({}) is False
+
+
+@pytest.mark.asyncio
+async def test_calendar_events_filters_wfh_on_fetch(client, tmp_path):
+    """WFH events are stripped from the response at fetch time."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar.readonly",
+    }))
+    cache_path = tmp_path / "calendar_cache" / "events.json"
+    cache_path.parent.mkdir()
+
+    real_events = _make_events(2)
+    wfh_events = [
+        {
+            "id": "wfh-1",
+            "summary": "WFH",
+            "start": {"date": "2026-05-14"},
+            "end": {"date": "2026-05-15"},
+        },
+        {
+            "id": "wfh-2",
+            "summary": "Work from home",
+            "start": {"date": "2026-05-14"},
+            "end": {"date": "2026-05-15"},
+        },
+    ]
+    all_events = real_events + wfh_events
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.calendar.EVENTS_CACHE_PATH", cache_path),
+        patch("services.calendar._fetch_events_sync", return_value=all_events),
+    ):
+        resp = await client.get("/api/calendar/events")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    returned_ids = {e["id"] for e in data["events"]}
+    assert "wfh-1" not in returned_ids
+    assert "wfh-2" not in returned_ids
+    assert len(data["events"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_calendar_events_filters_wfh_from_cache(client, tmp_path):
+    """WFH events already in the cache are stripped before being returned."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar.readonly",
+    }))
+    cache_path = tmp_path / "calendar_cache" / "events.json"
+    cache_path.parent.mkdir()
+
+    from datetime import datetime as _dt
+    today_str = _dt.now().strftime("%Y-%m-%d")
+    cached_events = _make_events(1) + [
+        {
+            "id": "wfh-cached",
+            "summary": "Working from home",
+            "start": {"date": today_str},
+            "end": {"date": today_str},
+        }
+    ]
+    cache_path.write_text(json.dumps({"fetched_date": today_str, "events": cached_events}))
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.calendar.EVENTS_CACHE_PATH", cache_path),
+    ):
+        resp = await client.get("/api/calendar/events")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    returned_ids = {e["id"] for e in data["events"]}
+    assert "wfh-cached" not in returned_ids
+    assert len(data["events"]) == 1
+
