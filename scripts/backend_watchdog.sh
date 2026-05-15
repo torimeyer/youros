@@ -22,7 +22,14 @@
 #   MYOS_WATCHDOG_DEADLOCK_THRESHOLD consecutive failed health probes while
 #                              the backend PID is still alive before the
 #                              watchdog treats it as a deadlocked event loop
-#                              and sends SIGKILL (default 3)
+#                              and sends SIGKILL (default 10)
+#                              TRADE-OFF: a higher threshold means a genuinely
+#                              deadlocked event loop takes longer to recover
+#                              (10 × 30s ≈ 5 min). In practice, /api/health is
+#                              lightweight and should never miss 10 consecutive
+#                              probes unless the loop is truly stuck, so false
+#                              positives (killing a healthy-but-busy backend)
+#                              drop to near-zero at threshold 10.
 #   MYOS_WATCHDOG_RESTART_WAIT seconds to wait for the new backend to become
 #                              healthy after a restart before releasing the
 #                              restart lock (default 15; tests use 1)
@@ -198,7 +205,7 @@ restart_backend() {
     # one that is just slow to respond.
     if backend_pid_alive; then
         consecutive_pid_alive_failures=$((consecutive_pid_alive_failures + 1))
-        _threshold="${MYOS_WATCHDOG_DEADLOCK_THRESHOLD:-3}"
+        _threshold="${MYOS_WATCHDOG_DEADLOCK_THRESHOLD:-10}"
         if [ "$consecutive_pid_alive_failures" -lt "$_threshold" ]; then
             log "INFO health probe failed but backend pid alive (deadlock check ${consecutive_pid_alive_failures}/${_threshold}); skipping restart"
             return 0
