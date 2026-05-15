@@ -505,6 +505,15 @@ export default function Gmail() {
               </span>
             )}
             <button
+              onClick={() => setGmailUnreadAtTop(!gmailUnreadAtTop)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                gmailUnreadAtTop ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              <Icon name="vertical_align_top" size={16} />
+              Unread first
+            </button>
+            <button
               onClick={handleSync}
               disabled={syncing}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition-colors disabled:opacity-50"
@@ -551,9 +560,9 @@ export default function Gmail() {
             </div>
           )}
 
-          {syncing && messages.length === 0 ? (
+          {syncing && displayedMessages.length === 0 ? (
             <LoadingState variant="spinner" message="Loading your inbox..." />
-          ) : messages.length === 0 ? (
+          ) : displayedMessages.length === 0 ? (
             <EmptyState
               icon="mark_email_read"
               title="No messages in your inbox"
@@ -562,7 +571,7 @@ export default function Gmail() {
             />
           ) : (
             <div className="divide-y divide-slate-800/60">
-              {messages.map((msg) => {
+              {displayedMessages.map((msg) => {
                 const isExpanded = expandedId === msg.id
                 const isComposing = composer?.messageId === msg.id
                 const canSend = sendCapability?.has_send_scope === true
