@@ -16,6 +16,8 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
   'next_meeting',
   'day_summary',
   'recent_specs',
+  'jira',
+  'confluence',
 ]
 
 // Human readable labels for each dashboard widget id. Keep this in sync
@@ -30,6 +32,8 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   day_summary: 'Day Summary',
   recent_specs: 'Recent Specs',
   ostk_files: 'Tasks & Audit (ostk)',
+  jira: 'Jira Issues',
+  confluence: 'Confluence Pages',
 }
 
 export interface FeatureToggle {

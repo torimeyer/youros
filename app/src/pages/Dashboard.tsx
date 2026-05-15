@@ -7,6 +7,8 @@ import QuickSpawnAgentModal from '../components/QuickSpawnAgentModal';
 import DashboardCustomizeModal from '../components/DashboardCustomizeModal';
 import RecentSpecsWidget from '../components/RecentSpecsWidget';
 import OstkFilesWidget from '../components/OstkFilesWidget';
+import JiraWidget from '../components/JiraWidget';
+import ConfluenceWidget from '../components/ConfluenceWidget';
 import { Card, SkeletonLine } from '../components/ui';
 import { api } from '../lib/api';
 import { renderMarkdown } from '../lib/markdown';
@@ -1075,6 +1077,18 @@ export default function Dashboard() {
     </div>
   );
 
+  const renderJira = () => (
+    <div key="jira" data-testid="widget-jira">
+      <JiraWidget />
+    </div>
+  );
+
+  const renderConfluence = () => (
+    <div key="confluence" data-testid="widget-confluence">
+      <ConfluenceWidget />
+    </div>
+  );
+
   // Map of widget id to render function. Only widgets present in
   // dashboardWidgets render, and they render in that order. Widgets above
   // the grid (briefing and focus first) are full width banners,
@@ -1089,6 +1103,8 @@ export default function Dashboard() {
     day_summary: renderDaySummary,
     recent_specs: renderRecentSpecs,
     ostk_files: renderOstkFiles,
+    jira: renderJira,
+    confluence: renderConfluence,
   };
 
   const [widgetMenuOpen, setWidgetMenuOpen] = useState<string | null>(null);
