@@ -31,6 +31,10 @@ workspaces/
 coverage/
 e2e-screenshots/*.png
 
+# User-local specs live in ~/.myos/specs/, not in the repo (→1377)
+# Use `ostk doc promote` to write there; never commit docs/spec/ contents.
+docs/spec/
+
 # NR-internal strategy content should live outside the repo (~/.myos/) — never commit
 nr-workspaces-saved/
 frontend/test-results/
