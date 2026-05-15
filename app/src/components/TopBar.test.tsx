@@ -734,4 +734,19 @@ describe('TopBar persistent-notification toast', () => {
       expect(useAppStore.getState().showTour).toBe(true)
     })
   })
+
+  describe('Team page entry point removed', () => {
+    it('topbar-team-link is not rendered', () => {
+      renderTopBar()
+      expect(screen.queryByTestId('topbar-team-link')).toBeNull()
+    })
+
+    it('no button navigates to /team', () => {
+      renderTopBar()
+      const buttons = screen.getAllByRole('button')
+      buttons.forEach((btn) => {
+        expect(btn.getAttribute('data-testid')).not.toBe('topbar-team-link')
+      })
+    })
+  })
 })
