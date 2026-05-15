@@ -753,7 +753,7 @@ describe('Sidebar grouped nav', () => {
     expect(items).toBeInTheDocument()
     expect(screen.getByText('Gmail')).toBeInTheDocument()
     expect(screen.getByText('Calendar')).toBeInTheDocument()
-    expect(screen.getByText('iMessage')).toBeInTheDocument()
+    expect(screen.getByText('Messages')).toBeInTheDocument()
     expect(screen.getByText('Slack')).toBeInTheDocument()
     expect(screen.getByText('GitHub')).toBeInTheDocument()
     expect(screen.getByText('Jira')).toBeInTheDocument()
@@ -848,7 +848,7 @@ describe('Sidebar grouped nav', () => {
       { label: 'Specs', href: '/specs' },
       { label: 'Gmail', href: '/gmail' },
       { label: 'Calendar', href: '/calendar' },
-      { label: 'iMessage', href: '/imessage' },
+      { label: 'Messages', href: '/imessage' },
       { label: 'Slack', href: '/slack' },
       { label: 'GitHub', href: '/github' },
       { label: 'Usage', href: '/costs' },
