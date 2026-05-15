@@ -987,6 +987,173 @@ async def test_task_briefing_not_found(client):
     assert resp.status_code == 404
 
 
+
+# --- neighbor filtering tests ---
+
+@pytest.mark.asyncio
+async def test_task_briefing_filters_loose_neighbors(client):
+    """Neighbors with no structural link and no shared tags are dropped."""
+    mock_briefing = {
+        "task_id": "→200",
+        "priority": "P2",
+        "status": "open",
+        "title": "Chat feature",
+        "sphere": None,
+        "neighbors": [
+            "300 [open] Deploy infrastructure",
+            "301 [open] Write docs",
+        ],
+        "blocked_by": [],
+        "unblocks": [],
+        "all_blockers_resolved": True,
+        "raw": "test",
+    }
+    current_task = {
+        "id": "→200",
+        "title": "Chat feature",
+        "description": "Build the chat thing",
+        "priority": "P2",
+        "status": "open",
+        "tags": ["chat"],
+    }
+    neighbor_300 = {
+        "id": "→300",
+        "title": "Deploy infrastructure",
+        "description": "",
+        "priority": "P3",
+        "status": "open",
+        "tags": ["foundation"],
+    }
+    neighbor_301 = {
+        "id": "→301",
+        "title": "Write docs",
+        "description": "",
+        "priority": "P3",
+        "status": "open",
+        "tags": ["docs"],
+    }
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.activate_task = AsyncMock(return_value=mock_briefing)
+        mock_ostk.list_tasks = AsyncMock(
+            return_value=[current_task, neighbor_300, neighbor_301]
+        )
+        resp = await client.get("/api/tasks/200/briefing")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["briefing"]["neighbors"] == [], (
+        "loose-similarity neighbors with no structural link or shared tags must be filtered out"
+    )
+
+
+@pytest.mark.asyncio
+async def test_task_briefing_keeps_neighbors_with_shared_tags(client):
+    """Neighbors sharing at least one tag with the current task are kept."""
+    mock_briefing = {
+        "task_id": "→200",
+        "priority": "P2",
+        "status": "open",
+        "title": "Chat feature",
+        "sphere": None,
+        "neighbors": [
+            "302 [open] Chat UI revamp",
+            "303 [open] Deploy infrastructure",
+        ],
+        "blocked_by": [],
+        "unblocks": [],
+        "all_blockers_resolved": True,
+        "raw": "test",
+    }
+    current_task = {
+        "id": "→200",
+        "title": "Chat feature",
+        "description": "",
+        "priority": "P2",
+        "status": "open",
+        "tags": ["chat"],
+    }
+    neighbor_302 = {
+        "id": "→302",
+        "title": "Chat UI revamp",
+        "description": "",
+        "tags": ["chat"],
+    }
+    neighbor_303 = {
+        "id": "→303",
+        "title": "Deploy infrastructure",
+        "description": "",
+        "tags": ["foundation"],
+    }
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.activate_task = AsyncMock(return_value=mock_briefing)
+        mock_ostk.list_tasks = AsyncMock(
+            return_value=[current_task, neighbor_302, neighbor_303]
+        )
+        resp = await client.get("/api/tasks/200/briefing")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["briefing"]["neighbors"] == ["302 [open] Chat UI revamp"]
+
+
+@pytest.mark.asyncio
+async def test_task_briefing_keeps_neighbors_in_blocked_by(client):
+    """A neighbor that also appears in blocked_by is structurally linked and kept."""
+    mock_briefing = {
+        "task_id": "→163",
+        "priority": "P1",
+        "status": "open",
+        "title": "Integration dashboard",
+        "sphere": None,
+        "neighbors": [
+            "160 [open] Mobile-friendly layout",
+            "999 [open] Unrelated task",
+        ],
+        "blocked_by": [{"text": "→160 [open] Mobile-friendly layout", "resolved": False}],
+        "unblocks": [],
+        "all_blockers_resolved": False,
+        "raw": "test",
+    }
+    current_task = {
+        "id": "→163",
+        "title": "Integration dashboard",
+        "description": "",
+        "priority": "P1",
+        "status": "open",
+        "tags": [],
+    }
+    neighbor_160 = {
+        "id": "→160",
+        "title": "Mobile-friendly layout",
+        "description": "Make every page work on a phone screen",
+        "priority": "P1",
+        "status": "open",
+        "tags": [],
+    }
+    neighbor_999 = {
+        "id": "→999",
+        "title": "Unrelated task",
+        "description": "",
+        "priority": "P3",
+        "status": "open",
+        "tags": [],
+    }
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch(
+             "services.blocker_explanation.explain_blocker",
+             new=AsyncMock(return_value=None),
+         ):
+        mock_ostk.activate_task = AsyncMock(return_value=mock_briefing)
+        mock_ostk.list_tasks = AsyncMock(
+            return_value=[current_task, neighbor_160, neighbor_999]
+        )
+        resp = await client.get("/api/tasks/163/briefing")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["briefing"]["neighbors"] == ["160 [open] Mobile-friendly layout"]
+
+
 # --- _parse_activate unit tests ---
 
 def test_parse_activate_basic():

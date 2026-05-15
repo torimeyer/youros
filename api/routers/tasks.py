@@ -1959,6 +1959,63 @@ async def resolve_all_duplicates(body: ResolveDuplicatesBulkBody):
     return result
 
 
+def _filter_neighbors(
+    neighbors: list[str],
+    blocked_by: list[dict],
+    unblocks: list[str],
+    current_task_record: Optional[dict],
+    all_tasks: list[dict],
+) -> list[str]:
+    """Keep neighbors that are structurally or topically related to the task.
+
+    A neighbor passes if it appears in blocked_by/unblocks (structural link)
+    or shares at least one tag with the current task.
+    """
+    if not neighbors:
+        return neighbors
+
+    related_ids: set[str] = set()
+    for blocker in blocked_by:
+        text = blocker.get("text") or ""
+        m = _BLOCKER_ID_RE.search(text)
+        if m:
+            related_ids.add(_normalize_task_id(m.group(0)))
+    for unblock in unblocks:
+        m = _BLOCKER_ID_RE.search(str(unblock))
+        if m:
+            related_ids.add(_normalize_task_id(m.group(0)))
+
+    current_tags: set[str] = (
+        set(current_task_record.get("tags") or []) if current_task_record else set()
+    )
+
+    by_id: dict[str, dict] = {}
+    for t in all_tasks:
+        raw_id = t.get("id", "")
+        if raw_id:
+            by_id[_normalize_task_id(raw_id)] = t
+
+    kept: list[str] = []
+    for neighbor in neighbors:
+        m = re.match(r"^(\d+)", neighbor)
+        if not m:
+            continue
+        neighbor_id = m.group(1)
+
+        if neighbor_id in related_ids:
+            kept.append(neighbor)
+            continue
+
+        if current_tags:
+            neighbor_record = by_id.get(neighbor_id)
+            if neighbor_record:
+                neighbor_tags = set(neighbor_record.get("tags") or [])
+                if current_tags & neighbor_tags:
+                    kept.append(neighbor)
+
+    return kept
+
+
 @router.get("/tasks/{task_id}/briefing")
 async def task_briefing(task_id: str):
     """Get a context briefing for a task.
@@ -1976,13 +2033,16 @@ async def task_briefing(task_id: str):
     except OstkError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    # Find this task's own description so the AI prompt has both sides.
+    # Find this task's own record for description enrichment and neighbor filtering.
     task_description = ""
+    current_task_record: Optional[dict] = None
+    all_tasks: list[dict] = []
     try:
         all_tasks = await ostk.list_tasks()
         for t in all_tasks:
             if _normalize_task_id(t.get("id", "")) == _normalize_task_id(task_id):
                 task_description = t.get("description", "") or ""
+                current_task_record = t
                 break
     except OstkError:
         pass
@@ -1992,6 +2052,14 @@ async def task_briefing(task_id: str):
         task_title=briefing.get("title", "") or "",
         task_description=task_description,
         blockers=briefing.get("blocked_by", []) or [],
+    )
+
+    briefing["neighbors"] = _filter_neighbors(
+        neighbors=briefing.get("neighbors", []) or [],
+        blocked_by=briefing.get("blocked_by", []) or [],
+        unblocks=briefing.get("unblocks", []) or [],
+        current_task_record=current_task_record,
+        all_tasks=all_tasks,
     )
     return {"briefing": briefing}
 
