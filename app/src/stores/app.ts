@@ -29,6 +29,7 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   next_meeting: 'Next Event',
   day_summary: 'Day Summary',
   recent_specs: 'Recent Specs',
+  ostk_files: 'Tasks & Audit (ostk)',
 }
 
 export interface FeatureToggle {

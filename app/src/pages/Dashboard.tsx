@@ -6,6 +6,7 @@ import QuickAddTaskModal from '../components/QuickAddTaskModal';
 import QuickSpawnAgentModal from '../components/QuickSpawnAgentModal';
 import DashboardCustomizeModal from '../components/DashboardCustomizeModal';
 import RecentSpecsWidget from '../components/RecentSpecsWidget';
+import OstkFilesWidget from '../components/OstkFilesWidget';
 import { Card, SkeletonLine } from '../components/ui';
 import { api } from '../lib/api';
 import { renderMarkdown } from '../lib/markdown';
@@ -1065,6 +1066,15 @@ export default function Dashboard() {
     </div>
   );
 
+  const renderOstkFiles = () => (
+    <div key="ostk_files" data-testid="widget-ostk-files">
+      <Card hover padding="sm" className="sm:p-6">
+        <h2 className="text-lg font-semibold mb-4">Tasks &amp; Audit</h2>
+        <OstkFilesWidget />
+      </Card>
+    </div>
+  );
+
   // Map of widget id to render function. Only widgets present in
   // dashboardWidgets render, and they render in that order. Widgets above
   // the grid (briefing and focus first) are full width banners,
@@ -1078,6 +1088,7 @@ export default function Dashboard() {
     next_meeting: renderNextMeeting,
     day_summary: renderDaySummary,
     recent_specs: renderRecentSpecs,
+    ostk_files: renderOstkFiles,
   };
 
   const [widgetMenuOpen, setWidgetMenuOpen] = useState<string | null>(null);
