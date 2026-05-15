@@ -5114,6 +5114,9 @@ class _FakeProc:
     async def wait(self):
         return self.returncode
 
+    async def communicate(self, input=None):
+        return b"", b""
+
 
 def _make_spawn_returner(fake_proc):
     """Return a create_subprocess_exec side_effect that routes git calls to _FakeGitProc.
@@ -5190,12 +5193,12 @@ def _assert_has_full_envelope(decoded: str) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="→1358: _FakeProc.communicate mock signature mismatch — pre-existing flake, not v3.17.0 content")
 async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path, monkeypatch):
     """POST /agents/spawn with template='builder' (was 'comprehensive') prepends the
     PROMPT, AC gates, TOOL list, and LIMIT lines to the stdin the
     claude subprocess receives. Also confirms the 'comprehensive' alias still works."""
     _patch_build_templates(monkeypatch, tmp_path / "agents")
+    monkeypatch.setattr("routers.agents._TRANSCRIPT_FLUSH_INTERVAL", 0.01)
 
     fake_proc = _FakeProc()
 
@@ -5216,6 +5219,9 @@ async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path
                         "locks": ["api/routers/auth.py"],
                     },
                 )
+                # Drain fire-and-forget background tasks (drain_stdout/stderr)
+                # while _TRANSCRIPT_FLUSH_INTERVAL is still patched to 0.01.
+                await asyncio.sleep(0.1)
 
     assert resp.status_code == 200, resp.text
     # stdin is kept open for follow-up nudges via _agent_stdin_writers.
@@ -5226,13 +5232,13 @@ async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="→1358: _FakeProc.communicate mock signature mismatch — pre-existing flake, not v3.17.0 content")
 async def test_spawn_with_template_saa_alias_resolves_to_comprehensive(tmp_path, monkeypatch):
     """Tori's muscle memory template name 'saa' must resolve to the
     builder.agent file via the built-in alias map plus the ALIAS
     directive in saa.agent. The spawned agent should see the same
     full envelope as template='builder'."""
     _patch_build_templates(monkeypatch, tmp_path / "agents")
+    monkeypatch.setattr("routers.agents._TRANSCRIPT_FLUSH_INTERVAL", 0.01)
 
     fake_proc = _FakeProc()
 
@@ -5252,6 +5258,7 @@ async def test_spawn_with_template_saa_alias_resolves_to_comprehensive(tmp_path,
                         "locks": ["api/routers/auth.py"],
                     },
                 )
+                await asyncio.sleep(0.1)
 
     assert resp.status_code == 200, resp.text
     decoded = fake_proc.stdin.written.decode()
@@ -5260,12 +5267,12 @@ async def test_spawn_with_template_saa_alias_resolves_to_comprehensive(tmp_path,
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="→1358: _FakeProc.communicate mock signature mismatch — pre-existing flake, not v3.17.0 content")
 async def test_spawn_without_template_does_not_inject_template_envelope(tmp_path, monkeypatch):
     """POST /agents/spawn with no template field must NOT inject the
     comprehensive build PROMPT envelope. Legacy Quick build relies on
     this so a fast draft posts a bare prompt without gates."""
     _patch_build_templates(monkeypatch, tmp_path / "agents")
+    monkeypatch.setattr("routers.agents._TRANSCRIPT_FLUSH_INTERVAL", 0.01)
 
     fake_proc = _FakeProc()
 
@@ -5284,6 +5291,7 @@ async def test_spawn_without_template_does_not_inject_template_envelope(tmp_path
                         "locks": ["api/routers/legacy.py"],
                     },
                 )
+                await asyncio.sleep(0.1)
 
     assert resp.status_code == 200, resp.text
     decoded = fake_proc.stdin.written.decode()
