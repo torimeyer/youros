@@ -46,14 +46,11 @@ import AdminPolicies from './pages/admin/Policies'
 import AdminAuditTrail from './pages/admin/AuditTrail'
 import AdminSecurity from './pages/admin/Security'
 import InviteAccept from './pages/InviteAccept'
-import TeamStart from './pages/TeamStart'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import AboutMyOS from './pages/AboutMyOS'
 import AgentfileEditor from './pages/AgentfileEditor'
 import MySetup from './pages/MySetup'
 
-import Team from './pages/Team'
-import TeamSettings from './pages/TeamSettings'
 import MyGems from './pages/MyGems'
 
 export default function App() {
@@ -191,10 +188,6 @@ export default function App() {
             <Route path="audit" element={<AdminAuditTrail />} />
             <Route path="security" element={<AdminSecurity />} />
           </Route>
-          {/* Member-facing team home; admins also see it but have the admin section too */}
-          <Route path="team" element={<Team />} />
-          <Route path="team/settings" element={<TeamSettings />} />
-          <Route path="team-setup" element={<TeamStart />} />
           <Route path="adoption" element={<Navigate to="/settings" replace />} />
           <Route path="settings" element={<Settings />} />
           <Route path="settings/rules" element={<SettingsRules />} />
