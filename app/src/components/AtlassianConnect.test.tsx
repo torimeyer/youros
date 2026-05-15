@@ -113,6 +113,44 @@ describe('AtlassianConnect', () => {
     expect(assignedHref).toBe('/api/atlassian/auth?return_to=/settings')
   })
 
+  it('shows "Connect Jira" on OAuth button when product=jira', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/atlassian/status')) {
+        return Promise.resolve({ connected: false })
+      }
+      if (path.includes('/atlassian/defaults')) {
+        return Promise.resolve({ site: '', oauth_available: true })
+      }
+      return Promise.resolve({})
+    })
+
+    render(<AtlassianConnect product="jira" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('atlassian-oauth-btn')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('atlassian-oauth-btn')).toHaveTextContent('Connect Jira')
+  })
+
+  it('shows "Connect Confluence" on OAuth button when product=confluence', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/atlassian/status')) {
+        return Promise.resolve({ connected: false })
+      }
+      if (path.includes('/atlassian/defaults')) {
+        return Promise.resolve({ site: '', oauth_available: true })
+      }
+      return Promise.resolve({})
+    })
+
+    render(<AtlassianConnect product="confluence" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('atlassian-oauth-btn')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('atlassian-oauth-btn')).toHaveTextContent('Connect Confluence')
+  })
+
   it('Connect Atlassian button includes return_to=/settings', async () => {
     let assignedHref = ''
     Object.defineProperty(window, 'location', {

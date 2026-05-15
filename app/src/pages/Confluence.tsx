@@ -174,7 +174,7 @@ export default function Confluence() {
           <ConnectCard
             icon="menu_book"
             accentColor="#94a3b8"
-            title="Connect Atlassian (Jira + Confluence)"
+            title="Connect Confluence"
             description="See your recently-updated Confluence pages inside myOS. You need an Atlassian API token."
             primaryAction={
               oauthAvailable && !forceTokenForm ? (
@@ -184,7 +184,7 @@ export default function Confluence() {
                     className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors text-white"
                     data-testid="confluence-oauth-connect"
                   >
-                    Connect Atlassian
+                    Connect Confluence
                   </button>
                   <button
                     onClick={() => setForceTokenForm(true)}

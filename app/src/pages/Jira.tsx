@@ -209,7 +209,7 @@ export default function Jira() {
           <ConnectCard
             icon="bug_report"
             accentColor="#94a3b8"
-            title="Connect Atlassian (Jira + Confluence)"
+            title="Connect Jira"
             description="See your assigned Jira issues inside myOS. You need an Atlassian API token."
             primaryAction={
               oauthAvailable && !forceTokenForm ? (
@@ -219,7 +219,7 @@ export default function Jira() {
                     className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors text-white"
                     data-testid="jira-oauth-connect"
                   >
-                    Connect Atlassian
+                    Connect Jira
                   </button>
                   <button
                     onClick={() => setForceTokenForm(true)}

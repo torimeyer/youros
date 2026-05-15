@@ -9,7 +9,12 @@ interface AtlassianStatus {
   expired?: boolean
 }
 
-export default function AtlassianConnect() {
+interface AtlassianConnectProps {
+  product?: 'jira' | 'confluence'
+}
+
+export default function AtlassianConnect({ product }: AtlassianConnectProps = {}) {
+  const connectLabel = product === 'jira' ? 'Connect Jira' : product === 'confluence' ? 'Connect Confluence' : 'Connect Atlassian'
   const [status, setStatus] = useState<AtlassianStatus | null>(null)
   const [oauthAvailable, setOauthAvailable] = useState(false)
   const [forceTokenForm, setForceTokenForm] = useState(false)
@@ -129,7 +134,7 @@ export default function AtlassianConnect() {
             data-testid="atlassian-oauth-btn"
           >
             <Icon name="link" size={16} />
-            Connect Atlassian
+            {connectLabel}
           </button>
           <button
             onClick={() => setForceTokenForm(true)}
@@ -189,7 +194,7 @@ export default function AtlassianConnect() {
             data-testid="atlassian-connect-btn"
           >
             <Icon name="link" size={16} />
-            {connectStatus === 'done' ? 'Connected!' : connectStatus === 'connecting' ? 'Connecting...' : 'Connect Jira & Confluence'}
+            {connectStatus === 'done' ? 'Connected!' : connectStatus === 'connecting' ? 'Connecting...' : connectLabel}
           </button>
           {oauthAvailable && (
             <button

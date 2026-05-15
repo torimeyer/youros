@@ -63,7 +63,7 @@ describe('Jira page', () => {
     await waitFor(() => {
       expect(screen.getByTestId('connect-card')).toBeInTheDocument()
     })
-    expect(screen.getByText('Connect Atlassian (Jira + Confluence)')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Connect Jira' })).toBeInTheDocument()
   })
 
   it('shows connect form with three inputs when not connected', async () => {
@@ -203,7 +203,7 @@ describe('Jira page', () => {
     })
   })
 
-  it('shows "Connect Atlassian (Jira + Confluence)" title when oauth is available', async () => {
+  it('shows "Connect Jira" title when oauth is available', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path.includes('/atlassian/defaults')) {
         return Promise.resolve({ site: '', oauth_available: true })
@@ -217,7 +217,7 @@ describe('Jira page', () => {
     renderJira()
 
     await waitFor(() => {
-      expect(screen.getByText('Connect Atlassian (Jira + Confluence)')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Connect Jira' })).toBeInTheDocument()
     })
   })
 
