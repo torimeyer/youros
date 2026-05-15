@@ -8202,6 +8202,14 @@ async def post_agent_reply(name: str, body: AgentNudgeReply):
         nudge_replies[name] = []
     nudge_replies[name].append(reply_data)
 
+    # Wake long-pollers the moment the data is in memory, before the
+    # disk write. _save_agent_state_async runs in a thread pool and
+    # acquires _save_state_write_lock; under lock contention that can
+    # delay the wake by seconds or more. Moving the wake here means
+    # the GET handler always unblocks within milliseconds — the reply
+    # is already in nudge_replies so the snapshot recheck sees it.
+    _wake_nudge_waiters(name)
+
     # Feed the rolling reply-latency store when this is a real reply
     # (not an ack-bot ack) and the reply carries an in_reply_to marker
     # we can subtract against. The ack bot reads the aggregate to
@@ -8236,11 +8244,6 @@ async def post_agent_reply(name: str, body: AgentNudgeReply):
             )
             revived = True
         await _save_agent_state_async()
-
-    # Wake any long-poll /nudges waiters so the frontend transcript poll
-    # surfaces the reply immediately instead of on the next cycle. This
-    # is symmetrical to POST /nudge: both directions push.
-    _wake_nudge_waiters(name)
 
     return {
         "result": f"Reply recorded for '{name}'",

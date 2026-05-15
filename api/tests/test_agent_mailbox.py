@@ -40,6 +40,7 @@ from main import app  # noqa: E402
 from routers.agents import (  # noqa: E402
     NUDGE_LONG_POLL_MAX_SECONDS,
     _agent_stdin_writers,
+    _nudge_parked_count,
     _nudge_waiters,
     agent_metadata,
     nudge_history,
@@ -99,7 +100,6 @@ async def test_long_poll_returns_immediately_when_new_data_present():
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="→1358: long-poll wakeup race, 30s timeout — pre-existing flake unrelated to v3.17.0 release content")
 async def test_long_poll_wakes_when_reply_arrives():
     """POST /reply must wake every parked long-poller for the same agent.
 
@@ -136,16 +136,6 @@ async def test_long_poll_wakes_when_reply_arrives():
 
                 mock_ostk.append_nudge_reply = AsyncMock(side_effect=_append)
 
-                async def _delayed_reply():
-                    # Let the GET arm its waiter first. A short delay
-                    # keeps the test deterministic without an event.
-                    await asyncio.sleep(0.05)
-                    await client.post(
-                        f"/api/agents/{name}/reply",
-                        json={"message": "on it"},
-                    )
-
-                start = time.monotonic()
                 get_task = asyncio.create_task(
                     client.get(
                         f"/api/agents/{name}/nudges",
@@ -155,8 +145,24 @@ async def test_long_poll_wakes_when_reply_arrives():
                         },
                     )
                 )
-                reply_task = asyncio.create_task(_delayed_reply())
-                resp, _ = await asyncio.gather(get_task, reply_task)
+
+                # Wait until the long-poller is confirmed parked before
+                # firing the reply. A fixed sleep is racy — _nudge_parked_count
+                # is the definitive signal that event.wait() is active.
+                for _ in range(200):
+                    if _nudge_parked_count.get(name, 0) >= 1:
+                        break
+                    await asyncio.sleep(0.005)
+                else:
+                    get_task.cancel()
+                    pytest.fail("long-poller never parked before reply was sent")
+
+                start = time.monotonic()
+                await client.post(
+                    f"/api/agents/{name}/reply",
+                    json={"message": "on it"},
+                )
+                resp = await get_task
                 elapsed = time.monotonic() - start
     finally:
         _reset_agent(name)
