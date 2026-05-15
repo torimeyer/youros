@@ -22,8 +22,7 @@ router = APIRouter(tags=["atlassian"])
 # Scopes covering Jira read/write and Confluence read/write, plus offline_access
 # so we receive a refresh_token alongside the access_token.
 ATLASSIAN_OAUTH_SCOPES = (
-    # Jira granular scopes (replaces deprecated read:jira-* / write:jira-*)
-    "read:jira-user read:jira-work write:jira-work "
+    # Jira granular scopes
     "read:issue:jira read:comment:jira write:comment:jira "
     "read:issue.transition:jira write:issue.transition:jira "
     # Confluence granular scopes (replaces deprecated read:confluence-content.all etc.)
