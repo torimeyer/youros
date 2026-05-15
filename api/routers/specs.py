@@ -212,12 +212,25 @@ def _is_test_artifact_spec(path: str, title: str) -> bool:
 
 
 def _validate_doc_path(path: str) -> None:
-    """Reject path traversal and paths outside docs/draft/ or docs/spec/."""
+    """Reject path traversal and paths outside docs/draft/, docs/spec/, or ~/.myos/specs/."""
+    from services.ostk import USER_SPECS_DIR
     p = PurePosixPath(path)
     if ".." in p.parts:
         raise HTTPException(status_code=400, detail="Path traversal not allowed")
-    if not (str(p).startswith("docs/draft/") or str(p).startswith("docs/spec/")):
-        raise HTTPException(status_code=400, detail="Path must be under docs/draft/ or docs/spec/")
+
+    # Expand ~ for absolute path check
+    abs_path = Path(os.path.expanduser(path))
+    is_user_local = str(abs_path).startswith(str(USER_SPECS_DIR))
+
+    if not (
+        str(p).startswith("docs/draft/")
+        or str(p).startswith("docs/spec/")
+        or is_user_local
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Path must be under docs/draft/, docs/spec/, or ~/.myos/specs/",
+        )
 
 
 @router.get("/specs")
@@ -763,6 +776,8 @@ async def promote_draft(body: SpecPromote):
             continue
         new_lines.append(line)
 
+    from services.ostk import USER_SPECS_DIR
+
     # No front matter: prepend one.
     if not status_written:
         new_lines = [
@@ -772,44 +787,54 @@ async def promote_draft(body: SpecPromote):
             "---",
         ] + new_lines
 
-    target_rel = body.path.replace("docs/draft/", "docs/spec/", 1)
-    target = (Path(PROJECT_ROOT) / target_rel).resolve()
-    spec_root = (Path(PROJECT_ROOT) / "docs" / "spec").resolve()
-    if not target.is_relative_to(spec_root):
-        raise HTTPException(status_code=400, detail="Invalid target path")
-
-    target.parent.mkdir(parents=True, exist_ok=True)
+    filename = Path(body.path).name
+    target = USER_SPECS_DIR / filename
+    USER_SPECS_DIR.mkdir(parents=True, exist_ok=True)
     target.write_text("\n".join(new_lines) + ("\n" if text.endswith("\n") else ""))
     source.unlink()
 
-    return {"result": target_rel, "promoted_path": target_rel}
+    target_path = str(target)
+    return {"result": target_path, "promoted_path": target_path}
 
 
 @router.post("/specs/{spec_path:path}/unlock")
 async def unlock_spec(spec_path: str):
     """Move a ready plan back to draft so the user can edit acceptance criteria.
 
-    Moves the file from ``docs/spec/<name>.md`` to ``docs/draft/<name>.md``
-    and flips the ``status:`` front matter field from ``spec`` to
-    ``draft``. This is the inverse of promote. Keeps the plan's task
-    links and body intact so the user only has to change the checklist
-    and re-promote.
+    Moves the file from ``docs/spec/<name>.md`` or ``~/.myos/specs/<name>.md``
+    to ``docs/draft/<name>.md`` and flips the ``status:`` front matter field
+    from ``spec`` to ``draft``. This is the inverse of promote.
     """
+    from services.ostk import USER_SPECS_DIR
+
     _validate_doc_path(spec_path)
-    if not spec_path.startswith("docs/spec/"):
+    
+    # Expand ~ for absolute path check
+    abs_source = Path(os.path.expanduser(spec_path))
+    is_user_local = str(abs_source).startswith(str(USER_SPECS_DIR))
+
+    if not (spec_path.startswith("docs/spec/") or is_user_local):
         raise HTTPException(
             status_code=400,
             detail="Only plans in the ready state can be unlocked.",
         )
-    source = (Path(PROJECT_ROOT) / spec_path).resolve()
+    
+    if is_user_local:
+        source = abs_source
+        target_rel = f"docs/draft/{source.name}"
+    else:
+        source = (Path(PROJECT_ROOT) / spec_path).resolve()
+        target_rel = spec_path.replace("docs/spec/", "docs/draft/", 1)
+
     if not source.exists():
         raise HTTPException(status_code=404, detail="Plan not found")
-    target_rel = spec_path.replace("docs/spec/", "docs/draft/", 1)
+    
     target = (Path(PROJECT_ROOT) / target_rel).resolve()
     # Safety: target must live under docs/draft/
     draft_root = (Path(PROJECT_ROOT) / "docs" / "draft").resolve()
     if not target.is_relative_to(draft_root):
         raise HTTPException(status_code=400, detail="Invalid target path")
+
     target.parent.mkdir(parents=True, exist_ok=True)
     # Flip the status field in front matter. doc_promote writes
     # "status: spec"; unlock reverses that. We also strip any

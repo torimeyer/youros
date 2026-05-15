@@ -757,13 +757,18 @@ async def _create_tasks_from_spec(spec_path: str) -> str:
     """
     # Validate that the path is under docs/draft/ or docs/spec/ before
     # hitting the network so the error message is more informative.
-    from pathlib import PurePosixPath
+    from services.ostk import USER_SPECS_DIR
     p = PurePosixPath(spec_path)
     if ".." in p.parts:
         return "Cannot decompose spec: path traversal not allowed."
-    if not (str(p).startswith("docs/draft/") or str(p).startswith("docs/spec/")):
+
+    # Expand ~ for absolute path check
+    abs_path = Path(os.path.expanduser(spec_path))
+    is_user_local = str(abs_path).startswith(str(USER_SPECS_DIR))
+
+    if not (str(p).startswith("docs/draft/") or str(p).startswith("docs/spec/") or is_user_local):
         return (
-            f"Cannot decompose spec: path must be under docs/draft/ or docs/spec/. "
+            f"Cannot decompose spec: path must be under docs/draft/, docs/spec/, or ~/.myos/specs/. "
             f"Got: {spec_path}"
         )
     try:

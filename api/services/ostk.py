@@ -15,6 +15,7 @@ from services.atomic_io import atomic_write_text
 PROJECT_DIR = os.environ.get("OSTK_PROJECT_ROOT", str(PROJECT_ROOT))
 OSTK_DIR = _OSTK_DIR
 NUDGES_DIR = OSTK_DIR / "nudges"
+USER_SPECS_DIR = Path(os.path.expanduser("~/.myos/specs"))
 
 
 class OstkError(Exception):
@@ -2107,6 +2108,7 @@ class OstkService:
         docs_dir = Path(self.cwd) / "docs"
         results: list[dict] = []
 
+        # 1. Project-local docs (shared)
         for subdir, status in [("draft", "draft"), ("spec", "spec")]:
             target = docs_dir / subdir
             if not target.is_dir():
@@ -2115,7 +2117,15 @@ class OstkService:
                 doc = self._parse_doc_frontmatter(md, status)
                 results.append(doc)
 
-        # Scan transcripts/ for plan files (^plan-(\d+)\.md$).
+        # 2. User-local specs (private/promoted)
+        if USER_SPECS_DIR.is_dir():
+            for md in sorted(USER_SPECS_DIR.glob("*.md")):
+                doc = self._parse_doc_frontmatter(md, "spec")
+                # Mark as user-local so the UI knows where it lives
+                doc["is_user_local"] = True
+                results.append(doc)
+
+        # 3. Transcripts/plans
         # These are written by the Plan skill and should surface in Recent
         # Documents alongside specs. They use status="plan" to distinguish
         # them visually in the widget.
@@ -2241,8 +2251,15 @@ class OstkService:
             mtime_ms = int(path.stat().st_mtime * 1000)
         except OSError:
             mtime_ms = 0
+
+        # Handle path relative to cwd if inside project, otherwise use absolute path
+        try:
+            display_path = str(path.relative_to(self.cwd))
+        except ValueError:
+            display_path = str(path)
+
         doc: dict = {
-            "path": str(path.relative_to(self.cwd)),
+            "path": display_path,
             "filename": path.name,
             "title": path.stem.replace("-", " "),
             "status": fallback_status,
@@ -2400,13 +2417,23 @@ class OstkService:
 
     def _resolve_spec_path(self, spec_path: str) -> Path:
         """Resolve a spec path to a full filesystem path, with validation."""
-        full = Path(self.cwd) / spec_path
+        if spec_path.startswith("/") or spec_path.startswith("~"):
+            full = Path(os.path.expanduser(spec_path))
+        else:
+            full = Path(self.cwd) / spec_path
+
         if not full.exists():
             raise OstkError(f"Spec not found: {spec_path}")
+
         docs_dir = Path(self.cwd) / "docs"
         resolved = full.resolve()
-        if not str(resolved).startswith(str(docs_dir.resolve())):
-            raise OstkError("Spec path must be under docs/")
+
+        # Allow project-local docs or user-local specs
+        is_in_docs = str(resolved).startswith(str(docs_dir.resolve()))
+        is_in_user_specs = str(resolved).startswith(str(USER_SPECS_DIR.resolve()))
+
+        if not (is_in_docs or is_in_user_specs):
+            raise OstkError("Spec path must be under docs/ or ~/.myos/specs/")
         return full
 
     async def spec_tasks(self, spec_path: str) -> list[dict]:
