@@ -919,6 +919,19 @@ describe('Sidebar grouped nav', () => {
       expect(header.textContent).toContain('5')
     })
   })
+
+  it('ostk entry is hidden when power user mode is off', () => {
+    useAppStore.setState({ powerUserMode: false })
+    renderSidebar()
+    // Files & Docs group is expanded by default; ostk entry must NOT appear
+    expect(screen.queryByText(/^ostk$/)).not.toBeInTheDocument()
+  })
+
+  it('ostk entry is shown when power user mode is on', () => {
+    useAppStore.setState({ powerUserMode: true })
+    renderSidebar()
+    expect(screen.getByText(/^ostk$/)).toBeInTheDocument()
+  })
 })
 
 // ------------- Regression guard for needle 293 (unchanged) -------------

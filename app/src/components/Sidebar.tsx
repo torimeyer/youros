@@ -324,6 +324,7 @@ export function Sidebar() {
   const instanceMode = useAppStore((s) => s.instanceMode)
   const features = useAppStore((s) => s.features)
   const setFeatures = useAppStore((s) => s.setFeatures)
+  const powerUserMode = useAppStore((s) => s.powerUserMode)
   const enterpriseUser = useAppStore((s) => s.enterpriseUser)
   const sidebarPosition = useAppStore((s) => s.sidebarPosition)
   const iconStyle = useAppStore((s) => s.iconStyle)
@@ -558,6 +559,13 @@ export function Sidebar() {
   function sortedItems(items: NavItem[]): NavItem[] {
     return items
       .filter(isEnabled)
+      .filter((item) => {
+        // Gate ostk browser behind power user mode. Route /ostk stays
+        // mounted, but the sidebar entry only appears when the user has
+        // enabled power user mode in Settings.
+        if (item.to === '/ostk' && !powerUserMode) return false
+        return true
+      })
       .sort((a, b) => {
         if (!a.featureLabel) return -1
         if (!b.featureLabel) return 1

@@ -989,13 +989,14 @@ export default function Settings() {
                     <p className="font-semibold text-white mb-1">What this unlocks</p>
                     <p className="mb-2"><strong>Delegate tab:</strong> see suggested tasks an agent could pick up and hand them off with one click.</p>
                     <p className="mb-2"><strong>Shared Workspace tab:</strong> a message board where multiple agents leave each other notes mid-task, so they can build on each other's findings.</p>
+                    <p className="mb-2"><strong>ostk browser:</strong> read-only view of the underlying kernel files (decisions, tasks history, audit log) for verifying what actually happened.</p>
                     <p>Both are useful when you run multiple agents in parallel. Most people will not need them.</p>
                   </div>
                 </div>
               </div>
               <Toggle checked={powerUserMode} onChange={() => setPowerUserMode(!powerUserMode)} testId="power-user-toggle" />
             </div>
-            <p className="text-xs text-slate-500 mt-2">Shows advanced agent tabs (Delegate and Shared Workspace) in the Agents page.</p>
+            <p className="text-xs text-slate-500 mt-2">Shows advanced agent tabs (Delegate, Shared Workspace) and the ostk browser in the sidebar.</p>
           </div>
           </div>
           </div>
