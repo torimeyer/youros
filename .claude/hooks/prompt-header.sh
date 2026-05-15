@@ -234,27 +234,13 @@ for a in agents:
     if not name or name.startswith("claude-code-"):
         continue
     if a.get("status") == "running":
-        spawned_at = a.get("spawned_at") or ""
-        tb = a.get("transcript_bytes") or 0
-        running.append({"name": name, "spawned_at": spawned_at, "tb": tb})
+        running.append({"name": name})
 
 if running:
     print()
     print("CURRENT RUNNING AGENTS (live from /api/agents, filter: source=claude-code, status=running, user-spawned):")
     for r in running:
-        spawned_str = ""
-        if r["spawned_at"]:
-            try:
-                dt = parse_iso(r["spawned_at"])
-                if dt:
-                    secs = int((now - dt).total_seconds())
-                    spawned_str = f"{secs // 60}m ago" if secs >= 60 else f"{secs}s ago"
-                else:
-                    spawned_str = r["spawned_at"]
-            except Exception:
-                spawned_str = r["spawned_at"]
-        kb = r["tb"] // 1024 if r["tb"] else 0
-        print(f"- {r['name']} (spawned {spawned_str}, {kb}KB)")
+        print(f"- {r['name']}")
     print("This list is authoritative. If an agent you spawned earlier is NOT listed above, it is done. Do not narrate it as still running.")
 
 # Completed agents snapshot
@@ -289,8 +275,8 @@ if rows:
     print()
     print("AGENTS THAT FINISHED SINCE YOUR LAST TURN (task-notification may have been missed):")
     for r in shown:
-        secs = int((now - r["completed_dt"]).total_seconds())
-        age = f"{max(secs,0)}s ago" if secs < 60 else f"{secs//60}m ago"
+        # Use fixed completed_at timestamp (volatile "Xm ago" breaks cache prefix)
+        age = r["completed_at"][:16] if r["completed_at"] else ""
         if r["status"] == "completed":
             label = "done"
         elif r["status"] in {"terminated_stale", "completed_timeout"}:
