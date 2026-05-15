@@ -242,10 +242,14 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
     from services import ostk as ostk_module
 
     # Point the ostk service at an isolated tmpdir so test artifacts do
-    # not touch the live project.
+    # not touch the live project. Also redirect PROJECT_ROOT in the specs
+    # router so the pure-Python promote_draft reads/writes the same tmpdir.
     (tmp_path / "docs" / "draft").mkdir(parents=True)
     (tmp_path / "docs" / "spec").mkdir(parents=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+
+    import routers.specs as specs_mod
+    monkeypatch.setattr(specs_mod, "PROJECT_ROOT", tmp_path)
 
     # --- Draft ---
     draft_file = tmp_path / "docs" / "draft" / "e2e-http-journey.md"
@@ -261,12 +265,6 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
                 "- [ ] Two\n"
             )
             return str(draft_file.relative_to(tmp_path))
-        if args[:2] == ("doc", "promote"):
-            spec_file = tmp_path / "docs" / "spec" / "e2e-http-journey.md"
-            text = draft_file.read_text().replace("status: draft", "status: spec")
-            spec_file.write_text(text)
-            draft_file.unlink()
-            return str(spec_file.relative_to(tmp_path))
         if args[:2] == ("doc", "decompose"):
             return "\u2192701 One\n\u2192702 Two"
         raise AssertionError(f"unexpected ostk call: {args}")

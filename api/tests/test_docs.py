@@ -584,25 +584,56 @@ async def test_create_draft_error(client):
 
 @pytest.mark.asyncio
 async def test_promote_endpoint(client):
-    with patch("routers.specs.ostk") as mock_ostk:
-        mock_ostk.doc_promote = AsyncMock(return_value="docs/spec/plan.md")
-        resp = await client.post("/api/specs/promote", json={"path": "docs/draft/plan.md"})
+    """Promote moves the file from docs/draft/ to docs/spec/ and returns the new path."""
+    from config import PROJECT_ROOT
 
-    assert resp.status_code == 200
-    assert resp.json()["result"] == "docs/spec/plan.md"
-    mock_ostk.doc_promote.assert_called_once_with("docs/draft/plan.md")
+    draft_dir = Path(PROJECT_ROOT) / "docs" / "draft"
+    spec_dir = Path(PROJECT_ROOT) / "docs" / "spec"
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    draft_path = draft_dir / "test-promote-endpoint-tmp.md"
+    spec_path = spec_dir / "test-promote-endpoint-tmp.md"
+    draft_path.write_text(
+        "---\ntitle: Promote Test\nstatus: draft\n---\n# Promote Test\n\n- [ ] AC item\n"
+    )
+    try:
+        resp = await client.post(
+            "/api/specs/promote",
+            json={"path": "docs/draft/test-promote-endpoint-tmp.md"},
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["result"] == "docs/spec/test-promote-endpoint-tmp.md"
+        assert not draft_path.exists(), "draft should have been removed"
+        assert spec_path.exists(), "spec should have been created"
+        text = spec_path.read_text()
+        assert "status: spec" in text
+        assert "promoted_at:" in text
+    finally:
+        draft_path.unlink(missing_ok=True)
+        spec_path.unlink(missing_ok=True)
 
 
 @pytest.mark.asyncio
 async def test_promote_error_no_criteria(client):
-    with patch("routers.specs.ostk") as mock_ostk:
-        mock_ostk.doc_promote = AsyncMock(
-            side_effect=OstkError("Draft must contain at least one unchecked checkbox")
-        )
-        resp = await client.post("/api/specs/promote", json={"path": "docs/draft/plan.md"})
+    """Promoting a draft with no checkboxes returns 400 with a checkbox hint."""
+    from config import PROJECT_ROOT
 
-    assert resp.status_code == 400
-    assert "checkbox" in resp.json()["detail"]
+    draft_dir = Path(PROJECT_ROOT) / "docs" / "draft"
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    draft_path = draft_dir / "test-promote-no-ac-tmp.md"
+    draft_path.write_text(
+        "---\ntitle: No AC Draft\nstatus: draft\n---\n# No AC Draft\n\nNo checkboxes here.\n"
+    )
+    try:
+        resp = await client.post(
+            "/api/specs/promote",
+            json={"path": "docs/draft/test-promote-no-ac-tmp.md"},
+        )
+        assert resp.status_code == 400
+        assert "checkbox" in resp.json()["detail"]
+    finally:
+        draft_path.unlink(missing_ok=True)
 
 
 @pytest.mark.asyncio
@@ -903,12 +934,28 @@ async def test_create_draft_compat_endpoint(client):
 
 @pytest.mark.asyncio
 async def test_promote_compat_endpoint(client):
-    with patch("routers.specs.ostk") as mock_ostk:
-        mock_ostk.doc_promote = AsyncMock(return_value="docs/spec/plan.md")
-        resp = await client.post("/api/docs/promote", json={"path": "docs/draft/plan.md"})
+    """Compat /api/docs/promote delegates to promote_draft (same pure-Python path)."""
+    from config import PROJECT_ROOT
 
-    assert resp.status_code == 200
-    assert resp.json()["result"] == "docs/spec/plan.md"
+    draft_dir = Path(PROJECT_ROOT) / "docs" / "draft"
+    spec_dir = Path(PROJECT_ROOT) / "docs" / "spec"
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    draft_path = draft_dir / "test-compat-promote-tmp.md"
+    spec_path = spec_dir / "test-compat-promote-tmp.md"
+    draft_path.write_text(
+        "---\ntitle: Compat Promote Test\nstatus: draft\n---\n# Compat Test\n\n- [ ] AC item\n"
+    )
+    try:
+        resp = await client.post(
+            "/api/docs/promote",
+            json={"path": "docs/draft/test-compat-promote-tmp.md"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["result"] == "docs/spec/test-compat-promote-tmp.md"
+    finally:
+        draft_path.unlink(missing_ok=True)
+        spec_path.unlink(missing_ok=True)
 
 
 @pytest.mark.asyncio
