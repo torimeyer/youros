@@ -148,6 +148,61 @@ describe('OstkFiles', () => {
     expect(screen.getByText('hook.session.start')).toBeDefined()
   })
 
+  it('clicking an audit card opens the detail modal (→1359)', async () => {
+    const { api } = await import('../lib/api')
+    const mockGet = api.get as ReturnType<typeof vi.fn>
+    mockGet.mockImplementation((url: string) => {
+      if (url.includes('/files/audit')) {
+        return Promise.resolve({
+          events: [{ event: 'tool.call', ts: new Date().toISOString(), tool: 'bash' }],
+        })
+      }
+      return Promise.resolve({ decisions: [], needles: [] })
+    })
+
+    renderPage()
+    const auditTab = await screen.findByTestId('tab-audit')
+    auditTab.click()
+
+    const card = await screen.findByTestId('audit-card')
+    card.click()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('audit-detail-modal')).toBeDefined()
+    })
+    expect(screen.getByTestId('audit-detail-event').textContent).toBe('tool.call')
+  })
+
+  it('pressing Escape closes the audit detail modal (→1359)', async () => {
+    const { api } = await import('../lib/api')
+    const mockGet = api.get as ReturnType<typeof vi.fn>
+    mockGet.mockImplementation((url: string) => {
+      if (url.includes('/files/audit')) {
+        return Promise.resolve({
+          events: [{ event: 'tool.call', ts: new Date().toISOString() }],
+        })
+      }
+      return Promise.resolve({ decisions: [], needles: [] })
+    })
+
+    renderPage()
+    const auditTab = await screen.findByTestId('tab-audit')
+    auditTab.click()
+
+    const card = await screen.findByTestId('audit-card')
+    card.click()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('audit-detail-modal')).toBeDefined()
+    })
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('audit-detail-modal')).toBeNull()
+    })
+  })
+
   it('shows empty state when no decisions', async () => {
     renderPage()
     await waitFor(() => {

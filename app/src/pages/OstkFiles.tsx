@@ -163,19 +163,107 @@ function NeedleCard({ needle, query }: { needle: Needle; query: string }) {
   );
 }
 
-function AuditCard({ event }: { event: AuditEvent }) {
+function AuditDetailModal({ event, onClose }: { event: AuditEvent; onClose: () => void }) {
+  const ts = event.ts || event.timestamp;
+  const knownKeys = new Set(['event', 'tool', 'ts', 'timestamp']);
+  const extraEntries = Object.entries(event).filter(([k]) => !knownKeys.has(k));
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      data-testid="audit-detail-modal"
+      role="dialog"
+      aria-label="Audit event detail"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-slate-900 border border-slate-800 rounded-xl shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between px-5 py-4 border-b border-slate-800">
+          <div className="flex items-start gap-2 min-w-0">
+            <Icon name="receipt_long" className="text-slate-400 text-lg mt-0.5 flex-shrink-0" />
+            <div className="min-w-0">
+              <h2 className="text-sm font-medium text-slate-100 truncate" data-testid="audit-detail-event">
+                {event.event || '(event)'}
+              </h2>
+              {ts && (
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {new Date(ts as string).toLocaleString()}
+                </p>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 text-slate-500 hover:text-slate-200 shrink-0"
+            aria-label="Close"
+            data-testid="audit-detail-close"
+          >
+            <Icon name="close" className="text-lg" />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <div className="space-y-2">
+            {event.event && (
+              <div>
+                <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-0.5">Event</p>
+                <p className="text-sm text-slate-200 font-mono">{event.event}</p>
+              </div>
+            )}
+            {ts && (
+              <div>
+                <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-0.5">Time</p>
+                <p className="text-sm text-slate-200 font-mono">{new Date(ts as string).toLocaleString()}</p>
+              </div>
+            )}
+            {event.tool && (
+              <div>
+                <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-0.5">Tool</p>
+                <p className="text-sm text-slate-200 font-mono">{String(event.tool)}</p>
+              </div>
+            )}
+          </div>
+          {extraEntries.length > 0 && (
+            <div className="border-t border-slate-800 pt-3 space-y-2">
+              {extraEntries.map(([key, value]) => (
+                <div key={key}>
+                  <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-0.5">{key}</p>
+                  <pre className="text-[11px] text-slate-300 font-mono whitespace-pre-wrap bg-slate-950/60 rounded p-2 overflow-x-auto">
+                    {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value ?? '')}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AuditCard({ event, onClick }: { event: AuditEvent; onClick: () => void }) {
   const ts = event.ts || event.timestamp;
   const label = event.event || '(event)';
   const tool = event.tool;
   return (
-    <div
-      className="bg-slate-900/40 border border-slate-800/60 rounded px-3 py-2 font-mono text-[11px] flex items-start gap-3"
+    <button
+      className="w-full text-left bg-slate-900/40 border border-slate-800/60 rounded px-3 py-2 font-mono text-[11px] flex items-start gap-3 hover:border-slate-700 hover:bg-slate-900/60 transition-colors"
       data-testid="audit-card"
+      onClick={onClick}
+      aria-label={`View details for ${label}`}
     >
       <span className="text-slate-500 flex-shrink-0 w-32 truncate">{timeAgo(ts)}</span>
       <span className="text-slate-300 flex-1 truncate">{label}</span>
-      {tool && <span className="text-slate-500 flex-shrink-0">{tool}</span>}
-    </div>
+      {tool && <span className="text-slate-500 flex-shrink-0">{String(tool)}</span>}
+    </button>
   );
 }
 
@@ -188,6 +276,7 @@ export default function OstkFiles() {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [needles, setNeedles] = useState<Needle[]>([]);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
+  const [selectedAuditEvent, setSelectedAuditEvent] = useState<AuditEvent | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -355,12 +444,20 @@ export default function OstkFiles() {
               </div>
             ) : (
               filteredAudit.map((e, i) => (
-                <AuditCard key={i} event={e} />
+                <AuditCard key={i} event={e} onClick={() => setSelectedAuditEvent(e)} />
               ))
             )}
           </div>
         )}
+
       </div>
+
+      {selectedAuditEvent && (
+        <AuditDetailModal
+          event={selectedAuditEvent}
+          onClose={() => setSelectedAuditEvent(null)}
+        />
+      )}
     </div>
   );
 }
