@@ -146,6 +146,8 @@ interface AppState {
   setCustomAgentTemplates: (templates: CustomAgentTemplate[]) => void
   dashboardWidgets: string[]
   setDashboardWidgets: (widgets: string[]) => void
+  gmailUnreadAtTop: boolean
+  setGmailUnreadAtTop: (v: boolean) => void
   enterpriseUser: EnterpriseUser | null
   instanceMode: InstanceMode
   setInstanceMode: (mode: InstanceMode) => void
@@ -202,6 +204,7 @@ const LS_KEYS = {
   powerUserMode: 'myos-power-user-mode',
   whatsNewLastSeen: 'myos-whats-new-last-seen',
   agentsLastViewed: 'myos-agents-last-viewed',
+  gmailUnreadAtTop: 'myos-gmail-unread-at-top',
   customAgentTemplates: 'myos-custom-templates',
   dashboardWidgets: 'myos-dashboard-widgets',
   chatWidth: 'myos-chat-width',
@@ -291,6 +294,7 @@ const initialUseOstkTerms = lsGet(LS_KEYS.useOstkTerms) === 'true'
 const initialTourComplete = lsGet(LS_KEYS.tourComplete) === 'true'
 const initialWhatsNewLastSeen = lsGet(LS_KEYS.whatsNewLastSeen) || ''
 const initialAgentsLastViewed = lsGet(LS_KEYS.agentsLastViewed) || ''
+const initialGmailUnreadAtTop = lsGet(LS_KEYS.gmailUnreadAtTop) !== 'false'
 const initialSidebarPosition = (lsGet(LS_KEYS.sidebarPosition) as SidebarPosition) || 'left'
 const initialCompactMode = lsGet(LS_KEYS.compactMode) === 'true'
 const initialFontSize = (lsGet(LS_KEYS.fontSize) as FontSize) || 'medium'
@@ -494,6 +498,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     lsSet(LS_KEYS.dashboardWidgets, JSON.stringify(dashboardWidgets))
     set({ dashboardWidgets })
     patchServer({ dashboard_widgets: dashboardWidgets })
+  },
+  gmailUnreadAtTop: initialGmailUnreadAtTop,
+  setGmailUnreadAtTop: (v) => {
+    lsSet(LS_KEYS.gmailUnreadAtTop, String(v))
+    set({ gmailUnreadAtTop: v })
+    patchServer({ gmail_unread_at_top: v })
   },
   // Appearance settings
   sidebarPosition: initialSidebarPosition,
@@ -752,6 +762,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       lsSet(LS_KEYS.whatsNewLastSeen, v)
     } else if (state.whatsNewLastSeen) {
       backfill.whats_new_last_seen = state.whatsNewLastSeen
+    }
+
+    // gmail_unread_at_top
+    if (hasValue(server.gmail_unread_at_top)) {
+      const v = Boolean(server.gmail_unread_at_top)
+      updates.gmailUnreadAtTop = v
+      lsSet(LS_KEYS.gmailUnreadAtTop, String(v))
+    } else {
+      backfill.gmail_unread_at_top = state.gmailUnreadAtTop
     }
 
     // agents_last_viewed

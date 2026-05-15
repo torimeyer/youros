@@ -8,6 +8,7 @@ import GoogleSetupGuideModal from '../components/GoogleSetupGuideModal'
 import { useConfirm } from '../hooks/useConfirm'
 import { ConnectCard, LoadingState, EmptyState } from '../components/ui'
 import { api } from '../lib/api'
+import { useAppStore } from '../stores/app'
 
 interface GmailMessage {
   id: string
@@ -109,6 +110,19 @@ export default function Gmail() {
   const [trashing, setTrashing] = useState<Set<string>>(new Set())
   const [bulkTrashing, setBulkTrashing] = useState(false)
   const [trashError, setTrashError] = useState<string | null>(null)
+
+  const { gmailUnreadAtTop, setGmailUnreadAtTop } = useAppStore()
+
+  const displayedMessages = [...messages].sort((a, b) => {
+    if (gmailUnreadAtTop) {
+      if (a.is_unread && !b.is_unread) return -1
+      if (!a.is_unread && b.is_unread) return 1
+    }
+    // Default sort is by date descending (newest first). The API returns
+    // them this way, but we re-sort here to ensure the unread-at-top
+    // overlay stays stable when toggled.
+    return new Date(b.date).getTime() - new Date(a.date).getTime()
+  })
 
   // In-app confirm dialog (replaces window.confirm for bulk trash).
   const { confirm, confirmProps } = useConfirm()

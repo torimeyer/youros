@@ -29,6 +29,7 @@ except Exception:
 
 from config import PROJECT_ROOT
 from services import claude_code_provider
+from services import gemini_cli_provider
 from services.ostk import ostk
 from services.settings_store import settings_store
 from services.template_matcher import match_template, merge_with_built_ins
@@ -3015,7 +3016,18 @@ class ChatService:
         messages: list[dict],
         websocket: WebSocket,
         system_instruction: Optional[str] = None,
+        **kwargs: Any,
     ) -> str:
+        # Priority 0: Gemini CLI (if enabled and available).
+        if settings_store.get("use_gemini_cli") and await gemini_cli_provider.is_gemini_cli_available():
+            try:
+                return await gemini_cli_provider.stream_chat(
+                    messages, websocket, system_prompt=system_instruction, **kwargs
+                )
+            except Exception as e:
+                _gemini_log.warning(f"Gemini CLI failed, falling back to API: {e}")
+                # Fall through to API logic below
+
         # Priority 1: Vertex AI via Application Default Credentials.
         # detect_vertex_gemini() checks gcloud ADC and never raises.
         # Imported here to avoid a circular-import at module load time.

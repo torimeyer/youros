@@ -119,11 +119,15 @@ class Settings(BaseModel):
     auto_label_tasks: bool = True
     chat_backend_preference: str = "auto"
     briefing_enabled: bool = True
+    gmail_unread_at_top: bool = True
     chat_memory_enabled: bool = True
     # When True, every chat message is sent to both Claude and Gemini
     # in parallel and the chat panel renders both replies in adjacent
     # columns. Persisted so the choice survives across sessions.
     side_by_side_enabled: bool = False
+    # When True, chat requests routed to Gemini use the local `gemini` CLI
+    # instead of the Google GenAI SDK.
+    use_gemini_cli: bool = False
     # Compression is always on. This field is kept for internal flexibility and
     # schema compatibility but is intentionally not surfaced in the UI.
     context_compression_enabled: bool = True

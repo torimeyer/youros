@@ -8447,8 +8447,17 @@ async def test_list_agents_user_spawned_only_excludes_main_session():
 
     main_name = "claude-code-abcdef12"
     other_name = "claude-code-12345678"
+    short_main_name = "claude-code-3906"
     now_iso = datetime.now(timezone.utc).isoformat()
     agent_metadata[main_name] = {
+        "status": "running",
+        "source": "claude-code",
+        "model": "sonnet",
+        "description": "Claude Code session (cwd: /Users/tori/claude/torios)",
+        "spawned_at": now_iso,
+        "last_heartbeat_at": now_iso,
+    }
+    agent_metadata[short_main_name] = {
         "status": "running",
         "source": "claude-code",
         "model": "sonnet",
@@ -8466,6 +8475,7 @@ async def test_list_agents_user_spawned_only_excludes_main_session():
     }
     active_agents.pop(main_name, None)
     active_agents.pop(other_name, None)
+    active_agents.pop(short_main_name, None)
 
     transport = ASGITransport(app=app)
     try:
@@ -8482,6 +8492,10 @@ async def test_list_agents_user_spawned_only_excludes_main_session():
                     "main session (claude-code-<hex> with Claude Code session desc) "
                     "must be excluded by user_spawned_only"
                 )
+                assert short_main_name not in names, (
+                    "short main session (claude-code-NNNN) "
+                    "must be excluded by user_spawned_only"
+                )
                 assert other_name in names, (
                     "other inferred claude-code-<hex> rows without the main "
                     "session description should still be included"
@@ -8489,6 +8503,7 @@ async def test_list_agents_user_spawned_only_excludes_main_session():
     finally:
         agent_metadata.pop(main_name, None)
         agent_metadata.pop(other_name, None)
+        agent_metadata.pop(short_main_name, None)
 
 
 def test_is_user_spawned_agent_helper_matches_frontend_rule():
@@ -8544,6 +8559,21 @@ def test_is_user_spawned_agent_helper_matches_frontend_rule():
     }
     assert is_main_session(main_agent) is True
     assert is_user_spawned_agent(main_agent) is False
+    # Excluded: main session with shorter (4-char) hex stem.
+    short_main_agent = {
+        "name": "claude-code-3906",
+        "source": "claude-code",
+        "model": "sonnet",
+        "description": "Claude Code session (cwd: /tmp)",
+    }
+    assert is_main_session(short_main_agent) is True
+    assert is_user_spawned_agent(short_main_agent) is False
+    # Excluded: backend self session (myos-api-*).
+    assert is_user_spawned_agent({
+        "name": "myos-api-3902",
+        "source": "api",
+        "model": "sonnet",
+    }) is False
     # Included: inferred name with a real task description is NOT a main session.
     assert is_user_spawned_agent({
         "name": "claude-code-12345678",

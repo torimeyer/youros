@@ -331,6 +331,107 @@ describe('renderMarkdown is not safe to call per-token during streaming', () => 
   })
 })
 
+// ─── →1355 / →1354 regression suite ─────────────────────────────────────────
+// Both bugs share the same root cause: the Anthropic SDK's `stream.text_stream`
+// yields text from every text block in sequence with NO separator between
+// blocks.  When a tool-use response contains [text] [tool_use] [text], the two
+// text blocks are concatenated with no space or newline and the combined string
+// is sent to the frontend.
+//
+// The backend fix (stream_anthropic in chat_providers.py) switches to raw event
+// iteration and emits a "\n\n" token whenever a new text block starts after a
+// previous text block ended.  That makes the accumulated frontend string look
+// like "sentence1.\n\nsentence2.\n\nsentence3." — which renderMarkdown already
+// handles correctly.
+//
+// These tests are written in "desired-state" form: they pass the FIXED input
+// (what the backend will send after the fix) and assert the correct output.
+// They also contain a `broken` constant that reproduces the pre-fix bug so the
+// exact regression is documented.
+describe('→1355: text blocks from separate tool-use turns must render as separate paragraphs', () => {
+  it('renders three properly-separated sentences as three distinct paragraphs', () => {
+    // After the backend fix the frontend accumulates:
+    //   "block1\n\nblock2\n\nblock3"
+    // renderMarkdown must turn each paragraph-separated chunk into a <p>.
+    const fixed =
+      'Pushing the redesign on top of it.\n\n' +
+      "Setting up todos for the brainstorming flow so we don't lose track.\n\n" +
+      "Okay, here's what I learned from verifying ostk recall:"
+    const { container } = renderNodes(renderMarkdown(fixed))
+    const paras = container.querySelectorAll('p')
+    expect(paras.length).toBeGreaterThanOrEqual(3)
+    expect(paras[0].textContent).toContain('redesign on top of it')
+    expect(paras[1].textContent).toContain('brainstorming flow')
+    expect(paras[2].textContent).toContain('ostk recall')
+  })
+
+  it('produces only ONE paragraph when the block separator is absent (documents the pre-fix bug)', () => {
+    // This is the exact content the backend currently sends:
+    // three separate text blocks smashed together with no separator.
+    // The single-paragraph result is the bug.  Once the backend is fixed,
+    // this input string will never appear in practice.
+    const broken =
+      "redesign on top of it.Setting up todos for the brainstorming flow so we don't lose track.Okay, here's what I learned from verifying ostk recall:"
+    const { container } = renderNodes(renderMarkdown(broken))
+    const paras = container.querySelectorAll('p')
+    // Documents broken behavior: everything collapses to 1 paragraph.
+    expect(paras.length).toBe(1)
+  })
+
+  it('→1355 GREEN: backend now emits \\n\\n between text blocks so sentences render as paragraphs', () => {
+    // After the backend fix, stream_anthropic injects "\n\n" between
+    // consecutive text blocks.  The frontend accumulates the separator
+    // as a normal token, so the stored message content looks like:
+    //   "sentence1.\n\nsentence2.\n\nsentence3."
+    // renderMarkdown turns each \n\n-separated chunk into a <p>.
+    const fixed =
+      "redesign on top of it.\n\n" +
+      "Setting up todos for the brainstorming flow so we don't lose track.\n\n" +
+      "Okay, here's what I learned from verifying ostk recall:"
+    const { container } = renderNodes(renderMarkdown(fixed))
+    const paras = container.querySelectorAll('p')
+    expect(paras.length).toBeGreaterThanOrEqual(3)
+    expect(paras[0].textContent).toContain('redesign on top of it')
+    expect(paras[1].textContent).toContain('brainstorming flow')
+    expect(paras[2].textContent).toContain('ostk recall')
+  })
+})
+
+describe('→1354: code blocks and screenshots must preserve internal newlines', () => {
+  it('renders a fenced code block with multiple lines intact', () => {
+    // After the backend fix, a code block inside a second text block arrives
+    // with a "\n\n" prefix that properly separates it from preceding prose.
+    const fixed =
+      'Here is the relevant code:\n\n' +
+      '```python\ndef greet(name):\n    return f"Hello, {name}"\n```\n\n' +
+      'Call it with `greet("world")`.'
+    const { container } = renderNodes(renderMarkdown(fixed))
+    const pre = container.querySelector('pre')
+    expect(pre).not.toBeNull()
+    // Both lines inside the code block must be present.
+    expect(pre!.textContent).toContain('def greet(name):')
+    expect(pre!.textContent).toContain('return f"Hello, {name}"')
+    // Prose before and after the block must also appear.
+    expect(container.textContent).toContain('Here is the relevant code')
+    expect(container.textContent).toContain('Call it with')
+  })
+
+  it('→1354 GREEN: code fence preceded by \\n\\n is correctly parsed as a <pre> block', () => {
+    // After the backend fix, prose from one text block and code from the
+    // next arrive separated by "\n\n", putting the fence on its own line.
+    const fixed =
+      'Here is the relevant code:\n\n' +
+      '```python\ndef greet(name):\n    return f"Hello, {name}"\n```'
+    const { container } = renderNodes(renderMarkdown(fixed))
+    const pre = container.querySelector('pre')
+    expect(pre).not.toBeNull()
+    expect(pre!.textContent).toContain('def greet')
+    expect(pre!.textContent).toContain('return f"Hello, {name}"')
+    expect(container.textContent).toContain('Here is the relevant code')
+  })
+})
+// ─────────────────────────────────────────────────────────────────────────────
+
 describe('light mode contrast: code elements use amber classes overridden in index.css', () => {
   it('inline code element has text-amber-300 class (overridden to dark in light mode)', () => {
     const { container } = renderNodes(renderMarkdown('`snippet`'))

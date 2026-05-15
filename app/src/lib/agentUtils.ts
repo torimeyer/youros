@@ -29,18 +29,24 @@ export function isSystemMaintenanceAgent(name: string): boolean {
 }
 
 /**
- * Returns true when this agent is the main Claude Code interactive session
+ * Returns true when this agent is the main Claude/Gemini interactive session
  * (the one Tori is actively typing into), NOT a spawned background agent.
  *
  * Detection: inferred session name pattern + description set by the audit
- * log to "Claude Code session (cwd: ...)".
+ * log or session-start hook.
  */
-export function isMainSession(agent: { name: string; description?: string; source?: string }): boolean {
-  const isInferred = /^claude-code-[0-9a-f]{8}/.test(agent.name)
+export function isMainSession(agent: { name: string; description?: string; source?: string; task?: string }): boolean {
+  const isInferred = /^(claude-code-|gemini-cli-mcp-client-)[0-9a-f0-9]+/.test(agent.name)
   if (!isInferred) return false
-  // The audit-log watcher stamps every Claude Code process with this prefix
-  const hasMainDesc = (agent.description || "").startsWith("Claude Code session")
-  return hasMainDesc
+  // The audit-log watcher or session hook stamps every main process with this prefix
+  const desc = agent.description || ""
+  const hasMainDesc = desc.startsWith("Claude Code session") || desc.startsWith("Gemini session")
+  if (hasMainDesc) return true
+  // If it matches the pattern but has NO task and NO user-friendly description,
+  // it's likely a leaked main session row from the registry or a fresh subagent.
+  // Treat it as a main session (i.e. not user-spawned) until it registers.
+  if (!agent.task && !agent.description) return true
+  return false
 }
 
 export interface AgentInfo {
@@ -109,6 +115,7 @@ export function isUserSpawnedAgent(agent: {
   hook_preregister?: boolean;
 }): boolean {
   if (isMainSession(agent)) return false;
+  if (agent.name.startsWith("myos-api-")) return false;
   if (agent.source === "chat") return false;
   if (agent.source === "audit") return false;
   if (agent.source === "hook") return false;
@@ -237,7 +244,8 @@ export function agentTitleParts(
   //    Must run before the task/description path so the generic audit-log
   //    description ("Claude Code session (cwd: ...)") never leaks as the title.
   if (isMainSession(agent)) {
-    return { primary: "Your chat with Claude", secondary: null };
+    const primary = agent.name.startsWith("gemini-cli-") ? "Your chat with Gemini" : "Your chat with Claude";
+    return { primary, secondary: null };
   }
 
   // 3. Task / description present (explicit human-written title)
@@ -262,7 +270,7 @@ export function agentTitleParts(
   }
 
   // 5. Named (non-inferred) agent registered by name
-  const isInferred = /^claude-code-[0-9a-f]{8}/.test(agent.name);
+  const isInferred = /^claude-code-[0-9a-f]{4,}/.test(agent.name);
   if (!isInferred) {
     const parts: string[] = [agent.name];
     if (modelLabel) parts.push(modelLabel);

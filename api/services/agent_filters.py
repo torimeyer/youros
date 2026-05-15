@@ -24,21 +24,29 @@ import re
 from typing import Any, Mapping
 
 
-_INFERRED_NAME_RE = re.compile(r"^claude-code-[0-9a-f]{8}")
+_INFERRED_NAME_RE = re.compile(r"^(claude-code-|gemini-cli-mcp-client-)[0-9a-f0-9]+")
 
 
 def is_main_session(agent: Mapping[str, Any]) -> bool:
-    """Return True when this row is the user's own Claude Code tab.
+    """Return True when this row is the user's own Claude/Gemini tab.
 
     Detection: the audit-log watcher stamps every inferred Claude Code tab
     with a description starting with "Claude Code session". The name also
-    follows the inferred "claude-code-<8 hex>" pattern.
+    follows the inferred "claude-code-<4+ hex>" or "gemini-cli-mcp-client-"
+    pattern.
     """
     name = str(agent.get("name") or "")
     if not _INFERRED_NAME_RE.match(name):
         return False
     description = str(agent.get("description") or "")
-    return description.startswith("Claude Code session")
+    if description.startswith("Claude Code session") or description.startswith("Gemini session"):
+        return True
+    # If it matches the pattern but has NO task and NO user-friendly description,
+    # it's likely a leaked main session row from the registry or a fresh subagent.
+    # Hide these from the user-spawned list until they have a human title.
+    if not agent.get("task") and not description:
+        return True
+    return False
 
 
 def is_user_spawned_agent(agent: Mapping[str, Any]) -> bool:
@@ -48,6 +56,9 @@ def is_user_spawned_agent(agent: Mapping[str, Any]) -> bool:
     everywhere a caller wants the same count the Agents page shows.
     """
     if is_main_session(agent):
+        return False
+    name = str(agent.get("name") or "")
+    if name.startswith("myos-api-"):
         return False
     source = agent.get("source")
     if source == "chat":

@@ -21,6 +21,14 @@ ANNC_FILE="${MYOS_COMPLETION_ANNC:-$HOME/.myos/subagents/pending-completion-anno
 STATE_FILE="${MYOS_COMPLETION_STATE:-$HOME/.myos/subagents/completion-watcher-state.json}"
 PID_FILE="${MYOS_COMPLETION_PID:-$HOME/.myos/subagents/completion-watcher.pid}"
 
+# Ghost purge: kill any existing watcher processes.
+# This prevents accumulation if the PID file was lost or overwritten by another worktree.
+_GHOSTS=$(pgrep -f "agent-completion-watcher.sh" | grep -v "^$$" || true)
+if [ -n "$_GHOSTS" ]; then
+    # shellcheck disable=SC2086
+    kill $_GHOSTS 2>/dev/null || true
+fi
+
 mkdir -p "$(dirname "$ANNC_FILE")" 2>/dev/null || true
 mkdir -p "$(dirname "$STATE_FILE")" 2>/dev/null || true
 

@@ -147,7 +147,7 @@ _HOOK_PREREGISTER_MERGE_STOPWORDS = frozenset({
     "is", "it", "its", "not", "of", "on", "or", "so", "that", "the",
     "then", "there", "this", "to", "was", "what", "when", "where",
     "why", "will", "with", "agent", "subagent", "claude", "code",
-    "claude-code", "run", "running", "task",
+    "claude-code", "gemini", "gemini-cli", "run", "running", "task",
 })
 
 
@@ -3414,8 +3414,10 @@ async def _compute_agents_snapshot_async() -> dict:
     transcript-based CC-session inference, and enrich pipeline — runs
     here rather than on the request path.
     """
-    _prune_stale_completed_agents()
-    _prune_reaped_worktree_agents()
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _prune_stale_completed_agents)
+    await loop.run_in_executor(None, _prune_reaped_worktree_agents)
+
     # Always read .ostk/agents.jsonl directly via registry_reader.
     # kernel_ps() scans the ostk daemon's gen_table on every call; with
     # 2000+ modified-file entries that costs 10+ seconds and caused the
@@ -3425,7 +3427,7 @@ async def _compute_agents_snapshot_async() -> dict:
     # all myOS-specific fields (task, model, budget, source, etc.) in passes
     # 2b/2c below, so nothing is lost.
     from services.registry_reader import read_registry_for_snapshot as _rfs
-    ps_result = _rfs()
+    ps_result = await loop.run_in_executor(None, _rfs)
     audit_agents_list = await ostk.audit_agents()
     daemon_running = ps_result.get("daemon_running", False)
     daemon_agent_names = {a["name"] for a in ps_result.get("agents", [])}

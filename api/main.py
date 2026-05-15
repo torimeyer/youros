@@ -38,6 +38,7 @@ async def lifespan(app: FastAPI):
     await schedule_gmail_unread_notification()
     await schedule_overdue_task_check()
     await prewarm_claude_cli()
+    await prewarm_gemini_cli()
     await pregenerate_briefing()
     await prewarm_savings()
     await schedule_session_task_reaper()
@@ -458,6 +459,27 @@ async def prewarm_claude_cli():
         await asyncio.sleep(2)  # let higher-priority startup tasks run first
         try:
             await claude_code_provider.prewarm_cli()
+        except Exception:
+            pass
+
+    _keep(asyncio.create_task(_warm()))
+
+
+async def prewarm_gemini_cli():
+    """Pre-warm the local ``gemini`` program so the first chat is fast.
+
+    Same rationale as prewarm_claude_cli.
+    """
+    import asyncio
+    from services import gemini_cli_provider
+
+    async def _warm():
+        await asyncio.sleep(2.5)  # slight offset from claude warmup
+        try:
+            # Re-implementing a simple ping here or calling a provider method
+            # if we added one (similar to claude_code_provider.prewarm_cli).
+            # For now, we'll just check availability which warms the cache.
+            await gemini_cli_provider.is_gemini_cli_available()
         except Exception:
             pass
 

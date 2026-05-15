@@ -6,6 +6,7 @@ from pathlib import Path
 
 from services.settings_store import settings_store
 from services.claude_code_provider import is_claude_code_available
+from services.gemini_cli_provider import is_gemini_cli_available
 
 
 def detect_vertex_ai() -> bool:
@@ -119,6 +120,7 @@ async def detect_providers() -> dict[str, bool]:
     from services.ostk_secrets import get_anthropic_key, get_gemini_key
 
     claude_code = await is_claude_code_available()
+    gemini_cli = await is_gemini_cli_available()
 
     anthropic_key = bool(await get_anthropic_key())
     gemini_key = bool(await get_gemini_key())
@@ -126,6 +128,7 @@ async def detect_providers() -> dict[str, bool]:
     vx = detect_vertex_gemini()
     return {
         "claude_code": claude_code,
+        "gemini_cli": gemini_cli,
         "anthropic_key": anthropic_key,
         "gemini_key": gemini_key,
         "vertex_ai": vx.get("available", False),
