@@ -1210,23 +1210,6 @@ export default function Tasks() {
     reorderTask(activeId, targetPriority, newPosition);
   };
 
-  const handleNext = async () => {
-    try {
-      const res = await api.get<{ task?: Task; message?: string }>("/tasks/next");
-      if (res.task) {
-        setBanner(`Up next: ${res.task.title} (${res.task.priority})`);
-      } else if (res.message) {
-        setBanner(res.message);
-      } else {
-        setBanner("No suggestion available right now.");
-      }
-      setTimeout(() => setBanner(null), 5000);
-    } catch {
-      setBanner("Could not get a suggestion right now.");
-      setTimeout(() => setBanner(null), 5000);
-    }
-  };
-
   const copyTaskList = () => {
     const text = filteredTasks
       .map((t) => `[${t.priority}] ${t.title} (${t.status})`)
