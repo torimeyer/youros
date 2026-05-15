@@ -73,8 +73,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: 'Gmail', gmailBadge: true },
       { to: '/calendar', icon: 'calendar_month', label: 'Calendar', featureLabel: 'Calendar' },
-      { to: '/imessage', icon: 'chat_bubble', label: 'iMessage', featureLabel: 'iMessage' },
-      { to: '/contacts', icon: 'contacts', label: 'Contacts', featureLabel: 'Contacts' },
+      { to: '/imessage', icon: 'people', label: 'People', featureLabel: 'iMessage' },
       { to: '/slack', icon: 'chat', label: 'Slack', featureLabel: 'Slack' },
       { to: '/github', icon: 'code', label: 'GitHub', featureLabel: 'GitHub' },
       { to: '/jira', icon: 'bug_report', label: 'Jira', featureLabel: 'Jira' },

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
 import { ConnectCard, LoadingState, EmptyState, ErrorBanner } from '../components/ui'
@@ -53,6 +53,12 @@ interface ContactSuggestion {
 interface StatusResponse {
   available: boolean
   reason: string | null
+}
+
+interface Contact {
+  name: string
+  phone_numbers: string[]
+  emails: string[]
 }
 
 // Seed from localStorage so the page paints immediately
@@ -264,6 +270,9 @@ export default function IMessage() {
   const [saveContactSaving, setSaveContactSaving] = useState(false)
   const [saveContactError, setSaveContactError] = useState<string | null>(null)
 
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [peopleSearch, setPeopleSearch] = useState('')
+
   const fetchConversations = useCallback(async () => {
     try {
       const res = await api.get<{ conversations: Conversation[] }>('/imessage/conversations')
@@ -418,12 +427,56 @@ export default function IMessage() {
     }
   }
 
+  useEffect(() => {
+    api.get<{ contacts: Contact[] }>('/contacts')
+      .then((res) => setContacts(res.contacts || []))
+      .catch(() => {})
+  }, [])
+
+  const normalizePhone = (s: string) => s.replace(/\D/g, '')
+
+  const peopleResults = useMemo(() => {
+    if (!peopleSearch.trim()) return null
+    const q = peopleSearch.toLowerCase()
+    const qDigits = normalizePhone(peopleSearch)
+
+    const matchedContacts = contacts.filter((c) =>
+      c.name.toLowerCase().includes(q) ||
+      c.phone_numbers.some((p) => p.toLowerCase().includes(q) || (qDigits.length >= 3 && normalizePhone(p).includes(qDigits))) ||
+      c.emails.some((e) => e.toLowerCase().includes(q))
+    )
+
+    const matchedConversations = conversations.filter((c) =>
+      (c.display_name || '').toLowerCase().includes(q) ||
+      c.identifier.toLowerCase().includes(q) ||
+      (qDigits.length >= 3 && normalizePhone(c.identifier).includes(qDigits))
+    )
+
+    return { contacts: matchedContacts, conversations: matchedConversations }
+  }, [peopleSearch, contacts, conversations])
+
+  const handleSelectContact = (contact: Contact) => {
+    const nums = contact.phone_numbers.map(normalizePhone).filter(Boolean)
+    const emails = contact.emails.map((e) => e.toLowerCase())
+    const match = conversations.find((c) => {
+      const id = c.identifier.toLowerCase()
+      const idDigits = normalizePhone(c.identifier)
+      return emails.includes(id) || nums.some((n) => idDigits === n || idDigits.includes(n))
+    })
+    setPeopleSearch('')
+    if (match) {
+      handleSelectChat(match.id)
+    } else {
+      setSendRecipient(contact.phone_numbers[0] || contact.emails[0] || '')
+    }
+  }
+
   const cardClass = 'bg-slate-900/40 border border-slate-800 p-3 sm:p-4 rounded-xl'
 
   if (connectionState === 'loading') {
     return (
       <div className="min-h-dvh bg-slate-950 text-white">
-        <TopBar title="iMessage" />
+        <TopBar title="People" />
         <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
         </div>
@@ -434,7 +487,7 @@ export default function IMessage() {
   if (connectionState === 'not_connected') {
     return (
       <div className="min-h-dvh bg-slate-950 text-white">
-        <TopBar title="iMessage" />
+        <TopBar title="People" />
         <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
           <ConnectCard
             icon="chat_bubble"
@@ -464,50 +517,101 @@ export default function IMessage() {
 
   return (
     <div className="min-h-dvh bg-slate-950 text-white">
-      <TopBar title="iMessage" />
+      <TopBar title="People" />
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold">iMessage</h1>
+            <h1 className="text-xl sm:text-2xl font-bold">People</h1>
             <p className="text-sm text-slate-400 mt-0.5">
               {conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
+              {contacts.length > 0 && ` · ${contacts.length} contact${contacts.length !== 1 ? 's' : ''}`}
             </p>
           </div>
         </div>
 
-        {/* Search bar */}
-        <div className="mb-4 flex gap-2">
-          <div className="flex-1 relative">
+        {/* Unified people search */}
+        <div className="mb-4">
+          <div className="relative">
+            <Icon
+              name="search"
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none"
+            />
             <input
               type="text"
-              placeholder="Search messages..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={handleSearchKeyDown}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              placeholder="Search by name or number…"
+              value={peopleSearch}
+              onChange={(e) => setPeopleSearch(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-8 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              data-testid="people-search-input"
             />
-            {searchResults !== null && (
+            {peopleSearch && (
               <button
-                onClick={handleClearSearch}
+                onClick={() => setPeopleSearch('')}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
               >
                 <Icon name="close" size={16} />
               </button>
             )}
           </div>
-          <button
-            onClick={handleSearch}
-            disabled={searching || searchQuery.length < 2}
-            className="px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-          >
-            {searching ? (
-              <Icon name="progress_activity" size={16} className="animate-spin" />
-            ) : (
-              <Icon name="search" size={16} />
-            )}
-          </button>
         </div>
+
+        {/* People search results */}
+        {peopleResults && (
+          <div className={`${cardClass} mb-4`}>
+            {peopleResults.contacts.length === 0 && peopleResults.conversations.length === 0 ? (
+              <p className="text-sm text-slate-500 text-center py-4">No people found</p>
+            ) : (
+              <div className="divide-y divide-slate-800/60">
+                {peopleResults.contacts.map((c, i) => (
+                  <button
+                    key={`contact-${i}`}
+                    data-testid="people-search-contact-row"
+                    onClick={() => handleSelectContact(c)}
+                    className="w-full text-left px-3 py-3 rounded-lg hover:bg-slate-800/40 transition-colors flex items-center gap-3"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center shrink-0">
+                      <span className="text-xs font-medium text-slate-300">
+                        {(c.name || '?').charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-white truncate">{c.name}</p>
+                      <p className="text-xs text-slate-400 truncate">
+                        {c.phone_numbers[0] || c.emails[0] || ''}
+                      </p>
+                    </div>
+                    <Icon name="chat_bubble_outline" size={14} className="text-slate-600 shrink-0" />
+                  </button>
+                ))}
+                {peopleResults.conversations.map((c) => (
+                  <button
+                    key={`convo-${c.id}`}
+                    data-testid="people-search-convo-row"
+                    onClick={() => { handleSelectChat(c.id); setPeopleSearch('') }}
+                    className="w-full text-left px-3 py-3 rounded-lg hover:bg-slate-800/40 transition-colors flex items-center gap-3"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-blue-900/40 flex items-center justify-center shrink-0">
+                      <Icon name="chat_bubble" size={14} className="text-blue-400" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-white truncate">
+                        {c.display_name || c.identifier}
+                      </p>
+                      <p className="text-xs text-slate-400 truncate">{c.last_message_preview}</p>
+                    </div>
+                    {c.unread_count > 0 && (
+                      <span className="bg-blue-500/20 text-blue-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0">
+                        {c.unread_count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Search results */}
         {searchResults !== null && (
