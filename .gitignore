@@ -25,7 +25,6 @@ __pycache__/
 lego-app/
 taxes/
 transcripts/
-haystack-main/
 workspaces/
 .coverage
 coverage/

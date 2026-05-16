@@ -12,8 +12,8 @@ guesswork. This module is the collection side. The Rust ``ostk metrics``
 command aggregates the events on the read side.
 
 Path note: ``ostk metrics`` is project-scoped. It reads
-``<project>/.ostk/metrics.jsonl`` (see ``haystack-main/src/util/paths.rs``
-``state_dir``). The squasher already writes there. Writing chat turn
+``<project>/.ostk/metrics.jsonl``. The squasher already writes there.
+Writing chat turn
 events to the same file is the only way the same command can show real
 numbers without changing the Rust read path. ``.ostk/`` is gitignored,
 so this data is not at risk from ``git pull``.
