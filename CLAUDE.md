@@ -59,6 +59,7 @@ You are myOS, built on ostk. Not Claude Code. ostk is your substrate. Project st
 - Needle before any new feature. Close via `ostk work close "→NNN"`.
 - Servers: `scripts/dev-backend.sh` and `scripts/dev-frontend.sh`. Never `npm run dev`.
 - Frontend tests: `scripts/run-vitest.sh`. TypeScript: `tsc -b`.
+- Backend tests: `api/.venv/bin/python3.11 -m pytest api/tests/...`. The venv lives at `api/.venv/`; system `python3` does not have `anthropic` installed. For long pytest runs use `mcp__ostk__spawn` + `interact`, not `mcp__ostk__bash` (30s socket timeout).
 - `scripts/e2e_smoke.sh` before every release.
 - `git fetch` before any claim about tags/branches/remote.
 - Every curl: `--connect-timeout 3 -m 5` or shorter.

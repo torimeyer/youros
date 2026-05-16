@@ -272,6 +272,15 @@ if [ -n "${APP_STAGED}" ]; then
   fi
 fi
 
+# --- frontend em-dash check (no staged-file gate; cheap regardless) ---
+say "running em-dash check on app/src/**/*.{ts,tsx}..."
+if "${REPO_DIR}/scripts/check-no-emdash-frontend.sh"; then
+  ok "no em-dashes in frontend."
+else
+  fail "em-dash check failed."
+  FAILED=1
+fi
+
 END_TS="$(date +%s)"
 ELAPSED=$(( END_TS - START_TS ))
 say "checks took ${ELAPSED}s."
