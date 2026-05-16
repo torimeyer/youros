@@ -847,9 +847,11 @@ async def stream_chat(
     # event consistently with the anthropic_api path.
     try:
         from services.token_metrics import safe_record_chat_turn
-        from services.chat_providers import _get_boot_context
+        from services.chat_providers import _get_boot_context, _log_chat_completion, _extract_chat_topic
         usage = final_usage or {}
         boot_ctx = _get_boot_context()
+        _cache_creation = int(usage.get("cache_creation_input_tokens", 0) or 0)
+        _cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
         safe_record_chat_turn(
             model="claude-code-subscription",
             input_tokens=int(usage.get("input_tokens", 0) or 0),
@@ -857,6 +859,23 @@ async def stream_chat(
             has_ostk_boot=bool(boot_ctx),
             boot_context_bytes=len(boot_ctx.encode("utf-8")) if boot_ctx else 0,
             backend="claude_code",
+            cache_creation_input_tokens=_cache_creation,
+            cache_read_input_tokens=_cache_read,
+        )
+        _log_chat_completion(
+            model="claude-code-subscription",
+            input_tokens=int(usage.get("input_tokens", 0) or 0),
+            output_tokens=int(usage.get("output_tokens", 0) or 0),
+            provider="claude_code",
+            cache_creation_input_tokens=_cache_creation,
+            cache_read_input_tokens=_cache_read,
+            topic=_extract_chat_topic(messages),
+        )
+        _claude_log.info(
+            "claude_code_cache cache_read=%d cache_creation=%d ratio_pct=%d",
+            _cache_read,
+            _cache_creation,
+            int(_cache_read / (_cache_read + _cache_creation) * 100) if (_cache_read + _cache_creation) > 0 else 0,
         )
     except Exception:
         pass
