@@ -3628,6 +3628,26 @@ class TestPhaseTimingLogs:
             async def __aexit__(self, *a):
                 return False
 
+            def __aiter__(self):
+                # Production iterates events to emit anthropic_phase=first_token
+                # on text_delta. Yield the minimum event sequence.
+                async def _event_gen():
+                    start = MagicMock()
+                    start.type = "content_block_start"
+                    start.content_block = MagicMock()
+                    start.content_block.type = "text"
+                    yield start
+                    delta_evt = MagicMock()
+                    delta_evt.type = "content_block_delta"
+                    delta_evt.delta = MagicMock()
+                    delta_evt.delta.type = "text_delta"
+                    delta_evt.delta.text = "hi"
+                    yield delta_evt
+                    stop = MagicMock()
+                    stop.type = "content_block_stop"
+                    yield stop
+                return _event_gen()
+
             async def get_final_message(self):
                 return final_msg
 
@@ -4112,7 +4132,16 @@ class TestBackendActiveBeforeTemplateMatching:
 # ---------------------------------------------------------------------------
 
 class _FakeStreamCM:
-    """Async context manager that either raises or yields text tokens."""
+    """Async context manager that either raises or yields a stream of events.
+
+    Production code (services.chat_providers, ~line 2374) iterates over the
+    stream object with `async for event in stream:` and dispatches on
+    event.type (content_block_start / content_block_delta / content_block_stop)
+    so it can inject paragraph separators between text blocks.
+
+    This fake produces the minimum event sequence that exercises that path:
+    one text block whose delta carries the supplied text.
+    """
 
     def __init__(self, exc_or_text):
         self._exc_or_text = exc_or_text
@@ -4124,6 +4153,30 @@ class _FakeStreamCM:
 
     async def __aexit__(self, *args):
         return False
+
+    def __aiter__(self):
+        text = self._exc_or_text
+
+        async def _event_gen():
+            # content_block_start for a text block
+            start = MagicMock()
+            start.type = "content_block_start"
+            start.content_block = MagicMock()
+            start.content_block.type = "text"
+            yield start
+            # content_block_delta carrying the text payload
+            delta_evt = MagicMock()
+            delta_evt.type = "content_block_delta"
+            delta_evt.delta = MagicMock()
+            delta_evt.delta.type = "text_delta"
+            delta_evt.delta.text = text
+            yield delta_evt
+            # content_block_stop closes the text block
+            stop = MagicMock()
+            stop.type = "content_block_stop"
+            yield stop
+
+        return _event_gen()
 
     @property
     def text_stream(self):
