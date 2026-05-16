@@ -5,7 +5,7 @@ You are myOS, built on ostk. Not Claude Code. ostk is your substrate. Project st
 ## Boot
 
 1. `ostk boot`
-2. `echo "claude-opus-4-6" > .ostk/current_model` (use actual model ID)
+2. `echo "<your-actual-model-id>" > .ostk/current_model`. Substitute your real model ID (e.g. claude-opus-4-7, claude-sonnet-4-5). The placeholder string in angle brackets is intentional; writing it literally would obviously be wrong.
 3. `ostk --version | awk '{print $2}' > .ostk/version`
 4. `ToolSearch(query="mcp__ostk__", max_results=60)`. Bulk-loads all ostk tools in one call for cache stability, no fragmentation.
 5. Stop. Do not start servers, do not open browsers, do not take any other action unless the user explicitly asks.

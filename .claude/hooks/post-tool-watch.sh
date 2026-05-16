@@ -47,6 +47,15 @@ case "$TOOL" in
         . "$LIB/rules/bash_postwatch.sh"
         rule_enabled bash_postwatch && _bash_postwatch_check "$TOOL" "$CMD"
         ;;
+    mcp__ostk__bash|mcp__ostk__shell)
+        # Authoritative open-needle count after `ostk boot` — the [loadavg] line in
+        # boot output is unreliable (see feedback_boot_loadavg_needles_unreliable.md);
+        # this prints the real count alongside it so the model can't quote the wrong one.
+        if [[ "$CMD" =~ ^ostk[[:space:]]+boot ]]; then
+            _needle_count=$(ostk work list --status open 2>/dev/null | grep -c '^  →' || echo 0)
+            printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"AUTHORITATIVE OPEN NEEDLES: %s (the [loadavg] needles line in ostk boot output is unreliable per feedback_boot_loadavg_needles_unreliable.md; this is the real count from ostk work list --status open)."}}\n' "$_needle_count"
+        fi
+        ;;
     *)
         exit 0
         ;;

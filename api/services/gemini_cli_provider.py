@@ -30,7 +30,7 @@ BLOCKED_AUTH_ENV_KEYS: frozenset[str] = frozenset({
 })
 
 _DETECTION_CACHE_TTL_SECONDS: float = 600.0
-_AUTH_STATUS_TIMEOUT_SECONDS: float = 3.0
+_AUTH_STATUS_TIMEOUT_SECONDS: float = 20.0
 _STREAM_TIMEOUT_SECONDS: float = 1800.0
 _WS_HEARTBEAT_INTERVAL_S: float = 10.0
 
@@ -77,11 +77,16 @@ async def is_gemini_cli_available(force: bool = False) -> bool:
                     proc.communicate(), timeout=_AUTH_STATUS_TIMEOUT_SECONDS
                 )
                 result = proc.returncode == 0
-                # Robust check: if it says "Please sign in" or similar in stderr, it's not available.
                 err_text = stderr.decode("utf-8", errors="replace").lower()
                 if "sign in" in err_text or "not authenticated" in err_text:
+                    _gemini_log.info("Gemini CLI found but not authenticated.")
                     result = False
+                elif result:
+                    _gemini_log.info("Gemini CLI is available and authenticated.")
+                else:
+                    _gemini_log.warning(f"Gemini CLI ping failed with exit code {proc.returncode}: {err_text}")
             except asyncio.TimeoutError:
+                _gemini_log.warning("Gemini CLI availability check timed out.")
                 try:
                     proc.kill()
                 except:

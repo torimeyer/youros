@@ -90,8 +90,11 @@ export default function Settings() {
   // otherwise falls back to the Anthropic key. Users can force either
   // pathway from the Settings page.
   const [chatBackendPreference, setChatBackendPreference] = useState<'auto' | 'claude_code' | 'anthropic_api'>('auto');
+  const [useGeminiCli, setUseGeminiCli] = useState(false);
   const [claudeCodeReady, setClaudeCodeReady] = useState<boolean | null>(null);
+  const [geminiCliReady, setGeminiCliReady] = useState<boolean | null>(null);
   const [recheckingClaude, setRecheckingClaude] = useState(false);
+  const [recheckingGemini, setRecheckingGemini] = useState(false);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({ Anthropic: '', 'Google Gemini': '' });
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [selectedModel, setSelectedModel] = useState('claude-sonnet-4-6');
@@ -244,6 +247,9 @@ export default function Settings() {
         if ((data as any).chat_memory_enabled !== undefined) {
           setChatMemoryEnabled((data as any).chat_memory_enabled);
         }
+        if ((data as any).use_gemini_cli !== undefined) {
+          setUseGeminiCli((data as any).use_gemini_cli);
+        }
         if (typeof (data as any).standing_instructions === 'string') {
           setStandingInstructions((data as any).standing_instructions);
         }
@@ -268,10 +274,16 @@ export default function Settings() {
       }
     };
     fetchSettings();
-    // Check whether the local Claude subscription program is ready.
-    api.get<{ claude_code_available?: boolean }>('/settings/chat-backend-status')
-      .then((data) => setClaudeCodeReady(!!data.claude_code_available))
-      .catch(() => setClaudeCodeReady(false));
+    // Check whether the local local subscription programs are ready.
+    api.get<{ claude_code_available?: boolean; gemini_cli_available?: boolean }>('/settings/chat-backend-status')
+      .then((data) => {
+        setClaudeCodeReady(!!data.claude_code_available);
+        setGeminiCliReady(!!data.gemini_cli_available);
+      })
+      .catch(() => {
+        setClaudeCodeReady(false);
+        setGeminiCliReady(false);
+      });
     // Load the current Anthropic model list from the server. The server
     // is the single source of truth so one edit updates every client.
     api.get<{ models?: { id: string; label: string; tier: string }[]; default?: string }>(
@@ -422,10 +434,29 @@ export default function Settings() {
 
   const handleRecheckClaudeStatus = () => {
     setRecheckingClaude(true);
-    api.get<{ claude_code_available?: boolean }>('/settings/chat-backend-status')
-      .then((data) => setClaudeCodeReady(!!data.claude_code_available))
+    api.get<{ claude_code_available?: boolean; gemini_cli_available?: boolean }>('/settings/chat-backend-status')
+      .then((data) => {
+        setClaudeCodeReady(!!data.claude_code_available);
+        if (data.gemini_cli_available !== undefined) setGeminiCliReady(!!data.gemini_cli_available);
+      })
       .catch(() => setClaudeCodeReady(false))
       .finally(() => setRecheckingClaude(false));
+  };
+
+  const handleRecheckGeminiStatus = () => {
+    setRecheckingGemini(true);
+    api.get<{ claude_code_available?: boolean; gemini_cli_available?: boolean }>('/settings/chat-backend-status')
+      .then((data) => {
+        if (data.claude_code_available !== undefined) setClaudeCodeReady(!!data.claude_code_available);
+        setGeminiCliReady(!!data.gemini_cli_available);
+      })
+      .catch(() => setGeminiCliReady(false))
+      .finally(() => setRecheckingGemini(false));
+  };
+
+  const handleUseGeminiCliToggle = (value: boolean) => {
+    setUseGeminiCli(value);
+    api.patch('/settings', { use_gemini_cli: value }).catch(() => {});
   };
 
 
@@ -1129,6 +1160,53 @@ export default function Settings() {
                     </a>{' '}
                     instead. It ties to your personal Google account and is one click.
                   </p>
+                </div>
+              )}
+
+              {/* Gemini CLI Toggle */}
+              {selectedProvider === 'Google Gemini' && (
+                <div className="mb-6 pt-4 border-t border-slate-800">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-200">Use Gemini CLI</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30 uppercase tracking-wider">Experimental</span>
+                    </div>
+                    <Toggle checked={useGeminiCli} onChange={handleUseGeminiCliToggle} testId="gemini-cli-toggle" />
+                  </div>
+                  <p className="text-xs text-slate-500 mb-4">
+                    Routes chat through your local <code>gemini</code> command. Uses your Google One AI Ultra subscription instead of API credits.
+                  </p>
+
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div
+                      data-testid="gemini-cli-ready-indicator"
+                      className="flex items-center gap-2 text-xs"
+                    >
+                      {geminiCliReady === null ? (
+                        <>
+                          <span className="w-2 h-2 rounded-full bg-slate-500" />
+                          <span className="text-slate-500">Checking Gemini CLI...</span>
+                        </>
+                      ) : geminiCliReady ? (
+                        <>
+                          <span className="w-2 h-2 rounded-full bg-green-500" />
+                          <span className="text-green-400">Gemini CLI is ready</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="w-2 h-2 rounded-full bg-red-500" />
+                          <span className="text-red-400">Gemini CLI not found or not signed in</span>
+                        </>
+                      )}
+                    </div>
+                    <button
+                      onClick={handleRecheckGeminiStatus}
+                      disabled={recheckingGemini}
+                      className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors uppercase font-bold tracking-tight disabled:opacity-50"
+                    >
+                      {recheckingGemini ? 'Checking...' : 'Recheck'}
+                    </button>
+                  </div>
                 </div>
               )}
 

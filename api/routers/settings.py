@@ -3,6 +3,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Request
 
 from services import claude_code_provider
+from services import gemini_cli_provider
 from services.ostk import ostk
 from services.settings_store import settings_store
 from services.standing_instructions_generator import suggest_standing_instructions
@@ -112,16 +113,18 @@ async def patch_settings(body: dict, request: Request = None):
 
 @router.get("/settings/chat-backend-status")
 async def chat_backend_status():
-    """Report whether the local Claude subscription program is ready.
+    """Report whether local subscription programs (Claude, Gemini) are ready.
 
-    The Settings page uses this to show a live ready/not-ready indicator
-    next to the Chat backend radio buttons so the user can see at a
-    glance whether they can flip to the subscription pathway.
+    The Settings page uses this to show live ready/not-ready indicators
+    next to the backend options so the user can see at a glance whether
+    they can flip to the subscription pathway.
     """
-    available = await claude_code_provider.is_claude_code_available(force=True)
+    claude_available = await claude_code_provider.is_claude_code_available(force=True)
+    gemini_available = await gemini_cli_provider.is_gemini_cli_available(force=True)
     preference = settings_store.get("chat_backend_preference", "auto")
     return {
-        "claude_code_available": available,
+        "claude_code_available": claude_available,
+        "gemini_cli_available": gemini_available,
         "preference": preference,
     }
 
