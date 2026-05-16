@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from services.agent_templates_store import agent_templates_store
 from services.gem_knowledge import retrieve as _rag_retrieve, index_file as _rag_index_file, _extract_pdf_text
+from services.gem_chat_history_store import gem_chat_history_store
 from services import recent_deletes
 
 _UPLOAD_DIR = Path.home() / ".myos" / "gem_knowledge" / "uploads"
@@ -132,6 +133,15 @@ async def update_gem(gem_id: str, body: GemUpdate):
     return _to_gem(updated)
 
 
+@router.get("/gems/{gem_id}/chat/history")
+async def get_gem_chat_history(gem_id: str):
+    """Return all stored chat turns for a Gem, oldest-first."""
+    t = agent_templates_store.get_by_id(gem_id)
+    if t is None or t.get("provider") != "gemini":
+        raise HTTPException(status_code=404, detail="Gem not found")
+    return gem_chat_history_store.load(gem_id)
+
+
 @router.delete("/gems/{gem_id}", status_code=204)
 async def delete_gem(gem_id: str):
     t = agent_templates_store.get_by_id(gem_id)
@@ -139,6 +149,7 @@ async def delete_gem(gem_id: str):
         raise HTTPException(status_code=404, detail="Gem not found")
     recent_deletes.record(f"gem:{t.get('name', gem_id)}")
     agent_templates_store.delete(gem_id)
+    gem_chat_history_store.delete(gem_id)  # clean up chat history alongside the gem
 
 
 @router.post("/gems/upload")
@@ -197,12 +208,15 @@ async def chat_with_gem(gem_id: str, body: ChatRequest):
             chat_service.stream_gemini(messages, proxy, system_instruction=system_prompt)  # type: ignore[arg-type]
         )
         task.add_done_callback(lambda _: proxy._queue.put_nowait(None))
+        accumulated: list[str] = []
         try:
             while True:
                 item = await proxy._queue.get()
                 if item is None:
                     break
                 yield f"data: {json.dumps(item)}\n\n"
+                if item.get("type") == "token" and isinstance(item.get("data"), str):
+                    accumulated.append(item["data"])
                 if item.get("type") in ("done", "error"):
                     break
         finally:
@@ -211,5 +225,12 @@ async def chat_with_gem(gem_id: str, body: ChatRequest):
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
+            # Persist the exchange after streaming completes (or on client disconnect).
+            full_response = "".join(accumulated)
+            if full_response:
+                try:
+                    gem_chat_history_store.append_turns(gem_id, body.message, full_response)
+                except Exception:
+                    pass  # History save is non-fatal
 
     return StreamingResponse(generator(), media_type="text/event-stream")

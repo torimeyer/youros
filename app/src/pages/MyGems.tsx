@@ -256,6 +256,15 @@ export default function MyGems() {
 
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
+                    data-testid={`gem-history-${gem.id}`}
+                    onClick={() => handleChat(gem)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                    title="View past chats with this Gem"
+                  >
+                    <Icon name="history" className="text-base" />
+                    Past chats
+                  </button>
+                  <button
                     data-testid={`gem-chat-${gem.id}`}
                     onClick={() => handleChat(gem)}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
