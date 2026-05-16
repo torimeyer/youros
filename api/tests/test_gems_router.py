@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from unittest.mock import AsyncMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -259,15 +260,18 @@ async def test_chat_streams_gemini_response(client, gem, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_chat_passes_system_instruction(client, monkeypatch):
-    """chat_with_gem passes the gem's prompt_template as system_instruction."""
+    """chat_with_gem includes the gem's prompt_template in system_instruction."""
     captured: list = []
 
-    async def _fake_stream_gemini(self, messages, websocket, system_instruction=None):
+    async def _fake_stream_gemini(self, messages, websocket, system_instruction=None, **kwargs):
         captured.append(system_instruction)
         await websocket.send_json({"type": "done"})
 
     import services.chat_providers as cp_mod
+    import services.gemini_cli_provider as gcli_mod
     monkeypatch.setattr(cp_mod.ChatService, "stream_gemini", _fake_stream_gemini)
+    # CLI not active: no workspace injection, gem prompt passes through unchanged.
+    monkeypatch.setattr(gcli_mod, "is_gemini_cli_available", AsyncMock(return_value=False))
 
     resp = await client.post("/api/gems", json={
         "name": "System Gem",
@@ -277,7 +281,50 @@ async def test_chat_passes_system_instruction(client, monkeypatch):
     gem_id = resp.json()["id"]
 
     await client.post(f"/api/gems/{gem_id}/chat", json={"message": "Hello"})
-    assert captured == ["Always respond in haiku."]
+    assert captured, "stream_gemini was never called"
+    assert "Always respond in haiku." in captured[0]
+
+
+@pytest.mark.asyncio
+async def test_chat_injects_workspace_context_when_gemini_cli_active(client, monkeypatch):
+    """When Gemini CLI is active, gem chat prepends workspace context to system_instruction
+    so the model knows it can read files and where the codebase lives."""
+    captured: list = []
+
+    async def _fake_stream_gemini(self, messages, websocket, system_instruction=None, **kwargs):
+        captured.append(system_instruction)
+        await websocket.send_json({"type": "done"})
+
+    import services.chat_providers as cp_mod
+    import services.gemini_cli_provider as gcli_mod
+    import services.settings_store as ss_mod
+    monkeypatch.setattr(cp_mod.ChatService, "stream_gemini", _fake_stream_gemini)
+    monkeypatch.setattr(gcli_mod, "is_gemini_cli_available", AsyncMock(return_value=True))
+
+    # Simulate use_gemini_cli=True in settings.
+    original_get = ss_mod.settings_store.get
+    def _patched_get(key, *a, **kw):
+        if key == "use_gemini_cli":
+            return True
+        return original_get(key, *a, **kw)
+    monkeypatch.setattr(ss_mod.settings_store, "get", _patched_get)
+
+    resp = await client.post("/api/gems", json={
+        "name": "Code Gem",
+        "system_prompt": "Review the code.",
+    })
+    assert resp.status_code == 201
+    gem_id = resp.json()["id"]
+
+    await client.post(f"/api/gems/{gem_id}/chat", json={"message": "Can you see the codebase?"})
+    assert captured, "stream_gemini was never called"
+
+    instruction = captured[0]
+    # Workspace context must appear BEFORE the gem's own prompt.
+    assert "codebase" in instruction.lower() or "workspace" in instruction.lower(), \
+        f"Expected workspace context in system_instruction, got: {instruction!r}"
+    # Gem's own prompt must still be present.
+    assert "Review the code." in instruction
 
 
 @pytest.mark.asyncio
