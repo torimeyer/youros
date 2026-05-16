@@ -19,7 +19,7 @@ TASK_SOURCE_PATH = Path.home() / ".myos" / "task_source.json"
 
 _MAX_SOURCE_REF_LEN = 500
 
-_VALID_SOURCES = {"slack", "meeting", "email", "manual"}
+_VALID_SOURCES = {"slack", "meeting", "email", "gmail", "manual"}
 
 
 class TaskSourceStore:

@@ -307,8 +307,10 @@ async def create_task_from_email(msg: dict) -> dict:
 
     task_id = extract_task_id(add_result)
     schedule_auto_labels(task_id, title, description)
-    if task_id and message_id:
-        task_source_store.set_source(task_id, "email", message_id)
+    if task_id and (message_id or msg.get("thread_id", "")):
+        thread_id = msg.get("thread_id", "")
+        source_ref = thread_id if thread_id else message_id
+        task_source_store.set_source(task_id, "gmail", source_ref)
     return {"ok": True, "task_id": task_id, "title": title}
 
 

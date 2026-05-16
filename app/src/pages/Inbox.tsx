@@ -33,6 +33,7 @@ function sourceLabel(source: string): string {
   if (source === 'slack') return 'Slack'
   if (source === 'meeting') return 'Meeting'
   if (source === 'email') return 'Email'
+  if (source === 'gmail') return 'Gmail'
   return source || 'Unknown'
 }
 

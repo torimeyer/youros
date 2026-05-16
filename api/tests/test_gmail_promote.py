@@ -1,8 +1,9 @@
 """Tests for create_task_from_email — Gmail → needle promotion (wave 1c).
 
 Verifies that promoting an email to a task:
-  1. Calls task_source_store.set_source with source="email" and source_ref=message_id
-  2. Includes a direct Gmail permalink in the task description
+  1. Calls task_source_store.set_source with source="gmail" and source_ref=thread_id
+  2. Falls back to message_id as source_ref when thread_id is absent
+  3. Includes a direct Gmail permalink in the task description
 """
 
 from __future__ import annotations
@@ -35,8 +36,8 @@ GMAIL_LINK = "https://mail.google.com/mail/u/0/#inbox/msg_abc123"
 
 
 @pytest.mark.asyncio
-async def test_create_task_sets_email_source():
-    """task_source_store.set_source must be called with source='email' and message_id."""
+async def test_create_task_sets_gmail_source():
+    """task_source_store.set_source must be called with source='gmail' and thread_id."""
     mock_ostk = MagicMock()
     mock_ostk.add_task = AsyncMock(return_value="→1234")
     mock_source_store = MagicMock()
@@ -50,7 +51,7 @@ async def test_create_task_sets_email_source():
         result = await create_task_from_email(TASK_MSG)
 
     assert result["ok"] is True
-    mock_source_store.set_source.assert_called_once_with("1234", "email", "msg_abc123")
+    mock_source_store.set_source.assert_called_once_with("1234", "gmail", "thread_xyz")
 
 
 @pytest.mark.asyncio
@@ -73,8 +74,8 @@ async def test_create_task_description_contains_gmail_link():
 
 
 @pytest.mark.asyncio
-async def test_create_task_source_ref_is_message_id_not_thread_id():
-    """source_ref should be the message id, not the thread_id."""
+async def test_create_task_source_ref_is_thread_id():
+    """source_ref should be the thread_id, not the message id."""
     mock_ostk = MagicMock()
     mock_ostk.add_task = AsyncMock(return_value="→1234")
     mock_source_store = MagicMock()
@@ -89,8 +90,30 @@ async def test_create_task_source_ref_is_message_id_not_thread_id():
 
     set_source_call = mock_source_store.set_source.call_args
     source_ref = set_source_call[0][2]
-    assert source_ref == "msg_abc123"
-    assert source_ref != "thread_xyz"
+    assert source_ref == "thread_xyz"
+    assert source_ref != "msg_abc123"
+
+
+@pytest.mark.asyncio
+async def test_create_task_source_ref_falls_back_to_message_id_when_no_thread_id():
+    """When thread_id is absent, fall back to message_id so provenance is never lost."""
+    msg_no_thread = {**TASK_MSG, "thread_id": ""}
+    mock_ostk = MagicMock()
+    mock_ostk.add_task = AsyncMock(return_value="→1234")
+    mock_source_store = MagicMock()
+
+    with patch("services.ostk.ostk", mock_ostk), \
+         patch("services.task_labeling.extract_task_id", return_value="1234"), \
+         patch("services.task_labeling.schedule_auto_labels"), \
+         patch("services.gmail_triage.task_source_store", mock_source_store):
+
+        from services.gmail_triage import create_task_from_email
+        result = await create_task_from_email(msg_no_thread)
+
+    assert result["ok"] is True
+    set_source_call = mock_source_store.set_source.call_args
+    source_ref = set_source_call[0][2]
+    assert source_ref == "msg_abc123", f"Expected fallback to message_id, got {source_ref!r}"
 
 
 @pytest.mark.asyncio
