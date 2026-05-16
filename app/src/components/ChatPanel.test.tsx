@@ -941,6 +941,44 @@ describe('ChatPanel', () => {
       expect(screen.queryByTestId('tool-only-done')).toBeNull()
     })
 
+    // Regression: when an assistant message streams text with markdown
+    // formatting (bold, bullets) and then a tool call fires and stays
+    // pending (result === undefined), the pre-tool text was stuck in
+    // raw-text mode forever showing literal **bold** and - bullets because
+    // CollapsibleText received streaming=true. The fix: pass streaming=false
+    // when any tool call in the message is still pending, since the text
+    // content is finalized the moment the first tool_use arrives.
+    it('renders markdown in the pre-tool text while a tool call is still pending', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'run a command' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Stream markdown text before the tool call fires.
+      mockLastMessage = { type: 'token', data: '**Scope handed to it:**\n- item 1\n- item 2' }
+      rerender(<ChatPanel />)
+
+      // A tool call arrives and stays pending (no tool_result follows).
+      mockLastMessage = {
+        type: 'tool_use',
+        data: { tool: 'mcp__ostk__bash', id: 'tc-pending-1', input: { cmd: 'ls' } },
+      }
+      rerender(<ChatPanel />)
+
+      // At this point isStreaming is still true (no done), but the pre-tool
+      // text is completely stable. It must render as parsed markdown, NOT
+      // as raw "**Scope handed to it:**".
+      // Parsed bold renders as <strong>; raw text would keep the asterisks visible.
+      const rawBold = screen.queryByText(/\*\*Scope handed to it:\*\*/)
+      expect(rawBold).toBeNull()
+
+      // The parsed <strong> element must be present.
+      const boldEl = document.querySelector('strong')
+      expect(boldEl).toBeTruthy()
+      expect(boldEl?.textContent).toBe('Scope handed to it:')
+    })
+
     // Regression: a chat bubble that streamed a tool_use block followed by
     // prose containing a markdown link used to render the link as raw text
     // like "[View in Calendar](https://...)". Both the tool block AND a

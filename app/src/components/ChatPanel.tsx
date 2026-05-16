@@ -2483,10 +2483,18 @@ export function ChatPanel() {
                             // back to (isStreaming && isLast) in the single-AI
                             // path where the set is not populated.
                             streaming={
-                              activeStreamingBubbleIds.has(msg.id) ||
-                              (isStreaming &&
-                                globalIdx === messages.length - 1 &&
-                                activeStreamingBubbleIds.size === 0)
+                              // When any tool call is pending (result === undefined),
+                              // the pre-tool text is already finalized — Anthropic's
+                              // protocol sends all text tokens before the first tool_use.
+                              // It's safe (and correct) to render markdown immediately
+                              // rather than waiting for `done` which may never arrive
+                              // while the tool is executing.
+                              !msg.toolCalls?.some(tc => tc.result === undefined) && (
+                                activeStreamingBubbleIds.has(msg.id) ||
+                                (isStreaming &&
+                                  globalIdx === messages.length - 1 &&
+                                  activeStreamingBubbleIds.size === 0)
+                              )
                             }
                           />
                         )}
