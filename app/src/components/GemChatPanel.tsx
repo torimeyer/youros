@@ -15,15 +15,45 @@ interface Props {
 
 export default function GemChatPanel({ gem, onClose }: Props) {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [streamingText, setStreamingText] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Load past chats from the server when the panel opens.
   useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
+    let cancelled = false;
+    const loadHistory = async () => {
+      try {
+        const res = await fetch(`/api/gems/${gem.id}/chat/history`, {
+          credentials: 'include',
+        });
+        if (!res.ok || cancelled) return;
+        const turns: Array<{ role: string; text: string }> = await res.json();
+        if (!cancelled && Array.isArray(turns)) {
+          setHistory(
+            turns.map((t) => ({ role: t.role as 'user' | 'model', text: t.text }))
+          );
+        }
+      } catch {
+        // Non-fatal — start with an empty history if the server is unreachable.
+      } finally {
+        if (!cancelled) setHistoryLoaded(true);
+      }
+    };
+    loadHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [gem.id]);
+
+  useEffect(() => {
+    if (historyLoaded) {
+      textareaRef.current?.focus();
+    }
+  }, [historyLoaded]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -137,7 +167,13 @@ export default function GemChatPanel({ gem, onClose }: Props) {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3 min-h-0">
-          {history.length === 0 && !streamingText && (
+          {!historyLoaded && (
+            <p className="text-xs text-slate-600 text-center py-6 animate-pulse" data-testid="gem-chat-loading-history">
+              Loading past chats…
+            </p>
+          )}
+
+          {historyLoaded && history.length === 0 && !streamingText && (
             <p className="text-xs text-slate-500 text-center py-6" data-testid="gem-chat-empty">
               Start a conversation with {gem.name}
             </p>

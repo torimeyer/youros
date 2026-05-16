@@ -37,6 +37,31 @@ function makeSseResponse(frames: string[]): Response {
   });
 }
 
+function makeHistoryResponse(turns: Array<{ role: string; text: string }> = []): Response {
+  return new Response(JSON.stringify(turns), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/**
+ * Set up a fetch mock that routes by URL:
+ *  - /chat/history → returns `history` (default [])
+ *  - /chat (POST)  → returns the SSE frames
+ * This correctly handles the on-mount history hydration + send flow.
+ */
+function mockFetch(
+  sseFrames: string[] = [],
+  history: Array<{ role: string; text: string }> = []
+) {
+  return vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+    if (String(url).includes('/chat/history')) {
+      return makeHistoryResponse(history);
+    }
+    return makeSseResponse(sseFrames);
+  });
+}
+
 function renderPanel(props: Partial<React.ComponentProps<typeof GemChatPanel>> = {}) {
   const onClose = vi.fn();
   const result = render(
@@ -49,40 +74,93 @@ function renderPanel(props: Partial<React.ComponentProps<typeof GemChatPanel>> =
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  // Default: history returns empty list, SSE responses are empty
+  mockFetch();
 });
 
 describe('GemChatPanel', () => {
-  it('renders the panel with gem name in header', () => {
+  it('renders the panel with gem name in header', async () => {
     renderPanel();
     expect(screen.getByTestId('gem-chat-panel')).toBeInTheDocument();
     expect(screen.getByText('Test Gem')).toBeInTheDocument();
+    // Wait for history load to settle
+    await waitFor(() => expect(screen.queryByTestId('gem-chat-loading-history')).not.toBeInTheDocument());
   });
 
-  it('shows empty state when no messages', () => {
+  it('shows loading state while history is fetching', () => {
+    // Never resolve history fetch
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise(() => {}));
     renderPanel();
-    expect(screen.getByTestId('gem-chat-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('gem-chat-loading-history')).toBeInTheDocument();
   });
 
-  it('calls onClose when X button is clicked', () => {
+  it('shows empty state after history loads with no turns', async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId('gem-chat-empty')).toBeInTheDocument());
+  });
+
+  it('hydrates history from the server and renders prior turns', async () => {
+    const priorTurns = [
+      { role: 'user', text: 'What is the codebase about?' },
+      { role: 'model', text: 'It is a personal OS built on top of ostk.' },
+    ];
+    mockFetch([], priorTurns);
+
+    renderPanel();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('gem-chat-user-bubble-0')).toHaveTextContent(
+        'What is the codebase about?'
+      );
+      expect(screen.getByTestId('gem-chat-assistant-bubble-1')).toHaveTextContent(
+        'It is a personal OS'
+      );
+    });
+    // Empty state should NOT show
+    expect(screen.queryByTestId('gem-chat-empty')).not.toBeInTheDocument();
+  });
+
+  it('does not show empty state while history is still loading', () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise(() => {}));
+    renderPanel();
+    expect(screen.queryByTestId('gem-chat-empty')).not.toBeInTheDocument();
+  });
+
+  it('calls the history endpoint with the gem id on mount', async () => {
+    const fetchSpy = mockFetch();
+    renderPanel();
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/gems/gem-42/chat/history',
+        expect.objectContaining({ credentials: 'include' })
+      );
+    });
+  });
+
+  it('calls onClose when X button is clicked', async () => {
     const { onClose } = renderPanel();
+    await waitFor(() => expect(screen.queryByTestId('gem-chat-loading-history')).not.toBeInTheDocument());
     fireEvent.click(screen.getByTestId('gem-chat-close'));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('calls onClose when clicking the backdrop', () => {
+  it('calls onClose when clicking the backdrop', async () => {
     const { onClose } = renderPanel();
+    await waitFor(() => expect(screen.queryByTestId('gem-chat-loading-history')).not.toBeInTheDocument());
     const backdrop = screen.getByTestId('gem-chat-panel');
     fireEvent.click(backdrop);
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('send button is disabled when input is empty', () => {
+  it('send button is disabled when input is empty', async () => {
     renderPanel();
+    await waitFor(() => expect(screen.queryByTestId('gem-chat-loading-history')).not.toBeInTheDocument());
     expect(screen.getByTestId('gem-chat-send')).toBeDisabled();
   });
 
-  it('send button is enabled when input has text', () => {
+  it('send button is enabled when input has text', async () => {
     renderPanel();
+    await waitFor(() => expect(screen.queryByTestId('gem-chat-loading-history')).not.toBeInTheDocument());
     fireEvent.change(screen.getByTestId('gem-chat-input'), { target: { value: 'hi' } });
     expect(screen.getByTestId('gem-chat-send')).not.toBeDisabled();
   });
@@ -93,9 +171,11 @@ describe('GemChatPanel', () => {
       JSON.stringify({ type: 'token', data: ' there!' }),
       JSON.stringify({ type: 'done' }),
     ];
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(makeSseResponse(frames));
+    mockFetch(frames);
 
     renderPanel();
+    await waitFor(() => expect(screen.queryByTestId('gem-chat-loading-history')).not.toBeInTheDocument());
+
     fireEvent.change(screen.getByTestId('gem-chat-input'), { target: { value: 'hi' } });
     fireEvent.click(screen.getByTestId('gem-chat-send'));
 
@@ -115,9 +195,11 @@ describe('GemChatPanel', () => {
 
   it('sends correct payload to /api/gems/:id/chat', async () => {
     const frames = [JSON.stringify({ type: 'done' })];
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(makeSseResponse(frames));
+    const fetchSpy = mockFetch(frames);
 
     renderPanel();
+    await waitFor(() => expect(screen.queryByTestId('gem-chat-loading-history')).not.toBeInTheDocument());
+
     fireEvent.change(screen.getByTestId('gem-chat-input'), { target: { value: 'test message' } });
     fireEvent.click(screen.getByTestId('gem-chat-send'));
 
@@ -134,9 +216,14 @@ describe('GemChatPanel', () => {
   });
 
   it('shows error bubble when fetch fails', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('network error'));
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      if (String(url).includes('/chat/history')) return makeHistoryResponse();
+      throw new Error('network error');
+    });
 
     renderPanel();
+    await waitFor(() => expect(screen.queryByTestId('gem-chat-loading-history')).not.toBeInTheDocument());
+
     fireEvent.change(screen.getByTestId('gem-chat-input'), { target: { value: 'hi' } });
     fireEvent.click(screen.getByTestId('gem-chat-send'));
 
@@ -147,28 +234,35 @@ describe('GemChatPanel', () => {
 
   it('pressing Enter sends the message', async () => {
     const frames = [JSON.stringify({ type: 'done' })];
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(makeSseResponse(frames));
+    const fetchSpy = mockFetch(frames);
 
     renderPanel();
+    await waitFor(() => expect(screen.queryByTestId('gem-chat-loading-history')).not.toBeInTheDocument());
+
     const input = screen.getByTestId('gem-chat-input');
     fireEvent.change(input, { target: { value: 'enter test' } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
 
     await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalled();
+      expect(fetchSpy).toHaveBeenCalledWith('/api/gems/gem-42/chat', expect.anything());
       expect(screen.getByTestId('gem-chat-user-bubble-0')).toHaveTextContent('enter test');
     });
   });
 
-  it('Shift+Enter does not send', () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+  it('Shift+Enter does not send', async () => {
+    const fetchSpy = mockFetch();
 
     renderPanel();
+    await waitFor(() => expect(screen.queryByTestId('gem-chat-loading-history')).not.toBeInTheDocument());
+
     const input = screen.getByTestId('gem-chat-input');
     fireEvent.change(input, { target: { value: 'newline test' } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
 
-    expect(fetchSpy).not.toHaveBeenCalled();
+    // Only the history call should have happened — no chat POST
+    expect(
+      fetchSpy.mock.calls.filter(([url]) => String(url).includes('/chat') && !String(url).includes('/history'))
+    ).toHaveLength(0);
   });
 
   it('assistant message renders markdown: bold, italic, list items, no raw markers', async () => {
@@ -177,9 +271,11 @@ describe('GemChatPanel', () => {
       JSON.stringify({ type: 'token', data: mdText }),
       JSON.stringify({ type: 'done' }),
     ];
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(makeSseResponse(frames));
+    mockFetch(frames);
 
     renderPanel();
+    await waitFor(() => expect(screen.queryByTestId('gem-chat-loading-history')).not.toBeInTheDocument());
+
     fireEvent.change(screen.getByTestId('gem-chat-input'), { target: { value: 'hi' } });
     fireEvent.click(screen.getByTestId('gem-chat-send'));
 
@@ -197,9 +293,11 @@ describe('GemChatPanel', () => {
 
   it('user message is plain text and does not render markdown tags', async () => {
     const frames = [JSON.stringify({ type: 'done' })];
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(makeSseResponse(frames));
+    mockFetch(frames);
 
     renderPanel();
+    await waitFor(() => expect(screen.queryByTestId('gem-chat-loading-history')).not.toBeInTheDocument());
+
     const userMsg = '**not bold**';
     fireEvent.change(screen.getByTestId('gem-chat-input'), { target: { value: userMsg } });
     fireEvent.click(screen.getByTestId('gem-chat-send'));
