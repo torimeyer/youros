@@ -4,7 +4,12 @@ import { flushSync } from 'react-dom'
 interface WSMessage {
   type: string
   data?: string | Record<string, unknown>
-  usage?: { input_tokens: number; output_tokens: number }
+  usage?: {
+    input_tokens: number
+    output_tokens: number
+    cache_creation_input_tokens?: number
+    cache_read_input_tokens?: number
+  }
   return_code?: number
   tab_id?: string
 }

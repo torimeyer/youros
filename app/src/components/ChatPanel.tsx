@@ -642,6 +642,9 @@ export function ChatPanel() {
   const [showGiphy, setShowGiphy] = useState(false)
   const [giphyInitialSearch, setGiphyInitialSearch] = useState('')
   const [pendingImage, setPendingImage] = useState<string | null>(null)
+  // Cache ratio for the most recent turn: cache_read / (cache_read + cache_creation).
+  // null = no data (first turn or non-caching backend). Cleared on each new send.
+  const [lastCacheRatio, setLastCacheRatio] = useState<number | null>(null)
   const [showAttachmentPicker, setShowAttachmentPicker] = useState(false)
   const [pendingAttachment, setPendingAttachment] = useState<AttachmentFile | null>(null)
   const [commandHistory, setCommandHistory] = useState<string[]>([])
@@ -1204,6 +1207,17 @@ export function ChatPanel() {
         return [...prev, { id: genId(), role: 'assistant', content: '', model: '' }]
       })
     } else if (lastMessage.type === 'done') {
+      // Extract cache stats from the usage payload so the indicator can show
+      // the cache hit ratio for this turn. Only update when cache data exists
+      // (first turns or the claude_code path before fix will have zeros).
+      const doneUsage = lastMessage.usage
+      if (doneUsage) {
+        const cr = doneUsage.cache_read_input_tokens ?? 0
+        const cc = doneUsage.cache_creation_input_tokens ?? 0
+        if (cr + cc > 0) {
+          setLastCacheRatio(Math.round((cr / (cr + cc)) * 100))
+        }
+      }
       // Resolve lastMsgId from the closure messages snapshot BEFORE
       // calling setMessages. Relying on the setMessages reducer to set
       // lastMsgId is a bug: React 18 defers the reducer so the
@@ -1725,6 +1739,8 @@ export function ChatPanel() {
     if (!text.trim() && !pendingImage && !pendingAttachment) return
     // Clear any prior template badge so the next response shows its own.
     setActiveTemplate(null)
+    // Clear the previous-turn cache ratio — a new turn starts now.
+    setLastCacheRatio(null)
 
     // Determine thread_id for this message. If replying to something that
     // already belongs to a thread, inherit that thread_id. If replying to a
@@ -2941,6 +2957,17 @@ export function ChatPanel() {
             className="mt-1.5 text-[11px] text-slate-500"
           >
             {activeBackend.label}
+          </div>
+        )}
+        {/* Cache hit ratio for the last completed turn.
+            "Reused X% from memory" tells a non-engineer what prompt caching is doing.
+            Hidden on the first turn and on non-caching backends. */}
+        {lastCacheRatio !== null && (
+          <div
+            data-testid="chat-cache-ratio"
+            className="mt-0.5 text-[11px] text-slate-400"
+          >
+            Reused {lastCacheRatio}% from memory
           </div>
         )}
       </div>

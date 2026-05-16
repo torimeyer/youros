@@ -1275,3 +1275,153 @@ class TestSessionModeFullTextAccumulation:
             "Response cache must be populated even when WebSocket sends all fail. "
             "This enables recovery after uvicorn reload kills the in-flight socket."
         )
+
+
+# ---------------------------------------------------------------------------
+# →1392  Prompt-caching metrics forwarded from claude_code path
+# ---------------------------------------------------------------------------
+
+def _make_cache_delta_lines(
+    text: str,
+    cache_creation: int = 0,
+    cache_read: int = 0,
+) -> list[bytes]:
+    """Build stream lines that include cache token counts in the result event."""
+    delta = {
+        "type": "stream_event",
+        "event": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": text},
+        },
+    }
+    result = {
+        "type": "result",
+        "subtype": "success",
+        "usage": {
+            "input_tokens": 400,
+            "output_tokens": len(text.split()),
+            "cache_creation_input_tokens": cache_creation,
+            "cache_read_input_tokens": cache_read,
+        },
+    }
+    return [
+        (json.dumps(delta) + "\n").encode(),
+        (json.dumps(result) + "\n").encode(),
+    ]
+
+
+class TestCacheStatsForwarded:
+    """→1392: cache token counts from the CLI result event must reach metrics.
+
+    Before this fix, stream_chat called safe_record_chat_turn() without
+    passing cache_creation_input_tokens / cache_read_input_tokens, so every
+    claude_code-backend turn logged cache_read=0 and cache_creation=0 even
+    when the CLI reported real cache activity.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cache_stats_reach_safe_record_chat_turn(self):
+        """safe_record_chat_turn must receive cache token counts from the CLI result."""
+        ws = FakeWebSocket()
+        lines = _make_cache_delta_lines(
+            "Cached response", cache_creation=800, cache_read=3200
+        )
+
+        class _FakeProc:
+            stdout = FakeStdout(lines)
+            stderr = _StaticStderr(b"")
+            _return_code = 0
+
+            async def wait(self):
+                return self._return_code
+
+            def kill(self):
+                pass
+
+        recorded: list[dict] = []
+
+        def _capture(**kwargs):
+            recorded.append(kwargs)
+
+        with (
+            patch(
+                "services.claude_code_provider._find_claude_binary",
+                return_value="/usr/local/bin/claude",
+            ),
+            patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=_FakeProc())),
+            patch("routers.agents.register_chat_session", new=AsyncMock()),
+            patch("routers.agents.complete_chat_session", new=AsyncMock()),
+            patch(
+                "services.token_metrics.safe_record_chat_turn",
+                side_effect=_capture,
+            ),
+        ):
+            await stream_chat(
+                [{"role": "user", "content": "turn 2"}],
+                ws,
+                tab_id="1392-cache-test",
+            )
+
+        assert recorded, "safe_record_chat_turn was never called"
+        call = recorded[0]
+        assert call.get("cache_creation_input_tokens") == 800, (
+            f"Expected cache_creation=800, got {call.get('cache_creation_input_tokens')}. "
+            "stream_chat is not forwarding cache_creation_input_tokens to safe_record_chat_turn."
+        )
+        assert call.get("cache_read_input_tokens") == 3200, (
+            f"Expected cache_read=3200, got {call.get('cache_read_input_tokens')}. "
+            "stream_chat is not forwarding cache_read_input_tokens to safe_record_chat_turn."
+        )
+
+    @pytest.mark.asyncio
+    async def test_done_ws_message_carries_cache_tokens(self):
+        """The 'done' WebSocket message must include cache token fields.
+
+        The frontend reads usage from the 'done' message to display
+        'Reused X% from memory'. If these fields are absent the ratio is never
+        shown.
+        """
+        ws = FakeWebSocket()
+        lines = _make_cache_delta_lines(
+            "Done with cache", cache_creation=500, cache_read=1500
+        )
+
+        class _FakeProc:
+            stdout = FakeStdout(lines)
+            stderr = _StaticStderr(b"")
+            _return_code = 0
+
+            async def wait(self):
+                return self._return_code
+
+            def kill(self):
+                pass
+
+        with (
+            patch(
+                "services.claude_code_provider._find_claude_binary",
+                return_value="/usr/local/bin/claude",
+            ),
+            patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=_FakeProc())),
+            patch("routers.agents.register_chat_session", new=AsyncMock()),
+            patch("routers.agents.complete_chat_session", new=AsyncMock()),
+            patch("services.token_metrics.safe_record_chat_turn"),
+        ):
+            await stream_chat(
+                [{"role": "user", "content": "second turn"}],
+                ws,
+                tab_id="1392-done-test",
+            )
+
+        done_msgs = ws.of_type("done")
+        assert done_msgs, "No 'done' WebSocket message was sent"
+        usage = done_msgs[-1].get("usage", {})
+        assert usage.get("cache_creation_input_tokens") == 500, (
+            f"Expected cache_creation=500 in done.usage, got {usage}. "
+            "The frontend needs this to compute the cache-ratio badge."
+        )
+        assert usage.get("cache_read_input_tokens") == 1500, (
+            f"Expected cache_read=1500 in done.usage, got {usage}. "
+            "The frontend needs this to compute the cache-ratio badge."
+        )
