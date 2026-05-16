@@ -128,7 +128,7 @@ async def stream_chat(
         "-p", prompt,
         "--output-format", "stream-json",
         "--skip-trust",
-        "--approval-mode", "plan", # Read-only for chat
+        "--approval-mode", "auto",  # allow file reads without interactive approval
     ]
 
     try:

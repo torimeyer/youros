@@ -189,6 +189,25 @@ async def chat_with_gem(gem_id: str, body: ChatRequest):
     except Exception:
         pass  # RAG failure is non-fatal; continue without context
 
+    # When the Gemini CLI provider is active it has full filesystem access —
+    # read files, list directories, search code. Inject workspace context so
+    # the model knows WHERE the codebase lives and THAT it should use its
+    # file-reading tools rather than saying "I can't see your code."
+    # Without this block the gem's system prompt is only the user-defined
+    # template, which contains no mention of file tools or workspace path,
+    # so the model never tries to read files (→1402).
+    from services.settings_store import settings_store as _ss
+    from services import gemini_cli_provider as _gcli
+    from config import PROJECT_ROOT as _PROJECT_ROOT
+    if _ss.get("use_gemini_cli") and await _gcli.is_gemini_cli_available():
+        workspace_ctx = (
+            f"You are running with access to the codebase at {_PROJECT_ROOT}. "
+            "You can read files, list directories, and search the code to answer "
+            "questions about the project. When asked about the codebase, read the "
+            "relevant files — do not say you cannot see the code."
+        )
+        system_prompt = workspace_ctx + ("\n\n" + system_prompt if system_prompt else "")
+
     async def generator():
         from services.chat_providers import chat_service
 
