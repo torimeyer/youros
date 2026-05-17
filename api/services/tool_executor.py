@@ -8,7 +8,7 @@ import asyncio
 import json
 import os
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Optional
 from urllib.parse import quote_plus
 

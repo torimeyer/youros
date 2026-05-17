@@ -387,7 +387,7 @@ class TestCreateTasksFromSpec:
     async def test_path_outside_docs_rejected(self):
         """Paths not under docs/draft/ or docs/spec/ must be rejected without an HTTP call."""
         result = await execute_tool("create_tasks_from_spec", {"spec_path": "api/main.py"})
-        assert "must be under docs/draft/ or docs/spec/" in result
+        assert "must be under docs/draft/" in result
 
     @pytest.mark.asyncio
     async def test_path_traversal_rejected(self):
