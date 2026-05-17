@@ -37,6 +37,7 @@ from services.ostk import write_audit_entry
 from services.token_metrics import safe_record_chat_turn
 from services.tracing import trace_event
 from services.tool_executor import TOOL_DEFINITIONS, execute_tool
+import services.user_memory_store as _user_memory_store
 
 
 def _extract_chat_topic(messages: list[dict], max_len: int = 60) -> str:
@@ -1891,6 +1892,18 @@ def _standing_instructions_block() -> str:
     )
 
 
+def _user_memory_block() -> str:
+    """Return the user memory markdown block for system-prompt injection.
+
+    Reads ~/.myos/users/default/MEMORY.md via the mtime-cached store.
+    Returns an empty string when the file is absent or empty (no error logged).
+    """
+    content = _user_memory_store.read().strip()
+    if not content:
+        return ""
+    return f"## User preferences and facts\n\n{content}"
+
+
 def _compose_system_prompt(matched_template: Optional[dict]) -> str:
     """Return the full system prompt as a single string.
 
@@ -1913,6 +1926,9 @@ def _compose_system_prompt(matched_template: Optional[dict]) -> str:
     activity = _recent_activity_context()
     if activity:
         base += f"\n\n{activity}\n"
+    user_memory = _user_memory_block()
+    if user_memory:
+        base += f"\n\n{user_memory}\n"
     if not matched_template:
         return base
     extra = str(matched_template.get("prompt") or "").strip()
@@ -1953,6 +1969,7 @@ def _build_cached_system_blocks(matched_template: Optional[dict]) -> list[dict]:
 
     boot_context = _get_boot_context()
     activity = _recent_activity_context()
+    user_memory = _user_memory_block()
 
     volatile_parts: list[str] = []
     if boot_context:
@@ -1961,6 +1978,8 @@ def _build_cached_system_blocks(matched_template: Optional[dict]) -> list[dict]:
         )
     if activity:
         volatile_parts.append(activity)
+    if user_memory:
+        volatile_parts.append(user_memory)
 
     if not volatile_parts:
         return [
