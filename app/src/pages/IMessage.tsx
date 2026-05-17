@@ -253,9 +253,7 @@ export default function IMessage() {
       el.scrollTop = el.scrollHeight
     })
   }, [selectedChat, messages, messagesLoading])
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
-  const [, setSearching] = useState(false)
+  const [searchResults] = useState<SearchResult[] | null>(null)
   const [sendRecipient, setSendRecipient] = useState('')
   const [sendText, setSendText] = useState('')
   const [sending, setSending] = useState(false)
@@ -366,18 +364,7 @@ export default function IMessage() {
     }
   }
 
-  const handleSearch = async () => {
-    if (!searchQuery || searchQuery.length < 2) return
-    setSearching(true)
-    try {
-      const res = await api.get<{ results: SearchResult[] }>(`/imessage/search?q=${encodeURIComponent(searchQuery)}`)
-      setSearchResults(res.results || [])
-    } catch {
-      setSearchResults([])
-    } finally {
-      setSearching(false)
-    }
-  }
+
 
   const handleSend = async (recipient: string, text: string) => {
     if (!recipient || !text) return
