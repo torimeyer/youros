@@ -7,6 +7,7 @@ interface WaveNeedle {
   title: string
   priority: string
   scope_hint: string
+  type?: 'needle' | 'spec'
 }
 
 interface Wave {
@@ -36,19 +37,23 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<WavesResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [includeSpecs, setIncludeSpecs] = useState(false)
 
   useEffect(() => {
     if (!open) return
     setLoading(true)
     setError(null)
     setData(null)
-    api.get<WavesResponse>('/tasks/waves')
+    const url = includeSpecs ? '/tasks/waves?include_specs=true' : '/tasks/waves'
+    api.get<WavesResponse>(url)
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Could not load wave plan'))
       .finally(() => setLoading(false))
-  }, [open])
+  }, [open, includeSpecs])
 
   if (!open) return null
+
+  const totalItems = data ? data.waves.reduce((sum, w) => sum + w.needles.length, 0) : 0
 
   return (
     <div
@@ -67,7 +72,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
             <h2 className="text-base font-semibold text-slate-100">Plan waves</h2>
             {data && (
               <span className="text-xs text-slate-500 ml-1">
-                {data.total_needles} open {data.total_needles === 1 ? 'task' : 'tasks'} across {data.waves.length} {data.waves.length === 1 ? 'wave' : 'waves'}
+                {totalItems} {totalItems === 1 ? 'item' : 'items'} across {data.waves.length} {data.waves.length === 1 ? 'wave' : 'waves'}
               </span>
             )}
           </div>
@@ -77,6 +82,32 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
             className="text-slate-500 hover:text-slate-300 transition-colors"
           >
             <Icon name="close" className="text-base" />
+          </button>
+        </div>
+
+        {/* Mode toggle */}
+        <div className="flex items-center gap-1 px-5 py-3 border-b border-slate-800/60 bg-slate-900/60">
+          <button
+            data-testid="plan-waves-mode-tasks"
+            onClick={() => setIncludeSpecs(false)}
+            className={`text-xs px-3 py-1.5 rounded-lg transition-colors font-medium ${
+              !includeSpecs
+                ? 'bg-purple-600 text-white'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            Just tasks
+          </button>
+          <button
+            data-testid="plan-waves-mode-specs"
+            onClick={() => setIncludeSpecs(true)}
+            className={`text-xs px-3 py-1.5 rounded-lg transition-colors font-medium ${
+              includeSpecs
+                ? 'bg-purple-600 text-white'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            Tasks and design specs
           </button>
         </div>
 
@@ -115,7 +146,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
                   Wave {wave.wave}
                 </span>
                 <span className="text-xs text-slate-500">
-                  {wave.needles.length} {wave.needles.length === 1 ? 'task' : 'tasks'}
+                  {wave.needles.length} {wave.needles.length === 1 ? 'item' : 'items'}
                 </span>
                 {wave.blocked_by_prior && (
                   <span
@@ -136,9 +167,13 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
                     data-testid={`wave-needle-${needle.id}`}
                     className="flex items-start gap-3 px-4 py-3"
                   >
-                    <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded font-mono ${PRIORITY_COLORS[needle.priority] ?? PRIORITY_COLORS.P3}`}>
-                      {needle.priority}
-                    </span>
+                    {needle.type === 'spec' ? (
+                      <span className="shrink-0 text-base" title="Design spec">📋</span>
+                    ) : (
+                      <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded font-mono ${PRIORITY_COLORS[needle.priority] ?? PRIORITY_COLORS.P3}`}>
+                        {needle.priority}
+                      </span>
+                    )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-slate-200 leading-snug line-clamp-2">{needle.title.split('⊕')[0].trim()}</p>
                       {needle.scope_hint && needle.scope_hint !== 'general' && (
@@ -155,10 +190,11 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
         {/* Footer hint */}
         {data && data.waves.length > 0 && (
           <div className="px-5 py-3 border-t border-slate-800 text-xs text-slate-600">
-            Tasks in the same wave can run at the same time. Later waves wait for the previous one to finish.
+            Items in the same wave can run at the same time. Later waves wait for the previous one to finish.
           </div>
         )}
       </div>
     </div>
   )
 }
+

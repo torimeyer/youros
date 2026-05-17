@@ -526,6 +526,53 @@ _WAVE_TOKEN_RE = re.compile(r"\b[a-z][a-z0-9_]{3,}\b")
 _WAVE_PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 _WAVE_MAX = 4  # max tasks per wave (matches feedback_saa_split_when_scope_is_big.md)
 _WAVES_PATH = Path.home() / ".myos" / "waves.json"
+_SPECS_DIR = Path.home() / ".myos" / "specs"
+
+
+def _load_open_specs(specs_dir: Path) -> list[dict]:
+    """Read spec files from specs_dir (excluding archive/) and return task-shaped dicts.
+
+    Each returned dict has:
+      id       -- "spec:<stem>" e.g. "spec:pattern-watcher"
+      title    -- frontmatter title field, or the stem if missing
+      priority -- "P2" (neutral default)
+      status   -- "open"
+      tags     -- []
+      type     -- "spec"
+
+    Only .md files directly under specs_dir are returned; archive/ is excluded.
+    If specs_dir does not exist, returns [].
+    """
+    if not specs_dir.exists():
+        return []
+
+    specs = []
+    for md_file in sorted(specs_dir.glob("*.md")):
+        # Parse minimal YAML frontmatter (between --- delimiters)
+        title = md_file.stem.replace("-", " ").replace("_", " ").title()
+        try:
+            text = md_file.read_text(encoding="utf-8")
+            if text.startswith("---"):
+                end = text.index("---", 3)
+                fm_block = text[3:end]
+                for line in fm_block.splitlines():
+                    if line.startswith("title:"):
+                        raw = line.split(":", 1)[1].strip().strip('"').strip("'")
+                        if raw:
+                            title = raw
+                        break
+        except Exception:
+            pass  # use stem-derived title if parsing fails
+
+        specs.append({
+            "id": f"spec:{md_file.stem}",
+            "title": title,
+            "priority": "P2",
+            "status": "open",
+            "tags": [],
+            "type": "spec",
+        })
+    return specs
 
 
 def _wave_scope_tokens(task: dict) -> set[str]:
@@ -558,8 +605,8 @@ def _wave_scope_tokens(task: dict) -> set[str]:
 
 
 @router.get("/tasks/waves")
-async def plan_waves():
-    """Group open needles into parallel-safe waves.
+async def plan_waves(include_specs: bool = False):
+    """Group open needles (and optionally design specs) into parallel-safe waves.
 
     Conflict heuristic v1:
     - Extract scope tokens per task: file paths, directory names, module-ish words.
@@ -569,10 +616,16 @@ async def plan_waves():
       already-assigned task in that wave.
     - Wave capacity is capped at 4 (feedback_saa_split_when_scope_is_big.md).
 
+    Query params:
+      include_specs -- when true, open design specs from ~/.myos/specs/ (excluding
+                       archive/) are merged into the candidate list alongside needles.
+                       Spec items carry type="spec"; needle items carry type="needle".
+                       Default false -- backward-compatible with existing callers.
+
     Response shape:
       waves -- ordered list of wave objects:
         wave            -- 1-indexed wave number
-        needles         -- [{id, title, priority, scope_hint}]
+        needles         -- [{id, title, priority, scope_hint, type}]
         blocked_by_prior -- true for every wave after the first
       total_needles -- count of open tasks considered
     """
@@ -581,11 +634,22 @@ async def plan_waves():
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+    # Tag each needle so the frontend can distinguish them from specs.
+    needle_tasks = [{**t, "type": "needle"} for t in tasks]
+
+    # Optionally merge open design specs into the candidate list.
+    all_candidates: list[dict]
+    if include_specs:
+        spec_items = _load_open_specs(_SPECS_DIR)
+        all_candidates = needle_tasks + spec_items
+    else:
+        all_candidates = needle_tasks
+
     def _sort_key(t: dict) -> tuple:
         prio = _WAVE_PRIORITY_ORDER.get(t.get("priority", "P2"), 2)
         return (prio, t.get("created_at") or "")
 
-    sorted_tasks = sorted(tasks, key=_sort_key)
+    sorted_tasks = sorted(all_candidates, key=_sort_key)
 
     waves: list[list[dict]] = []
     wave_tokens: list[set[str]] = []
@@ -614,6 +678,7 @@ async def plan_waves():
                 "title": t.get("title", ""),
                 "priority": t.get("priority", ""),
                 "scope_hint": hint,
+                "type": t.get("type", "needle"),
             })
         result.append({
             "wave": i + 1,
