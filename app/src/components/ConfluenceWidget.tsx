@@ -43,7 +43,7 @@ export default function ConfluenceWidget() {
   return (
     <div data-testid="widget-confluence">
       <Card hover padding="sm" className="sm:p-6" onClick={() => navigate('/confluence')}>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 pr-8">
           <div className="flex items-center gap-2">
             <Icon name="menu_book" className="text-emerald-400" size={20} />
             <h2 className="text-lg font-semibold">Recent Pages</h2>

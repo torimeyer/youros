@@ -6,7 +6,6 @@ import QuickAddTaskModal from '../components/QuickAddTaskModal';
 import QuickSpawnAgentModal from '../components/QuickSpawnAgentModal';
 import DashboardCustomizeModal from '../components/DashboardCustomizeModal';
 import RecentSpecsWidget from '../components/RecentSpecsWidget';
-import OstkFilesWidget from '../components/OstkFilesWidget';
 import JiraWidget from '../components/JiraWidget';
 import ConfluenceWidget from '../components/ConfluenceWidget';
 import { Card, SkeletonLine } from '../components/ui';
@@ -737,7 +736,7 @@ export default function Dashboard() {
   const renderTodaysFocus = () => (
     <div key="todays_focus" data-testid="widget-todays-focus">
     <Card hover padding="sm" className="sm:p-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 pr-8">
         <div className="flex items-center gap-2">
           <Icon name="target" className="text-pink-400" size={20} />
           <h2 className="text-lg font-semibold">Today's Focus</h2>
@@ -787,7 +786,7 @@ export default function Dashboard() {
   const renderQuickLaunch = () => (
     <div key="quick_launch" data-testid="widget-quick-launch">
     <Card hover padding="sm" className="sm:p-6">
-      <h2 className="text-lg font-semibold mb-4">Quick Launch</h2>
+      <h2 className="text-lg font-semibold mb-4 pr-8">Quick Launch</h2>
       <div className="grid grid-cols-2 gap-2 sm:gap-3">
         {quickLaunch.map((item) => (
           <button
@@ -848,7 +847,7 @@ export default function Dashboard() {
     );
 
     const header = (
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 pr-8">
         <div className="flex items-center gap-2">
           <Icon name="calendar_month" className="text-blue-400" size={20} />
           <h2 className="text-lg font-semibold">Upcoming events</h2>
@@ -943,19 +942,11 @@ export default function Dashboard() {
     return (
       <div key="day_summary" data-testid="widget-day-summary">
       <Card hover padding="sm" className="sm:p-6">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center mb-4 pr-8">
           <div className="flex items-center gap-2">
             <Icon name="calendar_today" className="text-cyan-400" size={20} />
             <h2 className="text-lg font-semibold">Day Summary</h2>
           </div>
-          <button
-            onClick={fetchSummary}
-            disabled={summaryLoading}
-            className="text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-1 disabled:opacity-50"
-          >
-            <Icon name="refresh" size={16} className={summaryLoading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
         </div>
         <div className="space-y-2">
           {summaryLoading && summaryBullets.length === 0 ? (
@@ -984,7 +975,7 @@ export default function Dashboard() {
     return (
       <div key="adventure" data-testid="widget-adventure" className="lg:col-span-2">
       <Card hover padding="sm" className="sm:p-6">
-        <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="flex items-start gap-4 mb-4 pr-8">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center shrink-0">
               <Icon name="rocket_launch" className="text-indigo-400" size={20} />
@@ -994,14 +985,6 @@ export default function Dashboard() {
               <p className="font-semibold">Pick something to get started on</p>
             </div>
           </div>
-          <button
-            onClick={handleDismissAdventure}
-            aria-label="Dismiss adventure card"
-            data-testid="adventure-dismiss"
-            className="text-slate-500 hover:text-slate-300 transition-colors shrink-0 mt-0.5"
-          >
-            <Icon name="close" size={18} />
-          </button>
         </div>
 
         {adventureSpawned ? (
@@ -1068,15 +1051,6 @@ export default function Dashboard() {
     </div>
   );
 
-  const renderOstkFiles = () => (
-    <div key="ostk_files" data-testid="widget-ostk-files">
-      <Card hover padding="sm" className="sm:p-6">
-        <h2 className="text-lg font-semibold mb-4">Tasks &amp; Audit</h2>
-        <OstkFilesWidget />
-      </Card>
-    </div>
-  );
-
   const renderJira = () => (
     <div key="jira" data-testid="widget-jira">
       <JiraWidget />
@@ -1102,7 +1076,6 @@ export default function Dashboard() {
     next_meeting: renderNextMeeting,
     day_summary: renderDaySummary,
     recent_specs: renderRecentSpecs,
-    ostk_files: renderOstkFiles,
     jira: renderJira,
     confluence: renderConfluence,
   };
@@ -1169,11 +1142,33 @@ export default function Dashboard() {
                   onClick={() => setWidgetMenuOpen(widgetMenuOpen === id ? null : id)}
                   className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors"
                   aria-label={`Widget options for ${id}`}
+                  data-testid={`widget-menu-trigger-${id}`}
                 >
                   <Icon name="more_vert" size={16} />
                 </button>
                 {widgetMenuOpen === id && (
                   <div className="absolute right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-10 min-w-[140px]">
+                    {id === 'adventure' && (
+                      <button
+                        onClick={() => { handleDismissAdventure(); setWidgetMenuOpen(null); }}
+                        data-testid="widget-menu-adventure-dismiss"
+                        className="w-full text-left px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
+                      >
+                        <Icon name="close" size={14} />
+                        Dismiss
+                      </button>
+                    )}
+                    {id === 'day_summary' && (
+                      <button
+                        onClick={() => { fetchSummary(); setWidgetMenuOpen(null); }}
+                        disabled={summaryLoading}
+                        data-testid="widget-menu-day-summary-refresh"
+                        className="w-full text-left px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors flex items-center gap-2"
+                      >
+                        <Icon name="refresh" size={14} className={summaryLoading ? 'animate-spin' : ''} />
+                        Refresh
+                      </button>
+                    )}
                     <button
                       onClick={() => removeWidget(id)}
                       className="w-full text-left px-3 py-1.5 text-sm text-red-500 dark:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"

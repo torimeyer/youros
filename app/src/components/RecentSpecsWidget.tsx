@@ -79,7 +79,7 @@ export default function RecentSpecsWidget() {
   return (
     <div data-testid="widget-recent-specs">
       <Card hover padding="sm" className="sm:p-6">
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-4 pr-8">
           <Icon name="description" className="text-purple-400" size={20} />
           <h2 className="text-lg font-semibold">Recent Specs</h2>
         </div>
