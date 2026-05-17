@@ -27,6 +27,7 @@ from routers import internal as internal_router
 from routers import rules as rules_router
 from routers import usage as usage_router
 from routers import contacts as contacts_router
+from routers import skills as skills_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -178,6 +179,7 @@ app.include_router(team_dashboard.router, prefix="/api")
 app.include_router(sessions.router, prefix="/api")
 app.include_router(imessage.router, prefix="/api")
 app.include_router(contacts_router.router, prefix="/api")
+app.include_router(skills_router.router, prefix="/api")
 app.include_router(dogwalk.router, prefix="/api")
 app.include_router(prototypes.router, prefix="/api")
 app.include_router(models_router.router, prefix="/api")

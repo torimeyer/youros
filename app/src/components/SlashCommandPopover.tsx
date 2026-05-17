@@ -35,7 +35,7 @@ export default function SlashCommandPopover({ commands, onSelect, onClose }: Pro
   // Scroll the active row into view when it changes.
   useEffect(() => {
     const el = listRef.current?.querySelector(`[data-idx="${activeIndex}"]`) as HTMLElement | null
-    el?.scrollIntoView({ block: 'nearest' })
+    el?.scrollIntoView?.({ block: 'nearest' })
   }, [activeIndex])
 
   if (commands.length === 0) return null
