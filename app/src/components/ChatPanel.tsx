@@ -20,7 +20,6 @@ import { IMessageConfirmBubble } from './IMessageConfirmBubble'
 import AttachmentPicker, { type AttachmentFile } from './AttachmentPicker'
 import { PeerChatTurnsPicker } from './PeerChatTurnsPicker'
 import { InlineTextPrompt } from './InlineTextPrompt'
-import { useNavigate } from 'react-router-dom'
 import SlashCommandPopover from './SlashCommandPopover'
 import QuickAddTaskModal from './QuickAddTaskModal'
 import SpecWizard from './SpecWizard'
@@ -652,7 +651,6 @@ export function ChatPanel() {
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const [showNeedleModal, setShowNeedleModal] = useState(false)
   const [showSpecWizard, setShowSpecWizard] = useState(false)
-  const navigate = useNavigate()
   // Cache ratio for the most recent turn: cache_read / (cache_read + cache_creation).
   // null = no data (first turn or non-caching backend). Cleared on each new send.
   const [lastCacheRatio, setLastCacheRatio] = useState<number | null>(null)
@@ -1704,6 +1702,55 @@ export function ChatPanel() {
     setIsListening(true)
   }, [isListening])
 
+  // Build the command context once per render cycle. The callbacks close over
+  // current state so we can mutate chat without prop-drilling into slashCommands.ts.
+  // IMPORTANT: must live before the `if (!chatOpen) return null` guard so these
+  // hooks are always called unconditionally (Rules of Hooks).
+  const commandCtx = useMemo(() => ({
+    addSystemMessage: (text: string) => {
+      const sysMsg = { id: genId(), role: 'assistant' as const, content: text, model: 'myos' }
+      setMessages(prev => [...prev, sysMsg])
+    },
+    clearChat: () => {
+      setMessages([])
+    },
+    openNeedleModal: () => setShowNeedleModal(true),
+    openSpecModal: () => setShowSpecWizard(true),
+    openGemPicker: () => { window.location.href = '/gems' },
+    openGiphy: () => { setShowGiphy(true); setGiphyInitialSearch('') },
+    togglePlanMode: () => {
+      const current = localStorage.getItem('plan_mode') === '1'
+      localStorage.setItem('plan_mode', current ? '0' : '1')
+      const sysMsg = { id: genId(), role: 'assistant' as const, content: current ? 'Plan mode off.' : 'Plan mode on. Describe what you want to build.', model: 'myos' }
+      setMessages(prev => [...prev, sysMsg])
+    },
+    runSkill: async (skillId: string) => {
+      const pendingMsg = { id: genId(), role: 'assistant' as const, content: '', model: 'myos' }
+      setMessages(prev => [...prev, pendingMsg])
+      try {
+        const result = await api.post<{ output?: string; status?: string }>('/api/skills/run', { skill_id: skillId, args: {} })
+        setMessages(prev => prev.map(m =>
+          m.id === pendingMsg.id
+            ? { ...m, content: result?.output ?? `/${skillId} finished.` }
+            : m
+        ))
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'unknown error'
+        setMessages(prev => prev.map(m =>
+          m.id === pendingMsg.id
+            ? { ...m, content: `/${skillId} failed: ${msg}`, isError: true }
+            : m
+        ))
+      }
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [])
+  const allSlashCommands = useMemo(() => createSlashCommands(commandCtx), [commandCtx])
+  const visibleSlashCommands = useMemo(
+    () => (slashQuery === null ? [] : filterCommands(allSlashCommands, slashQuery)),
+    [allSlashCommands, slashQuery],
+  )
+
   if (!chatOpen) return null
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -2017,57 +2064,6 @@ export function ChatPanel() {
   }
 
   // --------------- Slash command surface (→1394) ---------------
-
-  // Build the command context once per render cycle. The callbacks close over
-  // current state so we can mutate chat without prop-drilling into slashCommands.ts.
-  const commandCtx = useMemo(() => ({
-    addSystemMessage: (text: string) => {
-      const sysMsg = { id: genId(), role: 'assistant' as const, content: text, model: 'myos' }
-      setMessages(prev => [...prev, sysMsg])
-    },
-    clearChat: () => {
-      setMessages([])
-    },
-    openNeedleModal: () => setShowNeedleModal(true),
-    openSpecModal: () => setShowSpecWizard(true),
-    openGemPicker: () => navigate('/gems'),
-    openGiphy: () => { setShowGiphy(true); setGiphyInitialSearch('') },
-    togglePlanMode: () => {
-      const current = localStorage.getItem('plan_mode') === '1'
-      localStorage.setItem('plan_mode', current ? '0' : '1')
-      const sysMsg = { id: genId(), role: 'assistant' as const, content: current ? 'Plan mode off.' : 'Plan mode on. Describe what you want to build.', model: 'myos' }
-      setMessages(prev => [...prev, sysMsg])
-    },
-    runSkill: async (skillId: string) => {
-      const pendingMsg = { id: genId(), role: 'assistant' as const, content: '', model: 'myos' }
-      setMessages(prev => [...prev, pendingMsg])
-      try {
-        const result = await api.post<{ output?: string; status?: string }>('/api/skills/run', { skill_id: skillId, args: {} })
-        setMessages(prev => prev.map(m =>
-          m.id === pendingMsg.id
-            ? { ...m, content: result?.output ?? `/${skillId} finished.` }
-            : m
-        ))
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'unknown error'
-        setMessages(prev => prev.map(m =>
-          m.id === pendingMsg.id
-            ? { ...m, content: `/${skillId} failed: ${msg}`, isError: true }
-            : m
-        ))
-      }
-    },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [navigate])
-
-  // All 10 commands with live triggers.
-  const allSlashCommands = useMemo(() => createSlashCommands(commandCtx), [commandCtx])
-
-  // Filtered list shown in the popover.
-  const visibleSlashCommands = useMemo(
-    () => (slashQuery === null ? [] : filterCommands(allSlashCommands, slashQuery)),
-    [allSlashCommands, slashQuery],
-  )
 
   /**
    * Detect a slash trigger in the input and update slashQuery.
@@ -3030,7 +3026,6 @@ export function ChatPanel() {
                     setSlashQuery(null)
                     cmd.trigger()
                   }}
-                  onClose={() => setSlashQuery(null)}
                 />
               )}
               <input

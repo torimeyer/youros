@@ -13,7 +13,6 @@ import type { SlashCommand } from '../lib/slashCommands'
 interface Props {
   commands: SlashCommand[]
   onSelect: (command: SlashCommand) => void
-  onClose: () => void
 }
 
 const CATEGORY_COLORS: Record<SlashCommand['category'], string> = {
@@ -23,7 +22,7 @@ const CATEGORY_COLORS: Record<SlashCommand['category'], string> = {
   system: 'text-slate-400 bg-slate-500/10',
 }
 
-export default function SlashCommandPopover({ commands, onSelect, onClose }: Props) {
+export default function SlashCommandPopover({ commands, onSelect }: Props) {
   const [activeIndex, setActiveIndex] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
 

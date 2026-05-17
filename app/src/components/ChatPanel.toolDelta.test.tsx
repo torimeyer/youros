@@ -79,7 +79,7 @@ describe('ChatPanel tool_use_delta routing (→900)', () => {
     // User asks the assistant to read a file. Send the prompt so the
     // assistant placeholder bubble exists when stream events start
     // arriving.
-    const input = screen.getByPlaceholderText(/Message claude/i)
+    const input = screen.getByTestId('chat-input')
     fireEvent.change(input, { target: { value: 'read my notes' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -171,7 +171,7 @@ describe('ChatPanel tool_use_delta routing (→900)', () => {
     // must appear.
     const { rerender, container } = render(<ChatPanel />)
 
-    const input = screen.getByPlaceholderText(/Message claude/i)
+    const input = screen.getByTestId('chat-input')
     fireEvent.change(input, { target: { value: 'hello' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 

@@ -27,14 +27,14 @@ const MOCK_COMMANDS: SlashCommand[] = [
 describe('SlashCommandPopover', () => {
   it('renders nothing when commands list is empty', () => {
     const { container } = render(
-      <SlashCommandPopover commands={[]} onSelect={vi.fn()} onClose={vi.fn()} />,
+      <SlashCommandPopover commands={[]} onSelect={vi.fn()} />,
     )
     expect(container.firstChild).toBeNull()
   })
 
   it('renders all provided commands', () => {
     render(
-      <SlashCommandPopover commands={MOCK_COMMANDS} onSelect={vi.fn()} onClose={vi.fn()} />,
+      <SlashCommandPopover commands={MOCK_COMMANDS} onSelect={vi.fn()} />,
     )
     expect(screen.getByTestId('slash-command-popover')).toBeInTheDocument()
     expect(screen.getByTestId('slash-cmd-handoff')).toBeInTheDocument()
@@ -43,7 +43,7 @@ describe('SlashCommandPopover', () => {
 
   it('shows description alongside command name (always visible)', () => {
     render(
-      <SlashCommandPopover commands={MOCK_COMMANDS} onSelect={vi.fn()} onClose={vi.fn()} />,
+      <SlashCommandPopover commands={MOCK_COMMANDS} onSelect={vi.fn()} />,
     )
     expect(screen.getByText('Write a handoff doc capturing current work state')).toBeInTheDocument()
   })
@@ -51,7 +51,7 @@ describe('SlashCommandPopover', () => {
   it('calls onSelect with the clicked command', () => {
     const onSelect = vi.fn()
     render(
-      <SlashCommandPopover commands={MOCK_COMMANDS} onSelect={onSelect} onClose={vi.fn()} />,
+      <SlashCommandPopover commands={MOCK_COMMANDS} onSelect={onSelect} />,
     )
     fireEvent.mouseDown(screen.getByTestId('slash-cmd-clear'))
     expect(onSelect).toHaveBeenCalledWith(MOCK_COMMANDS[1]) // /clear is index 1
@@ -62,7 +62,7 @@ describe('SlashCommandPopover', () => {
     // Render without keyboard handler — popover itself just surfaces selection via click.
     // Arrow-key logic is tested via the integration wrapper below.
     render(
-      <SlashCommandPopover commands={MOCK_COMMANDS} onSelect={onSelect} onClose={vi.fn()} />,
+      <SlashCommandPopover commands={MOCK_COMMANDS} onSelect={onSelect} />,
     )
     // First item is active by default — click it
     fireEvent.mouseDown(screen.getByTestId('slash-cmd-handoff'))
