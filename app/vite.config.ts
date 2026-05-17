@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import fs from 'node:fs'
+import https from 'node:https'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -11,12 +12,11 @@ import path from 'node:path'
 // seconds before timing out. Tori saw this as red status dots and
 // hung Tasks/Agents/Briefing pages every time I restarted uvicorn.
 //
-// I tried setting ``agent: new http.Agent({ keepAlive: false })`` at
-// the top level of the proxy config but vite did not actually honor
-// it. The reliable fix is to force the proxied REQUEST itself to
-// send ``Connection: close``, which tells both sides to drop the
-// socket after the response and prevents the proxy from ever
-// parking it in a keep-alive pool. Zero-byte overhead per request.
+// Previous fix (now superseded by →1431): forced Connection:close on
+// every proxied request so sockets were never pooled. That worked but
+// caused a new problem in Vite 8 — see backendAgent comment below.
+// Current fix: pooled https.Agent with keepAlive + error handler that
+// converts ECONNRESET (dead socket) to a fast 502.
 
 // Chrome caches HSTS for localhost whenever ANY localhost origin has
 // served HTTPS (and the backend on :8000 does). After that, typing
@@ -30,6 +30,30 @@ const certPath = path.join(myosDir, 'localhost.crt')
 const httpsConfig = fs.existsSync(keyPath) && fs.existsSync(certPath)
   ? { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) }
   : undefined
+
+// →1431 Vite 8 uses http2.createSecureServer which enables HTTP/2 multiplexing.
+// The browser can open 50+ concurrent streams over one connection; each becomes
+// a separate proxied HTTP/1.1 request. http-proxy-3 defaults to agent:false (no
+// connection pooling), so every proxied request performs a fresh TLS handshake
+// to https://127.0.0.1:8000. Under dashboard-mount bursts, simultaneous backend
+// TLS handshakes saturate Node's event loop and incoming browser TLS ClientHellos
+// get no ServerHello — the wedge.
+//
+// Fix: share a persistent pooled https.Agent across all proxied requests.
+// keepAlive:true     — reuse backend TLS connections; amortise the handshake cost
+// keepAliveMsecs     — TCP keep-alive probe interval; dead sockets are detected fast
+// maxSockets:10      — cap concurrent backend TLS connections; protects the event loop
+// rejectUnauthorized — accept the self-signed localhost cert (same as secure:false)
+//
+// Needle 287 (dead-socket hangs after backend restart) is still covered: when the
+// backend restarts the OS closes the socket, ECONNRESET fires immediately, and the
+// existing proxy error handler returns a fast 502. Connection:close is no longer needed.
+const backendAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 5_000,
+  maxSockets: 10,
+  rejectUnauthorized: false,
+})
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -65,19 +89,15 @@ export default defineConfig({
         // a refused IPv6 attempt that poisons the connection pool and
         // causes intermittent ETIMEDOUT on the IPv4 fallback. Needle 315.
         target: 'https://127.0.0.1:8000',
-        secure: false,  // accept self-signed cert
+        secure: false,  // accept self-signed cert (backendAgent also sets rejectUnauthorized:false)
         changeOrigin: true,
         // Also proxy WebSocket upgrade requests under /api (e.g.
         // /api/ws/agents/state). Without ws:true the proxy treats
         // WS handshakes as plain HTTP and the upgrade is rejected.
         ws: true,
+        // Pooled TLS agent — see backendAgent comment above (→1431).
+        agent: backendAgent,
         configure: (proxy) => {
-          // Force no keep-alive on every proxied HTTP request so a
-          // backend restart can never strand dead sockets in the
-          // proxy's connection pool. See needle 287.
-          proxy.on('proxyReq', (proxyReq) => {
-            proxyReq.setHeader('Connection', 'close')
-          })
           proxy.on('error', (err, _req, res) => {
             // Make upstream failures a fast 502 instead of a hung
             // socket so the frontend fetch fails quickly and the
