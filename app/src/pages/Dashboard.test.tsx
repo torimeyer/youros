@@ -153,18 +153,19 @@ describe('Dashboard Day Summary', () => {
     })
   })
 
-  it('has a Refresh button on the Day Summary card', async () => {
+  it('has a Refresh option in the Day Summary widget menu', async () => {
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByText('Day Summary')).toBeInTheDocument()
     })
-    // Today's Focus no longer has a refresh button (auto-refreshes every 15s)
-    // so there is only one Refresh button, on the Day Summary card.
-    const refreshButtons = screen.getAllByText('Refresh')
-    expect(refreshButtons.length).toBeGreaterThanOrEqual(1)
+    // Refresh is now in the three-dot menu, not inline
+    fireEvent.click(screen.getByTestId('widget-menu-trigger-day_summary'))
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-menu-day-summary-refresh')).toBeInTheDocument()
+    })
   })
 
-  it('calls the summary API again when Refresh is clicked', async () => {
+  it('calls the summary API again when Refresh is clicked from the menu', async () => {
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByText('Day Summary')).toBeInTheDocument()
@@ -174,10 +175,12 @@ describe('Dashboard Day Summary', () => {
       (c) => c[0] === '/dashboard/summary'
     ).length
 
-    // Find the Refresh button inside the Day Summary card
-    const summaryCard = screen.getByText('Day Summary').closest('div[class*="bg-slate-900"]')!
-    const refreshBtn = summaryCard.querySelector('button')!
-    fireEvent.click(refreshBtn)
+    // Refresh is now in the three-dot menu
+    fireEvent.click(screen.getByTestId('widget-menu-trigger-day_summary'))
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-menu-day-summary-refresh')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('widget-menu-day-summary-refresh'))
 
     await waitFor(() => {
       const summaryCallsAfter = mockedApiGet.mock.calls.filter(
@@ -853,7 +856,12 @@ describe('Dashboard - Adventure card', () => {
     await waitFor(() => {
       expect(screen.getByTestId('widget-adventure')).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByTestId('adventure-dismiss'))
+    // Dismiss is now in the three-dot menu
+    fireEvent.click(screen.getByTestId('widget-menu-trigger-adventure'))
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-menu-adventure-dismiss')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('widget-menu-adventure-dismiss'))
     expect(screen.queryByTestId('widget-adventure')).not.toBeInTheDocument()
     expect(localStorage.getItem(ADVENTURE_DISMISSED_KEY)).toBe('true')
   })
@@ -1281,6 +1289,74 @@ describe('calendar widget range selector', () => {
     const dot = list.querySelector('span[aria-hidden="true"]')
     expect(dot).toBeInTheDocument()
     expect(dot).toHaveStyle({ backgroundColor: '#4285F4' })
+  })
+})
+
+describe('Widget three-dot menu and header overlap fix', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNavigate.mockClear()
+    localStorage.clear()
+    useAppStore.setState({
+      chatOpen: false,
+      osName: 'ToriOS',
+      darkMode: true,
+      showTour: false,
+      dashboardWidgets: [...DEFAULT_DASHBOARD_WIDGETS],
+    })
+    localStorage.setItem('myos-tour-complete', 'true')
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+  })
+
+  it('renders a three-dot menu trigger for each visible grid widget', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-menu-trigger-day_summary')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('widget-menu-trigger-adventure')).toBeInTheDocument()
+  })
+
+  it('adventure widget menu contains Dismiss and Hide widget options', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-menu-trigger-adventure')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('widget-menu-trigger-adventure'))
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-menu-adventure-dismiss')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Dismiss')).toBeInTheDocument()
+    expect(screen.getByText('Hide widget')).toBeInTheDocument()
+  })
+
+  it('day_summary widget menu contains Refresh and Hide widget options', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-menu-trigger-day_summary')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('widget-menu-trigger-day_summary'))
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-menu-day-summary-refresh')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Refresh')).toBeInTheDocument()
+    expect(screen.getByText('Hide widget')).toBeInTheDocument()
+  })
+
+  it('adventure widget no longer has an inline dismiss button', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-adventure')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('adventure-dismiss')).not.toBeInTheDocument()
   })
 })
 

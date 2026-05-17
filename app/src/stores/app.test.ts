@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useAppStore, TEAM_MODE_VISIBLE } from './app'
+import { useAppStore, TEAM_MODE_VISIBLE, DEFAULT_DASHBOARD_WIDGETS, DASHBOARD_WIDGET_LABELS } from './app'
 import { api } from '../lib/api'
 
 // Mock the api module so no real network calls fire and we can assert
@@ -459,5 +459,24 @@ describe('useAppStore — team mode gate (TEAM_MODE_VISIBLE=false)', () => {
       .mockResolvedValueOnce({ org: { name: 'Acme' } })  // /enterprise
     await useAppStore.getState().hydrateFromServer()
     expect(useAppStore.getState().instanceMode).toBe('personal')
+  })
+})
+
+describe('widget list invariants', () => {
+  it('DEFAULT_DASHBOARD_WIDGETS and DASHBOARD_WIDGET_LABELS have exactly the same keys', () => {
+    const labelKeys = Object.keys(DASHBOARD_WIDGET_LABELS).sort()
+    const defaultKeys = [...DEFAULT_DASHBOARD_WIDGETS].sort()
+    expect(defaultKeys).toEqual(labelKeys)
+  })
+
+  it('ostk_files in saved server state is stripped during hydration', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({
+      dashboard_widgets: ['briefing', 'ostk_files', 'todays_focus'],
+    })
+    await useAppStore.getState().hydrateFromServer()
+    const widgets = useAppStore.getState().dashboardWidgets
+    expect(widgets).not.toContain('ostk_files')
+    expect(widgets).toContain('briefing')
+    expect(widgets).toContain('todays_focus')
   })
 })
