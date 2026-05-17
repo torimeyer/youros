@@ -704,26 +704,6 @@ export function Sidebar() {
 
       <div className="px-3 pt-3 mt-1 border-t border-slate-800/60 flex flex-col gap-0.5">
         <WhatsNew />
-        <button
-          data-testid="tour-button"
-          onClick={() => { useAppStore.getState().setShowTour(true); setMobileOpen(false); }}
-          className="group flex items-center gap-3 w-full px-4 py-1.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-500 hover:text-slate-300 hover:bg-slate-800/30"
-        >
-          <Icon name="explore" filled={iconStyle === 'filled'} className="text-lg" />
-          <span className="text-xs font-medium">Tour</span>
-        </button>
-        <NavLink
-          to="/activity"
-          onClick={() => setMobileOpen(false)}
-          className={({ isActive }) => utilLinkClass(isActive)}
-        >
-          {({ isActive }) => (
-            <>
-              <Icon name="history" filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
-              <span className="text-xs font-medium">Activity</span>
-            </>
-          )}
-        </NavLink>
         {TEAM_MODE_VISIBLE && instanceMode === 'team' && enterpriseUser?.role === 'admin' && (
           <AdminSection
             linkClass={linkClass}
@@ -780,18 +760,6 @@ export function Sidebar() {
             <>
               <Icon name="settings" filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
               <span className="text-xs font-medium">Settings</span>
-            </>
-          )}
-        </NavLink>
-        <NavLink
-          to="/settings/rules"
-          onClick={() => setMobileOpen(false)}
-          className={({ isActive }) => utilLinkClass(isActive)}
-        >
-          {({ isActive }) => (
-            <>
-              <Icon name="tune" filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
-              <span className="text-xs font-medium">Rules</span>
             </>
           )}
         </NavLink>
