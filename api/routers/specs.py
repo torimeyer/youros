@@ -49,6 +49,47 @@ _task_assignments: dict[str, str] = {}
 _spec_task_origin: dict[str, str] = {}
 
 
+# In-memory registry: spec_path -> list of claim records.
+# Each claim record: {agent: str, source: str, started_at: str, task_ids: [str]}.
+# Source values: "build" | "wrapper" | "agent" | "slash" | "passive".
+# Process-local and best-effort: a server restart drops all claims and
+# status falls back to the existing tasks-driven logic.  Consistent with
+# the sibling _task_assignments / _spec_task_origin pattern.  See →1422.
+_spec_claims: dict[str, list[dict]] = {}
+
+
+async def _ensure_decomposed(spec_path: str) -> list[dict]:
+    """Ensure a spec has tasks, decomposing it if it does not.
+
+    Returns the current task list for the spec (existing or newly
+    created).  Idempotent: calling twice does not double-decompose.
+
+    Used by the /claim endpoint and the passive watcher so decomposition
+    is deferred until work actually starts rather than paid upfront on
+    every promote.
+    """
+    # Step 1: check if tasks already exist.
+    try:
+        existing = await ostk.spec_tasks(spec_path)
+        if existing:
+            return existing
+    except Exception:
+        pass
+
+    # Step 2: decompose (one Haiku call, ~$0.001).  doc_decompose raises
+    # OstkError if the spec was already decomposed; that is fine.
+    try:
+        await ostk.doc_decompose(spec_path, auto=True)
+    except Exception:
+        pass
+
+    # Step 3: return the (possibly newly created) task list.
+    try:
+        return await ostk.spec_tasks(spec_path)
+    except Exception:
+        return []
+
+
 async def _create_needle(title: str, description: str = "") -> dict:
     """Create a needle (task) and return a standard shape.
 
@@ -66,7 +107,7 @@ async def _create_needle(title: str, description: str = "") -> dict:
     return {"kind": "needle", "task_id": task_id, "result": result}
 
 
-
+async def _delete_builder_task(task_id: str) -> bool:
     """Delete one builder-spawned task row. Returns True on success.
 
     Called on two paths: when a spec file is deleted (residue cleanup) and
@@ -1167,7 +1208,8 @@ async def get_spec_tasks(spec_path: str):
     """Return all tasks linked to a spec, with their current status.
 
     Reads the spec's ``tasks:`` front matter field and fetches each
-    task's current status from ostk.
+    task's current status from ostk.  Also returns the active claims
+    array so the UI can render the terminal-agent status note (→1422).
     """
     _validate_doc_path(spec_path)
     try:
@@ -1183,7 +1225,47 @@ async def get_spec_tasks(spec_path: str):
         task_id = str(t.get("id", "")).lstrip("\u2192")
         agent_name = _task_assignments.get(task_id)
         enriched.append({**t, "assigned_agent": agent_name})
-    return {"tasks": enriched}
+    return {"tasks": enriched, "claims": _spec_claims.get(spec_path, [])}
+
+
+class _ClaimBody(BaseModel):
+    agent: str
+    source: str = "agent"  # build | wrapper | agent | slash | passive
+
+
+@router.post("/specs/{spec_path:path}/claim")
+async def claim_spec(spec_path: str, body: _ClaimBody):
+    """Register a claim that work on this spec has started.
+
+    Ensures the spec is decomposed (one Haiku call if needed), records
+    a claim entry so the spec status flips to ``in-progress`` even when
+    work is happening in a terminal session rather than through the
+    in-app Build button.
+
+    Returns the task_ids list so the caller knows what tasks exist.
+    See spec-auto-status.md §4 for the active-claim paths (→1422).
+    """
+    _validate_doc_path(spec_path)
+    spec_full_path = Path(PROJECT_ROOT) / spec_path
+    if not spec_full_path.exists():
+        raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
+
+    tasks = await _ensure_decomposed(spec_path)
+    task_ids = [str(t.get("id", "")).lstrip("\u2192") for t in tasks]
+
+    from datetime import datetime, timezone as _tz
+    claim: dict = {
+        "agent": body.agent,
+        "source": body.source,
+        "started_at": datetime.now(_tz.utc).isoformat(),
+        "task_ids": task_ids,
+    }
+
+    if spec_path not in _spec_claims:
+        _spec_claims[spec_path] = []
+    _spec_claims[spec_path].append(claim)
+
+    return {"task_ids": task_ids, "claim": claim}
 
 
 def _fire_spec_complete_notification(spec_path: str) -> None:
@@ -1789,6 +1871,27 @@ async def build_spec(spec_path: str):
         _trace_event("spec_built_start", spec_path=str(spec_path), agent_count=len(agent_configs))
     except Exception:
         pass
+
+    # Record a source=build claim so status flips to in-progress immediately,
+    # before any builder agent closes its task (→1422).
+    try:
+        from datetime import datetime, timezone as _tz
+        _build_task_ids = [
+            str(cfg.get("task_id", "")).lstrip("\u2192")
+            for cfg in agent_configs
+            if cfg.get("task_id")
+        ]
+        _build_claim: dict = {
+            "agent": "build",
+            "source": "build",
+            "started_at": datetime.now(_tz.utc).isoformat(),
+            "task_ids": _build_task_ids,
+        }
+        if spec_path not in _spec_claims:
+            _spec_claims[spec_path] = []
+        _spec_claims[spec_path].append(_build_claim)
+    except Exception:
+        logger.exception("build_spec: failed to record build claim for %s", spec_path)
 
     import asyncio as _asyncio
     from routers.agents import spawn_agent

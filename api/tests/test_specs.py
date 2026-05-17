@@ -90,7 +90,7 @@ async def test_create_draft_auto_promotes_when_ac_generation_succeeds(
     monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeClient)
 
     resp = await client.post(
-        "/api/specs/draft", json={"title": "wave2 autopromote"}
+        "/api/specs/draft", json={"title": "wave2 autopromote", "kind": "spec"}
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -147,7 +147,7 @@ async def test_create_draft_leaves_as_draft_when_ac_generation_fails(
     )
 
     resp = await client.post(
-        "/api/specs/draft", json={"title": "wave2 no ac"}
+        "/api/specs/draft", json={"title": "wave2 no ac", "kind": "spec"}
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -487,7 +487,7 @@ async def test_from_template_creates_ready_plan(
 
     resp = await client.post(
         "/api/specs/from-template",
-        json={"template_id": "build-a-website"},
+        json={"template_id": "build-a-website", "kind": "spec"},
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -596,6 +596,7 @@ async def test_from_roadmap_line_creates_ready_plan(
         json={
             "roadmap_path": str(roadmap_path),
             "initiative_text": "Ship guided onboarding for solo PMs",
+            "kind": "spec",
         },
     )
     # The endpoint now returns as soon as the draft file exists and the
@@ -1351,6 +1352,7 @@ async def test_from_roadmap_line_p95_under_demo_budget(
             json={
                 "roadmap_path": str(roadmap_path),
                 "initiative_text": subject,
+                "kind": "spec",
             },
         )
         elapsed = time.perf_counter() - t0
@@ -2571,6 +2573,9 @@ async def test_spec_counts_excludes_plan_transcripts(client, tmp_path, monkeypat
     transcripts_dir = tmp_path / "transcripts"
     transcripts_dir.mkdir(parents=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    # Redirect USER_SPECS_DIR to an empty temp dir so real user-local specs
+    # don't leak into the count and break isolation.
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "user-specs-empty")
 
     # Two plan transcript files — must NOT be counted.
     (transcripts_dir / "plan-100.md").write_text("Plan content for needle 100\n")
