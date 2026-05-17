@@ -14,11 +14,21 @@ interface Suggestions {
   after_statement: string;
 }
 
-const STEPS = ["Problem", "Scope", "Criteria", "Review"] as const;
-type Step = typeof STEPS[number];
+type Mode = "needle" | "spec";
+
+const SPEC_STEPS = ["Problem", "Scope", "Criteria", "Review"] as const;
+type SpecStep = typeof SPEC_STEPS[number];
 
 export default function SpecWizard({ onComplete, onCancel }: Props) {
-  const [step, setStep] = useState<Step>("Problem");
+  const [mode, setMode] = useState<Mode>("needle");
+
+  // Needle fields
+  const [needleTitle, setNeedleTitle] = useState("");
+  const [needleDesc, setNeedleDesc] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // Spec fields
+  const [step, setStep] = useState<SpecStep>("Problem");
   const [title, setTitle] = useState("");
   const [problem, setProblem] = useState("");
   const [afterStatement, setAfterStatement] = useState("");
@@ -33,19 +43,37 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
   const [suggesting, setSuggesting] = useState(false);
   const [creating, setCreating] = useState(false);
 
-  const stepIndex = STEPS.indexOf(step);
+  const stepIndex = SPEC_STEPS.indexOf(step);
+
+  // --- Needle handlers ---
+
+  const handleSaveNeedle = async () => {
+    if (!needleTitle.trim()) return;
+    setSaving(true);
+    try {
+      await api.post("/specs/draft", {
+        title: needleTitle.trim(),
+        kind: "needle",
+      });
+      onComplete("");
+    } catch {
+      setSaving(false);
+    }
+  };
+
+  // --- Spec wizard handlers ---
 
   const canAdvance = () => {
     if (step === "Problem") return title.trim().length > 0 && problem.trim().length > 0;
     if (step === "Scope") return true;
-    if (step === "Criteria") return criteria.length > 0;
+    if (step === "Criteria") return criteria.length >= 3;
     return true;
   };
 
   const next = () => {
-    const idx = STEPS.indexOf(step);
-    if (idx < STEPS.length - 1) {
-      const nextStep = STEPS[idx + 1];
+    const idx = SPEC_STEPS.indexOf(step);
+    if (idx < SPEC_STEPS.length - 1) {
+      const nextStep = SPEC_STEPS[idx + 1];
       if (nextStep === "Criteria" && criteria.length === 0) {
         handleSuggest();
       }
@@ -54,8 +82,8 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
   };
 
   const back = () => {
-    const idx = STEPS.indexOf(step);
-    if (idx > 0) setStep(STEPS[idx - 1]);
+    const idx = SPEC_STEPS.indexOf(step);
+    if (idx > 0) setStep(SPEC_STEPS[idx - 1]);
   };
 
   const handleSuggest = async () => {
@@ -91,8 +119,9 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
         out_of_scope: outOfScope,
         non_goals: nonGoals,
         criteria,
+        kind: "spec",
       });
-      onComplete(data.path);
+      onComplete(data.path || "");
     } catch {
       setCreating(false);
     }
@@ -168,235 +197,324 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
 
   return (
     <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-6 mb-8" data-testid="spec-wizard">
-      {/* Step indicators */}
-      <div className="flex items-center gap-2 mb-6">
-        {STEPS.map((s, i) => (
-          <div key={s} className="flex items-center gap-2">
-            <div
-              className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-colors ${
-                i < stepIndex
-                  ? "bg-green-500/20 text-green-400"
-                  : i === stepIndex
-                    ? "bg-blue-500/20 text-blue-400 ring-1 ring-blue-500"
-                    : "bg-slate-800 text-slate-500"
-              }`}
-            >
-              {i < stepIndex ? <Icon name="check" size={14} /> : i + 1}
-            </div>
-            <span
-              className={`text-xs ${
-                i === stepIndex ? "text-white font-medium" : "text-slate-500"
-              }`}
-            >
-              {s}
-            </span>
-            {i < STEPS.length - 1 && (
-              <div className="w-8 h-px bg-slate-700 mx-1" />
-            )}
-          </div>
-        ))}
-        <div className="flex-1" />
-        <button onClick={onCancel} className="text-slate-500 hover:text-slate-300">
+      {/* Mode picker header */}
+      <div className="flex items-center gap-1 mb-6">
+        <div className="flex bg-slate-800 rounded-lg p-1 gap-1 flex-1">
+          <button
+            onClick={() => setMode("needle")}
+            data-testid="mode-needle"
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              mode === "needle"
+                ? "bg-slate-700 text-white"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Icon name="add_task" size={16} />
+            Task
+          </button>
+          <button
+            onClick={() => setMode("spec")}
+            data-testid="mode-spec"
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              mode === "spec"
+                ? "bg-slate-700 text-white"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Icon name="description" size={16} />
+            Spec
+          </button>
+        </div>
+        <button onClick={onCancel} className="ml-2 text-slate-500 hover:text-slate-300">
           <Icon name="close" size={20} />
         </button>
       </div>
 
-      {/* Step content */}
-      {step === "Problem" && (
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm text-slate-400 mb-1">Title</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Name this spec..."
-              className="w-full bg-slate-900/40 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              data-testid="wizard-title"
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-400 mb-1">
-              What problem are you solving? Who has it?
-            </label>
-            <textarea
-              value={problem}
-              onChange={(e) => setProblem(e.target.value)}
-              placeholder="e.g. PMs forget which tasks relate to their upcoming meetings, so they walk into meetings unprepared..."
-              rows={4}
-              className="w-full bg-slate-900/40 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
-              data-testid="wizard-problem"
-            />
-          </div>
-          {afterStatement && (
-            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-4 py-3">
-              <p className="text-xs text-blue-400 mb-1">After this ships:</p>
-              <p className="text-sm text-white">{afterStatement}</p>
+      {/* Needle mode */}
+      {mode === "needle" && (
+        <div data-testid="needle-mode">
+          <p className="text-xs text-slate-500 mb-4">
+            Use this for a bug fix, small feature, or anything a single agent can handle.
+            Switch to Spec for multi-step features that need a problem statement and success criteria.
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">What needs doing?</label>
+              <input
+                type="text"
+                value={needleTitle}
+                onChange={(e) => setNeedleTitle(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && needleTitle.trim()) handleSaveNeedle(); }}
+                placeholder="e.g. Fix dark mode flicker on settings page"
+                className="w-full bg-slate-900/40 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                data-testid="needle-title"
+                autoFocus
+              />
             </div>
-          )}
-        </div>
-      )}
-
-      {step === "Scope" && (
-        <div className="space-y-6">
-          <div>
-            <label className="block text-sm text-slate-400 mb-2">
-              What should this include?
-            </label>
-            <ListEditor
-              items={inScope}
-              setItems={setInScope}
-              newItem={newScopeItem}
-              setNewItem={setNewScopeItem}
-              placeholder="e.g. Calendar page integration"
-              testId="wizard-in-scope"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-400 mb-2">
-              What should this NOT include?
-            </label>
-            <ListEditor
-              items={outOfScope}
-              setItems={setOutOfScope}
-              newItem={newOutItem}
-              setNewItem={setNewOutItem}
-              placeholder="e.g. Meeting transcript parsing"
-              testId="wizard-out-of-scope"
-            />
-          </div>
-        </div>
-      )}
-
-      {step === "Criteria" && (
-        <div className="space-y-6">
-          {suggesting && (
-            <div className="flex items-center gap-2 text-sm text-blue-400 mb-2">
-              <Icon name="autorenew" size={16} className="animate-spin" />
-              Generating suggestions...
-            </div>
-          )}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm text-slate-400">
-                How will we know it works?
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">
+                More detail <span className="text-slate-600">(optional)</span>
               </label>
-              <button
-                onClick={handleSuggest}
-                disabled={suggesting || !problem.trim()}
-                className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-30"
-              >
-                Regenerate suggestions
-              </button>
+              <input
+                type="text"
+                value={needleDesc}
+                onChange={(e) => setNeedleDesc(e.target.value)}
+                placeholder="Any extra context..."
+                className="w-full bg-slate-900/40 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                data-testid="needle-desc"
+              />
             </div>
-            <ListEditor
-              items={criteria}
-              setItems={setCriteria}
-              newItem={newCriterion}
-              setNewItem={setNewCriterion}
-              placeholder="e.g. Shows related tasks for upcoming meetings"
-              testId="wizard-criteria"
-            />
           </div>
-          <div>
-            <label className="block text-sm text-slate-400 mb-2">
-              What this does NOT do
-            </label>
-            <ListEditor
-              items={nonGoals}
-              setItems={setNonGoals}
-              newItem={newNonGoal}
-              setNewItem={setNewNonGoal}
-              placeholder="e.g. Does not auto-create tasks from meeting notes"
-              testId="wizard-non-goals"
-            />
-          </div>
-        </div>
-      )}
-
-      {step === "Review" && (
-        <div className="space-y-4 text-sm">
-          <h3 className="text-white font-semibold text-base">{title}</h3>
-
-          <div>
-            <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Problem</h4>
-            <p className="text-slate-300">{problem}</p>
-            {afterStatement && (
-              <p className="text-blue-400 mt-1 text-xs">After this ships: {afterStatement}</p>
-            )}
-          </div>
-
-          {inScope.length > 0 && (
-            <div>
-              <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">In scope</h4>
-              <ul className="text-slate-300 space-y-0.5">
-                {inScope.map((s, i) => <li key={i} className="flex items-start gap-2"><Icon name="check_circle" size={14} className="text-green-400 mt-0.5 shrink-0" />{s}</li>)}
-              </ul>
-            </div>
-          )}
-
-          {outOfScope.length > 0 && (
-            <div>
-              <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Out of scope</h4>
-              <ul className="text-slate-300 space-y-0.5">
-                {outOfScope.map((s, i) => <li key={i} className="flex items-start gap-2"><Icon name="block" size={14} className="text-red-400 mt-0.5 shrink-0" />{s}</li>)}
-              </ul>
-            </div>
-          )}
-
-          {criteria.length > 0 && (
-            <div>
-              <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Success criteria</h4>
-              <ul className="text-slate-300 space-y-0.5">
-                {criteria.map((c, i) => <li key={i} className="flex items-start gap-2"><Icon name="radio_button_unchecked" size={14} className="text-blue-400 mt-0.5 shrink-0" />{c}</li>)}
-              </ul>
-            </div>
-          )}
-
-          {nonGoals.length > 0 && (
-            <div>
-              <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Non-goals</h4>
-              <ul className="text-slate-300 space-y-0.5">
-                {nonGoals.map((g, i) => <li key={i} className="flex items-start gap-2"><Icon name="do_not_disturb" size={14} className="text-slate-500 mt-0.5 shrink-0" />{g}</li>)}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Navigation */}
-      <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-800">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={back}
-          disabled={stepIndex === 0}
-        >
-          Back
-        </Button>
-        <div className="flex gap-2">
-          {step === "Review" ? (
+          <div className="flex justify-end mt-5">
             <Button
               variant="primary"
               size="md"
-              onClick={handleCreate}
-              disabled={creating}
+              onClick={handleSaveNeedle}
+              disabled={!needleTitle.trim() || saving}
+              data-testid="needle-submit"
             >
-              {creating ? "Creating..." : "Create Spec"}
+              {saving ? "Saving..." : "Add to my list"}
             </Button>
-          ) : (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={next}
-              disabled={!canAdvance()}
-            >
-              Next
-            </Button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Spec mode */}
+      {mode === "spec" && (
+        <>
+          <p className="text-xs text-slate-500 mb-4">
+            Use this when the feature touches 3 or more files, changes user-facing behavior, or needs a
+            problem statement and at least 3 success criteria to keep scope honest.
+          </p>
+
+          {/* Step indicators */}
+          <div className="flex items-center gap-2 mb-6">
+            {SPEC_STEPS.map((s, i) => (
+              <div key={s} className="flex items-center gap-2">
+                <div
+                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-colors ${
+                    i < stepIndex
+                      ? "bg-green-500/20 text-green-400"
+                      : i === stepIndex
+                        ? "bg-blue-500/20 text-blue-400 ring-1 ring-blue-500"
+                        : "bg-slate-800 text-slate-500"
+                  }`}
+                >
+                  {i < stepIndex ? <Icon name="check" size={14} /> : i + 1}
+                </div>
+                <span
+                  className={`text-xs ${
+                    i === stepIndex ? "text-white font-medium" : "text-slate-500"
+                  }`}
+                >
+                  {s}
+                </span>
+                {i < SPEC_STEPS.length - 1 && (
+                  <div className="w-8 h-px bg-slate-700 mx-1" />
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Step content */}
+          {step === "Problem" && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">Title</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Name this spec..."
+                  className="w-full bg-slate-900/40 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  data-testid="wizard-title"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">
+                  What problem are you solving? Who has it?
+                </label>
+                <textarea
+                  value={problem}
+                  onChange={(e) => setProblem(e.target.value)}
+                  placeholder="e.g. PMs forget which tasks relate to their upcoming meetings, so they walk into meetings unprepared..."
+                  rows={4}
+                  className="w-full bg-slate-900/40 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                  data-testid="wizard-problem"
+                />
+              </div>
+              {afterStatement && (
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-4 py-3">
+                  <p className="text-xs text-blue-400 mb-1">After this ships:</p>
+                  <p className="text-sm text-white">{afterStatement}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {step === "Scope" && (
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">
+                  What should this include?
+                </label>
+                <ListEditor
+                  items={inScope}
+                  setItems={setInScope}
+                  newItem={newScopeItem}
+                  setNewItem={setNewScopeItem}
+                  placeholder="e.g. Calendar page integration"
+                  testId="wizard-in-scope"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">
+                  What should this NOT include?
+                </label>
+                <ListEditor
+                  items={outOfScope}
+                  setItems={setOutOfScope}
+                  newItem={newOutItem}
+                  setNewItem={setNewOutItem}
+                  placeholder="e.g. Meeting transcript parsing"
+                  testId="wizard-out-of-scope"
+                />
+              </div>
+            </div>
+          )}
+
+          {step === "Criteria" && (
+            <div className="space-y-6">
+              {suggesting && (
+                <div className="flex items-center gap-2 text-sm text-blue-400 mb-2">
+                  <Icon name="autorenew" size={16} className="animate-spin" />
+                  Generating suggestions...
+                </div>
+              )}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm text-slate-400">
+                    How will we know it works? <span className="text-slate-600">(need at least 3)</span>
+                  </label>
+                  <button
+                    onClick={handleSuggest}
+                    disabled={suggesting || !problem.trim()}
+                    className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-30"
+                  >
+                    Regenerate suggestions
+                  </button>
+                </div>
+                <ListEditor
+                  items={criteria}
+                  setItems={setCriteria}
+                  newItem={newCriterion}
+                  setNewItem={setNewCriterion}
+                  placeholder="e.g. Shows related tasks for upcoming meetings"
+                  testId="wizard-criteria"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">
+                  What this does NOT do
+                </label>
+                <ListEditor
+                  items={nonGoals}
+                  setItems={setNonGoals}
+                  newItem={newNonGoal}
+                  setNewItem={setNewNonGoal}
+                  placeholder="e.g. Does not auto-create tasks from meeting notes"
+                  testId="wizard-non-goals"
+                />
+              </div>
+            </div>
+          )}
+
+          {step === "Review" && (
+            <div className="space-y-4 text-sm">
+              <h3 className="text-white font-semibold text-base">{title}</h3>
+
+              <div>
+                <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Problem</h4>
+                <p className="text-slate-300">{problem}</p>
+                {afterStatement && (
+                  <p className="text-blue-400 mt-1 text-xs">After this ships: {afterStatement}</p>
+                )}
+              </div>
+
+              {inScope.length > 0 && (
+                <div>
+                  <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">In scope</h4>
+                  <ul className="text-slate-300 space-y-0.5">
+                    {inScope.map((s, i) => <li key={i} className="flex items-start gap-2"><Icon name="check_circle" size={14} className="text-green-400 mt-0.5 shrink-0" />{s}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {outOfScope.length > 0 && (
+                <div>
+                  <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Out of scope</h4>
+                  <ul className="text-slate-300 space-y-0.5">
+                    {outOfScope.map((s, i) => <li key={i} className="flex items-start gap-2"><Icon name="block" size={14} className="text-red-400 mt-0.5 shrink-0" />{s}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {criteria.length > 0 && (
+                <div>
+                  <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Success criteria</h4>
+                  <ul className="text-slate-300 space-y-0.5">
+                    {criteria.map((c, i) => <li key={i} className="flex items-start gap-2"><Icon name="radio_button_unchecked" size={14} className="text-blue-400 mt-0.5 shrink-0" />{c}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {nonGoals.length > 0 && (
+                <div>
+                  <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Non-goals</h4>
+                  <ul className="text-slate-300 space-y-0.5">
+                    {nonGoals.map((g, i) => <li key={i} className="flex items-start gap-2"><Icon name="do_not_disturb" size={14} className="text-slate-500 mt-0.5 shrink-0" />{g}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Spec navigation */}
+          <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-800">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={back}
+              disabled={stepIndex === 0}
+            >
+              Back
+            </Button>
+            <div className="flex gap-2">
+              {step === "Review" ? (
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={handleCreate}
+                  disabled={creating}
+                  data-testid="spec-submit"
+                >
+                  {creating ? "Creating..." : "Create Spec"}
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={next}
+                  disabled={!canAdvance()}
+                >
+                  Next
+                </Button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
