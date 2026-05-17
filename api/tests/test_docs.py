@@ -17,6 +17,15 @@ class TestDocService:
     def setup_method(self):
         self.tmpdir = tempfile.mkdtemp()
         self.svc = OstkService(cwd=self.tmpdir)
+        # Prevent list_docs from reading real ~/.myos/specs/ files during tests
+        import services.ostk as _ostk_mod
+        self._user_specs_patcher = patch.object(
+            _ostk_mod, "USER_SPECS_DIR", Path(self.tmpdir) / "_user_specs"
+        )
+        self._user_specs_patcher.start()
+
+    def teardown_method(self):
+        self._user_specs_patcher.stop()
 
     @pytest.mark.asyncio
     async def test_doc_draft_calls_cli(self):
