@@ -184,7 +184,6 @@ async def test_get_linked_context_uses_cache():
 async def test_task_context_endpoint_returns_200(client):
     """GET /api/tasks/{task_id}/context should return linked items."""
     from services.context_linker import _cache
-    from services.ostk import ostk
 
     _cache.clear()
 
@@ -192,7 +191,8 @@ async def test_task_context_endpoint_returns_200(client):
         {"id": "→42", "title": "Review dashboard layout", "description": "Check spacing", "status": "open", "priority": "P1"},
     ]
 
-    with patch.object(ostk, "list_tasks", new=AsyncMock(return_value=fake_tasks)), \
+    import routers.tasks as tasks_router
+    with patch.object(tasks_router.ostk, "list_tasks", new=AsyncMock(return_value=fake_tasks)), \
          patch("services.google_auth.is_authenticated", return_value=False):
         resp = await client.get("/api/tasks/→42/context")
 
