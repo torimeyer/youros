@@ -26,6 +26,7 @@ from routers import gems as gems_router
 from routers import gemini_capture as gemini_capture_router
 from routers import internal as internal_router
 from routers import rules as rules_router
+from routers import primitives as primitives_router
 from routers import usage as usage_router
 from routers import contacts as contacts_router
 from routers import skills as skills_router
@@ -131,6 +132,7 @@ app.include_router(projects.router, prefix="/api")
 app.include_router(transcripts.router, prefix="/api")
 app.include_router(costs.router, prefix="/api")
 app.include_router(usage_router.router, prefix="/api")
+app.include_router(primitives_router.router, prefix="/api")
 app.include_router(auth.router)
 app.include_router(onboarding.router, prefix="/api")
 app.include_router(onboarding_pack.router, prefix="/api")
