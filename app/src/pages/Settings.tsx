@@ -1171,7 +1171,7 @@ export default function Settings() {
                       <span className="text-sm font-medium text-slate-200">Use Gemini CLI</span>
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30 uppercase tracking-wider">Experimental</span>
                     </div>
-                    <Toggle checked={useGeminiCli} onChange={handleUseGeminiCliToggle} testId="gemini-cli-toggle" />
+                    <Toggle checked={useGeminiCli} onChange={() => handleUseGeminiCliToggle(!useGeminiCli)} testId="gemini-cli-toggle" />
                   </div>
                   <p className="text-xs text-slate-500 mb-4">
                     Routes chat through your local <code>gemini</code> command. Uses your Google One AI Ultra subscription instead of API credits.
