@@ -86,11 +86,11 @@ describe('Sidebar', () => {
     }
   })
 
-  it('Activity renders in the sidebar bottom utility nav', () => {
+  it('Activity is NOT in the sidebar (moved to Settings)', () => {
     renderSidebar()
-    expect(screen.getByText('Activity')).toBeInTheDocument()
+    expect(screen.queryByText('Activity')).not.toBeInTheDocument()
     const activityLink = document.querySelector('a[href="/activity"]')
-    expect(activityLink).not.toBeNull()
+    expect(activityLink).toBeNull()
   })
 
   it('sidebar shows "Usage" label for the costs nav entry', () => {
@@ -468,13 +468,16 @@ describe('Sidebar', () => {
     expect(screen.getByTestId('whats-new-button')).toBeInTheDocument()
   })
 
-  it('renders the What\'s New button before the Tour button in DOM order', () => {
+  it('Tour button is NOT in the sidebar (moved to Settings)', () => {
     renderSidebar()
-    const whatsNewButton = screen.getByTestId('whats-new-button')
-    const tourButton = screen.getByTestId('tour-button')
+    expect(screen.queryByTestId('tour-button')).not.toBeInTheDocument()
+  })
 
-    const position = whatsNewButton.compareDocumentPosition(tourButton)
-    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  it('Rules nav link is NOT in the sidebar (moved to Settings)', () => {
+    renderSidebar()
+    expect(screen.queryByText('Rules')).not.toBeInTheDocument()
+    const rulesLink = document.querySelector('a[href="/settings/rules"]')
+    expect(rulesLink).toBeNull()
   })
 
   it('renders the theme toggle in the sidebar footer', () => {

@@ -1290,4 +1290,41 @@ describe('Settings page — Push notifications toggle', () => {
       expect(screen.getByTestId('pill-slack')).toBeInTheDocument()
     })
   })
+
+  describe('Help section in Preferences (→1421)', () => {
+    function switchToPreferences() {
+      const btn = screen.getAllByRole('button').find(b => b.textContent?.trim() === 'Preferences')
+      if (btn) fireEvent.click(btn)
+    }
+
+    it('renders a "Take the tour" button in Settings Preferences', () => {
+      renderSettings()
+      switchToPreferences()
+      expect(screen.getByTestId('settings-tour-button')).toBeInTheDocument()
+      expect(screen.getByText('Take the tour')).toBeInTheDocument()
+    })
+
+    it('"Take the tour" button calls setShowTour(true) when clicked', () => {
+      const setShowTour = vi.fn()
+      useAppStore.setState({ setShowTour })
+      renderSettings()
+      switchToPreferences()
+      fireEvent.click(screen.getByTestId('settings-tour-button'))
+      expect(setShowTour).toHaveBeenCalledWith(true)
+    })
+
+    it('renders an "Open activity log" link in Settings Preferences', () => {
+      renderSettings()
+      switchToPreferences()
+      expect(screen.getByTestId('settings-activity-link')).toBeInTheDocument()
+      expect(screen.getByText('Open activity log')).toBeInTheDocument()
+    })
+
+    it('"Open activity log" link points to /activity', () => {
+      renderSettings()
+      switchToPreferences()
+      const link = screen.getByTestId('settings-activity-link')
+      expect(link.getAttribute('href')).toBe('/activity')
+    })
+  })
 })

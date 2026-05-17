@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { NavLink } from 'react-router-dom';
 import { useAppStore, PROVIDER_TO_MODEL, type AccentColor } from '../stores/app';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
@@ -1975,6 +1976,41 @@ export default function Settings() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Help ────────────────────────── */}
+          <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+            <div className={cardClass}>
+              <h2 className="text-lg font-semibold mb-5">Help</h2>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-300">Take the tour</p>
+                    <p className="text-xs text-slate-500">Walk through what myOS can do, step by step.</p>
+                  </div>
+                  <button
+                    data-testid="settings-tour-button"
+                    onClick={() => useAppStore.getState().setShowTour(true)}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                  >
+                    Start
+                  </button>
+                </div>
+                <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-300">Open activity log</p>
+                    <p className="text-xs text-slate-500">See everything myOS has done recently.</p>
+                  </div>
+                  <NavLink
+                    data-testid="settings-activity-link"
+                    to="/activity"
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                  >
+                    Open
+                  </NavLink>
+                </div>
               </div>
             </div>
           </div>
