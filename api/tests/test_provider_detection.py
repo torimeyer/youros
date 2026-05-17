@@ -22,7 +22,8 @@ async def test_detect_no_providers():
             with patch("services.ostk_secrets.get_gemini_key", new=AsyncMock(return_value="")):
                 with patch("services.provider_detection.detect_vertex_ai", return_value=False):
                     with patch("services.provider_detection.detect_bedrock", return_value=False):
-                        result = await detect_providers()
+                        with patch("services.provider_detection.is_gemini_cli_available", new=AsyncMock(return_value=False)):
+                            result = await detect_providers()
 
     assert result == {
         "claude_code": False,
@@ -31,6 +32,7 @@ async def test_detect_no_providers():
         "vertex_ai": False,
         "vertex_ai_project": None,
         "bedrock": False,
+        "gemini_cli": False,
     }
 
 
