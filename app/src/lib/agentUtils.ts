@@ -41,12 +41,7 @@ export function isMainSession(agent: { name: string; description?: string; sourc
   // The audit-log watcher or session hook stamps every main process with this prefix
   const desc = agent.description || ""
   const hasMainDesc = desc.startsWith("Claude Code session") || desc.startsWith("Gemini session")
-  if (hasMainDesc) return true
-  // If it matches the pattern but has NO task and NO user-friendly description,
-  // it's likely a leaked main session row from the registry or a fresh subagent.
-  // Treat it as a main session (i.e. not user-spawned) until it registers.
-  if (!agent.task && !agent.description) return true
-  return false
+  return hasMainDesc
 }
 
 export interface AgentInfo {
