@@ -4518,3 +4518,41 @@ class TestStreamGeminiVertexMethod:
 
         assert not websocket.get_messages_of_type("citations")
         assert len(websocket.get_messages_of_type("done")) == 1
+
+
+# ── Memory injection tests (FR-007) ──────────────────────────────────────────
+
+class TestMemoryInjection:
+    """_user_memory_block() and _compose_system_prompt inject user memory."""
+
+    def test_empty_memory_file_returns_empty_string(self, tmp_path, monkeypatch):
+        import services.user_memory_store as ms
+        import services.chat_providers as cp
+        monkeypatch.setattr(ms, "_MEMORY_PATH", tmp_path / "MEMORY.md")
+        ms._cached_mtime = -1.0
+        ms._cached_content = ""
+        assert cp._user_memory_block() == ""
+
+    def test_non_empty_memory_injects_header(self, tmp_path, monkeypatch):
+        import services.user_memory_store as ms
+        import services.chat_providers as cp
+        mem = tmp_path / "MEMORY.md"
+        mem.write_text("# Preferences\n- Use plain language.\n", encoding="utf-8")
+        monkeypatch.setattr(ms, "_MEMORY_PATH", mem)
+        ms._cached_mtime = -1.0
+        ms._cached_content = ""
+        block = cp._user_memory_block()
+        assert "## User preferences and facts" in block
+        assert "Use plain language" in block
+
+    def test_compose_system_prompt_includes_memory(self, tmp_path, monkeypatch):
+        import services.user_memory_store as ms
+        import services.chat_providers as cp
+        mem = tmp_path / "MEMORY.md"
+        mem.write_text("# Preferences\n- No em-dashes.\n", encoding="utf-8")
+        monkeypatch.setattr(ms, "_MEMORY_PATH", mem)
+        ms._cached_mtime = -1.0
+        ms._cached_content = ""
+        prompt = cp._compose_system_prompt(None)
+        assert "No em-dashes" in prompt
+        assert "User preferences and facts" in prompt

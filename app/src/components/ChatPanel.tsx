@@ -6,6 +6,7 @@ import { useConfirm } from '../hooks/useConfirm'
 import { useAppStore } from '../stores/app'
 import { useNotificationStore } from '../stores/notifications'
 import { useRunningAgentsStore } from '../stores/runningAgents'
+import { useMemoryToastStore } from '../stores/memoryToast'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { renderMarkdown, renderTextWithMarkdown } from '../lib/markdown'
 import { api } from '../lib/api'
@@ -1206,6 +1207,10 @@ export function ChatPanel() {
         }
         return [...prev, { id: genId(), role: 'assistant', content: '', model: '' }]
       })
+    } else if (lastMessage.type === 'memory_added') {
+      // A preference was detected and written to ~/.myos/users/default/MEMORY.md.
+      // Fire the toast so the user sees confirmation immediately.
+      useMemoryToastStore.getState().trigger(lastMessage.data as string)
     } else if (lastMessage.type === 'done') {
       // Extract cache stats from the usage payload so the indicator can show
       // the cache hit ratio for this turn. Only update when cache data exists
