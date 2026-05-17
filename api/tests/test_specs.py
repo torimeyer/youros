@@ -1931,7 +1931,10 @@ async def test_spec_status_flips_to_done_when_all_builder_tasks_close(
         return "closed"
 
     monkeypatch.setattr(ostk_module.ostk, "list_tasks", fake_list_tasks)
-    monkeypatch.setattr(ostk_module.ostk, "close_task", fake_close_task)
+    # _isolate_tasks_ostk (conftest autouse) replaces routers.tasks.ostk with a
+    # fresh OstkService instance, so we must patch close_task on tasks_router.ostk
+    # (the replaced instance) rather than the original ostk_module.ostk singleton.
+    monkeypatch.setattr(tasks_router.ostk, "close_task", fake_close_task)
 
     # Reset the burst-guard so sequential closes in this test do not 429.
     tasks_router._recent_closes.clear()

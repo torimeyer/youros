@@ -251,6 +251,12 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
     import routers.specs as specs_mod
     monkeypatch.setattr(specs_mod, "PROJECT_ROOT", tmp_path)
 
+    # Redirect USER_SPECS_DIR so promote writes to the isolated tmp tree
+    # instead of the real ~/.myos/specs/. Without this, promote() moves the
+    # file out of tmp_path and the subsequent GET /api/specs path match fails.
+    import services.ostk as _ostk_svc_mod
+    monkeypatch.setattr(_ostk_svc_mod, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
+
     # --- Draft ---
     draft_file = tmp_path / "docs" / "draft" / "e2e-http-journey.md"
 

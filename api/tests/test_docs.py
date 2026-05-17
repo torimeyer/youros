@@ -584,15 +584,15 @@ async def test_create_draft_error(client):
 
 @pytest.mark.asyncio
 async def test_promote_endpoint(client):
-    """Promote moves the file from docs/draft/ to docs/spec/ and returns the new path."""
+    """Promote moves the file from docs/draft/ to ~/.myos/specs/ and returns the new path."""
     from config import PROJECT_ROOT
+    from services.ostk import USER_SPECS_DIR
 
     draft_dir = Path(PROJECT_ROOT) / "docs" / "draft"
-    spec_dir = Path(PROJECT_ROOT) / "docs" / "spec"
     draft_dir.mkdir(parents=True, exist_ok=True)
-    spec_dir.mkdir(parents=True, exist_ok=True)
+    USER_SPECS_DIR.mkdir(parents=True, exist_ok=True)
     draft_path = draft_dir / "test-promote-endpoint-tmp.md"
-    spec_path = spec_dir / "test-promote-endpoint-tmp.md"
+    spec_path = USER_SPECS_DIR / "test-promote-endpoint-tmp.md"
     draft_path.write_text(
         "---\ntitle: Promote Test\nstatus: draft\n---\n# Promote Test\n\n- [ ] AC item\n"
     )
@@ -603,7 +603,7 @@ async def test_promote_endpoint(client):
         )
         assert resp.status_code == 200, resp.text
         data = resp.json()
-        assert data["result"] == "docs/spec/test-promote-endpoint-tmp.md"
+        assert data["result"] == str(spec_path)
         assert not draft_path.exists(), "draft should have been removed"
         assert spec_path.exists(), "spec should have been created"
         text = spec_path.read_text()
@@ -936,13 +936,13 @@ async def test_create_draft_compat_endpoint(client):
 async def test_promote_compat_endpoint(client):
     """Compat /api/docs/promote delegates to promote_draft (same pure-Python path)."""
     from config import PROJECT_ROOT
+    from services.ostk import USER_SPECS_DIR
 
     draft_dir = Path(PROJECT_ROOT) / "docs" / "draft"
-    spec_dir = Path(PROJECT_ROOT) / "docs" / "spec"
     draft_dir.mkdir(parents=True, exist_ok=True)
-    spec_dir.mkdir(parents=True, exist_ok=True)
+    USER_SPECS_DIR.mkdir(parents=True, exist_ok=True)
     draft_path = draft_dir / "test-compat-promote-tmp.md"
-    spec_path = spec_dir / "test-compat-promote-tmp.md"
+    spec_path = USER_SPECS_DIR / "test-compat-promote-tmp.md"
     draft_path.write_text(
         "---\ntitle: Compat Promote Test\nstatus: draft\n---\n# Compat Test\n\n- [ ] AC item\n"
     )
@@ -952,7 +952,7 @@ async def test_promote_compat_endpoint(client):
             json={"path": "docs/draft/test-compat-promote-tmp.md"},
         )
         assert resp.status_code == 200, resp.text
-        assert resp.json()["result"] == "docs/spec/test-compat-promote-tmp.md"
+        assert resp.json()["result"] == str(spec_path)
     finally:
         draft_path.unlink(missing_ok=True)
         spec_path.unlink(missing_ok=True)
