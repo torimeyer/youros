@@ -2600,23 +2600,25 @@ class OstkService:
         task_ids: list[str],
         task_statuses: dict[str, str],
         ac_all_met: bool = False,
+        claims: Optional[list[dict]] = None,
     ) -> str:
-        """Derive a spec's lifecycle status from its tasks.
+        """Derive a spec's lifecycle status from its tasks and active claims.
 
-        - ``draft``: no tasks, original status is draft
-        - ``ready``: promoted (status=spec) but no tasks yet
-        - ``in-progress``: has tasks and at least one is open
-        - ``complete``: has tasks, all are closed (Verify/AC check is
-          optional and does NOT gate this state; running Verify is a
-          separate quality step, but the build itself is done when
-          every builder task closes)
-        - Recognizes ``complete``, ``done``, and ``spec`` as pass-through
-          terminal states from the frontmatter so the writer and reader
-          agree. The on-disk writer is being migrated to ``complete``;
-          legacy ``done`` values still render correctly.
-        - Falls back to ``in-progress`` for anything unrecognized rather
-          than to ``draft`` (which used to hide completed specs under
-          the Drafts tab when the writer and reader disagreed).
+        Status rules (in priority order):
+
+        - ``draft``, ``plan``: frontmatter-driven, never overridden.
+        - ``ready``: promoted (status=spec), no tasks AND no active claims.
+        - ``in-progress``: any open task OR any active claim.
+        - ``complete``: tasks exist, all closed, and no active claims remain.
+
+        A claim is considered **active** when at least one of its
+        ``task_ids`` is still open.  A claim with an empty ``task_ids``
+        list is treated as active only when the spec itself has no closed
+        tasks yet (it was registered before decomposition); once all spec-
+        level tasks are closed the empty-list claim auto-releases.
+
+        Claim auto-release is computed here on every call rather than
+        requiring a separate cleanup step.  There is no heartbeat timer.
 
         ``ac_all_met`` is retained in the signature for callers that
         still pass it, but it no longer gates ``complete``. Kept so the
@@ -2624,13 +2626,42 @@ class OstkService:
         """
         if base_status in ("draft", "plan"):
             return base_status
+
+        # Determine whether any spec-level tasks are still open.
+        statuses = [task_statuses.get(tid, "open") for tid in task_ids]
+        all_tasks_closed = bool(task_ids) and all(s == "closed" for s in statuses)
+        any_task_open = any(s != "closed" for s in statuses)
+
+        # Determine whether any claims are still active.
+        # A claim is active when at least one of its listed task_ids is
+        # not yet closed.  An empty task_ids list is active only when
+        # the spec still has open tasks (or no tasks at all) — once
+        # every spec-level task is closed, empty-list claims auto-release.
+        active_claims: list[dict] = []
+        for claim in (claims or []):
+            claim_tids = claim.get("task_ids") or []
+            if not claim_tids:
+                # Empty task_ids: active only while the spec has work left.
+                if not all_tasks_closed:
+                    active_claims.append(claim)
+            else:
+                # Has task_ids: active while any of them is still open.
+                if any(
+                    task_statuses.get(tid, "open") != "closed"
+                    for tid in claim_tids
+                ):
+                    active_claims.append(claim)
+
+        has_active_claim = bool(active_claims)
+
         if not task_ids:
-            # No tasks linked: trust the frontmatter vocabulary.
+            # No tasks linked yet.
             if base_status in ("complete", "done"):
                 return "complete"
+            if has_active_claim:
+                return "in-progress"
             return "ready"
-        statuses = [task_statuses.get(tid, "open") for tid in task_ids]
-        all_closed = all(s == "closed" for s in statuses)
+
         # CRITICAL: if the frontmatter says ``complete`` or ``done`` but
         # at least one linked task is still open, trust the tasks. This
         # catches the failure mode where the auto-advancer wrote
@@ -2641,11 +2672,13 @@ class OstkService:
         # "Done. Every task closed and the feature is live." with a
         # still-open task sitting right above it.
         if base_status in ("complete", "done"):
-            if all_closed:
+            if all_tasks_closed and not has_active_claim:
                 return "complete"
             return "in-progress"
-        if all_closed:
+
+        if all_tasks_closed and not has_active_claim:
             return "complete"
+
         # ac_all_met retained for signature compat; not needed now that
         # all_closed alone flips to complete.
         _ = ac_all_met
