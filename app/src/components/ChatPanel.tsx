@@ -20,6 +20,11 @@ import { IMessageConfirmBubble } from './IMessageConfirmBubble'
 import AttachmentPicker, { type AttachmentFile } from './AttachmentPicker'
 import { PeerChatTurnsPicker } from './PeerChatTurnsPicker'
 import { InlineTextPrompt } from './InlineTextPrompt'
+import { useNavigate } from 'react-router-dom'
+import SlashCommandPopover from './SlashCommandPopover'
+import QuickAddTaskModal from './QuickAddTaskModal'
+import SpecWizard from './SpecWizard'
+import { createSlashCommands, filterCommands } from '../lib/slashCommands'
 
 // Local cache key. The server is the source of truth for chat history.
 // We still mirror to localStorage so the very first paint after a hard
@@ -642,6 +647,12 @@ export function ChatPanel() {
   const [showGiphy, setShowGiphy] = useState(false)
   const [giphyInitialSearch, setGiphyInitialSearch] = useState('')
   const [pendingImage, setPendingImage] = useState<string | null>(null)
+  // Slash command popover state
+  const [slashQuery, setSlashQuery] = useState<string | null>(null) // null = closed, '' = open with no filter
+  const [slashActiveIndex, setSlashActiveIndex] = useState(0)
+  const [showNeedleModal, setShowNeedleModal] = useState(false)
+  const [showSpecWizard, setShowSpecWizard] = useState(false)
+  const navigate = useNavigate()
   // Cache ratio for the most recent turn: cache_read / (cache_read + cache_creation).
   // null = no data (first turn or non-caching backend). Cleared on each new send.
   const [lastCacheRatio, setLastCacheRatio] = useState<number | null>(null)
@@ -2005,6 +2016,90 @@ export function ChatPanel() {
     })
   }
 
+  // --------------- Slash command surface (→1394) ---------------
+
+  // Build the command context once per render cycle. The callbacks close over
+  // current state so we can mutate chat without prop-drilling into slashCommands.ts.
+  const commandCtx = useMemo(() => ({
+    addSystemMessage: (text: string) => {
+      const sysMsg = { id: genId(), role: 'assistant' as const, content: text, model: 'myos' }
+      setMessages(prev => [...prev, sysMsg])
+    },
+    clearChat: () => {
+      setMessages([])
+    },
+    openNeedleModal: () => setShowNeedleModal(true),
+    openSpecModal: () => setShowSpecWizard(true),
+    openGemPicker: () => navigate('/gems'),
+    openGiphy: () => { setShowGiphy(true); setGiphyInitialSearch('') },
+    togglePlanMode: () => {
+      const current = localStorage.getItem('plan_mode') === '1'
+      localStorage.setItem('plan_mode', current ? '0' : '1')
+      const sysMsg = { id: genId(), role: 'assistant' as const, content: current ? 'Plan mode off.' : 'Plan mode on. Describe what you want to build.', model: 'myos' }
+      setMessages(prev => [...prev, sysMsg])
+    },
+    runSkill: async (skillId: string) => {
+      const pendingMsg = { id: genId(), role: 'assistant' as const, content: '', model: 'myos' }
+      setMessages(prev => [...prev, pendingMsg])
+      try {
+        const result = await api.post<{ output?: string; status?: string }>('/api/skills/run', { skill_id: skillId, args: {} })
+        setMessages(prev => prev.map(m =>
+          m.id === pendingMsg.id
+            ? { ...m, content: result?.output ?? `/${skillId} finished.` }
+            : m
+        ))
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'unknown error'
+        setMessages(prev => prev.map(m =>
+          m.id === pendingMsg.id
+            ? { ...m, content: `/${skillId} failed: ${msg}`, isError: true }
+            : m
+        ))
+      }
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [navigate])
+
+  // All 10 commands with live triggers.
+  const allSlashCommands = useMemo(() => createSlashCommands(commandCtx), [commandCtx])
+
+  // Filtered list shown in the popover.
+  const visibleSlashCommands = useMemo(
+    () => (slashQuery === null ? [] : filterCommands(allSlashCommands, slashQuery)),
+    [allSlashCommands, slashQuery],
+  )
+
+  /**
+   * Detect a slash trigger in the input and update slashQuery.
+   * Fires on every onChange. Slash opens the popover when it is:
+   * - the first character, or
+   * - immediately after whitespace (Slack-style)
+   * Mid-word slashes (e.g. "foo/bar") do NOT open it.
+   */
+  const handleInputChange = (value: string) => {
+    setInput(value)
+    const m = value.match(/(^|\s)(\/(\w*))$/)
+    if (m) {
+      // m[3] is the query after the slash (may be empty string)
+      setSlashQuery(m[3] ?? '')
+      setSlashActiveIndex(0)
+    } else {
+      setSlashQuery(null)
+    }
+  }
+
+  /** Close the popover and run the selected command. */
+  const handleSlashSelect = (idx: number) => {
+    const cmd = visibleSlashCommands[idx]
+    if (!cmd) return
+    // Strip the slash+query from the input before running.
+    setInput(prev => prev.replace(/(^|\s)\/\w*$/, ''))
+    setSlashQuery(null)
+    cmd.trigger()
+  }
+
+  // --------------- end slash command surface ---------------
+
   const handleSend = () => {
     if (!input.trim() && !pendingImage && !pendingAttachment) return
     if (input.trim()) {
@@ -2053,6 +2148,33 @@ export function ChatPanel() {
 
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
     if (tackKeyHandlerRef.current?.(e)) return
+
+    // Slash popover key handling — intercept before tack and send.
+    if (slashQuery !== null && visibleSlashCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSlashActiveIndex(i => (i + 1) % visibleSlashCommands.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSlashActiveIndex(i => (i - 1 + visibleSlashCommands.length) % visibleSlashCommands.length)
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        handleSlashSelect(slashActiveIndex)
+        return
+      }
+      if (e.key === 'Escape') {
+        setSlashQuery(null)
+        return
+      }
+    } else if (slashQuery !== null && e.key === 'Escape') {
+      setSlashQuery(null)
+      return
+    }
+
     if (e.key === 'Enter') {
       handleSend()
       return
@@ -2329,7 +2451,7 @@ export function ChatPanel() {
             <p className="text-slate-400 text-sm mb-1">
               Talking to <span className={MODEL_COLORS[defaultChatModel] ?? 'text-blue-400'}>{defaultChatModel}</span>.
             </p>
-            <p className="text-slate-600 text-xs mb-6">Switch with the button below, or type @claude / @gemini in your message.</p>
+            <p className="text-slate-600 text-xs mb-6">Type / for commands, or just start chatting.</p>
             <div className="flex flex-wrap justify-center gap-2 max-w-sm">
               {[
                 { icon: 'calendar_month', text: "What's on my calendar today?", send: true },
@@ -2900,15 +3022,26 @@ export function ChatPanel() {
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <TackAutocomplete inputValue={input} onSelect={(s) => setInput(s)} keyHandlerRef={tackKeyHandlerRef} />
+              {slashQuery !== null && visibleSlashCommands.length > 0 && (
+                <SlashCommandPopover
+                  commands={visibleSlashCommands}
+                  onSelect={(cmd) => {
+                    setInput(prev => prev.replace(/(^|\s)\/\w*$/, ''))
+                    setSlashQuery(null)
+                    cmd.trigger()
+                  }}
+                  onClose={() => setSlashQuery(null)}
+                />
+              )}
               <input
                 ref={inputRef}
                 data-testid="chat-input"
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => handleInputChange(e.target.value)}
                 onKeyDown={handleInputKeyDown}
                 onPaste={handlePaste}
                 className="w-full bg-slate-900 border border-slate-800 rounded-lg px-4 py-3 min-h-[48px] text-sm text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/50"
-                placeholder={replyingTo ? 'Type your reply...' : `Message ${defaultChatModel}... (/giphy to search GIFs)`}
+                placeholder={replyingTo ? 'Type your reply...' : 'Type / for commands, or just start chatting.'}
               />
             </div>
             <button
@@ -2972,6 +3105,22 @@ export function ChatPanel() {
         )}
       </div>
       <ConfirmModal {...confirmProps} />
+      {/* Needle (task) quick-add modal triggered by /needle slash command */}
+      <QuickAddTaskModal open={showNeedleModal} onClose={() => setShowNeedleModal(false)} />
+      {/* Spec wizard modal triggered by /spec slash command */}
+      {showSpecWizard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-2xl shadow-2xl overflow-y-auto max-h-[90vh]">
+            <SpecWizard
+              onComplete={(path) => {
+                setShowSpecWizard(false)
+                commandCtx.addSystemMessage(`Spec created at ${path}`)
+              }}
+              onCancel={() => setShowSpecWizard(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
