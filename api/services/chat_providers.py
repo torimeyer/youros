@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import random
+import uuid as _uuid
 from typing import Any, Awaitable, Callable, Optional
 
 import anthropic
@@ -37,7 +38,47 @@ from services.ostk import write_audit_entry
 from services.token_metrics import safe_record_chat_turn
 from services.tracing import trace_event
 from services.tool_executor import TOOL_DEFINITIONS, execute_tool
+import services.time_primitive as _time_primitive
 import services.user_memory_store as _user_memory_store
+
+
+# ---------------------------------------------------------------------------
+# Time primitive — tool-call tracking helper
+# ---------------------------------------------------------------------------
+
+async def _execute_tool_timed(
+    tool_name: str,
+    tool_args: dict,
+    op_id: str,
+    op_kind: str,
+) -> str:
+    """Execute a tool and publish start/finish events to the Time primitive.
+
+    This is extracted from ``_exec_and_notify`` (inside ChatService.agent_anthropic)
+    so it is directly unit-testable without a WebSocket.
+
+    Failures in the time hooks are silently swallowed — they must never
+    break the chat response.  The tool exception (if any) is always
+    re-raised so asyncio.gather(return_exceptions=True) captures it.
+    """
+    try:
+        _time_primitive.start(op_id, op_kind, hint_sec=None)
+    except Exception:
+        pass
+
+    try:
+        result = await execute_tool(tool_name, tool_args)
+        try:
+            _time_primitive.finish(op_id, status="completed")
+        except Exception:
+            pass
+        return result
+    except Exception:
+        try:
+            _time_primitive.finish(op_id, status="failed")
+        except Exception:
+            pass
+        raise
 
 
 def _extract_chat_topic(messages: list[dict], max_len: int = 60) -> str:
@@ -2823,7 +2864,9 @@ class ChatService:
                 ws_lock = asyncio.Lock()
 
                 async def _exec_and_notify(b: object, lock: asyncio.Lock) -> str:
-                    result = await execute_tool(b.name, dict(b.input))
+                    op_id = f"chat-tool-{_uuid.uuid4().hex[:8]}"
+                    op_kind = f"chat_tool_{b.name}"
+                    result = await _execute_tool_timed(b.name, dict(b.input), op_id, op_kind)
                     async with lock:
                         await websocket.send_json({
                             "type": "tool_result",
@@ -3040,6 +3083,15 @@ class ChatService:
         # Priority 0: Gemini CLI (if enabled and available).
         if settings_store.get("use_gemini_cli") and await gemini_cli_provider.is_gemini_cli_available():
             try:
+                # Resolve system prompt for the CLI if none was provided.
+                if not system_instruction:
+                    # Resolve anthropic key for template matching (optional).
+                    # match_template falls back to env or deterministic matching if None.
+                    api_key = await _resolve_api_key("anthropic_api_key")
+                    matched_template = await _maybe_match_template(messages, websocket, api_key)
+                    if matched_template or _standing_instructions_block():
+                        system_instruction = _compose_system_prompt(matched_template)
+
                 return await gemini_cli_provider.stream_chat(
                     messages, websocket, system_prompt=system_instruction, **kwargs
                 )
