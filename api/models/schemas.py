@@ -324,6 +324,7 @@ class ThreadUpdate(BaseModel):
 class SpecDraft(BaseModel):
     title: str = Field(..., max_length=500)
     fallback_ac: bool = Field(False)
+    kind: str = Field("needle")  # "needle" (default) or "spec"
 
 
 class SpecPromote(BaseModel):

@@ -2,7 +2,7 @@ import logging
 import os
 import re
 from pathlib import Path, PurePosixPath
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -49,7 +49,24 @@ _task_assignments: dict[str, str] = {}
 _spec_task_origin: dict[str, str] = {}
 
 
-async def _delete_builder_task(task_id: str) -> bool:
+async def _create_needle(title: str, description: str = "") -> dict:
+    """Create a needle (task) and return a standard shape.
+
+    Used by the 5 creation endpoints when kind='needle'. Calls the same
+    ostk.add_task primitive that POST /api/tasks uses, so needles created
+    via the wizard or roadmap flow land in the same Tasks list.
+    """
+    result = await ostk.add_task(title, description=description)
+    task_id: str | None = None
+    for line in (result or "").split("\n"):
+        m = re.search(r"(?:->|→)(\d+)", line)
+        if m:
+            task_id = m.group(1)
+            break
+    return {"kind": "needle", "task_id": task_id, "result": result}
+
+
+
     """Delete one builder-spawned task row. Returns True on success.
 
     Called on two paths: when a spec file is deleted (residue cleanup) and
@@ -307,16 +324,22 @@ async def spec_counts():
 
 @router.post("/specs/draft")
 async def create_draft(body: SpecDraft):
-    """Create a new draft document, auto-generate acceptance criteria, then promote to a plan.
+    """Create a new draft document or a needle, depending on kind.
 
-    After ostk creates the draft file, we use AI to generate acceptance
-    criteria from the title and append them to the draft body. Because
-    the AI always writes a complete checklist, we immediately promote
-    the draft to a plan (ready state) so the user lands on a one-click
-    build path. If the AI call fails (no acceptance criteria written),
-    we leave the document as a draft so the user can hand-edit and
-    promote it themselves.
+    When kind='needle' (default): adds a task to the needle store and
+    returns immediately. No doc file is created.
+
+    When kind='spec': auto-generates acceptance criteria and promotes the
+    draft to a plan so the user lands on a one-click build path.
     """
+    if body.kind == "needle":
+        try:
+            payload = await _create_needle(body.title)
+        except OstkError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        trace_event("needle_created", title=body.title, source="draft", task_id=payload.get("task_id"))
+        return payload
+
     try:
         result = await ostk.doc_draft(body.title)
     except OstkError as e:
@@ -415,6 +438,7 @@ class SpecFromTemplate(BaseModel):
     # When set, it is prepended to the template's goal body so the new
     # plan captures any extra context the user wanted to carry forward.
     note: Optional[str] = None
+    kind: str = "needle"  # "needle" (default) or "spec"
 
 
 @router.get("/specs/templates")
@@ -432,13 +456,13 @@ async def list_spec_templates_endpoint():
 
 @router.post("/specs/from-template")
 async def create_from_template(body: SpecFromTemplate):
-    """Create a ready plan from a starter template.
+    """Create a plan from a starter template, or a needle when kind='needle'.
 
-    Looks up the template by id, drafts a new doc with the template's
-    title, writes the template's goal body plus the pre-written
-    acceptance criteria checklist into the draft file, then promotes it
-    so the user lands on a ready plan. The decompose step runs later
-    when the user clicks Build it (same path as Wave 2 create_draft).
+    When kind='needle' (default): drafts a needle using the template title
+    and the user's note as description.
+
+    When kind='spec': creates a ready plan from the template's pre-written
+    goal body and acceptance criteria checklist.
 
     Returns ``{"result": path, "status": "ready", "promoted_path": path,
     "template_id": id}``. A 404 is returned when the template id is not
@@ -456,6 +480,15 @@ async def create_from_template(body: SpecFromTemplate):
     title = (body.title or template["name"]).strip()
     if not title:
         title = template["name"]
+
+    if body.kind == "needle":
+        description = (body.note or "").strip()
+        try:
+            payload = await _create_needle(title, description=description)
+        except OstkError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        trace_event("needle_created", title=title, source="from-template", task_id=payload.get("task_id"))
+        return {**payload, "template_id": body.template_id}
 
     # Create the draft on disk via ostk. This returns a relative path
     # like "docs/draft/foo.md".
@@ -527,14 +560,18 @@ async def create_from_template(body: SpecFromTemplate):
 class SpeckitImport(BaseModel):
     yaml: str
     format: str = "speckit"
+    kind: str = "needle"  # "needle" (default) or "spec"
 
 
 @router.post("/specs/import")
 async def import_spec(body: SpeckitImport):
-    """Import a spec from spec-kit YAML.
+    """Import a spec from spec-kit YAML, or create a needle when kind='needle'.
 
-    Parses the YAML, creates a spec draft via ostk, writes the body,
-    and creates tasks for each entry in the tasks list.
+    When kind='needle' (default): parses the YAML and creates a single
+    needle from the spec name and description.
+
+    When kind='spec': parses the YAML, creates a spec draft via ostk,
+    writes the body, and creates tasks for each entry in the tasks list.
     Returns the created spec id (its path).
     """
     if body.format != "speckit":
@@ -545,6 +582,14 @@ async def import_spec(body: SpeckitImport):
     except SpeckitParseError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     spec = {"title": parsed["name"], "description": parsed["description"], "tasks": parsed["tasks"]}
+
+    if body.kind == "needle":
+        try:
+            payload = await _create_needle(spec["title"], description=spec["description"] or "")
+        except OstkError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        trace_event("needle_created", title=spec["title"], source="import", task_id=payload.get("task_id"))
+        return {**payload, "title": spec["title"]}
 
     # Draft the spec via ostk.
     try:
@@ -965,18 +1010,19 @@ class SpecFromRoadmapLine(BaseModel):
     roadmap_path: str
     initiative_text: str
     title: Optional[str] = None
+    kind: str = "needle"  # "needle" (default) or "spec"
 
 
 @router.post("/specs/from-roadmap-line")
 async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
-    """Create a ready plan from a single line of a generated roadmap.
+    """Create a needle or a ready plan from a single roadmap initiative line.
 
-    The Files-page roadmap preview renders a plus button next to each
-    initiative. Clicking it posts the initiative text and the roadmap
-    file path here. The endpoint drafts a new plan whose goal is the
-    initiative text, lets acceptance criteria generation run, and
-    auto-promotes the draft to ready. Returns the new spec shape so the
-    frontend can route the user straight to it.
+    When kind='needle' (default): validates the roadmap file exists, then
+    adds a needle using the initiative text as the title. Fast path.
+
+    When kind='spec': drafts a plan whose goal is the initiative text,
+    lets acceptance criteria generation run in the background, and
+    auto-promotes the draft to ready.
 
     Raises 404 when the roadmap file is missing (bad frontend state).
     """
@@ -1007,6 +1053,14 @@ async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
     title = (body.title or initiative).strip()
     if len(title) > 80:
         title = title[:77].rstrip() + "..."
+
+    if body.kind == "needle":
+        try:
+            payload = await _create_needle(title, description=initiative)
+        except OstkError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        trace_event("needle_created", title=title, source="from-roadmap-line", task_id=payload.get("task_id"))
+        return {**payload, "title": title, "roadmap_path": raw_path}
 
     try:
         result = await ostk.doc_draft(title)
@@ -2032,7 +2086,7 @@ class WizardSuggestRequest(BaseModel):
 
 class WizardCreateRequest(BaseModel):
     title: str
-    problem: str
+    problem: str = ""
     in_scope: list[str] = []
     out_of_scope: list[str] = []
     non_goals: list[str] = []
@@ -2040,6 +2094,7 @@ class WizardCreateRequest(BaseModel):
     technical_context: Optional[str] = None
     api_contract: Optional[str] = None
     ui_requirements: Optional[str] = None
+    kind: str = "needle"  # "needle" (default) or "spec"
 
 
 def _wizard_system_prompt() -> str:
@@ -2130,13 +2185,27 @@ async def wizard_suggest(body: WizardSuggestRequest):
 
 @router.post("/specs/wizard/create")
 async def wizard_create(body: WizardCreateRequest):
-    """Create a rich SDD spec from wizard inputs.
+    """Create a needle or a rich SDD spec from wizard inputs.
 
-    Assembles a structured markdown spec from the wizard fields,
-    creates a draft via ostk, writes the body, and auto-promotes.
+    When kind='needle' (default): creates a needle from the title and
+    optional description. No spec file is written.
+
+    When kind='spec': assembles a structured markdown spec from the wizard
+    fields, creates a draft via ostk, writes the body, and auto-promotes.
+    Requires a non-empty problem statement when kind='spec'.
     """
     if not body.title.strip():
         raise HTTPException(status_code=400, detail="Title is required")
+
+    if body.kind == "needle":
+        description = body.problem.strip()
+        try:
+            payload = await _create_needle(body.title.strip(), description=description)
+        except OstkError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        trace_event("needle_created", title=body.title.strip(), source="wizard", task_id=payload.get("task_id"))
+        return {**payload, "path": None}
+
     if not body.problem.strip():
         raise HTTPException(status_code=400, detail="Problem statement is required")
 

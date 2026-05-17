@@ -93,6 +93,7 @@ def test_create_minimal():
             "title": "Test Wizard Spec",
             "problem": "Users need a better way to create specs",
             "criteria": ["Shows a multi-step wizard", "Generates AI suggestions"],
+            "kind": "spec",
         })
         assert resp.status_code == 200
         body = resp.json()
@@ -109,9 +110,11 @@ def test_create_empty_title_400():
 
 
 def test_create_empty_problem_400():
+    # Empty problem only raises 400 when kind='spec' (needle doesn't need it)
     resp = client.post("/api/specs/wizard/create", json={
         "title": "Something",
         "problem": "",
+        "kind": "spec",
     })
     assert resp.status_code == 400
 
@@ -138,6 +141,7 @@ def test_create_full_spec():
             "technical_context": "Follow the pattern in specs.py create_draft",
             "api_contract": "POST /api/specs/wizard/create",
             "ui_requirements": "4-step wizard with back/next navigation",
+            "kind": "spec",
         })
         assert resp.status_code == 200
         body = resp.json()
@@ -165,6 +169,7 @@ def test_create_no_criteria_stays_draft():
         resp = client.post("/api/specs/wizard/create", json={
             "title": "No Criteria Spec",
             "problem": "Just a problem, no criteria yet",
+            "kind": "spec",
         })
         assert resp.status_code == 200
         body = resp.json()
@@ -184,7 +189,62 @@ def test_create_promote_failure_stays_draft():
             "title": "Promote Fail Spec",
             "problem": "Testing promote failure",
             "criteria": ["This should work"],
+            "kind": "spec",
         })
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "draft"
+
+
+# --------------- kind=needle default path ---------------
+
+
+def test_wizard_create_needle_default():
+    """No kind supplied -> defaults to needle. No spec file is created."""
+    with patch("services.ostk.ostk.add_task", new_callable=AsyncMock, return_value="→1999 Add login page") as mock_add:
+        resp = client.post("/api/specs/wizard/create", json={
+            "title": "Add login page",
+            "problem": "Users cannot log in",
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["kind"] == "needle"
+        assert body["task_id"] == "1999"
+        mock_add.assert_called_once()
+
+
+def test_wizard_create_needle_explicit():
+    """kind='needle' creates a task; problem is optional."""
+    with patch("services.ostk.ostk.add_task", new_callable=AsyncMock, return_value="→2001 Fix dark mode"):
+        resp = client.post("/api/specs/wizard/create", json={
+            "title": "Fix dark mode",
+            "kind": "needle",
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["kind"] == "needle"
+
+
+def test_draft_needle_default():
+    """POST /specs/draft with no kind creates a needle, not a spec file."""
+    with patch("services.ostk.ostk.add_task", new_callable=AsyncMock, return_value="→2002 My quick task"):
+        resp = client.post("/api/specs/draft", json={"title": "My quick task"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["kind"] == "needle"
+        assert body["task_id"] == "2002"
+
+
+def test_draft_spec_opt_in():
+    """POST /specs/draft with kind='spec' still follows the old spec pipeline."""
+    with patch("services.ostk.ostk.doc_draft", new_callable=AsyncMock, return_value="docs/draft/opt-in.md"), \
+         patch("services.chat_providers._resolve_api_key", new_callable=AsyncMock, return_value=None), \
+         patch("pathlib.Path.exists", return_value=True), \
+         patch("pathlib.Path.is_relative_to", return_value=True), \
+         patch("pathlib.Path.read_text", return_value="---\ntitle: opt-in\n---\n"), \
+         patch("pathlib.Path.write_text"):
+        resp = client.post("/api/specs/draft", json={"title": "Opt-in spec", "kind": "spec"})
+        assert resp.status_code == 200
+        body = resp.json()
+        # No AI key -> stays draft, but it used the spec path (has 'status' key)
+        assert "status" in body
