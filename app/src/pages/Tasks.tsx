@@ -1685,6 +1685,18 @@ export default function Tasks() {
           {/* Primary AI action */}
           <div className="flex items-center gap-1 shrink-0">
             <button
+              data-testid="what-should-i-do-next"
+              onClick={() => {
+                api.get<{ message: string }>('/tasks/next')
+                  .then((res) => setBanner(res.message))
+                  .catch(() => setBanner('Could not get a suggestion right now.'));
+              }}
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300"
+            >
+              <Icon name="psychology" className="text-blue-400 text-base" />
+              <span className="hidden sm:inline">What should I do next?</span>
+            </button>
+            <button
               onClick={() => setWavesModalOpen(true)}
               data-testid="plan-waves-btn"
               className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-700"
@@ -1766,6 +1778,14 @@ export default function Tasks() {
                 >
                   <Icon name="content_copy" className="text-slate-400 text-sm" />
                   Copy list
+                </button>
+                <button
+                  data-testid="plan-waves-button"
+                  onClick={() => { setShowOverflowMenu(false); setWavesModalOpen(true); }}
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                >
+                  <Icon name="account_tree" className="text-purple-400 text-sm" />
+                  Plan waves
                 </button>
                 <div className="border-t border-slate-700 my-1" />
                 <button
