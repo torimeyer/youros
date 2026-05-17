@@ -3017,6 +3017,13 @@ class TestBroadcastNoToolLeak:
             async def __aexit__(self, *args):
                 return False
 
+            def __aiter__(self):
+                # Production iterates events directly; yield empty sequence
+                async def _empty():
+                    return
+                    yield  # make it an async generator
+                return _empty()
+
             async def get_final_message(self):
                 final = MagicMock()
                 final.usage.input_tokens = 1
@@ -3468,6 +3475,13 @@ class TestPromptCaching:
             @property
             def text_stream(self):
                 return FakeTextStream()
+
+            def __aiter__(self):
+                # Production iterates events directly; yield empty sequence
+                async def _empty():
+                    return
+                    yield  # make it an async generator
+                return _empty()
 
             async def get_final_message(self):
                 class Usage:
