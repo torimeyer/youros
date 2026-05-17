@@ -75,7 +75,7 @@ describe('ChatPanel', () => {
     it('shows thinking dots in the assistant placeholder after sending a message', () => {
       render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'Hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -98,7 +98,7 @@ describe('ChatPanel', () => {
       mockLastMessage = null
       render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'how are you' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -113,7 +113,7 @@ describe('ChatPanel', () => {
       mockLastMessage = null
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -138,7 +138,7 @@ describe('ChatPanel', () => {
       const { rerender } = render(<ChatPanel />)
 
       // Send a message to create the assistant placeholder
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'Hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -158,7 +158,7 @@ describe('ChatPanel', () => {
       const { rerender } = render(<ChatPanel />)
 
       // Send a message
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'Hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -181,7 +181,7 @@ describe('ChatPanel', () => {
       render(<ChatPanel />)
 
       const query = "what's the biggest risk in the current plan"
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: query } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -212,7 +212,7 @@ describe('ChatPanel', () => {
       const { rerender } = render(<ChatPanel />)
 
       // Send a message. Bubble starts empty, streaming=true.
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'saa fix the login bug' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -537,7 +537,7 @@ describe('ChatPanel', () => {
       const { rerender } = render(<ChatPanel />)
 
       // Send a message. This creates an empty assistant placeholder.
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'did you complete it?' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -557,7 +557,7 @@ describe('ChatPanel', () => {
       // leaving the assistant row visually empty.
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'did you complete it?' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -578,7 +578,7 @@ describe('ChatPanel', () => {
     it('renders an inline Retry button on mid-turn drop that re-sends the last turn', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'did gemini miss anything?' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -610,7 +610,7 @@ describe('ChatPanel', () => {
     // user_message directly without the "Error: " prefix.
     it('shows auth_invalid message directly when category is present', () => {
       const { rerender } = render(<ChatPanel />)
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -627,7 +627,7 @@ describe('ChatPanel', () => {
 
     it('shows quota_exceeded message directly when category is present', () => {
       const { rerender } = render(<ChatPanel />)
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -643,7 +643,7 @@ describe('ChatPanel', () => {
 
     it('shows provider_5xx message directly when category is present', () => {
       const { rerender } = render(<ChatPanel />)
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -659,7 +659,7 @@ describe('ChatPanel', () => {
 
     it('shows network message directly when category is present', () => {
       const { rerender } = render(<ChatPanel />)
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -675,7 +675,7 @@ describe('ChatPanel', () => {
 
     it('falls back to Connection error prefix for unstructured errors (no category)', () => {
       const { rerender } = render(<ChatPanel />)
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -693,7 +693,7 @@ describe('ChatPanel', () => {
     it('idle WS error does not overwrite a completed response bubble', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'what time is it?' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -728,7 +728,7 @@ describe('ChatPanel', () => {
     it('never shrinks the rendered bubble text as more tokens arrive', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'tell me a long story' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -776,7 +776,7 @@ describe('ChatPanel', () => {
     it('applies a fade-in class on the streaming-to-done handoff', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'hi' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -806,7 +806,7 @@ describe('ChatPanel', () => {
     it('does not render a code block element while the closing fence is still streaming', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'show me code' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -830,7 +830,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'list my files' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -860,7 +860,7 @@ describe('ChatPanel', () => {
     it('tool call block shows check-circle after done (result auto-filled)', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'read the config' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -886,7 +886,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'ping' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -913,7 +913,7 @@ describe('ChatPanel', () => {
     it('renders real text content when a proper text token follows tool_use', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'search for logs' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -951,7 +951,7 @@ describe('ChatPanel', () => {
     it('renders markdown in the pre-tool text while a tool call is still pending', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'run a command' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -986,7 +986,7 @@ describe('ChatPanel', () => {
     it('renders a clickable link alongside a tool-use block in the same bubble', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'book a 1:1' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -1043,7 +1043,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'hello gemini' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -1071,7 +1071,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'run a tool' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -1097,7 +1097,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'delayed response' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -1128,7 +1128,7 @@ describe('ChatPanel', () => {
       useAppStore.setState({ defaultChatModel: 'claude' })
       render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'Hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -1141,7 +1141,7 @@ describe('ChatPanel', () => {
       useAppStore.setState({ defaultChatModel: 'gemini' })
       render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message gemini/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'Hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -1161,7 +1161,7 @@ describe('ChatPanel', () => {
       useAppStore.setState({ defaultChatModel: 'claude' })
       render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: '@gemini hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -1181,7 +1181,7 @@ describe('ChatPanel', () => {
       useAppStore.setState({ defaultChatModel: 'gemini' })
       render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message gemini/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'Hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -1522,7 +1522,7 @@ describe('ChatPanel', () => {
       // a single token, and assert the bubble shows that token.
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'hello there' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -1549,7 +1549,7 @@ describe('ChatPanel', () => {
       // Kick off a user message so the placeholder bubble exists, the
       // same way a real user would. The first multi_ai_turn_start will
       // reuse this placeholder for the first gemini bubble.
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, {
         target: {
           value: '@gemini chat with claude a few times about each of your shortcomings',
@@ -2005,7 +2005,7 @@ describe('ChatPanel', () => {
       fireEvent.keyDown(input, { key: 'Escape' })
 
       // After double-escape, replyingTo is cleared so placeholder reverts
-      expect(screen.getByPlaceholderText(/Message claude/i)).toBeTruthy()
+      expect(screen.getByTestId('chat-input')).toBeTruthy()
     })
 
     it('messages with thread_id render inside a thread block under their root', () => {
@@ -2185,7 +2185,7 @@ describe('ChatPanel', () => {
       const { rerender } = render(<ChatPanel />)
 
       // User sends a message and the backend responds with only a tool call.
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'create tasks for the roadmap' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2223,7 +2223,7 @@ describe('ChatPanel', () => {
     it('shows the error text when the stream ends with an error event', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'do something' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2244,7 +2244,7 @@ describe('ChatPanel', () => {
     it('renders markdown text normally when the stream contains text tokens', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'summarise the roadmap' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2269,7 +2269,7 @@ describe('ChatPanel', () => {
       // original placeholder must not render once streaming ends.
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2298,7 +2298,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: '@gemini summarise my tasks' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2333,7 +2333,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: '@gemini create a task' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2368,7 +2368,7 @@ describe('ChatPanel', () => {
       // Normal Gemini turn: tokens then done. No "Done." should ever appear.
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: '@gemini hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2396,7 +2396,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'what is the meaning of life?' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2417,7 +2417,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'explain quantum computing' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2454,7 +2454,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'test heartbeat' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2484,7 +2484,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'tell me about caching' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2516,7 +2516,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'important question' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2546,7 +2546,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'spawn an agent' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2589,7 +2589,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
 
       // First turn: normal exchange with tokens.
       fireEvent.change(input, { target: { value: 'first question' } })
@@ -2637,7 +2637,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'trigger empty response' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2660,7 +2660,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'hello dead backend' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       rerender(<ChatPanel />)
@@ -2684,7 +2684,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'deep thinking question' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       rerender(<ChatPanel />)
@@ -2720,7 +2720,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'slow but alive' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       rerender(<ChatPanel />)
@@ -2757,7 +2757,7 @@ describe('ChatPanel', () => {
       })
 
       render(<ChatPanel />)
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'create tasks from this roadmap' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2779,7 +2779,7 @@ describe('ChatPanel', () => {
     it('leaves non-matching messages on the normal AI routing path', async () => {
       const { api } = await import('../lib/api')
       render(<ChatPanel />)
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'hi, what did you do today?' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2805,7 +2805,7 @@ describe('ChatPanel', () => {
       const off = bus.onAgentsChange(listener)
       try {
         const { rerender } = render(<ChatPanel />)
-        const input = screen.getByPlaceholderText(/Message claude/i)
+        const input = screen.getByTestId('chat-input')
         fireEvent.change(input, { target: { value: 'spawn roadmap' } })
         fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2829,7 +2829,7 @@ describe('ChatPanel', () => {
       const off = bus.onAgentsChange(listener)
       try {
         const { rerender } = render(<ChatPanel />)
-        const input = screen.getByPlaceholderText(/Message claude/i)
+        const input = screen.getByTestId('chat-input')
         fireEvent.change(input, { target: { value: 'read a file' } })
         fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2858,7 +2858,7 @@ describe('ChatPanel', () => {
     it('appends a completion bubble when WS delta fires a terminal event', async () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'saa optimize inline chat speed' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2900,7 +2900,7 @@ describe('ChatPanel', () => {
     it('does not append any bubble while lastTerminatedAgent is null', async () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'saa running' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2942,7 +2942,7 @@ describe('ChatPanel', () => {
 
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'saa banner test' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -2988,7 +2988,7 @@ describe('ChatPanel', () => {
 
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'saa push cleanup' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -3058,7 +3058,7 @@ describe('ChatPanel', () => {
 
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'saa just-spawned' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -3117,7 +3117,7 @@ describe('ChatPanel', () => {
 
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'saa spacing test' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -3145,7 +3145,7 @@ describe('ChatPanel', () => {
     it('renders streaming tokens with or without tab_id in single-tab mode', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'build me a roadmap' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -3175,7 +3175,7 @@ describe('ChatPanel', () => {
     it('shows friendly label and path for mcp__ostk__fs_ops, hides raw JSON by default', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'write my roadmap' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -3223,7 +3223,7 @@ describe('ChatPanel', () => {
     it('shows friendly label and cmd preview for mcp__ostk__bash', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'run tests' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -3250,7 +3250,7 @@ describe('ChatPanel', () => {
     it('shows friendly label and query for mcp__ostk__search', () => {
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'search code' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -3280,7 +3280,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'Hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -3298,7 +3298,7 @@ describe('ChatPanel', () => {
       const { rerender } = render(<ChatPanel />)
 
       // First turn: simulate a 5-second response.
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'First message' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -3320,7 +3320,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'Hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       act(() => { vi.advanceTimersByTime(250) })
@@ -3342,7 +3342,7 @@ describe('ChatPanel', () => {
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
-      const input = screen.getByPlaceholderText(/Message claude/i)
+      const input = screen.getByTestId('chat-input')
       fireEvent.change(input, { target: { value: 'Hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
