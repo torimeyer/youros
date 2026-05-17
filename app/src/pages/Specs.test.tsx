@@ -1552,6 +1552,147 @@ describe('Specs page real-time bus', () => {
   })
 })
 
+describe('claims: Building badge + inline note', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApiPost.mockResolvedValue({ result: 'ok', task_ids: [] })
+  })
+
+  it('shows Building badge when tasks payload has terminal-source claims (overrides Ready)', async () => {
+    const startedAt = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('auth-system') && path.includes('/tasks')) {
+        return Promise.resolve({
+          tasks: [],
+          claims: [{ agent: 'myOS', source: 'wrapper', started_at: startedAt, task_ids: [] }],
+        })
+      }
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // Expand the auth system card to trigger fetchLinkedTasks (which fetches claims)
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    // Badge should flip to Building (overriding Ready) once claims are loaded
+    await waitFor(() => {
+      const badges = screen.getAllByTestId('status-badge')
+      const authBadge = badges.find(b => {
+        const card = b.closest('[data-testid="spec-card"]')?.closest('.bg-slate-900\\/40') ??
+          b.closest('.bg-slate-900\\/40')
+        return card?.textContent?.includes('auth system')
+      })
+      expect(authBadge?.textContent).toBe('Building')
+    })
+  })
+
+  it('shows inline note with "in terminal" next to the badge for terminal-source claims', async () => {
+    const startedAt = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('auth-system') && path.includes('/tasks')) {
+        return Promise.resolve({
+          tasks: [],
+          claims: [{ agent: 'myOS', source: 'wrapper', started_at: startedAt, task_ids: [] }],
+        })
+      }
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('claims-note')).toBeInTheDocument()
+    })
+
+    expect(screen.getByTestId('claims-note').textContent).toContain('in terminal')
+    expect(screen.getByTestId('claims-note').textContent).toContain('myOS')
+  })
+
+  it('badge tooltip lists active claims for debugging', async () => {
+    const startedAt = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('auth-system') && path.includes('/tasks')) {
+        return Promise.resolve({
+          tasks: [],
+          claims: [{ agent: 'myOS', source: 'wrapper', started_at: startedAt, task_ids: [] }],
+        })
+      }
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      const badges = screen.getAllByTestId('status-badge')
+      const authBadge = badges.find(b => {
+        const card = b.closest('.bg-slate-900\\/40')
+        return card?.textContent?.includes('auth system')
+      })
+      expect(authBadge?.getAttribute('title')).toContain('myOS')
+    })
+  })
+
+  it('does not show claims-note when claims is empty', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId('claims-note')).not.toBeInTheDocument()
+  })
+})
+
 describe('SpecBody', () => {
   it('renders ### headings as h4 elements, not literal ### text', () => {
     render(<SpecBody body={'### Block 1: Foo\nsome paragraph'} />)
