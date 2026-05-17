@@ -21,6 +21,11 @@ from services.agent_events import bus as _agent_events_bus
 from services.grants_events import GrantsEventBus
 import services.locks_events as _locks_events_mod
 
+try:
+    from services import time_primitive as _time_primitive
+except ImportError:
+    _time_primitive = None
+
 _grants_bus: GrantsEventBus = GrantsEventBus()
 
 logger = logging.getLogger(__name__)
@@ -6271,6 +6276,12 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     # follow up messages pile up unseen. Regression guard for needle
     # 240. Keyed under ``mailbox_instruction`` so old callers that only
     # read ``result`` still work.
+    try:
+        if _time_primitive is not None:
+            _time_primitive.start(op_id=body.name, op_kind="agent_spawn", hint_sec=None)
+    except Exception:
+        pass
+
     return {
         "result": f"Agent '{body.name}' registered",
         "source": "claude-code",
@@ -7242,6 +7253,12 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     except Exception as _ack_exc:
         logger.warning("failed to stop ack bot for %s: %s", name, _ack_exc)
 
+    try:
+        if _time_primitive is not None:
+            _time_primitive.finish(op_id=name, status="completed")
+    except Exception:
+        pass
+
     return {"result": f"Agent '{name}' marked complete", "status": "completed"}
 
 
@@ -7312,6 +7329,12 @@ async def heartbeat_agent(name: str, body: Optional[AgentHeartbeat] = None):
         meta["current_step"] = body.step
         meta["current_step_updated_at"] = now_iso
     await _save_agent_state_async()
+    try:
+        if _time_primitive is not None:
+            current_step = body.step if body and body.step else None
+            _time_primitive.progress(op_id=name, pct=0.5, current_step=current_step)
+    except Exception:
+        pass
     return {"ok": True, "last_heartbeat_at": now_iso}
 
 

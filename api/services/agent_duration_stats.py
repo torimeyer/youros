@@ -159,6 +159,11 @@ def compute_duration_stats(
 def get_duration_stats(force_refresh: bool = False) -> dict:
     """Return cached duration stats, recomputing every CACHE_TTL_SEC.
 
+    Tries the Time primitive first (``time_primitive.estimate("agent_spawn")``).
+    If that returns a value, uses it as ``median_seconds`` and skips the
+    local rolling-median scan. Falls back to the local scan when the
+    primitive has no data yet.
+
     The cache is a single module-level dict guarded by a lock so
     concurrent polls do not race. Pass ``force_refresh=True`` to skip
     the cache (used by tests).
@@ -171,6 +176,22 @@ def get_duration_stats(force_refresh: bool = False) -> dict:
             and _cache["expires_at"] > now_monotonic
         ):
             return dict(_cache["value"])
+        # Try Time primitive first; fall back to local rolling median.
+        try:
+            from services import time_primitive as _tp
+            estimate = _tp.estimate("agent_spawn")
+            if estimate is not None:
+                value = {
+                    "median_seconds": int(round(estimate)),
+                    "p75_seconds": int(round(estimate)),
+                    "sample_count": 1,
+                    "window_days": DEFAULT_WINDOW_DAYS,
+                }
+                _cache["value"] = value
+                _cache["expires_at"] = now_monotonic + CACHE_TTL_SEC
+                return dict(value)
+        except Exception:
+            pass
         value = compute_duration_stats()
         _cache["value"] = value
         _cache["expires_at"] = now_monotonic + CACHE_TTL_SEC
