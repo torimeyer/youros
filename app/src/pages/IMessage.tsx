@@ -255,7 +255,7 @@ export default function IMessage() {
   }, [selectedChat, messages, messagesLoading])
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
-  const [searching, setSearching] = useState(false)
+  const [, setSearching] = useState(false)
   const [sendRecipient, setSendRecipient] = useState('')
   const [sendText, setSendText] = useState('')
   const [sending, setSending] = useState(false)
@@ -377,15 +377,6 @@ export default function IMessage() {
     } finally {
       setSearching(false)
     }
-  }
-
-  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleSearch()
-  }
-
-  const handleClearSearch = () => {
-    setSearchQuery('')
-    setSearchResults(null)
   }
 
   const handleSend = async (recipient: string, text: string) => {
