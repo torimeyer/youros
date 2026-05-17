@@ -1,127 +1,147 @@
 # Deprecation Audit — 2026-05-16
 
 Reviewed by: deprecate-auditor-codebase-scan-6d2ebe
-Safety constraint: HIGH PRECISION. Each candidate has at least one strong, verifiable signal. Ambiguous cases skipped.
+Safety constraint: HIGH PRECISION. Each candidate has at least one strong, verifiable signal.
 
 ## Summary
 
-- 0 HIGH-confidence candidates
-- 3 MEDIUM-confidence candidates
-- 1 LOW-confidence (manual review)
-- Total files scanned: 545 Python, 331 TypeScript
-- Total closed-needle references inspected: 50+, explicit deprecated markers: 4 files, orphan import check: all api/services/*.py
+- 1 HIGH-confidence candidate
+- 4 MEDIUM-confidence candidates
+- 2 LOW-confidence (manual review)
+- Total files scanned: 416 (228 Python, 188 TypeScript/TSX, non-test)
+- Total needle references inspected: 213 in source (vs 1,250 closed needles)
+- Deprecated markers found: 14 across the codebase
+- Orphan-import checks run: all 112 api/services/*.py modules, all app/src/pages/*.tsx components
 
 ---
 
 ## HIGH-confidence candidates
 
-None found. The codebase has no cases where multiple converging signals (closed needle + explicit deprecated marker + zero callers) all align.
+### api/routers/onboarding.py:302 — deprecated `/onboarding/dream` endpoint
+
+- Signals: explicit `# Deprecated` comment naming replacement, zero frontend callers, replacement fully implemented
+- Evidence:
+  ```python
+  @router.post("/onboarding/dream", response_model=DreamResponse)
+  async def dream(body: DreamRequest):
+      # Deprecated: use /onboarding/intent instead. Kept so existing flows don't break.
+  ```
+  Replacement at line 365:
+  ```python
+  @router.post("/onboarding/intent", response_model=IntentResponse)
+  async def intent(body: IntentRequest):
+  ```
+- Verification: searched all of `app/src/` for `onboarding/dream` — zero results. The replacement `/onboarding/intent` is actively called from `OnboardingWizard.tsx`. The `DreamResponse` and `DreamRequest` models are only referenced within `onboarding.py` itself and its test file.
+- Closed needle: no needle reference in the comment, but the evidence is self-contained.
+- Recommendation: remove the `/onboarding/dream` endpoint and its `DreamRequest`/`DreamResponse` models and related `_call_llm`/`_FIRST_RUNS_HINTS` logic if those are only used by `/dream`. Remove test coverage for `/dream` at the same time.
 
 ---
 
 ## MEDIUM-confidence candidates
 
-### `api/routers/onboarding.py:304-309` — Deprecated `/onboarding/dream` endpoint with zero frontend callers
+### api/services/fcp_export.py — service module with zero production callers
 
-- **Signals:** Explicit "Deprecated" comment in code; replacement endpoint confirmed present and active; no frontend callers found
-- **Evidence:**
-  ```python
-  # api/routers/onboarding.py:304
-  # Deprecated: use /onboarding/intent instead. Kept so existing flows don't break.
+- Signals: zero imports outside tests, one commit history, no router or endpoint references it
+- Evidence: 397-line module providing `FCPSession`, `detect_transport`, `get_server_command`, and related helpers for spawning FCP MCP server subprocesses. Its entire public API is exercised only in `api/tests/test_fcp_export.py`.
   ```
-  The replacement `POST /onboarding/intent` is live at line 365 and actively called by `app/src/components/OnboardingWizard.tsx:715`. Zero calls to `/onboarding/dream` in `app/src/`. The deprecated route also pulls in `DreamRequest`, `DreamResponse`, `_build_user_message`, and `_fallback_response` helpers (lines 22-216) that are only used by this one endpoint.
-- **Tests:** `api/tests/test_onboarding.py` still exercises the deprecated path (lines 49-230). Those tests would need to be removed or replaced with intent-endpoint tests.
-- **Recommendation:** Remove the `dream` endpoint, its Pydantic models, and helper functions. Update `test_onboarding.py` to drop the `/dream` test class. No frontend changes needed.
-
----
-
-### `api/routers/agents.py:5729-5840` — `POST /agents/fleets/spawn` endpoint marked deprecated
-
-- **Signals:** Explicit "Deprecated" docstring; frontend fleet panel removed with comment confirming the move; backend emits a warning log on every call
-- **Evidence:**
-  ```python
-  # api/routers/agents.py:5736-5743
-  """Spawn all members of a fleet template as parallel agents.
-  ...
-  Deprecated: fleet launching has been folded into the Plans page
-  template grid. This endpoint is kept alive for backwards compatibility
-  with existing callers but new UI should use
-  POST /api/specs/from-template instead.
-  """
-  logger.warning("spawn_fleet called; fleets are folded into plan templates; ...")
+  grep -rn "fcp_export" api/ frontend/ app/ (excluding tests and self)
+  → 0 results
   ```
-  `app/src/pages/Agents.tsx:2550`: "Fleets panel removed. The backend /agents/fleets/* endpoints stay alive for backwards compatibility, but the Plans page template grid is the new home for team-style starter templates."
-  The `GET /agents/fleets` and `POST /agents/fleets/{id}/prewarm` siblings are also present but NOT marked deprecated.
-- **Caveat:** The backwards-compat note means there may be external or script-level callers outside the scanned codebase. The warning log would make it visible if the endpoint is hit in production.
-- **Recommendation:** Check server logs for recent `/agents/fleets/spawn` calls before removing. If zero hits, remove `spawn_fleet`, `FleetSpawn` model, and the fleet-spawn test coverage in `api/tests/test_agent_templates.py:1378` and `api/tests/test_agents.py:9254`. The sibling `list_fleets` and `prewarm_fleet` endpoints are NOT candidates.
+  Git history: one commit (4949eda, 2026-04-23) which fixed its test interface. No follow-up commit wiring it into a router or calling service.
+- What this was for: the module header says it wraps FCP server sessions for one-shot file generation (sheets, slides, drawio, pdf). No FCP export endpoint exists in any router.
+- Recommendation: file a needle to either (a) wire `fcp_export` into a new `/api/fcp/export` endpoint if the feature is still planned, or (b) delete the module and its test. Do not delete silently — the tests are the only evidence of the intended interface.
 
----
+### api/services/agent_watchdog.py — stall-detection module never wired to production
 
-### `api/services/comprehensive_build.py` — Wrapper module never imported; build_queue.py does the work directly
-
-- **Signals:** Zero import references from any router or service file; `api/routers/agents.py` directly calls `build_queue.try_start_build` and `build_queue.finish_build` instead of going through this wrapper
-- **Evidence:**
-  ```python
-  # api/services/comprehensive_build.py (full file)
-  # Module exports: start_comprehensive_build(), on_build_complete()
-  # These functions wrap build_queue.try_start_build / finish_build
+- Signals: zero imports outside tests, commit added it to fix a specific bug but never integrated it
+- Evidence: 155-line `AgentWatchdog` class that tracks transcript growth + PID liveness to detect stalled agents. Created in commit e96eba0 (2026-05-03) to fix the port-release-notes premature cancel.
   ```
-  Verified: `grep` across all `.py`, `.ts`, `.tsx`, `.sh` files finds zero callers outside the file itself. The only external mention is a test function *name* (`test_task_specific_locks_allow_parallel_comprehensive_builds` in `test_spawn_locks.py`) which references the concept, not the module.
-
-  Meanwhile, `agents.py` directly imports `build_queue`:
-  ```python
-  # api/routers/agents.py:4555
-  from services.build_queue import try_start_build as _try_start_build
-  # api/routers/agents.py:5127
-  from services.build_queue import finish_build as _finish_build
+  grep -rn "agent_watchdog|AgentWatchdog|WatchdogState" api/ (excluding tests and self)
+  → 0 results
   ```
-  The triage doc at `docs/worktree-triage-2026-05-05.md:70` confirms both modules were scaffolded together under needle →970, but `comprehensive_build.py` was never wired up.
-- **Recommendation:** Remove `api/services/comprehensive_build.py`. No callers to update. Verify by running `grep -r "comprehensive_build" api/` before deleting.
+  The commit also modified `ghost_reaper.py` to accept a `transcript_resolver` kwarg — but `AgentWatchdog` was never called from `ghost_reaper`, `agents.py`, or the heartbeat loop.
+- What this was for: detecting agent stalls by watching both transcript bytes and progress log mtime. The heartbeat shell hook (`heartbeat-and-drain.sh`) calls `heartbeat_idle.py` directly, not `AgentWatchdog`.
+- Recommendation: file a needle to integrate `AgentWatchdog` into the heartbeat loop or document why `heartbeat_idle.py` alone is sufficient, then delete `agent_watchdog.py`.
+
+### api/services/transcript_resolver.py — incomplete integration (TODO not done, needle closed)
+
+- Signals: closed needle →1280, prominent TODO in module docstring for step that was not implemented
+- Evidence:
+  ```python
+  # Integration note
+  # The primary call site is inside routers.agents._resolve_transcript_source_uncached
+  # (→1280 integration needle). ...
+  # TODO (→1280 integration): wire resolve_transcript into
+  # routers.agents._resolve_transcript_source_uncached as step 3d — after 3c's
+  # worktree_path check — to handle agents whose worktree_path is no longer in
+  # agent_metadata but whose transcript JSONL still exists on disk.
+  ```
+  Searching `agents.py` for `transcript_resolver` import: zero results. The function exists in `ghost_reaper.py` as an injectable callback but the `services.transcript_resolver.resolve_transcript` function is never passed as that callback in production code.
+- Why MEDIUM not HIGH: the module is not entirely dead — it has tests and was intentionally designed as a "standalone import path." Needle →1280 being closed might mean the team decided step 3c was sufficient. But the TODO is still present and the module's primary purpose was never executed.
+- Recommendation: either (a) implement step 3d by wiring `resolve_transcript` into `_resolve_transcript_source_uncached`, or (b) remove the TODO and add a comment explaining why step 3c is sufficient and this module is a reserve.
+
+### app/src/pages/Team*.tsx — four frontend page components not reachable via routing
+
+- Signals: zero imports in App.tsx, zero non-test references across the entire codebase
+- Files: `TeamStart.tsx`, `TeamDashboard.tsx`, `TeamHome.tsx`, `TeamSettings.tsx`
+- Evidence: App.tsx imports only the following team/admin pages: `admin/Overview`, `admin/Members`, `admin/Policies`, `admin/AuditTrail`, `admin/Security`. The four Team pages are not imported anywhere:
+  ```
+  grep -rn "TeamStart|TeamDashboard|TeamHome|TeamSettings" app/src/ (excluding tests and self)
+  → 0 results for each
+  ```
+  Additionally, admin sub-pages `admin/Catalog.tsx`, `admin/OrgSettings.tsx`, `admin/StarterPack.tsx`, `admin/TeamAdoption.tsx` are also absent from App.tsx and have no non-test callers.
+- Why MEDIUM not HIGH: these could be features that are built but not yet wired up (intentionally staged), or they could be enterprise-only pages that ended up in main. Without that context, deletion would be risky.
+- Recommendation: confirm with Tori whether these are (a) planned but not yet wired into routing, (b) enterprise-only features belonging only on the `nr-enterprise` branch, or (c) abandoned. If (c), delete all eight components and their test files.
 
 ---
 
 ## LOW-confidence (manual review only)
 
-### `app/src/pages/Dashboard.tsx:486` — Orphaned migration note for `cardClass`
+### app/src/pages/Adoption.tsx — page component whose route now redirects away from it
 
-- **Signals:** Single comment referencing a variable (`cardClass`) that does not exist anywhere in the file
-- **Evidence:**
-  ```typescript
-  // app/src/pages/Dashboard.tsx:486
+- Signals: the `/adoption` route in App.tsx is a `<Navigate to="/settings" replace />`, meaning `Adoption.tsx` is never rendered
+- Evidence:
+  ```tsx
+  // App.tsx line 190
+  <Route path="adoption" element={<Navigate to="/settings" replace />} />
+  ```
+  `Adoption.tsx` is not imported in App.tsx. References in the codebase are string-level only (a path string in `UniversalSearch.tsx` pointing to `/adoption`, and an `AdoptionSummary` interface in `TeamHome.tsx`, which is itself not wired up).
+- Why LOW: `TeamHome.tsx` has an `AdoptionSummary` type and a reference to adoption data — these might be revived together. The redirect might be temporary.
+- Recommendation: ask whether the Adoption page was intentionally removed. If yes, delete `Adoption.tsx` and `Adoption.test.tsx` and the `AdoptionSummary` interface in `TeamHome.tsx`.
+
+### Dashboard.tsx:486 — leftover guide comment for removed `cardClass` variable
+
+- Signals: "cardClass replaced by Card component" comment with no surrounding code
+- Evidence:
+  ```tsx
+  // app/src/pages/Dashboard.tsx line 486
   // cardClass replaced by Card component. Use: <Card hover padding="sm" className="sm:p-6">
   ```
-  `grep -n "cardClass" Dashboard.tsx` returns only this comment line. The variable was removed; the comment was left behind.
-- **Confidence:** LOW because it is just a stale comment, not runnable code. No production risk.
-- **Recommendation:** Delete the one comment line. 5-second cleanup.
+  `cardClass` does not exist anywhere in the file. The `Card` component is already in use throughout Dashboard.tsx. This is a dangling comment from a refactor.
+- Why LOW: a comment, not dead code. No functional impact.
+- Recommendation: delete the comment. One-line change, safe.
 
 ---
 
 ## Skipped patterns
 
-- **Naming-pattern matches** (`_old`, `_legacy`, `_v1`, etc.): 12 found, skipped per spec (too many false positives in variable names and log strings)
-- **Aged TODO/FIXME/HACK:** 6 found, skipped per spec (intentional reminders, not dead code)
-- **Closed-needle references as traceability annotations:** ~50 inspected. All needle references in `agents.py` are traceability comments explaining *why* a line exists, not workarounds awaiting removal. The referenced needles are closed because their fixes are already in the code.
+- Naming-pattern matches (`_old`, `_legacy`, `_v1`): not searched (skipped per spec)
+- Aged TODO/FIXME: not individually flagged (skipped per spec)
+- Needle references in source code: all 213 references traced. Most are historical context ("fix introduced because →NNN"). The only actionable closed-needle workaround pattern that passed the "does the code below look like a workaround that closing the needle made unnecessary?" test is the `transcript_resolver.py` TODO, covered above.
 
 ---
 
 ## Methodology notes
 
-**What I searched:**
+**Signal 1 (closed-needle workarounds):** extracted all 213 `→NNN` references from non-test Python and TypeScript source files, cross-referenced against 1,250 closed needles, and searched for workaround language (`workaround`, `hack`, `temp`, `TODO.*→`, `until.*→`, `once.*fixed`) near each reference. Very few hits; most needle comments are historical attribution, not workaround flags. Only `transcript_resolver.py` and the `→999` auto-merge comment showed meaningful context, and the auto-merge code is the fix itself, not a leftover workaround.
 
-1. Needle references (`→NNNN` pattern) in comments across `api/` and `app/src/` — confirmed all referenced needles are closed, then checked whether surrounding code looked like a surviving workaround. Found none: all are traceability annotations.
+**Signal 2 (deprecated/superseded markers):** searched 14 occurrences of `deprecated`, `superseded by`, `replaced by`, `obsoleted by` across non-test files. Most were prose in comments explaining prior approaches that had already been removed. Only `/onboarding/dream` had a live deprecated endpoint with a named replacement.
 
-2. Explicit deprecated/superseded/replaced markers — searched for `deprecated`, `superseded by`, `replaced by`, `obsoleted by` in comments and docstrings. Found 4 relevant hits (onboarding, agents fleet, atlassian scope note, model deprecation handler). Atlassian and model-deprecation hits are about external API changes, not internal code.
+**Signal 3 (orphaned imports):** checked all 112 `api/services/*.py` modules for callers outside tests. Found two with zero non-test callers: `fcp_export.py` and `agent_watchdog.py`. Verified with broader searches (string matches for class/function names, shell hook references) — `heartbeat_idle.py` is called by shell hooks directly, ruling out `agent_watchdog.py` being used that way. Checked 50+ app/src/pages components against App.tsx; four Team pages have zero wiring.
 
-3. Orphan Python service imports — checked every `api/services/*.py` for zero references elsewhere. Initial pass found 9 zero-ref modules; broader search (including string matches, scripts, config) reduced real candidates to 1 (`comprehensive_build.py`). Others are used via dynamic imports, different naming, or are legitimately self-contained.
+**Signal 4 (replacement comments):** searched for "previously", "old approach", "old code" patterns. No significant hits beyond regression-test comments describing past bugs.
 
-4. Replacement comments (`previously`, `old approach`, `before this`, `instead of`) — found 20 matches; all are explanatory annotations for current code decisions, not pointers to surviving old code.
-
-**What I excluded:**
-
-- TypeScript page/component orphan scan was abandoned after finding it produces ~180 false positives (pages are router-mounted, not imported by other files; stores are imported by hook name, not module path). A proper TS dead-code scan requires running the TypeScript compiler with `noUnusedLocals` or a dedicated tool like `ts-prune`.
-
-**What to check next if signals were broader:**
-
-- Run `ts-prune` on `app/src/` for true TypeScript dead-export detection.
-- Grep server access logs for recent hits to `/agents/fleets/spawn` to confirm it is safe to remove.
-- Check whether `api/services/fleet_templates.py` itself is still needed after `spawn_fleet` is removed, or whether `list_fleets` and `prewarm_fleet` still justify it.
+**What I would search next if scope allowed:**
+- Dynamic `__import__`/`importlib` patterns that could hide real callers of the orphaned services
+- Shell scripts and hook files for any invocations of `fcp_export` or `agent_watchdog`
+- Git blame to confirm the Team pages have never been in App.tsx (vs. removed recently)
