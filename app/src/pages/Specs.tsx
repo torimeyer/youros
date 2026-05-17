@@ -64,8 +64,25 @@ interface SpecTemplatesResponse {
   templates: SpecTemplate[];
 }
 
+interface SpecClaim {
+  agent: string;
+  source: string;
+  started_at: string;
+  task_ids: string[];
+}
+
 interface SpecTasksResponse {
   tasks: LinkedTask[];
+  claims?: SpecClaim[];
+}
+
+// Format an ISO timestamp as a short relative string ("3m ago", "2h ago", etc.)
+function minutesAgo(isoStr: string): string {
+  const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 }
 
 interface BuildResponse {
@@ -117,14 +134,41 @@ const STATUS_STYLES: Record<Spec["status"], { bg: string; text: string }> = {
   complete: { bg: "bg-green-500/20", text: "text-green-400" },
 };
 
-function StatusBadge({ status }: { status: Spec["status"] }) {
-  const style = STATUS_STYLES[status] || STATUS_STYLES.draft;
+function StatusBadge({ status, claims }: { status: Spec["status"]; claims?: SpecClaim[] }) {
+  // Terminal-source claims (wrapper/agent/slash/passive) override the badge to "Building"
+  const terminalClaims = (claims ?? []).filter((c) => c.source !== "build");
+  const effectiveStatus: Spec["status"] = terminalClaims.length > 0 ? "in-progress" : status;
+  const style = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.draft;
+
+  // Tooltip: list all active claims so the user can debug who's working on this spec
+  const tooltipText = (claims ?? []).length > 0
+    ? (claims ?? []).map((c) => `${c.agent} · ${c.source} · started ${minutesAgo(c.started_at)}`).join("\n")
+    : undefined;
+
   return (
     <span
       className={`px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text}`}
       data-testid="status-badge"
+      title={tooltipText}
     >
-      {displayStatus(status)}
+      {displayStatus(effectiveStatus)}
+    </span>
+  );
+}
+
+// Shown next to the status badge when terminal-source claims are active.
+// "in terminal" = source in {wrapper, agent, slash, passive}. "in app" (build) is
+// already covered by per-task spinners, so we skip it here.
+function ClaimsNote({ claims }: { claims: SpecClaim[] }) {
+  const terminalClaims = claims.filter((c) => c.source !== "build");
+  if (terminalClaims.length === 0) return null;
+  const first = terminalClaims[0];
+  return (
+    <span
+      className="text-xs text-purple-400 flex items-center gap-1 whitespace-nowrap"
+      data-testid="claims-note"
+    >
+      🟣 {first.agent} in terminal ({first.source}) · started {minutesAgo(first.started_at)}
     </span>
   );
 }
@@ -424,6 +468,7 @@ export default function Specs() {
   const [loading, setLoading] = useState(false);
   const [expandedPath, setExpandedPath] = useState<string | null>(null);
   const [linkedTasks, setLinkedTasks] = useState<Record<string, LinkedTask[]>>({});
+  const [claimsMap, setClaimsMap] = useState<Record<string, SpecClaim[]>>({});
   const [buildingSpec, setBuildingSpec] = useState<string | null>(null);
   const [buildResult, setBuildResult] = useState<Record<string, { agents: string[]; message: string; has_unchecked_acs?: boolean }>>({});
   const [templates, setTemplates] = useState<SpecTemplate[]>([]);
@@ -738,6 +783,7 @@ export default function Specs() {
       const encodedPath = encodeURIComponent(path);
       const res = await api.get<SpecTasksResponse>(`/specs/${encodedPath}/tasks`);
       setLinkedTasks((prev) => ({ ...prev, [path]: res.tasks || [] }));
+      setClaimsMap((prev) => ({ ...prev, [path]: res.claims || [] }));
     } catch {
       // Non-fatal: linked tasks are supplemental progress info.
     }
@@ -1050,7 +1096,8 @@ export default function Specs() {
                         <p className="text-white text-lg font-medium truncate">
                           {doc.title}
                         </p>
-                        <StatusBadge status={doc.status} />
+                        <StatusBadge status={doc.status} claims={claimsMap[doc.path] ?? []} />
+                        <ClaimsNote claims={claimsMap[doc.path] ?? []} />
                       </div>
                       <div className="flex items-center gap-4 flex-shrink-0">
                         {hasTaskSummary && (
