@@ -53,7 +53,8 @@ class TestCacheHelpers:
 
 
 class TestCheckMyOS:
-    def test_up_to_date(self):
+    @pytest.mark.asyncio
+    async def test_up_to_date(self):
         from services import upgrade_check as mod
         mock_run = MagicMock()
         # fetch returns 0
@@ -66,11 +67,12 @@ class TestCheckMyOS:
             MagicMock(returncode=0, stdout="v2.2.0"),            # describe remote
         ]
         with patch("subprocess.run", mock_run):
-            result = mod.check_myos()
+            result = await mod.check_myos()
         assert result["behind"] is False
         assert result["commits_behind"] == 0
 
-    def test_behind(self):
+    @pytest.mark.asyncio
+    async def test_behind(self):
         from services import upgrade_check as mod
         mock_run = MagicMock()
         mock_run.side_effect = [
@@ -80,7 +82,7 @@ class TestCheckMyOS:
             MagicMock(returncode=0, stdout="v2.2.0"),
         ]
         with patch("subprocess.run", mock_run):
-            result = mod.check_myos()
+            result = await mod.check_myos()
         assert result["behind"] is True
         assert result["commits_behind"] == 3
 

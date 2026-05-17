@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 from pathlib import Path
@@ -9,7 +10,7 @@ from services.claude_code_provider import is_claude_code_available
 from services.gemini_cli_provider import is_gemini_cli_available
 
 
-def detect_vertex_ai() -> bool:
+async def detect_vertex_ai() -> bool:
     creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
     if creds_path and Path(creds_path).is_file():
         return True
@@ -17,7 +18,8 @@ def detect_vertex_ai() -> bool:
     if adc.exists():
         return True
     try:
-        r = subprocess.run(
+        r = await asyncio.to_thread(
+            subprocess.run,
             ["gcloud", "auth", "application-default", "print-access-token"],
             capture_output=True,
             timeout=3,
@@ -29,9 +31,10 @@ def detect_vertex_ai() -> bool:
     return False
 
 
-def _resolve_gcloud_default_project() -> str | None:
+async def _resolve_gcloud_default_project() -> str | None:
     try:
-        r = subprocess.run(
+        r = await asyncio.to_thread(
+            subprocess.run,
             ["gcloud", "config", "get-value", "project"],
             capture_output=True,
             timeout=3,
@@ -65,9 +68,9 @@ def _extract_user_email(creds) -> str | None:
     return None
 
 
-def detect_vertex_gemini() -> dict:
+async def detect_vertex_gemini() -> dict:
     """Return {available, project, location, identity_email, hosted_domain} or {available: False}."""
-    if not detect_vertex_ai():
+    if not await detect_vertex_ai():
         return {"available": False}
     try:
         import google.auth
@@ -75,7 +78,7 @@ def detect_vertex_gemini() -> dict:
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
         if not project:
-            project = _resolve_gcloud_default_project()
+            project = await _resolve_gcloud_default_project()
         hosted_domain = _extract_hosted_domain(creds)
         location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
         return {
@@ -90,7 +93,7 @@ def detect_vertex_gemini() -> dict:
         return {"available": False}
 
 
-def detect_bedrock() -> bool:
+async def detect_bedrock() -> bool:
     if os.environ.get("AWS_ACCESS_KEY_ID"):
         return True
     profile = os.environ.get("AWS_PROFILE", "")
@@ -99,7 +102,8 @@ def detect_bedrock() -> bool:
         if creds_file.exists() and f"[{profile}]" in creds_file.read_text():
             return True
     try:
-        r = subprocess.run(
+        r = await asyncio.to_thread(
+            subprocess.run,
             ["aws", "sts", "get-caller-identity"],
             capture_output=True,
             timeout=3,
@@ -125,7 +129,7 @@ async def detect_providers() -> dict[str, bool]:
     anthropic_key = bool(await get_anthropic_key())
     gemini_key = bool(await get_gemini_key())
 
-    vx = detect_vertex_gemini()
+    vx = await detect_vertex_gemini()
     return {
         "claude_code": claude_code,
         "gemini_cli": gemini_cli,
@@ -133,5 +137,5 @@ async def detect_providers() -> dict[str, bool]:
         "gemini_key": gemini_key,
         "vertex_ai": vx.get("available", False),
         "vertex_ai_project": vx.get("project"),
-        "bedrock": detect_bedrock(),
+        "bedrock": await detect_bedrock(),
     }

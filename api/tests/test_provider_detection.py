@@ -20,8 +20,8 @@ async def test_detect_no_providers():
     with patch("services.provider_detection.is_claude_code_available", new=AsyncMock(return_value=False)):
         with patch("services.ostk_secrets.get_anthropic_key", new=AsyncMock(return_value="")):
             with patch("services.ostk_secrets.get_gemini_key", new=AsyncMock(return_value="")):
-                with patch("services.provider_detection.detect_vertex_ai", return_value=False):
-                    with patch("services.provider_detection.detect_bedrock", return_value=False):
+                with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=False)):
+                    with patch("services.provider_detection.detect_bedrock", new=AsyncMock(return_value=False)):
                         with patch("services.provider_detection.is_gemini_cli_available", new=AsyncMock(return_value=False)):
                             result = await detect_providers()
 
@@ -108,17 +108,19 @@ def test_detect_endpoint_returns_dict():
 # Vertex AI detection tests (slice 2, needle →933)
 # ---------------------------------------------------------------------------
 
-def test_detect_vertex_ai_env_credentials(tmp_path):
+@pytest.mark.asyncio
+async def test_detect_vertex_ai_env_credentials(tmp_path):
     """GOOGLE_APPLICATION_CREDENTIALS pointing to an existing file → vertex_ai True."""
     from services.provider_detection import detect_vertex_ai
 
     creds_file = tmp_path / "creds.json"
     creds_file.write_text("{}")
     with patch.dict(os.environ, {"GOOGLE_APPLICATION_CREDENTIALS": str(creds_file)}):
-        assert detect_vertex_ai() is True
+        assert await detect_vertex_ai() is True
 
 
-def test_detect_vertex_ai_gcloud_succeeds():
+@pytest.mark.asyncio
+async def test_detect_vertex_ai_gcloud_succeeds():
     """gcloud auth application-default returning exit 0 → vertex_ai True."""
     from services.provider_detection import detect_vertex_ai
 
@@ -133,10 +135,11 @@ def test_detect_vertex_ai_gcloud_succeeds():
         MockPath.home.return_value = instance
         with patch.dict(os.environ, {"GOOGLE_APPLICATION_CREDENTIALS": ""}):
             with patch("services.provider_detection.subprocess.run", return_value=mock_proc):
-                assert detect_vertex_ai() is True
+                assert await detect_vertex_ai() is True
 
 
-def test_detect_vertex_ai_none():
+@pytest.mark.asyncio
+async def test_detect_vertex_ai_none():
     """No env, gcloud fails, no ADC file → vertex_ai False."""
     from services.provider_detection import detect_vertex_ai
 
@@ -151,22 +154,24 @@ def test_detect_vertex_ai_none():
         MockPath.home.return_value = instance
         with patch.dict(os.environ, {"GOOGLE_APPLICATION_CREDENTIALS": ""}):
             with patch("services.provider_detection.subprocess.run", return_value=mock_proc):
-                assert detect_vertex_ai() is False
+                assert await detect_vertex_ai() is False
 
 
 # ---------------------------------------------------------------------------
 # AWS Bedrock detection tests (slice 2, needle →933)
 # ---------------------------------------------------------------------------
 
-def test_detect_bedrock_access_key():
+@pytest.mark.asyncio
+async def test_detect_bedrock_access_key():
     """AWS_ACCESS_KEY_ID set in env → bedrock True."""
     from services.provider_detection import detect_bedrock
 
     with patch.dict(os.environ, {"AWS_ACCESS_KEY_ID": "test-fake-key"}):
-        assert detect_bedrock() is True
+        assert await detect_bedrock() is True
 
 
-def test_detect_bedrock_aws_sts_succeeds():
+@pytest.mark.asyncio
+async def test_detect_bedrock_aws_sts_succeeds():
     """aws sts get-caller-identity returning exit 0 → bedrock True."""
     from services.provider_detection import detect_bedrock
 
@@ -174,10 +179,11 @@ def test_detect_bedrock_aws_sts_succeeds():
     mock_proc.returncode = 0
     with patch.dict(os.environ, {"AWS_ACCESS_KEY_ID": "", "AWS_PROFILE": ""}):
         with patch("services.provider_detection.subprocess.run", return_value=mock_proc):
-            assert detect_bedrock() is True
+            assert await detect_bedrock() is True
 
 
-def test_detect_bedrock_none():
+@pytest.mark.asyncio
+async def test_detect_bedrock_none():
     """No AWS env vars, aws sts fails → bedrock False."""
     from services.provider_detection import detect_bedrock
 
@@ -185,64 +191,68 @@ def test_detect_bedrock_none():
     mock_proc.returncode = 1
     with patch.dict(os.environ, {"AWS_ACCESS_KEY_ID": "", "AWS_PROFILE": ""}):
         with patch("services.provider_detection.subprocess.run", return_value=mock_proc):
-            assert detect_bedrock() is False
+            assert await detect_bedrock() is False
 
 
 # ---------------------------------------------------------------------------
 # detect_vertex_gemini() tests (Wave B1)
 # ---------------------------------------------------------------------------
 
-def test_detect_vertex_gemini_adc_present():
+@pytest.mark.asyncio
+async def test_detect_vertex_gemini_adc_present():
     """ADC present + google.auth.default returns creds+project → available True."""
     from services.provider_detection import detect_vertex_gemini
 
     mock_creds = MagicMock(spec=[])
-    with patch("services.provider_detection.detect_vertex_ai", return_value=True):
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=True)):
         with patch("google.auth.default", return_value=(mock_creds, "test-project")):
             with patch.dict(os.environ, {"GOOGLE_CLOUD_LOCATION": "us-east1"}):
-                result = detect_vertex_gemini()
+                result = await detect_vertex_gemini()
 
     assert result["available"] is True
     assert result["project"] == "test-project"
     assert result["location"] == "us-east1"
 
 
-def test_detect_vertex_gemini_project_fallback():
+@pytest.mark.asyncio
+async def test_detect_vertex_gemini_project_fallback():
     """google.auth.default returns project=None → falls back to gcloud config."""
     from services.provider_detection import detect_vertex_gemini
 
     mock_creds = MagicMock(spec=[])
-    with patch("services.provider_detection.detect_vertex_ai", return_value=True):
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=True)):
         with patch("google.auth.default", return_value=(mock_creds, None)):
             with patch(
                 "services.provider_detection._resolve_gcloud_default_project",
-                return_value="fallback-project",
+                new=AsyncMock(return_value="fallback-project"),
             ):
-                result = detect_vertex_gemini()
+                result = await detect_vertex_gemini()
 
     assert result["available"] is True
     assert result["project"] == "fallback-project"
 
 
-def test_detect_vertex_gemini_no_adc():
+@pytest.mark.asyncio
+async def test_detect_vertex_gemini_no_adc():
     """detect_vertex_ai False → available False, google.auth never called."""
     from services.provider_detection import detect_vertex_gemini
 
-    with patch("services.provider_detection.detect_vertex_ai", return_value=False):
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=False)):
         with patch("google.auth.default") as mock_auth:
-            result = detect_vertex_gemini()
+            result = await detect_vertex_gemini()
 
     assert result == {"available": False}
     mock_auth.assert_not_called()
 
 
-def test_detect_vertex_gemini_auth_exception():
+@pytest.mark.asyncio
+async def test_detect_vertex_gemini_auth_exception():
     """google.auth.default raising RuntimeError → available False, no leak."""
     from services.provider_detection import detect_vertex_gemini
 
-    with patch("services.provider_detection.detect_vertex_ai", return_value=True):
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=True)):
         with patch("google.auth.default", side_effect=RuntimeError("no credentials")):
-            result = detect_vertex_gemini()
+            result = await detect_vertex_gemini()
 
     assert result == {"available": False}
 
@@ -263,8 +273,8 @@ async def test_detect_providers_includes_vertex_ai_project():
     with patch("services.provider_detection.is_claude_code_available", new=AsyncMock(return_value=False)):
         with patch("services.ostk_secrets.get_anthropic_key", new=AsyncMock(return_value="")):
             with patch("services.ostk_secrets.get_gemini_key", new=AsyncMock(return_value="")):
-                with patch("services.provider_detection.detect_vertex_gemini", return_value=mock_vx):
-                    with patch("services.provider_detection.detect_bedrock", return_value=False):
+                with patch("services.provider_detection.detect_vertex_gemini", new=AsyncMock(return_value=mock_vx)):
+                    with patch("services.provider_detection.detect_bedrock", new=AsyncMock(return_value=False)):
                         result = await detect_providers()
 
     assert result["vertex_ai"] is True
