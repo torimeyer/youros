@@ -45,7 +45,7 @@ export default function JiraWidget() {
   return (
     <div data-testid="widget-jira">
       <Card hover padding="sm" className="sm:p-6" onClick={() => navigate('/jira')}>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 pr-8">
           <div className="flex items-center gap-2">
             <Icon name="bug_report" className="text-blue-400" size={20} />
             <h2 className="text-lg font-semibold">Jira Issues</h2>
