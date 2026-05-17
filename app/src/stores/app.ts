@@ -21,7 +21,9 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
 ]
 
 // Human readable labels for each dashboard widget id. Keep this in sync
-// with DEFAULT_DASHBOARD_WIDGETS. Used by the customize modal.
+// with DEFAULT_DASHBOARD_WIDGETS — every key here must appear in
+// DEFAULT_DASHBOARD_WIDGETS and vice versa. The invariant test in
+// app.test.ts enforces this. Used by the customize modal.
 export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   briefing: 'Briefing',
   focus_first: 'Focus on this first',
@@ -31,7 +33,6 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   next_meeting: 'Next Event',
   day_summary: 'Day Summary',
   recent_specs: 'Recent Specs',
-  ostk_files: 'Tasks & Audit (ostk)',
   jira: 'Jira Issues',
   confluence: 'Confluence Pages',
 }
@@ -320,13 +321,14 @@ function readInitialCustomTemplates(): CustomAgentTemplate[] {
 }
 const initialCustomAgentTemplates = readInitialCustomTemplates()
 
-// One-shot migration: the old widget id "morning_briefing" became
-// "briefing" when the time-of-day restriction was removed. Rename it
-// wherever it appears in the stored widget list so users who already
-// customized their dashboard do not lose the briefing tile.
+// One-shot migration: rename old widget ids and strip removed ones so
+// saved localStorage state stays valid after widget changes.
+// - "morning_briefing" -> "briefing" (time-of-day restriction removed)
+// - "ostk_files" is removed entirely from the widget set
 function migrateBriefingWidgetId(ids: string[]): string[] {
   const out: string[] = []
   for (const id of ids) {
+    if (id === 'ostk_files') continue // removed widget, drop it
     const mapped = id === 'morning_briefing' ? 'briefing' : id
     if (!out.includes(mapped)) out.push(mapped)
   }
