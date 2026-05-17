@@ -45,12 +45,14 @@ def read() -> str:
     Returns an empty string when the file does not exist (silent, no log spam).
     Cache is invalidated on mtime change.
     """
+    global _cached_mtime, _cached_content
     path = _memory_path()
     with _cache_lock:
         try:
             mtime = path.stat().st_mtime
         except FileNotFoundError:
-            _reset_cache()
+            _cached_mtime = -1.0
+            _cached_content = ""
             return ""
         if mtime == _cached_mtime:
             return _cached_content
@@ -58,7 +60,6 @@ def read() -> str:
             content = path.read_text(encoding="utf-8")
         except OSError:
             return ""
-        global _cached_mtime, _cached_content
         _cached_mtime = mtime
         _cached_content = content
         return content
