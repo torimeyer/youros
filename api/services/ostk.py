@@ -2624,6 +2624,18 @@ class OstkService:
         """
         if base_status in ("draft", "plan"):
             return base_status
+        # "building" means implementation has started (set by build_spec or
+        # by spawn_agent when spec_id is provided). Treat it as in-progress
+        # even when no tasks are linked yet, to avoid flickering back to
+        # the "ready" badge during the narrow window between the status
+        # write and the task-frontmatter write. (→1420)
+        if base_status == "building":
+            if not task_ids:
+                return "in-progress"
+            statuses = [task_statuses.get(tid, "open") for tid in task_ids]
+            if all(s == "closed" for s in statuses):
+                return "complete"
+            return "in-progress"
         if not task_ids:
             # No tasks linked: trust the frontmatter vocabulary.
             if base_status in ("complete", "done"):

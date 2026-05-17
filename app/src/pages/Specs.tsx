@@ -87,6 +87,11 @@ interface BuildResponse {
 // Map legacy "spec" status to "ready" for display
 function normalizeStatus(status: string): Spec["status"] {
   if (status === "spec") return "ready";
+  // "building" is written to the spec frontmatter by build_spec() and by
+  // spawn_agent when spec_id is set. compute_spec_status maps it to
+  // "in-progress" when tasks exist, but normalizeStatus must also handle
+  // it directly in case a future path returns "building" from the API. (→1420)
+  if (status === "building") return "in-progress";
   if (status === "draft" || status === "ready" || status === "in-progress" || status === "complete") {
     return status;
   }
@@ -94,7 +99,7 @@ function normalizeStatus(status: string): Spec["status"] {
 }
 
 // Single source of truth for backend-status to user-facing label.
-// Backend uses: draft, spec (legacy), ready, in-progress, complete.
+// Backend uses: draft, spec (legacy), ready, in-progress, building, complete.
 // User-facing labels: Draft, Ready, Building, Done.
 // Any code that needs to show status text MUST call this function
 // instead of repeating the mapping inline. Legacy "spec" is treated
