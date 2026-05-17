@@ -116,6 +116,8 @@ export default function Settings() {
   const [autoTemplateMatching, setAutoTemplateMatching] = useState(true);
   const [briefingEnabled, setBriefingEnabled] = useState(true);
   const [chatMemoryEnabled, setChatMemoryEnabled] = useState(true);
+  const [memoryContent, setMemoryContent] = useState('');
+  const [memorySaveStatus, setMemorySaveStatus] = useState<string | null>(null);
   const [standingInstructions, setStandingInstructions] = useState('');
   const [standingSaveStatus, setStandingSaveStatus] = useState<string | null>(null);
   const [standingSaveIsError, setStandingSaveIsError] = useState(false);
@@ -274,6 +276,10 @@ export default function Settings() {
       }
     };
     fetchSettings();
+    // Load per-user memory file for the Memory editor.
+    api.get<{ content: string }>('/memory')
+      .then((d) => setMemoryContent(d.content ?? ''))
+      .catch(() => {});
     // Check whether the local local subscription programs are ready.
     api.get<{ claude_code_available?: boolean; gemini_cli_available?: boolean }>('/settings/chat-backend-status')
       .then((data) => {
@@ -591,6 +597,17 @@ export default function Settings() {
       setStandingSaveStatus('Could not save. Check your connection and try again.');
     } finally {
       setTimeout(() => setStandingSaveStatus(null), 3000);
+    }
+  };
+
+  const handleSaveMemory = async () => {
+    try {
+      await api.put('/memory', { content: memoryContent });
+      setMemorySaveStatus('Saved');
+    } catch {
+      setMemorySaveStatus('Could not save. Check your connection and try again.');
+    } finally {
+      setTimeout(() => setMemorySaveStatus(null), 3000);
     }
   };
 
@@ -1817,6 +1834,36 @@ export default function Settings() {
                   </div>
                   <Toggle checked={chatMemoryEnabled} onChange={handleChatMemoryToggle} testId="chat-memory-toggle" />
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Memory editor */}
+          <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+            <div className={cardClass}>
+              <h2 className="text-lg font-semibold mb-1">Memory</h2>
+              <p className="text-sm text-slate-400 mb-4">
+                Things you tell me to remember show up here. You can edit or remove them anytime.
+              </p>
+              <textarea
+                data-testid="memory-editor"
+                value={memoryContent}
+                onChange={(e) => setMemoryContent(e.target.value)}
+                placeholder="Things you tell me to remember will show up here."
+                rows={10}
+                className="w-full rounded-lg bg-slate-900 border border-slate-700 text-sm text-slate-200 px-3 py-2 font-mono resize-y focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  data-testid="memory-save-button"
+                  onClick={handleSaveMemory}
+                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+                >
+                  Save
+                </button>
+                {memorySaveStatus && (
+                  <span className="text-xs text-slate-400">{memorySaveStatus}</span>
+                )}
               </div>
             </div>
           </div>
