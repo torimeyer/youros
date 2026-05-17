@@ -90,7 +90,7 @@ async def test_create_draft_auto_promotes_when_ac_generation_succeeds(
     monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeClient)
 
     resp = await client.post(
-        "/api/specs/draft", json={"title": "wave2 autopromote"}
+        "/api/specs/draft", json={"title": "wave2 autopromote", "kind": "spec"}
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -147,7 +147,7 @@ async def test_create_draft_leaves_as_draft_when_ac_generation_fails(
     )
 
     resp = await client.post(
-        "/api/specs/draft", json={"title": "wave2 no ac"}
+        "/api/specs/draft", json={"title": "wave2 no ac", "kind": "spec"}
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -487,7 +487,7 @@ async def test_from_template_creates_ready_plan(
 
     resp = await client.post(
         "/api/specs/from-template",
-        json={"template_id": "build-a-website"},
+        json={"template_id": "build-a-website", "kind": "spec"},
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -596,6 +596,7 @@ async def test_from_roadmap_line_creates_ready_plan(
         json={
             "roadmap_path": str(roadmap_path),
             "initiative_text": "Ship guided onboarding for solo PMs",
+            "kind": "spec",
         },
     )
     # The endpoint now returns as soon as the draft file exists and the
@@ -1351,6 +1352,7 @@ async def test_from_roadmap_line_p95_under_demo_budget(
             json={
                 "roadmap_path": str(roadmap_path),
                 "initiative_text": subject,
+                "kind": "spec",
             },
         )
         elapsed = time.perf_counter() - t0
