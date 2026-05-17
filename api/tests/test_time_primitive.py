@@ -12,39 +12,55 @@ from pathlib import Path
 import pytest
 
 # ---------------------------------------------------------------------------
-# Helpers — patch the DB path before importing the module under test
-# ---------------------------------------------------------------------------
-
-def _make_db(tmp_path: Path) -> Path:
-    """Return a path to a temp primitives.db; also set env so the module uses it."""
-    return tmp_path / "primitives.db"
-
-
-# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
 def db_path(tmp_path):
-    return _make_db(tmp_path)
+    return tmp_path / "primitives.db"
 
 
 @pytest.fixture()
-def tp(db_path, monkeypatch):
-    """Import time_primitive with DB redirected to a temp file."""
+def pdb_mod(db_path, monkeypatch):
+    """Return primitives_db with its DB path redirected to a temp file."""
     import importlib
     import services.primitives_db as pdb
-    import services.time_primitive as tp_mod
 
-    # Redirect DB path before any call touches the real ~/.myos/
     monkeypatch.setattr(pdb, "PRIMITIVES_DB_PATH", db_path)
 
-    # Re-initialise the module's connection cache so the patched path takes effect
-    importlib.reload(pdb)
-    importlib.reload(tp_mod)
+    # Clear the per-thread connection cache so get_db() opens a fresh
+    # connection to the new path rather than returning the cached one.
+    import services.primitives_db as _pdb_local
+    _pdb_local._local.__dict__.clear()
 
-    monkeypatch.setattr(tp_mod, "_get_db", lambda: pdb.get_db())
+    return pdb
+
+
+@pytest.fixture()
+def tp(pdb_mod, monkeypatch):
+    """Return time_primitive with the DB wired to the temp file."""
+    import importlib
+    import services.time_primitive as tp_mod
+
+    # Redirect _get_db to always use the patched pdb_mod
+    monkeypatch.setattr(tp_mod, "_get_db", lambda: pdb_mod.get_db())
+
     return tp_mod
+
+
+def _seed_run(pdb_mod, op_id, op_kind, started_at, finished_at,
+              status="completed", duration=None):
+    """Insert a completed run directly into the temp DB (schema already applied)."""
+    if finished_at is None and duration is not None:
+        finished_at = started_at + duration
+    conn = pdb_mod.get_db()
+    conn.execute(
+        "INSERT OR REPLACE INTO time_runs "
+        "(op_id, op_kind, started_at, finished_at, status, hint_sec, progress_pct, current_step) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (op_id, op_kind, started_at, finished_at, status, None, 100.0, None),
+    )
+    conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +68,7 @@ def tp(db_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 class TestStart:
-    def test_start_creates_row(self, tp, db_path):
+    def test_start_creates_row(self, tp):
         tp.start("op-001", "agent_spawn")
         s = tp.status("op-001")
         assert s is not None
@@ -178,122 +194,57 @@ class TestEstimate:
     def test_estimate_no_history_returns_none(self, tp):
         assert tp.estimate("completely_new_kind") is None
 
-    def test_estimate_single_completed_run(self, tp, db_path):
+    def test_estimate_single_completed_run(self, tp, pdb_mod):
         """Seed one finished run, estimate should return its duration."""
-        import sqlite3, time as _time
-        now = _time.time()
-        conn = sqlite3.connect(str(db_path))
-        conn.execute(
-            "INSERT INTO time_runs (op_id, op_kind, started_at, finished_at, status, hint_sec, progress_pct, current_step) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            ("seed-1", "smoke_gate", now - 120, now, "completed", None, 100.0, None),
-        )
-        conn.commit()
-        conn.close()
+        now = time.time()
+        _seed_run(pdb_mod, "seed-1", "smoke_gate", now - 120, now)
         est = tp.estimate("smoke_gate")
         assert est == pytest.approx(120, abs=2)
 
-    def test_estimate_median_of_multiple(self, tp, db_path):
+    def test_estimate_median_of_multiple(self, tp, pdb_mod):
         """Returns median of completed runs, not mean."""
-        import sqlite3, time as _time
-        now = _time.time()
-        conn = sqlite3.connect(str(db_path))
-        durations = [60, 120, 180]  # median = 120
-        for i, d in enumerate(durations):
-            conn.execute(
-                "INSERT INTO time_runs (op_id, op_kind, started_at, finished_at, status, hint_sec, progress_pct, current_step) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (f"seed-{i}", "release_cut", now - d - 3600, now - 3600, "completed", None, 100.0, None),
-            )
-        conn.commit()
-        conn.close()
+        now = time.time()
+        for i, d in enumerate([60, 120, 180]):  # median = 120
+            _seed_run(pdb_mod, f"seed-{i}", "release_cut",
+                      now - d - 3600, now - 3600, duration=d)
         est = tp.estimate("release_cut")
         assert est == pytest.approx(120, abs=2)
 
-    def test_estimate_outlier_floor(self, tp, db_path):
+    def test_estimate_outlier_floor(self, tp, pdb_mod):
         """Runs under 2s are excluded from estimate."""
-        import sqlite3, time as _time
-        now = _time.time()
-        conn = sqlite3.connect(str(db_path))
-        # Insert one sub-2s run (outlier) and one valid 60s run
-        conn.execute(
-            "INSERT INTO time_runs (op_id, op_kind, started_at, finished_at, status, hint_sec, progress_pct, current_step) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            ("floor-bad", "chat_turn", now - 1, now, "completed", None, 100.0, None),
-        )
-        conn.execute(
-            "INSERT INTO time_runs (op_id, op_kind, started_at, finished_at, status, hint_sec, progress_pct, current_step) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            ("floor-good", "chat_turn", now - 60, now, "completed", None, 100.0, None),
-        )
-        conn.commit()
-        conn.close()
+        now = time.time()
+        _seed_run(pdb_mod, "floor-bad",  "chat_turn", now - 1,  now)       # 1s — excluded
+        _seed_run(pdb_mod, "floor-good", "chat_turn", now - 60, now)       # 60s — kept
         est = tp.estimate("chat_turn")
         assert est == pytest.approx(60, abs=2)
 
-    def test_estimate_outlier_cap(self, tp, db_path):
+    def test_estimate_outlier_cap(self, tp, pdb_mod):
         """Runs over 2h are excluded from estimate."""
-        import sqlite3, time as _time
-        now = _time.time()
-        conn = sqlite3.connect(str(db_path))
-        # Insert one over-cap run and one valid 90s run
-        conn.execute(
-            "INSERT INTO time_runs (op_id, op_kind, started_at, finished_at, status, hint_sec, progress_pct, current_step) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            ("cap-bad", "build_queue", now - (3 * 3600), now, "completed", None, 100.0, None),
-        )
-        conn.execute(
-            "INSERT INTO time_runs (op_id, op_kind, started_at, finished_at, status, hint_sec, progress_pct, current_step) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            ("cap-good", "build_queue", now - 90, now, "completed", None, 100.0, None),
-        )
-        conn.commit()
-        conn.close()
+        now = time.time()
+        _seed_run(pdb_mod, "cap-bad",  "build_queue", now - (3 * 3600), now)  # 3h — excluded
+        _seed_run(pdb_mod, "cap-good", "build_queue", now - 90,          now)  # 90s — kept
         est = tp.estimate("build_queue")
         assert est == pytest.approx(90, abs=2)
 
-    def test_estimate_ignores_old_runs(self, tp, db_path):
+    def test_estimate_ignores_old_runs(self, tp, pdb_mod):
         """Runs older than 14 days are excluded."""
-        import sqlite3, time as _time
-        now = _time.time()
+        now = time.time()
         old = now - (15 * 24 * 3600)  # 15 days ago
-        conn = sqlite3.connect(str(db_path))
-        conn.execute(
-            "INSERT INTO time_runs (op_id, op_kind, started_at, finished_at, status, hint_sec, progress_pct, current_step) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            ("old-run", "workflow_run", old - 60, old, "completed", None, 100.0, None),
-        )
-        conn.commit()
-        conn.close()
+        _seed_run(pdb_mod, "old-run", "workflow_run", old - 60, old)
         est = tp.estimate("workflow_run")
         assert est is None
 
-    def test_estimate_ignores_failed_runs(self, tp, db_path):
+    def test_estimate_ignores_failed_runs(self, tp, pdb_mod):
         """Failed and cancelled runs are NOT used for estimates."""
-        import sqlite3, time as _time
-        now = _time.time()
-        conn = sqlite3.connect(str(db_path))
-        conn.execute(
-            "INSERT INTO time_runs (op_id, op_kind, started_at, finished_at, status, hint_sec, progress_pct, current_step) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            ("failed-run", "agent_spawn", now - 60, now, "failed", None, 100.0, None),
-        )
-        conn.commit()
-        conn.close()
+        now = time.time()
+        _seed_run(pdb_mod, "failed-run", "agent_spawn",
+                  now - 60, now, status="failed")
         assert tp.estimate("agent_spawn") is None
 
-    def test_estimate_uses_history_for_new_start(self, tp, db_path):
-        """When starting a new op with known kind history, estimate() returns median."""
-        import sqlite3, time as _time
-        now = _time.time()
-        conn = sqlite3.connect(str(db_path))
-        conn.execute(
-            "INSERT INTO time_runs (op_id, op_kind, started_at, finished_at, status, hint_sec, progress_pct, current_step) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            ("hist-1", "known_kind", now - 200, now, "completed", None, 100.0, None),
-        )
-        conn.commit()
-        conn.close()
+    def test_estimate_uses_history_for_new_start(self, tp, pdb_mod):
+        """When starting a new op with known kind history, status.eta_sec reflects it."""
+        now = time.time()
+        _seed_run(pdb_mod, "hist-1", "known_kind", now - 200, now)
         # Now start a new op of the same kind (no hint)
         tp.start("new-known", "known_kind")
         s = tp.status("new-known")
@@ -363,12 +314,13 @@ class TestTimeStatus:
 
 def test_import_no_side_effects(tmp_path, monkeypatch):
     """Importing time_primitive must not create ~/.myos/primitives.db."""
-    import importlib
     import services.primitives_db as pdb
 
     fake_db = tmp_path / "check.db"
     monkeypatch.setattr(pdb, "PRIMITIVES_DB_PATH", fake_db)
-    importlib.reload(pdb)
+
+    # Clear thread-local cache so we start fresh
+    pdb._local.__dict__.clear()
 
     import services.time_primitive  # noqa: F401 — just import, no calls
 
