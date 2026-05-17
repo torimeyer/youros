@@ -73,7 +73,7 @@ async def key_status():
     google_connected = _google_is_authenticated()
 
     from services.provider_detection import detect_vertex_gemini
-    vx = detect_vertex_gemini()
+    vx = await detect_vertex_gemini()
     datastore = os.environ.get("VERTEX_SEARCH_DATASTORE", "") or None
 
     return {

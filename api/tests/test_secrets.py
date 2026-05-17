@@ -173,7 +173,7 @@ async def test_key_status_gemini_enterprise_vertex_available(client):
         "location": "us-central1",
     }
     with patch("routers.secrets.ostk") as mock_ostk, \
-         patch("services.provider_detection.detect_vertex_gemini", return_value=vx_result), \
+         patch("services.provider_detection.detect_vertex_gemini", new=AsyncMock(return_value=vx_result)), \
          patch("services.google_auth.is_authenticated", return_value=False), \
          patch.dict("os.environ", {}, clear=False):
         import os
@@ -207,7 +207,7 @@ async def test_key_status_gemini_enterprise_grounded_when_datastore_set(client):
     }
     datastore_path = "projects/test-proj/locations/global/collections/default_collection/dataStores/my-store"
     with patch("routers.secrets.ostk") as mock_ostk, \
-         patch("services.provider_detection.detect_vertex_gemini", return_value=vx_result), \
+         patch("services.provider_detection.detect_vertex_gemini", new=AsyncMock(return_value=vx_result)), \
          patch("services.google_auth.is_authenticated", return_value=False), \
          patch.dict("os.environ", {"VERTEX_SEARCH_DATASTORE": datastore_path}, clear=False):
         import os
@@ -228,7 +228,7 @@ async def test_key_status_gemini_enterprise_unavailable(client):
     """gemini_enterprise.available=False and source=None when Vertex ADC absent and no nerd-completion."""
     mock_secrets = []
     with patch("routers.secrets.ostk") as mock_ostk, \
-         patch("services.provider_detection.detect_vertex_gemini", return_value={"available": False}), \
+         patch("services.provider_detection.detect_vertex_gemini", new=AsyncMock(return_value={"available": False})), \
          patch("services.google_auth.is_authenticated", return_value=False), \
          patch.dict("os.environ", {}, clear=False):
         import os

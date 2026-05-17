@@ -3052,7 +3052,7 @@ class ChatService:
         # Imported here to avoid a circular-import at module load time.
         import os
         from .provider_detection import detect_vertex_gemini
-        vx = detect_vertex_gemini()
+        vx = await detect_vertex_gemini()
         if vx.get("available"):
             datastore = os.environ.get("VERTEX_SEARCH_DATASTORE", "") or None
             return await self._stream_gemini_vertex(
