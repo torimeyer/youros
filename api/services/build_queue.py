@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import json
 import logging
+
+import services.time_primitive as _time_primitive
 import os
 import threading
 import time
@@ -124,6 +126,10 @@ def try_start_build(
                 state="running",
             )
             _running[spawn_id] = entry
+            try:
+                _time_primitive.start(f"build-{spawn_id}", "build_queue", hint_sec=None)
+            except Exception:
+                pass
             logger.info(
                 "build_queue.slot_claimed spawn_id=%s running=%d/%d",
                 spawn_id,
@@ -162,6 +168,10 @@ def finish_build(spawn_id: str) -> Optional[BuildEntry]:
     """
     with _lock:
         _running.pop(spawn_id, None)
+        try:
+            _time_primitive.finish(f"build-{spawn_id}", status="completed")
+        except Exception:
+            pass
         logger.info(
             "build_queue.slot_released spawn_id=%s remaining=%d queued=%d",
             spawn_id,

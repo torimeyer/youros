@@ -14,18 +14,39 @@ GET /api/time/running             → {"running": [TimeStatus, ...]}
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from services.time_primitive import (
     TimeStatus,
     all_running,
     estimate,
+    finish as _finish,
+    progress as _progress,
+    start as _start,
     status,
 )
 
 router = APIRouter(tags=["time"])
+
+
+class TimeStartBody(BaseModel):
+    op_id: str
+    op_kind: str
+    hint_sec: int | None = None
+
+
+class TimeProgressBody(BaseModel):
+    op_id: str
+    pct: float
+    current_step: str | None = None
+
+
+class TimeFinishBody(BaseModel):
+    op_id: str
+    status: Literal["completed", "failed", "cancelled"]
 
 
 def _serialize(ts: TimeStatus) -> dict[str, Any]:
@@ -60,3 +81,32 @@ async def get_time_estimate(op_kind: str) -> dict[str, Any]:
 async def get_time_running() -> dict[str, Any]:
     """Return all currently-running operations."""
     return {"running": [_serialize(ts) for ts in all_running()]}
+
+
+# ---------------------------------------------------------------------------
+# POST endpoints — for bash scripts (smoke runner) and other non-Python callers
+# ---------------------------------------------------------------------------
+
+@router.post("/time/start")
+async def post_time_start(body: TimeStartBody) -> dict[str, Any]:
+    """Start tracking an operation.
+
+    Thin HTTP wrapper around ``time_primitive.start`` for callers that
+    cannot import the Python module (smoke script, external tools).
+    """
+    _start(body.op_id, body.op_kind, hint_sec=body.hint_sec)
+    return {"ok": True}
+
+
+@router.post("/time/progress")
+async def post_time_progress(body: TimeProgressBody) -> dict[str, Any]:
+    """Report progress on a tracked operation."""
+    _progress(body.op_id, body.pct, body.current_step)
+    return {"ok": True}
+
+
+@router.post("/time/finish")
+async def post_time_finish(body: TimeFinishBody) -> dict[str, Any]:
+    """Finish a tracked operation with a terminal status."""
+    _finish(body.op_id, status=body.status)
+    return {"ok": True}

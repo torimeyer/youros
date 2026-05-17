@@ -502,6 +502,12 @@ header() {
 }
 
 header "myOS end-to-end smoke test"
+# Time primitive: announce smoke start. Failures here must NOT break smoke.
+SMOKE_OP_ID="smoke-$(date +%s)"
+curl -sk --connect-timeout 3 -m 5 -X POST "${API_BASE}/api/time/start" \
+    -H 'Content-Type: application/json' \
+    -d "{\"op_id\":\"${SMOKE_OP_ID}\",\"op_kind\":\"smoke_gate\"}" \
+    > /dev/null 2>&1 || true
 echo "Repo:    $REPO_DIR"
 echo "API:     $API_BASE"
 echo "Skip unit:  $SKIP_UNIT"
@@ -1833,9 +1839,17 @@ echo -e "  ${YELLOW}SKIP${NC} $SKIP"
 echo ""
 
 if [ "$FAIL" -eq 0 ]; then
+    curl -sk --connect-timeout 3 -m 5 -X POST "${API_BASE}/api/time/finish" \
+        -H 'Content-Type: application/json' \
+        -d "{\"op_id\":\"${SMOKE_OP_ID}\",\"status\":\"completed\"}" \
+        > /dev/null 2>&1 || true
     echo -e "${GREEN}All phases passed.${NC} myOS is ready to release."
     exit 0
 else
+    curl -sk --connect-timeout 3 -m 5 -X POST "${API_BASE}/api/time/finish" \
+        -H 'Content-Type: application/json' \
+        -d "{\"op_id\":\"${SMOKE_OP_ID}\",\"status\":\"failed\"}" \
+        > /dev/null 2>&1 || true
     echo -e "${RED}$FAIL phase(s) failed.${NC} Fix them before releasing."
     exit 1
 fi
