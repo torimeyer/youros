@@ -92,16 +92,18 @@ def _humanize_git_describe(raw: str) -> str:
     return f"{tag}.{commits_after}"
 
 
-def check_myos() -> dict:
+async def check_myos() -> dict:
     """Return myOS version info: current commit, commits behind origin/main."""
     repo = str(PROJECT_ROOT)
     try:
-        subprocess.run(
+        await asyncio.to_thread(
+            subprocess.run,
             ["git", "-C", repo, "fetch", "origin", "--quiet"],
             capture_output=True,
             timeout=15,
         )
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["git", "-C", repo, "rev-list", "HEAD..origin/main", "--count"],
             capture_output=True,
             text=True,
@@ -110,7 +112,8 @@ def check_myos() -> dict:
         behind = int(result.stdout.strip()) if result.returncode == 0 else 0
 
         # Current version: latest tag + number of commits since it
-        desc_result = subprocess.run(
+        desc_result = await asyncio.to_thread(
+            subprocess.run,
             ["git", "-C", repo, "describe", "--tags", "--long", "--always"],
             capture_output=True,
             text=True,
@@ -121,7 +124,8 @@ def check_myos() -> dict:
         current = _humanize_git_describe(current)
 
         # Latest remote tag
-        remote_tag_result = subprocess.run(
+        remote_tag_result = await asyncio.to_thread(
+            subprocess.run,
             ["git", "-C", repo, "describe", "--tags", "--abbrev=0", "origin/main"],
             capture_output=True,
             text=True,
@@ -182,7 +186,7 @@ async def check_all(force: bool = False) -> dict:
             return cached
 
     myos_info, ostk_info = await asyncio.gather(
-        asyncio.to_thread(check_myos),
+        check_myos(),
         check_ostk(),
     )
 
@@ -199,7 +203,7 @@ async def run_upgrade(target: str) -> dict:
 
     for t in targets:
         if t == "myos":
-            msg = _upgrade_myos()
+            msg = await _upgrade_myos()
         elif t == "ostk":
             msg = await _upgrade_ostk()
         else:
@@ -215,10 +219,11 @@ async def run_upgrade(target: str) -> dict:
     return {"success": success, "message": " ".join(messages)}
 
 
-def _upgrade_myos() -> str:
+async def _upgrade_myos() -> str:
     repo = str(PROJECT_ROOT)
     try:
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["git", "-C", repo, "pull", "--ff-only", "origin", "main"],
             capture_output=True,
             text=True,
