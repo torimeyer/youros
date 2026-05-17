@@ -107,7 +107,7 @@ async def _create_needle(title: str, description: str = "") -> dict:
     return {"kind": "needle", "task_id": task_id, "result": result}
 
 
-
+async def _delete_builder_task(task_id: str) -> bool:
     """Delete one builder-spawned task row. Returns True on success.
 
     Called on two paths: when a spec file is deleted (residue cleanup) and
