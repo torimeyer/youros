@@ -233,6 +233,7 @@ class TestAgentDurationStatsShim:
         import services.agent_duration_stats as ads
         import services.time_primitive as tp_mod
         import services.primitives_db as pdb
+        from datetime import datetime, timezone
 
         # Empty DB -> estimate() returns None
         fake_db = tmp_path / "empty.db"
@@ -240,14 +241,17 @@ class TestAgentDurationStatsShim:
         pdb._local.__dict__.clear()
         monkeypatch.setattr(tp_mod, "_get_db", lambda: pdb.get_db())
 
+        # Pin "now" to 2026-01-02 so the 14-day window covers the Jan 1 test data,
+        # regardless of when this test actually runs.
+        fixed_now = datetime(2026, 1, 2, 0, 0, 0, tzinfo=timezone.utc)
+        monkeypatch.setattr(ads, "_get_now", lambda: fixed_now)
+
         # Seed agent_state.json with a 3-minute (180s) completed run
-        now_iso = "2026-01-01T00:00:00+00:00"
-        old_iso = "2025-12-31T23:57:00+00:00"
         state = {
             "agent-local-1": {
                 "status": "completed",
-                "spawned_at": old_iso,
-                "completed_at": now_iso,
+                "spawned_at": "2025-12-31T23:57:00+00:00",
+                "completed_at": "2026-01-01T00:00:00+00:00",
             }
         }
         state_file = tmp_path / "agent_state.json"
