@@ -2723,6 +2723,129 @@ def test_user_specs_dir_honors_myos_user_specs_dir_env_var(tmp_path):
     )
 
 
+# ---------------------------------------------------------------------------
+# →1470  POST /api/specs/{slug}/backfill  and  POST /api/specs/{slug}/archive
+# ---------------------------------------------------------------------------
+
+REQUIRED_SECTIONS = [
+    "Problem",
+    "Goals",
+    "Non-goals",
+    "Solution",
+    "Edge cases",
+    "Success criteria",
+    "Acceptance criteria",
+    "Verification",
+    "USER FEEDBACK",
+    "DECISION",
+]
+
+_PARTIAL_SPEC = """\
+---
+title: partial spec
+status: spec
+---
+
+## Problem
+_What's broken and who's affected._
+
+## Goals
+_What success looks like._
+
+## Non-goals
+_What is explicitly out of scope._
+"""
+
+
+@pytest.mark.asyncio
+async def test_backfill_adds_missing_sections(client, tmp_path, monkeypatch):
+    """backfill on a 3/10 spec appends the 7 missing sections so the spec has all 10."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    specs_dir = tmp_path / "specs"
+    specs_dir.mkdir(parents=True)
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    slug = "partial-spec"
+    spec_file = specs_dir / f"{slug}.md"
+    spec_file.write_text(_PARTIAL_SPEC)
+
+    resp = await client.post(f"/api/specs/{slug}/backfill")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    updated = spec_file.read_text()
+    for section in REQUIRED_SECTIONS:
+        assert f"## {section}" in updated, f"Missing section after backfill: {section}"
+
+    assert "content" in body
+    assert "path" in body
+
+
+@pytest.mark.asyncio
+async def test_backfill_returns_404_for_missing_spec(client, tmp_path, monkeypatch):
+    """backfill on a non-existent slug returns 404."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    specs_dir = tmp_path / "specs"
+    specs_dir.mkdir(parents=True)
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    resp = await client.post("/api/specs/does-not-exist/backfill")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_archive_moves_spec_file(client, tmp_path, monkeypatch):
+    """archive moves the spec to archive/ and returns the new path."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    specs_dir = tmp_path / "specs"
+    specs_dir.mkdir(parents=True)
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    slug = "to-archive"
+    spec_file = specs_dir / f"{slug}.md"
+    spec_file.write_text("---\ntitle: to archive\nstatus: spec\n---\n\n# content\n")
+
+    resp = await client.post(f"/api/specs/{slug}/archive")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert not spec_file.exists(), "Original spec file should have been moved"
+    new_path = body.get("path") or body.get("new_path")
+    assert new_path, f"Response missing path: {body}"
+    assert slug in new_path
+    assert "archive" in new_path
+
+    archive_dir = specs_dir / "archive"
+    archived_files = list(archive_dir.glob(f"*{slug}*"))
+    assert len(archived_files) == 1, f"Expected exactly one archived file, got: {archived_files}"
+
+
+@pytest.mark.asyncio
+async def test_archive_returns_404_for_missing_spec(client, tmp_path, monkeypatch):
+    """archive on a non-existent slug returns 404."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    specs_dir = tmp_path / "specs"
+    specs_dir.mkdir(parents=True)
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    resp = await client.post("/api/specs/ghost-slug/archive")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+
 @pytest.mark.asyncio
 async def test_doc_draft_refuses_hooks_shaped_titles():
     """ostk.doc_draft must refuse titles that look like hooks reviews.
