@@ -2660,3 +2660,49 @@ def test_user_specs_dir_honors_myos_user_specs_dir_env_var(tmp_path):
     assert result.stdout.strip() == str(custom), (
         f"USER_SPECS_DIR ignored MYOS_USER_SPECS_DIR env: got {result.stdout.strip()!r}"
     )
+
+
+@pytest.mark.asyncio
+async def test_doc_draft_refuses_hooks_shaped_titles():
+    """ostk.doc_draft must refuse titles that look like hooks reviews.
+
+    Per ~/.claude/projects/-Users-torimeyer-claude-torios/memory/
+    feedback_hooks_at_user_scope.md: hooks reviews live in ~/.myos/hooks/,
+    never under docs/draft/. When a user (or model) calls doc_draft with
+    a title containing 'hook', refuse with a message redirecting to the
+    correct location instead of silently creating a misplaced draft.
+
+    Fixes →1455.
+    """
+    from services import ostk as ostk_module
+
+    hookish_titles = [
+        "Hooks review 2026-05-15",
+        "Hook system audit",
+        "hooks-review-followup",
+        "Audit of our pre-tool hooks",
+    ]
+    for title in hookish_titles:
+        with pytest.raises(ostk_module.OstkError) as exc_info:
+            await ostk_module.ostk.doc_draft(title)
+        assert "hooks" in str(exc_info.value).lower(), (
+            f"Error for {title!r} should mention 'hooks': {exc_info.value}"
+        )
+        assert "~/.myos/hooks" in str(exc_info.value), (
+            f"Error for {title!r} should point to ~/.myos/hooks/: {exc_info.value}"
+        )
+
+    # Sanity: non-hook titles should NOT be refused (we don't actually
+    # write the draft here; we just verify the validator lets it through
+    # without raising OstkError). The underlying ostk binary may still
+    # raise for other reasons in a real run, but those are not OstkError.
+    safe_titles = ["Pattern watcher v2", "User memory store improvements"]
+    for title in safe_titles:
+        try:
+            await ostk_module.ostk.doc_draft(title)
+        except ostk_module.OstkError as e:
+            # Only assert that the validator-level message isn't fired.
+            assert "hooks" not in str(e).lower() or "~/.myos/hooks" not in str(e)
+        except Exception:
+            # Other errors (e.g. ostk binary missing in test env) are fine.
+            pass

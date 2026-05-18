@@ -2032,7 +2032,19 @@ class OstkService:
     # --- Docs ---
 
     async def doc_draft(self, title: str) -> str:
-        """Create a new draft document. Returns the file path."""
+        """Create a new draft document. Returns the file path.
+
+        Refuses titles that look like hooks reviews (containing "hook"
+        case-insensitive). Hooks reviews live in ~/.myos/hooks/, never
+        under docs/draft/ — per feedback_hooks_at_user_scope.md.
+        Fixes →1455.
+        """
+        if "hook" in title.lower():
+            raise OstkError(
+                f"Refusing to draft {title!r}: titles containing 'hook' belong "
+                "in ~/.myos/hooks/, not docs/draft/. Save the file directly to "
+                "~/.myos/hooks/ instead of using `ostk doc draft`."
+            )
         return await self._run("doc", "draft", title)
 
     async def doc_promote(self, path: str) -> str:
