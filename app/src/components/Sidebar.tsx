@@ -52,7 +52,7 @@ interface NavGroup {
 // Value is a JSON object: { [groupId]: boolean }
 const COLLAPSED_KEY = 'sidebar-group-collapsed'
 
-const TOP_LEVEL_ROUTES = new Set(['/', '/backlog', '/agents'])
+const TOP_LEVEL_ROUTES = new Set(['/', '/backlog', '/agents', '/gems'])
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -60,10 +60,9 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Files & Docs',
     icon: 'folder_open',
     items: [
-      { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
+      { to: '/files', icon: 'folder', label: 'Docs', featureLabel: 'Projects' },
       { to: '/ostk', icon: 'terminal', label: 'ostk', featureLabel: 'ostk' },
       { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
-      { to: '/gems', icon: 'auto_awesome', label: 'My Gems', featureLabel: 'Gems' },
     ],
   },
   {
@@ -85,8 +84,9 @@ const NAV_GROUPS: NavGroup[] = [
 // All items for route-based lookups (preserves featureLabel for feature filtering)
 const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/', icon: 'home', label: 'Home', featureLabel: null },
-  { to: '/backlog', icon: 'inventory_2', label: 'Backlog', featureLabel: 'Backlog', backlogBadge: true },
   { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
+  { to: '/backlog', icon: 'inventory_2', label: 'Backlog', featureLabel: 'Backlog', backlogBadge: true },
+  { to: '/gems', icon: 'auto_awesome', label: 'Gems', featureLabel: 'Gems' },
   ...NAV_GROUPS.flatMap((g) => g.items),
 ]
 
@@ -580,7 +580,7 @@ export function Sidebar() {
 
   // Top-level items (Home + Tasks + Agents) that are not in any group
   const topLevelItems = ALL_NAV_ITEMS.filter((i) => TOP_LEVEL_ROUTES.has(i.to) && isEnabled(i)).sort((a, b) => {
-    const order = ['/', '/tasks', '/agents']
+    const order = ['/', '/agents', '/backlog', '/gems']
     return order.indexOf(a.to) - order.indexOf(b.to)
   })
 

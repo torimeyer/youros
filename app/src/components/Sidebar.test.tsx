@@ -1329,10 +1329,11 @@ describe('Jira and Confluence sidebar entries', () => {
 })
 
 describe('Files and Drive sidebar entries', () => {
-  it('shows Files entry in Files & Docs group', () => {
+  it('shows Docs entry in Files & Docs group (renamed from Files)', () => {
     renderSidebar()
     expandAllGroups()
-    expect(screen.getByText('Files')).toBeInTheDocument()
+    expect(screen.getByText('Docs')).toBeInTheDocument()
+    expect(screen.queryByText('Files')).not.toBeInTheDocument()
   })
 
   it('shows Drive entry in Files & Docs group', () => {
