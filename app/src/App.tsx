@@ -13,6 +13,7 @@ import Transcripts from './pages/Transcripts'
 import Activity from './pages/Activity'
 import CostTracking from './pages/CostTracking'
 import Specs from './pages/Specs'
+import Backlog from './pages/Backlog'
 import SpecImport from './pages/SpecImport'
 import DocsRedirect from './pages/DocsRedirect'
 import Calendar from './pages/Calendar'
@@ -146,13 +147,16 @@ export default function App() {
         <Route path="invite/:token" element={<InviteAccept />} />
         <Route element={<Layout />}>
           <Route index element={<Dashboard />} />
-          <Route path="tasks" element={<Tasks />} />
+          <Route path="tasks" element={<Navigate to="/backlog/tasks" replace />} />
           <Route path="timeline" element={<Timeline />} />
           <Route path="activity" element={<Activity />} />
           <Route path="agents" element={<Agents />} />
           <Route path="agentfiles/:name/edit" element={<AgentfileEditor />} />
           <Route path="transcripts" element={<Transcripts />} />
-          <Route path="specs" element={<Specs />} />
+          <Route path="backlog" element={<Backlog />} />
+          <Route path="backlog/specs" element={<Backlog />} />
+          <Route path="backlog/tasks" element={<Backlog />} />
+          <Route path="specs" element={<Navigate to="/backlog/specs" replace />} />
           <Route path="specs/import" element={<SpecImport />} />
           <Route path="files" element={<Files />} />
           <Route path="ostk" element={<OstkFiles />} />
