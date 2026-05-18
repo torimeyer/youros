@@ -50,6 +50,7 @@ STORE_PATH_CONSTANTS = {
     "services.task_source_store": "TASK_SOURCE_PATH",
     "services.gemini_captures_store": "GEMINI_CAPTURES_PATH",
     "services.gem_chat_history_store": "GEM_CHAT_HISTORY_DIR",
+    "services.user_memory_store": "_MEMORY_PATH",
 }
 
 
