@@ -133,8 +133,8 @@ export default function Backlog() {
       </nav>
 
       {isAll && <AllView />}
-      {isSpecs && <Specs />}
-      {isTasksTab && <Tasks />}
+      {isSpecs && <Specs embedded />}
+      {isTasksTab && <Tasks embedded />}
     </div>
   )
 }
