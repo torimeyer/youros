@@ -3364,4 +3364,64 @@ describe('ChatPanel', () => {
     })
   })
 
+  // →1454: Status-check button — "how's it doing?"
+  describe('Status-check button', () => {
+    it('renders status-check-btn next to send button when a running agent exists', () => {
+      useRunningAgentsStore.setState({
+        count: 1,
+        agents: [{ name: 'my-agent-abc', status: 'running' }],
+        connected: true,
+        lastUpdatedAt: new Date().toISOString(),
+        lastTerminatedAgent: null,
+      })
+      render(<ChatPanel />)
+      expect(screen.getByTestId('status-check-btn')).toBeTruthy()
+    })
+
+    it('does not render status-check-btn when no running agents', () => {
+      useRunningAgentsStore.setState({
+        count: 0,
+        agents: [],
+        connected: true,
+        lastUpdatedAt: new Date().toISOString(),
+        lastTerminatedAgent: null,
+      })
+      render(<ChatPanel />)
+      expect(screen.queryByTestId('status-check-btn')).toBeNull()
+    })
+
+    it('clicking status-check-btn calls api.get for transcript_tail and inserts a system bubble', async () => {
+      const { api } = await import('../lib/api')
+      const mockGet = vi.mocked(api.get)
+      // Route by URL: transcript_tail returns content; all others return default tabs shape
+      mockGet.mockImplementation(async (url: string) => {
+        if (typeof url === 'string' && url.includes('transcript_tail')) {
+          return { lines: ['line 1', 'line 2', 'line 3'], agent: 'my-agent-abc', found: true }
+        }
+        return { tabs: [], active_tab_id: '' }
+      })
+
+      useRunningAgentsStore.setState({
+        count: 1,
+        agents: [{ name: 'my-agent-abc', status: 'running' }],
+        connected: true,
+        lastUpdatedAt: new Date().toISOString(),
+        lastTerminatedAgent: null,
+      })
+      render(<ChatPanel />)
+
+      const btn = screen.getByTestId('status-check-btn')
+      await act(async () => { fireEvent.click(btn) })
+
+      expect(mockGet).toHaveBeenCalledWith('/api/agents/my-agent-abc/transcript_tail')
+
+      await waitFor(() => {
+        const bubbles = screen.getAllByTestId(/^bubble-/)
+        const text = bubbles.map(b => b.textContent).join(' ')
+        expect(text).toContain('my-agent-abc')
+        expect(text).toContain('line 1')
+      })
+    })
+  })
+
 })

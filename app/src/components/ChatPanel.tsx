@@ -2147,6 +2147,41 @@ export function ChatPanel() {
     setInput('')
   }
 
+  // →1454: Ask the active running agent what it's currently doing.
+  // Fetches the last ~80 lines of the agent's transcript and surfaces
+  // them as a system bubble in the chat so you never have to leave the conversation.
+  const handleStatusCheck = async () => {
+    const activeAgent = runningAgentsList[0]
+    if (!activeAgent) return
+    const agentName = activeAgent.name
+    const pendingId = genId()
+    const pendingBubble = { id: pendingId, role: 'assistant' as const, content: `Checking in with ${agentName}...`, model: 'myos' }
+    setMessages(prev => [...prev, pendingBubble])
+    try {
+      const data = await api.get<{ found: boolean; lines: string[]; agent: string }>(`/api/agents/${agentName}/transcript_tail`)
+      if (!data.found || data.lines.length === 0) {
+        setMessages(prev => prev.map(m =>
+          m.id === pendingId
+            ? { ...m, content: `No activity found for ${agentName} yet.` }
+            : m
+        ))
+      } else {
+        const tail = data.lines.join('\n')
+        setMessages(prev => prev.map(m =>
+          m.id === pendingId
+            ? { ...m, content: `Status from agent ${agentName}:\n\`\`\`\n${tail}\n\`\`\`` }
+            : m
+        ))
+      }
+    } catch {
+      setMessages(prev => prev.map(m =>
+        m.id === pendingId
+          ? { ...m, content: `Could not reach ${agentName} right now.`, isError: true }
+          : m
+      ))
+    }
+  }
+
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
     if (tackKeyHandlerRef.current?.(e)) return
 
@@ -3066,6 +3101,17 @@ export function ChatPanel() {
                 title={isListening ? 'Stop listening' : 'Voice input'}
               >
                 <Icon name="mic" className="text-lg" />
+              </button>
+            )}
+            {/* →1454: Ask running agent for status update */}
+            {runningAgentsList.length > 0 && (
+              <button
+                data-testid="status-check-btn"
+                onClick={handleStatusCheck}
+                className="p-2 transition-colors rounded-lg text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10"
+                title="Ask running agent for status update"
+              >
+                <Icon name="forum" className="text-lg" />
               </button>
             )}
             <button
