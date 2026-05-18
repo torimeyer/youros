@@ -560,10 +560,15 @@ def _isolate_threads_store(tmp_path, monkeypatch):
 def _guard_real_store_writes():
     """Fail any test that silently writes to the real ostk or myOS data stores.
 
-    Records the mtime and size of issues.jsonl and threads.json before the test,
+    Snapshots the content of issues.jsonl and threads.json before the test,
     then asserts both are unchanged after. Writes that sneak past the isolation
     fixtures (e.g. via a raw subprocess call to the real ostk binary) are caught
     here instead of persisting silently into the live store.
+
+    Uses content comparison (bytes), not (mtime_ns, size). Concurrent ostk
+    commands that atomically rewrite the file with identical content only bump
+    mtime — a content-based snapshot ignores those and avoids the false-positive
+    that made test_complete_agent_hook_queues_on_transport_failure flaky (→1460).
 
     Defined last so its teardown assertion runs while the isolation fixtures are
     still patched — it can see the real on-disk files, not the tmp copies.
@@ -574,8 +579,7 @@ def _guard_real_store_writes():
     def _snap(path: Path):
         if not path.exists():
             return None
-        st = path.stat()
-        return (st.st_mtime_ns, st.st_size)
+        return path.read_bytes()
 
     issues_path = PROJECT_ROOT / ".ostk" / "needles" / "issues.jsonl"
     threads_path = Path.home() / ".myos" / "threads.json"
@@ -588,12 +592,14 @@ def _guard_real_store_writes():
     assert _snap(issues_path) == snap_issues, (
         f"Real issues.jsonl was modified during test — "
         f"a code path bypassed _isolate_tasks_ostk. "
-        f"Snapshot before: {snap_issues}, after: {_snap(issues_path)}"
+        f"Content before: {len(snap_issues or b'')} bytes, "
+        f"after: {len(_snap(issues_path) or b'')} bytes"
     )
     assert _snap(threads_path) == snap_threads, (
         f"Real threads.json was modified during test — "
         f"a code path bypassed _isolate_threads_store. "
-        f"Snapshot before: {snap_threads}, after: {_snap(threads_path)}"
+        f"Content before: {len(snap_threads or b'')} bytes, "
+        f"after: {len(_snap(threads_path) or b'')} bytes"
     )
 
 
