@@ -13,6 +13,7 @@
 #   MYOS_COMPLETION_ANNC              announcements file
 #   MYOS_COMPLETION_STATE             per-run state file (known statuses)
 #   MYOS_COMPLETION_PID               PID file written on start
+#   MYOS_COMPLETION_LOCK              singleton lock file (default ~/.myos/subagents/completion-watcher.lock)
 #   MYOS_COMPLETION_WATCHER_INTERVAL  poll interval in seconds (default 5)
 
 POLL_INTERVAL="${MYOS_COMPLETION_WATCHER_INTERVAL:-5}"
@@ -20,20 +21,45 @@ BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}"
 ANNC_FILE="${MYOS_COMPLETION_ANNC:-$HOME/.myos/subagents/pending-completion-announcements.jsonl}"
 STATE_FILE="${MYOS_COMPLETION_STATE:-$HOME/.myos/subagents/completion-watcher-state.json}"
 PID_FILE="${MYOS_COMPLETION_PID:-$HOME/.myos/subagents/completion-watcher.pid}"
+LOCK_FILE="${MYOS_COMPLETION_LOCK:-$HOME/.myos/subagents/completion-watcher.lock}"
 
-# Ghost purge: kill any existing watcher processes.
-# This prevents accumulation if the PID file was lost or overwritten by another worktree.
-_GHOSTS=$(pgrep -f "agent-completion-watcher.sh" | grep -v "^$$" || true)
-if [ -n "$_GHOSTS" ]; then
-    # shellcheck disable=SC2086
-    kill $_GHOSTS 2>/dev/null || true
+# Singleton: only one watcher may run host-wide at any time, regardless of how
+# many worktrees are open. We use an OS-level exclusive lock so the guarantee is
+# atomic even if several sessions start simultaneously.
+#
+# _ACW_LOCKED=1 is injected by the re-exec path below so the second invocation
+# (the actual daemon) skips this block and proceeds to the loop.
+if [ -z "${_ACW_LOCKED:-}" ]; then
+    _SELF="${BASH_SOURCE[0]:-$0}"
+    mkdir -p "$(dirname "$LOCK_FILE")" 2>/dev/null || true
+    if command -v lockf >/dev/null 2>&1; then
+        # macOS/BSD: re-exec this script under lockf, which holds an exclusive
+        # BSD flock(2) on LOCK_FILE for the lifetime of its child process.
+        # -k keeps the lock file on exit (required when multiple processes race).
+        # -t 1 waits up to 1s so a session-start that just killed the old
+        #   watcher has time to release the lock before we give up.
+        # If the lock is already held after 1s, lockf exits non-zero → we exit 0.
+        _ACW_LOCKED=1 exec lockf -k -t 1 "$LOCK_FILE" bash "$_SELF" 2>/dev/null
+        exit 0  # only reached when exec itself fails (lockf binary missing)
+    elif command -v flock >/dev/null 2>&1; then
+        # Linux: acquire the lock on fd 9; hold it for the process lifetime.
+        exec 9>"$LOCK_FILE"
+        if ! flock -w 1 9; then
+            exit 0
+        fi
+    fi
+    # Fallthrough (neither tool available): rely on the periodic ghost purge below.
 fi
 
 mkdir -p "$(dirname "$ANNC_FILE")" 2>/dev/null || true
 mkdir -p "$(dirname "$STATE_FILE")" 2>/dev/null || true
 
 echo $$ > "$PID_FILE" 2>/dev/null || true
-trap 'rm -f "$PID_FILE"' EXIT INT TERM
+
+CURL_PID=""
+CURL_TMP=""
+
+trap 'rm -f "$PID_FILE" "${CURL_TMP:-}"; [ -n "${CURL_PID:-}" ] && kill "${CURL_PID}" 2>/dev/null; true' EXIT INT TERM
 
 # Python snippet: compare current /api/agents response against the known-state
 # file. Emit any running → terminal transitions to the announcements file.
@@ -107,19 +133,44 @@ with open(state_file, "w") as f:
         f.write(json.dumps({"name": name, "status": status}) + "\n")
 '
 
+POLL_COUNT=0
+
 while true; do
     sleep "$POLL_INTERVAL"
+    POLL_COUNT=$((POLL_COUNT + 1))
 
-    TMP_RESP="$(mktemp -t completion-watcher-resp.XXXXXX 2>/dev/null)" || continue
-
-    # Fetch all claude-code agents with summary=1 (no limit).
-    # summary=1 keeps payload ~120KB even with 500+ agents; the no-limit ensures
-    # newly-spawned agents beyond the old 100-row cutoff are always visible.
-    if curl -sSk --connect-timeout 2 -m 8 \
-            "${BACKEND_URL}/api/agents?source=claude-code&summary=1" \
-            -o "$TMP_RESP" 2>/dev/null; then
-        python3 -c "$POLL_PY" "$TMP_RESP" "$ANNC_FILE" "$STATE_FILE" 2>/dev/null || true
+    # Periodic ghost purge every ~60s (12 × default 5s interval): belt-and-
+    # suspenders fallback for any sibling that somehow bypassed the lock (e.g.
+    # LOCK_FILE manually deleted, or OS without flock/lockf support).
+    if [ $((POLL_COUNT % 12)) -eq 0 ]; then
+        pgrep -f "agent-completion-watcher.sh" | grep -v "^$$" | xargs kill 2>/dev/null || true
     fi
 
-    rm -f "$TMP_RESP" 2>/dev/null || true
+    # In-flight curl guard: if the previous curl is still running (backend
+    # slower than POLL_INTERVAL), skip this iteration — do not queue another
+    # curl and let them pile up under a wedged backend.
+    if [ -n "$CURL_PID" ] && kill -0 "$CURL_PID" 2>/dev/null; then
+        continue
+    fi
+
+    # Previous curl finished; reap it and process its result.
+    if [ -n "$CURL_PID" ]; then
+        wait "$CURL_PID" 2>/dev/null
+        CURL_EXIT=$?
+        if [ "$CURL_EXIT" -eq 0 ] && [ -s "${CURL_TMP:-}" ]; then
+            python3 -c "$POLL_PY" "$CURL_TMP" "$ANNC_FILE" "$STATE_FILE" 2>/dev/null || true
+        fi
+        rm -f "$CURL_TMP" 2>/dev/null || true
+        CURL_PID=""
+        CURL_TMP=""
+    fi
+
+    # Fire the next poll in the background so its PID is trackable.
+    # summary=1 keeps payload ~120KB even with 500+ agents; the no-limit ensures
+    # newly-spawned agents beyond the old 100-row cutoff are always visible.
+    CURL_TMP="$(mktemp -t completion-watcher-resp.XXXXXX 2>/dev/null)" || continue
+    curl -sSk --connect-timeout 2 -m 8 \
+        "${BACKEND_URL}/api/agents?source=claude-code&summary=1" \
+        -o "$CURL_TMP" 2>/dev/null &
+    CURL_PID=$!
 done
