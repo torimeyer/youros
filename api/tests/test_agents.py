@@ -13425,3 +13425,78 @@ async def test_transcript_tail_custom_line_count(tmp_path):
     finally:
         agent_metadata.pop(name, None)
 
+
+def test_recover_stale_agents_marks_orphan_as_abandoned(monkeypatch):
+    """Orphan subprocesses (PID alive but reparented to init after a backend
+    restart) must be marked abandoned, not kept as 'running'.
+
+    Regression test for the diagnose-1453 stall pattern:
+    when uvicorn reloaded, an in-flight agent (PID 3131) survived as an
+    orphan. `_is_pid_alive` returned True so `_recover_stale_agents` Case 1
+    kept it as 'running' forever. With this fix, Case 1 now requires the
+    PID to be a child of the current process; otherwise the row falls
+    through to Case 3 and gets marked abandoned.
+
+    Fixes →1453 (defense-in-depth — works even if the event-loop block
+    recurs and causes another cascade restart).
+    """
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata, _recover_stale_agents
+
+    # Force the orphan condition: PID looks alive but is NOT our child.
+    monkeypatch.setattr(agents_module, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(agents_module, "_is_pid_my_child", lambda pid: False)
+
+    name = "orphan-test-from-backend-restart"
+    agent_metadata.pop(name, None)
+    agent_metadata[name] = {
+        "name": name,
+        "status": "running",
+        "pid": 3131,  # arbitrary; mocked check controls behavior
+        "source": "ui",
+        "spawned_at": "2026-05-18T03:00:00+00:00",
+        "last_heartbeat_at": "2026-05-18T03:00:00+00:00",
+    }
+
+    try:
+        _recover_stale_agents()
+        assert agent_metadata[name]["status"] == "abandoned", (
+            f"orphan PID kept as 'running' instead of abandoned: "
+            f"{agent_metadata[name]}"
+        )
+    finally:
+        agent_metadata.pop(name, None)
+
+
+def test_recover_stale_agents_keeps_child_pid_running(monkeypatch):
+    """Live PID that IS a child of this process must NOT be marked abandoned.
+
+    The fix must not regress the normal case: a real backend-managed agent
+    whose subprocess is alive and parented to the backend should stay
+    'running'.
+    """
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata, _recover_stale_agents
+
+    monkeypatch.setattr(agents_module, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(agents_module, "_is_pid_my_child", lambda pid: True)
+
+    name = "live-child-test"
+    agent_metadata.pop(name, None)
+    agent_metadata[name] = {
+        "name": name,
+        "status": "running",
+        "pid": 99999,  # arbitrary; mocked checks control behavior
+        "source": "ui",
+        "spawned_at": "2026-05-18T03:00:00+00:00",
+        "last_heartbeat_at": "2026-05-18T03:00:00+00:00",
+    }
+
+    try:
+        _recover_stale_agents()
+        assert agent_metadata[name]["status"] == "running", (
+            f"live child PID was incorrectly marked: {agent_metadata[name]}"
+        )
+    finally:
+        agent_metadata.pop(name, None)
+

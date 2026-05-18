@@ -1058,6 +1058,36 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
+def _is_pid_my_child(pid: int) -> bool:
+    """Check if `pid`'s parent is the current backend process.
+
+    An orphaned subprocess (e.g., from a previous backend instance that
+    uvicorn reloaded) stays alive but is reparented to init/launchd —
+    `os.kill(pid, 0)` will still succeed, but the process has no drain or
+    heartbeat task attached to it anymore. Combined with `_is_pid_alive`
+    this lets `_recover_stale_agents` distinguish "real running agent" from
+    "orphan zombie that shows as running but is doing nothing".
+
+    Returns False on any error or unexpected output — better to mark
+    abandoned than to keep a stale 'running' row.
+
+    Added for →1453 defense-in-depth.
+    """
+    import os
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "ppid="],
+            capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode != 0:
+            return False
+        ppid = int(result.stdout.strip())
+        return ppid == os.getpid()
+    except (subprocess.SubprocessError, ValueError, OSError):
+        return False
+
+
 # Grace period (seconds) between SIGTERM and SIGKILL when cancelling an
 # agent subprocess. 5 seconds is long enough for clean shutdown but short
 # enough that the UI does not feel stuck.
@@ -1962,8 +1992,12 @@ def _recover_stale_agents():
         if meta.get("status") != "running":
             continue
         pid = meta.get("pid")
-        # Case 1: live PID. Keep.
-        if pid and _is_pid_alive(pid):
+        # Case 1: live PID AND it's a child of this process. Keep.
+        # The child-of-this-process check guards against orphan subprocesses
+        # that survived a backend restart — those have a live PID but were
+        # reparented to init, so their drain and heartbeat tasks are gone.
+        # Per →1453 diagnostic.
+        if pid and _is_pid_alive(pid) and _is_pid_my_child(pid):
             continue
         # Case 2: external Claude Code session with recent heartbeat. Keep.
         # We trust the heartbeat ONLY when the agent's source says it has
