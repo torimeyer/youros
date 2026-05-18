@@ -108,6 +108,19 @@ def _cache_clear() -> None:
     _response_cache.clear()
 
 
+def _migrate_atlassian_config(cfg: dict) -> dict:
+    """Map old {site} config to {jira_site, confluence_site}. Idempotent.
+
+    When only the legacy ``site`` key is present, populate both new keys with
+    that value. If ``jira_site`` already exists the file is already migrated;
+    return as-is so running twice is a no-op.
+    """
+    if "site" in cfg and "jira_site" not in cfg:
+        site = cfg["site"]
+        cfg = {**cfg, "jira_site": site, "confluence_site": site}
+    return cfg
+
+
 def _ensure_dirs() -> None:
     MYOS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -118,7 +131,11 @@ def is_connected() -> bool:
 
 
 def get_config() -> dict:
-    """Return saved config {email, site}. Raises RuntimeError if not connected."""
+    """Return saved config {email, jira_site, confluence_site}. Raises RuntimeError if not connected.
+
+    Transparently migrates old {site} files to the new split format on first
+    read and writes the migrated form back so future reads skip migration.
+    """
     global _config_cache, _config_cache_mtime
     if not CONFIG_PATH.exists():
         _config_cache = None
@@ -129,18 +146,31 @@ def get_config() -> dict:
     except OSError:
         mtime = 0.0
     if _config_cache is None or mtime != _config_cache_mtime:
-        _config_cache = json.loads(CONFIG_PATH.read_text())
+        raw = json.loads(CONFIG_PATH.read_text())
+        migrated = _migrate_atlassian_config(raw)
+        if migrated is not raw:
+            atomic_write_json(CONFIG_PATH, migrated)
+        _config_cache = migrated
         _config_cache_mtime = mtime
     config = _config_cache
-    site = config.get("site") or os.environ.get("ATLASSIAN_SITE", "")
-    if site != config.get("site"):
-        return {**config, "site": site}
+    # Allow env override for the Jira site only (legacy ATLASSIAN_SITE env var).
+    env_site = os.environ.get("ATLASSIAN_SITE", "")
+    if env_site and not config.get("jira_site"):
+        return {**config, "jira_site": env_site, "confluence_site": config.get("confluence_site") or env_site}
     return config
 
 
-def _site_host(config: dict) -> str:
-    """Return the user-facing host for building external links (no scheme)."""
-    site = config.get("site", "") or ""
+def _site_host(config: dict, product: str = "jira") -> str:
+    """Return the user-facing host for building external links (no scheme).
+
+    Uses ``jira_site`` for Jira calls and ``confluence_site`` for Confluence.
+    Falls back to the legacy ``site`` key so old config files keep working
+    before migration runs.
+    """
+    if product == "confluence":
+        site = config.get("confluence_site") or config.get("site", "") or ""
+    else:
+        site = config.get("jira_site") or config.get("site", "") or ""
     return site.replace("https://", "").replace("http://", "").rstrip("/")
 
 
@@ -158,7 +188,7 @@ async def _get_auth_and_base(product: str = "jira") -> tuple[dict, str, str]:
     of which auth path produced api_base_url.
     """
     config = get_config()
-    site_host = _site_host(config)
+    site_host = _site_host(config, product=product)
     access_token = await ostk.secret_get(ATLASSIAN_ACCESS_TOKEN_KEY)
     if access_token:
         cloud_id = config.get("cloud_id", "")
@@ -329,12 +359,26 @@ async def verify_creds(email: str, api_token: str, site: str) -> dict:
         raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
 
 
-async def save_config(email: str, api_token: str, site: str) -> None:
-    """Persist email + site to disk. Store token in keychain."""
+async def save_config(
+    email: str,
+    api_token: str,
+    jira_site: str,
+    confluence_site: Optional[str] = None,
+) -> None:
+    """Persist email + per-product sites to disk. Store token in keychain.
+
+    When ``confluence_site`` is omitted, it defaults to ``jira_site`` (single-
+    tenant case). Writes the new {jira_site, confluence_site} schema; the
+    legacy ``site`` key is not written so reads always get the migrated form.
+    """
     global _config_cache, _config_cache_mtime
     _ensure_dirs()
-    site = site.replace("https://", "").replace("http://", "").rstrip("/")
-    atomic_write_json(CONFIG_PATH, {"email": email, "site": site})
+    jira_site = jira_site.replace("https://", "").replace("http://", "").rstrip("/")
+    if confluence_site is None:
+        confluence_site = jira_site
+    else:
+        confluence_site = confluence_site.replace("https://", "").replace("http://", "").rstrip("/")
+    atomic_write_json(CONFIG_PATH, {"email": email, "jira_site": jira_site, "confluence_site": confluence_site})
     await ostk.secret_set(ATLASSIAN_TOKEN_KEY, api_token)
     _config_cache = None
     _config_cache_mtime = 0.0
@@ -342,15 +386,27 @@ async def save_config(email: str, api_token: str, site: str) -> None:
 
 
 async def save_oauth_config(
-    email: str, site: str, cloud_id: str, access_token: str, refresh_token: str
+    email: str,
+    site: str,
+    cloud_id: str,
+    access_token: str,
+    refresh_token: str,
+    jira_site: Optional[str] = None,
+    confluence_site: Optional[str] = None,
 ) -> None:
-    """Persist OAuth-flow connection details. site/email/cloud_id on disk; tokens in keychain."""
+    """Persist OAuth-flow connection details. site/email/cloud_id on disk; tokens in keychain.
+
+    ``jira_site`` and ``confluence_site`` default to ``site`` when omitted so
+    OAuth-flow callers that have not been updated yet keep working unchanged.
+    """
     global _config_cache, _config_cache_mtime
     _ensure_dirs()
     site = site.replace("https://", "").replace("http://", "").rstrip("/")
+    jira_host = (jira_site or site).replace("https://", "").replace("http://", "").rstrip("/")
+    conf_host = (confluence_site or site).replace("https://", "").replace("http://", "").rstrip("/")
     atomic_write_json(
         CONFIG_PATH,
-        {"email": email, "site": site, "cloud_id": cloud_id, "auth_method": "oauth"},
+        {"email": email, "jira_site": jira_host, "confluence_site": conf_host, "cloud_id": cloud_id, "auth_method": "oauth"},
     )
     await ostk.secret_set(ATLASSIAN_ACCESS_TOKEN_KEY, access_token)
     if refresh_token:
@@ -358,6 +414,32 @@ async def save_oauth_config(
     _config_cache = None
     _config_cache_mtime = 0.0
     _cache_clear()
+
+
+async def verify_confluence_creds(email: str, api_token: str, site: str) -> bool:
+    """Verify Confluence access by calling /wiki/rest/api/space.
+
+    Returns True on success. Raises RuntimeError with an actionable message
+    on 401 (bad creds) or 404 (site not found).
+    """
+    site = site.replace("https://", "").replace("http://", "").rstrip("/")
+    base_url = f"https://{site}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{base_url}/wiki/rest/api/space",
+                auth=httpx.BasicAuth(email, api_token),
+                params={"limit": 1},
+            )
+            if resp.status_code == 401:
+                raise RuntimeError("Invalid email or API token for Confluence. Check your credentials and try again.")
+            if resp.status_code == 404:
+                raise RuntimeError(f"Confluence not found at {site}. Check the site URL and try again.")
+            if resp.status_code >= 400:
+                raise RuntimeError(f"Could not reach Confluence ({resp.status_code}). Check your site URL.")
+            return True
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Could not reach Confluence: {exc}") from exc
 
 
 async def disconnect() -> None:
@@ -555,19 +637,40 @@ async def list_blocked_issues() -> list[dict]:
     return issues
 
 
-async def list_recent_pages(limit: int = 25) -> list[dict]:
-    """Return recently-updated Confluence pages via the v2 API."""
-    cache_key = ("list_recent_pages", limit)
+async def list_recent_pages(limit: int = 25, space_key: str = "") -> list[dict]:
+    """Return recently-updated Confluence pages.
+
+    When ``space_key`` is non-empty, uses the v1 REST API which supports
+    filtering by space key directly. Otherwise uses the v2 API for global
+    recent pages.
+    """
+    space_key = space_key.strip().upper() if space_key else ""
+    cache_key = ("list_recent_pages", limit, space_key)
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached  # type: ignore[return-value]
 
-    async def call(client, auth_kwargs, base_url, site):
-        return await client.get(
-            f"{base_url}/wiki/api/v2/pages",
-            **auth_kwargs,
-            params={"sort": "-modified-date", "limit": limit},
-        )
+    if space_key:
+        async def call(client, auth_kwargs, base_url, site):
+            return await client.get(
+                f"{base_url}/wiki/rest/api/content",
+                **auth_kwargs,
+                params={
+                    "type": "page",
+                    "spaceKey": space_key,
+                    "limit": limit,
+                    "orderby": "modified",
+                    "status": "current",
+                    "expand": "version,space",
+                },
+            )
+    else:
+        async def call(client, auth_kwargs, base_url, site):
+            return await client.get(
+                f"{base_url}/wiki/api/v2/pages",
+                **auth_kwargs,
+                params={"sort": "-modified-date", "limit": limit},
+            )
 
     try:
         resp, base_url, site = await _request_with_refresh("confluence", call)
@@ -582,15 +685,31 @@ async def list_recent_pages(limit: int = 25) -> list[dict]:
     data = resp.json()
 
     pages = []
-    for page in data.get("results", []):
-        page_id = str(page.get("id", ""))
-        pages.append({
-            "id": page_id,
-            "title": page.get("title", ""),
-            "space_id": str(page.get("spaceId", "")),
-            "updated": page.get("version", {}).get("createdAt", ""),
-            "url": f"https://{site}/wiki/spaces/{page.get('spaceId', '')}/pages/{page_id}",
-        })
+    if space_key:
+        # v1 API response shape
+        for page in data.get("results", []):
+            page_id = str(page.get("id", ""))
+            space_obj = page.get("space") or {}
+            space_id = str(space_obj.get("id", ""))
+            version_obj = page.get("version") or {}
+            pages.append({
+                "id": page_id,
+                "title": page.get("title", ""),
+                "space_id": space_id,
+                "updated": version_obj.get("when", ""),
+                "url": f"https://{site}/wiki/spaces/{space_key}/pages/{page_id}",
+            })
+    else:
+        # v2 API response shape
+        for page in data.get("results", []):
+            page_id = str(page.get("id", ""))
+            pages.append({
+                "id": page_id,
+                "title": page.get("title", ""),
+                "space_id": str(page.get("spaceId", "")),
+                "updated": page.get("version", {}).get("createdAt", ""),
+                "url": f"https://{site}/wiki/spaces/{page.get('spaceId', '')}/pages/{page_id}",
+            })
 
     _cache_set(cache_key, pages)
     return pages

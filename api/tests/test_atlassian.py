@@ -347,7 +347,8 @@ class TestAtlassianService:
                 svc._config_cache = None
                 svc._config_cache_mtime = 0.0
                 config = svc.get_config()
-                assert config["site"] == "https://company.atlassian.net"
+                # ATLASSIAN_SITE env override now populates jira_site (and confluence_site).
+                assert config["jira_site"] == "https://company.atlassian.net"
 
     @pytest.mark.asyncio
     async def test_verify_creds_401(self, tmp_path):
