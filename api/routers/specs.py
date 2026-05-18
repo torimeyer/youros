@@ -292,7 +292,7 @@ def _validate_doc_path(path: str) -> None:
 
 
 @router.get("/specs")
-async def list_specs():
+async def list_specs(gemini_ready: Optional[bool] = None):
     """List all draft and spec documents with lifecycle metadata.
 
     Each document includes task_ids, task_summary, acceptance_criteria,
@@ -304,7 +304,28 @@ async def list_specs():
     """
     try:
         docs = await ostk.list_docs()
-        return {"docs": [d for d in docs if d.get("status") != "plan"]}
+        docs = [d for d in docs if d.get("status") != "plan"]
+        # Gemini-ready enrichment
+        try:
+            from services.gemini_ready import compute_spec_readiness
+            from config import PROJECT_ROOT
+            from pathlib import Path as _Path
+            for d in docs:
+                raw_path = d.get("path", "")
+                abs_path = (
+                    raw_path if raw_path.startswith("/") or raw_path.startswith("~")
+                    else str(_Path(PROJECT_ROOT) / raw_path)
+                )
+                r = compute_spec_readiness(abs_path)
+                d["gemini_ready"] = r.ready
+                d["gemini_ready_checks"] = r.as_dict()["checks"]
+        except Exception:
+            for d in docs:
+                d.setdefault("gemini_ready", False)
+                d.setdefault("gemini_ready_checks", [])
+        if gemini_ready is not None:
+            docs = [d for d in docs if d.get("gemini_ready") is gemini_ready]
+        return {"docs": docs}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1764,8 +1785,11 @@ async def _resolve_task_configs(spec_path: str) -> list[dict]:
         return []
 
 
+_VALID_BUILD_MODELS = {"sonnet", "opus", "haiku", "gemini"}
+
+
 @router.post("/specs/{spec_path:path}/build")
-async def build_spec(spec_path: str):
+async def build_spec(spec_path: str, model: Optional[str] = None):
     """One-click build: decompose if needed, then spawn a builder per open task.
 
     Loads open tasks from the spec's front matter, asks ostk for the
@@ -1785,6 +1809,11 @@ async def build_spec(spec_path: str):
     "has_unchecked_acs": bool}``.
     """
     _validate_doc_path(spec_path)
+    if model is not None and model not in _VALID_BUILD_MODELS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown model '{model}'. Valid options: {sorted(_VALID_BUILD_MODELS)}",
+        )
     # Hard-reject only paths that point at a missing file. A broken or
     # uninstalled ostk CLI must NOT bubble up as 404 here; that kills
     # the AC fallback before it has a chance to run. We detect the
@@ -1797,6 +1826,10 @@ async def build_spec(spec_path: str):
         )
 
     agent_configs = await _resolve_task_configs(spec_path)
+    # Override model on every cfg so _spawn_one picks it up.
+    if model and agent_configs:
+        for cfg in agent_configs:
+            cfg["model"] = model
 
     if not agent_configs:
         # Cascade returned empty -> the spec has no unchecked ACs.

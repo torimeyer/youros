@@ -24,12 +24,14 @@ export interface BuildCallbacks {
 
 export async function buildSpec(
   path: string,
-  callbacks?: BuildCallbacks
+  callbacks?: BuildCallbacks,
+  model?: 'claude' | 'gemini'
 ): Promise<BuildResult> {
   callbacks?.onOptimisticStart?.()
   try {
     const encodedPath = encodeURIComponent(path)
-    const res = await api.post<BuildResponse>(`/specs/${encodedPath}/build`)
+    const modelParam = model ? `?model=${model}` : ''
+    const res = await api.post<BuildResponse>(`/specs/${encodedPath}/build${modelParam}`)
     const result: BuildResult = {
       status: 'ok',
       agents: res.agents || [],

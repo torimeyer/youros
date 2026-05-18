@@ -7,6 +7,8 @@ import SpecTemplateDetailsModal, {
 } from "../components/SpecTemplateDetailsModal";
 import { api } from "../lib/api";
 import { buildSpec } from "../lib/spawn";
+import { GeminiReadyChip, type ReadinessCheck } from "../components/GeminiReadyChip";
+import { SpawnGeminiModal } from "../components/SpawnGeminiModal";
 import { onSpecsChange, bumpAgents, bumpTasks } from "../lib/sidebarBus";
 import { useAppStore } from "../stores/app";
 import { Button, EmptyState, ErrorBanner } from "../components/ui";
@@ -44,6 +46,8 @@ interface Spec {
   task_summary?: TaskSummary;
   acceptance_criteria?: AcceptanceCriterion[];
   task_ids?: string[];
+  gemini_ready?: boolean;
+  gemini_ready_checks?: ReadinessCheck[];
 }
 
 interface SpecsResponse {
@@ -117,7 +121,7 @@ export function displayStatus(backendStatus: string): "Draft" | "Ready" | "Build
   return "Draft";
 }
 
-type Tab = "all" | "drafts" | "ready" | "in-progress" | "complete";
+type Tab = "all" | "drafts" | "ready" | "in-progress" | "complete" | "gemini-ready";
 
 // --- Status badge component ---
 
@@ -443,6 +447,7 @@ function SpecsOnboarding() {
 export default function Specs() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>("all");
+  const [spawnGeminiSpec, setSpawnGeminiSpec] = useState<{ path: string; title: string; checks?: ReadinessCheck[] } | null>(null);
   const [docs, setDocs] = useState<Spec[]>([]);
   // Pending specs that were optimistically navigated here from
   // FilePreviewPane's "Make spec" click. The skeleton rows render in the
@@ -900,6 +905,8 @@ export default function Specs() {
   const inProgressSpecs = docs.filter((d) => d.status === "in-progress");
   const completeSpecs = docs.filter((d) => d.status === "complete");
 
+  const geminiReadySpecs = docs.filter((d) => d.gemini_ready === true);
+
   const filtered =
     tab === "drafts"
       ? drafts
@@ -909,7 +916,9 @@ export default function Specs() {
           ? inProgressSpecs
           : tab === "complete"
             ? completeSpecs
-            : docs;
+            : tab === "gemini-ready"
+              ? geminiReadySpecs
+              : docs;
 
   const tabItems: { value: Tab; label: string; count: number }[] = [
     { value: "all", label: "All", count: docs.length },
@@ -917,10 +926,20 @@ export default function Specs() {
     { value: "ready", label: "Ready", count: readySpecs.length },
     { value: "in-progress", label: "Building", count: inProgressSpecs.length },
     { value: "complete", label: "Done", count: completeSpecs.length },
+    ...(geminiReadySpecs.length > 0 ? [{ value: "gemini-ready" as Tab, label: "✦ Gemini-ready", count: geminiReadySpecs.length }] : []),
   ];
 
   return (
     <>
+      {spawnGeminiSpec && (
+        <SpawnGeminiModal
+          path={spawnGeminiSpec.path}
+          title={spawnGeminiSpec.title}
+          checks={spawnGeminiSpec.checks}
+          onClose={() => setSpawnGeminiSpec(null)}
+          onSpawned={() => { setSpawnGeminiSpec(null); fetchDocs(); }}
+        />
+      )}
       <TopBar title="Specs" />
       <div data-tour="specs" className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 max-w-6xl mx-auto">
         <SpecsOnboarding />
@@ -1106,6 +1125,13 @@ export default function Specs() {
                         </p>
                         <StatusBadge status={doc.status} claims={claimsMap[doc.path] ?? []} />
                         <ClaimsNote claims={claimsMap[doc.path] ?? []} />
+                        {doc.gemini_ready !== undefined && (
+                          <GeminiReadyChip
+                            ready={doc.gemini_ready}
+                            checks={doc.gemini_ready_checks}
+                            onClick={doc.gemini_ready ? () => setSpawnGeminiSpec({ path: doc.path, title: doc.title, checks: doc.gemini_ready_checks }) : undefined}
+                          />
+                        )}
                       </div>
                       <div className="flex items-center gap-4 flex-shrink-0">
                         {hasTaskSummary && (

@@ -2767,3 +2767,78 @@ async def test_doc_draft_refuses_hooks_shaped_titles():
         except Exception:
             # Other errors (e.g. ostk binary missing in test env) are fine.
             pass
+
+
+# ---------------------------------------------------------------------------
+# →1467: build_spec model param
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_build_spec_with_gemini_model(client, tmp_path, monkeypatch):
+    """POST /api/specs/{path}/build?model=gemini routes the spawn payload
+    with model='gemini'. The model is injected into every cfg dict before
+    _spawn_one picks it up, so AgentSpawn.model ends up as 'gemini'."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_file = tmp_path / "docs" / "spec" / "gemini-build-test.md"
+    spec_file.write_text(
+        "---\ntitle: gemini build test\nstatus: spec\n---\n\n- [ ] implement foo\n"
+    )
+
+    agent_configs = [
+        {
+            "name": "build-gemini-test-101",
+            "task_id": "101",
+            "task_title": "Implement foo",
+            "prompt": "Build task 101",
+        }
+    ]
+
+    async def fake_spec_build(path):
+        return {"agents": agent_configs}
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", fake_spec_build)
+
+    spawned: list[dict] = []
+
+    async def fake_spawn_agent(body):
+        spawned.append({"name": body.name, "model": body.model})
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    resp = await client.post(
+        "/api/specs/docs/spec/gemini-build-test.md/build?model=gemini"
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["agents"] == ["build-gemini-test-101"]
+    assert len(spawned) == 1
+    assert spawned[0]["model"] == "gemini", (
+        f"Expected model='gemini', got {spawned[0]['model']!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_spec_invalid_model_rejected(client, tmp_path, monkeypatch):
+    """POST /api/specs/{path}/build?model=unknown_model returns 422."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_file = tmp_path / "docs" / "spec" / "model-reject-test.md"
+    spec_file.write_text("---\ntitle: test\nstatus: spec\n---\n- [ ] foo\n")
+
+    resp = await client.post(
+        "/api/specs/docs/spec/model-reject-test.md/build?model=badmodel"
+    )
+    assert resp.status_code == 422
