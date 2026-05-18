@@ -73,13 +73,13 @@ async def test_start_build_website_returns_plan(client):
     """Happy path: start the website adventure and get a plan back."""
     mock_response = _make_llm_response(VALID_WEBSITE_PLAN)
 
+    mock_instance = MagicMock()
+    mock_instance.messages.create = AsyncMock(return_value=mock_response)
+
     with (
-        patch("routers.adventures._resolve_api_key", return_value="test-key"),
-        patch("routers.adventures.anthropic.AsyncAnthropic") as MockClient,
+        patch("routers.adventures.get_ai_client", new=AsyncMock(return_value=mock_instance)),
         patch("routers.adventures.ostk") as mock_ostk,
     ):
-        instance = MockClient.return_value
-        instance.messages.create = AsyncMock(return_value=mock_response)
         mock_ostk.add_task = AsyncMock(return_value="created t-1")
 
         resp = await client.post(
@@ -103,13 +103,13 @@ async def test_start_persists_tasks_via_ostk(client):
     """Generated tasks should be persisted via ostk.add_task."""
     mock_response = _make_llm_response(VALID_WEBSITE_PLAN)
 
+    mock_instance = MagicMock()
+    mock_instance.messages.create = AsyncMock(return_value=mock_response)
+
     with (
-        patch("routers.adventures._resolve_api_key", return_value="test-key"),
-        patch("routers.adventures.anthropic.AsyncAnthropic") as MockClient,
+        patch("routers.adventures.get_ai_client", new=AsyncMock(return_value=mock_instance)),
         patch("routers.adventures.ostk") as mock_ostk,
     ):
-        instance = MockClient.return_value
-        instance.messages.create = AsyncMock(return_value=mock_response)
         mock_ostk.add_task = AsyncMock(return_value="created t-1")
 
         await client.post(
@@ -131,13 +131,13 @@ async def test_start_uses_adventure_specific_system_prompt(client):
     """Each adventure should send its dedicated system prompt to the LLM."""
     mock_response = _make_llm_response(VALID_WEBSITE_PLAN)
 
+    mock_instance = MagicMock()
+    mock_instance.messages.create = AsyncMock(return_value=mock_response)
+
     with (
-        patch("routers.adventures._resolve_api_key", return_value="test-key"),
-        patch("routers.adventures.anthropic.AsyncAnthropic") as MockClient,
+        patch("routers.adventures.get_ai_client", new=AsyncMock(return_value=mock_instance)),
         patch("routers.adventures.ostk") as mock_ostk,
     ):
-        instance = MockClient.return_value
-        instance.messages.create = AsyncMock(return_value=mock_response)
         mock_ostk.add_task = AsyncMock(return_value="ok")
 
         await client.post(
@@ -145,7 +145,7 @@ async def test_start_uses_adventure_specific_system_prompt(client):
             json={"adventure_id": "build_website", "description": "Recipe site"},
         )
 
-        call_kwargs = instance.messages.create.call_args.kwargs
+        call_kwargs = mock_instance.messages.create.call_args.kwargs
         # The website prompt mentions Vercel and Postgres specifically
         assert "Vercel" in call_kwargs["system"]
         assert "Postgres" in call_kwargs["system"]
@@ -175,7 +175,7 @@ async def test_start_empty_description_returns_422(client):
 async def test_start_falls_back_when_no_api_key(client):
     """Without an API key, return the fallback plan and still persist tasks."""
     with (
-        patch("routers.adventures._resolve_api_key", return_value=""),
+        patch("routers.adventures.get_ai_client", new=AsyncMock(return_value=None)),
         patch("routers.adventures.ostk") as mock_ostk,
     ):
         mock_ostk.add_task = AsyncMock(return_value="ok")
@@ -200,13 +200,13 @@ async def test_start_falls_back_on_invalid_llm_json(client):
     bad_response.content = [SimpleNamespace(type="text", text="not json at all")]
     bad_response.usage = SimpleNamespace(input_tokens=10, output_tokens=10)
 
+    mock_instance = MagicMock()
+    mock_instance.messages.create = AsyncMock(return_value=bad_response)
+
     with (
-        patch("routers.adventures._resolve_api_key", return_value="test-key"),
-        patch("routers.adventures.anthropic.AsyncAnthropic") as MockClient,
+        patch("routers.adventures.get_ai_client", new=AsyncMock(return_value=mock_instance)),
         patch("routers.adventures.ostk") as mock_ostk,
     ):
-        instance = MockClient.return_value
-        instance.messages.create = AsyncMock(return_value=bad_response)
         mock_ostk.add_task = AsyncMock(return_value="ok")
 
         resp = await client.post(
@@ -224,14 +224,14 @@ async def test_start_schedules_auto_labels_for_each_persisted_task(client):
     """Every task persisted via the adventure flow must run auto-labeling."""
     mock_response = _make_llm_response(VALID_WEBSITE_PLAN)
 
+    mock_instance = MagicMock()
+    mock_instance.messages.create = AsyncMock(return_value=mock_response)
+
     with (
-        patch("routers.adventures._resolve_api_key", return_value="test-key"),
-        patch("routers.adventures.anthropic.AsyncAnthropic") as MockClient,
+        patch("routers.adventures.get_ai_client", new=AsyncMock(return_value=mock_instance)),
         patch("routers.adventures.ostk") as mock_ostk,
         patch("routers.adventures.schedule_auto_labels") as mock_schedule,
     ):
-        instance = MockClient.return_value
-        instance.messages.create = AsyncMock(return_value=mock_response)
         # Return distinct ids so we can verify each task got its own label call.
         mock_ostk.add_task = AsyncMock(side_effect=[
             "added 801: Pick a name and check if the domain is available [P1]",
@@ -264,14 +264,14 @@ async def test_start_skips_auto_labels_when_ostk_fails(client):
 
     mock_response = _make_llm_response(VALID_WEBSITE_PLAN)
 
+    mock_instance = MagicMock()
+    mock_instance.messages.create = AsyncMock(return_value=mock_response)
+
     with (
-        patch("routers.adventures._resolve_api_key", return_value="test-key"),
-        patch("routers.adventures.anthropic.AsyncAnthropic") as MockClient,
+        patch("routers.adventures.get_ai_client", new=AsyncMock(return_value=mock_instance)),
         patch("routers.adventures.ostk") as mock_ostk,
         patch("routers.adventures.schedule_auto_labels") as mock_schedule,
     ):
-        instance = MockClient.return_value
-        instance.messages.create = AsyncMock(return_value=mock_response)
         # Five tasks, three fail, two succeed.
         mock_ostk.add_task = AsyncMock(side_effect=[
             OstkError("disk full"),
@@ -296,7 +296,7 @@ async def test_start_skips_auto_labels_when_ostk_fails(client):
 async def test_fallback_picks_correct_template_per_adventure(client):
     """Each adventure id should produce a fallback plan with adventure-specific tasks."""
     with (
-        patch("routers.adventures._resolve_api_key", return_value=""),
+        patch("routers.adventures.get_ai_client", new=AsyncMock(return_value=None)),
         patch("routers.adventures.ostk") as mock_ostk,
     ):
         mock_ostk.add_task = AsyncMock(return_value="ok")
@@ -324,3 +324,47 @@ async def test_fallback_picks_correct_template_per_adventure(client):
         )
         titles = " ".join(t["title"] for t in resp.json()["tasks"])
         assert "30 minutes" in titles or "first step" in titles
+
+
+# --- Backend preference routing tests ---
+
+@pytest.mark.asyncio
+async def test_adventure_uses_cli_client_when_always_subscription(client):
+    """With always_subscription preference, get_ai_client returns ClaudeCliClient."""
+    from services.ai_backend import ClaudeCliClient
+    from unittest.mock import AsyncMock as _AsyncMock, MagicMock as _MagicMock, patch as _patch
+    mock_response = _make_llm_response(VALID_WEBSITE_PLAN)
+    cli_client = ClaudeCliClient()
+    cli_client.messages.create = _AsyncMock(return_value=mock_response)
+
+    with (
+        _patch("routers.adventures.get_ai_client", new=_AsyncMock(return_value=cli_client)),
+        _patch("routers.adventures.ostk") as mock_ostk,
+    ):
+        mock_ostk.add_task = _AsyncMock(return_value="ok")
+        resp = await client.post(
+            "/api/adventures/start",
+            json={"adventure_id": "build_website", "description": "Recipe site"},
+        )
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_adventure_uses_api_key_client_when_always_api_key(client):
+    """With always_api_key preference, get_ai_client returns AsyncAnthropic."""
+    import anthropic
+    from unittest.mock import AsyncMock as _AsyncMock, MagicMock as _MagicMock, patch as _patch
+    mock_response = _make_llm_response(VALID_WEBSITE_PLAN)
+    api_client = _MagicMock(spec=anthropic.AsyncAnthropic)
+    api_client.messages.create = _AsyncMock(return_value=mock_response)
+
+    with (
+        _patch("routers.adventures.get_ai_client", new=_AsyncMock(return_value=api_client)),
+        _patch("routers.adventures.ostk") as mock_ostk,
+    ):
+        mock_ostk.add_task = _AsyncMock(return_value="ok")
+        resp = await client.post(
+            "/api/adventures/start",
+            json={"adventure_id": "build_website", "description": "Recipe site"},
+        )
+    assert resp.status_code == 200

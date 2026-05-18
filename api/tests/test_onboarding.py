@@ -37,13 +37,13 @@ async def test_dream_returns_goal_and_tasks(client):
     """Happy path: LLM returns valid JSON, tasks are persisted."""
     mock_response = _make_llm_response(VALID_LLM_DATA)
 
+    mock_instance = MagicMock()
+    mock_instance.messages.create = AsyncMock(return_value=mock_response)
+
     with (
-        patch("routers.onboarding._resolve_api_key", return_value="test-key"),
-        patch("routers.onboarding.anthropic.AsyncAnthropic") as MockClient,
+        patch("routers.onboarding.get_ai_client", new=AsyncMock(return_value=mock_instance)),
         patch("routers.onboarding.ostk") as mock_ostk,
     ):
-        instance = MockClient.return_value
-        instance.messages.create = AsyncMock(return_value=mock_response)
         mock_ostk.add_task = AsyncMock(return_value="created t-1")
 
         resp = await client.post("/api/onboarding/dream", json={
@@ -68,13 +68,13 @@ async def test_dream_without_done_looks_like(client):
     """The done_looks_like field is optional."""
     mock_response = _make_llm_response(VALID_LLM_DATA)
 
+    mock_instance = MagicMock()
+    mock_instance.messages.create = AsyncMock(return_value=mock_response)
+
     with (
-        patch("routers.onboarding._resolve_api_key", return_value="test-key"),
-        patch("routers.onboarding.anthropic.AsyncAnthropic") as MockClient,
+        patch("routers.onboarding.get_ai_client", new=AsyncMock(return_value=mock_instance)),
         patch("routers.onboarding.ostk") as mock_ostk,
     ):
-        instance = MockClient.return_value
-        instance.messages.create = AsyncMock(return_value=mock_response)
         mock_ostk.add_task = AsyncMock(return_value="created t-1")
 
         resp = await client.post("/api/onboarding/dream", json={
@@ -108,7 +108,7 @@ async def test_dream_missing_dreading_returns_422(client):
 async def test_dream_fallback_when_no_api_key(client):
     """When no API key is available, return a sensible fallback plan."""
     with (
-        patch("routers.onboarding._resolve_api_key", return_value=""),
+        patch("routers.onboarding.get_ai_client", new=AsyncMock(return_value=None)),
         patch("routers.onboarding.ostk") as mock_ostk,
     ):
         mock_ostk.add_task = AsyncMock(return_value="created t-1")
@@ -132,13 +132,13 @@ async def test_dream_fallback_when_llm_returns_bad_json(client):
     bad_response.content = [SimpleNamespace(type="text", text="This is not JSON at all")]
     bad_response.usage = SimpleNamespace(input_tokens=50, output_tokens=50)
 
+    mock_instance = MagicMock()
+    mock_instance.messages.create = AsyncMock(return_value=bad_response)
+
     with (
-        patch("routers.onboarding._resolve_api_key", return_value="test-key"),
-        patch("routers.onboarding.anthropic.AsyncAnthropic") as MockClient,
+        patch("routers.onboarding.get_ai_client", new=AsyncMock(return_value=mock_instance)),
         patch("routers.onboarding.ostk") as mock_ostk,
     ):
-        instance = MockClient.return_value
-        instance.messages.create = AsyncMock(return_value=bad_response)
         mock_ostk.add_task = AsyncMock(return_value="created t-1")
 
         resp = await client.post("/api/onboarding/dream", json={
@@ -156,19 +156,19 @@ async def test_dream_fallback_when_llm_api_error(client):
     """When the Anthropic API raises an error, fall back gracefully."""
     import anthropic as anth
 
+    mock_instance = MagicMock()
+    mock_instance.messages.create = AsyncMock(
+        side_effect=anth.APIError(
+            message="overloaded",
+            request=MagicMock(),
+            body=None,
+        )
+    )
+
     with (
-        patch("routers.onboarding._resolve_api_key", return_value="test-key"),
-        patch("routers.onboarding.anthropic.AsyncAnthropic") as MockClient,
+        patch("routers.onboarding.get_ai_client", new=AsyncMock(return_value=mock_instance)),
         patch("routers.onboarding.ostk") as mock_ostk,
     ):
-        instance = MockClient.return_value
-        instance.messages.create = AsyncMock(
-            side_effect=anth.APIError(
-                message="overloaded",
-                request=MagicMock(),
-                body=None,
-            )
-        )
         mock_ostk.add_task = AsyncMock(return_value="created t-1")
 
         resp = await client.post("/api/onboarding/dream", json={
@@ -187,13 +187,13 @@ async def test_dream_fallback_when_llm_missing_fields(client):
     incomplete_data = {"goal": {"title": "Test"}}  # missing description and tasks
     mock_response = _make_llm_response(incomplete_data)
 
+    mock_instance = MagicMock()
+    mock_instance.messages.create = AsyncMock(return_value=mock_response)
+
     with (
-        patch("routers.onboarding._resolve_api_key", return_value="test-key"),
-        patch("routers.onboarding.anthropic.AsyncAnthropic") as MockClient,
+        patch("routers.onboarding.get_ai_client", new=AsyncMock(return_value=mock_instance)),
         patch("routers.onboarding.ostk") as mock_ostk,
     ):
-        instance = MockClient.return_value
-        instance.messages.create = AsyncMock(return_value=mock_response)
         mock_ostk.add_task = AsyncMock(return_value="created t-1")
 
         resp = await client.post("/api/onboarding/dream", json={
@@ -218,13 +218,13 @@ async def test_dream_returns_tasks_with_correct_priorities(client):
     """
     mock_response = _make_llm_response(VALID_LLM_DATA)
 
+    mock_instance = MagicMock()
+    mock_instance.messages.create = AsyncMock(return_value=mock_response)
+
     with (
-        patch("routers.onboarding._resolve_api_key", return_value="test-key"),
-        patch("routers.onboarding.anthropic.AsyncAnthropic") as MockClient,
+        patch("routers.onboarding.get_ai_client", new=AsyncMock(return_value=mock_instance)),
         patch("routers.onboarding.ostk") as mock_ostk,
     ):
-        instance = MockClient.return_value
-        instance.messages.create = AsyncMock(return_value=mock_response)
         mock_ostk.add_task = AsyncMock(return_value="created t-1")
 
         resp = await client.post("/api/onboarding/dream", json={
@@ -252,13 +252,13 @@ async def test_dream_still_returns_plan_when_task_persistence_fails(client):
 
     mock_response = _make_llm_response(VALID_LLM_DATA)
 
+    mock_instance = MagicMock()
+    mock_instance.messages.create = AsyncMock(return_value=mock_response)
+
     with (
-        patch("routers.onboarding._resolve_api_key", return_value="test-key"),
-        patch("routers.onboarding.anthropic.AsyncAnthropic") as MockClient,
+        patch("routers.onboarding.get_ai_client", new=AsyncMock(return_value=mock_instance)),
         patch("routers.onboarding.ostk") as mock_ostk,
     ):
-        instance = MockClient.return_value
-        instance.messages.create = AsyncMock(return_value=mock_response)
         mock_ostk.add_task = AsyncMock(side_effect=OstkError("disk full"))
 
         resp = await client.post("/api/onboarding/dream", json={
@@ -278,7 +278,7 @@ async def test_dream_still_returns_plan_when_task_persistence_fails(client):
 async def test_dream_fallback_uses_done_looks_like_in_description(client):
     """When falling back, the done_looks_like text should appear in the goal description."""
     with (
-        patch("routers.onboarding._resolve_api_key", return_value=""),
+        patch("routers.onboarding.get_ai_client", new=AsyncMock(return_value=None)),
         patch("routers.onboarding.ostk") as mock_ostk,
     ):
         mock_ostk.add_task = AsyncMock(return_value="created t-1")
@@ -624,11 +624,11 @@ async def test_enable_myos_hooks_scope_myos_only(client):
 @pytest.mark.asyncio
 async def test_intent_endpoint_does_not_break_dream(client):
     """The dream endpoint still works after the intent endpoint is added."""
+    from unittest.mock import AsyncMock
     with (
-        patch("routers.onboarding._resolve_api_key", return_value=""),
+        patch("routers.onboarding.get_ai_client", new=AsyncMock(return_value=None)),
         patch("routers.onboarding.ostk") as mock_ostk,
     ):
-        from unittest.mock import AsyncMock
         mock_ostk.add_task = AsyncMock(return_value="created t-1")
         resp = await client.post("/api/onboarding/dream", json={"dreading": "do my taxes"})
     assert resp.status_code == 200

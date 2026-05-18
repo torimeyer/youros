@@ -24,6 +24,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import services.atlassian as atlassian_service
+from services.ai_backend import get_ai_client
 
 # ---------------------------------------------------------------------------
 # Storage paths (patchable in tests via MYOS_DIR env var)
@@ -139,8 +140,6 @@ async def _build_markdown_async(audience: str, window_days: int, sources: list[d
 
     summary = ""
     try:
-        from services.ai_backend import get_ai_client
-
         client = await get_ai_client()
         if client is not None:
             source_list = "\n".join(
