@@ -106,6 +106,12 @@ describe('AllView kanban (→1478)', () => {
     expect(screen.queryByTestId('filter-chip-tasks-only')).not.toBeInTheDocument()
   })
 
+  it('RED 10: filter-chip-stale does NOT exist (removed in →1481)', async () => {
+    setup()
+    await waitFor(() => expect(screen.getByTestId('backlog-allview')).toBeInTheDocument())
+    expect(screen.queryByTestId('filter-chip-stale')).not.toBeInTheDocument()
+  })
+
   it('RED 8: filter-search-input filters cards by title substring', async () => {
     setup()
     await waitFor(() => expect(screen.getByTestId('filter-search-input')).toBeInTheDocument())
