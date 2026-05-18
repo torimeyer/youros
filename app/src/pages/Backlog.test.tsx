@@ -102,9 +102,9 @@ describe('Backlog page (→1466)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/specs') return Promise.resolve(SAMPLE_SPECS)
-      if (url === '/tasks') return Promise.resolve(SAMPLE_TASKS)
-      return Promise.resolve([])
+      if (url === '/specs') return Promise.resolve({ docs: SAMPLE_SPECS })
+      if (url === '/tasks') return Promise.resolve({ tasks: SAMPLE_TASKS })
+      return Promise.resolve({})
     })
   })
 

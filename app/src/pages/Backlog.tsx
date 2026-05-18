@@ -35,8 +35,8 @@ function AllView() {
   const [conflicts, setConflicts] = useState<ConflictItem[]>([])
 
   useEffect(() => {
-    api.get<Spec[]>('/specs').then(setSpecs).catch(() => {})
-    api.get<Task[]>('/tasks').then(setTasks).catch(() => {})
+    api.get<{ docs: Spec[] }>('/specs').then(r => setSpecs(r.docs ?? [])).catch(() => {})
+    api.get<{ tasks: Task[] }>('/tasks').then(r => setTasks(r.tasks ?? [])).catch(() => {})
   }, [])
 
   const specTaskIds = new Set(specs.flatMap((s) => s.task_ids))
