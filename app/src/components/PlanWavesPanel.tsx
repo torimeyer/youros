@@ -110,7 +110,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
     setWavesError(null)
     setWavesData(null)
     api.get<WavesResponse>('/tasks/waves?include_specs=true')
-      .then(setWavesData)
+      .then((r) => setWavesData({ waves: r?.waves ?? [], total_needles: r?.total_needles ?? 0 }))
       .catch((e: unknown) => setWavesError(e instanceof Error ? e.message : 'Could not load wave plan'))
       .finally(() => setWavesLoading(false))
   }, [open])
