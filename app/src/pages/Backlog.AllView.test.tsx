@@ -18,7 +18,9 @@ vi.mock('../components/ConflictDialog', () => ({
 }))
 
 import { api } from '../lib/api'
+import { buildSpec } from '../lib/spawn'
 const mockedGet = vi.mocked(api.get)
+const mockedBuildSpec = vi.mocked(buildSpec)
 
 const DRAFT_SPEC = { id: 'draft-spec', path: 'docs/draft/d.md', title: 'Draft Spec Title', status: 'draft', task_ids: [] }
 const READY_SPEC = { id: 'ready-spec', path: 'docs/spec/r.md', title: 'Ready Spec Title', status: 'ready', task_ids: ['task-a', 'task-b'] }
@@ -115,5 +117,30 @@ describe('AllView kanban (→1478)', () => {
       expect(screen.queryByTestId('kanban-card-ready-spec')).not.toBeInTheDocument()
       expect(screen.queryByTestId('kanban-card-open-task')).not.toBeInTheDocument()
     })
+  })
+
+  it('RED 10: clicking Build button calls buildSpec with the spec path (→1482)', async () => {
+    mockedBuildSpec.mockResolvedValueOnce({ status: 'ok', agents: [], message: 'launched' })
+    setup()
+    await waitFor(() => expect(screen.getByTestId('card-build-button')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('card-build-button'))
+    await waitFor(() => expect(mockedBuildSpec).toHaveBeenCalledWith(READY_SPEC.path))
+  })
+
+  it('RED 11: Build button has rounded-md class (button, not pill) (→1482)', async () => {
+    setup()
+    await waitFor(() => expect(screen.getByTestId('card-build-button')).toBeInTheDocument())
+    const btn = screen.getByTestId('card-build-button')
+    expect(btn.className).toContain('rounded-md')
+    expect(btn.className).not.toContain('rounded-full')
+  })
+
+  it('RED 12: Build button has px-4 py-2 text-sm for clear button affordance (→1482)', async () => {
+    setup()
+    await waitFor(() => expect(screen.getByTestId('card-build-button')).toBeInTheDocument())
+    const btn = screen.getByTestId('card-build-button')
+    expect(btn.className).toContain('px-4')
+    expect(btn.className).toContain('py-2')
+    expect(btn.className).toContain('text-sm')
   })
 })
