@@ -3903,12 +3903,14 @@ async def list_agents(
         after filters and sort-by-spawned_at so the oldest rows win).
     """
     # Read from the background snapshot cache (→1219). Latency: <10 ms.
+    # NEVER compute synchronously on the request path. On cold start the
+    # background snapshotter (which has its own asyncio.sleep cadence) will
+    # populate _cached_snapshot within 500 ms. Until then this returns the
+    # empty initial state. Computing here under load causes 25-30 s queueing
+    # because the lock releases before the await and requests stampede the
+    # compute simultaneously (followup to →1445).
     async with _snapshot_lock:
         snapshot = dict(_cached_snapshot)
-    if snapshot.get("computed_at") is None:
-        snapshot = await _compute_agents_snapshot_async()
-        async with _snapshot_lock:
-            _cached_snapshot.update(snapshot)
     all_agents = list(snapshot.get("agents", []))
     # Overlay live statuses from agent_metadata (snapshot is up to 500ms stale).
     # This ensures /complete and other status mutations are immediately visible.
