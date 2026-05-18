@@ -2,7 +2,7 @@
 // See plan: /Users/torimeyer/.claude/plans/this-isnt-very-user-twinkling-yeti.md
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Backlog from './Backlog'
 
@@ -51,9 +51,10 @@ describe('AllView kanban (→1478)', () => {
     expect(screen.getByTestId('kanban-column-drafting')).toBeInTheDocument()
     expect(screen.getByTestId('kanban-column-ready')).toBeInTheDocument()
     expect(screen.getByTestId('kanban-column-in-progress')).toBeInTheDocument()
-    expect(screen.getByText('Drafting')).toBeInTheDocument()
-    expect(screen.getByText('Ready')).toBeInTheDocument()
-    expect(screen.getByText('In progress')).toBeInTheDocument()
+    // Use heading role to avoid collision with card status pills that share text with column names
+    expect(within(screen.getByTestId('kanban-column-drafting')).getByRole('heading')).toHaveTextContent('Drafting')
+    expect(within(screen.getByTestId('kanban-column-ready')).getByRole('heading')).toHaveTextContent('Ready')
+    expect(within(screen.getByTestId('kanban-column-in-progress')).getByRole('heading')).toHaveTextContent('In progress')
   })
 
   it('RED 2: draft spec appears in kanban-column-drafting with type chip "Spec"', async () => {

@@ -12,6 +12,8 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+vi.mock('./backlog/SpecHealthTab', () => ({ default: () => <div>Health</div> }))
+
 vi.mock('./Specs', () => ({
   default: () => <div data-testid="specs-page">Specs page</div>,
 }))
@@ -68,7 +70,7 @@ describe('Backlog AllView — real API response shapes (→1468)', () => {
   it('renders without crashing when API returns wrapped objects', async () => {
     renderBacklog('/backlog')
     await waitFor(() => {
-      expect(screen.getByText(/plans in flight/i)).toBeInTheDocument()
+      expect(screen.getByTestId('backlog-allview')).toBeInTheDocument()
     })
   })
 
@@ -88,13 +90,14 @@ describe('Backlog AllView — real API response shapes (→1468)', () => {
     })
   })
 
-  it('does NOT show spec-linked tasks in the standalone section with real shapes', async () => {
+  it('shows all open tasks (including spec-linked) in the kanban drafting column', async () => {
     renderBacklog('/backlog')
     await waitFor(() => {
-      expect(screen.getByText(/standalone tasks/i)).toBeInTheDocument()
+      expect(screen.getByTestId('kanban-column-drafting')).toBeInTheDocument()
     })
-    expect(screen.queryByText('Write tests')).toBeNull()
-    expect(screen.queryByText('Implement login')).toBeNull()
+    // All open tasks appear in Drafting column regardless of spec linkage
+    expect(screen.getByText('Write tests')).toBeInTheDocument()
+    expect(screen.getByText('Implement login')).toBeInTheDocument()
   })
 })
 
@@ -126,17 +129,17 @@ describe('Backlog page (→1466)', () => {
     expect(screen.queryByTestId('tasks-page')).toBeNull()
   })
 
-  it('shows "Plans in flight" section heading on the All tab', async () => {
+  it('shows kanban Drafting column on the All tab', async () => {
     renderBacklog()
     await waitFor(() => {
-      expect(screen.getByText(/plans in flight/i)).toBeInTheDocument()
+      expect(screen.getByTestId('kanban-column-drafting')).toBeInTheDocument()
     })
   })
 
-  it('shows "Standalone tasks" section heading on the All tab', async () => {
+  it('shows kanban In progress column on the All tab', async () => {
     renderBacklog()
     await waitFor(() => {
-      expect(screen.getByText(/standalone tasks/i)).toBeInTheDocument()
+      expect(screen.getByTestId('kanban-column-in-progress')).toBeInTheDocument()
     })
   })
 
@@ -165,13 +168,14 @@ describe('Backlog page (→1466)', () => {
     })
   })
 
-  it('does NOT list spec-linked tasks in the standalone section', async () => {
+  it('shows all open tasks in the kanban (including spec-linked)', async () => {
     renderBacklog()
     await waitFor(() => {
-      expect(screen.getByText(/standalone tasks/i)).toBeInTheDocument()
+      expect(screen.getByTestId('kanban-column-drafting')).toBeInTheDocument()
     })
-    expect(screen.queryByText('Write tests')).toBeNull()
-    expect(screen.queryByText('Implement login')).toBeNull()
+    // All open tasks appear in Drafting column; spec-linked tasks are no longer filtered out
+    expect(screen.getByText('Write tests')).toBeInTheDocument()
+    expect(screen.getByText('Implement login')).toBeInTheDocument()
   })
 
   it('renders the Specs sub-page at /backlog/specs', async () => {
