@@ -110,6 +110,14 @@ describe('AllView kanban (→1478)', () => {
     expect(screen.getByTestId('kanban-card-ready-spec')).toBeInTheDocument()
   })
 
+  it('RED 9: filter-chip-specs-only does NOT exist (redundant with top nav)', async () => {
+    setup()
+    await waitFor(() => expect(screen.getByTestId('backlog-allview')).toBeInTheDocument())
+    expect(screen.queryByTestId('filter-chip-all')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('filter-chip-specs-only')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('filter-chip-tasks-only')).not.toBeInTheDocument()
+  })
+
   it('RED 8: filter-search-input filters cards by title substring', async () => {
     setup()
     await waitFor(() => expect(screen.getByTestId('filter-search-input')).toBeInTheDocument())
