@@ -375,7 +375,46 @@ async def list_assigned_issues() -> list[dict]:
     return issues
 
 
-async def get_issue(key: str) -> dict:
+async def get_issue_links(key: str) -> dict:
+    """Return an issue with its issuelinks for dependency mapping.
+
+    Returns dict with: key, summary, status, assignee, issuelinks (raw Jira list).
+    Raises RuntimeError("<key> not found.") on 404.
+    Raises RuntimeError on auth/network failures.
+    """
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.get(
+            f"{base_url}/rest/api/3/issue/{key}",
+            **auth_kwargs,
+            params={"fields": "summary,status,assignee,issuelinks"},
+        )
+
+    try:
+        resp, base_url, site = await _request_with_refresh("jira", call)
+    except Exception as exc:
+        raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+
+    if resp.status_code == 401:
+        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    if resp.status_code == 404:
+        raise RuntimeError(f"Issue {key} not found.")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Jira API error ({resp.status_code}).")
+
+    data = resp.json()
+    f = data.get("fields", {})
+    status_obj = f.get("status") or {}
+    assignee_obj = f.get("assignee") or {}
+
+    return {
+        "key": data.get("key", key),
+        "summary": f.get("summary", ""),
+        "status": status_obj.get("name", ""),
+        "assignee": assignee_obj.get("displayName", ""),
+        "issuelinks": f.get("issuelinks", []),
+    }
+
+
     """Return full issue detail including rendered description and comments."""
     async def call_issue(client, auth_kwargs, base_url, site):
         return await client.get(
