@@ -110,26 +110,11 @@ class TestReadRegistryForSnapshot:
 
 
 class TestComputeSnapshotFlag:
-    """_compute_agents_snapshot_async uses registry when flag is set."""
+    """_compute_agents_snapshot_async always uses registry_reader (→1303)."""
 
     @pytest.mark.asyncio
-    async def test_flag_off_calls_kernel_ps(self, monkeypatch):
-        """Without the flag, kernel_ps is called (existing path unchanged)."""
-        monkeypatch.delenv("MYOS_AGENTS_USE_REGISTRY", raising=False)
-        fake_ps = AsyncMock(return_value={"raw": "", "daemon_running": False, "agents": []})
-        fake_audit = AsyncMock(return_value=[])
-        with patch("routers.agents.ostk.kernel_ps", fake_ps), \
-             patch("routers.agents.ostk.audit_agents", fake_audit):
-            import importlib
-            import routers.agents as agents_mod
-            importlib.reload(agents_mod)  # reset module-level state
-            await agents_mod._compute_agents_snapshot_async()
-        fake_ps.assert_awaited()
-
-    @pytest.mark.asyncio
-    async def test_flag_on_skips_kernel_ps(self, monkeypatch):
-        """With MYOS_AGENTS_USE_REGISTRY=1, kernel_ps is NOT called."""
-        monkeypatch.setenv("MYOS_AGENTS_USE_REGISTRY", "1")
+    async def test_always_uses_registry_not_kernel_ps(self):
+        """kernel_ps is never called; registry_reader handles agent discovery."""
         fake_ps = AsyncMock(return_value={"raw": "", "daemon_running": False, "agents": []})
         fake_audit = AsyncMock(return_value=[])
         fake_registry_result = {"raw": "", "daemon_running": False, "agents": []}
@@ -142,9 +127,8 @@ class TestComputeSnapshotFlag:
         fake_ps.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_flag_on_registry_agents_appear_in_snapshot(self, monkeypatch, tmp_path):
+    async def test_registry_agents_appear_in_snapshot(self):
         """Agents from registry surface in the snapshot result."""
-        monkeypatch.setenv("MYOS_AGENTS_USE_REGISTRY", "1")
         fake_audit = AsyncMock(return_value=[])
         registry_result = {
             "raw": "",
