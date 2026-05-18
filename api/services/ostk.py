@@ -2034,8 +2034,85 @@ class OstkService:
         return await self._run("doc", "draft", title)
 
     async def doc_promote(self, path: str) -> str:
-        """Promote a draft to a spec. Returns the new file path."""
-        return await self._run("doc", "promote", path)
+        """Promote a draft to a spec. Returns the new file path.
+
+        Pure-Python implementation to avoid SIGKILL issues with the
+        ostk binary in some environments, and to ensure correct routing
+        to USER_SPECS_DIR (~/.myos/specs/).
+        """
+        source = (Path(self.cwd) / path).resolve()
+        if not source.exists():
+            raise OstkError(f"Draft not found: {path}")
+
+        text = source.read_text()
+        file_lines = text.split("\n")
+
+        # Validation: require at least one unchecked checkbox in the body.
+        # Mirrors the CLI validation.
+        body_text = text
+        if file_lines and file_lines[0].strip() == "---":
+            for i, line in enumerate(file_lines[1:], 1):
+                if line.strip() == "---":
+                    body_text = "\n".join(file_lines[i + 1 :])
+                    break
+
+        has_checkbox = any(
+            line.strip().startswith("- [ ]") for line in body_text.split("\n")
+        )
+        if not has_checkbox:
+            raise OstkError(
+                "This draft needs at least one checkbox acceptance criterion "
+                "(a line starting with '- [ ]') before it can be promoted."
+            )
+
+        # Flip status and add promoted_at in front matter.
+        promoted_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        new_lines: list[str] = []
+        status_written = False
+        promoted_at_written = False
+        in_front_matter = bool(file_lines and file_lines[0].strip() == "---")
+
+        for idx, line in enumerate(file_lines):
+            stripped = line.strip()
+            if in_front_matter and idx == 0:
+                new_lines.append(line)
+                continue
+            if in_front_matter and stripped == "---" and idx > 0:
+                # End of front matter: inject promoted_at if not already present.
+                if not promoted_at_written:
+                    new_lines.append(f"promoted_at: {promoted_at}")
+                    promoted_at_written = True
+                in_front_matter = False
+                new_lines.append(line)
+                continue
+            if in_front_matter and stripped.startswith("status:"):
+                new_lines.append("status: spec")
+                status_written = True
+                continue
+            if in_front_matter and stripped.startswith("promoted_at:"):
+                new_lines.append(f"promoted_at: {promoted_at}")
+                promoted_at_written = True
+                continue
+            new_lines.append(line)
+
+        # No front matter (or missing status): prepend one.
+        if not status_written:
+            new_lines = [
+                "---",
+                "status: spec",
+                f"promoted_at: {promoted_at}",
+                "---",
+            ] + new_lines
+
+        USER_SPECS_DIR.mkdir(parents=True, exist_ok=True)
+        target = USER_SPECS_DIR / source.name
+
+        atomic_write_text(
+            target, "\n".join(new_lines) + ("\n" if text.endswith("\n") else "")
+        )
+        source.unlink()
+
+        return str(target)
 
     async def doc_decompose(self, path: str, auto: bool = False) -> dict:
         """Break a spec into tasks. Returns result text and extracted task IDs.

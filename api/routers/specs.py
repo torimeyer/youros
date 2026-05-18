@@ -787,100 +787,22 @@ async def export_spec(spec_path: str, format: str = "speckit"):
 async def promote_draft(body: SpecPromote):
     """Promote a draft to a finalized spec.
 
-    Pure-Python implementation: moves the file from ``docs/draft/`` to
-    ``docs/spec/`` and flips the front-matter ``status`` field from
-    ``draft`` to ``spec``, adding a ``promoted_at`` timestamp.
-
-    This mirrors ``unlock_spec`` (the inverse operation) so both paths
-    stay in sync without spawning an external subprocess.
+    Delegates to ``ostk.doc_promote()`` which implements the file move
+    and front-matter flip in pure Python to ensure correct routing
+    to ``~/.myos/specs/``.
     """
-    from datetime import datetime, timezone as _tz
-
     _validate_doc_path(body.path)
     if not body.path.startswith("docs/draft/"):
         raise HTTPException(
             status_code=400,
             detail="Only drafts can be promoted. Path must start with docs/draft/.",
         )
-    source = (Path(PROJECT_ROOT) / body.path).resolve()
-    draft_root = (Path(PROJECT_ROOT) / "docs" / "draft").resolve()
-    if not source.is_relative_to(draft_root):
-        raise HTTPException(status_code=400, detail="Path traversal not allowed")
-    if not source.exists():
-        raise HTTPException(status_code=404, detail="Draft not found")
 
-    text = source.read_text()
-
-    # Require at least one unchecked acceptance-criteria checkbox.
-    # Mirrors the CLI validation so the button's enabled/disabled state
-    # matches what the backend will accept.
-    body_text = text
-    file_lines = text.split("\n")
-    if file_lines and file_lines[0].strip() == "---":
-        for i, line in enumerate(file_lines[1:], 1):
-            if line.strip() == "---":
-                body_text = "\n".join(file_lines[i + 1:])
-                break
-    has_checkbox = any(
-        line.strip().startswith("- [ ]") for line in body_text.split("\n")
-    )
-    if not has_checkbox:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "This draft needs at least one checkbox acceptance criterion "
-                "(a line starting with '- [ ]') before it can be promoted."
-            ),
-        )
-
-    # Flip status and add promoted_at in front matter.
-    promoted_at = datetime.now(tz=_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    new_lines: list[str] = []
-    status_written = False
-    promoted_at_written = False
-    in_front_matter = bool(file_lines and file_lines[0].strip() == "---")
-    for idx, line in enumerate(file_lines):
-        stripped = line.strip()
-        if in_front_matter and idx == 0:
-            new_lines.append(line)
-            continue
-        if in_front_matter and stripped == "---" and idx > 0:
-            # End of front matter: inject promoted_at if not already present.
-            if not promoted_at_written:
-                new_lines.append(f"promoted_at: {promoted_at}")
-                promoted_at_written = True
-            in_front_matter = False
-            new_lines.append(line)
-            continue
-        if in_front_matter and stripped.startswith("status:"):
-            new_lines.append("status: spec")
-            status_written = True
-            continue
-        if in_front_matter and stripped.startswith("promoted_at:"):
-            new_lines.append(f"promoted_at: {promoted_at}")
-            promoted_at_written = True
-            continue
-        new_lines.append(line)
-
-    from services.ostk import USER_SPECS_DIR
-
-    # No front matter: prepend one.
-    if not status_written:
-        new_lines = [
-            "---",
-            "status: spec",
-            f"promoted_at: {promoted_at}",
-            "---",
-        ] + new_lines
-
-    filename = Path(body.path).name
-    target = USER_SPECS_DIR / filename
-    USER_SPECS_DIR.mkdir(parents=True, exist_ok=True)
-    target.write_text("\n".join(new_lines) + ("\n" if text.endswith("\n") else ""))
-    source.unlink()
-
-    target_path = str(target)
-    return {"result": target_path, "promoted_path": target_path}
+    try:
+        target_path = await ostk.doc_promote(body.path)
+        return {"result": target_path, "promoted_path": target_path}
+    except OstkError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/specs/{spec_path:path}/unlock")

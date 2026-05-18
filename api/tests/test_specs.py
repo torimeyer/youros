@@ -34,6 +34,7 @@ async def test_create_draft_auto_promotes_when_ac_generation_succeeds(
     (tmp_path / "docs" / "spec").mkdir(parents=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
 
     draft_file = tmp_path / "docs" / "draft" / "wave2-autopromote.md"
     spec_file = tmp_path / "docs" / "spec" / "wave2-autopromote.md"
@@ -44,13 +45,6 @@ async def test_create_draft_auto_promotes_when_ac_generation_succeeds(
                 "---\ntitle: wave2 autopromote\nstatus: draft\n---\n\n"
             )
             return str(draft_file.relative_to(tmp_path))
-        if args[:2] == ("doc", "promote"):
-            text = draft_file.read_text().replace(
-                "status: draft", "status: spec"
-            )
-            spec_file.write_text(text)
-            draft_file.unlink()
-            return str(spec_file.relative_to(tmp_path))
         raise AssertionError(f"unexpected ostk call: {args}")
 
     monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)
@@ -119,23 +113,16 @@ async def test_create_draft_leaves_as_draft_when_ac_generation_fails(
     (tmp_path / "docs" / "spec").mkdir(parents=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
 
     draft_file = tmp_path / "docs" / "draft" / "wave2-no-ac.md"
 
-    promote_called = False
-
     async def fake_run(*args, **kwargs):
-        nonlocal promote_called
         if args[:2] == ("doc", "draft"):
             draft_file.write_text(
                 "---\ntitle: wave2 no ac\nstatus: draft\n---\n\n"
             )
             return str(draft_file.relative_to(tmp_path))
-        if args[:2] == ("doc", "promote"):
-            promote_called = True
-            raise AssertionError(
-                "promote must not fire when no AC was written"
-            )
         raise AssertionError(f"unexpected ostk call: {args}")
 
     monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)
@@ -153,7 +140,6 @@ async def test_create_draft_leaves_as_draft_when_ac_generation_fails(
     data = resp.json()
     assert data["status"] == "draft"
     assert data["promoted_path"] is None
-    assert not promote_called
     # The file stays in draft/.
     assert draft_file.exists()
 
@@ -459,6 +445,7 @@ async def test_from_template_creates_ready_plan(
     (tmp_path / "docs" / "spec").mkdir(parents=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
 
     draft_file = tmp_path / "docs" / "draft" / "build-a-website.md"
     spec_file = tmp_path / "docs" / "spec" / "build-a-website.md"
@@ -471,13 +458,6 @@ async def test_from_template_creates_ready_plan(
                 "---\ntitle: Build a Website\nstatus: draft\n---\n\n"
             )
             return str(draft_file.relative_to(tmp_path))
-        if args[:2] == ("doc", "promote"):
-            text = draft_file.read_text().replace(
-                "status: draft", "status: spec"
-            )
-            spec_file.write_text(text)
-            draft_file.unlink()
-            return str(spec_file.relative_to(tmp_path))
         if args[:2] == ("doc", "decompose"):
             decompose_calls["count"] += 1
             return ""
@@ -538,6 +518,7 @@ async def test_from_roadmap_line_creates_ready_plan(
     (tmp_path / "docs" / "spec").mkdir(parents=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
 
     roadmap_path = tmp_path / "roadmap.md"
     roadmap_path.write_text(
@@ -553,11 +534,6 @@ async def test_from_roadmap_line_creates_ready_plan(
                 "---\ntitle: Ship guided onboarding for solo PMs\nstatus: draft\n---\n\n"
             )
             return str(draft_file.relative_to(tmp_path))
-        if args[:2] == ("doc", "promote"):
-            text = draft_file.read_text().replace("status: draft", "status: spec")
-            spec_file.write_text(text)
-            draft_file.unlink()
-            return str(spec_file.relative_to(tmp_path))
         raise AssertionError(f"unexpected ostk call: {args}")
 
     monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)
@@ -1278,6 +1254,7 @@ async def test_from_roadmap_line_p95_under_demo_budget(
     (tmp_path / "docs" / "spec").mkdir(parents=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
 
     roadmap_path = tmp_path / "roadmap.md"
     roadmap_path.write_text(
@@ -1298,13 +1275,6 @@ async def test_from_roadmap_line_p95_under_demo_budget(
             path = tmp_path / "docs" / "draft" / name
             path.write_text("---\ntitle: latency probe\nstatus: draft\n---\n\n")
             return str(path.relative_to(tmp_path))
-        if args[:2] == ("doc", "promote"):
-            draft_rel = args[2]
-            src = tmp_path / draft_rel
-            dst = tmp_path / draft_rel.replace("docs/draft/", "docs/spec/", 1)
-            dst.write_text(src.read_text().replace("status: draft", "status: spec"))
-            src.unlink()
-            return str(dst.relative_to(tmp_path))
         raise AssertionError(f"unexpected ostk call: {args}")
 
     monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)

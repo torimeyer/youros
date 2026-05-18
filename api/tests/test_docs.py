@@ -37,13 +37,27 @@ class TestDocService:
         assert result == "docs/draft/my-plan.md"
 
     @pytest.mark.asyncio
-    async def test_doc_promote_calls_cli(self):
-        with patch.object(self.svc, "_run", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = "docs/spec/my-plan.md"
+    async def test_doc_promote_pure_python(self):
+        """doc_promote moves draft to specs and flips front matter."""
+        draft_dir = Path(self.tmpdir) / "docs" / "draft"
+        draft_dir.mkdir(parents=True)
+        draft_file = draft_dir / "my-plan.md"
+        draft_file.write_text(
+            "---\ntitle: my plan\nstatus: draft\n---\n\n- [ ] criterion A"
+        )
+
+        with patch("services.ostk.USER_SPECS_DIR", Path(self.tmpdir) / "myos" / "specs"):
             result = await self.svc.doc_promote("docs/draft/my-plan.md")
 
-        mock_run.assert_called_once_with("doc", "promote", "docs/draft/my-plan.md")
-        assert result == "docs/spec/my-plan.md"
+        assert "myos/specs/my-plan.md" in result
+        target = Path(result)
+        assert target.exists()
+        assert not draft_file.exists()
+
+        content = target.read_text()
+        assert "status: spec" in content
+        assert "promoted_at:" in content
+        assert "- [ ] criterion A" in content
 
     @pytest.mark.asyncio
     async def test_doc_decompose_calls_cli_and_returns_task_ids(self):
@@ -575,7 +589,7 @@ async def test_list_specs_endpoint(client):
 async def test_create_draft_endpoint(client):
     with patch("routers.specs.ostk") as mock_ostk:
         mock_ostk.doc_draft = AsyncMock(return_value="docs/draft/new-plan.md")
-        resp = await client.post("/api/specs/draft", json={"title": "new plan"})
+        resp = await client.post("/api/specs/draft", json={"title": "new plan", "kind": "spec"})
 
     assert resp.status_code == 200
     assert resp.json()["result"] == "docs/draft/new-plan.md"
@@ -586,7 +600,7 @@ async def test_create_draft_endpoint(client):
 async def test_create_draft_error(client):
     with patch("routers.specs.ostk") as mock_ostk:
         mock_ostk.doc_draft = AsyncMock(side_effect=OstkError("title is empty"))
-        resp = await client.post("/api/specs/draft", json={"title": ""})
+        resp = await client.post("/api/specs/draft", json={"title": "", "kind": "spec"})
 
     assert resp.status_code == 400
 
@@ -935,7 +949,7 @@ async def test_list_docs_compat_endpoint(client):
 async def test_create_draft_compat_endpoint(client):
     with patch("routers.specs.ostk") as mock_ostk:
         mock_ostk.doc_draft = AsyncMock(return_value="docs/draft/new-plan.md")
-        resp = await client.post("/api/docs/draft", json={"title": "new plan"})
+        resp = await client.post("/api/docs/draft", json={"title": "new plan", "kind": "spec"})
 
     assert resp.status_code == 200
     assert resp.json()["result"] == "docs/draft/new-plan.md"
@@ -1087,7 +1101,7 @@ async def test_create_draft_appends_ac_to_file(client, tmp_path):
         mock_anthropic.messages = type("M", (), {})()
         mock_anthropic.messages.create = AsyncMock(return_value=mock_message)
 
-        resp = await client.post("/api/specs/draft", json={"title": "my feature"})
+        resp = await client.post("/api/specs/draft", json={"title": "my feature", "kind": "spec"})
 
     assert resp.status_code == 200
     assert resp.json()["result"] == draft_path
@@ -1115,9 +1129,9 @@ async def test_create_draft_succeeds_when_ai_unavailable(client, tmp_path):
         patch("services.chat_providers._resolve_api_key", new_callable=AsyncMock, return_value=None),
     ):
         mock_ostk.doc_draft = AsyncMock(return_value=draft_path)
+        mock_ostk.add_task = AsyncMock(return_value="→123 no ac")
         mock_ostk.cwd = str(tmp_path)
-
-        resp = await client.post("/api/specs/draft", json={"title": "no ac"})
+        resp = await client.post("/api/specs/draft", json={"title": "no ac", "kind": "spec"})
 
     assert resp.status_code == 200
     assert resp.json()["result"] == draft_path
