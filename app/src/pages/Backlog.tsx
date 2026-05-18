@@ -67,7 +67,7 @@ function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void })
         <button
           data-testid="card-build-button"
           onClick={() => onBuild(spec)}
-          className="self-start text-xs bg-blue-600 hover:bg-blue-500 text-white font-medium px-3 py-1 rounded-lg"
+          className="self-start text-sm bg-blue-600 hover:bg-blue-500 text-white font-medium px-4 py-2 rounded-md shadow-sm"
         >
           Build
         </button>
