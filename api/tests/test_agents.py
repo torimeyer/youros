@@ -10473,6 +10473,78 @@ def test_complete_agent_hook_queues_on_transport_failure(tmp_path):
     )
 
 
+def test_complete_agent_hook_queues_on_transport_failure__isolation_stress(
+    tmp_path, request
+):
+    """→1460: guard must watch the isolated issues.jsonl, not the real file.
+
+    Runs the hook 20 times while a background thread appends to the real
+    issues.jsonl (simulating concurrent ostk work add/edit/close). With the
+    old guard (watches real file) the assertion trips; with the fix (guard
+    uses _isolated_issues_path set by _isolate_tasks_ostk) all 20 pass.
+    """
+    import threading
+    from pathlib import Path
+    from config import PROJECT_ROOT
+
+    # Fix prerequisite: _isolate_tasks_ostk must share the isolated path.
+    isolated = getattr(request.node, "_isolated_issues_path", None)
+    assert isolated is not None, (
+        "_isolate_tasks_ostk must set request.node._isolated_issues_path so "
+        "_guard_real_store_writes watches the isolated copy, not the real "
+        "issues.jsonl that concurrent ostk writes can trip (→1460)"
+    )
+
+    real_issues = PROJECT_ROOT / ".ostk" / "needles" / "issues.jsonl"
+    original_bytes = real_issues.read_bytes() if real_issues.exists() else b""
+    stop_evt = threading.Event()
+
+    def _concurrent_writer():
+        """Simulates ostk work add/edit/close writing to the real file."""
+        while not stop_evt.is_set():
+            try:
+                real_issues.write_bytes(original_bytes + b'{"stress":"1460"}\n')
+            except Exception:
+                pass
+
+    hooks_dir = (
+        Path(__file__).resolve().parent.parent.parent / ".claude" / "hooks"
+    )
+    complete_hook = hooks_dir / "complete-agent.sh"
+    fake_home = tmp_path / "home"
+    (fake_home / ".myos" / "subagents").mkdir(parents=True)
+    (fake_home / ".myos" / "subagents" / "last.name").write_text("stress-agent")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_curl = bin_dir / "curl"
+    fake_curl.write_text("#!/bin/bash\nexit 7\n")
+    fake_curl.chmod(0o755)
+    fake_sleep = bin_dir / "sleep"
+    fake_sleep.write_text("#!/bin/bash\nexit 0\n")
+    fake_sleep.chmod(0o755)
+    env = {"HOME": str(fake_home), "PATH": f"{bin_dir}:/usr/bin:/bin"}
+
+    writer = threading.Thread(target=_concurrent_writer, daemon=True)
+    writer.start()
+    try:
+        for i in range(20):
+            result = subprocess.run(
+                ["bash", str(complete_hook)],
+                input=json.dumps({"tool_response": {"output": "done"}}),
+                capture_output=True, text=True, env=env, timeout=15,
+            )
+            assert result.returncode == 0, (
+                f"Run {i}: hook must exit cleanly even under concurrent "
+                f"issues.jsonl writes: {result.stderr!r}"
+            )
+        pending = fake_home / ".myos" / "subagents" / "pending-complete.jsonl"
+        assert pending.exists(), "Hook must have queued the failed /complete"
+    finally:
+        stop_evt.set()
+        writer.join(timeout=2)
+        real_issues.write_bytes(original_bytes)
+
+
 @pytest.mark.asyncio
 async def test_pending_complete_drain_replays_against_live_endpoint(tmp_path, client):
     """The drain helper must replay queued /complete entries against the
