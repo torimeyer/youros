@@ -3393,7 +3393,13 @@ describe('ChatPanel', () => {
     it('clicking status-check-btn calls api.get for transcript_tail and inserts a system bubble', async () => {
       const { api } = await import('../lib/api')
       const mockGet = vi.mocked(api.get)
-      mockGet.mockResolvedValueOnce({ lines: ['line 1', 'line 2', 'line 3'], agent: 'my-agent-abc', found: true })
+      // Route by URL: transcript_tail returns content; all others return default tabs shape
+      mockGet.mockImplementation(async (url: string) => {
+        if (typeof url === 'string' && url.includes('transcript_tail')) {
+          return { lines: ['line 1', 'line 2', 'line 3'], agent: 'my-agent-abc', found: true }
+        }
+        return { tabs: [], active_tab_id: '' }
+      })
 
       useRunningAgentsStore.setState({
         count: 1,
