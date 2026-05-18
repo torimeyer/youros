@@ -162,24 +162,16 @@ function AllView() {
   const openTasks = tasks.filter((t) => t.status === 'open' && matches(t.title))
   const inProgressTasks = tasks.filter((t) => t.status === 'in_progress' && matches(t.title))
 
-  const chipClass = (active: boolean) =>
-    `text-xs px-3 py-1 rounded-full cursor-pointer transition-colors ${
-      active ? 'bg-slate-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-    }`
-
   return (
     <div data-testid="backlog-allview" className="flex flex-col gap-4">
-      <div className="flex items-center gap-2 flex-wrap">
-        <button data-testid="filter-chip-stale" className={chipClass(false)}>
-          Stale &gt; 30d
-        </button>
+      <div className="flex justify-end">
         <input
           data-testid="filter-search-input"
           type="text"
           placeholder="Search..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="ml-auto text-xs bg-slate-800 text-slate-300 placeholder-slate-500 rounded-lg px-3 py-1 border border-slate-700 focus:outline-none focus:border-slate-500"
+          className="text-xs bg-slate-800 text-slate-300 placeholder-slate-500 rounded-lg px-3 py-1 border border-slate-700 focus:outline-none focus:border-slate-500"
         />
       </div>
 
