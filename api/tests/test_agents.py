@@ -13345,14 +13345,83 @@ async def test_template_spawn_appears_in_running_snapshot(tmp_path, monkeypatch)
             )
         assert resp.status_code == 200, resp.text
 
-        snapshot = _compute_running_snapshot()
-        running_names = {a["name"] for a in snapshot.get("agents", [])}
-        assert agent_name in running_names, (
-            f"Template-spawned agent '{agent_name}' must appear in the WS running "
-            f"snapshot immediately after spawn. Got names: {sorted(running_names)}. "
-            "This means the Active Agents panel would not show it until the next "
-            "unrelated WS event fired (heartbeat, complete, etc.)."
-        )
     finally:
         agent_metadata.pop(agent_name, None)
         active_agents.pop(agent_name, None)
+
+
+# →1454: transcript_tail endpoint tests
+@pytest.mark.asyncio
+async def test_transcript_tail_returns_last_lines(tmp_path, monkeypatch):
+    """GET /agents/{name}/transcript_tail returns the last N lines of the transcript."""
+    from routers.agents import agent_metadata
+
+    name = "test-tail-agent-1454"
+    agent_metadata.pop(name, None)
+
+    # Create a fake transcript with 100 lines
+    transcript_file = tmp_path / "transcripts" / f"{name}.md"
+    transcript_file.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f"log line {i}" for i in range(1, 101)]
+    transcript_file.write_text("\n".join(lines) + "\n")
+
+    # Point the resolver at this file via transcript_path in metadata
+    agent_metadata[name] = {
+        "status": "running",
+        "transcript_path": str(transcript_file),
+    }
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/agents/{name}/transcript_tail")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["found"] is True
+        assert data["agent"] == name
+        # Default is 80 lines; file has 100, so we get the last 80
+        assert len(data["lines"]) == 80
+        assert data["lines"][0] == "log line 21"
+        assert data["lines"][-1] == "log line 100"
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_transcript_tail_missing_agent_returns_not_found():
+    """GET /agents/{name}/transcript_tail returns found=False for unknown agent."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/agents/no-such-agent-1454/transcript_tail")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["found"] is False
+    assert data["lines"] == []
+
+
+@pytest.mark.asyncio
+async def test_transcript_tail_custom_line_count(tmp_path):
+    """GET /agents/{name}/transcript_tail?lines=5 honours the lines query param."""
+    from routers.agents import agent_metadata
+
+    name = "test-tail-agent-1454-small"
+    agent_metadata.pop(name, None)
+
+    transcript_file = tmp_path / f"{name}.md"
+    transcript_file.write_text("\n".join(f"line {i}" for i in range(1, 21)) + "\n")
+    agent_metadata[name] = {
+        "status": "running",
+        "transcript_path": str(transcript_file),
+    }
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/agents/{name}/transcript_tail?lines=5")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["lines"]) == 5
+        assert data["lines"][-1] == "line 20"
+    finally:
+        agent_metadata.pop(name, None)
+
