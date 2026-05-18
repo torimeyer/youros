@@ -306,6 +306,7 @@ export default function Tasks() {
     Map<string, "running" | "queued">
   >(() => new Map());
   const [banner, setBanner] = useState<string | null>(null);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
   const [openPriorityDropdown, setOpenPriorityDropdown] = useState<string | null>(null);
   const [openLabelDropdown, setOpenLabelDropdown] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"tasks" | "labels" | "health">("tasks");
@@ -1686,14 +1687,20 @@ export default function Tasks() {
           <div className="flex items-center gap-1 shrink-0">
             <button
               data-testid="what-should-i-do-next"
+              disabled={suggestionLoading}
               onClick={() => {
+                setSuggestionLoading(true);
                 api.get<{ message: string }>('/tasks/next')
-                  .then((res) => setBanner(res.message))
-                  .catch(() => setBanner('Could not get a suggestion right now.'));
+                  .then((res) => {
+                    setBanner(res.message);
+                    setTimeout(() => setBanner(null), 8000);
+                  })
+                  .catch(() => setBanner('Could not get a suggestion right now.'))
+                  .finally(() => setSuggestionLoading(false));
               }}
-              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300"
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300"
             >
-              <Icon name="psychology" className="text-blue-400 text-base" />
+              <Icon name={suggestionLoading ? 'sync' : 'psychology'} className={`text-blue-400 text-base${suggestionLoading ? ' animate-spin' : ''}`} />
               <span className="hidden sm:inline">What should I do next?</span>
             </button>
             <button

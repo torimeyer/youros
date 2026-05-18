@@ -409,6 +409,47 @@ async def test_next_task(client):
     assert resp.json()["message"] == "Work on lego-app"
 
 
+@pytest.mark.asyncio
+async def test_next_task_parses_spec_dump_to_short_message(client):
+    """Full ostk spec dumps must be trimmed to first sentence + priority.
+
+    ostk work next returns the entire needle spec as a one-liner.  Showing
+    that verbatim in the UI banner is unreadable — the message must be cut
+    down to the first sentence plus the priority tag.
+    """
+    raw = (
+        "→1438 Theme B MVP (v3.20.0) — Cross-team coordination + blockers."
+        " New router api/routers/coordination.py with GET /api/coordination/blockers only."
+        " New widget BlockersWidget.tsx (in-row Nudge button initially disabled)."
+        " Register widget in Dashboard.tsx + DashboardCustomizeModal.tsx. [P0]"
+    )
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.next_task = AsyncMock(return_value=raw)
+        resp = await client.get("/api/tasks/next")
+
+    assert resp.status_code == 200
+    msg = resp.json()["message"]
+    # Spec detail after first sentence must be stripped
+    assert "New router" not in msg
+    assert "New widget" not in msg
+    # Title and priority must be preserved
+    assert "Theme B MVP" in msg
+    assert "[P0]" in msg
+
+
+@pytest.mark.asyncio
+async def test_next_task_short_title_passes_through(client):
+    """Short titles without spec detail must come back unchanged."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.next_task = AsyncMock(return_value="→850 review prompts [P3]")
+        resp = await client.get("/api/tasks/next")
+
+    assert resp.status_code == 200
+    msg = resp.json()["message"]
+    assert "review prompts" in msg
+    assert "[P3]" in msg
+
+
 # --- Goal enrichment (backward compatible) ---
 
 @pytest.mark.asyncio

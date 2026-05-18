@@ -2355,6 +2355,53 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
     await waitFor(() => expect(screen.getByText('No open tasks right now.')).toBeInTheDocument())
   })
 
+  it('"What should I do next?" button is disabled while request is in flight', async () => {
+    let resolveNext!: (v: { message: string }) => void
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path === '/tasks/next') return new Promise<{ message: string }>((res) => { resolveNext = res })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+
+    const btn = screen.getByTestId('what-should-i-do-next')
+    expect(btn).not.toBeDisabled()
+
+    fireEvent.click(btn)
+    // Button should be disabled (or show a loading indicator) while awaiting response
+    await waitFor(() => expect(btn).toBeDisabled())
+
+    // Resolve the request — button should re-enable
+    resolveNext({ message: 'review prompts [P3]' })
+    await waitFor(() => expect(btn).not.toBeDisabled())
+  })
+
+  it('"What should I do next?" banner auto-dismisses after 8 seconds', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path === '/tasks/next') return Promise.resolve({ message: 'review prompts [P3]' })
+      return Promise.resolve({})
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('what-should-i-do-next'))
+    await waitFor(() => expect(screen.getByText('review prompts [P3]')).toBeInTheDocument())
+
+    // Banner should still be visible at 7 s
+    await vi.advanceTimersByTimeAsync(7000)
+    expect(screen.getByText('review prompts [P3]')).toBeInTheDocument()
+
+    // Banner should be gone after 8 s
+    await vi.advanceTimersByTimeAsync(1500)
+    await waitFor(() => expect(screen.queryByText('review prompts [P3]')).not.toBeInTheDocument())
+    vi.useRealTimers()
+  })
+
   it('renders overflow menu trigger button', async () => {
     renderTasks()
     await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())

@@ -363,12 +363,39 @@ async def task_counts():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _summarise_next_task(raw: str) -> str:
+    """Convert a full ostk spec dump to a short human-readable message.
+
+    ``ostk work next`` returns the entire needle spec as one long line:
+        →1438 Theme B MVP — Cross-team coordination. New router … [P0]
+
+    That wall of text is useless in a UI banner.  We extract:
+    - needle ID prefix (dropped — internal detail the user doesn't need)
+    - first sentence up to the first ". Capitalised" break (the real title)
+    - priority tag at the end (kept — useful signal)
+
+    Short titles with no spec detail are returned unchanged.
+    """
+    text = raw.strip()
+    # Pull priority tag off the end: [P0], [P1], … [P5]
+    prio_match = re.search(r'\s*\[P\d+\]\s*$', text)
+    priority = prio_match.group(0).strip() if prio_match else ""
+    without_prio = text[: prio_match.start()] if prio_match else text
+    # Strip leading needle ID: →NNNN (space)
+    body = re.sub(r'^→\d+\s+', '', without_prio).strip()
+    # Truncate at the first sentence boundary before spec detail.
+    # We split on ". " followed by an uppercase letter — that reliably
+    # marks the end of the human title and the start of implementation notes.
+    first_sentence = re.split(r'\.\s+(?=[A-Z])', body)[0].rstrip('.')
+    return f"{first_sentence} {priority}".strip() if priority else first_sentence
+
+
 @router.get("/tasks/next")
 async def next_task():
     try:
         result = await ostk.next_task()
         if result and result.strip():
-            return {"message": result.strip()}
+            return {"message": _summarise_next_task(result)}
         return {"message": "No open tasks right now."}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
