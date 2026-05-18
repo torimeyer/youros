@@ -289,3 +289,23 @@ async def test_save_async_snapshot_does_not_block_event_loop(tmp_path):
         f"Event loop blocked for {max_probe_delay * 1000:.0f}ms during async saves "
         f"(limit: 150ms). json.dumps may still be running on the event loop (→1192)."
     )
+
+
+def test_gil_yield_in_run_enrich_pipeline():
+    """_run_enrich_pipeline must call time.sleep(0) to yield the GIL every ~10 iters.
+
+    Without GIL yields, processing 363 agents holds the GIL continuously for
+    300-500 ms on every background snapshot cycle (500 ms period). This starves
+    the asyncio event loop, causing health probes to fail 10 consecutive times
+    and triggering watchdog SIGKILL (→backend-wedge-2026-05-17).
+
+    Same pattern already applied to _load_candidates and _load_meta_candidates
+    in the →1192 fix.
+    """
+    import inspect
+    src = inspect.getsource(agents_router._run_enrich_pipeline)
+    assert "sleep(0)" in src, (
+        "_run_enrich_pipeline must yield the GIL every ~10 iters via time.sleep(0). "
+        "Without this, enriching 363+ agents holds the GIL for 300-500ms per snapshot "
+        "cycle, starving the event loop of GIL access and causing health probe failures."
+    )

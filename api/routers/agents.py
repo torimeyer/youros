@@ -2432,7 +2432,9 @@ def _run_enrich_pipeline(
     function does not hold any threading.Lock (→1144).
     """
     # 1. Status flip for terminated_stale rows still active on disk.
-    for agent in all_agents:
+    for _flip_idx, agent in enumerate(all_agents):
+        if _flip_idx % 10 == 0:
+            time.sleep(0)  # yield GIL so event loop can service health probes
         if agent.get("status") == "terminated_stale" and _transcript_recently_active(
             agent["name"], now_for_sweep
         ):
@@ -2466,7 +2468,9 @@ def _run_enrich_pipeline(
     # 1000+ entries takes 14s. Only running and recently-spawned agents
     # need live transcript byte/line counts.
     _enrich_cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    for agent in filtered:
+    for _enrich_idx, agent in enumerate(filtered):
+        if _enrich_idx % 10 == 0:
+            time.sleep(0)  # yield GIL so event loop can service health probes
         _status = agent.get("status", "")
         _spawned_at = agent.get("spawned_at") or ""
         _is_old_stopped = (
