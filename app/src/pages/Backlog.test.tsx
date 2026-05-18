@@ -213,4 +213,12 @@ describe('Backlog page (→1466)', () => {
       expect(screen.getByTestId('tasks-page')).toBeInTheDocument()
     })
   })
+
+  it('does not render a Spec Health tab link (→1479)', async () => {
+    renderBacklog()
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'All' })).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('link', { name: 'Spec Health' })).toBeNull()
+  })
 })
