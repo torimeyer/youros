@@ -40,6 +40,55 @@ _config_cache: dict | None = None
 _config_cache_mtime: float = 0.0
 
 
+def _adf_to_plain(adf: dict | str | None) -> str:
+    """Convert an Atlassian Document Format (ADF) dict to plain text.
+
+    Handles the common node types:
+      - text        → the text value
+      - mention     → attrs.text (e.g. "@Tori Meyer")
+      - hardBreak   → newline
+      - inlineCard  → omitted (URL cards add no readable value)
+      - all others  → recurse into 'content' children
+
+    If *adf* is already a string it is returned as-is (already rendered).
+    If *adf* is None or empty, returns "".
+    """
+    if adf is None:
+        return ""
+    if isinstance(adf, str):
+        return adf
+
+    node_type = adf.get("type", "")
+
+    if node_type == "text":
+        return adf.get("text", "")
+
+    if node_type == "mention":
+        return adf.get("attrs", {}).get("text", "")
+
+    if node_type == "hardBreak":
+        return "\n"
+
+    if node_type == "inlineCard":
+        return ""
+
+    # For all container nodes (doc, paragraph, bulletList, listItem, …)
+    # recurse into children and join their text.
+    parts: list[str] = []
+    for child in adf.get("content", []):
+        child_text = _adf_to_plain(child)
+        if child_text:
+            parts.append(child_text)
+
+    # Paragraphs and list items are separated by newlines; inline nodes join
+    # directly so that text + mention run together without extra spaces.
+    if node_type in ("paragraph", "listItem", "bulletList", "orderedList",
+                     "blockquote", "heading"):
+        return "".join(parts)
+
+    return "".join(parts)
+
+
 def _cache_get(key: tuple):
     entry = _response_cache.get(key)
     if not entry:
@@ -422,7 +471,7 @@ async def get_issue(key: str) -> dict:
         rendered_c = c.get("renderedBody", "")
         if not rendered_c:
             body = c.get("body", {})
-            rendered_c = str(body) if body else ""
+            rendered_c = _adf_to_plain(body) if body else ""
         author_obj = c.get("author") or {}
         comments.append({
             "author": author_obj.get("displayName", ""),
@@ -433,7 +482,8 @@ async def get_issue(key: str) -> dict:
     return {
         "key": key,
         "summary": fields_data.get("summary", ""),
-        "description_html": rendered.get("description", "") or "",
+        "description_html": rendered.get("description", "")
+        or _adf_to_plain(fields_data.get("description") or {}),
         "status": status_obj.get("name", ""),
         "priority": priority_obj.get("name", ""),
         "type": issuetype_obj.get("name", ""),
