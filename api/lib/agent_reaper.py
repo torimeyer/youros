@@ -273,6 +273,26 @@ def detect_stalled_agents(
         if t_bytes >= TRANSCRIPT_STUCK_BYTES:
             continue  # meaningful content — not stalled
 
+        # →1462: last-resort veto before declaring stalled.
+        # (1) Direct transcript read: the get_transcript_bytes callback may use a
+        #     stale cache; read the file size directly from disk if transcript_path
+        #     is set (linked by →1475 fix at register/heartbeat time).
+        _tp = meta.get("transcript_path")
+        if _tp:
+            try:
+                _fresh_size = os.path.getsize(_tp)
+                if _fresh_size >= TRANSCRIPT_STUCK_BYTES:
+                    _stall_snapshots[name] = (
+                        _fresh_size, now.isoformat(), curr_wt_hash or prev_wt_hash
+                    )
+                    continue
+            except OSError:
+                pass
+        # (2) Fresh pid check: if the process is confirmed alive right now, veto.
+        if _pid_alive(meta.get("pid")) is True:
+            _stall_snapshots[name] = (t_bytes, now.isoformat(), curr_wt_hash or prev_wt_hash)
+            continue
+
         stalled.append(name)
         logger.info(
             "agent_reaper: stalled agent name=%s bytes=%d last_progress=%s",

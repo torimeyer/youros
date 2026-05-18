@@ -79,11 +79,14 @@ def _run(registry: dict, *, now: datetime = _NOW, **kwargs) -> list:
 # ---------------------------------------------------------------------------
 
 
-def test_stalls_live_pid_with_zero_transcript():
-    """Reproduces 2026-05-02: alive PID, transcript_bytes=0, > STALL_THRESHOLD."""
+def test_does_not_stall_live_pid_with_zero_transcript():
+    """→1462: alive PID is now vetoed — agent is NOT stalled even with empty transcript.
+    Live processes cannot be stalled by the reaper; only unknown-PID agents qualify.
+    (Pre-fix behavior was the opposite — changed by →1462.)
+    """
     reg = {"diagnose-settings-nav-data-mgmt-f45221": _meta()}
     result = _run(reg)
-    assert "diagnose-settings-nav-data-mgmt-f45221" in result
+    assert "diagnose-settings-nav-data-mgmt-f45221" not in result
 
 
 def test_stalls_unknown_pid_with_zero_transcript():
@@ -182,9 +185,10 @@ def test_recent_current_step_update_prevents_stall():
 
 
 def test_stale_current_step_update_does_not_prevent_stall():
-    """A step updated well before the threshold does not prevent stall."""
+    """A step updated well before the threshold does not prevent stall (unknown-PID agent)."""
     stale_step = (_NOW - timedelta(seconds=STALL_THRESHOLD_SECONDS + 120)).isoformat()
-    reg = {"agent": _meta(current_step_updated_at=stale_step)}
+    # →1462: use pid=None so the agent qualifies (live-PID agents are now vetoed).
+    reg = {"agent": _meta(pid=None, current_step_updated_at=stale_step)}
     result = _run(reg)
     assert "agent" in result
 
@@ -206,17 +210,19 @@ def test_exactly_at_threshold_is_not_stalled():
 
 
 def test_one_second_past_threshold_is_stalled():
-    """One second past threshold qualifies."""
+    """One second past threshold qualifies (unknown-PID agent)."""
     past = (_NOW - timedelta(seconds=STALL_THRESHOLD_SECONDS + 1)).isoformat()
-    reg = {"agent": _meta(spawned_at=past)}
+    # →1462: use pid=None so the agent qualifies (live-PID agents are vetoed).
+    reg = {"agent": _meta(pid=None, spawned_at=past)}
     result = _run(reg)
     assert "agent" in result
 
 
 def test_configurable_threshold():
-    """Custom stall_threshold_seconds overrides the default."""
+    """Custom stall_threshold_seconds overrides the default (unknown-PID agent)."""
     # Very short threshold (5s) — a 30s-old spawn is stalled.
-    reg = {"agent": _meta(spawned_at=_FRESH_SPAWN)}
+    # →1462: use pid=None so the agent qualifies (live-PID agents are vetoed).
+    reg = {"agent": _meta(pid=None, spawned_at=_FRESH_SPAWN)}
     result = _run(reg, stall_threshold_seconds=5)
     assert "agent" in result
 
@@ -235,9 +241,10 @@ def test_first_observation_is_grace_cycle():
 
 
 def test_second_observation_can_stall():
-    """After the grace cycle, a sweep past the threshold stalls the agent."""
+    """After the grace cycle, a sweep past the threshold stalls an unknown-PID agent."""
     _stall_snapshots.pop("brand-new", None)
-    reg = {"brand-new": _meta()}
+    # →1462: use pid=None so the agent qualifies (live-PID agents are vetoed).
+    reg = {"brand-new": _meta(pid=None)}
     detect_stalled_agents(reg, _NOW, get_transcript_bytes=_no_bytes)
     now2 = _NOW + timedelta(seconds=STALL_THRESHOLD_SECONDS + 1)
     result = detect_stalled_agents(reg, now2, get_transcript_bytes=_no_bytes)

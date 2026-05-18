@@ -5980,6 +5980,58 @@ async def backfill_ack_bots():
     return result
 
 
+def _link_session_jsonl(name: str, meta: dict, register_time_iso: str) -> bool:
+    """→1475: find the Claude Code session JSONL for a registered agent and store it.
+
+    Scans ~/.claude/projects/<encoded-cwd>/ for *.jsonl files (main session files,
+    NOT subagent files in subdirectories) that were written within a 30s window
+    before the register call. Stores the best match as meta["transcript_path"] so
+    _resolve_transcript_source and _get_transcript_metrics return real byte counts.
+
+    Returns True if a path was found and stored; False otherwise.
+    Callers set meta["transcript_uuid_pending"] = True on False to trigger retry
+    from the heartbeat endpoint.
+    """
+    from config import PROJECT_ROOT
+
+    cwd = meta.get("worktree_path") or str(PROJECT_ROOT)
+    projects_dir = _claude_code_projects_dir()
+    encoded = str(cwd).replace("/", "-").lstrip("-")
+    project_dir = projects_dir / f"-{encoded}"
+    if not project_dir.exists():
+        return False
+
+    register_dt = _parse_iso(register_time_iso)
+    # 30-second grace window: the session file may have been created slightly
+    # before the agent's /register call arrives.
+    cutoff = (register_dt - timedelta(seconds=30)).timestamp() if register_dt else 0.0
+
+    best: Optional[Path] = None
+    best_mtime = 0.0
+    try:
+        for p in project_dir.glob("*.jsonl"):
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            if st.st_size == 0:
+                continue
+            if st.st_mtime < cutoff:
+                continue
+            if st.st_mtime > best_mtime:
+                best_mtime = st.st_mtime
+                best = p
+    except OSError:
+        return False
+
+    if best is None:
+        return False
+
+    meta["transcript_path"] = str(best)
+    meta.pop("transcript_uuid_pending", None)
+    return True
+
+
 @router.post("/agents/register")
 async def register_agent(body: AgentSpawn, request: Request = None):
     """Register an external agent (e.g., Claude Code subagent) without spawning a process.
@@ -6291,6 +6343,11 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     elif existing.get("chat_mode"):
         record["chat_mode"] = existing["chat_mode"]
     agent_metadata[body.name] = record
+    # →1475: link session JSONL at register time so transcript_bytes is populated
+    # immediately. If no file found yet (timing race), mark pending for retry.
+    if source == "claude-code" and not record.get("transcript_path"):
+        if not _link_session_jsonl(body.name, record, now_iso):
+            record["transcript_uuid_pending"] = True
     await _save_agent_state_async()
     _set_agent_status(body.name, status)
 
@@ -7384,6 +7441,25 @@ async def heartbeat_agent(name: str, body: Optional[AgentHeartbeat] = None):
     if body and body.step:
         meta["current_step"] = body.step
         meta["current_step_updated_at"] = now_iso
+    # →1475: retry UUID link if it wasn't found at register time
+    if meta.get("transcript_uuid_pending"):
+        _link_session_jsonl(name, meta, meta.get("spawned_at") or now_iso)
+    # →1475: refresh transcript_bytes from the linked session file so the
+    # stall detector and Agents page both see the real byte count. Also
+    # advance last_heartbeat_at to max(API call time, file mtime) so agents
+    # that write a lot of transcript without explicit heartbeats aren't swept.
+    _tp = meta.get("transcript_path")
+    if _tp:
+        try:
+            _st = os.stat(_tp)
+            meta["transcript_bytes"] = _st.st_size
+            _file_mtime_iso = datetime.fromtimestamp(
+                _st.st_mtime, tz=timezone.utc
+            ).isoformat()
+            if now_iso < _file_mtime_iso:
+                meta["last_heartbeat_at"] = _file_mtime_iso
+        except OSError:
+            pass
     await _save_agent_state_async()
     try:
         if _time_primitive is not None:
