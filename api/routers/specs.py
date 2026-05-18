@@ -2365,6 +2365,92 @@ async def wizard_create(body: WizardCreateRequest):
     }
 
 
+# ---------------------------------------------------------------------------
+# →1470  Backfill and Archive endpoints
+# ---------------------------------------------------------------------------
+
+_BACKFILL_SECTIONS: list[tuple[str, str]] = [
+    ("Problem", "_What's broken and who's affected._"),
+    ("Goals", "_What success looks like._"),
+    ("Non-goals", "_What is explicitly out of scope._"),
+    ("Solution", "_How we will solve the problem._"),
+    ("Edge cases", "_Scenarios that need special handling._"),
+    ("Success criteria", "_How we know this is done._"),
+    ("Acceptance criteria", "_Checkboxes the implementer must tick._"),
+    ("Verification", "_How the solution was confirmed to work._"),
+    ("USER FEEDBACK", "_Open questions and user responses._"),
+    ("DECISION", "_Final decisions made and their rationale._"),
+]
+
+
+@router.post("/specs/{slug}/backfill")
+async def backfill_spec(slug: str):
+    """Append any missing required sections to a spec in ~/.myos/specs/.
+
+    Reads ~/.myos/specs/<slug>.md, finds the subset of the 10 required
+    sections that are absent, and appends each missing one as a
+    section-header + one-line placeholder:
+
+        ## Problem
+        _What's broken and who's affected._
+
+    Returns the updated file content and path.  Idempotent: sections that
+    already exist are left untouched.
+    """
+    from services.ostk import USER_SPECS_DIR
+
+    spec_file = USER_SPECS_DIR / f"{slug}.md"
+    if not spec_file.exists():
+        raise HTTPException(status_code=404, detail=f"Spec not found: {slug}")
+
+    content = spec_file.read_text()
+
+    appended: list[str] = []
+    additions = []
+    for section_name, placeholder in _BACKFILL_SECTIONS:
+        if f"## {section_name}" not in content:
+            additions.append(f"\n## {section_name}\n{placeholder}\n")
+            appended.append(section_name)
+
+    if additions:
+        new_content = content.rstrip("\n") + "\n" + "".join(additions)
+        spec_file.write_text(new_content)
+    else:
+        new_content = content
+
+    trace_event("spec_backfill", path=str(spec_file), added=appended)
+    return {
+        "path": str(spec_file),
+        "content": new_content,
+        "added_sections": appended,
+    }
+
+
+@router.post("/specs/{slug}/archive")
+async def archive_spec(slug: str):
+    """Move a spec from ~/.myos/specs/<slug>.md to ~/.myos/specs/archive/<ts>-<slug>.md.
+
+    Returns the new path.  The original file is removed.
+    """
+    from datetime import timezone
+    from services.ostk import USER_SPECS_DIR
+
+    spec_file = USER_SPECS_DIR / f"{slug}.md"
+    if not spec_file.exists():
+        raise HTTPException(status_code=404, detail=f"Spec not found: {slug}")
+
+    import datetime as _dt
+    ts = _dt.datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    archive_dir = USER_SPECS_DIR / "archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    dest = archive_dir / f"{ts}-{slug}.md"
+
+    spec_file.rename(dest)
+
+    trace_event("spec_archive", slug=slug, path=str(dest))
+    return {"path": str(dest)}
+
+
 # --- Backward-compatible aliases for /api/docs/* ---
 # These mirror every /api/specs/* route so existing bookmarks, external
 # callers, and in-flight frontend builds keep working during migration.
