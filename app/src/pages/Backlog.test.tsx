@@ -52,13 +52,59 @@ function renderBacklog(path = '/backlog') {
   )
 }
 
+// →1468: verify AllView handles the REAL API response shapes.
+// /tasks returns {tasks:[...]} and /specs returns {docs:[...]}.
+// Before the fix, AllView passed the raw object to state and tasks.filter crashed.
+describe('Backlog AllView — real API response shapes (→1468)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: SAMPLE_SPECS })
+      if (url === '/tasks') return Promise.resolve({ tasks: SAMPLE_TASKS })
+      return Promise.resolve([])
+    })
+  })
+
+  it('renders without crashing when API returns wrapped objects', async () => {
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText(/plans in flight/i)).toBeInTheDocument()
+    })
+  })
+
+  it('shows spec titles when API returns {docs:[...]}', async () => {
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText('Build auth module')).toBeInTheDocument()
+      expect(screen.getByText('Redesign dashboard')).toBeInTheDocument()
+    })
+  })
+
+  it('shows standalone tasks when API returns {tasks:[...]}', async () => {
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText('Fix header bug')).toBeInTheDocument()
+      expect(screen.getByText('Update README')).toBeInTheDocument()
+    })
+  })
+
+  it('does NOT show spec-linked tasks in the standalone section with real shapes', async () => {
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText(/standalone tasks/i)).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Write tests')).toBeNull()
+    expect(screen.queryByText('Implement login')).toBeNull()
+  })
+})
+
 describe('Backlog page (→1466)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/specs') return Promise.resolve(SAMPLE_SPECS)
-      if (url === '/tasks') return Promise.resolve(SAMPLE_TASKS)
-      return Promise.resolve([])
+      if (url === '/specs') return Promise.resolve({ docs: SAMPLE_SPECS })
+      if (url === '/tasks') return Promise.resolve({ tasks: SAMPLE_TASKS })
+      return Promise.resolve({})
     })
   })
 
