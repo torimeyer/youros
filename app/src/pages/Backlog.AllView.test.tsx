@@ -98,18 +98,6 @@ describe('AllView kanban (→1478)', () => {
     expect(card.querySelector('[data-testid="card-task-chip-task-b"]')).toBeInTheDocument()
   })
 
-  it('RED 7: filter-chip-specs-only hides task cards across all columns', async () => {
-    setup()
-    await waitFor(() => expect(screen.getByTestId('filter-chip-specs-only')).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('filter-chip-specs-only'))
-    await waitFor(() => {
-      expect(screen.queryByTestId('kanban-card-open-task')).not.toBeInTheDocument()
-      expect(screen.queryByTestId('kanban-card-inprogress-task')).not.toBeInTheDocument()
-    })
-    expect(screen.getByTestId('kanban-card-draft-spec')).toBeInTheDocument()
-    expect(screen.getByTestId('kanban-card-ready-spec')).toBeInTheDocument()
-  })
-
   it('RED 9: filter-chip-specs-only does NOT exist (redundant with top nav)', async () => {
     setup()
     await waitFor(() => expect(screen.getByTestId('backlog-allview')).toBeInTheDocument())
