@@ -16,6 +16,7 @@ import Tasks from './Tasks'
 
 interface Spec {
   id: string
+  path: string
   title: string
   status: string
   task_ids: string[]
@@ -42,7 +43,7 @@ function AllView() {
   const standaloneTasks = tasks.filter((t) => !specTaskIds.has(t.id))
 
   async function handleBuild(spec: Spec) {
-    const result = await buildSpec(spec.id, spec.title)
+    const result = await buildSpec(spec.path)
     if (result?.status === 'conflict') {
       setConflicts(result.conflicts)
     }
