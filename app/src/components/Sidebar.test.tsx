@@ -1370,3 +1370,62 @@ describe('Files and Drive sidebar entries', () => {
     expect(links.some((l) => l.getAttribute('href') === '/inbox')).toBe(false)
   })
 })
+
+describe('Sidebar — Backlog consolidation (→1466)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    _resetSidebarBus()
+    useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
+    useAppStore.setState({
+      osName: 'myOS',
+      features: [
+        ...DEFAULT_FEATURES.filter((f) => f.label !== 'Tasks' && f.label !== 'Specs'),
+        { label: 'Backlog', enabled: true },
+      ],
+    })
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+  })
+
+  it('renders Backlog as a top-level nav item linking to /backlog', () => {
+    renderSidebar()
+    expandAllGroups()
+    const backlogLink = screen.getByText('Backlog').closest('a')
+    expect(backlogLink).toBeInTheDocument()
+    expect(backlogLink?.getAttribute('href')).toBe('/backlog')
+  })
+
+  it('does not render a standalone Tasks nav item', () => {
+    renderSidebar()
+    expandAllGroups()
+    const links = screen.getAllByRole('link')
+    expect(links.some((l) => l.getAttribute('href') === '/tasks')).toBe(false)
+  })
+
+  it('does not render a standalone Specs nav item', () => {
+    renderSidebar()
+    expandAllGroups()
+    const links = screen.getAllByRole('link')
+    expect(links.some((l) => l.getAttribute('href') === '/specs')).toBe(false)
+  })
+
+  it('Backlog badge shows combined open tasks + unfinished specs count', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 7 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 3, total: 10 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+    renderSidebar()
+    expandAllGroups()
+    await waitFor(() => {
+      const backlogLink = screen.getByText('Backlog').closest('a')
+      expect(backlogLink?.textContent).toContain('10')
+    })
+  })
+})

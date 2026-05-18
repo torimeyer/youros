@@ -35,6 +35,7 @@ interface NavItem {
   gmailBadge?: boolean
   tasksBadge?: boolean
   specsBadge?: boolean
+  backlogBadge?: boolean
 
 }
 
@@ -59,7 +60,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Files & Docs',
     icon: 'folder_open',
     items: [
-      { to: '/specs', icon: 'description', label: 'Specs', featureLabel: 'Specs', specsBadge: true },
       { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
       { to: '/ostk', icon: 'terminal', label: 'ostk', featureLabel: 'ostk' },
       { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
@@ -85,7 +85,7 @@ const NAV_GROUPS: NavGroup[] = [
 // All items for route-based lookups (preserves featureLabel for feature filtering)
 const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/', icon: 'home', label: 'Home', featureLabel: null },
-  { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks', tasksBadge: true },
+  { to: '/backlog', icon: 'inventory_2', label: 'Backlog', featureLabel: 'Backlog', backlogBadge: true },
   { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
   ...NAV_GROUPS.flatMap((g) => g.items),
 ]
@@ -175,6 +175,12 @@ function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, openTasks
               <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                 {unfinishedSpecs}
+              </span>
+            )}
+            {item.backlogBadge && (openTasksCount + unfinishedSpecs) > 0 && (
+              <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                {openTasksCount + unfinishedSpecs}
               </span>
             )}
           </>
