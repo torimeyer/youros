@@ -4728,6 +4728,24 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         except Exception:
             pass  # spec lookup is best-effort; never block a spawn
 
+    # When the spawn is explicitly linked to a spec (spec_id set), flip
+    # that spec's frontmatter status from "spec" (ready) to "building"
+    # so the Specs page immediately shows the in-flight state. This covers
+    # implementation paths that do not go through the "Build it" button
+    # (e.g. a worktree agent spawned to work on a spec-linked needle).
+    # Best-effort: a write failure must not block the spawn. (→1420)
+    if body.spec_id:
+        try:
+            from routers.specs import _set_spec_status
+            _set_spec_status(body.spec_id, "building")
+        except Exception:
+            logger.warning(
+                "spawn_agent: failed to flip spec %s to building: %s",
+                body.spec_id,
+                "see traceback in DEBUG logs",
+                exc_info=True,
+            )
+
     # Map isolation level to Claude CLI permission mode
     _perm_mode = isolation_to_permission_mode(get_isolation_level())
 

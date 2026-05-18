@@ -263,6 +263,14 @@ class AgentSpawn(BaseModel):
     # CODE_EDIT_VERBS. Setting follow_on=True forces isolation="none" before
     # the heuristic runs so these spawns are never rejected for missing locks.
     follow_on: Optional[bool] = None
+    # Originating spec path. When a spawn is triggered to implement a spec
+    # (e.g. a worktree agent spawned for a spec-linked needle), pass the
+    # spec's relative path here (e.g. "~/.myos/specs/my-feature.md").
+    # The spawn path calls _set_spec_status to flip the frontmatter from
+    # "spec" (ready) to "building" so the Specs page shows the in-flight
+    # state immediately. Optional so spawns with no spec association keep
+    # working unchanged. (→1420)
+    spec_id: Optional[str] = None
     # Opt-in flag to route the spawn through `ostk run <Agentfile>` instead
     # of the bespoke claude-code subprocess path. Default False preserves
     # existing behaviour for all callers. Set True only to pilot the kernel
