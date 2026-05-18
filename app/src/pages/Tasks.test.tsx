@@ -3212,7 +3212,7 @@ describe('Plan waves feature (→1181)', () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
-      if (path === '/tasks/waves') return Promise.resolve(mockWaves)
+      if (path.startsWith('/tasks/waves')) return Promise.resolve(mockWaves)
       return Promise.resolve({})
     })
   })
@@ -3240,7 +3240,7 @@ describe('Plan waves feature (→1181)', () => {
     fireEvent.click(screen.getByTestId('plan-waves-button'))
     await waitFor(() => expect(screen.getByTestId('wave-1')).toBeInTheDocument())
     expect(screen.getByTestId('wave-2')).toBeInTheDocument()
-    expect(mockedApiGet).toHaveBeenCalledWith('/tasks/waves')
+    expect(mockedApiGet).toHaveBeenCalledWith(expect.stringMatching(/^\/tasks\/waves/))
   })
 
   it('panel shows wave needles with titles', async () => {

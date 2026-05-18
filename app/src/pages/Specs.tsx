@@ -6,6 +6,7 @@ import SpecTemplateDetailsModal, {
   type SpecTemplateDetailsValues,
 } from "../components/SpecTemplateDetailsModal";
 import { api } from "../lib/api";
+import { buildSpec } from "../lib/spawn";
 import { onSpecsChange, bumpAgents, bumpTasks } from "../lib/sidebarBus";
 import { useAppStore } from "../stores/app";
 import { Button, EmptyState, ErrorBanner } from "../components/ui";
@@ -85,21 +86,9 @@ function minutesAgo(isoStr: string): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-interface BuildResponse {
-  agents: string[];
-  message: string;
-  // Optional hint from the backend: when false, the plan literally has
-  // no unchecked acceptance criteria (the user checked them all or
-  // edited them out). When true, tasks should have been created and
-  // the empty agents list is the backend-internal failure case. The
-  // Specs page uses this flag to decide whether to render the "no
-  // open tasks" banner at all.
-  has_unchecked_acs?: boolean;
-  // When spawn succeeds the backend echoes the task ids the builders
-  // are working on so the frontend can line up progress spinners
-  // before /specs/{path}/tasks reports them.
-  task_ids?: string[];
-}
+// Note: the response shape from /specs/{path}/build is now typed inside
+// lib/spawn (BuildResult). Specs.tsx receives the BuildResult via
+// buildSpec() rather than typing the raw response itself.
 
 // Map legacy "spec" status to "ready" for display
 function normalizeStatus(status: string): Spec["status"] {
@@ -723,16 +712,30 @@ export default function Specs() {
       };
     });
     try {
-      const encodedPath = encodeURIComponent(path);
-      const res = await api.post<BuildResponse>(`/specs/${encodedPath}/build`);
+      // Shared helper. Internally POSTs /specs/{path}/build and converts
+      // the kernel's 409 lock_conflict into a {status:'conflict'} result
+      // instead of throwing, so we can surface it as a real error rather
+      // than the generic "backend may not support this" toast.
+      const result = await buildSpec(path);
+      if (result.status === 'conflict') {
+        const names = result.conflicts.map((c) => c.held_by_spawn).filter(Boolean);
+        const who = names.length > 0 ? names.join(', ') : 'another agent';
+        showMessage(`Cannot build: ${who} is editing files this build needs. Wait for it to finish, then try again.`, "error");
+        setLinkedTasks((prev) => {
+          const next = { ...prev };
+          delete next[path];
+          return next;
+        });
+        return;
+      }
       await fetchDocs();
-      const agents = res.agents || [];
+      const agents = result.agents;
       setBuildResult((prev) => ({
         ...prev,
         [path]: {
           agents,
-          message: res.message || "",
-          has_unchecked_acs: res.has_unchecked_acs,
+          message: result.message,
+          has_unchecked_acs: result.has_unchecked_acs,
         },
       }));
       if (agents.length > 0) {
@@ -769,7 +772,7 @@ export default function Specs() {
           delete next[path];
           return next;
         });
-        showMessage(res.message || "No open tasks to build.", "error");
+        showMessage(result.message || "No open tasks to build.", "error");
       }
     } catch {
       setLinkedTasks((prev) => {
