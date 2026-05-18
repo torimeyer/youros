@@ -114,17 +114,20 @@ class TestComputeSnapshotFlag:
 
     @pytest.mark.asyncio
     async def test_flag_off_calls_kernel_ps(self, monkeypatch):
-        """Without the flag, kernel_ps is called (existing path unchanged)."""
+        """kernel_ps is NOT called regardless of flag — registry reader is always used (→1379)."""
         monkeypatch.delenv("MYOS_AGENTS_USE_REGISTRY", raising=False)
         fake_ps = AsyncMock(return_value={"raw": "", "daemon_running": False, "agents": []})
         fake_audit = AsyncMock(return_value=[])
+        fake_registry_result = {"raw": "", "daemon_running": False, "agents": []}
         with patch("routers.agents.ostk.kernel_ps", fake_ps), \
-             patch("routers.agents.ostk.audit_agents", fake_audit):
+             patch("routers.agents.ostk.audit_agents", fake_audit), \
+             patch("services.registry_reader.read_registry_for_snapshot",
+                   return_value=fake_registry_result):
             import importlib
             import routers.agents as agents_mod
             importlib.reload(agents_mod)  # reset module-level state
             await agents_mod._compute_agents_snapshot_async()
-        fake_ps.assert_awaited()
+        fake_ps.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_flag_on_skips_kernel_ps(self, monkeypatch):

@@ -217,6 +217,43 @@ else
   pass "case7: does NOT declare DONE when git sentinel is absent"
 fi
 
+# ── Case 8: git_has_sentinel passes --all to git log ─────────────────────────
+# Verify that git_has_sentinel() invokes "git log --all ..." so that commits
+# on worktree-agent-* branches (invisible without --all) are found.
+D8="${TMP}/c8"; mkdir -p "${D8}/curl_dir"
+CALLS8="${D8}/calls"; echo 0 > "${CALLS8}"
+cat > "${D8}/curl_dir/curl" <<SH
+#!/usr/bin/env bash
+count=\$(cat "${CALLS8}")
+count=\$((count+1))
+printf '%s' "\$count" > "${CALLS8}"
+if [[ "\$count" -le 1 ]]; then
+  printf '{"agents":[{"name":"gitflag-agent","status":"running","current_step":"","transcript_bytes":10}]}'
+else
+  printf '{"agents":[]}'
+fi
+SH
+chmod +x "${D8}/curl_dir/curl"
+seed_git_repo "${D8}/repo" "initial"
+(cd "${D8}/repo" && echo "fix" > fix.txt && git add fix.txt && git commit -q -m "gitflag-agent: landed")
+GITLOG8="${D8}/git_calls.log"
+# Fake git: records every invocation's arguments, then delegates to real git
+cat > "${D8}/curl_dir/git" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${GITLOG8}"
+exec /usr/bin/git "\$@"
+SH
+chmod +x "${D8}/curl_dir/git"
+
+run_monitor "gitflag-agent" "gitflag-agent" 0 6 "${D8}/repo" "${D8}/curl_dir" > /dev/null
+if [[ -f "${GITLOG8}" ]] && grep -q -- '--all' "${GITLOG8}"; then
+  pass "case8: git_has_sentinel passes --all to git log"
+else
+  fail "case8: git_has_sentinel did not invoke git with --all"
+  echo "git calls recorded:" >&2
+  cat "${GITLOG8}" 2>/dev/null | head -5 >&2
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 if [[ "${FAIL}" -eq 0 ]]; then
