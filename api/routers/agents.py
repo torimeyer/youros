@@ -3410,6 +3410,45 @@ async def agent_duration_stats():
     return get_duration_stats()
 
 
+def _infer_cc_session_agents(agents_map: dict) -> None:
+    """Scan ~/.claude/projects/<label>/ for recently-active JSONL session files
+    and insert inferred claude-code-<stem> rows into agents_map.
+
+    This is a synchronous filesystem operation (glob + stat over potentially
+    1000+ files). It must NOT run on the asyncio event loop — call via
+    ``await asyncio.to_thread(_infer_cc_session_agents, agents_map)`` so other
+    requests are not starved while the directory is being scanned (→1445).
+    """
+    try:
+        from pathlib import Path as _Path
+        from config import PROJECT_ROOT as _PROJECT_ROOT
+        projects_dir = _Path.home() / ".claude" / "projects" / str(_PROJECT_ROOT).replace("/", "-")
+        if projects_dir.is_dir():
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+            for jsonl in projects_dir.glob("*.jsonl"):
+                try:
+                    mtime = datetime.fromtimestamp(jsonl.stat().st_mtime, tz=timezone.utc)
+                except OSError:
+                    continue
+                if mtime < cutoff:
+                    continue
+                inferred_name = f"claude-code-{jsonl.stem[:10]}"
+                if inferred_name in agents_map:
+                    continue
+                agents_map[inferred_name] = {
+                    "name": inferred_name,
+                    "source": "claude-code",
+                    "status": "running",
+                    "spawned_at": mtime.isoformat(),
+                    "last_heartbeat_at": mtime.isoformat(),
+                    "model": "claude-code",
+                    "budget": "0",
+                    "description": "Claude Code session (inferred from transcript mtime)",
+                }
+    except Exception:
+        pass
+
+
 async def _compute_agents_snapshot_async() -> dict:
     """Build the full unfiltered, enriched agent list.
 
@@ -3787,34 +3826,10 @@ async def _compute_agents_snapshot_async() -> dict:
                     agents_map[name]["terminated_reason"] = "workflow ended"
 
     # Merge live Claude Code sessions inferred from transcript file mtimes.
-    try:
-        from pathlib import Path as _Path
-        from config import PROJECT_ROOT as _PROJECT_ROOT
-        projects_dir = _Path.home() / ".claude" / "projects" / str(_PROJECT_ROOT).replace("/", "-")
-        if projects_dir.is_dir():
-            cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
-            for jsonl in projects_dir.glob("*.jsonl"):
-                try:
-                    mtime = datetime.fromtimestamp(jsonl.stat().st_mtime, tz=timezone.utc)
-                except OSError:
-                    continue
-                if mtime < cutoff:
-                    continue
-                inferred_name = f"claude-code-{jsonl.stem[:10]}"
-                if inferred_name in agents_map:
-                    continue
-                agents_map[inferred_name] = {
-                    "name": inferred_name,
-                    "source": "claude-code",
-                    "status": "running",
-                    "spawned_at": mtime.isoformat(),
-                    "last_heartbeat_at": mtime.isoformat(),
-                    "model": "claude-code",
-                    "budget": "0",
-                    "description": "Claude Code session (inferred from transcript mtime)",
-                }
-    except Exception:
-        pass
+    # Offloaded to a thread: the glob scans 1000+ .jsonl files on disk and
+    # stat()s each one. Running this inline blocked the event loop for ~7ms
+    # every 500ms snapshot cycle, starving concurrent requests (→1445).
+    await asyncio.to_thread(_infer_cc_session_agents, agents_map)
 
     all_agents = list(agents_map.values())
 
