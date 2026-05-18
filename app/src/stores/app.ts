@@ -426,7 +426,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   features: applyFeatureOrder([
     { label: 'Chat', enabled: true },
-    { label: 'Tasks', enabled: true },
+    { label: 'Backlog', enabled: true },
     { label: 'Agents', enabled: true },
     { label: 'Activity', enabled: true },
     { label: 'Projects', enabled: true },
@@ -435,7 +435,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     { label: 'Gmail', enabled: true },
     { label: 'Slack', enabled: true },
     { label: 'GitHub', enabled: true },
-    { label: 'Specs', enabled: true },
     { label: 'Automations', enabled: true },
     { label: 'Cost Tracking', enabled: true },
     { label: 'Gems', enabled: true },
