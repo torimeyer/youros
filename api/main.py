@@ -26,6 +26,7 @@ from routers import gems as gems_router
 from routers import gemini_capture as gemini_capture_router
 from routers import internal as internal_router
 from routers import rules as rules_router
+from routers import intel as intel_router
 from routers import usage as usage_router
 from routers import contacts as contacts_router
 from routers import skills as skills_router
@@ -125,6 +126,7 @@ app.include_router(gemini_router.router, prefix="/api")
 app.include_router(gems_router.router, prefix="/api")
 app.include_router(gemini_capture_router.router, prefix="/api")
 app.include_router(rules_router.router, prefix="/api")
+app.include_router(intel_router.router, prefix="/api")
 app.include_router(agents.router, prefix="/api")
 app.include_router(chat.router)
 app.include_router(status.router, prefix="/api")
