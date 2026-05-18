@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from config import PROJECT_ROOT
 from models.schemas import SpecDraft, SpecPromote, SpecDecompose
 from services.ostk import ostk, OstkError
+from services.spec_audit import audit_all_specs
 from services.tracing import trace_event
 
 logger = logging.getLogger(__name__)
@@ -382,6 +383,16 @@ async def spec_counts():
         return {"unfinished": unfinished, "total": total}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/specs/audit")
+async def get_specs_audit():
+    """Return a quality audit of every spec on disk (→1469).
+
+    Scores each spec against the 10-section template and returns a
+    JSON report with per-spec details and an aggregate summary.
+    """
+    return audit_all_specs()
 
 
 @router.post("/specs/draft")
