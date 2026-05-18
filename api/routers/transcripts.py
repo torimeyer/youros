@@ -168,13 +168,11 @@ def _extract_context(jsonl_path: Path, max_messages: int = 5) -> str:
 
 
 async def _generate_title(context: str) -> str:
-    """Call Claude to generate a short summary title from transcript context."""
-    from services.chat_providers import _resolve_api_key
-    api_key = await _resolve_api_key("anthropic_api_key")
-    if not api_key:
+    """Call the AI backend to generate a short summary title from transcript context."""
+    from services.ai_backend import get_ai_client
+    client = await get_ai_client()
+    if client is None:
         return ""
-    import anthropic
-    client = anthropic.AsyncAnthropic(api_key=api_key)
     try:
         response = await asyncio.wait_for(
             client.messages.create(

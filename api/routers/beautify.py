@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from routers.projects import _resolve_safe_path
-from services.chat_providers import _resolve_api_key
+
 
 router = APIRouter(tags=["beautify"])
 
@@ -317,25 +317,16 @@ async def beautify_deck(request: BeautifyRequest) -> dict[str, Any]:
             "cached": True,
         }
 
-    api_key = await _resolve_api_key("anthropic_api_key")
-    if not api_key:
+    from services.ai_backend import get_ai_client
+    client = await get_ai_client()
+    if client is None:
         raise HTTPException(
             status_code=400,
             detail=(
-                "No Anthropic API key found. Add one in Settings so we can "
-                "polish your slides."
+                "No AI backend configured. Add an Anthropic API key in Settings, or "
+                "sign in to Claude Code with your subscription, to use this feature."
             ),
         )
-
-    try:
-        import anthropic
-    except ImportError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="The design helper library is not installed on this server.",
-        ) from exc
-
-    client = anthropic.AsyncAnthropic(api_key=api_key)
 
     beautified: list[dict[str, Any]] = []
     start = time.time()

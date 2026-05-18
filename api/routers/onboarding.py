@@ -8,7 +8,7 @@ import anthropic
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.chat_providers import _resolve_api_key
+from services.ai_backend import get_ai_client
 from services.ostk import ostk, OstkError
 from services.task_labeling import extract_task_id, schedule_auto_labels
 
@@ -232,12 +232,10 @@ def _fallback_response(dreading: str, done_looks_like: Optional[str]) -> DreamRe
 
 async def _call_llm(dreading: str, done_looks_like: Optional[str]) -> DreamResponse:
     """Ask the LLM to turn a dreaded task into a structured plan."""
-    api_key = await _resolve_api_key("anthropic_api_key")
-    if not api_key:
-        logger.warning("No Anthropic API key available, using fallback plan")
+    client = await get_ai_client()
+    if client is None:
+        logger.warning("No AI backend available, using fallback plan")
         return _fallback_response(dreading, done_looks_like)
-
-    client = anthropic.AsyncAnthropic(api_key=api_key)
     user_msg = _build_user_message(dreading, done_looks_like)
 
     try:
