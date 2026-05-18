@@ -49,7 +49,7 @@ describe('SpawnGeminiModal', () => {
     await userEvent.click(screen.getByTestId('spawn-gemini-btn'))
     expect(buildSpec).toHaveBeenCalledWith(
       '/path/to/spec.md',
-      expect.objectContaining({ onSuccess: expect.any(Function) }),
+      undefined,
       'gemini'
     )
   })
