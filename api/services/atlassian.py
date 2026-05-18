@@ -375,7 +375,46 @@ async def list_assigned_issues() -> list[dict]:
     return issues
 
 
-async def get_issue(key: str) -> dict:
+async def get_issue_links(key: str) -> dict:
+    """Return an issue with its issuelinks for dependency mapping.
+
+    Returns dict with: key, summary, status, assignee, issuelinks (raw Jira list).
+    Raises RuntimeError("<key> not found.") on 404.
+    Raises RuntimeError on auth/network failures.
+    """
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.get(
+            f"{base_url}/rest/api/3/issue/{key}",
+            **auth_kwargs,
+            params={"fields": "summary,status,assignee,issuelinks"},
+        )
+
+    try:
+        resp, base_url, site = await _request_with_refresh("jira", call)
+    except Exception as exc:
+        raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+
+    if resp.status_code == 401:
+        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    if resp.status_code == 404:
+        raise RuntimeError(f"Issue {key} not found.")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Jira API error ({resp.status_code}).")
+
+    data = resp.json()
+    f = data.get("fields", {})
+    status_obj = f.get("status") or {}
+    assignee_obj = f.get("assignee") or {}
+
+    return {
+        "key": data.get("key", key),
+        "summary": f.get("summary", ""),
+        "status": status_obj.get("name", ""),
+        "assignee": assignee_obj.get("displayName", ""),
+        "issuelinks": f.get("issuelinks", []),
+    }
+
+
     """Return full issue detail including rendered description and comments."""
     async def call_issue(client, auth_kwargs, base_url, site):
         return await client.get(
@@ -636,3 +675,62 @@ async def assign_issue(issue_key: str, account_id: Optional[str]) -> None:
         raise RuntimeError(f"Issue {issue_key} not found.")
     if resp.status_code not in (200, 204):
         raise RuntimeError(f"Jira API error ({resp.status_code}).")
+
+
+async def list_blocked_issues() -> list[dict]:
+    """Return Jira issues that are blocked, flagged, or labeled cross-team.
+
+    JQL: status = "Blocked" OR labels = "cross-team" OR flagged = impediment
+    Returns each issue with: key, summary, status, priority, updated, url,
+    assignee (display name or ""), reporter (display name or "").
+    Returns empty list on any API error so callers never get 500.
+    """
+    cache_key = ("list_blocked_issues",)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
+    jql = (
+        'status = "Blocked" OR labels = "cross-team" OR flagged = impediment '
+        "ORDER BY updated ASC"
+    )
+    fields = [
+        "summary", "status", "priority", "issuetype",
+        "updated", "assignee", "reporter", "labels",
+    ]
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.post(
+            f"{base_url}/rest/api/3/search/jql",
+            **auth_kwargs,
+            json={"jql": jql, "fields": fields, "maxResults": 50},
+        )
+
+    try:
+        resp, base_url, site = await _request_with_refresh("jira", call)
+    except httpx.HTTPError:
+        return []
+    if resp.status_code != 200:
+        return []
+
+    data = resp.json()
+    issues = []
+    for item in data.get("issues", []):
+        f = item.get("fields", {})
+        status_obj = f.get("status") or {}
+        priority_obj = f.get("priority") or {}
+        assignee_obj = f.get("assignee") or {}
+        reporter_obj = f.get("reporter") or {}
+        issues.append({
+            "key": item.get("key", ""),
+            "summary": f.get("summary", ""),
+            "status": status_obj.get("name", ""),
+            "priority": priority_obj.get("name", ""),
+            "updated": f.get("updated", ""),
+            "url": f"https://{site}/browse/{item.get('key', '')}",
+            "assignee": assignee_obj.get("displayName", ""),
+            "reporter": reporter_obj.get("displayName", ""),
+        })
+
+    _cache_set(cache_key, issues)
+    return issues
