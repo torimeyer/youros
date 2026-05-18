@@ -9,6 +9,7 @@ import RecentSpecsWidget from '../components/RecentSpecsWidget';
 import JiraWidget from '../components/JiraWidget';
 import ConfluenceWidget from '../components/ConfluenceWidget';
 import BlockersWidget from '../components/BlockersWidget';
+import DependencyMapWidget from '../components/DependencyMapWidget';
 import { Card, SkeletonLine } from '../components/ui';
 import { api } from '../lib/api';
 import { renderMarkdown } from '../lib/markdown';
@@ -1070,6 +1071,12 @@ export default function Dashboard() {
     </div>
   );
 
+  const renderDependencyMapWidget = () => (
+    <div key="dependency_map_widget" data-testid="widget-dependency-map-widget">
+      <DependencyMapWidget />
+    </div>
+  );
+
   // Map of widget id to render function. Only widgets present in
   // dashboardWidgets render, and they render in that order. Widgets above
   // the grid (briefing and focus first) are full width banners,
@@ -1086,6 +1093,7 @@ export default function Dashboard() {
     jira: renderJira,
     confluence: renderConfluence,
     blockers_widget: renderBlockersWidget,
+    dependency_map_widget: renderDependencyMapWidget,
   };
 
   const [widgetMenuOpen, setWidgetMenuOpen] = useState<string | null>(null);

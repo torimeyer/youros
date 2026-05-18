@@ -19,6 +19,7 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
   'jira',
   'confluence',
   'blockers_widget',
+  'dependency_map_widget',
 ]
 
 // Human readable labels for each dashboard widget id. Keep this in sync
@@ -37,6 +38,7 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   jira: 'Jira Issues',
   confluence: 'Confluence Pages',
   blockers_widget: 'Cross-team Blockers',
+  dependency_map_widget: 'Dependency Map',
 }
 
 export interface FeatureToggle {
