@@ -21,7 +21,7 @@ const mockedApiGet = vi.mocked(api.get)
 
 const DEFAULT_FEATURES = [
   { label: 'Chat', enabled: true },
-  { label: 'Tasks', enabled: true },
+  { label: 'Backlog', enabled: true },
   { label: 'Agents', enabled: true },
   { label: 'Activity', enabled: true },
   { label: 'Projects', enabled: true },
@@ -34,7 +34,6 @@ const DEFAULT_FEATURES = [
   { label: 'Jira', enabled: true },
   { label: 'Confluence', enabled: true },
   { label: 'Cost Tracking', enabled: true },
-  { label: 'Specs', enabled: true },
   { label: 'Automations', enabled: true },
 ]
 
@@ -80,7 +79,7 @@ describe('Sidebar', () => {
     // Ensure all groups are expanded (only expand if currently collapsed)
     expandAllGroups()
 
-    const navLabels = ['Home', 'Tasks', 'Agents', 'Calendar', 'Gmail', 'Settings']
+    const navLabels = ['Home', 'Backlog', 'Agents', 'Calendar', 'Gmail', 'Settings']
     for (const label of navLabels) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
@@ -170,7 +169,7 @@ describe('Sidebar', () => {
 
     const expectedPaths: Record<string, string> = {
       Home: '/',
-      Tasks: '/tasks',
+      Backlog: '/backlog',
       Agents: '/agents',
       Calendar: '/calendar',
       Gmail: '/gmail',
@@ -192,9 +191,9 @@ describe('Sidebar', () => {
 
   it('inactive links have inactive styling', () => {
     renderSidebar('/')
-    const tasksLink = screen.getByText('Tasks').closest('a')
-    expect(tasksLink?.className).toContain('text-slate-400')
-    expect(tasksLink?.className).not.toContain('accent-highlight')
+    const backlogLink = screen.getByText('Backlog').closest('a')
+    expect(backlogLink?.className).toContain('text-slate-400')
+    expect(backlogLink?.className).not.toContain('accent-highlight')
   })
 
   it('does not show agent badge when activeAgents is 0', () => {
@@ -245,7 +244,7 @@ describe('Sidebar', () => {
     })
   })
 
-  it('Sidebar renders a count badge on the Tasks nav when there are open tasks', async () => {
+  it('Sidebar renders a count badge on the Backlog nav when there are open tasks', async () => {
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 7 })
@@ -254,16 +253,16 @@ describe('Sidebar', () => {
     renderSidebar()
 
     await waitFor(() => {
-      const tasksLink = screen.getByText('Tasks').closest('a')
-      expect(tasksLink?.querySelector('.rounded-full')).not.toBeNull()
-      expect(tasksLink?.textContent).toContain('7')
+      const backlogLink = screen.getByText('Backlog').closest('a')
+      expect(backlogLink?.querySelector('.rounded-full')).not.toBeNull()
+      expect(backlogLink?.textContent).toContain('7')
     })
 
     // Badge styling must match the Agents badge exactly: green pill,
     // pulsing green dot, tiny bold text. The dot is a nested rounded-full
     // element with animate-pulse applied.
-    const tasksLink = screen.getByText('Tasks').closest('a')
-    const badge = tasksLink?.querySelector('.bg-green-500\\/20')
+    const backlogLink = screen.getByText('Backlog').closest('a')
+    const badge = backlogLink?.querySelector('.bg-green-500\\/20')
     expect(badge).not.toBeNull()
     expect(badge?.className).toContain('text-green-400')
     expect(badge?.className).toContain('text-[10px]')
@@ -271,10 +270,11 @@ describe('Sidebar', () => {
     expect(badge?.querySelector('.animate-pulse')).not.toBeNull()
   })
 
-  it('Sidebar does NOT render a badge on Tasks when count is 0', async () => {
+  it('Sidebar does NOT render a badge on Backlog when counts are 0', async () => {
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
     renderSidebar()
@@ -283,14 +283,12 @@ describe('Sidebar', () => {
       expect(mockedApiGet).toHaveBeenCalledWith('/tasks/counts')
     })
 
-    const tasksLink = screen.getByText('Tasks').closest('a')
-    expect(tasksLink?.querySelectorAll('.rounded-full').length).toBe(0)
-    // Tasks link must contain the label "Tasks" but no numeric count.
-    expect(tasksLink?.textContent).toContain('Tasks')
-    expect(tasksLink?.textContent).not.toMatch(/\d/)
+    const backlogLink = screen.getByText('Backlog').closest('a')
+    expect(backlogLink?.querySelectorAll('.rounded-full').length).toBe(0)
+    expect(backlogLink?.textContent).toContain('Backlog')
   })
 
-  it('Tasks badge relies on /tasks/counts so the backend filters closed and shelved tasks', async () => {
+  it('Backlog badge relies on /tasks/counts so the backend filters closed and shelved tasks', async () => {
     // The backend /tasks/counts endpoint only returns open tasks (closed
     // and shelved are excluded server side). This test asserts the
     // sidebar consumes the filtered count as-is, never recomputing from
@@ -306,14 +304,15 @@ describe('Sidebar', () => {
         // hypothetical 10 total (6 closed/shelved excluded).
         return Promise.resolve({ open: 4 })
       }
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
     renderSidebar()
 
     await waitFor(() => {
       expect(countsCalls).toBeGreaterThanOrEqual(1)
-      const tasksLink = screen.getByText('Tasks').closest('a')
-      expect(tasksLink?.textContent).toContain('4')
+      const backlogLink = screen.getByText('Backlog').closest('a')
+      expect(backlogLink?.textContent).toContain('4')
     })
 
     // The sidebar must never call /tasks directly to compute the badge.
@@ -570,8 +569,7 @@ describe('Sidebar', () => {
     })
   })
 
-  it('Sidebar renders a count badge on the Specs nav when there are unfinished specs', async () => {
-    // Specs are nested inside the Files & Docs group, so expand it first.
+  it('Sidebar renders a count badge on the Backlog nav when there are unfinished specs', async () => {
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
@@ -579,18 +577,17 @@ describe('Sidebar', () => {
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
     renderSidebar()
-    expandAllGroups()
 
     await waitFor(() => {
-      const specsLink = screen.getByText('Specs').closest('a')
-      expect(specsLink?.textContent).toContain('3')
+      const backlogLink = screen.getByText('Backlog').closest('a')
+      expect(backlogLink?.textContent).toContain('3')
     })
 
-    // Styling must match the Agents and Tasks badges: green pill, pulsing
+    // Styling must match the Agents badge: green pill, pulsing
     // green dot, tiny bold text. Guards against one badge drifting out of
     // visual sync with the others.
-    const specsLink = screen.getByText('Specs').closest('a')
-    const badge = specsLink?.querySelector('.bg-green-500\\/20')
+    const backlogLink = screen.getByText('Backlog').closest('a')
+    const badge = backlogLink?.querySelector('.bg-green-500\\/20')
     expect(badge).not.toBeNull()
     expect(badge?.className).toContain('text-green-400')
     expect(badge?.className).toContain('text-[10px]')
@@ -598,7 +595,7 @@ describe('Sidebar', () => {
     expect(badge?.querySelector('.animate-pulse')).not.toBeNull()
   })
 
-  it('Sidebar does NOT render a badge on Specs when unfinished count is 0', async () => {
+  it('Sidebar does NOT render a badge on Backlog when specs and tasks counts are 0', async () => {
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
@@ -606,17 +603,15 @@ describe('Sidebar', () => {
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
     renderSidebar()
-    expandAllGroups()
 
     await waitFor(() => {
       expect(mockedApiGet).toHaveBeenCalledWith('/specs/counts')
     })
 
-    const specsLink = screen.getByText('Specs').closest('a')
-    // No count pill should render when there's nothing unfinished.
-    expect(specsLink?.querySelectorAll('.rounded-full').length).toBe(0)
-    expect(specsLink?.textContent).toContain('Specs')
-    expect(specsLink?.textContent).not.toMatch(/\d/)
+    const backlogLink = screen.getByText('Backlog').closest('a')
+    // No count pill should render when combined count is 0.
+    expect(backlogLink?.querySelectorAll('.rounded-full').length).toBe(0)
+    expect(backlogLink?.textContent).toContain('Backlog')
   })
 
   it('polls specs every 2 seconds so the badge stays up to date', async () => {
@@ -667,9 +662,9 @@ describe('Sidebar', () => {
     vi.useRealTimers()
   })
 
-  it('three badges (Agents, Tasks, Specs) all render correct counts from their own sources', async () => {
-    // Agents badge reads from Zustand store (WebSocket-fed). Tasks and Specs
-    // still poll their own REST endpoints.
+  it('two badges (Agents, Backlog) render correct counts — Backlog combines tasks + specs', async () => {
+    // Agents badge reads from Zustand store (WebSocket-fed). Backlog combines
+    // /tasks/counts and /specs/counts into one badge.
     useRunningAgentsStore.setState({ count: 1, agents: [{ name: 'a1' }] })
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
@@ -678,15 +673,13 @@ describe('Sidebar', () => {
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
     renderSidebar()
-    expandAllGroups()
 
     await waitFor(() => {
       const agentsLink = screen.getByText('Agents').closest('a')
       expect(agentsLink?.textContent).toContain('1')
-      const tasksLink = screen.getByText('Tasks').closest('a')
-      expect(tasksLink?.textContent).toContain('2')
-      const specsLink = screen.getByText('Specs').closest('a')
-      expect(specsLink?.textContent).toContain('3')
+      const backlogLink = screen.getByText('Backlog').closest('a')
+      // 2 open tasks + 3 unfinished specs = 5 combined
+      expect(backlogLink?.textContent).toContain('5')
     })
   })
 
@@ -846,9 +839,8 @@ describe('Sidebar grouped nav', () => {
 
     const expectedLinks = [
       { label: 'Home', href: '/' },
-      { label: 'Tasks', href: '/tasks' },
+      { label: 'Backlog', href: '/backlog' },
       { label: 'Agents', href: '/agents' },
-      { label: 'Specs', href: '/specs' },
       { label: 'Gmail', href: '/gmail' },
       { label: 'Calendar', href: '/calendar' },
       { label: 'Messages', href: '/imessage' },

@@ -138,7 +138,7 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
       osName: 'myOS',
       features: [
         { label: 'Chat', enabled: true },
-        { label: 'Tasks', enabled: true },
+        { label: 'Backlog', enabled: true },
         { label: 'Agents', enabled: true },
         { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
@@ -147,31 +147,20 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
         { label: 'Gmail', enabled: true },
         { label: 'Slack', enabled: true },
         { label: 'GitHub', enabled: true },
-        { label: 'Specs', enabled: true },
         { label: 'Automations', enabled: false },
         { label: 'Cost Tracking', enabled: true },
       ],
     })
   })
 
-  it('hides Tasks nav item when Tasks feature is disabled', () => {
+  it('hides Backlog nav item when Backlog feature is disabled', () => {
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>
-        f.label === 'Tasks' ? { ...f, enabled: false } : f
+        f.label === 'Backlog' ? { ...f, enabled: false } : f
       ),
     })
     renderSidebar()
-    expect(screen.queryByText('Tasks')).not.toBeInTheDocument()
-  })
-
-  it('hides Specs nav item when Specs feature is disabled', () => {
-    useAppStore.setState({
-      features: useAppStore.getState().features.map((f) =>
-        f.label === 'Specs' ? { ...f, enabled: false } : f
-      ),
-    })
-    renderSidebar()
-    expect(screen.queryByText('Plans')).not.toBeInTheDocument()
+    expect(screen.queryByText('Backlog')).not.toBeInTheDocument()
   })
 
   it('hides Agents nav item when Agents feature is disabled', () => {
@@ -218,30 +207,29 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
 
   it('shows all items when all features are enabled', () => {
     renderSidebar()
-    expect(screen.getByText('Tasks')).toBeInTheDocument()
-    expect(screen.getByText('Specs')).toBeInTheDocument()
+    expect(screen.getByText('Backlog')).toBeInTheDocument()
     expect(screen.getByText('Agents')).toBeInTheDocument()
   })
 
   it('re-enabling a feature shows the nav item again', () => {
-    // Start with Tasks disabled
+    // Start with Backlog disabled
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>
-        f.label === 'Tasks' ? { ...f, enabled: false } : f
+        f.label === 'Backlog' ? { ...f, enabled: false } : f
       ),
     })
     const { unmount } = renderSidebar()
-    expect(screen.queryByText('Tasks')).not.toBeInTheDocument()
+    expect(screen.queryByText('Backlog')).not.toBeInTheDocument()
     unmount()
 
-    // Re-enable Tasks
+    // Re-enable Backlog
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>
-        f.label === 'Tasks' ? { ...f, enabled: true } : f
+        f.label === 'Backlog' ? { ...f, enabled: true } : f
       ),
     })
     renderSidebar()
-    expect(screen.getByText('Tasks')).toBeInTheDocument()
+    expect(screen.getByText('Backlog')).toBeInTheDocument()
   })
 })
 
@@ -251,7 +239,7 @@ describe('Settings integration: OS name in Sidebar', () => {
       osName: 'myOS',
       features: [
         { label: 'Chat', enabled: true },
-        { label: 'Tasks', enabled: true },
+        { label: 'Backlog', enabled: true },
         { label: 'Agents', enabled: true },
         { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
@@ -260,7 +248,6 @@ describe('Settings integration: OS name in Sidebar', () => {
         { label: 'Gmail', enabled: true },
         { label: 'Slack', enabled: true },
         { label: 'GitHub', enabled: true },
-        { label: 'Specs', enabled: true },
         { label: 'Automations', enabled: false },
         { label: 'Cost Tracking', enabled: true },
       ],

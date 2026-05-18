@@ -52,7 +52,7 @@ interface NavGroup {
 // Value is a JSON object: { [groupId]: boolean }
 const COLLAPSED_KEY = 'sidebar-group-collapsed'
 
-const TOP_LEVEL_ROUTES = new Set(['/', '/tasks', '/agents'])
+const TOP_LEVEL_ROUTES = new Set(['/', '/backlog', '/agents'])
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -672,6 +672,12 @@ export function Sidebar() {
                   <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                     {openTasksCount}
+                  </span>
+                )}
+                {item.backlogBadge && (openTasksCount + unfinishedSpecs) > 0 && (
+                  <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                    {openTasksCount + unfinishedSpecs}
                   </span>
                 )}
 
