@@ -142,7 +142,6 @@ function AllView() {
   const [specs, setSpecs] = useState<Spec[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [conflicts, setConflicts] = useState<ConflictItem[]>([])
-  const [filter, setFilter] = useState<'all' | 'specs' | 'tasks'>('all')
   const [search, setSearch] = useState('')
 
   useEffect(() => {
@@ -157,17 +156,11 @@ function AllView() {
 
   const q = search.toLowerCase()
   const matches = (title: string) => !q || title.toLowerCase().includes(q)
-  const showSpecs = filter !== 'tasks'
-  const showTasks = filter !== 'specs'
 
-  const draftingSpecs = showSpecs ? specs.filter((s) => s.status === 'draft' && matches(s.title)) : []
-  const readySpecs = showSpecs
-    ? specs.filter((s) => (s.status === 'ready' || s.status === 'spec') && matches(s.title))
-    : []
-  const openTasks = showTasks ? tasks.filter((t) => t.status === 'open' && matches(t.title)) : []
-  const inProgressTasks = showTasks
-    ? tasks.filter((t) => t.status === 'in_progress' && matches(t.title))
-    : []
+  const draftingSpecs = specs.filter((s) => s.status === 'draft' && matches(s.title))
+  const readySpecs = specs.filter((s) => (s.status === 'ready' || s.status === 'spec') && matches(s.title))
+  const openTasks = tasks.filter((t) => t.status === 'open' && matches(t.title))
+  const inProgressTasks = tasks.filter((t) => t.status === 'in_progress' && matches(t.title))
 
   const chipClass = (active: boolean) =>
     `text-xs px-3 py-1 rounded-full cursor-pointer transition-colors ${
@@ -177,27 +170,6 @@ function AllView() {
   return (
     <div data-testid="backlog-allview" className="flex flex-col gap-4">
       <div className="flex items-center gap-2 flex-wrap">
-        <button
-          data-testid="filter-chip-all"
-          onClick={() => setFilter('all')}
-          className={chipClass(filter === 'all')}
-        >
-          All
-        </button>
-        <button
-          data-testid="filter-chip-specs-only"
-          onClick={() => setFilter('specs')}
-          className={chipClass(filter === 'specs')}
-        >
-          Specs only
-        </button>
-        <button
-          data-testid="filter-chip-tasks-only"
-          onClick={() => setFilter('tasks')}
-          className={chipClass(filter === 'tasks')}
-        >
-          Tasks only
-        </button>
         <button data-testid="filter-chip-stale" className={chipClass(false)}>
           Stale &gt; 30d
         </button>
