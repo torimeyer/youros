@@ -2620,3 +2620,43 @@ async def test_list_specs_excludes_plan_transcripts(client, tmp_path, monkeypatc
     assert any("docs/spec/" in p for p in paths), (
         f"Real spec missing from /specs: {paths}"
     )
+
+
+def test_user_specs_dir_honors_myos_user_specs_dir_env_var(tmp_path):
+    """USER_SPECS_DIR must read MYOS_USER_SPECS_DIR at module load.
+
+    Smoke tests need to redirect spec writes to a tmpdir so the live
+    ~/.myos/specs/ never accumulates artifacts. The contract: set
+    MYOS_USER_SPECS_DIR in the environment before importing services.ostk,
+    and the resolved USER_SPECS_DIR equals that path. Fallback when unset
+    is ~/.myos/specs.
+
+    Fixes →1411 root cause #1 (per
+    ~/.claude/plans/review-our-open-specs-glittery-hejlsberg.md).
+    """
+    import subprocess
+    import sys
+
+    custom = tmp_path / "isolated-specs"
+    api_dir = str(Path(__file__).resolve().parents[1])
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from services.ostk import USER_SPECS_DIR; print(str(USER_SPECS_DIR))",
+        ],
+        env={
+            "MYOS_USER_SPECS_DIR": str(custom),
+            "PYTHONPATH": api_dir,
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(tmp_path),
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, f"import failed: {result.stderr}"
+    assert result.stdout.strip() == str(custom), (
+        f"USER_SPECS_DIR ignored MYOS_USER_SPECS_DIR env: got {result.stdout.strip()!r}"
+    )

@@ -67,6 +67,16 @@ RELEASE_MODE="${RELEASE_MODE:-0}"
 # the backend (such as scripts/dev-backend.sh) can honor it.
 export RELEASE_MODE
 
+# →1454 plan, Fix 1: when running the full smoke, point spec writes at a
+# tmpdir so ~/.myos/specs/ never grows by latency-probe-* / wave2-* /
+# build-a-website / ship-guided-onboarding-for-solo-pms artifacts. Child
+# dev-backend.sh inherits this env var. Trap cleans up on exit.
+if [ -z "${MYOS_USER_SPECS_DIR:-}" ]; then
+    MYOS_USER_SPECS_DIR="$(mktemp -d -t myos-specs-e2e.XXXXXX)/specs"
+    export MYOS_USER_SPECS_DIR
+    _E2E_SPECS_TMP_PARENT="$(dirname "$MYOS_USER_SPECS_DIR")"
+fi
+
 # Track the original os_name so we can restore it on exit. The settings
 # PATCH round trip (phase 4) sets os_name to "e2e-test-os" to verify the
 # endpoint works. If the script is interrupted before the restore curl
@@ -455,6 +465,10 @@ for name in os.listdir(root):
 
 _e2e_cleanup() {
     _e2e_sweep_artifacts
+    # →1454 plan, Fix 1: remove the spec tmpdir we created at startup.
+    if [ -n "${_E2E_SPECS_TMP_PARENT:-}" ] && [ -d "$_E2E_SPECS_TMP_PARENT" ]; then
+        rm -rf "$_E2E_SPECS_TMP_PARENT" 2>/dev/null || true
+    fi
     if [ -n "$_E2E_ORIGINAL_OS_NAME" ]; then
         curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
             -H 'content-type: application/json' \

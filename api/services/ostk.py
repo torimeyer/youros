@@ -15,7 +15,9 @@ from services.atomic_io import atomic_write_text
 PROJECT_DIR = os.environ.get("OSTK_PROJECT_ROOT", str(PROJECT_ROOT))
 OSTK_DIR = _OSTK_DIR
 NUDGES_DIR = OSTK_DIR / "nudges"
-USER_SPECS_DIR = Path(os.path.expanduser("~/.myos/specs"))
+USER_SPECS_DIR = Path(
+    os.environ.get("MYOS_USER_SPECS_DIR", os.path.expanduser("~/.myos/specs"))
+)
 
 
 class OstkError(Exception):

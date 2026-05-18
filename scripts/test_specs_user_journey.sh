@@ -21,6 +21,20 @@
 
 set -u
 
+# →1454 plan, Fix 1: redirect spec writes to a tmpdir so this smoke test
+# never accumulates artifacts under ~/.myos/specs/. The backend reads
+# MYOS_USER_SPECS_DIR at module load (api/services/ostk.py), so it is the
+# caller's responsibility to restart the backend with this env var set
+# before running the smoke. e2e_smoke.sh sets the same var and child
+# dev-backend.sh inherits it. Without that restart, this export protects
+# nothing on its own — but the trap still cleans up the dir if anything
+# did land there during the run.
+if [ -z "${MYOS_USER_SPECS_DIR:-}" ]; then
+    MYOS_USER_SPECS_DIR="$(mktemp -d -t myos-specs-smoke.XXXXXX)/specs"
+    export MYOS_USER_SPECS_DIR
+    trap 'rm -rf "$(dirname "$MYOS_USER_SPECS_DIR")"' EXIT INT TERM HUP
+fi
+
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
