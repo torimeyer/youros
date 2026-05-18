@@ -31,6 +31,7 @@ from routers import contacts as contacts_router
 from routers import skills as skills_router
 from routers import time as time_router
 from routers import primitives as primitives_router
+from routers import coordination as coordination_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -201,6 +202,7 @@ app.include_router(user_memory_router.router)
 app.include_router(team_router.router, prefix="/api")
 app.include_router(ostk_router.router, prefix="/api")
 app.include_router(internal_router.router, prefix="/api")
+app.include_router(coordination_router.router, prefix="/api")
 
 
 async def prune_stale_agent_state():
