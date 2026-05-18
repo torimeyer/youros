@@ -477,6 +477,67 @@ def _handle_stream_event(
     return None, False, None, None
 
 
+async def complete(
+    messages: list[dict],
+    system: Optional[str] = None,
+    model: str = "claude-sonnet-4-20250514",
+    max_tokens: int = 1024,
+) -> Optional[str]:
+    """One-shot non-streaming call through the local Claude CLI.
+
+    Used by non-chat routers (specs, adventures, narrative, etc.) when the
+    AI backend preference is set to ``claude_code`` (use the subscription).
+
+    Returns the response text on success, or ``None`` if the CLI is
+    unavailable, returns a non-zero exit code, or times out.
+    """
+    claude_path = _find_claude_binary()
+    if not claude_path:
+        logger.debug("claude_complete: claude binary not found")
+        return None
+
+    prompt = _messages_to_prompt(messages, system)
+    args = [
+        claude_path,
+        "-p",
+        "--output-format",
+        "text",
+        "--dangerously-skip-permissions",
+        # Block every tool — these are simple text inference calls and we
+        # do not want the CLI to run any actions.
+        "--disallowed-tools="
+        "Bash,Grep,Read,Glob,Edit,Write,WebFetch,WebSearch,Task,"
+        "TodoWrite,NotebookEdit,BashOutput,KillShell,ExitPlanMode,"
+        "SlashCommand,ToolSearch,AskUserQuestion,EnterPlanMode,"
+        "CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,"
+        "ListMcpResourcesTool,Monitor,PushNotification,"
+        "ReadMcpResourceTool,RemoteTrigger,ScheduleWakeup,Skill,"
+        "TaskOutput",
+        "--strict-mcp-config",
+        prompt,
+    ]
+    env = _build_subprocess_env()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            cwd=str(PROJECT_ROOT),
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+        if proc.returncode != 0:
+            logger.warning("claude_complete: CLI exited %d", proc.returncode)
+            return None
+        return stdout.decode("utf-8", errors="replace").strip()
+    except asyncio.TimeoutError:
+        logger.warning("claude_complete: timed out after 30s")
+        return None
+    except Exception as exc:
+        logger.warning("claude_complete: unexpected error: %s", exc)
+        return None
+
+
 async def stream_chat(
     messages: list[dict],
     websocket: WebSocket,
