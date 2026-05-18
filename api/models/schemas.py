@@ -121,6 +121,7 @@ class Settings(BaseModel):
     briefing_enabled: bool = True
     gmail_unread_at_top: bool = True
     chat_memory_enabled: bool = True
+    chat_receipts_gate_enabled: bool = True
     # When True, every chat message is sent to both Claude and Gemini
     # in parallel and the chat panel renders both replies in adjacent
     # columns. Persisted so the choice survives across sessions.

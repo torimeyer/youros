@@ -1550,7 +1550,19 @@ async def chat_websocket(websocket: WebSocket):
                         except Exception:
                             pass
                     label = model.capitalize() if len(mentioned_models) > 0 else ""
-                    await call_model(model, messages, tracked_ws, label=label, use_tools=use_tools, tab_id=tab_id, claude_tier=claude_tier)
+                    _reply_text = await call_model(model, messages, tracked_ws, label=label, use_tools=use_tools, tab_id=tab_id, claude_tier=claude_tier)
+                    if settings_store.get("chat_receipts_gate_enabled", True):
+                        try:
+                            from services.receipts_gate import check_receipts as _check_receipts
+                            _rw = _check_receipts(_reply_text or "")
+                            if _rw:
+                                await tracked_ws.send_json({
+                                    "type": "receipts-warning",
+                                    "trigger_word": _rw.trigger_word,
+                                    "message": _rw.message,
+                                })
+                        except Exception:
+                            pass
             except WebSocketDisconnect:
                 raise
             except BaseException as exc:

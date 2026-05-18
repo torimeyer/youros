@@ -61,40 +61,37 @@ function setup() {
 describe('ReceiptsWarning bubble', () => {
   beforeEach(setup)
 
-  it('shows a warning bubble when receipts-warning WS message arrives', async () => {
-    render(<ChatPanel />)
+  it('shows a warning bubble when receipts-warning WS message arrives', () => {
+    // Pre-seed an assistant message so the warning has something to attach to.
+    const messages = [
+      { id: 'msg-1', role: 'user', content: 'Ship it' },
+      { id: 'msg-2', role: 'assistant', content: 'The feature is done.', model: 'claude' },
+    ]
+    localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
 
-    // Simulate an assistant message arriving
-    await act(async () => {
-      mockLastMessage = { type: 'text', data: 'The feature is done.' }
-    })
-    await act(async () => {
-      mockLastMessage = { type: 'done' }
-    })
+    const { rerender } = render(<ChatPanel />)
 
     // Simulate the receipts-warning arriving after done
-    await act(async () => {
-      mockLastMessage = {
-        type: 'receipts-warning',
-        trigger_word: 'done',
-        message: "This reply says 'done' but I don't see a commit hash or test output.",
-      }
-    })
+    mockLastMessage = {
+      type: 'receipts-warning',
+      trigger_word: 'done',
+      message: "This reply says 'done' but I don't see a commit hash or test output.",
+    }
+    rerender(<ChatPanel />)
 
     const warning = screen.getByTestId('receipts-warning-bubble')
     expect(warning).toBeTruthy()
     expect(warning.textContent).toContain("done")
   })
 
-  it('does not show warning bubble when no receipts-warning arrives', async () => {
-    render(<ChatPanel />)
+  it('does not show warning bubble when no receipts-warning arrives', () => {
+    const messages = [
+      { id: 'msg-1', role: 'user', content: 'What is 2+2?' },
+      { id: 'msg-2', role: 'assistant', content: 'It is 4.', model: 'claude' },
+    ]
+    localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
 
-    await act(async () => {
-      mockLastMessage = { type: 'text', data: 'Here is some info.' }
-    })
-    await act(async () => {
-      mockLastMessage = { type: 'done' }
-    })
+    render(<ChatPanel />)
 
     expect(screen.queryByTestId('receipts-warning-bubble')).toBeNull()
   })
