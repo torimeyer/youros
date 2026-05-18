@@ -9,6 +9,7 @@ import RecentSpecsWidget from '../components/RecentSpecsWidget';
 import JiraWidget from '../components/JiraWidget';
 import ConfluenceWidget from '../components/ConfluenceWidget';
 import ExecUpdateWidget from '../components/ExecUpdateWidget';
+import BlockersWidget from '../components/BlockersWidget';
 import { Card, SkeletonLine } from '../components/ui';
 import { api } from '../lib/api';
 import { renderMarkdown } from '../lib/markdown';
@@ -1070,6 +1071,12 @@ export default function Dashboard() {
     </div>
   );
 
+  const renderBlockers = () => (
+    <div key="blockers" data-testid="widget-blockers-wrapper">
+      <BlockersWidget />
+    </div>
+  );
+
   // Map of widget id to render function. Only widgets present in
   // dashboardWidgets render, and they render in that order. Widgets above
   // the grid (briefing and focus first) are full width banners,
@@ -1086,6 +1093,7 @@ export default function Dashboard() {
     jira: renderJira,
     confluence: renderConfluence,
     exec_update: renderExecUpdate,
+    blockers: renderBlockers,
   };
 
   const [widgetMenuOpen, setWidgetMenuOpen] = useState<string | null>(null);
