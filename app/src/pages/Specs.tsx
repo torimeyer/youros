@@ -440,7 +440,7 @@ function SpecsOnboarding() {
   );
 }
 
-export default function Specs() {
+export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>("all");
   const [docs, setDocs] = useState<Spec[]>([]);
@@ -921,8 +921,8 @@ export default function Specs() {
 
   return (
     <>
-      <TopBar title="Specs" />
-      <div data-tour="specs" className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 max-w-6xl mx-auto">
+      {!embedded && <TopBar title="Specs" />}
+      <div data-tour="specs" className={`${embedded ? '' : 'pt-16 sm:pt-20 '}px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
         <SpecsOnboarding />
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
