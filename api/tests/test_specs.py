@@ -2558,35 +2558,53 @@ async def test_build_scopes_to_acceptance_criteria_heading(
 
 
 @pytest.mark.asyncio
-async def test_spec_counts_excludes_plan_transcripts(client, tmp_path, monkeypatch):
+async def test_spec_counts_excludes_plan_transcripts(client, monkeypatch):
     """spec_counts must not count plan transcript files as unfinished specs.
 
     ostk.list_docs() returns plan transcripts (status="plan") alongside real
     specs. Before the fix, including them caused the sidebar to show N while
     the Specs page showed 0 (no real specs). The fix filters status="plan"
     docs from the count so badge and page agree.
+
+    Isolation: list_docs is mocked directly so no real project docs/ or
+    ~/.myos/specs files can leak into the count regardless of the machine
+    running the tests.  The previous approach (patching ostk.cwd +
+    USER_SPECS_DIR) was fragile — any new code path in list_docs that reads
+    outside those two roots would break isolation silently.
     """
     from services import ostk as ostk_module
 
-    (tmp_path / "docs" / "draft").mkdir(parents=True)
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
-    transcripts_dir = tmp_path / "transcripts"
-    transcripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    # Redirect USER_SPECS_DIR to an empty temp dir so real user-local specs
-    # don't leak into the count and break isolation.
-    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "user-specs-empty")
+    async def fake_list_docs():
+        return [
+            # Two plan transcript files — must NOT be counted.
+            {
+                "path": "transcripts/plan-100.md",
+                "title": "Plan for →100",
+                "status": "plan",
+                "task_ids": [],
+                "acceptance_criteria": [],
+                "task_summary": {"total": 0, "open": 0, "closed": 0},
+            },
+            {
+                "path": "transcripts/plan-200.md",
+                "title": "Plan for →200",
+                "status": "plan",
+                "task_ids": [],
+                "acceptance_criteria": [],
+                "task_summary": {"total": 0, "open": 0, "closed": 0},
+            },
+            # One real spec in ready state — must be counted as unfinished.
+            {
+                "path": "docs/spec/my-spec.md",
+                "title": "My Spec",
+                "status": "spec",
+                "task_ids": [],
+                "acceptance_criteria": [{"text": "Do the thing", "checked": False}],
+                "task_summary": {"total": 0, "open": 0, "closed": 0},
+            },
+        ]
 
-    # Two plan transcript files — must NOT be counted.
-    (transcripts_dir / "plan-100.md").write_text("Plan content for needle 100\n")
-    (transcripts_dir / "plan-200.md").write_text("Plan content for needle 200\n")
-
-    # One real spec in ready state — must be counted as unfinished.
-    (tmp_path / "docs" / "spec" / "my-spec.md").write_text(
-        "---\ntitle: My Spec\nstatus: spec\n---\n\n- [ ] Do the thing\n"
-    )
-
-    monkeypatch.setattr(ostk_module.ostk, "list_tasks", AsyncMock(return_value=[]))
+    monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
 
     res = await client.get("/api/specs/counts")
     assert res.status_code == 200
