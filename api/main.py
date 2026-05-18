@@ -25,6 +25,7 @@ from routers import agent_uploads as agent_uploads_router
 from routers import gems as gems_router
 from routers import gemini_capture as gemini_capture_router
 from routers import internal as internal_router
+from routers import narrative as narrative_router
 from routers import rules as rules_router
 from routers import intel as intel_router
 from routers import usage as usage_router
@@ -203,6 +204,7 @@ app.include_router(user_memory_router.router)
 app.include_router(team_router.router, prefix="/api")
 app.include_router(ostk_router.router, prefix="/api")
 app.include_router(internal_router.router, prefix="/api")
+app.include_router(narrative_router.router, prefix="/api")
 
 
 async def prune_stale_agent_state():
