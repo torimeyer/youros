@@ -867,6 +867,11 @@ print(d.get('label',{}).get('id', d.get('id','')))
         # Save the original name into the trap variable so _e2e_cleanup
         # can restore it even if the script is interrupted mid-test.
         _E2E_ORIGINAL_OS_NAME=$(curl -sS $CURL_OPTS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
+        # Pollution guard: never restore "e2e-test-os" itself (means a prior run
+        # was interrupted between the PATCH and the restore). Fall back to "myOS".
+        if [ "$_E2E_ORIGINAL_OS_NAME" = "e2e-test-os" ] || [ -z "$_E2E_ORIGINAL_OS_NAME" ]; then
+            _E2E_ORIGINAL_OS_NAME="myOS"
+        fi
         curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
             -H 'content-type: application/json' \
             -d '{"os_name":"e2e-test-os"}' > /dev/null 2>&1
