@@ -2011,6 +2011,19 @@ export default function Settings() {
                     Open
                   </NavLink>
                 </div>
+                <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-300">Rules</p>
+                    <p className="text-xs text-slate-500">View and edit the rules your agents follow.</p>
+                  </div>
+                  <NavLink
+                    data-testid="settings-rules-link"
+                    to="/settings/rules"
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                  >
+                    Open
+                  </NavLink>
+                </div>
               </div>
             </div>
           </div>
