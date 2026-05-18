@@ -43,6 +43,8 @@ export const USER_SELECTABLE_STATUSES = ["open", "closed"] as const;
 
 import ConfirmModal from "../components/ConfirmModal";
 import { ComprehensiveBuildPill } from "../components/ComprehensiveBuild";
+import { GeminiReadyChip, type ReadinessCheck } from "../components/GeminiReadyChip";
+import { SpawnGeminiModal } from "../components/SpawnGeminiModal";
 import { useRunningAgentsStore } from "../stores/runningAgents";
 
 interface Task {
@@ -78,6 +80,8 @@ interface Task {
   // Wave number assigned by the last wave-planning run (1-indexed). null when
   // no wave plan has been run yet.
   wave_number?: number | null;
+  gemini_ready?: boolean;
+  gemini_ready_checks?: ReadinessCheck[];
 }
 
 // A task is "active" (shown under the Open tab and counted in the
@@ -338,6 +342,8 @@ export default function Tasks() {
   // open. Null when none. We track by task id so the popover is
   // anchored next to the right row.
   const [openBuildHelp, setOpenBuildHelp] = useState<string | null>(null);
+  const [showGeminiReady, setShowGeminiReady] = useState(false);
+  const [spawnGeminiTask, setSpawnGeminiTask] = useState<{ path: string; title: string; checks?: ReadinessCheck[] } | null>(null);
   const buildHelpRef = useRef<HTMLDivElement | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -1306,6 +1312,9 @@ export default function Tasks() {
         : "open";
       return effective === selectedStatus;
     });
+    if (showGeminiReady) {
+      filteredTasks = filteredTasks.filter((t) => t.gemini_ready === true);
+    }
   }
 
   const onlyClosedSelected = !isLegacyView && selectedStatus === "closed";
@@ -1875,7 +1884,30 @@ export default function Tasks() {
                 setStatusFilter("all");
               }}
               onSortByChange={setSortBy}
-            />
+/>
+
+            {/* Gemini-ready filter pill */}
+            {(() => {
+              const count = tasks.filter((t) => t.gemini_ready === true && t.status !== "shelved").length;
+              return count > 0 ? (
+                <div className="mb-3">
+                  <button
+                    data-testid="gemini-ready-filter-pill"
+                    onClick={() => setShowGeminiReady((v) => !v)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
+                      showGeminiReady
+                        ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
+                        : "text-slate-500 hover:text-slate-300 border border-transparent hover:border-slate-700"
+                    }`}
+                  >
+                    ✦ Gemini-ready
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      showGeminiReady ? "bg-violet-500/30 text-violet-300" : "bg-slate-700 text-slate-400"
+                    }`}>{count}</span>
+                  </button>
+                </div>
+              ) : null;
+            })()}
 
             {/* Bulk action bar */}
             {selectedTaskIds.size > 0 && (
@@ -2084,6 +2116,13 @@ export default function Tasks() {
                           }
                           return null;
                         })()}
+                        {task.gemini_ready !== undefined && (
+                          <GeminiReadyChip
+                            ready={task.gemini_ready}
+                            checks={task.gemini_ready_checks}
+                            onClick={task.gemini_ready && task.plan_path ? () => setSpawnGeminiTask({ path: task.plan_path!, title: task.title, checks: task.gemini_ready_checks }) : undefined}
+                          />
+                        )}
                         {task.status === "closed" && task.closed_reason === "completed" && (
                           <span
                             data-testid={`closed-badge-${task.id}`}
@@ -3140,6 +3179,15 @@ export default function Tasks() {
         </div>
       )}
 
+      {spawnGeminiTask && (
+        <SpawnGeminiModal
+          path={spawnGeminiTask.path}
+          title={spawnGeminiTask.title}
+          checks={spawnGeminiTask.checks}
+          onClose={() => setSpawnGeminiTask(null)}
+          onSpawned={() => setSpawnGeminiTask(null)}
+        />
+      )}
       {undoDelete && (
         <div
           data-testid="undo-delete-task-toast"
