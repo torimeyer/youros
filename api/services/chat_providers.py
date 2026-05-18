@@ -1832,7 +1832,13 @@ def _system_prompt() -> str:
         "not evidence that any code landed. Git is the only source of truth for "
         "authorship. If git log shows the repo owner authored a file, say so "
         "plainly; do not invent an agent as the author. If no path is obvious from "
-        "the question, ask the user which file they mean before answering."
+        "the question, ask the user which file they mean before answering.\n\n"
+        "ETA HINTS: When you are about to call a tool that typically takes more than "
+        "2 seconds (spawning an agent, running a build, fetching a large spec), "
+        "prefix your reply with '~Nm' where N is your best estimate of the wait in "
+        "minutes. Example: '~2m — spawning the build agent now.' Use whole minutes "
+        "only. Skip the prefix for instant tool calls (reads, searches, simple API "
+        "calls). Never say 'p50', 'percentile', or any statistics term to the user."
     )
 
 

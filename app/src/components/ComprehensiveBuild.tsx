@@ -7,6 +7,7 @@
  */
 
 import Icon from "./Icon";
+import { TimePill } from "../lib/timePill";
 
 export type BuildState = "running" | "queued";
 
@@ -30,13 +31,17 @@ export function ComprehensiveBuildPill({ taskId, buildState }: Props) {
   }
 
   return (
-    <span
-      data-testid={`build-running-badge-${taskId}`}
-      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-400 border border-green-500/30"
-      title="Build in progress"
-    >
-      <Icon name="code" className="text-[10px]" />
-      Building
-    </span>
+    <>
+      <span
+        data-testid={`build-running-badge-${taskId}`}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-400 border border-green-500/30"
+        title="Build in progress"
+      >
+        <Icon name="code" className="text-[10px]" />
+        Building
+      </span>
+      <TimePill opKind="spec_build" />
+    </>
   );
 }
+
