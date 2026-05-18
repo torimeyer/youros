@@ -12,7 +12,6 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
-vi.mock('./backlog/SpecHealthTab', () => ({ default: () => <div>Health</div> }))
 
 vi.mock('./Specs', () => ({
   default: () => <div data-testid="specs-page">Specs page</div>,
@@ -212,5 +211,13 @@ describe('Backlog page (→1466)', () => {
     await waitFor(() => {
       expect(screen.getByTestId('tasks-page')).toBeInTheDocument()
     })
+  })
+
+  it('does not render a Spec Health tab link (→1479)', async () => {
+    renderBacklog()
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'All' })).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('link', { name: 'Spec Health' })).toBeNull()
   })
 })
