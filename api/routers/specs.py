@@ -431,7 +431,32 @@ async def create_draft(body: SpecDraft):
                 if "- [ ]" in ac_text:
                     ac_written = True
     except Exception:
-        pass  # If AI generation fails, the draft is still created without AC
+        logger.warning("create_draft: AC generation failed for %r", body.title, exc_info=True)
+
+    if not ac_written:
+        # No API key (subscription auth) or AI call failed.
+        # Write a user-editable placeholder so the draft isn't stuck
+        # showing "Generating acceptance criteria..." forever. The user
+        # edits the placeholder before promoting. We intentionally do NOT
+        # set ac_written = True here so the draft stays in "draft" state
+        # rather than being auto-promoted with unreviewed placeholder text.
+        logger.warning(
+            "create_draft: AC generation skipped for %r (no API key or error). "
+            "Writing placeholder.",
+            body.title,
+        )
+        from pathlib import Path
+        _draft_path = result.strip()
+        _docs_root = (Path(ostk.cwd) / "docs").resolve()
+        _full_path = (Path(ostk.cwd) / _draft_path).resolve()
+        if _full_path.exists() and _full_path.is_relative_to(_docs_root):
+            _placeholder = (
+                "\n## Acceptance criteria\n\n"
+                "- [ ] (replace with your first acceptance criterion)\n"
+                "- [ ] (replace with your second acceptance criterion)\n"
+                "- [ ] (replace with your third acceptance criterion)\n"
+            )
+            _full_path.write_text(_full_path.read_text() + _placeholder)
 
     # When the caller requests fallback_ac (e.g. smoke tests that run
     # without a live AI model), write a minimal placeholder checkbox so
@@ -1069,6 +1094,22 @@ async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
 
             api_key = await _resolve_api_key("anthropic_api_key")
             if not api_key:
+                logger.warning(
+                    "from_roadmap_line: no API key for %r, writing placeholder AC",
+                    draft_path,
+                )
+                _placeholder = (
+                    "\n## Acceptance criteria\n\n"
+                    "- [ ] (replace with your first acceptance criterion)\n"
+                    "- [ ] (replace with your second acceptance criterion)\n"
+                    "- [ ] (replace with your third acceptance criterion)\n"
+                )
+                _content = full_path.read_text()
+                full_path.write_text(_content.rstrip() + _placeholder)
+                try:
+                    await ostk.doc_promote(draft_path)
+                except OstkError:
+                    pass
                 return
             client = anthropic.AsyncAnthropic(api_key=api_key)
             response = await client.messages.create(
