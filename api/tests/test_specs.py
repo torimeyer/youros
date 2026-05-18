@@ -142,6 +142,67 @@ async def test_create_draft_leaves_as_draft_when_ac_generation_fails(
     assert data["promoted_path"] is None
     # The file stays in draft/.
     assert draft_file.exists()
+    # After the →1463 fix lands, the draft must also have a placeholder checkbox.
+    assert "- [ ]" in draft_file.read_text(), (
+        "No-API-key path must write placeholder AC checkboxes so the spinner clears (→1463)."
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_draft_no_api_key_writes_placeholder_not_stuck(
+    client, tmp_path, monkeypatch
+):
+    """No API key (subscription auth) must write placeholder AC, not leave
+    the draft with an empty body that causes the infinite spinner (→1463).
+
+    RED test: fails before the fix lands. After the fix, the draft file
+    must contain at least one '- [ ]' checkbox so the frontend spinner
+    resolves immediately instead of spinning forever.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "draft").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
+
+    draft_file = tmp_path / "docs" / "draft" / "pattern-watcher-v2.md"
+
+    async def fake_run(*args, **kwargs):
+        if args[:2] == ("doc", "draft"):
+            draft_file.write_text(
+                "---\ntitle: Pattern watcher v2\nstatus: draft\n---\n\n"
+            )
+            return str(draft_file.relative_to(tmp_path))
+        # doc_promote is pure-Python, doesn't hit _run
+        raise AssertionError(f"unexpected ostk call: {args}")
+
+    monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)
+
+    # Subscription auth: _resolve_api_key returns empty string (not None).
+    monkeypatch.setattr(
+        "services.chat_providers._resolve_api_key",
+        AsyncMock(return_value=""),
+    )
+
+    resp = await client.post(
+        "/api/specs/draft", json={"title": "Pattern watcher v2", "kind": "spec"}
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    # Draft stays as draft (placeholder, not auto-promoted — user edits first).
+    assert data["status"] == "draft"
+    assert data["promoted_path"] is None
+    assert draft_file.exists()
+    # CRITICAL: draft must have at least one checkbox so the frontend
+    # "Generating acceptance criteria..." spinner can resolve.
+    draft_text = draft_file.read_text()
+    assert "- [ ]" in draft_text, (
+        "No-API-key path must write placeholder AC checkboxes. "
+        "Without them the Specs page spinner shows forever (→1463)."
+    )
 
 
 @pytest.mark.asyncio
