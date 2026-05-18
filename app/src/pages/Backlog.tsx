@@ -7,7 +7,6 @@ import ConflictDialog from '../components/ConflictDialog'
 
 import Specs from './Specs'
 import Tasks from './Tasks'
-import SpecHealthTab from './backlog/SpecHealthTab'
 
 interface Spec {
   id: string
@@ -272,8 +271,6 @@ export default function Backlog() {
   const isAll = path === '/backlog'
   const isSpecs = path === '/backlog/specs'
   const isTasksTab = path === '/backlog/tasks'
-  const isSpecHealth = path === '/backlog/spec-health'
-
   return (
     <div className="flex flex-col h-full p-6 gap-6">
       <nav className="flex gap-1">
@@ -286,15 +283,12 @@ export default function Backlog() {
         <NavLink to="/backlog/tasks" className={() => tabClass(isTasksTab)}>
           Tasks
         </NavLink>
-        <NavLink to="/backlog/spec-health" className={() => tabClass(isSpecHealth)}>
-          Spec Health
-        </NavLink>
       </nav>
 
       {isAll && <AllView />}
       {isSpecs && <Specs embedded />}
       {isTasksTab && <Tasks embedded />}
-      {isSpecHealth && <SpecHealthTab />}
+
     </div>
   )
 }

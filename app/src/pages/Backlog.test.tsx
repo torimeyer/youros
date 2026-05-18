@@ -12,7 +12,6 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
-vi.mock('./backlog/SpecHealthTab', () => ({ default: () => <div>Health</div> }))
 
 vi.mock('./Specs', () => ({
   default: () => <div data-testid="specs-page">Specs page</div>,

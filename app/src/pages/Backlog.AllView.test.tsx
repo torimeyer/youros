@@ -16,7 +16,6 @@ vi.mock('../components/ConflictDialog', () => ({
   default: ({ open }: { open: boolean }) =>
     open ? <div data-testid="conflict-dialog">Conflict</div> : null,
 }))
-vi.mock('./backlog/SpecHealthTab', () => ({ default: () => <div>Health</div> }))
 
 import { api } from '../lib/api'
 const mockedGet = vi.mocked(api.get)
