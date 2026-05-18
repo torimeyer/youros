@@ -8,6 +8,7 @@ import DashboardCustomizeModal from '../components/DashboardCustomizeModal';
 import RecentSpecsWidget from '../components/RecentSpecsWidget';
 import JiraWidget from '../components/JiraWidget';
 import ConfluenceWidget from '../components/ConfluenceWidget';
+import CompetitiveIntelWidget from '../components/CompetitiveIntelWidget';
 import { Card, SkeletonLine } from '../components/ui';
 import { api } from '../lib/api';
 import { renderMarkdown } from '../lib/markdown';
@@ -1063,6 +1064,12 @@ export default function Dashboard() {
     </div>
   );
 
+  const renderCompetitiveIntel = () => (
+    <div key="competitive_intel" data-testid="widget-competitive-intel-wrapper">
+      <CompetitiveIntelWidget />
+    </div>
+  );
+
   // Map of widget id to render function. Only widgets present in
   // dashboardWidgets render, and they render in that order. Widgets above
   // the grid (briefing and focus first) are full width banners,
@@ -1078,6 +1085,7 @@ export default function Dashboard() {
     recent_specs: renderRecentSpecs,
     jira: renderJira,
     confluence: renderConfluence,
+    competitive_intel: renderCompetitiveIntel,
   };
 
   const [widgetMenuOpen, setWidgetMenuOpen] = useState<string | null>(null);

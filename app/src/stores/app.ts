@@ -18,6 +18,7 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
   'recent_specs',
   'jira',
   'confluence',
+  'competitive_intel',
 ]
 
 // Human readable labels for each dashboard widget id. Keep this in sync
@@ -35,6 +36,7 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   recent_specs: 'Recent Specs',
   jira: 'Jira Issues',
   confluence: 'Confluence Pages',
+  competitive_intel: 'Competitor Signals',
 }
 
 export interface FeatureToggle {
