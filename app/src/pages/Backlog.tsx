@@ -1,4 +1,5 @@
 import { useState, useEffect, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { buildSpec } from '../lib/spawn'
 import type { ConflictItem } from '../lib/spawn'
@@ -56,8 +57,13 @@ function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void })
   return (
     <div
       data-testid={`kanban-card-${spec.id}`}
-      className="rounded-xl bg-slate-800/50 p-4 flex flex-col gap-2 hover:-translate-y-px transition-transform cursor-pointer min-w-0 overflow-hidden"
+      className="rounded-xl bg-slate-800/50 hover:-translate-y-px transition-transform min-w-0 overflow-hidden"
     >
+      <Link
+        to={`/specs?focus=${encodeURIComponent(spec.path ?? spec.id)}`}
+        data-testid="spec-card-link"
+        className="p-4 flex flex-col gap-2 cursor-pointer block"
+      >
       <span className="font-mono text-xs text-slate-400" data-testid="spec-id-chip">
         {specSlug}
       </span>
@@ -104,12 +110,13 @@ function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void })
       {ds === 'Ready' && (
         <button
           data-testid="card-build-button"
-          onClick={() => onBuild(spec)}
+          onClick={(e) => { e.stopPropagation(); onBuild(spec) }}
           className="self-start text-sm bg-blue-600 hover:bg-blue-500 text-white font-medium px-4 py-2 rounded-md shadow-sm"
         >
           Build
         </button>
       )}
+      </Link>
     </div>
   )
 }
@@ -119,8 +126,13 @@ function TaskCard({ task }: { task: Task }) {
   return (
     <div
       data-testid={`kanban-card-${task.id}`}
-      className="rounded-xl bg-slate-800/50 p-4 flex flex-col gap-2 hover:-translate-y-px transition-transform cursor-pointer min-w-0 overflow-hidden"
+      className="rounded-xl bg-slate-800/50 hover:-translate-y-px transition-transform min-w-0 overflow-hidden"
     >
+      <Link
+        to={`/tasks?focus=${task.id}`}
+        data-testid="task-card-link"
+        className="p-4 flex flex-col gap-2 cursor-pointer block"
+      >
       <span className="font-mono text-xs text-slate-400" data-testid="task-id-chip">
         →{task.id}
       </span>
@@ -160,6 +172,7 @@ function TaskCard({ task }: { task: Task }) {
           </button>
         </div>
       )}
+      </Link>
     </div>
   )
 }
