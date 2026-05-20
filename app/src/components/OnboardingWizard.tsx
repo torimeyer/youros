@@ -393,7 +393,7 @@ export default function OnboardingWizard() {
           )}
           {step === 'Profile' && (
             <div data-testid="step-profile">
-              <h2 className="text-2xl font-bold mb-2">Tell {osName} about you</h2>
+              <h2 className="text-2xl font-bold mb-2">Tell {osName || 'your OS'} about you</h2>
               <p className={`mb-2 ${subtextCls}`}>
                 This creates your profile so {osName} knows how to help you. Think of it as a quick intro so your AI knows who it's working for.
               </p>
@@ -629,7 +629,7 @@ function ForkStep({
       <div className="mb-6">
         <Icon name="rocket_launch" size={48} className="text-blue-400" />
       </div>
-      <h1 className="text-3xl font-bold mb-2">Welcome!</h1>
+      <h1 className="text-3xl font-bold mb-2">Let's get started</h1>
       <p className={`${subtextCls} text-lg mb-8`}>Who is this for?</p>
       <div className="grid grid-cols-1 gap-4">
         <button
@@ -1049,7 +1049,7 @@ function TrackingStep({
   const options = [
     {
       id: 'everywhere' as const,
-      label: 'myOS is my daily dashboard, track everything.',
+      label: 'Track everything — myOS is my main dashboard.',
       subtitle: "Every Claude Code conversation on this computer shows up in myOS, no matter which folder you're in.",
     },
     {
