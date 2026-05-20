@@ -57,6 +57,8 @@ export default function OnboardingWizard() {
   const [oauthError, setOauthError] = useState<string | null>(null)
   const [trackingOption, setTrackingOption] = useState<'everywhere' | 'repo' | 'myos-only' | null>(null)
   const [trackingRepoPath, setTrackingRepoPath] = useState('')
+  const [showExitConfirm, setShowExitConfirm] = useState(false)
+  const [mounted, setMounted] = useState(false)
 
   // Reset osName to empty on wizard mount so a new user always starts with
   // an empty "Name your OS" field. This prevents stale values from
@@ -121,6 +123,33 @@ export default function OnboardingWizard() {
       .catch(() => setFilesDir(DEFAULT_FILES_DIR))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Restore step from localStorage on mount (→1518)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('myos.onboarding.state')
+      if (raw) {
+        const saved = JSON.parse(raw) as { stepName?: string; mode?: string }
+        if (saved.mode === 'team') {
+          setOnboardingMode('team')
+          setInstanceMode('team')
+        } else if (saved.mode === 'personal') {
+          setOnboardingMode('personal')
+        }
+        const steps = saved.mode === 'team' ? TEAM_STEPS : PERSONAL_STEPS_NO_FORK
+        const idx = (steps as readonly string[]).indexOf(saved.stepName ?? '')
+        if (idx > 0) setStepIndex(idx)
+      }
+    } catch { /* corrupted entry — ignore */ }
+    setMounted(true)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist current step to localStorage on every transition (→1518)
+  useEffect(() => {
+    if (!mounted) return
+    const state = JSON.stringify({ stepName: step, mode: onboardingMode === 'undecided' ? 'personal' : onboardingMode })
+    localStorage.setItem('myos.onboarding.state', state)
+  }, [stepIndex, step, onboardingMode, mounted])
+
   // Profile (HUMANFILE) step state
   const [profileRole, setProfileRole] = useState('')
   const [profileStyle, setProfileStyle] = useState<'brief' | 'detailed' | ''>('')
@@ -140,28 +169,13 @@ export default function OnboardingWizard() {
     setStepIndex(1)
   }
 
-  const connectIdx = (STEPS as readonly string[]).indexOf('Connect')
-  const next = () => setStepIndex((i) => {
-    let n = Math.min(i + 1, STEPS.length - 1)
-    if (detectedProvider !== null && n === connectIdx) n = Math.min(n + 1, STEPS.length - 1)
-    return n
-  })
+  const next = () => setStepIndex((i) => Math.min(i + 1, STEPS.length - 1))
   const back = () => setStepIndex((i) => Math.max(i - 1, 0))
 
   const handlePersonaPick = (category: MarketplaceCategory) => {
     setSelectedPersonaId(category.id)
     setProfileRole(category.category)
     setOtherSelected(false)
-    // Install only the templates for the persona the user picked.
-    // Other persona templates stay in the marketplace and are not installed.
-    // The backend install-persona endpoint updates the disk store so these
-    // show up as installed=true. The Templates tab reads them back via
-    // /agents/persona-templates so we do NOT seed customAgentTemplates here.
-    // customAgentTemplates is reserved for user-created templates only, so
-    // marketplace picks never show up with a "custom" badge.
-    api.post('/agents/pm-templates/install-persona', { persona_id: category.id }).catch((e) => console.error('persona install failed:', e))
-    // Clear any leftover marketplace entries that older builds saved into
-    // customAgentTemplates so existing users stop seeing duplicate cards.
     setCustomAgentTemplates([])
   }
 
@@ -169,6 +183,19 @@ export default function OnboardingWizard() {
     setSelectedPersonaId(null)
     setOtherSelected(true)
     setProfileRole('')
+  }
+
+  const handleProfileNext = () => {
+    if (selectedPersonaId) {
+      api.post('/agents/pm-templates/install-persona', { persona_id: selectedPersonaId }).catch((e) => console.error('persona install failed:', e))
+    }
+    next()
+  }
+
+  const dismissWizard = () => {
+    localStorage.setItem('myos.onboarding.dismissed', 'true')
+    try { window.history.replaceState({}, '', '/dashboard') } catch { /* test env */ }
+    setOnboarded(true)
   }
 
   // Always land the user on the homepage ("/") after onboarding, regardless
@@ -209,6 +236,7 @@ export default function OnboardingWizard() {
       // Reset the "Finished" baseline so agents from before onboarding
       // do not immediately show a stale count in the sidebar.
       setAgentsLastViewed(new Date().toISOString())
+      localStorage.removeItem('myos.onboarding.state')
       // Navigate home BEFORE flipping onboarded. Once onboarded=true the
       // wizard unmounts and BrowserRouter mounts at whatever URL is current.
       goHome()
@@ -239,6 +267,7 @@ export default function OnboardingWizard() {
       await api.post('/onboarding/enable-myos-hooks', trackBody).catch((e) => console.error('tracking setup failed:', e))
     }
     // Navigate home BEFORE flipping onboarded (see goHome comment above).
+    localStorage.removeItem('myos.onboarding.state')
     goHome()
     setOnboarded(true)
   }
@@ -284,6 +313,8 @@ export default function OnboardingWizard() {
     if (step === 'Ready') { finish(); return }
     // FilesLocation saves the dir before advancing.
     if (step === 'FilesLocation') { handleFilesLocationNext(); return }
+    // Profile fires persona install on advance.
+    if (step === 'Profile') { handleProfileNext(); return }
     next()
   }
   useEffect(() => {
@@ -334,6 +365,42 @@ export default function OnboardingWizard() {
       }}
       data-testid="onboarding-wizard"
     >
+      {/* Exit confirm dialog (→1519) */}
+      {showExitConfirm && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50" data-testid="exit-confirm-dialog">
+          <div className={`rounded-xl p-6 max-w-sm w-full mx-4 shadow-xl ${effectiveDark ? 'bg-slate-900 border border-slate-700' : 'bg-white border border-gray-200'}`}>
+            <h3 className="text-base font-semibold mb-2">Exit setup?</h3>
+            <p className={`text-sm mb-4 ${subtextCls}`}>You can resume from Settings anytime.</p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowExitConfirm(false)}
+                className={`px-4 py-2 text-sm rounded-lg border transition-colors ${effectiveDark ? 'border-slate-600 hover:border-slate-400' : 'border-gray-300 hover:border-gray-500'}`}
+                data-testid="exit-cancel-btn"
+              >
+                Keep going
+              </button>
+              <button
+                onClick={dismissWizard}
+                className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors"
+                data-testid="exit-confirm-btn"
+              >
+                Exit setup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Close button (→1519) */}
+      <button
+        onClick={() => setShowExitConfirm(true)}
+        className={`fixed top-4 right-4 z-50 p-1.5 rounded-full transition-colors ${effectiveDark ? 'text-slate-500 hover:text-white hover:bg-slate-800' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}
+        data-testid="onboarding-close-btn"
+        aria-label="Exit setup"
+      >
+        <Icon name="close" size={20} />
+      </button>
+
       <div className="w-full max-w-lg px-8">
         {/* Progress dots */}
         <div className="flex justify-center gap-2 mb-10" data-testid="progress-dots">
@@ -516,6 +583,7 @@ export default function OnboardingWizard() {
               inputCls={inputCls}
               subtextCls={subtextCls}
               stepIndex={stepIndex}
+              detectedProvider={detectedProvider}
             />
           )}
           {step === 'Ready' && (
@@ -597,7 +665,7 @@ export default function OnboardingWizard() {
               </button>
             ) : (
               <button
-                onClick={step === 'FilesLocation' ? handleFilesLocationNext : next}
+                onClick={step === 'FilesLocation' ? handleFilesLocationNext : step === 'Profile' ? handleProfileNext : next}
                 className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
                 data-testid="next-button"
               >
@@ -1116,6 +1184,7 @@ function ConnectStep({
   inputCls,
   subtextCls,
   stepIndex,
+  detectedProvider,
 }: {
   selectedProvider: string
   onSelectProvider: (name: string) => void
@@ -1128,6 +1197,7 @@ function ConnectStep({
   inputCls: string
   subtextCls: string
   stepIndex: number
+  detectedProvider?: string | null
 }) {
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
 
@@ -1147,6 +1217,14 @@ function ConnectStep({
   return (
     <div data-testid="step-connect">
       <h2 className="text-2xl font-bold mb-2">Connect your providers</h2>
+      {detectedProvider && (
+        <div
+          className="inline-flex items-center gap-1.5 mb-4 px-3 py-1.5 rounded-full text-sm font-medium bg-green-500/15 text-green-400 border border-green-500/30"
+          data-testid="already-connected-badge"
+        >
+          <span>Already connected: {detectedProvider}</span>
+        </div>
+      )}
       <p className={`${subtextCls} mb-6`}>
         Pick a provider and sign in or paste an API key. You can change this
         anytime in Settings.
@@ -1182,7 +1260,7 @@ function ConnectStep({
           })}
         </div>
 
-        {selectedProvider === 'Anthropic' && (
+        {selectedProvider === 'Anthropic' && !detectedProvider && (
           <>
             <button
               onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}
@@ -1231,7 +1309,7 @@ function ConnectStep({
         )}
 
         {/* Gemini chat — shown when Google Gemini is the selected AI provider */}
-        {selectedProvider === 'Google Gemini' && (
+        {selectedProvider === 'Google Gemini' && !detectedProvider && (
           <div className="mt-3">
             {googleOAuthAvailable ? (
               <button

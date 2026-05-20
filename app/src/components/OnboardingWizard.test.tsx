@@ -67,6 +67,11 @@ const localStorageMock = (() => {
 })()
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
+// Clear localStorage before every test so the restore effect never picks up stale state
+beforeEach(() => {
+  localStorageMock.clear()
+})
+
 // Fork step is hidden (TEAM_MODE_VISIBLE = false); this is a no-op kept for call-site compatibility
 function choosePersonalMode() {
   // no-op: wizard starts directly on Welcome step
@@ -562,7 +567,7 @@ describe('OnboardingWizard', () => {
     expect(cardAfter.querySelector('.material-symbols-outlined')).not.toBeNull()
   })
 
-  it('clicking a persona card sets both selectedPersonaId (via API call) and profileRole', () => {
+  it('clicking a persona card selects it visually but does NOT fire install (→1521)', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(4)
@@ -570,9 +575,9 @@ describe('OnboardingWizard', () => {
     const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
     fireEvent.click(screen.getByText(pmCat.category))
 
-    expect(vi.mocked(api.post)).toHaveBeenCalledWith(
+    expect(vi.mocked(api.post)).not.toHaveBeenCalledWith(
       '/agents/pm-templates/install-persona',
-      { persona_id: pmCat.id },
+      expect.anything(),
     )
     const card = screen.getByText(pmCat.category).closest('button')!
     expect(card.className).toContain('bg-blue-500/20')
@@ -941,7 +946,7 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     expect(screen.queryByTestId('step-ready')).not.toBeInTheDocument()
   })
 
-  it('skips Connect step when Claude Code is detected', async () => {
+  it('shows Connect with already-connected badge when Claude Code is detected (→1517)', async () => {
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path === '/providers/detect')
         return Promise.resolve({ claude_code: true, anthropic_key: false, gemini_key: false })
@@ -950,12 +955,14 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     render(<OnboardingWizard />)
     await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
     navigateToAfterTheme()
-    expect(screen.queryByTestId('step-connect')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('step-connect')).toBeInTheDocument()
+    expect(screen.getByTestId('already-connected-badge')).toHaveTextContent('Claude Code')
+    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Ready
     expect(screen.queryByTestId('step-ready')).toBeInTheDocument()
     expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('Claude Code')
   })
 
-  it('skips Connect and shows "Connected via Anthropic" when API key is detected', async () => {
+  it('shows Connect with badge "Anthropic" when API key is detected (→1517)', async () => {
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path === '/providers/detect')
         return Promise.resolve({ claude_code: false, anthropic_key: true, gemini_key: false })
@@ -964,11 +971,11 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     render(<OnboardingWizard />)
     await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
     navigateToAfterTheme()
-    expect(screen.queryByTestId('step-connect')).not.toBeInTheDocument()
-    expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('Anthropic')
+    expect(screen.queryByTestId('step-connect')).toBeInTheDocument()
+    expect(screen.getByTestId('already-connected-badge')).toHaveTextContent('Anthropic')
   })
 
-  it('api-key-input is never shown when a provider is detected', async () => {
+  it('shows Connect with badge and api-key-input is hidden when provider detected (→1517)', async () => {
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path === '/providers/detect')
         return Promise.resolve({ claude_code: false, anthropic_key: false, gemini_key: true })
@@ -977,7 +984,10 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     render(<OnboardingWizard />)
     await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
     navigateToAfterTheme()
+    expect(screen.queryByTestId('step-connect')).toBeInTheDocument()
     expect(screen.queryByTestId('api-key-input')).not.toBeInTheDocument()
+    expect(screen.getByTestId('already-connected-badge')).toHaveTextContent('Gemini')
+    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Ready
     expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('Gemini')
   })
 
@@ -992,7 +1002,7 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     await waitFor(() => expect(screen.queryByTestId('step-connect')).toBeInTheDocument())
   })
 
-  it('skips Connect and shows "Connected via Vertex AI" when vertex_ai is detected', async () => {
+  it('shows Connect with badge "Vertex AI" when vertex_ai is detected (→1517)', async () => {
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path === '/providers/detect')
         return Promise.resolve({ claude_code: false, anthropic_key: false, gemini_key: false, vertex_ai: true, bedrock: false })
@@ -1001,11 +1011,13 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     render(<OnboardingWizard />)
     await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
     navigateToAfterTheme()
-    expect(screen.queryByTestId('step-connect')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('step-connect')).toBeInTheDocument()
+    expect(screen.getByTestId('already-connected-badge')).toHaveTextContent('Vertex AI')
+    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Ready
     expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('Vertex AI')
   })
 
-  it('skips Connect and shows "Connected via AWS Bedrock" when bedrock is detected', async () => {
+  it('shows Connect with badge "AWS Bedrock" when bedrock is detected (→1517)', async () => {
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path === '/providers/detect')
         return Promise.resolve({ claude_code: false, anthropic_key: false, gemini_key: false, vertex_ai: false, bedrock: true })
@@ -1014,7 +1026,9 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     render(<OnboardingWizard />)
     await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
     navigateToAfterTheme()
-    expect(screen.queryByTestId('step-connect')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('step-connect')).toBeInTheDocument()
+    expect(screen.getByTestId('already-connected-badge')).toHaveTextContent('AWS Bedrock')
+    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Ready
     expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('AWS Bedrock')
   })
 })
@@ -1581,6 +1595,134 @@ describe('OnboardingWizard — TrackingStep repo path (→1520)', () => {
       expect(api.post).toHaveBeenCalledWith(
         '/onboarding/enable-myos-hooks',
         expect.objectContaining({ scope: 'repo', path: '/Users/tori/work/myproject' }),
+      )
+    })
+  })
+})
+
+describe('OnboardingWizard — step persistence via localStorage (→1518)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({ claude_code: false, anthropic_key: false, gemini_key: false })
+      return Promise.resolve({ google_oauth_available: false })
+    })
+  })
+
+  it('saves current step name to localStorage on every transition', () => {
+    render(<OnboardingWizard />)
+    fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
+    const saved = JSON.parse(localStorage.getItem('myos.onboarding.state') ?? 'null')
+    expect(saved).not.toBeNull()
+    expect(saved.stepName).toBe('You')
+  })
+
+  it('restores step from localStorage on mount', () => {
+    localStorage.setItem('myos.onboarding.state', JSON.stringify({ stepName: 'Name', mode: 'personal' }))
+    render(<OnboardingWizard />)
+    expect(screen.queryByTestId('step-name')).toBeInTheDocument()
+    expect(screen.queryByTestId('step-welcome')).not.toBeInTheDocument()
+  })
+
+  it('clears localStorage when wizard finishes', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(8) // Welcome → … → Connect
+    fireEvent.click(screen.getByTestId('skip-button')) // → Ready
+    fireEvent.click(screen.getByTestId('finish-button'))
+    await waitFor(() => {
+      expect(localStorage.getItem('myos.onboarding.state')).toBeNull()
+    })
+  })
+})
+
+describe('OnboardingWizard — exit hatch (→1519)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({ claude_code: false, anthropic_key: false, gemini_key: false })
+      return Promise.resolve({ google_oauth_available: false })
+    })
+  })
+
+  it('renders a close button (×) at the top-right of the wizard', () => {
+    render(<OnboardingWizard />)
+    expect(screen.getByTestId('onboarding-close-btn')).toBeInTheDocument()
+  })
+
+  it('clicking close button opens a confirm dialog', () => {
+    render(<OnboardingWizard />)
+    fireEvent.click(screen.getByTestId('onboarding-close-btn'))
+    expect(screen.getByTestId('exit-confirm-dialog')).toBeInTheDocument()
+  })
+
+  it('confirm dialog contains confirm and cancel buttons', () => {
+    render(<OnboardingWizard />)
+    fireEvent.click(screen.getByTestId('onboarding-close-btn'))
+    expect(screen.getByTestId('exit-confirm-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('exit-cancel-btn')).toBeInTheDocument()
+  })
+
+  it('cancel keeps wizard open and closes the dialog', () => {
+    render(<OnboardingWizard />)
+    fireEvent.click(screen.getByTestId('onboarding-close-btn'))
+    fireEvent.click(screen.getByTestId('exit-cancel-btn'))
+    expect(screen.queryByTestId('exit-confirm-dialog')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('step-welcome')).toBeInTheDocument()
+  })
+
+  it('confirm sets dismissed flag in localStorage and calls setOnboarded', async () => {
+    render(<OnboardingWizard />)
+    fireEvent.click(screen.getByTestId('onboarding-close-btn'))
+    fireEvent.click(screen.getByTestId('exit-confirm-btn'))
+    await waitFor(() => {
+      expect(localStorage.getItem('myos.onboarding.dismissed')).toBe('true')
+    })
+  })
+})
+
+describe('OnboardingWizard — persona install deferred to Next click (→1521)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({ claude_code: false, anthropic_key: false, gemini_key: false })
+      return Promise.resolve({ google_oauth_available: false })
+    })
+    vi.mocked(api.post).mockResolvedValue({})
+  })
+
+  it('clicking a persona card does NOT call install API immediately (→1521)', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(4) // Welcome → You → Name → FilesLocation → Profile
+
+    await waitFor(() => expect(screen.queryByTestId('step-profile')).toBeInTheDocument())
+    const cards = screen.queryAllByTestId(/^persona-card-/)
+    expect(cards.length).toBeGreaterThan(0)
+    fireEvent.click(cards[0])
+
+    expect(vi.mocked(api.post)).not.toHaveBeenCalledWith(
+      '/agents/pm-templates/install-persona',
+      expect.anything(),
+    )
+  })
+
+  it('clicking Next on Profile step fires the install API with selected persona (→1521)', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(4) // → Profile
+
+    await waitFor(() => expect(screen.queryByTestId('step-profile')).toBeInTheDocument())
+    const cards = screen.queryAllByTestId(/^persona-card-/)
+    expect(cards.length).toBeGreaterThan(0)
+    fireEvent.click(cards[0])
+
+    fireEvent.click(screen.getByTestId('next-button'))
+
+    await waitFor(() => {
+      expect(vi.mocked(api.post)).toHaveBeenCalledWith(
+        '/agents/pm-templates/install-persona',
+        expect.anything(),
       )
     })
   })

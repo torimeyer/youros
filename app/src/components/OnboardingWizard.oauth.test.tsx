@@ -30,6 +30,7 @@ vi.mock('../lib/api', () => ({
 
 beforeEach(() => {
   mockGetResponses = {}
+  localStorage.clear()
 })
 
 const cardProps = {
