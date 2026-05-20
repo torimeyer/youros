@@ -232,6 +232,64 @@ async def test_task_title_max_length_80_chars(client):
     assert args[0].endswith("\u2026"), f"Truncated title missing ellipsis: {args[0]!r}"
 
 
+# --- Title length hard cap (Patterson step 2) ---
+
+
+@pytest.mark.asyncio
+async def test_task_title_rejects_over_120_chars(client):
+    """POST with a title over 120 chars must return 400 with a hint to use description."""
+    bloated_title = "A" * 121
+    assert len(bloated_title) == 121
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="should never run")
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": bloated_title, "priority": "P1"},
+        )
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert "120" in detail, f"Hint missing '120': {detail!r}"
+    assert "description" in detail.lower(), f"Hint missing 'description': {detail!r}"
+    mock_ostk.add_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_task_title_accepts_exactly_120_chars(client):
+    """POST with a title of exactly 120 chars must succeed (boundary is inclusive)."""
+    boundary_title = "B" * 120
+    assert len(boundary_title) == 120
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="created t-boundary")
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": boundary_title, "priority": "P1"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    mock_ostk.add_task.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_task_title_short_with_multisection_description(client):
+    """POST with a short title and multi-section description returns 200 and passes description through."""
+    short_title = "Add settings page"
+    description = (
+        "**Why:** Users have no way to change preferences.\n\n"
+        "**Acceptance:**\n- [ ] Settings panel opens from the sidebar\n\n"
+        "**Blockers:** none"
+    )
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="created t-desc-2")
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": short_title, "priority": "P1", "description": description},
+        )
+
+    assert resp.status_code == 200, resp.text
+    mock_ostk.add_task.assert_called_once_with(short_title, "P1", description=description)
+
+
 # --- POST /api/tasks ---
 
 @pytest.mark.asyncio
