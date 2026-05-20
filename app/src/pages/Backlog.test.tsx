@@ -45,6 +45,22 @@ const SAMPLE_TASKS = [
   { id: 't4', title: 'Update README', status: 'open', spec_id: null },
 ]
 
+const TASK_WITH_DESCRIPTION = {
+  id: 'td1',
+  title: 'Short title',
+  status: 'open',
+  spec_id: null,
+  description: 'This is a detailed description of what needs to be done.',
+}
+
+const SPEC_WITH_DESCRIPTION = {
+  id: 'sd1',
+  title: 'Spec with details',
+  status: 'draft',
+  task_ids: [],
+  description: 'Spec description explaining the why and acceptance criteria.',
+}
+
 function renderBacklog(path = '/backlog') {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -219,5 +235,79 @@ describe('Backlog page (→1466)', () => {
       expect(screen.getByRole('link', { name: 'All' })).toBeInTheDocument()
     })
     expect(screen.queryByRole('link', { name: 'Spec Health' })).toBeNull()
+  })
+})
+
+describe('Backlog card description expand/collapse (Patterson step 1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('task card with description shows collapsed preview and Show more button', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [] })
+      if (url === '/tasks') return Promise.resolve({ tasks: [TASK_WITH_DESCRIPTION] })
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText('Short title')).toBeInTheDocument()
+    })
+    expect(screen.getByText('This is a detailed description of what needs to be done.')).toBeInTheDocument()
+    expect(screen.getByTestId('card-expand')).toHaveTextContent('Show more')
+  })
+
+  it('clicking Show more on a task card expands and changes button to Show less', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [] })
+      if (url === '/tasks') return Promise.resolve({ tasks: [TASK_WITH_DESCRIPTION] })
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByTestId('card-expand')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('card-expand'))
+    expect(screen.getByTestId('card-expand')).toHaveTextContent('Show less')
+  })
+
+  it('task card without description renders without a Show more button', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [] })
+      if (url === '/tasks') return Promise.resolve({ tasks: [SAMPLE_TASKS[0]] })
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText('Write tests')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('card-expand')).toBeNull()
+  })
+
+  it('spec card with description shows collapsed preview and Show more button', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [SPEC_WITH_DESCRIPTION] })
+      if (url === '/tasks') return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText('Spec with details')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Spec description explaining the why and acceptance criteria.')).toBeInTheDocument()
+    expect(screen.getByTestId('card-expand')).toHaveTextContent('Show more')
+  })
+
+  it('spec card without description renders without a Show more button', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [SAMPLE_SPECS[1]] })
+      if (url === '/tasks') return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText('Redesign dashboard')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('card-expand')).toBeNull()
   })
 })
