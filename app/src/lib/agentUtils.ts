@@ -87,6 +87,9 @@ export interface AgentInfo {
   pid?: number | null;
   /** Last step description POSTed via /heartbeat. Truncate to 60 chars in UI. */
   current_step?: string | null;
+  /** Derived badge for terminal agents. One of: clean, salvaged, failed,
+   *  abandoned-no-work. Absent for running agents. Computed by the backend. */
+  badge?: string;
 }
 
 /**
