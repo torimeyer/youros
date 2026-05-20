@@ -23,6 +23,9 @@ from services.spec_audit import (
     TEMPLATE_SECTIONS,
     audit_spec_file,
     audit_all_specs,
+    compute_shipped,
+    compute_husk_status,
+    compute_stage,
 )
 
 # ---------------------------------------------------------------------------
@@ -337,3 +340,218 @@ async def test_get_specs_audit_shape(tmp_path):
     data = resp.json()
     assert data["summary"]["total"] == 1
     assert data["specs"][0]["score"] == 1
+
+
+# ===========================================================================
+# Tests for →1512: compute_shipped / compute_husk_status / compute_stage
+# ===========================================================================
+
+SPEC_WITH_FILES_AND_NEEDLES = """\
+---
+title: Shipped spec
+status: spec
+---
+
+## Solution
+
+References: `api/services/spec_audit.py`, `app/src/pages/Specs.tsx`
+
+→1234 fixed the backend.
+→5678 fixed the frontend.
+"""
+
+SPEC_NO_REFS = """\
+---
+title: Simple spec
+status: spec
+---
+
+## Problem
+Something needed fixing.
+
+## Acceptance criteria
+- [x] FR-001: thing works
+- [x] FR-002: other thing works
+"""
+
+PLACEHOLDER_AC_SPEC = """\
+---
+title: Husk placeholder
+status: draft
+---
+
+## Acceptance criteria
+- [ ] (replace with your first criterion)
+- [ ] (replace with your second criterion)
+"""
+
+EMPTY_DRAFT = """\
+---
+title: Empty
+status: draft
+---
+"""
+
+REAL_DRAFT = """\
+---
+title: Real draft
+status: draft
+---
+
+## Problem
+Users can't do the thing.
+
+## Acceptance criteria
+- [ ] FR-001: Users can do the thing
+- [ ] FR-002: Edge case handled
+"""
+
+
+# ---------------------------------------------------------------------------
+# compute_shipped
+# ---------------------------------------------------------------------------
+
+
+def test_compute_shipped_no_refs(tmp_path):
+    f = tmp_path / "no_refs.md"
+    f.write_text(SPEC_NO_REFS)
+    result = compute_shipped(f, repo_root=tmp_path, needle_statuses={})
+    assert hasattr(result, "is_shipped")
+    assert hasattr(result, "missing_files")
+    assert hasattr(result, "open_needles")
+
+
+def test_compute_shipped_all_files_exist_no_needles(tmp_path):
+    # Create referenced files
+    (tmp_path / "api" / "services").mkdir(parents=True)
+    (tmp_path / "api" / "services" / "spec_audit.py").write_text("")
+    (tmp_path / "app" / "src" / "pages").mkdir(parents=True)
+    (tmp_path / "app" / "src" / "pages" / "Specs.tsx").write_text("")
+    f = tmp_path / "spec.md"
+    f.write_text(SPEC_WITH_FILES_AND_NEEDLES)
+    result = compute_shipped(
+        f,
+        repo_root=tmp_path,
+        needle_statuses={"1234": "closed", "5678": "closed"},
+    )
+    assert result.is_shipped is True
+    assert result.missing_files == []
+    assert result.open_needles == []
+
+
+def test_compute_shipped_missing_file(tmp_path):
+    f = tmp_path / "spec.md"
+    f.write_text(SPEC_WITH_FILES_AND_NEEDLES)
+    result = compute_shipped(
+        f,
+        repo_root=tmp_path,
+        needle_statuses={"1234": "closed", "5678": "closed"},
+    )
+    assert result.is_shipped is False
+    assert len(result.missing_files) > 0
+
+
+def test_compute_shipped_open_needle(tmp_path):
+    (tmp_path / "api" / "services").mkdir(parents=True)
+    (tmp_path / "api" / "services" / "spec_audit.py").write_text("")
+    (tmp_path / "app" / "src" / "pages").mkdir(parents=True)
+    (tmp_path / "app" / "src" / "pages" / "Specs.tsx").write_text("")
+    f = tmp_path / "spec.md"
+    f.write_text(SPEC_WITH_FILES_AND_NEEDLES)
+    result = compute_shipped(
+        f,
+        repo_root=tmp_path,
+        needle_statuses={"1234": "closed", "5678": "open"},
+    )
+    assert result.is_shipped is False
+    assert "5678" in result.open_needles
+
+
+def test_compute_shipped_no_refs_is_shipped(tmp_path):
+    f = tmp_path / "spec.md"
+    f.write_text(SPEC_NO_REFS)
+    result = compute_shipped(f, repo_root=tmp_path, needle_statuses={})
+    assert result.is_shipped is True
+
+
+# ---------------------------------------------------------------------------
+# compute_husk_status
+# ---------------------------------------------------------------------------
+
+
+def test_compute_husk_placeholder_acs(tmp_path):
+    f = tmp_path / "husk.md"
+    f.write_text(PLACEHOLDER_AC_SPEC)
+    result = compute_husk_status(f)
+    assert result.is_husk is True
+    assert result.reason is not None and len(result.reason) > 0
+
+
+def test_compute_husk_empty_draft(tmp_path):
+    f = tmp_path / "empty.md"
+    f.write_text(EMPTY_DRAFT)
+    result = compute_husk_status(f)
+    assert result.is_husk is True
+
+
+def test_compute_husk_real_draft_not_husk(tmp_path):
+    f = tmp_path / "real.md"
+    f.write_text(REAL_DRAFT)
+    result = compute_husk_status(f)
+    assert result.is_husk is False
+
+
+def test_compute_husk_result_shape(tmp_path):
+    f = tmp_path / "empty.md"
+    f.write_text(EMPTY_DRAFT)
+    result = compute_husk_status(f)
+    assert hasattr(result, "is_husk")
+    assert hasattr(result, "reason")
+
+
+# ---------------------------------------------------------------------------
+# compute_stage
+# ---------------------------------------------------------------------------
+
+
+def test_compute_stage_archived():
+    spec = {"path": "/Users/foo/.myos/specs/archive/20260101T000000Z-foo.md"}
+    assert compute_stage(spec) == "archived"
+
+
+def test_compute_stage_draft_from_status():
+    spec = {"path": "docs/draft/foo.md", "status": "draft"}
+    result = compute_stage(spec)
+    assert result == "draft"
+
+
+def test_compute_stage_shipped():
+    from services.spec_audit import ShippedResult, HuskResult
+    spec = {"path": "~/.myos/specs/foo.md", "status": "spec"}
+    shipped = ShippedResult(is_shipped=True, missing_files=[], open_needles=[])
+    husk = HuskResult(is_husk=False, reason="")
+    assert compute_stage(spec, husk=husk, shipped=shipped) == "shipped"
+
+
+def test_compute_stage_building():
+    from services.spec_audit import ShippedResult, HuskResult
+    spec = {"path": "~/.myos/specs/foo.md", "status": "spec"}
+    shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=["1234"])
+    husk = HuskResult(is_husk=False, reason="")
+    assert compute_stage(spec, husk=husk, shipped=shipped) == "building"
+
+
+def test_compute_stage_ready():
+    from services.spec_audit import ShippedResult, HuskResult
+    spec = {"path": "~/.myos/specs/foo.md", "status": "spec"}
+    shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
+    husk = HuskResult(is_husk=False, reason="")
+    assert compute_stage(spec, husk=husk, shipped=shipped) == "ready"
+
+
+def test_compute_stage_husk_is_draft():
+    from services.spec_audit import ShippedResult, HuskResult
+    spec = {"path": "docs/draft/foo.md", "status": "draft"}
+    shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
+    husk = HuskResult(is_husk=True, reason="no content")
+    assert compute_stage(spec, husk=husk, shipped=shipped) == "draft"

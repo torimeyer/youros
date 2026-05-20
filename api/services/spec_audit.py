@@ -153,6 +153,144 @@ def audit_spec_file(path: Path) -> dict[str, Any]:
     }
 
 
+from dataclasses import dataclass, field as _field
+
+
+@dataclass
+class ShippedResult:
+    is_shipped: bool
+    missing_files: list[str] = _field(default_factory=list)
+    open_needles: list[str] = _field(default_factory=list)
+
+
+@dataclass
+class HuskResult:
+    is_husk: bool
+    reason: str = ""
+
+
+_FILE_REF_RE = re.compile(
+    r"[\w./\-]+\.(?:py|tsx?|jsx?|md|sql|sh|json|ya?ml|toml)\b"
+)
+_NEEDLE_RE = re.compile(r"→(\d+)")
+_PLACEHOLDER_AC_RE = re.compile(r"^\s*-\s+\[\s*\]\s+\((?:replace with|your)", re.IGNORECASE | re.MULTILINE)
+_AC_ITEM_RE = re.compile(r"^\s*-\s+\[[ x]\]", re.MULTILINE)
+
+
+def compute_shipped(
+    spec_path: Path,
+    repo_root: Path,
+    needle_statuses: dict[str, str],
+) -> ShippedResult:
+    """Check whether all files referenced in the spec exist and all linked needles are closed."""
+    try:
+        text = Path(spec_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
+
+    # Strip frontmatter before scanning
+    body = _FRONTMATTER_RE.sub("", text)
+
+    # Parse file references
+    file_refs = _FILE_REF_RE.findall(body)
+    # Filter to plausible relative paths (skip bare extensions like ".py")
+    file_refs = [r for r in file_refs if "/" in r or "." in r.split("/")[-1] and len(r) > 4]
+    # Deduplicate
+    seen: set[str] = set()
+    unique_refs = []
+    for r in file_refs:
+        if r not in seen:
+            seen.add(r)
+            unique_refs.append(r)
+
+    missing = []
+    for ref in unique_refs:
+        candidate = (Path(repo_root) / ref).resolve()
+        if not candidate.exists():
+            missing.append(ref)
+
+    # Parse needle references
+    needle_ids = _NEEDLE_RE.findall(body)
+    open_needles = [
+        nid for nid in needle_ids
+        if needle_statuses.get(nid, "open") != "closed"
+    ]
+
+    is_shipped = (not missing) and (not open_needles)
+    return ShippedResult(is_shipped=is_shipped, missing_files=missing, open_needles=open_needles)
+
+
+def compute_husk_status(spec_path: Path) -> HuskResult:
+    """Detect empty or placeholder-only drafts."""
+    try:
+        text = Path(spec_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return HuskResult(is_husk=True, reason="unreadable file")
+
+    # Strip frontmatter
+    body = _FRONTMATTER_RE.sub("", text)
+
+    # Check for placeholder ACs
+    if _PLACEHOLDER_AC_RE.search(body):
+        return HuskResult(is_husk=True, reason="only placeholder acceptance criteria")
+
+    # Check for meaningful content lines (non-blank, non-heading, non-comment)
+    non_trivial = [
+        ln for ln in body.splitlines()
+        if ln.strip()
+        and not ln.strip().startswith("#")
+        and not ln.strip().startswith("---")
+        and not ln.strip().startswith("<!--")
+    ]
+    has_ac = bool(_AC_ITEM_RE.search(body))
+
+    if not non_trivial or (not has_ac and len(non_trivial) == 0):
+        return HuskResult(is_husk=True, reason="no content")
+
+    return HuskResult(is_husk=False, reason="")
+
+
+def compute_stage(
+    spec: dict,
+    husk: "HuskResult | None" = None,
+    shipped: "ShippedResult | None" = None,
+) -> str:
+    """Compute the display stage for a spec dict.
+
+    Stage priority (highest to lowest):
+      archived  — path is under ~/.myos/specs/archive/
+      draft     — status is draft, OR husk detected
+      shipped   — all files exist AND all needles closed
+      building  — has open needles
+      ready     — has content, no issues
+    """
+    path = spec.get("path", "")
+
+    # Archived
+    if "/archive/" in path:
+        return "archived"
+
+    status = spec.get("status", "draft")
+
+    # Husk → always draft
+    if husk is not None and husk.is_husk:
+        return "draft"
+
+    # Explicit draft status
+    if status == "draft":
+        return "draft"
+
+    # Shipped
+    if shipped is not None and shipped.is_shipped:
+        return "shipped"
+
+    # Building (open needles)
+    if shipped is not None and shipped.open_needles:
+        return "building"
+
+    return "ready"
+
+
 def audit_all_specs(
     spec_dirs: list[Path] | None = None,
 ) -> dict[str, Any]:
