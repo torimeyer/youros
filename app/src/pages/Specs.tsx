@@ -50,6 +50,11 @@ interface Spec {
   clear_to_build_checks?: ReadinessCheck[];
   needs_clarity?: boolean;
   effective_status?: string;
+  stage?: "draft" | "ready" | "building" | "shipped" | "archived";
+  husk?: boolean;
+  husk_reason?: string;
+  missing_files?: string[];
+  open_linked_needles?: string[];
 }
 
 interface SpecsResponse {
@@ -123,7 +128,36 @@ export function displayStatus(backendStatus: string): "Draft" | "Ready" | "Build
   return "Draft";
 }
 
-type Tab = "all" | "drafts" | "ready" | "in-progress" | "complete" | "needs-clarity";
+type StageFilter = "active" | "all" | "draft" | "ready" | "building" | "shipped" | "archived";
+
+function getDocStage(doc: Spec): string {
+  if (doc.stage) return doc.stage;
+  const s = doc.status;
+  if (s === "complete") return "shipped";
+  if (s === "in-progress") return "building";
+  if (s === "ready") return "ready";
+  return "draft";
+}
+
+const STAGE_CHIP_STYLES: Record<string, { bg: string; text: string; label: string }> = {
+  draft:    { bg: "bg-slate-500/20",  text: "text-slate-400",  label: "Draft" },
+  ready:    { bg: "bg-blue-500/20",   text: "text-blue-400",   label: "Ready" },
+  building: { bg: "bg-yellow-500/20", text: "text-yellow-400", label: "Building" },
+  shipped:  { bg: "bg-green-500/20",  text: "text-green-400",  label: "Shipped ✓" },
+  archived: { bg: "bg-slate-600/20",  text: "text-slate-500",  label: "Archived" },
+};
+
+function StageChip({ stage }: { stage: string }) {
+  const style = STAGE_CHIP_STYLES[stage] ?? STAGE_CHIP_STYLES.draft;
+  return (
+    <span
+      className={`px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text}`}
+      data-testid="stage-chip"
+    >
+      {style.label}
+    </span>
+  );
+}
 
 // --- Status badge component ---
 
@@ -451,7 +485,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const [searchParams] = useSearchParams();
   const focusParam = searchParams.get("focus");
   const specRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const [tab, setTab] = useState<Tab>("all");
+  const [stageFilter, setStageFilter] = useState<StageFilter>(focusParam ? "all" : "active");
   const [spawnGeminiSpec, setSpawnGeminiSpec] = useState<{ path: string; title: string; checks?: ReadinessCheck[] } | null>(null);
   const [docs, setDocs] = useState<Spec[]>([]);
   // Pending specs that were optimistically navigated here from
@@ -706,6 +740,29 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
     }
   };
 
+  const handleArchive = async (path: string) => {
+    try {
+      const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+      await api.post(`/specs/${encodedPath}/archive`, {});
+      await fetchDocs();
+      showMessage("Spec archived.");
+    } catch {
+      showMessage("Could not archive this spec. Try again.", "error");
+    }
+  };
+
+  const handleDeleteOldHusks = async () => {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const oldHusks = docs.filter(
+      (d) => d.husk && d.created_at && new Date(d.created_at) < sevenDaysAgo
+    );
+    await Promise.allSettled(
+      oldHusks.map((h) => api.delete(`/specs/${encodeDocPath(h.path)}`))
+    );
+    await fetchDocs();
+    showMessage(`Deleted ${oldHusks.length} old ${oldHusks.length === 1 ? "husk" : "husks"}.`);
+  };
+
   // Wave 2: decompose is no longer user-facing. The /specs/{path}/build
   // endpoint auto-decomposes when the plan has no tasks yet, so there
   // is no standalone Break into Tasks button or handler anymore. The
@@ -777,7 +834,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
         // spec's status flips to "in-progress" on the backend when
         // agents spawn, so leaving the user on "all" or "drafts"
         // would hide the card they were just interacting with.
-        setTab("in-progress");
+        setStageFilter("building");
         // Fetch immediately so spinners and agent chips appear without
         // waiting for the first poll tick. Then fetch once more at
         // 500 ms to catch builder status changes that the backend
@@ -916,35 +973,31 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
 
   const pendingList = Object.values(pendingSpecsMap);
 
-  // Group specs by status for counts
-  const drafts = docs.filter((d) => d.status === "draft");
-  const readySpecs = docs.filter((d) => d.status === "ready");
-  const inProgressSpecs = docs.filter((d) => d.status === "in-progress");
-  const completeSpecs = docs.filter((d) => d.status === "complete");
+  // Stage-based filtering
+  const stageFiltered =
+    stageFilter === "all"
+      ? docs
+      : stageFilter === "active"
+        ? docs.filter((d) => ["ready", "building"].includes(getDocStage(d)))
+        : docs.filter((d) => getDocStage(d) === stageFilter);
 
-  const geminiReadySpecs = docs.filter((d) => d.needs_clarity === true);
+  const stageCountByKey = (key: string) =>
+    key === "active"
+      ? docs.filter((d) => ["ready", "building"].includes(getDocStage(d))).length
+      : docs.filter((d) => getDocStage(d) === key).length;
 
-  const filtered =
-    tab === "drafts"
-      ? drafts
-      : tab === "ready"
-        ? readySpecs
-        : tab === "in-progress"
-          ? inProgressSpecs
-          : tab === "complete"
-            ? completeSpecs
-            : tab === "needs-clarity"
-              ? geminiReadySpecs
-              : docs;
-
-  const tabItems: { value: Tab; label: string; count: number }[] = [
-    { value: "all", label: "All", count: docs.length },
-    { value: "drafts", label: "Drafts", count: drafts.length },
-    { value: "ready", label: "Ready", count: readySpecs.length },
-    { value: "in-progress", label: "Building", count: inProgressSpecs.length },
-    { value: "complete", label: "Done", count: completeSpecs.length },
-    ...(geminiReadySpecs.length > 0 ? [{ value: "needs-clarity" as Tab, label: "⚠ Needs clarity", count: geminiReadySpecs.length }] : []),
+  const stagePills: { key: StageFilter; label: string }[] = [
+    { key: "active", label: "Active" },
+    { key: "all",    label: "All" },
+    { key: "draft",  label: "Draft" },
+    { key: "ready",  label: "Ready" },
+    { key: "building", label: "Building" },
+    { key: "shipped",  label: "Shipped" },
+    { key: "archived", label: "Archived" },
   ];
+
+  // Husks in the current stage-filtered view
+  const visibleHusks = stageFiltered.filter((d) => d.husk);
 
   return (
     <>
@@ -971,25 +1024,46 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 mb-6 bg-slate-900/60 rounded-lg p-1 w-fit flex-wrap">
-          {tabItems.map((t) => (
-            <button
-              key={t.value}
-              onClick={() => setTab(t.value)}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                tab === t.value
-                  ? "bg-blue-500 text-white"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              {t.label}
-              {t.count > 0 && t.value !== "all" && (
-                <span className="ml-2 text-xs opacity-80">{t.count}</span>
-              )}
-            </button>
-          ))}
+        {/* Stage filter pills */}
+        <div className="flex gap-1 mb-4 bg-slate-900/60 rounded-lg p-1 w-fit flex-wrap">
+          {stagePills.map((p) => {
+            const count = stageCountByKey(p.key);
+            return (
+              <button
+                key={p.key}
+                data-testid={`stage-filter-${p.key === "active" ? "active" : p.key}`}
+                onClick={() => setStageFilter(p.key)}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  stageFilter === p.key
+                    ? "bg-blue-500 text-white"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {p.label}
+                {count > 0 && p.key !== "active" && (
+                  <span className="ml-2 text-xs opacity-80">{count}</span>
+                )}
+              </button>
+            );
+          })}
         </div>
+
+        {/* Bulk husk delete — appears when 2+ husks are visible */}
+        {visibleHusks.length >= 2 && (
+          <div className="flex items-center gap-3 mb-4 px-3 py-2 bg-slate-800/40 border border-slate-700/50 rounded-lg w-fit">
+            <span className="text-xs text-slate-400">
+              {visibleHusks.length} empty drafts detected
+            </span>
+            <button
+              type="button"
+              data-testid="delete-all-husks-button"
+              onClick={handleDeleteOldHusks}
+              className="text-xs text-red-400 hover:text-red-300 font-medium"
+            >
+              Delete all husks older than 7 days
+            </button>
+          </div>
+        )}
 
         {/* Create new draft */}
         <div className="flex gap-3 mb-8">
@@ -1046,7 +1120,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
             sees the in-flight spec instead of an empty list. Each row
             shows the initiative title, a shimmer, and a generating
             message so the wait feels grounded. */}
-        {(tab === "all" || tab === "drafts") && pendingList.length > 0 && (
+        {pendingList.length > 0 && (
           <div className="space-y-3 mb-3" data-testid="pending-specs-list">
             {pendingList.map((p) => (
               <div
@@ -1106,15 +1180,15 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
         )}
 
         {/* Spec list */}
-        {filtered.length === 0 && pendingList.length === 0 ? (
+        {stageFiltered.length === 0 && pendingList.length === 0 ? (
           <EmptyState
             icon="description"
             title="No specs yet"
             description="Create a draft to start planning."
           />
-        ) : filtered.length === 0 ? null : (
+        ) : stageFiltered.length === 0 ? null : (
           <div className="space-y-3">
-            {filtered.map((doc) => {
+            {stageFiltered.map((doc) => {
               const isExpanded = expandedPath === doc.path;
               const criteria = getAcceptanceCriteria(doc);
               const tasks = linkedTasks[doc.path] || [];
@@ -1142,12 +1216,33 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                         <p className="text-white text-lg font-medium truncate">
                           {doc.title}
                         </p>
+                        <StageChip stage={getDocStage(doc)} />
                         <StatusBadge status={doc.status} claims={claimsMap[doc.path] ?? []} />
                         <ClaimsNote claims={claimsMap[doc.path] ?? []} />
                         {doc.needs_clarity && (
                           <NeedsClarityChip
                             checks={doc.clear_to_build_checks}
                           />
+                        )}
+                        {doc.husk && (
+                          <span
+                            className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/20 text-amber-400"
+                            data-testid="husk-tag"
+                            title={doc.husk_reason ?? "empty or placeholder draft"}
+                          >
+                            Husk
+                          </span>
+                        )}
+                        {getDocStage(doc) === "shipped" && (
+                          <button
+                            type="button"
+                            data-testid="archive-spec-button"
+                            onClick={(e) => { e.stopPropagation(); handleArchive(doc.path); }}
+                            className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-600/30 text-slate-400 hover:text-slate-200 transition-colors"
+                            title="Move to archive"
+                          >
+                            Looks shipped — archive?
+                          </button>
                         )}
                       </div>
                       <div className="flex items-center gap-4 flex-shrink-0">

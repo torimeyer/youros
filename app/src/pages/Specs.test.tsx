@@ -115,11 +115,11 @@ describe('Specs page', () => {
 
   it('renders specs from API data', async () => {
     renderSpecs()
-
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => {
       expect(screen.getByText('onboarding flow')).toBeInTheDocument()
     })
-
     expect(screen.getByText('auth system')).toBeInTheDocument()
   })
 
@@ -164,18 +164,15 @@ describe('Specs page', () => {
 
   it('shows filter tabs with all status counts', async () => {
     renderSpecs()
-
-    await waitFor(() => {
-      expect(screen.getByText('onboarding flow')).toBeInTheDocument()
-    })
-
-    // Filter tabs show per-status counts for Drafts, Ready, Building, Done.
-    // "All" has no numeric badge; the four status tabs each show a count span
-    // whenever count > 0, so we expect at least one visible count badge.
-    expect(screen.getByRole('button', { name: /Drafts/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Ready/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Building/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Done/ })).toBeInTheDocument()
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    // Stage filter pills replace old tab buttons
+    expect(screen.getByTestId('stage-filter-active')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-filter-all')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-filter-draft')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-filter-ready')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-filter-building')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-filter-shipped')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-filter-archived')).toBeInTheDocument()
   })
 
   it('New Spec button is always enabled', async () => {
@@ -205,7 +202,8 @@ describe('Specs page', () => {
 
   it('shows status badges on spec cards', async () => {
     renderSpecs()
-
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => {
       expect(screen.getByText('onboarding flow')).toBeInTheDocument()
     })
@@ -317,7 +315,8 @@ describe('Specs page', () => {
     // Verify button was removed in a later refactor. Complete specs
     // now render no action button at all.
     renderSpecs()
-
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => {
       expect(screen.getByText('settings page')).toBeInTheDocument()
     })
@@ -337,7 +336,8 @@ describe('Specs page', () => {
 
   it('draft card has Promote to Spec button in expanded view', async () => {
     renderSpecs()
-
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => {
       expect(screen.getByText('onboarding flow')).toBeInTheDocument()
     })
@@ -356,7 +356,8 @@ describe('Specs page', () => {
 
   it('Promote to Spec calls POST /specs/promote', async () => {
     renderSpecs()
-
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => {
       expect(screen.getByText('onboarding flow')).toBeInTheDocument()
     })
@@ -406,7 +407,8 @@ describe('Specs page', () => {
     })
 
     renderSpecs()
-
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => {
       expect(screen.getByText('no ac draft')).toBeInTheDocument()
     })
@@ -456,7 +458,8 @@ describe('Specs page', () => {
     })
 
     renderSpecs()
-
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => {
       expect(screen.getByText('has ac draft')).toBeInTheDocument()
     })
@@ -714,41 +717,38 @@ describe('Specs page', () => {
 
   it('tabs filter by status', async () => {
     renderSpecs()
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
 
-    await waitFor(() => {
-      expect(screen.getByText('onboarding flow')).toBeInTheDocument()
-    })
-
-    // Click Drafts tab
-    fireEvent.click(screen.getByRole('button', { name: /^Drafts/ }))
-
-    // Draft should be visible, others should not
-    expect(screen.getByText('onboarding flow')).toBeInTheDocument()
-    expect(screen.queryByText('auth system')).not.toBeInTheDocument()
-    expect(screen.queryByText('dashboard redesign')).not.toBeInTheDocument()
-
-    // Click Ready tab
-    fireEvent.click(screen.getByRole('button', { name: /^Ready/ }))
-
-    expect(screen.queryByText('onboarding flow')).not.toBeInTheDocument()
-    expect(screen.getByText('auth system')).toBeInTheDocument()
-
-    // Click Building tab (was "In Progress" in the backend schema)
-    fireEvent.click(screen.getByRole('button', { name: /^Building/ }))
-
+    // Default "active" filter shows ready + building only
+    await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
     expect(screen.getByText('dashboard redesign')).toBeInTheDocument()
+    expect(screen.queryByText('onboarding flow')).not.toBeInTheDocument()
+    expect(screen.queryByText('settings page')).not.toBeInTheDocument()
+
+    // Click Draft stage pill
+    fireEvent.click(screen.getByTestId('stage-filter-draft'))
+    await waitFor(() => expect(screen.getByText('onboarding flow')).toBeInTheDocument())
     expect(screen.queryByText('auth system')).not.toBeInTheDocument()
-
-    // Click Done tab (was "Complete" in the backend schema)
-    fireEvent.click(screen.getByRole('button', { name: /^Done/ }))
-
-    expect(screen.getByText('settings page')).toBeInTheDocument()
     expect(screen.queryByText('dashboard redesign')).not.toBeInTheDocument()
 
-    // Click All tab
-    fireEvent.click(screen.getByRole('button', { name: 'All' }))
+    // Click Ready stage pill
+    fireEvent.click(screen.getByTestId('stage-filter-ready'))
+    await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
+    expect(screen.queryByText('onboarding flow')).not.toBeInTheDocument()
 
-    expect(screen.getByText('onboarding flow')).toBeInTheDocument()
+    // Click Building stage pill
+    fireEvent.click(screen.getByTestId('stage-filter-building'))
+    await waitFor(() => expect(screen.getByText('dashboard redesign')).toBeInTheDocument())
+    expect(screen.queryByText('auth system')).not.toBeInTheDocument()
+
+    // Click Shipped stage pill
+    fireEvent.click(screen.getByTestId('stage-filter-shipped'))
+    await waitFor(() => expect(screen.getByText('settings page')).toBeInTheDocument())
+    expect(screen.queryByText('dashboard redesign')).not.toBeInTheDocument()
+
+    // Click All stage pill
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
+    await waitFor(() => expect(screen.getByText('onboarding flow')).toBeInTheDocument())
     expect(screen.getByText('auth system')).toBeInTheDocument()
     expect(screen.getByText('dashboard redesign')).toBeInTheDocument()
     expect(screen.getByText('settings page')).toBeInTheDocument()
@@ -771,7 +771,8 @@ describe('Specs page', () => {
     mockedApiPost.mockRejectedValueOnce(new Error('Draft must contain at least one unchecked checkbox'))
 
     renderSpecs()
-
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => {
       expect(screen.getByText('onboarding flow')).toBeInTheDocument()
     })
@@ -1496,9 +1497,9 @@ describe('Specs page real-time bus', () => {
       expect(screen.getByText('auth system')).toBeInTheDocument()
     })
 
-    // Default tab is "All". Confirm the Building tab does NOT yet have
-    // the selected styling before Build fires.
-    const buildingTabBefore = screen.getByRole('button', { name: /^Building/ })
+    // Default stage filter is "active". Confirm the Building pill does NOT yet
+    // have selected styling before Build fires.
+    const buildingTabBefore = screen.getByTestId('stage-filter-building')
     expect(buildingTabBefore.className).not.toContain('bg-blue-500')
 
     // Expand the ready spec and click Build it.
@@ -1512,10 +1513,10 @@ describe('Specs page real-time bus', () => {
 
     fireEvent.click(screen.getByText('Build it'))
 
-    // After the build POST resolves with agents, the Building tab
-    // button should carry the selected-tab classes.
+    // After the build POST resolves with agents, the Building stage pill
+    // should carry the selected styling.
     await waitFor(() => {
-      const buildingTab = screen.getByRole('button', { name: /^Building/ })
+      const buildingTab = screen.getByTestId('stage-filter-building')
       expect(buildingTab.className).toContain('bg-blue-500')
       expect(buildingTab.className).toContain('text-white')
     })
@@ -1690,6 +1691,227 @@ describe('claims: Building badge + inline note', () => {
     })
 
     expect(screen.queryByTestId('claims-note')).not.toBeInTheDocument()
+  })
+})
+
+// --- FR-008 through FR-011: stage filter pills, chips, archive, husk ---
+
+const mockStageDocsResponse = {
+  docs: [
+    {
+      path: 'docs/draft/empty-idea.md',
+      filename: 'empty-idea.md',
+      title: 'empty idea',
+      status: 'draft',
+      stage: 'draft',
+      created_at: '2026-01-01T00:00:00Z',
+      promoted_at: '',
+      body: 'rough idea',
+    },
+    {
+      path: 'docs/spec/payment-flow.md',
+      filename: 'payment-flow.md',
+      title: 'payment flow',
+      status: 'ready',
+      stage: 'ready',
+      created_at: '2026-02-01T00:00:00Z',
+      promoted_at: '2026-02-05T00:00:00Z',
+      body: 'Payment spec.',
+      acceptance_criteria: [{ text: 'checkout works', checked: false }],
+    },
+    {
+      path: 'docs/spec/dark-mode.md',
+      filename: 'dark-mode.md',
+      title: 'dark mode',
+      status: 'in-progress',
+      stage: 'building',
+      created_at: '2026-03-01T00:00:00Z',
+      promoted_at: '2026-03-05T00:00:00Z',
+      body: 'Dark mode spec.',
+      task_summary: { total: 3, open: 1, closed: 2 },
+    },
+    {
+      path: 'docs/spec/old-feature.md',
+      filename: 'old-feature.md',
+      title: 'old feature',
+      status: 'complete',
+      stage: 'shipped',
+      created_at: '2026-01-01T00:00:00Z',
+      promoted_at: '2026-01-05T00:00:00Z',
+      body: 'This feature is fully shipped.',
+    },
+  ],
+}
+
+const mockHusk1 = {
+  path: 'docs/draft/stale-a.md',
+  filename: 'stale-a.md',
+  title: 'stale draft a',
+  status: 'draft',
+  stage: 'draft',
+  husk: true,
+  husk_reason: 'no acceptance criteria found',
+  created_at: '2025-12-01T00:00:00Z',
+  promoted_at: '',
+  body: '',
+}
+
+const mockHusk2 = {
+  path: 'docs/draft/stale-b.md',
+  filename: 'stale-b.md',
+  title: 'stale draft b',
+  status: 'draft',
+  stage: 'draft',
+  husk: true,
+  husk_reason: 'placeholder-only acceptance criteria',
+  created_at: '2025-12-02T00:00:00Z',
+  promoted_at: '',
+  body: '',
+}
+
+function renderSpecsWithStageData(extraDocs: object[] = []) {
+  mockedApiGet.mockImplementation((path: string) => {
+    if (path === '/specs') return Promise.resolve({
+      docs: [...mockStageDocsResponse.docs, ...extraDocs],
+    })
+    if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+    if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
+    return Promise.resolve({})
+  })
+  return render(<MemoryRouter><Specs /></MemoryRouter>)
+}
+
+describe('FR-008: stage filter pills', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('renders stage filter pills for all six stages', async () => {
+    renderSpecsWithStageData()
+    await waitFor(() => expect(screen.getByText('payment flow')).toBeInTheDocument())
+    expect(screen.getByTestId('stage-filter-all')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-filter-draft')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-filter-ready')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-filter-building')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-filter-shipped')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-filter-archived')).toBeInTheDocument()
+  })
+
+  it('default filter shows only Ready and Building stage specs', async () => {
+    renderSpecsWithStageData()
+    await waitFor(() => expect(screen.getByText('payment flow')).toBeInTheDocument())
+    expect(screen.getByText('payment flow')).toBeInTheDocument()
+    expect(screen.getByText('dark mode')).toBeInTheDocument()
+    expect(screen.queryByText('empty idea')).not.toBeInTheDocument()
+    expect(screen.queryByText('old feature')).not.toBeInTheDocument()
+  })
+
+  it('clicking All shows every spec', async () => {
+    renderSpecsWithStageData()
+    await waitFor(() => expect(screen.getByText('payment flow')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
+    await waitFor(() => {
+      expect(screen.getByText('empty idea')).toBeInTheDocument()
+      expect(screen.getByText('old feature')).toBeInTheDocument()
+    })
+  })
+
+  it('clicking Draft shows only draft-stage specs', async () => {
+    renderSpecsWithStageData()
+    await waitFor(() => expect(screen.getByText('payment flow')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('stage-filter-draft'))
+    await waitFor(() => expect(screen.getByText('empty idea')).toBeInTheDocument())
+    expect(screen.queryByText('payment flow')).not.toBeInTheDocument()
+    expect(screen.queryByText('old feature')).not.toBeInTheDocument()
+  })
+
+  it('clicking Shipped shows only shipped-stage specs', async () => {
+    renderSpecsWithStageData()
+    await waitFor(() => expect(screen.getByText('payment flow')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('stage-filter-shipped'))
+    await waitFor(() => expect(screen.getByText('old feature')).toBeInTheDocument())
+    expect(screen.queryByText('payment flow')).not.toBeInTheDocument()
+    expect(screen.queryByText('dark mode')).not.toBeInTheDocument()
+  })
+
+  it('each spec card renders a stage chip with the doc stage', async () => {
+    renderSpecsWithStageData()
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
+    await waitFor(() => expect(screen.getAllByTestId('stage-chip').length).toBeGreaterThan(0))
+    const chips = screen.getAllByTestId('stage-chip').map(c => c.textContent)
+    expect(chips).toContain('Ready')
+    expect(chips).toContain('Building')
+  })
+})
+
+describe('FR-009: archive affordance for shipped specs', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('shows archive button on a shipped spec card header', async () => {
+    renderSpecsWithStageData()
+    fireEvent.click(screen.getByTestId('stage-filter-shipped'))
+    await waitFor(() => expect(screen.getByText('old feature')).toBeInTheDocument())
+    expect(screen.getByTestId('archive-spec-button')).toBeInTheDocument()
+  })
+
+  it('archive button calls POST /specs/{path}/archive', async () => {
+    mockedApiPost.mockResolvedValue({ result: 'archived' })
+    renderSpecsWithStageData()
+    fireEvent.click(screen.getByTestId('stage-filter-shipped'))
+    await waitFor(() => expect(screen.getByTestId('archive-spec-button')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('archive-spec-button'))
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith(
+        expect.stringMatching(/\/specs\/.*old-feature.*\/archive/),
+        expect.anything(),
+      )
+    })
+  })
+})
+
+describe('FR-010: husk tag', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('shows Husk tag on a husk spec', async () => {
+    renderSpecsWithStageData([mockHusk1])
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
+    await waitFor(() => expect(screen.getByText('stale draft a')).toBeInTheDocument())
+    expect(screen.getByTestId('husk-tag')).toBeInTheDocument()
+  })
+
+  it('Husk tag title shows husk_reason', async () => {
+    renderSpecsWithStageData([mockHusk1])
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
+    await waitFor(() => expect(screen.getByTestId('husk-tag')).toBeInTheDocument())
+    expect(screen.getByTestId('husk-tag').getAttribute('title')).toBe('no acceptance criteria found')
+  })
+})
+
+describe('FR-011: bulk delete husks', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('shows delete-all-husks button when 2 or more husks are visible', async () => {
+    renderSpecsWithStageData([mockHusk1, mockHusk2])
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
+    await waitFor(() => expect(screen.getByTestId('delete-all-husks-button')).toBeInTheDocument())
+  })
+
+  it('does NOT show delete-all-husks button when fewer than 2 husks are visible', async () => {
+    renderSpecsWithStageData([mockHusk1])
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
+    await waitFor(() => expect(screen.getByText('stale draft a')).toBeInTheDocument())
+    expect(screen.queryByTestId('delete-all-husks-button')).not.toBeInTheDocument()
+  })
+
+  it('delete-all-husks button calls DELETE for each old husk', async () => {
+    const mockedApiDelete = vi.mocked(api.delete)
+    mockedApiDelete.mockResolvedValue(undefined)
+    renderSpecsWithStageData([mockHusk1, mockHusk2])
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
+    await waitFor(() => expect(screen.getByTestId('delete-all-husks-button')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('delete-all-husks-button'))
+    await waitFor(() => {
+      expect(mockedApiDelete).toHaveBeenCalledWith(expect.stringMatching(/stale-a/))
+      expect(mockedApiDelete).toHaveBeenCalledWith(expect.stringMatching(/stale-b/))
+    })
   })
 })
 
