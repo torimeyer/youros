@@ -21,7 +21,7 @@ Cross-checked against codebase and git log (last 40 commits on main).
 
 2. **Update `mychat-claude-code-parity.md` spec to mark 6 of 7 sections shipped.**
    Slash commands, plan mode, todo panel, audit/undo, background work, and receipts gate are all
-   in main. Only AskUserQuestion (Section 5) remains. The spec still reads like nothing is done.
+   in main. All 7 sections are shipped. The spec should be archived, not just updated.
 
 3. **Close →1511.** The BDD invariant test for Rule 2c is already wired (confirmed in
    `api/tests/test_narrative_v2.py` and `api/tests/test_saa_brief.py`). There is nothing left
@@ -189,11 +189,11 @@ Cross-checked against codebase and git log (last 40 commits on main).
   - Section 2 (plan mode): landed, commit `562af21` (→1395)
   - Section 3 (live todo panel): landed, commit `d58a491` (→1396)
   - Section 4 (audit/undo trail): landed, commit `2f51f7f` (→1400)
-  - Section 5 (AskUserQuestion picker): **no commit found** — not yet built
+  - Section 5 (AskUserQuestion picker): landed, commit `2c0bf38` (→1398)
   - Section 6 (background work): landed, commit `55ccdb2` (→1399)
   - Section 7 (receipts gate): landed, commit `4d2b8c3` (→1397)
-- **Recommendation:** Update the spec to mark Sections 1–4, 6–7 as shipped. Only Section 5
-  (AskUserQuestion) remains open for build.
+- **Status:** ARCHIVE
+- **Recommendation:** All 7 sections shipped. Archive the spec. It is done.
 
 ---
 
