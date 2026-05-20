@@ -30,6 +30,19 @@ function displayStatus(s: string): 'Draft' | 'Ready' | 'Building' | 'Done' {
   return 'Draft'
 }
 
+function specStatusClass(ds: 'Draft' | 'Ready' | 'Building' | 'Done'): string {
+  if (ds === 'Ready') return 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30'
+  if (ds === 'Building') return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30'
+  if (ds === 'Done') return 'bg-green-900/40 text-green-400'
+  return 'bg-slate-700 text-slate-200'
+}
+
+function taskStatusClass(s: string): string {
+  if (s === 'in_progress') return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30'
+  if (s === 'complete') return 'bg-green-900/40 text-green-400'
+  return 'bg-slate-700 text-slate-200'
+}
+
 function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void }) {
   const ds = displayStatus(spec.status)
   return (
@@ -41,7 +54,7 @@ function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void })
         <span className="text-sm font-medium text-slate-200 flex-1">{spec.title}</span>
         <span
           data-testid="card-type-chip"
-          className="text-xs px-2 py-0.5 rounded-full bg-slate-600 text-slate-300 shrink-0"
+          className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30 shrink-0"
         >
           Spec
         </span>
@@ -49,7 +62,7 @@ function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void })
       <div className="flex items-center gap-1.5 flex-wrap">
         <span
           data-testid="card-status-pill"
-          className="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400"
+          className={`text-xs px-2 py-0.5 rounded-full ${specStatusClass(ds)}`}
         >
           {ds}
         </span>
@@ -57,7 +70,7 @@ function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void })
           <span
             key={tid}
             data-testid={`card-task-chip-${tid}`}
-            className="text-xs px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-500"
+            className="text-xs px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-300"
           >
             {tid}
           </span>
@@ -94,12 +107,12 @@ function TaskCard({ task }: { task: Task }) {
       <div className="flex items-center gap-1.5 flex-wrap">
         <span
           data-testid="card-status-pill"
-          className="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400"
+          className={`text-xs px-2 py-0.5 rounded-full ${taskStatusClass(task.status)}`}
         >
           {task.status}
         </span>
         {task.spec_id && (
-          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-500">
+          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-300">
             → {task.spec_id}
           </span>
         )}
