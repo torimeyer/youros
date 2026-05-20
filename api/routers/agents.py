@@ -2010,9 +2010,47 @@ def _recover_stale_agents():
                 age_seconds = (now - heartbeat).total_seconds()
                 if age_seconds <= STALE_AGENT_TIMEOUT_SECONDS:
                     continue
+
+        # Case 2b: multi-signal liveness check for worktree agents (→1505).
+        # After a backend restart, worktree agents are reparented to init so
+        # _is_pid_my_child returns False even though the agent is alive and
+        # working.  Before marking abandoned we check three independent signals;
+        # if ANY contradicts, we set stale_heartbeat=True and leave the row as
+        # running.  Only when ALL signals agree the agent is dead do we abandon.
+        #
+        # Signals checked (any truthy = keep running):
+        #   A. PID is alive (even as orphan/reparented process)
+        #   B. Worktree branch has commits since spawn (agent wrote real work)
+        #   C. Transcript file is non-empty (agent produced output)
+        if source == "claude-code":
+            _keep_alive = False
+            # Signal A: PID alive as orphan
+            if pid and _is_pid_alive(pid):
+                _keep_alive = True
+            # Signal B: worktree commits ahead of main
+            if not _keep_alive:
+                _wt_branch = meta.get("worktree_branch")
+                _wt_path = meta.get("worktree_path")
+                if _wt_branch and _worktree_branch_has_commits(_wt_branch):
+                    _keep_alive = True
+                elif _wt_path and _worktree_has_new_work(_wt_path):
+                    _keep_alive = True
+            # Signal C: transcript has content
+            if not _keep_alive:
+                _t_source = _resolve_transcript_source(name)
+                try:
+                    if _t_source and _t_source.exists() and _t_source.stat().st_size > 0:
+                        _keep_alive = True
+                except OSError:
+                    pass
+            if _keep_alive:
+                meta["stale_heartbeat"] = True
+                changed = True
+                continue
+
         # Case 3: backend-managed spawn (ui/api/chat) or stale claude-code
-        # session. Worker is dead. Mark abandoned so the Active Sessions
-        # list does not show phantoms.
+        # session with no liveness signals. Worker is dead. Mark abandoned so
+        # the Active Sessions list does not show phantoms.
         _set_agent_status(name, "abandoned", abandoned_at=now.isoformat())
         changed = True
     if changed:

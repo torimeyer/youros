@@ -24,6 +24,7 @@ import { RoadmapCards } from "../components/RoadmapCards";
 import { parseRoadmapJson, type RoadmapQuarter } from "../lib/parseRoadmapJson";
 import { formatTokenBudget } from "../lib/budgetDisplay";
 import { RecentAgentActions } from "../components/RecentAgentActions";
+import { isChatAgent, useChatFilter, ChatFilterChip } from "../components/AgentsFilter";
 
 
 // Re-export so tests can still import these from './Agents'
@@ -2431,6 +2432,7 @@ export default function Agents() {
       return next;
     });
   };
+  const { showChat, toggleShowChat } = useChatFilter();
 
   // Coordination locks (needle 338) — driven by WS feed (→1130); HTTP poll is safety net
   const locks = useLocksStore((s) => s.locks);
@@ -4516,6 +4518,10 @@ export default function Agents() {
           const recentAgents = showE2e
             ? afterCancelledFilter
             : afterCancelledFilter.filter((a) => !isE2eSmoke(a));
+          const hiddenChatCount = recentAgents.filter(isChatAgent).length;
+          const afterChatFilter = showChat
+            ? recentAgents
+            : recentAgents.filter((a) => !isChatAgent(a));
           const hiddenCount = allRecent.length - allRecent.filter((a) => !inactiveStatuses.includes(a.status)).length;
           const hiddenE2eCount = afterCancelledFilter.filter(isE2eSmoke).length;
           const canRecover = (a: AgentInfo) =>
@@ -4572,6 +4578,9 @@ export default function Agents() {
                       )}
                     </button>
                   )}
+                  {(hiddenChatCount > 0 || showChat) && (
+                    <ChatFilterChip showChat={showChat} hiddenCount={hiddenChatCount} onToggle={toggleShowChat} />
+                  )}
                 </div>
               </div>
               {!agentsLoaded ? (
@@ -4581,7 +4590,7 @@ export default function Agents() {
                 >
                   Loading...
                 </div>
-              ) : recentAgents.length === 0 ? (
+              ) : afterChatFilter.length === 0 ? (
                 <div className="mb-8">
                   <EmptyState
                     icon="smart_toy"
@@ -4591,7 +4600,7 @@ export default function Agents() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-2 mb-8">
-                  {recentAgents.map((agent) => {
+                  {afterChatFilter.map((agent) => {
                     const isRecentExpanded = expandedAgent === agent.name;
                     const isInactive = inactiveStatuses.includes(agent.status);
                     return (

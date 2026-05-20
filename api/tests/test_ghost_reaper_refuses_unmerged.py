@@ -113,10 +113,11 @@ def test_reap_ghost_agents_identifies_ghost_with_worktree_branch(tmp_path):
 
 
 def test_reap_ghost_agents_does_not_touch_git_branch(tmp_path):
-    """reap_ghost_agents() is a pure function: it never deletes git branches.
+    """reap_ghost_agents() does NOT reap agents whose worktree has commits (→1505).
 
     Create a real repo with a branch ahead of main. Run reap_ghost_agents().
-    The branch must still exist and still have its commit afterward.
+    The agent must NOT appear in victims (the commits protect it from reaping),
+    and the branch must still exist with its commit afterward.
     """
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -169,22 +170,23 @@ def test_reap_ghost_agents_does_not_touch_git_branch(tmp_path):
     now = datetime.now(timezone.utc)
     victims = reap_ghost_agents(registry, transcripts_dir, now)
 
-    # ghost_reaper correctly identifies it as a ghost (transcript is 0/missing).
-    assert "ghost-reaper-test" in victims
+    # →1505: the agent has commits ahead of main, so the worktree-commits guard
+    # fires and the reaper does NOT identify it as a ghost.
+    assert "ghost-reaper-test" not in victims, (
+        "agent with commits ahead of main in worktree must not be reaped"
+    )
 
-    # CRITICAL: the branch and directory are untouched -- ghost_reaper has no
-    # git operations. The commit is not lost.
+    # The branch and directory are untouched (ghost_reaper has no git ops).
     assert _branch_exists(repo, branch), (
-        f"branch {branch} was deleted by ghost_reaper -- it must not touch git objects"
+        f"branch {branch} was deleted -- ghost_reaper must not touch git objects"
     )
     assert wt_path.exists(), (
-        "worktree directory was deleted by ghost_reaper -- it must not touch git objects"
+        "worktree directory was deleted -- ghost_reaper must not touch git objects"
     )
     count2 = subprocess.run(
         ["git", "rev-list", "--count", f"main..{branch}"],
         cwd=str(repo), capture_output=True, text=True, check=False,
     )
     assert count2.stdout.strip() == "1", (
-        f"commit on branch was lost after ghost_reaper ran; "
-        f"rev-list returned: {count2.stdout.strip()!r}"
+        f"commit on branch was lost; rev-list returned: {count2.stdout.strip()!r}"
     )
