@@ -3136,3 +3136,125 @@ async def test_build_spec_invalid_model_rejected(client, tmp_path, monkeypatch):
         "/api/specs/docs/spec/model-reject-test.md/build?model=badmodel"
     )
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# →1547: needs_clarity flow fixes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_promotion_blocked_when_needs_clarity(client, tmp_path, monkeypatch):
+    """POST /specs/promote returns 422 when draft is missing acceptance criteria.
+
+    A draft with no '- [ ]' checkbox lines fails the readiness check and
+    must not be promoted. The response body carries error='needs_clarity'
+    and a failing_checks list so the frontend knows which checks failed.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "draft").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    draft_file = tmp_path / "docs" / "draft" / "no-ac.md"
+    draft_file.write_text(
+        "---\ntitle: No AC draft\nstatus: draft\n---\n\n"
+        "This draft has no acceptance criteria checkboxes.\n"
+        "It references api/routers/specs.py which exists.\n"
+    )
+
+    resp = await client.post(
+        "/api/specs/promote",
+        json={"path": "docs/draft/no-ac.md"},
+    )
+
+    assert resp.status_code == 422, resp.text
+    body = resp.json()
+    detail = body.get("detail", {})
+    assert detail.get("error") == "needs_clarity"
+    failing_names = [c["name"] for c in detail.get("failing_checks", [])]
+    assert "has_ac_checkboxes" in failing_names
+
+
+@pytest.mark.asyncio
+async def test_needs_clarity_suppressed_on_shipped_specs(client, tmp_path, monkeypatch):
+    """GET /specs must not set needs_clarity on shipped or archived specs.
+
+    Shipped specs that fail readiness checks (e.g. no unchecked AC because
+    all items are done) should not be labelled 'needs clarity' — they are
+    already done. Only draft/ready specs should carry the label.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    # A real file on disk with no AC checkboxes — readiness will fail
+    spec_file = tmp_path / "shipped-spec.md"
+    spec_file.write_text(
+        "---\ntitle: Shipped spec\nstatus: shipped\n---\n\n"
+        "All done. No remaining checkboxes.\n"
+    )
+
+    async def fake_list_docs():
+        return [
+            {
+                "path": str(spec_file),  # absolute path bypasses PROJECT_ROOT join
+                "title": "Shipped spec",
+                "status": "shipped",
+                "task_ids": [],
+                "acceptance_criteria": [],
+                "task_summary": {"total": 0, "open": 0, "closed": 0},
+            }
+        ]
+
+    monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
+
+    resp = await client.get("/api/specs")
+    assert resp.status_code == 200
+    docs = resp.json()["docs"]
+    assert len(docs) == 1
+    shipped = docs[0]
+    # needs_clarity must be absent or False on a shipped spec
+    assert not shipped.get("needs_clarity"), (
+        f"shipped spec should not carry needs_clarity, got: {shipped}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_clarity_patch_appends_and_reruns_readiness(client, tmp_path, monkeypatch):
+    """PATCH /specs/{path}/clarity appends fix text and returns updated checks.
+
+    The endpoint should:
+    - Append the provided fix text under the right markdown section
+    - Re-run compute_spec_readiness on the updated file
+    - Return checks (list) and ready (bool) in the response
+    """
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "draft").mkdir(parents=True)
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_file = tmp_path / "docs" / "draft" / "clarity-target.md"
+    spec_file.write_text(
+        "---\ntitle: Clarity target\nstatus: draft\n---\n\n"
+        "# Clarity target\n\nNo acceptance criteria yet.\n"
+    )
+
+    resp = await client.patch(
+        "api/specs/docs/draft/clarity-target.md/clarity",
+        json={"check": "has_ac_checkboxes", "fix": "- [ ] add login flow\n- [ ] add logout flow\n- [ ] handle errors\n"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "checks" in body, f"expected checks in response, got: {body}"
+    assert "ready" in body
+    assert isinstance(body["checks"], list)
+    assert len(body["checks"]) == 9  # all 9 checks always returned
+
+    # Fix text should have been written to the file
+    updated_text = spec_file.read_text()
+    assert "add login flow" in updated_text
