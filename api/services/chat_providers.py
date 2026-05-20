@@ -2337,6 +2337,41 @@ class ChatService:
             stream_kwargs["system"] = _no_tools_system_blocks(matched_template)
         else:
             stream_kwargs["system"] = _build_cached_system_blocks(matched_template)
+            # Register AskUserQuestion so the model can present structured
+            # choices inline. The backend intercepts this tool_use block
+            # and emits a structured_picker WS frame instead of executing
+            # the call as a side-effect.
+            stream_kwargs["tools"] = [
+                {
+                    "name": "AskUserQuestion",
+                    "description": (
+                        "Ask the user a structured question with multiple choice options. "
+                        "Use when you need the user to pick from a clearly defined list."
+                    ),
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "question": {
+                                "type": "string",
+                                "description": "The question to display to the user",
+                            },
+                            "options": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "label": {"type": "string"},
+                                        "description": {"type": "string"},
+                                    },
+                                    "required": ["label"],
+                                },
+                                "description": "Choices for the user to pick from",
+                            },
+                        },
+                        "required": ["question", "options"],
+                    },
+                }
+            ]
 
         # Enable extended thinking for complex questions so the model
         # can reason through multi-step problems before answering.
@@ -2498,6 +2533,22 @@ class ChatService:
                 len(full_text),
                 _cache_read,
             )
+            # Check if the model used AskUserQuestion. If so, emit a
+            # structured_picker frame so the frontend can render chips
+            # instead of "reply A or B" plain text.
+            for _block in getattr(response, "content", []):
+                if (
+                    getattr(_block, "type", None) == "tool_use"
+                    and getattr(_block, "name", None) == "AskUserQuestion"
+                ):
+                    _inp = getattr(_block, "input", {}) or {}
+                    await websocket.send_json({
+                        "type": "structured_picker",
+                        "question": _inp.get("question", ""),
+                        "options": _inp.get("options", []),
+                    })
+                    break
+
             await websocket.send_json({
                 "type": "done",
                 "usage": {

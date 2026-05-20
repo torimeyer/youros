@@ -21,6 +21,7 @@ import { IMessageConfirmBubble } from './IMessageConfirmBubble'
 import { PlanBanner } from './PlanBanner'
 import AttachmentPicker, { type AttachmentFile } from './AttachmentPicker'
 import { PeerChatTurnsPicker } from './PeerChatTurnsPicker'
+import { StructuredPicker } from './StructuredPicker'
 import { InlineTextPrompt } from './InlineTextPrompt'
 import SlashCommandPopover from './SlashCommandPopover'
 import QuickAddTaskModal from './QuickAddTaskModal'
@@ -592,6 +593,10 @@ export function ChatPanel() {
   // When the user submits a peer-chat intent prompt, we defer dispatch here
   // and show the turns picker first. Cleared after the user picks turns.
   const [pendingPeerChatText, setPendingPeerChatText] = useState<string | null>(null)
+  const [pendingStructuredPicker, setPendingStructuredPicker] = useState<{
+    question: string
+    options: Array<{ label: string; description?: string }>
+  } | null>(null)
   const [inlinePrompt, setInlinePrompt] = useState<{ label: string; placeholder: string; prefix: string } | null>(null)
   const [planBannerPending, setPlanBannerPending] = useState<{ id: string; plan: string } | null>(null)
 
@@ -999,6 +1004,21 @@ export function ChatPanel() {
         }
       }
       currentBubbleIdRef.current = null
+    } else if (lastMessage.type === 'structured_picker') {
+      const data = lastMessage as unknown as {
+        question: string
+        options: Array<{ label: string; description?: string }>
+      }
+      setMessages(prev => {
+        const last = prev[prev.length - 1]
+        if (last && last.role === 'assistant' && !last.content && !last.toolCalls?.length) {
+          return prev.slice(0, -1)
+        }
+        return prev
+      })
+      setIsStreaming(false)
+      setPlaceholderAwaitingServer(false)
+      setPendingStructuredPicker({ question: data.question, options: data.options })
     } else if (lastMessage.type === 'peer_chat_turns_required') {
       // Backend is waiting for the user to pick a turn count before starting
       // the AI-to-AI conversation. Remove the empty assistant placeholder so
@@ -2909,6 +2929,16 @@ export function ChatPanel() {
             </span>
             <span>{multiAiPillText}</span>
           </div>
+        )}
+        {pendingStructuredPicker && (
+          <StructuredPicker
+            question={pendingStructuredPicker.question}
+            options={pendingStructuredPicker.options}
+            onSelect={(label) => {
+              setPendingStructuredPicker(null)
+              sendMessage(label)
+            }}
+          />
         )}
         {(peerChatPending || pendingPeerChatText !== null) && (
           <PeerChatTurnsPicker
