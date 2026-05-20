@@ -625,7 +625,7 @@ async def build_calendar_context() -> str:
         return ""
 
 
-async def call_model(provider: str, messages: list[dict], websocket: WebSocket, label: str = "", use_tools: bool = False, tab_id: str = "", claude_tier: str = ""):
+async def call_model(provider: str, messages: list[dict], websocket: WebSocket, label: str = "", use_tools: bool = False, tab_id: str = "", claude_tier: str = "", plan_mode: bool = False):
     """Call a single model and stream the response, returning the full text."""
     if label:
         await websocket.send_json({"type": "model_label", "data": label})
@@ -687,7 +687,7 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
     try:
         if provider == "claude":
             if use_tools:
-                full_text = await chat_service.agent_anthropic(messages, websocket, tab_id=tab_id)
+                full_text = await chat_service.agent_anthropic(messages, websocket, tab_id=tab_id, plan_mode=plan_mode)
             else:
                 full_text = await chat_service.stream_anthropic(messages, websocket, tab_id=tab_id, claude_tier=claude_tier)
         elif provider == "gemini":
@@ -1229,6 +1229,65 @@ async def chat_websocket(websocket: WebSocket):
             reply_to_id: Optional[str] = data.get("replyToId")
             payload_thread_id: Optional[str] = data.get("thread_id")
 
+            # --- Plan confirmation intercept (→1533) ---
+            # plan_confirm / plan_cancel / plan_revise arrive as bare
+            # WebSocket messages without the normal ``messages`` payload.
+            _msg_type = data.get("type")
+            if _msg_type in ("plan_confirm", "plan_cancel", "plan_revise"):
+                from services.plan_mode_store import plan_mode_store as _pms
+                _plan_id = data.get("id", "")
+                _pending = _pms.consume(_plan_id)
+
+                if _msg_type == "plan_cancel":
+                    await websocket.send_json({"type": "token", "data": "Plan cancelled."})
+                    await websocket.send_json({"type": "done"})
+
+                elif _msg_type == "plan_confirm" and _pending:
+                    _resume_messages = list(_pending["messages"]) + [
+                        {"role": "user", "content": "Plan approved. Please proceed."}
+                    ]
+                    _resume_tab = _pending.get("tab_id", tab_id if "tab_id" in dir() else "")
+                    _tracked = _TerminalTrackingWS(websocket, tab_id=_resume_tab)
+                    try:
+                        await call_model(
+                            "claude",
+                            _resume_messages,
+                            _tracked,
+                            use_tools=True,
+                            tab_id=_resume_tab,
+                            plan_mode=False,
+                        )
+                    finally:
+                        if not _tracked.terminal_sent:
+                            await websocket.send_json({"type": "done"})
+
+                elif _msg_type == "plan_revise" and _pending:
+                    _comment = data.get("comment", "")
+                    _revise_messages = list(_pending["messages"]) + [
+                        {"role": "user", "content": _comment or "Please revise the plan."}
+                    ]
+                    _revise_tab = _pending.get("tab_id", "")
+                    _tracked = _TerminalTrackingWS(websocket, tab_id=_revise_tab)
+                    try:
+                        await call_model(
+                            "claude",
+                            _revise_messages,
+                            _tracked,
+                            use_tools=True,
+                            tab_id=_revise_tab,
+                            plan_mode=True,
+                        )
+                    finally:
+                        if not _tracked.terminal_sent:
+                            await websocket.send_json({"type": "done"})
+
+                else:
+                    # Plan not found (expired or double-clicked) — just ack
+                    await websocket.send_json({"type": "done"})
+
+                continue
+            # --- End plan confirmation intercept ---
+
             if not messages:
                 await websocket.send_json({"type": "error", "data": "No messages"})
                 continue
@@ -1262,6 +1321,7 @@ async def chat_websocket(websocket: WebSocket):
                 pass
 
             use_tools = data.get("tools", False)
+            plan_mode = bool(data.get("plan_mode", False))
             mentioned_models = parse_mentions(last_text)
             had_explicit_mention = bool(mentioned_models)
 
@@ -1556,7 +1616,7 @@ async def chat_websocket(websocket: WebSocket):
                         _turn_id = _turn_audit_store.begin_turn(tab_id=tab_id, repo_root=_REPO_ROOT)
                     except Exception:
                         _turn_id = None
-                    _reply_text = await call_model(model, messages, tracked_ws, label=label, use_tools=use_tools, tab_id=tab_id, claude_tier=claude_tier)
+                    _reply_text = await call_model(model, messages, tracked_ws, label=label, use_tools=use_tools, tab_id=tab_id, claude_tier=claude_tier, plan_mode=plan_mode)
                     if _turn_id:
                         try:
                             from services.turn_audit_store import turn_audit_store as _turn_audit_store
