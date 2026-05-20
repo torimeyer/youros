@@ -391,7 +391,8 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                 d["clear_to_build"] = r.ready
                 d["clear_to_build_checks"] = r.as_dict()["checks"]
                 if not r.ready:
-                    d["needs_clarity"] = True
+                    if d.get("status") not in ("shipped", "archived"):
+                        d["needs_clarity"] = True
                     if d.get("status") in ("ready", "spec"):
                         d["effective_status"] = "draft"
         except Exception:
@@ -939,11 +940,77 @@ async def promote_draft(body: SpecPromote):
             detail="Only drafts can be promoted. Path must start with docs/draft/.",
         )
 
+    # Gate: block promotion when the draft still needs clarity
+    try:
+        from services.gemini_ready import compute_spec_readiness
+        abs_path = str(Path(PROJECT_ROOT) / body.path)
+        r = compute_spec_readiness(abs_path)
+        if not r.ready:
+            failing = [c for c in r.as_dict()["checks"] if not c["passed"]]
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "needs_clarity", "failing_checks": failing},
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # if readiness check errors, don't block promotion
+
     try:
         target_path = await ostk.doc_promote(body.path)
         return {"result": target_path, "promoted_path": target_path}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+class SpecClarityFix(BaseModel):
+    check: str
+    fix: str
+
+
+_CLARITY_CHECK_SECTION: dict[str, str] = {
+    "has_ac_checkboxes": "## Acceptance criteria",
+    "no_vague_ac": "## Acceptance criteria",
+    "ac_count_threshold": "## Acceptance criteria",
+    "has_file_paths": "## Critical files",
+    "referenced_files_exist": "## Critical files",
+    "in_repo_scope": "## Scope",
+    "is_unblocked": "## Blockers",
+}
+
+
+@router.patch("/specs/{spec_path:path}/clarity")
+async def patch_spec_clarity(spec_path: str, body: SpecClarityFix):
+    """Append user clarification text to the spec then re-run readiness.
+
+    The check name determines which markdown section to append under.
+    Returns updated checks so the frontend can refresh the modal live.
+    """
+    _validate_doc_path(spec_path)
+
+    abs_path = (
+        spec_path
+        if spec_path.startswith("/") or spec_path.startswith("~")
+        else str(Path(PROJECT_ROOT) / spec_path)
+    )
+    abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
+
+    if not Path(abs_path).exists():
+        raise HTTPException(status_code=404, detail="Spec file not found")
+
+    text = Path(abs_path).read_text(encoding="utf-8")
+
+    section_header = _CLARITY_CHECK_SECTION.get(body.check, "## Notes")
+    if section_header in text:
+        text = text.replace(section_header, f"{section_header}\n{body.fix}", 1)
+    else:
+        text = text.rstrip() + f"\n\n{section_header}\n{body.fix}\n"
+
+    Path(abs_path).write_text(text, encoding="utf-8")
+
+    from services.gemini_ready import compute_spec_readiness
+    r = compute_spec_readiness(abs_path)
+    return {"checks": r.as_dict()["checks"], "ready": r.ready}
 
 
 @router.post("/specs/{spec_path:path}/unlock")
