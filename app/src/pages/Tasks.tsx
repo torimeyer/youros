@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Fragment } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   DndContext,
@@ -1392,11 +1392,32 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     });
   }
 
-  // Render groups: flat sorted list for "all" view, priority-grouped for others.
-  const taskGroups: { key: string; tasks: Task[] }[] =
-    !isLegacyView && selectedStatus === "all"
+  // Render groups: wave-grouped when sortBy==="wave", flat for "all" view, priority-grouped otherwise.
+  const taskGroups: { key: string; label?: string; tasks: Task[] }[] =
+    sortBy === "wave"
+      ? (() => {
+          const waveMap = new Map<number, Task[]>();
+          const unassigned: Task[] = [];
+          for (const task of filteredTasks) {
+            const waveNum = waveAssignments[task.id];
+            if (waveNum != null) {
+              if (!waveMap.has(waveNum)) waveMap.set(waveNum, []);
+              waveMap.get(waveNum)!.push(task);
+            } else {
+              unassigned.push(task);
+            }
+          }
+          const groups = [...waveMap.entries()]
+            .sort(([a], [b]) => a - b)
+            .map(([waveNum, waveTasks]) => ({ key: `wave-${waveNum}`, label: `Wave ${waveNum}`, tasks: waveTasks }));
+          if (unassigned.length > 0) {
+            groups.push({ key: "wave-unassigned", label: "Unassigned", tasks: unassigned });
+          }
+          return groups;
+        })()
+      : !isLegacyView && selectedStatus === "all"
       ? [{ key: "all-sorted", tasks: filteredTasks }]
-      : PRIORITIES.reduce<{ key: string; tasks: Task[] }[]>((acc, p) => {
+      : PRIORITIES.reduce<{ key: string; label?: string; tasks: Task[] }[]>((acc, p) => {
           const grouped = filteredTasks.filter((t) =>
             p === "P3" ? t.priority === "P3" || !t.priority : t.priority === p
           );
@@ -1969,9 +1990,18 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
               {!loading && filteredTasks.length === 0 && tasks.length > 0 && (
                 <p className="text-sm text-slate-500 py-4">No tasks match this filter.</p>
               )}
-              {taskGroups.map(({ key: priority, tasks: groupTasks }) => (
+              {taskGroups.map(({ key: priority, label, tasks: groupTasks }) => (
+                  <Fragment key={priority}>
+                    {label && (
+                      <div
+                        data-testid={`wave-group-${priority.replace("wave-", "")}`}
+                        className="flex items-center gap-2 px-1 pt-3 pb-1 first:pt-0"
+                      >
+                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{label}</span>
+                        <span className="flex-1 h-px bg-slate-800" />
+                      </div>
+                    )}
                   <SortableContext
-                    key={priority}
                     items={groupTasks.map((t) => t.id)}
                     strategy={verticalListSortingStrategy}
                   >
@@ -2910,6 +2940,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
               </SortableTaskWrapper>
                     ))}
                   </SortableContext>
+                  </Fragment>
               ))}
             </div>
             <DragOverlay>

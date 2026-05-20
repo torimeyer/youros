@@ -5,7 +5,7 @@ export type StatusFilter = "all" | "open" | "in_progress" | "closed";
 
 export type ClosedSortOrder = "newest" | "oldest";
 
-export type SortBy = "date-desc" | "date-asc" | "status" | "label";
+export type SortBy = "date-desc" | "date-asc" | "status" | "label" | "wave";
 
 interface FilterDrawerProps {
   open?: boolean;
@@ -95,6 +95,7 @@ export function FilterDrawer({
                 { value: "date-asc", label: "Oldest first" },
                 { value: "status", label: "Status" },
                 { value: "label", label: "Label" },
+                { value: "wave", label: "Wave" },
               ] as { value: SortBy; label: string }[]
             ).map(({ value, label }) => (
               <button
