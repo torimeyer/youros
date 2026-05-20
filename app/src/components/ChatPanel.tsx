@@ -131,6 +131,10 @@ interface Message {
    *  the user never has to re-type their question after a mid-turn
    *  socket drop. */
   isError?: boolean
+  /** Set when the backend receipts gate detected a completion claim ("done",
+   *  "fixed", etc.) with no supporting evidence. Rendered as a yellow warning
+   *  strip pinned below the bubble. */
+  receiptsWarning?: string
 }
 
 interface GiphyResult {
@@ -1230,6 +1234,16 @@ export function ChatPanel() {
         setPlaceholderAwaitingServer(false)
         setPlanBannerPending({ id: data.id, plan: data.plan })
       }
+    } else if (lastMessage.type === 'receipts-warning') {
+      const warningMsg = (lastMessage as unknown as { message: string }).message
+      setMessages(prev => {
+        const updated = [...prev]
+        const last = updated[updated.length - 1]
+        if (last && last.role === 'assistant') {
+          updated[updated.length - 1] = { ...last, receiptsWarning: warningMsg }
+        }
+        return updated
+      })
     } else if (lastMessage.type === 'done') {
       // Extract cache stats from the usage payload so the indicator can show
       // the cache hit ratio for this turn. Only update when cache data exists
@@ -2738,6 +2752,18 @@ export function ChatPanel() {
                       </>
                     )}
                   </div>
+
+                  {/* Receipts gate warning — shown when the reply claims work is done
+                      but includes no commit hash, test output, or file reference. */}
+                  {msg.receiptsWarning && (
+                    <div
+                      data-testid="receipts-warning-bubble"
+                      className="mt-1.5 flex items-start gap-2 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-200 text-xs"
+                    >
+                      <span className="shrink-0 mt-0.5">⚠</span>
+                      <span>{msg.receiptsWarning}</span>
+                    </div>
+                  )}
 
                   {/* Reaction pills */}
                   {msg.reactions && Object.keys(msg.reactions).length > 0 && (
