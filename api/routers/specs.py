@@ -1883,6 +1883,65 @@ async def _resolve_task_configs(spec_path: str) -> list[dict]:
 _VALID_BUILD_MODELS = {"sonnet", "opus", "haiku", "gemini"}
 
 
+async def _build_artifact_agent(
+    spec_path: str,
+    spec_full_path: "Path",
+    template: str,
+    model: Optional[str] = None,
+) -> dict:
+    """Spawn one artifact-drafter agent for a non-code spec (→1531).
+
+    Reads the full spec body, creates a single agent config using the
+    given template, and spawns it. Returns the same shape as build_spec.
+    """
+    from routers.agents import spawn_agent
+    from models.schemas import AgentSpawn
+
+    spec_text = spec_full_path.read_text()
+    spec_name = Path(spec_path).stem
+    agent_name = f"spec-{spec_name}-{template}"
+    chosen_model = model or "sonnet"
+
+    prompt = (
+        f"You are building the spec: {spec_path}\n\n"
+        f"## Spec\n\n{spec_text.strip()}\n\n"
+        "## Instructions\n\n"
+        "Read the spec above and produce the requested artifact. "
+        "Ground your work in any attached Library sources (KNOWLEDGE directive). "
+        "Return the output file path in your final message.\n"
+    )
+
+    body = AgentSpawn(
+        name=agent_name,
+        prompt=prompt,
+        model=chosen_model,
+        budget=2.0,
+        template=template,
+        source="spec-build",
+        task=f"Draft {template} for {spec_name}",
+        locks=[f"specs/{spec_path}"],
+    )
+    try:
+        await spawn_agent(body)
+    except HTTPException as exc:
+        return {
+            "agents": [],
+            "message": f"Could not spawn artifact agent: {exc.detail}",
+            "has_unchecked_acs": True,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "agents": [],
+            "message": f"Could not spawn artifact agent: {exc}",
+            "has_unchecked_acs": True,
+        }
+    return {
+        "agents": [agent_name],
+        "message": f"Spawned {template} agent. Check the transcript for the output file path.",
+        "has_unchecked_acs": True,
+    }
+
+
 @router.post("/specs/{spec_path:path}/build")
 async def build_spec(spec_path: str, model: Optional[str] = None):
     """One-click build: decompose if needed, then spawn a builder per open task.
@@ -1919,6 +1978,12 @@ async def build_spec(spec_path: str, model: Optional[str] = None):
         raise HTTPException(
             status_code=404, detail=f"Spec not found: {spec_path}"
         )
+
+    # Route non-code produces to a single template agent instead of task decomposition
+    produces = _read_frontmatter_produces(spec_full_path.read_text())
+    artifact_template = _PRODUCES_TEMPLATE.get(produces)
+    if artifact_template:
+        return await _build_artifact_agent(spec_path, spec_full_path, artifact_template, model)
 
     agent_configs = await _resolve_task_configs(spec_path)
     # Override model on every cfg so _spawn_one picks it up.
@@ -2289,6 +2354,54 @@ class WizardCreateRequest(BaseModel):
     api_contract: Optional[str] = None
     ui_requirements: Optional[str] = None
     kind: str = "needle"  # "needle" (default) or "spec"
+    produces: str = "code"  # "code"|"agent"|"document"|"slides"|"diagram"|"skill"
+
+
+# Maps produces value to the template agent name
+_PRODUCES_TEMPLATE: dict[str, str] = {
+    "agent": "builder-of-agents",
+    "document": "document-drafter",
+    "slides": "slides-drafter",
+    "diagram": "diagram-drafter",
+    "skill": "skill-builder",
+}
+
+
+def _inject_frontmatter_key(content: str, key: str, value: str) -> str:
+    """Insert key: value into YAML frontmatter, before the closing '---' line.
+
+    If the key already exists it is left unchanged. If there is no frontmatter
+    the content is returned as-is.
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return content
+    end_idx = None
+    for i, line in enumerate(lines[1:], 1):
+        if line.strip() == "---":
+            end_idx = i
+            break
+    if end_idx is None:
+        return content
+    # Skip if key already present
+    fm_block = "\n".join(lines[1:end_idx])
+    if f"\n{key}:" in f"\n{fm_block}" or fm_block.startswith(f"{key}:"):
+        return content
+    lines.insert(end_idx, f"{key}: {value}")
+    return "\n".join(lines)
+
+
+def _read_frontmatter_produces(text: str) -> str:
+    """Extract the 'produces' key from YAML frontmatter; returns 'code' if absent."""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return "code"
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line.startswith("produces:"):
+            return line.split(":", 1)[1].strip()
+    return "code"
 
 
 def _wizard_system_prompt() -> str:
@@ -2462,6 +2575,9 @@ async def wizard_create(body: WizardCreateRequest):
     ac_written = False
     if full_path.exists() and full_path.is_relative_to(docs_root):
         content = full_path.read_text()
+        # Inject produces into YAML frontmatter when it's not the default "code"
+        if body.produces and body.produces != "code":
+            content = _inject_frontmatter_key(content, "produces", body.produces)
         if content.endswith("\n"):
             content += "\n" + body_text
         else:
