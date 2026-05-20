@@ -499,6 +499,61 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["name", "prompt"],
         },
     },
+    {
+        "name": "chat_schedule_wakeup",
+        "description": (
+            "Park this chat session and resume it automatically after a specified "
+            "number of seconds. Use when you need to wait for something to finish "
+            "before continuing (e.g. 'remind me in 5 minutes'). The user sees a "
+            "countdown pill in the chat header and can cancel early. The chat "
+            "resumes with a message when the timer fires."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string",
+                    "description": "Short description shown in the pill, e.g. 'Waiting 5 min for build'.",
+                },
+                "seconds": {
+                    "type": "number",
+                    "description": "How many seconds to wait before resuming.",
+                },
+            },
+            "required": ["label", "seconds"],
+        },
+    },
+    {
+        "name": "chat_monitor",
+        "description": (
+            "Park this chat session and resume it when a shell command's stdout "
+            "contains a given pattern (or when the timeout is reached). Use for "
+            "'wake me when the tests pass' or 'ping me when the server is ready'. "
+            "The user sees a pill in the chat header and can cancel early."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string",
+                    "description": "Short description shown in the pill, e.g. 'Watching test run'.",
+                },
+                "command": {
+                    "type": "string",
+                    "description": "Shell command to run (stdout is watched).",
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "Substring to look for in stdout. Resume fires on first match.",
+                },
+                "timeout_seconds": {
+                    "type": "number",
+                    "description": "Max seconds to wait (default 900 = 15 min). Resume fires on timeout too.",
+                },
+            },
+            "required": ["label", "command", "pattern"],
+        },
+    },
 ]
 
 
@@ -579,6 +634,10 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
             )
         elif name == "spawn_agent":
             return await _spawn_agent(input_data["name"], input_data["prompt"], input_data.get("model", "sonnet"))
+        elif name == "chat_schedule_wakeup":
+            return await _chat_schedule_wakeup(input_data)
+        elif name == "chat_monitor":
+            return await _chat_monitor(input_data)
         else:
             return f"Unknown tool: {name}"
     except Exception as e:
@@ -1717,3 +1776,99 @@ async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:
             f"Failed to spawn agent '{clean_name}': {e}. "
             "The backend may be restarting. Wait a few seconds and try again."
         )
+
+
+async def _chat_schedule_wakeup(input_data: dict[str, Any]) -> str:
+    """Park the chat and resume after `seconds` seconds (→1399)."""
+    import time
+    import uuid as _uuid
+    from services.parked_tasks_store import ParkedTask, parked_tasks_store
+
+    label = str(input_data.get("label", "Wakeup"))
+    seconds = float(input_data.get("seconds", 60))
+    tab_id = parked_tasks_store.ctx_tab_id()
+    ws_send = parked_tasks_store.ctx_ws_send()
+
+    now = time.time()
+    task = ParkedTask(
+        id=str(_uuid.uuid4()),
+        tab_id=tab_id,
+        label=label,
+        kind="schedule",
+        wakeup_at=now + seconds,
+        command=None,
+        pattern=None,
+        timeout_s=seconds,
+        created_at=now,
+    )
+    parked_tasks_store.park(task)
+
+    if ws_send:
+        try:
+            await ws_send({
+                "type": "task_parked",
+                "data": {
+                    "id": task.id,
+                    "label": label,
+                    "kind": "schedule",
+                    "wakeup_at": task.wakeup_at,
+                },
+                "tab_id": tab_id,
+            })
+        except Exception:
+            pass
+        parked_tasks_store.schedule_wakeup_timer(task, ws_send)
+
+    mins = int(seconds) // 60
+    secs = int(seconds) % 60
+    when = f"{mins}m {secs}s" if mins else f"{secs}s"
+    return f"Chat parked for {when} ({label}). I'll resume automatically when the timer fires."
+
+
+async def _chat_monitor(input_data: dict[str, Any]) -> str:
+    """Park the chat and resume when a command's stdout matches a pattern (→1399)."""
+    import time
+    import uuid as _uuid
+    from services.parked_tasks_store import ParkedTask, parked_tasks_store
+
+    label = str(input_data.get("label", "Monitor"))
+    command = str(input_data.get("command", ""))
+    pattern = str(input_data.get("pattern", ""))
+    timeout_s = float(input_data.get("timeout_seconds", 900))
+    tab_id = parked_tasks_store.ctx_tab_id()
+    ws_send = parked_tasks_store.ctx_ws_send()
+
+    now = time.time()
+    task = ParkedTask(
+        id=str(_uuid.uuid4()),
+        tab_id=tab_id,
+        label=label,
+        kind="monitor",
+        wakeup_at=None,
+        command=command,
+        pattern=pattern,
+        timeout_s=timeout_s,
+        created_at=now,
+    )
+    parked_tasks_store.park(task)
+
+    if ws_send:
+        try:
+            await ws_send({
+                "type": "task_parked",
+                "data": {
+                    "id": task.id,
+                    "label": label,
+                    "kind": "monitor",
+                    "wakeup_at": None,
+                },
+                "tab_id": tab_id,
+            })
+        except Exception:
+            pass
+        parked_tasks_store.schedule_monitor_timer(task, ws_send)
+
+    return (
+        f"Monitor started for '{label}'. Watching '{command}' for '{pattern}'. "
+        f"Chat will resume when the pattern is found or after {int(timeout_s)}s."
+    )
