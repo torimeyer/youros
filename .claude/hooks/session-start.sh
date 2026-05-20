@@ -174,4 +174,13 @@ if [ -x "$WATCHER_SCRIPT" ] && [ -z "${MYOS_AGENT_NAME:-}" ]; then
     disown 2>/dev/null || true
 fi
 
+# ---- 6. Liveness check: warn immediately if vite or uvicorn is down. ----
+# Retro F10, →1545: vite was dark all day and nobody noticed until 10:55 AM.
+# This check fires at every session start so a dead server shows up in the
+# standing-rules header before any work begins. Advisory only — exits 0.
+LIVENESS_SCRIPT="$CWD/scripts/liveness-check.sh"
+if [ -n "$CWD" ] && [ -x "$LIVENESS_SCRIPT" ] && [ -z "${MYOS_AGENT_NAME:-}" ]; then
+    bash "$LIVENESS_SCRIPT" >&2 || true
+fi
+
 exit 0
