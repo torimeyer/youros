@@ -969,6 +969,7 @@ _SLASH_HELP_TEXT = (
     "  /tasks    . List open tasks\n"
     "  /commit <message> . Commit with a message\n"
     "  /agents   . Show active and recent agents\n"
+    "  /build-spec <slug> . Claim a spec and flip its status to Building\n"
     "  /mcp      . Info about MCP server management\n"
     "  /help     . Show this list"
 )
@@ -979,7 +980,7 @@ _MCP_INFO_TEXT = (
 )
 
 
-async def _handle_slash_command(text: str, websocket: WebSocket) -> bool:
+async def _handle_slash_command(text: str, websocket: WebSocket, tab_id: str = "") -> bool:
     """Intercept messages starting with ``/`` and run the matching command.
 
     Returns True if a command was handled (caller should skip AI routing).
@@ -1048,6 +1049,44 @@ async def _handle_slash_command(text: str, websocket: WebSocket) -> bool:
             result = resp
         except Exception as exc:
             result = f"Could not list agents: {exc}"
+
+    elif command == "/build-spec":
+        slug = args.strip()
+        if not slug or "/" in slug or "\\" in slug or ".." in slug:
+            result = "Usage: /build-spec <slug>  (the spec name without path or extension)"
+        else:
+            try:
+                import os as _os
+                from pathlib import Path as _Path
+                from routers.specs import _ClaimBody, claim_spec
+
+                _user_specs = _Path(_os.environ.get("MYOS_USER_SPECS_DIR", _os.path.expanduser("~/.myos/specs")))
+                _project_root = _Path(__file__).resolve().parent.parent
+                _resolved: Optional[str] = None
+
+                for _candidate in [
+                    _user_specs / f"{slug}.md",
+                    _project_root / "docs" / "draft" / f"{slug}.md",
+                ]:
+                    if _candidate.exists():
+                        _resolved = str(_candidate.resolve())
+                        break
+
+                if _resolved is None:
+                    result = (
+                        f"Spec '{slug}' not found. "
+                        f"Checked ~/.myos/specs/{slug}.md and docs/draft/{slug}.md."
+                    )
+                else:
+                    _agent = f"chat-{tab_id[:8]}" if tab_id else "chat-slash"
+                    _resp = await claim_spec(_resolved, _ClaimBody(agent=_agent, source="slash"))
+                    _n = len(_resp.get("task_ids", []))
+                    result = (
+                        f"Spec '{slug}' claimed — {_n} task{'s' if _n != 1 else ''} queued. "
+                        "Status is now Building."
+                    )
+            except Exception as exc:
+                result = f"Could not claim spec '{slug}': {exc}"
 
     else:
         result = "Unknown command. Type /help for available commands."
@@ -1296,7 +1335,8 @@ async def chat_websocket(websocket: WebSocket):
 
             # --- Slash commands: intercept before AI routing ---
             if isinstance(last_text, str) and last_text.strip().startswith("/"):
-                handled = await _handle_slash_command(last_text.strip(), websocket)
+                _slash_tab = data.get("tab_id", "")
+                handled = await _handle_slash_command(last_text.strip(), websocket, tab_id=_slash_tab)
                 if handled:
                     continue
 
