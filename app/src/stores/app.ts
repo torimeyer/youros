@@ -10,6 +10,9 @@ export const TEAM_MODE_VISIBLE = false
 export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
   'briefing',
   'focus_first',
+  'needles_count',
+  'active_agents',
+  'quick_actions',
   'adventure',
   'todays_focus',
   'quick_launch',
@@ -30,6 +33,9 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
 export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   briefing: 'Briefing',
   focus_first: 'Focus on this first',
+  needles_count: 'Open Needles',
+  active_agents: 'Active Agents',
+  quick_actions: 'Quick Actions',
   adventure: 'Try an Adventure',
   todays_focus: "Today's Focus",
   quick_launch: 'Quick Launch',
