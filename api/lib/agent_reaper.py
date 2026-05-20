@@ -302,6 +302,64 @@ def detect_stalled_agents(
     return stalled
 
 
+def find_zombie_agents(
+    registry: Dict[str, dict],
+    *,
+    get_transcript_bytes: Callable[[str], int],
+    min_transcript_bytes: int = TRANSCRIPT_STUCK_BYTES,
+) -> List[Tuple[str, str]]:
+    """Return (name, note) for running agents whose PID is dead but transcript is non-trivial.
+
+    These are "quiet completers" — the subprocess exited (rc=0) after doing real
+    work but without calling /complete. The non-trivial transcript (>= min_transcript_bytes)
+    distinguishes them from crashed/stuck agents caught by find_stuck_agents.
+
+    This is the belt-and-suspenders fix for →1516. The PRIMARY fix is a 4-line
+    addition inside _drain_stderr in routers/agents.py:
+
+        elif rc == 0:
+            _m = agent_metadata.get(name)
+            if _m and _m.get("status") == "running":
+                _m["status"] = "completed"
+                _m["completed_at"] = datetime.now(timezone.utc).isoformat()
+                _fire_delta(name, "completed")
+                await _save_agent_state_async()
+
+    Until that edit lands (blocked on →1505 fold-in), this function catches the
+    same class of zombies within one sweep interval (30 s).
+
+    Complements find_stuck_agents (dead PID + empty transcript → failed).
+    """
+    zombies: List[Tuple[str, str]] = []
+    for name, meta in registry.items():
+        if not isinstance(meta, dict):
+            continue
+        if meta.get("status") != "running":
+            continue
+        if meta.get("source") != "claude-code":
+            continue
+        pid = meta.get("pid")
+        alive = _pid_alive(pid)
+        if alive is not False:
+            continue  # alive, unknown pid, or no pid — not a zombie
+        try:
+            t_bytes = get_transcript_bytes(name)
+        except Exception:
+            t_bytes = 0
+        if t_bytes < min_transcript_bytes:
+            continue  # empty transcript — find_stuck_agents territory
+        note = (
+            f"pid-exit: PID {pid} dead, transcript {t_bytes}B present, "
+            f"/complete not received (→1516)"
+        )
+        zombies.append((name, note))
+        logger.info(
+            "agent_reaper: zombie agent name=%s pid=%s transcript_bytes=%d",
+            name, pid, t_bytes,
+        )
+    return zombies
+
+
 def _worktree_head_hash(name: str, worktree_path: str) -> Optional[str]:
     """Return the current HEAD commit hash in a worktree, or None on failure."""
     try:
@@ -337,8 +395,9 @@ def _do_sweep_sync() -> int:
         get_transcript_bytes=_get_bytes,
         get_worktree_head=_worktree_head_hash,
     )
+    zombies = find_zombie_agents(agent_metadata, get_transcript_bytes=_get_bytes)
 
-    if not victims and not stalled:
+    if not victims and not stalled and not zombies:
         return 0
 
     now_iso = now.isoformat()
@@ -364,8 +423,17 @@ def _do_sweep_sync() -> int:
         )
         logger.warning("agent_reaper: marked stalled name=%s pid=%s", name, meta.get("pid"))
 
+    for name, note in zombies:
+        meta = agent_metadata.get(name)
+        if meta is None or meta.get("status") != "running":
+            continue
+        meta["status"] = "completed"
+        meta["completed_at"] = now_iso
+        meta["completion_note"] = note
+        logger.info("agent_reaper: zombie completed name=%s note=%s", name, note)
+
     _save_agent_state()
-    return len(victims) + len(stalled)
+    return len(victims) + len(stalled) + len(zombies)
 
 
 async def _do_sweep() -> int:
