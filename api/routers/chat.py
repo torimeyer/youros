@@ -1640,3 +1640,67 @@ async def chat_websocket(websocket: WebSocket):
             # BaseException covers CancelledError (not caught by
             # Exception in Python 3.8+) as well as standard errors.
             pass
+
+
+# ---------------------------------------------------------------------------
+# Intel digest synthesis (FR-005 — →1441 Theme C v2)
+# ---------------------------------------------------------------------------
+
+
+def _rule_based_digest(captures: list[dict]) -> str:
+    """Rule-based fallback when no LLM key is available."""
+    if not captures:
+        return "## Intel Digest\n\nNo competitor signals captured in this window."
+    lines = ["## Intel Digest\n"]
+    by_competitor: dict[str, list[dict]] = {}
+    for c in captures:
+        name = c.get("competitor", "Unknown")
+        by_competitor.setdefault(name, []).append(c)
+    for name, signals in sorted(by_competitor.items()):
+        lines.append(f"### {name}\n")
+        for s in signals:
+            snippet = s.get("text") or s.get("url") or "(no detail)"
+            lines.append(f"- {snippet}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+async def synthesize_intel_digest(captures: list[dict]) -> str:
+    """Synthesize a list of intel captures into a markdown digest.
+
+    # TODO: replace with intel-synthesize skill
+    This inline LLM call will be replaced when the intel-synthesize marketplace
+    skill ships. The TODO marker is intentional per FR-005 so the upgrade path
+    is obvious. Until then: if ANTHROPIC_API_KEY is set, use claude-haiku-4-5
+    for synthesis; otherwise fall back to a rule-based summary.
+    """
+    import os
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key or not captures:
+        return _rule_based_digest(captures)
+
+    try:
+        import anthropic
+        bullets = "\n".join(
+            f"- [{c.get('competitor', 'Unknown')}] {c.get('text') or c.get('url') or '(no detail)'}"
+            for c in captures
+        )
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        message = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        "Synthesize these competitor signals into a concise markdown digest. "
+                        "Group by competitor. Lead with a one-line summary per competitor, "
+                        "then bullet the key signals.\n\n"
+                        f"{bullets}"
+                    ),
+                }
+            ],
+        )
+        return message.content[0].text
+    except Exception:
+        return _rule_based_digest(captures)
