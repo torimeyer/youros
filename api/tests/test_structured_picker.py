@@ -124,6 +124,69 @@ async def test_ask_user_question_emits_structured_picker():
 
 
 @pytest.mark.asyncio
+async def test_structured_picker_includes_multi_select_flag():
+    """When model AskUserQuestion has multiSelect=True, the structured_picker frame includes it."""
+    from services.chat_providers import ChatService
+
+    class _FakeMultiSelectBlock:
+        type = "tool_use"
+        name = "AskUserQuestion"
+        input = {
+            "question": "Which features do you want?",
+            "multiSelect": True,
+            "options": [
+                {"label": "Fast"},
+                {"label": "Cheap"},
+            ],
+        }
+
+    class _FakeMultiMessage:
+        content = [_FakeMultiSelectBlock()]
+        usage = _FakeUsage()
+
+    class _FakeMultiStream:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
+        def __aiter__(self): return self
+        async def __anext__(self): raise StopAsyncIteration
+        async def get_final_message(self): return _FakeMultiMessage()
+
+    service = ChatService()
+    ws = FakeWebSocket()
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = _FakeMultiStream()
+
+    async def fake_match(messages, wss, api_key): return None
+    async def fake_heartbeat(wss, factory, **kwargs): return await factory()
+    async def fake_retry(coro_factory, **kwargs): return await coro_factory()
+
+    with (
+        patch("services.chat_providers._resolve_chat_backend", new=AsyncMock(return_value="anthropic_api")),
+        patch("services.chat_providers._resolve_api_key", new=AsyncMock(return_value="sk-fake")),
+        patch("services.chat_providers._get_anthropic_client", return_value=mock_client),
+        patch("services.chat_providers._maybe_match_template", new=fake_match),
+        patch("services.chat_providers._with_ws_heartbeat", new=fake_heartbeat),
+        patch("services.chat_providers._anthropic_retry_call", new=fake_retry),
+        patch("services.chat_providers._standing_instructions_block", return_value=""),
+        patch("services.chat_providers._build_cached_system_blocks", return_value=[]),
+        patch("services.chat_providers._no_tools_system_blocks", return_value=[]),
+        patch("services.chat_providers._should_use_thinking", return_value=False),
+        patch("services.chat_providers.safe_record_chat_turn"),
+        patch("services.chat_providers._log_chat_completion"),
+    ):
+        await service.stream_anthropic(
+            [{"role": "user", "content": "Pick features"}],
+            ws,
+        )
+
+    pickers = ws.get_messages_of_type("structured_picker")
+    assert len(pickers) == 1
+    assert pickers[0].get("multiSelect") is True, (
+        f"Expected multiSelect=True in frame, got: {pickers[0]}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_structured_picker_not_emitted_for_plain_text_response():
     """When model returns plain text (no AskUserQuestion), no structured_picker is emitted."""
     from services.chat_providers import ChatService
