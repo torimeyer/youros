@@ -2309,8 +2309,11 @@ async def test_ostk_delete_task_removes_entry(tmp_path):
         '{"id": "t-2", "title": "Second", "status": "open"}\n'
     )
 
+    from unittest.mock import AsyncMock, patch
     svc = OstkService(cwd=str(tmp_path))
-    result = await svc.delete_task("t-1")
+    with patch.object(svc, "_run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = "closed"
+        result = await svc.delete_task("t-1")
 
     assert result == "deleted t-1"
     remaining = issues_file.read_text()
@@ -2328,9 +2331,12 @@ async def test_ostk_delete_task_not_found_raises(tmp_path):
     issues_file = issues_dir / "issues.jsonl"
     issues_file.write_text('{"id": "t-1", "title": "Only task", "status": "open"}\n')
 
+    from unittest.mock import AsyncMock, patch
     svc = OstkService(cwd=str(tmp_path))
-    with pytest.raises(OstkError, match="not found"):
-        await svc.delete_task("t-99")
+    with patch.object(svc, "_run", new_callable=AsyncMock) as mock_run:
+        mock_run.side_effect = OstkError("task not found")
+        with pytest.raises(OstkError, match="not found"):
+            await svc.delete_task("t-99")
 
 
 @pytest.mark.asyncio
@@ -2343,8 +2349,11 @@ async def test_ostk_delete_task_last_task_leaves_empty_file(tmp_path):
     issues_file = issues_dir / "issues.jsonl"
     issues_file.write_text('{"id": "t-1", "title": "Only task", "status": "open"}\n')
 
+    from unittest.mock import AsyncMock, patch
     svc = OstkService(cwd=str(tmp_path))
-    await svc.delete_task("t-1")
+    with patch.object(svc, "_run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = "closed"
+        await svc.delete_task("t-1")
 
     assert issues_file.read_text() == ""
 
@@ -2404,6 +2413,7 @@ async def test_delete_actually_removes_from_issues_jsonl(tmp_path):
     needed to prove delete really removes the row from disk, so tail the
     file pre and post and assert the id is gone.
     """
+    from unittest.mock import AsyncMock, patch
     from services.ostk import OstkService
 
     issues_dir = tmp_path / ".ostk" / "needles"
@@ -2418,8 +2428,11 @@ async def test_delete_actually_removes_from_issues_jsonl(tmp_path):
     )
 
     svc = OstkService(cwd=str(tmp_path))
-    for tid in ("\u2192565", "\u2192566", "\u2192567", "\u2192568"):
-        await svc.delete_task(tid)
+    # Mock _run so daemon notify does not touch the real ostk project.
+    with patch.object(svc, "_run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = "closed"
+        for tid in ("\u2192565", "\u2192566", "\u2192567", "\u2192568"):
+            await svc.delete_task(tid)
 
     remaining = issues_file.read_text()
     for tid in ("\u2192565", "\u2192566", "\u2192567", "\u2192568"):

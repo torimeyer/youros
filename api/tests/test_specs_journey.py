@@ -273,6 +273,8 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
             return str(draft_file.relative_to(tmp_path))
         if args[:2] == ("doc", "decompose"):
             return "\u2192701 One\n\u2192702 Two"
+        if args[:2] == ("work", "add"):
+            return "\u2192123\nTask created"
         raise AssertionError(f"unexpected ostk call: {args}")
 
     monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)

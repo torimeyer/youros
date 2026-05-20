@@ -111,6 +111,12 @@ def test_cache_honors_ttl(monkeypatch, seeded_state: Path):
     """get_duration_stats caches and only recomputes after TTL expiry."""
     invalidate_cache()
     monkeypatch.setattr(stats_mod, "AGENT_STATE_PATH", seeded_state)
+    # Prevent time_primitive fast-path so compute_duration_stats is exercised.
+    try:
+        from services import time_primitive as _tp
+        monkeypatch.setattr(_tp, "estimate", lambda *a, **kw: None)
+    except Exception:
+        pass
 
     calls = {"n": 0}
     real_compute = stats_mod.compute_duration_stats

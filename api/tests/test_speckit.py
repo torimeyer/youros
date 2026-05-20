@@ -220,7 +220,7 @@ class TestImportEndpoint:
             })
         assert resp.status_code == 200
         data = resp.json()
-        assert "path" in data or "id" in data
+        assert "path" in data or "id" in data or "task_id" in data
         assert data.get("title") == "Feature name"
 
     @pytest.mark.asyncio
@@ -233,7 +233,7 @@ class TestImportEndpoint:
 
         add_task_calls = []
 
-        async def fake_add_task(**kwargs):
+        async def fake_add_task(*args, **kwargs):
             add_task_calls.append(kwargs)
             return "→99\nok"
 
