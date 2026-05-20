@@ -147,13 +147,17 @@ describe("SpecWizard", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
-    // Step 3: Criteria (auto-suggested: a, b, c from mock)
+    // Step 3: Produces (leave default Code and advance)
+    await waitFor(() => expect(screen.getByTestId("wizard-produces")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 4: Criteria (auto-suggested: a, b, c from mock)
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /next/i })).not.toBeDisabled();
     });
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
-    // Step 4: Review - submit
+    // Step 5: Review - submit
     await waitFor(() => {
       expect(screen.getByTestId("spec-submit")).toBeInTheDocument();
     });
@@ -224,7 +228,9 @@ describe("SpecWizard", () => {
   });
 
   it("selecting Document sends produces=document in wizard create", async () => {
-    mockedPost.mockResolvedValueOnce({ path: "docs/spec/q3-strategy.md" });
+    mockedPost
+      .mockResolvedValueOnce({ criteria: ["a", "b", "c"], non_goals: [], after_statement: "" }) // suggest
+      .mockResolvedValueOnce({ path: "docs/spec/q3-strategy.md" }); // create
 
     render(<SpecWizard {...defaultProps} />);
     fireEvent.click(screen.getByTestId("mode-spec"));
@@ -238,18 +244,12 @@ describe("SpecWizard", () => {
     await waitFor(() => expect(screen.getByTestId("wizard-in-scope")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
-    // Produces — pick Document
+    // Produces — pick Document and advance (suggest fires on next transition)
     await waitFor(() => expect(screen.getByTestId("produces-document")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("produces-document"));
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
-    // Criteria — add 3 manually (no auto-suggest)
-    await waitFor(() => expect(screen.getByTestId("wizard-criteria")).toBeInTheDocument());
-    const criteriaInput = screen.getByPlaceholderText(/Shows related tasks/);
-    for (const c of ["Crit A", "Crit B", "Crit C"]) {
-      fireEvent.change(criteriaInput, { target: { value: c } });
-      fireEvent.keyDown(criteriaInput, { key: "Enter" });
-    }
+    // Criteria — auto-suggested via mock, wait for Next to enable
     await waitFor(() => expect(screen.getByRole("button", { name: /next/i })).not.toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
@@ -266,7 +266,9 @@ describe("SpecWizard", () => {
   });
 
   it("code (default) sends produces=code in wizard create", async () => {
-    mockedPost.mockResolvedValueOnce({ path: "docs/spec/my-spec.md" });
+    mockedPost
+      .mockResolvedValueOnce({ criteria: ["a", "b", "c"], non_goals: [], after_statement: "" }) // suggest
+      .mockResolvedValueOnce({ path: "docs/spec/my-spec.md" }); // create
 
     render(<SpecWizard {...defaultProps} />);
     fireEvent.click(screen.getByTestId("mode-spec"));
@@ -279,17 +281,11 @@ describe("SpecWizard", () => {
     await waitFor(() => expect(screen.getByTestId("wizard-in-scope")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
-    // Produces — leave default (Code)
+    // Produces — leave default (Code) and advance (suggest fires on next transition)
     await waitFor(() => expect(screen.getByTestId("wizard-produces")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
-    // Criteria — add 3 manually
-    await waitFor(() => expect(screen.getByTestId("wizard-criteria")).toBeInTheDocument());
-    const criteriaInput = screen.getByPlaceholderText(/Shows related tasks/);
-    for (const c of ["A", "B", "C"]) {
-      fireEvent.change(criteriaInput, { target: { value: c } });
-      fireEvent.keyDown(criteriaInput, { key: "Enter" });
-    }
+    // Criteria — auto-suggested via mock, wait for Next to enable
     await waitFor(() => expect(screen.getByRole("button", { name: /next/i })).not.toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
