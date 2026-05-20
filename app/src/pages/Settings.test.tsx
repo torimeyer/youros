@@ -1385,4 +1385,60 @@ describe('Settings — Memory provenance (F4)', () => {
     })
     expect(screen.getByTestId('memory-provenance-0')).toHaveTextContent('edited manually')
   })
+
+  it('shows overflow banner when memory is overflowed', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/memory') return Promise.resolve({ content: '- I prefer plain language' })
+      if (path === '/memory/user/overflow-status') return Promise.resolve({ overflowed: true, reason: 'lines', kb: 10, lines: 155, total_kb: 10, hard_cap: false })
+      return Promise.resolve({})
+    })
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    switchToPreferences()
+    await waitFor(() => {
+      expect(screen.getByTestId('memory-overflow-banner')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('suggest-topics-button')).toBeInTheDocument()
+  })
+
+  it('does not show overflow banner when memory is within limits', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/memory') return Promise.resolve({ content: '- I prefer plain language' })
+      if (path === '/memory/user/overflow-status') return Promise.resolve({ overflowed: false, reason: '', kb: 2, lines: 5, total_kb: 2, hard_cap: false })
+      return Promise.resolve({})
+    })
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    switchToPreferences()
+    await waitFor(() => {
+      expect(screen.queryByTestId('memory-overflow-banner')).not.toBeInTheDocument()
+    })
+  })
+
+  it('shows hard-cap banner when total memory exceeds 200KB', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/memory') return Promise.resolve({ content: '- I prefer plain language' })
+      if (path === '/memory/user/overflow-status') return Promise.resolve({ overflowed: true, reason: 'kb', kb: 210, lines: 500, total_kb: 210, hard_cap: true })
+      return Promise.resolve({})
+    })
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    switchToPreferences()
+    await waitFor(() => {
+      expect(screen.getByTestId('memory-hard-cap-banner')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('memory-overflow-banner')).not.toBeInTheDocument()
+  })
+
+  it('shows suggested topics after clicking Suggest topics', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/memory') return Promise.resolve({ content: "- Don't say grep.\n- Use plain language." })
+      if (path === '/memory/user/overflow-status') return Promise.resolve({ overflowed: true, reason: 'lines', kb: 10, lines: 155, total_kb: 10, hard_cap: false })
+      return Promise.resolve({})
+    })
+    vi.mocked(api.post).mockResolvedValue({ topics: [{ topic: 'writing-style', bullets: ["Don't say grep.", 'Use plain language.'] }] })
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    switchToPreferences()
+    await waitFor(() => expect(screen.getByTestId('suggest-topics-button')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('suggest-topics-button'))
+    await waitFor(() => expect(screen.getByTestId('suggested-topics-list')).toBeInTheDocument())
+    expect(screen.getByText('writing-style')).toBeInTheDocument()
+  })
 })

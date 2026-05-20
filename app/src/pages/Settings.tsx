@@ -121,6 +121,9 @@ export default function Settings() {
   const [chatReceiptsGateEnabled, setChatReceiptsGateEnabled] = useState(true);
   const [memoryContent, setMemoryContent] = useState('');
   const [memorySaveStatus, setMemorySaveStatus] = useState<string | null>(null);
+  const [memoryOverflow, setMemoryOverflow] = useState<{ overflowed: boolean; reason: string; kb: number; lines: number; total_kb: number; hard_cap: boolean } | null>(null);
+  const [suggestTopicsLoading, setSuggestTopicsLoading] = useState(false);
+  const [suggestedTopics, setSuggestedTopics] = useState<{ topic: string; bullets: string[] }[] | null>(null);
   const [standingInstructions, setStandingInstructions] = useState('');
   const [standingSaveStatus, setStandingSaveStatus] = useState<string | null>(null);
   const [standingSaveIsError, setStandingSaveIsError] = useState(false);
@@ -282,9 +285,12 @@ export default function Settings() {
       }
     };
     fetchSettings();
-    // Load per-user memory file for the Memory editor.
+    // Load per-user memory file and overflow status for the Memory editor.
     api.get<{ content: string }>('/memory')
       .then((d) => setMemoryContent(d.content ?? ''))
+      .catch(() => {});
+    api.get<{ overflowed: boolean; reason: string; kb: number; lines: number; total_kb: number; hard_cap: boolean }>('/memory/user/overflow-status')
+      .then((d) => setMemoryOverflow(d))
       .catch(() => {});
     // Check whether the local local subscription programs are ready.
     api.get<{ claude_code_available?: boolean; gemini_cli_available?: boolean }>('/settings/chat-backend-status')
@@ -620,6 +626,42 @@ export default function Settings() {
       setMemorySaveStatus('Could not save. Check your connection and try again.');
     } finally {
       setTimeout(() => setMemorySaveStatus(null), 3000);
+    }
+  };
+
+  const handleSuggestTopics = async () => {
+    setSuggestTopicsLoading(true);
+    setSuggestedTopics(null);
+    try {
+      const res = await api.post<{ topics: { topic: string; bullets: string[] }[] }>(
+        '/memory/user/suggest-topics',
+        { content: memoryContent }
+      );
+      setSuggestedTopics(res.topics ?? []);
+    } catch {
+      setSuggestedTopics([]);
+    } finally {
+      setSuggestTopicsLoading(false);
+    }
+  };
+
+  const handleApplySplit = async (bullet: string, topic: string) => {
+    try {
+      await api.post('/memory/user/split-topic', { bullet_text: bullet, topic_name: topic });
+      // Reload memory content and overflow status after split.
+      const [mem, status] = await Promise.all([
+        api.get<{ content: string }>('/memory'),
+        api.get<{ overflowed: boolean; reason: string; kb: number; lines: number; total_kb: number; hard_cap: boolean }>('/memory/user/overflow-status'),
+      ]);
+      setMemoryContent(mem.content ?? '');
+      setMemoryOverflow(status);
+      // Remove the applied bullet from suggestions.
+      setSuggestedTopics(prev =>
+        prev?.map(t => t.topic === topic ? { ...t, bullets: t.bullets.filter(b => b !== bullet) } : t)
+            .filter(t => t.bullets.length > 0) ?? null
+      );
+    } catch {
+      // Silent — bullet may have already been moved.
     }
   };
 
@@ -1864,6 +1906,52 @@ export default function Settings() {
               <p className="text-sm text-slate-400 mb-4">
                 Things you tell me to remember show up here. You can edit or remove them anytime.
               </p>
+              {memoryOverflow?.hard_cap && (
+                <div data-testid="memory-hard-cap-banner" className="mb-4 rounded-lg bg-red-900/40 border border-red-700 px-4 py-3 text-sm text-red-200">
+                  Your memory file is very large ({memoryOverflow.total_kb.toFixed(0)} KB). Go through it and remove anything outdated.
+                </div>
+              )}
+              {!memoryOverflow?.hard_cap && memoryOverflow?.overflowed && (
+                <div data-testid="memory-overflow-banner" className="mb-4 rounded-lg bg-amber-900/30 border border-amber-700 px-4 py-3">
+                  <p className="text-sm text-amber-200 mb-2">
+                    Your memory file is getting large ({memoryOverflow.reason === 'kb' ? `${memoryOverflow.kb.toFixed(0)} KB` : `${memoryOverflow.lines} lines`}). Want to organize it into topic files?
+                  </p>
+                  <button
+                    data-testid="suggest-topics-button"
+                    onClick={handleSuggestTopics}
+                    disabled={suggestTopicsLoading}
+                    className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-medium transition-colors"
+                  >
+                    {suggestTopicsLoading ? 'Thinking…' : 'Suggest topics'}
+                  </button>
+                  {suggestedTopics !== null && suggestedTopics.length === 0 && (
+                    <p className="mt-2 text-xs text-amber-300">No groupings suggested — your memory looks well-organized already.</p>
+                  )}
+                  {suggestedTopics && suggestedTopics.length > 0 && (
+                    <div data-testid="suggested-topics-list" className="mt-3 space-y-3">
+                      {suggestedTopics.map(({ topic, bullets }) => (
+                        <div key={topic}>
+                          <p className="text-xs font-semibold text-amber-100 mb-1">{topic}</p>
+                          <ul className="space-y-1">
+                            {bullets.map((bullet) => (
+                              <li key={bullet} className="flex items-center gap-2">
+                                <span className="text-xs text-slate-300 flex-1">{bullet}</span>
+                                <button
+                                  data-testid={`apply-split-${topic}`}
+                                  onClick={() => handleApplySplit(bullet, topic)}
+                                  className="shrink-0 px-2 py-0.5 rounded bg-amber-700 hover:bg-amber-600 text-white text-xs transition-colors"
+                                >
+                                  Move
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               {(() => {
                 const bullets = parseMemoryProvenance(memoryContent);
                 if (bullets.length > 0) {
