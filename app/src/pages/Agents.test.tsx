@@ -6652,3 +6652,135 @@ describe('Agents page - ghost/alive badge, progress, and step display (→1490)'
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// AgentStatusBadge — richer terminal badges (→1510)
+// ---------------------------------------------------------------------------
+
+describe('Agents page - AgentStatusBadge (→1510)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents/templates') return mockTemplatesResponse
+      return {}
+    })
+  })
+
+  function makeRecentAgents(overrides: object[]) {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return {
+        daemon_running: true,
+        status: 'ok',
+        active: [],
+        agents: overrides,
+      }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      return {}
+    })
+  }
+
+  async function goToRecentTab() {
+    renderAgents()
+    const recentTab = await screen.findByRole('button', { name: 'Recent' })
+    fireEvent.click(recentTab)
+  }
+
+  it('shows CLEAN badge for a completed agent with badge=clean', async () => {
+    makeRecentAgents([{
+      name: 'clean-agent',
+      status: 'completed',
+      source: 'claude-code',
+      model: 'sonnet',
+      spawned_at: new Date().toISOString(),
+      badge: 'clean',
+    }])
+    await goToRecentTab()
+    await waitFor(() => {
+      expect(screen.getByTitle(/^clean-agent(\s|$)/)).toBeInTheDocument()
+    })
+    const badges = screen.getAllByTestId('agent-status-badge')
+    const cleanBadge = badges.find(b => b.textContent === 'CLEAN')
+    expect(cleanBadge).toBeDefined()
+    expect(cleanBadge).toHaveClass('text-green-400')
+  })
+
+  it('shows SALVAGED badge for a rescued agent with badge=salvaged', async () => {
+    makeRecentAgents([{
+      name: 'salvaged-agent',
+      status: 'abandoned',
+      source: 'claude-code',
+      model: 'sonnet',
+      spawned_at: new Date().toISOString(),
+      badge: 'salvaged',
+    }])
+    await goToRecentTab()
+    // abandoned agents are hidden by default — reveal them
+    const chip = await screen.findByTestId('recent-cancelled-toggle')
+    fireEvent.click(chip)
+    await waitFor(() => {
+      expect(screen.getByTitle(/^salvaged-agent(\s|$)/)).toBeInTheDocument()
+    })
+    const badges = screen.getAllByTestId('agent-status-badge')
+    const salvagedBadge = badges.find(b => b.textContent === 'SALVAGED')
+    expect(salvagedBadge).toBeDefined()
+    expect(salvagedBadge).toHaveClass('text-blue-400')
+  })
+
+  it('shows FAILED badge for a non-completed agent with badge=failed', async () => {
+    makeRecentAgents([{
+      name: 'failed-agent',
+      status: 'failed',
+      source: 'claude-code',
+      model: 'sonnet',
+      spawned_at: new Date().toISOString(),
+      badge: 'failed',
+    }])
+    await goToRecentTab()
+    await waitFor(() => {
+      expect(screen.getByTitle(/^failed-agent(\s|$)/)).toBeInTheDocument()
+    })
+    const badges = screen.getAllByTestId('agent-status-badge')
+    const failedBadge = badges.find(b => b.textContent === 'FAILED')
+    expect(failedBadge).toBeDefined()
+    expect(failedBadge).toHaveClass('text-red-400')
+  })
+
+  it('shows NO WORK badge for an agent with badge=abandoned-no-work', async () => {
+    makeRecentAgents([{
+      name: 'noop-agent',
+      status: 'completed',
+      source: 'claude-code',
+      model: 'sonnet',
+      spawned_at: new Date().toISOString(),
+      badge: 'abandoned-no-work',
+    }])
+    await goToRecentTab()
+    await waitFor(() => {
+      expect(screen.getByTitle(/^noop-agent(\s|$)/)).toBeInTheDocument()
+    })
+    const badges = screen.getAllByTestId('agent-status-badge')
+    const noWorkBadge = badges.find(b => b.textContent === 'NO WORK')
+    expect(noWorkBadge).toBeDefined()
+    expect(noWorkBadge).toHaveClass('text-slate-400')
+  })
+
+  it('shows no AgentStatusBadge when badge field is absent', async () => {
+    makeRecentAgents([{
+      name: 'no-badge-agent',
+      status: 'completed',
+      source: 'claude-code',
+      model: 'sonnet',
+      spawned_at: new Date().toISOString(),
+      // no badge field
+    }])
+    await goToRecentTab()
+    await waitFor(() => {
+      expect(screen.getByTitle(/^no-badge-agent(\s|$)/)).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('agent-status-badge')).toBeNull()
+  })
+})

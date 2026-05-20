@@ -1590,6 +1590,44 @@ function BudgetProgressBar({ tokensUsed, tokenLimit, costEstimate }: {
   );
 }
 
+const AGENT_STATUS_BADGE_CONFIG: Record<string, { label: string; className: string; title: string }> = {
+  clean: {
+    label: "CLEAN",
+    className: "bg-green-500/20 text-green-400",
+    title: "Agent finished and committed its work",
+  },
+  salvaged: {
+    label: "SALVAGED",
+    className: "bg-blue-500/20 text-blue-400",
+    title: "Agent stopped but its work was rescued and merged by another session",
+  },
+  failed: {
+    label: "FAILED",
+    className: "bg-red-500/20 text-red-400",
+    title: "Agent produced real output but did not finish",
+  },
+  "abandoned-no-work": {
+    label: "NO WORK",
+    className: "bg-slate-500/20 text-slate-400",
+    title: "Agent stopped without producing any meaningful output",
+  },
+};
+
+function AgentStatusBadge({ badge }: { badge?: string }) {
+  if (!badge) return null;
+  const cfg = AGENT_STATUS_BADGE_CONFIG[badge];
+  if (!cfg) return null;
+  return (
+    <span
+      className={`text-xs font-bold px-2 py-0.5 rounded ${cfg.className}`}
+      data-testid="agent-status-badge"
+      title={cfg.title}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
 function RecoveryBadge({ recoveryCount, maxRecoveries }: {
   recoveryCount: number;
   maxRecoveries: number;
@@ -4039,6 +4077,7 @@ export default function Agents() {
                         <span className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}>
                           {statusLabel(agent.status)}
                         </span>
+                        <AgentStatusBadge badge={agent.badge} />
                         {pendingGrants.length > 0 && (
                           <span className="text-xs font-bold px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400">
                             {pendingGrants.length} pending
@@ -4624,6 +4663,7 @@ export default function Agents() {
                             >
                               {statusLabel(agent.status)}
                             </span>
+                            <AgentStatusBadge badge={agent.badge} />
                             <RecoveryBadge
                               recoveryCount={agent.recovery_count ?? 0}
                               maxRecoveries={agent.max_recoveries ?? 3}

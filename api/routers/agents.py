@@ -1347,6 +1347,48 @@ def _worktree_branch_has_commits(branch: str) -> bool:
         return False
 
 
+def _compute_agent_badge(meta: dict) -> Optional[str]:
+    """Derive a display badge for a terminal agent row.
+
+    Returns one of "clean", "salvaged", "failed", "abandoned-no-work", or
+    None when the agent is still running (badge not applicable).
+
+    Badge semantics:
+      clean            – completed by the agent itself (called /complete)
+      salvaged         – non-completed terminal state, but the worktree branch
+                         was merged into main by a peer session; real transcript
+                         confirms work happened (transcript_bytes > 100)
+      failed           – non-completed terminal state with real work attempted
+                         (transcript_bytes > 100) but no salvage evidence
+      abandoned-no-work – terminal state with little or no transcript and no
+                          commits (agent never really started)
+    """
+    status = meta.get("status", "")
+    if status not in _TERMINAL_STATUSES:
+        return None
+
+    transcript_bytes = meta.get("transcript_bytes") or 0
+    worktree_branch = meta.get("worktree_branch") or ""
+
+    # completed → always clean regardless of worktree state
+    if status == "completed":
+        return "clean"
+
+    # For non-completed terminal states, check if the worktree branch was merged
+    has_commits_ahead = bool(worktree_branch and _worktree_branch_has_commits(worktree_branch))
+
+    # salvaged: branch exists, was merged (no longer ahead of main), real transcript
+    if worktree_branch and not has_commits_ahead and transcript_bytes > 100:
+        return "salvaged"
+
+    # failed: real transcript but not salvaged
+    if transcript_bytes > 100:
+        return "failed"
+
+    # abandoned-no-work: terminal with no real transcript and no commits
+    return "abandoned-no-work"
+
+
 def _write_terminated_banner(path, name: str, reason: str) -> bool:
     """Overwrite transcript at ``path`` with the terminated-without-work banner.
 
@@ -4042,6 +4084,11 @@ async def list_agents(
                     _agent_row["build_state"] = _bs
     except Exception:
         pass
+    # Annotate each terminal agent row with a derived badge field.
+    for _agent_row in agents:
+        _badge = _compute_agent_badge(_agent_row)
+        if _badge is not None:
+            _agent_row["badge"] = _badge
     return {
         "daemon_running": daemon_running,
         "status": snapshot.get("status", "unknown"),
