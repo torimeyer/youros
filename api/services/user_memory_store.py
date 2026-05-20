@@ -35,6 +35,9 @@ _cache_lock = threading.Lock()
 _cached_mtime: float = -1.0
 _cached_content: str = ""
 
+# Single-slot undo: the file content immediately before the last remove_bullet call.
+_undo_snapshot: str | None = None
+
 
 # ── public API ────────────────────────────────────────────────────────────────
 
@@ -105,6 +108,67 @@ def append_bullet(section: str, text: str) -> None:
         )
 
 
+def remove_bullet(query: str) -> "str | list[str] | None":
+    """Find and remove a bullet matching *query* from the memory file.
+
+    Fuzzy-matches using case-insensitive substring check. Returns:
+      - The removed bullet text (str) on a single match.
+      - A list of candidate bullet texts (list[str]) on multiple matches.
+      - None if no bullet matches.
+
+    On single-match removal, saves a snapshot of the pre-removal content
+    into ``_undo_snapshot`` so ``restore_undo()`` can reverse it.
+    """
+    global _undo_snapshot
+
+    path = _memory_path()
+    if not path.exists():
+        return None
+
+    with open(path, "r+", encoding="utf-8") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            content = fh.read()
+            bullets = _extract_bullets(content)
+            q_lower = query.lower()
+            # Fuzzy: any keyword in query (≥3 chars) appears in bullet text
+            matches = [b for b in bullets if _fuzzy_match(q_lower, b.lower())]
+
+            if not matches:
+                return None
+            if len(matches) > 1:
+                return [_strip_provenance(b) for b in matches]
+
+            # Single match: remove it and save undo snapshot.
+            _undo_snapshot = content
+            new_content = _remove_line_containing(content, matches[0])
+            fh.seek(0)
+            fh.truncate()
+            fh.write(new_content)
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+    with _cache_lock:
+        _reset_cache()
+
+    return _strip_provenance(matches[0])
+
+
+def restore_undo() -> bool:
+    """Restore the file to the snapshot saved by the last ``remove_bullet`` call.
+
+    Returns True on success, False if no snapshot exists.
+    """
+    global _undo_snapshot
+    if _undo_snapshot is None:
+        return False
+
+    snapshot = _undo_snapshot
+    _undo_snapshot = None
+    replace_all(snapshot)
+    return True
+
+
 def replace_all(text: str) -> None:
     """Replace the entire memory file with *text*.
 
@@ -125,6 +189,39 @@ def replace_all(text: str) -> None:
 
 
 # ── private helpers ───────────────────────────────────────────────────────────
+
+
+def _extract_bullets(content: str) -> list[str]:
+    """Return all bullet lines (starting with '- ') from *content*."""
+    return [line.strip() for line in content.splitlines() if line.lstrip().startswith("- ")]
+
+
+def _fuzzy_match(query: str, bullet_lower: str) -> bool:
+    """Return True if *query* overlaps *bullet_lower* by substring or keyword."""
+    if query in bullet_lower:
+        return True
+    # Keyword overlap: any query word ≥3 chars that appears in the bullet
+    keywords = [w for w in query.split() if len(w) >= 3]
+    return any(kw in bullet_lower for kw in keywords)
+
+
+def _strip_provenance(bullet: str) -> str:
+    """Remove the '<!-- added ... -->' comment from a bullet line."""
+    import re
+    return re.sub(r"\s*<!--.*?-->", "", bullet).strip()
+
+
+def _remove_line_containing(content: str, bullet: str) -> str:
+    """Return *content* with the line containing *bullet* removed."""
+    bullet_text = _strip_provenance(bullet)
+    lines = content.splitlines(keepends=True)
+    result = []
+    for line in lines:
+        stripped = _strip_provenance(line.rstrip())
+        if stripped == bullet_text:
+            continue
+        result.append(line)
+    return "".join(result)
 
 
 def _memory_path() -> Path:
