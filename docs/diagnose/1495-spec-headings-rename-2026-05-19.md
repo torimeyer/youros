@@ -43,10 +43,22 @@ Headings that did NOT match any mapping pattern (left unchanged):
 
 ## Audit score after
 
-<!-- Filled in after renames applied -->
-Score: TBD  
-Sections present: TBD
+Score: **1/10**  
+Sections present: Problem  
+Sections missing: Goals, Non-goals, Solution, Edge cases, Success criteria, Acceptance criteria, Verification, USER FEEDBACK, DECISION
 
-## Notes
+## Gap analysis
 
-Task predicted score jump to 8+. Only 1 heading matched the given patterns exactly. The spec uses more descriptive section names than the canonical 10-section template uses. If a higher score is needed, the remaining headings would need additional renames — but none of them match the mapping strings in the task, so they were left per the "don't invent renames" rule.
+Task predicted 8+ but only 1 rename matched. Here is why each other candidate fell short:
+
+**`## What still needs to be built`** — mapping pattern is `What needs to be built` (no "still"). Exact match rule prevents this rename. The section does contain `**Acceptance**` subsections with `- [ ]` checklists, but the heading line itself doesn't match.
+
+**`## Out of scope (named so we do not slide into them)`** — mapping patterns are `Not-doing` and `What we're not doing`. Completely different phrasing; no rename applied.
+
+**`## Smoke verification before the meeting`** — mapping patterns are `Done-when` and `How we'll know`. Completely different phrasing; no rename applied.
+
+**`## Build order`, `## Files to touch`, `## Estimate`, `## What is already in place (do not rebuild)`, `## References`** — no mapping defined for any of these.
+
+## Recommendation
+
+To reach 8+, a follow-up task should add the remaining canonical sections directly or add extended patterns to the mapping (e.g. also match "What still needs to be built" for Acceptance-criteria, "Out of scope" for Non-goals, "Smoke verification" for Verification). That would require a deliberate decision to expand the rename mapping rather than a mechanical rename of exact strings.
