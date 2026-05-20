@@ -156,6 +156,19 @@ def compute_duration_stats(
     }
 
 
+def _try_time_primitive_estimate() -> Optional[int]:
+    """Return rolling median from the Time primitive, or None if unavailable.
+
+    Extracted so tests can monkeypatch this to None and exercise the
+    compute_duration_stats fallback path without live DB data interfering.
+    """
+    try:
+        from services import time_primitive as _tp
+        return _tp.estimate("agent_spawn")
+    except Exception:
+        return None
+
+
 def get_duration_stats(force_refresh: bool = False) -> dict:
     """Return cached duration stats, recomputing every CACHE_TTL_SEC.
 
@@ -177,21 +190,17 @@ def get_duration_stats(force_refresh: bool = False) -> dict:
         ):
             return dict(_cache["value"])
         # Try Time primitive first; fall back to local rolling median.
-        try:
-            from services import time_primitive as _tp
-            estimate = _tp.estimate("agent_spawn")
-            if estimate is not None:
-                value = {
-                    "median_seconds": int(round(estimate)),
-                    "p75_seconds": int(round(estimate)),
-                    "sample_count": 1,
-                    "window_days": DEFAULT_WINDOW_DAYS,
-                }
-                _cache["value"] = value
-                _cache["expires_at"] = now_monotonic + CACHE_TTL_SEC
-                return dict(value)
-        except Exception:
-            pass
+        tp_estimate = _try_time_primitive_estimate()
+        if tp_estimate is not None:
+            value = {
+                "median_seconds": int(round(tp_estimate)),
+                "p75_seconds": int(round(tp_estimate)),
+                "sample_count": 1,
+                "window_days": DEFAULT_WINDOW_DAYS,
+            }
+            _cache["value"] = value
+            _cache["expires_at"] = now_monotonic + CACHE_TTL_SEC
+            return dict(value)
         value = compute_duration_stats()
         _cache["value"] = value
         _cache["expires_at"] = now_monotonic + CACHE_TTL_SEC

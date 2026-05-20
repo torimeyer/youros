@@ -111,6 +111,9 @@ def test_cache_honors_ttl(monkeypatch, seeded_state: Path):
     """get_duration_stats caches and only recomputes after TTL expiry."""
     invalidate_cache()
     monkeypatch.setattr(stats_mod, "AGENT_STATE_PATH", seeded_state)
+    # Disable the time-primitive fast-path so the test exercises the
+    # compute_duration_stats branch and the spy fires as expected.
+    monkeypatch.setattr(stats_mod, "_try_time_primitive_estimate", lambda: None)
 
     calls = {"n": 0}
     real_compute = stats_mod.compute_duration_stats
