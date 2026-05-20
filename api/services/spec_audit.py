@@ -258,18 +258,14 @@ def compute_stage(
     """Compute the display stage for a spec dict.
 
     Stage priority (highest to lowest):
-      archived  — path is under ~/.myos/specs/archive/
-      draft     — status is draft, OR husk detected
-      shipped   — all files exist AND all needles closed
-      building  — has open needles
-      ready     — has content, no issues
+      draft       — status is draft, OR husk detected
+      in_progress — has open needles
+      ready       — has content, no issues
+
+    Specs that meet the shipped condition (all needles closed + all files
+    exist) are auto-archived before reaching this function and will not
+    appear in the list.
     """
-    path = spec.get("path", "")
-
-    # Archived
-    if "/archive/" in path:
-        return "archived"
-
     status = spec.get("status", "draft")
 
     # Husk → always draft
@@ -280,13 +276,9 @@ def compute_stage(
     if status == "draft":
         return "draft"
 
-    # Shipped
-    if shipped is not None and shipped.is_shipped:
-        return "shipped"
-
-    # Building (open needles)
+    # In progress (open needles)
     if shipped is not None and shipped.open_needles:
-        return "building"
+        return "in_progress"
 
     return "ready"
 

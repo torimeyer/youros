@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from config import PROJECT_ROOT
 from models.schemas import SpecDraft, SpecPromote, SpecDecompose
 from services.ostk import ostk, OstkError
-from services.spec_audit import audit_all_specs
+from services.spec_audit import audit_all_specs, compute_shipped, compute_husk_status
 from services.tracing import trace_event
 
 logger = logging.getLogger(__name__)
@@ -364,11 +364,15 @@ async def list_specs(clear_to_build: Optional[bool] = None):
     """List all draft and spec documents with lifecycle metadata.
 
     Each document includes task_ids, task_summary, acceptance_criteria,
-    and a computed status (draft/ready/in-progress/complete).
+    and a computed status (draft/ready/in_progress).
 
     Plan transcripts (status="plan") are excluded here. They surface via
     /specs/recent for the Recent Documents widget. Including them would
     inflate the page count and show agent plan files as user specs.
+
+    Specs that meet the auto-archive condition (all linked needles closed
+    and all referenced files exist) are silently moved to
+    ~/.myos/specs/archive/ and excluded from the list.
     """
     try:
         docs = await ostk.list_docs()
@@ -376,6 +380,52 @@ async def list_specs(clear_to_build: Optional[bool] = None):
         # Umbrella / leaf hierarchy enrichment
         for d in docs:
             d.update(_read_umbrella_fields(d.get("path", "")))
+
+        # Silent auto-archive: move specs that are fully done off the board.
+        try:
+            from services.ostk import USER_SPECS_DIR as _USER_SPECS_DIR
+            from services.spec_audit import _REPO_ROOT as _SPEC_REPO_ROOT
+            needle_statuses: dict[str, str] = {}
+            try:
+                raw_tasks = await ostk.list_tasks()
+                for t in raw_tasks:
+                    nid = str(t.get("id", ""))
+                    if nid:
+                        needle_statuses[nid] = t.get("status", "open")
+            except Exception:
+                pass
+            archive_dir = _USER_SPECS_DIR / "archive"
+            surviving: list[dict] = []
+            for d in docs:
+                raw_path = d.get("path", "")
+                if not raw_path:
+                    surviving.append(d)
+                    continue
+                abs_path = (
+                    Path(raw_path) if raw_path.startswith("/") or raw_path.startswith("~")
+                    else _USER_SPECS_DIR / raw_path
+                )
+                shipped = compute_shipped(abs_path, _SPEC_REPO_ROOT, needle_statuses)
+                if shipped.is_shipped and abs_path.exists():
+                    # Move to archive
+                    archive_dir.mkdir(parents=True, exist_ok=True)
+                    import datetime as _dt
+                    ts = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
+                    slug = abs_path.stem
+                    dest = archive_dir / f"{ts}-{slug}.md"
+                    try:
+                        abs_path.rename(dest)
+                        trace_event("spec_auto_archive", slug=slug, path=str(dest))
+                        logger.info("auto-archived spec %s → %s", slug, dest)
+                    except Exception as mv_err:
+                        logger.warning("auto-archive failed for %s: %s", raw_path, mv_err)
+                        surviving.append(d)
+                else:
+                    surviving.append(d)
+            docs = surviving
+        except Exception as arch_err:
+            logger.warning("auto-archive scan failed: %s", arch_err)
+
         # Gemini-ready enrichment
         try:
             from services.gemini_ready import compute_spec_readiness
@@ -391,8 +441,7 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                 d["clear_to_build"] = r.ready
                 d["clear_to_build_checks"] = r.as_dict()["checks"]
                 if not r.ready:
-                    if d.get("status") not in ("shipped", "archived"):
-                        d["needs_clarity"] = True
+                    d["needs_clarity"] = True
                     if d.get("status") in ("ready", "spec"):
                         d["effective_status"] = "draft"
         except Exception:
@@ -452,19 +501,20 @@ async def spec_counts():
         docs = await ostk.list_docs()
         real_specs = [d for d in docs if d.get("status") != "plan"]
         total = len(real_specs)
-        # →1512: unfinished = Ready + Building only (not Draft, Shipped, Archived)
+        # →1561: 3-stage model — unfinished = Ready + In Progress only
         _status_to_stage = {
             "draft": "draft",
             "ready": "ready",
             "spec": "ready",
-            "in-progress": "building",
-            "complete": "shipped",
+            "in-progress": "in_progress",
+            "building": "in_progress",
+            "complete": "in_progress",
         }
         by_stage: dict[str, int] = {}
         for d in real_specs:
             stage = d.get("stage") or _status_to_stage.get(d.get("status", "draft"), "draft")
             by_stage[stage] = by_stage.get(stage, 0) + 1
-        unfinished = by_stage.get("ready", 0) + by_stage.get("building", 0)
+        unfinished = by_stage.get("ready", 0) + by_stage.get("in_progress", 0)
         return {"unfinished": unfinished, "total": total, "by_stage": by_stage}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))

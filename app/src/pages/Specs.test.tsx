@@ -165,14 +165,11 @@ describe('Specs page', () => {
   it('shows filter tabs with all status counts', async () => {
     renderSpecs()
     await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
-    // Stage filter pills replace old tab buttons
-    expect(screen.getByTestId('stage-filter-active')).toBeInTheDocument()
+    // Stage filter pills: All, Draft, Ready, In Progress
     expect(screen.getByTestId('stage-filter-all')).toBeInTheDocument()
     expect(screen.getByTestId('stage-filter-draft')).toBeInTheDocument()
     expect(screen.getByTestId('stage-filter-ready')).toBeInTheDocument()
-    expect(screen.getByTestId('stage-filter-building')).toBeInTheDocument()
-    expect(screen.getByTestId('stage-filter-shipped')).toBeInTheDocument()
-    expect(screen.getByTestId('stage-filter-archived')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-filter-in_progress')).toBeInTheDocument()
   })
 
   it('New Spec button is always enabled', async () => {
@@ -719,11 +716,11 @@ describe('Specs page', () => {
     renderSpecs()
     await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
 
-    // Default "active" filter shows ready + building only
+    // Default "all" filter shows every spec
     await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
     expect(screen.getByText('dashboard redesign')).toBeInTheDocument()
-    expect(screen.queryByText('onboarding flow')).not.toBeInTheDocument()
-    expect(screen.queryByText('settings page')).not.toBeInTheDocument()
+    expect(screen.getByText('onboarding flow')).toBeInTheDocument()
+    expect(screen.getByText('settings page')).toBeInTheDocument()
 
     // Click Draft stage pill
     fireEvent.click(screen.getByTestId('stage-filter-draft'))
@@ -736,15 +733,10 @@ describe('Specs page', () => {
     await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
     expect(screen.queryByText('onboarding flow')).not.toBeInTheDocument()
 
-    // Click Building stage pill
-    fireEvent.click(screen.getByTestId('stage-filter-building'))
+    // Click In Progress stage pill
+    fireEvent.click(screen.getByTestId('stage-filter-in_progress'))
     await waitFor(() => expect(screen.getByText('dashboard redesign')).toBeInTheDocument())
     expect(screen.queryByText('auth system')).not.toBeInTheDocument()
-
-    // Click Shipped stage pill
-    fireEvent.click(screen.getByTestId('stage-filter-shipped'))
-    await waitFor(() => expect(screen.getByText('settings page')).toBeInTheDocument())
-    expect(screen.queryByText('dashboard redesign')).not.toBeInTheDocument()
 
     // Click All stage pill
     fireEvent.click(screen.getByTestId('stage-filter-all'))
@@ -1483,9 +1475,9 @@ describe('Specs page real-time bus', () => {
   })
 
   // Auto-switch: a successful Build it on a spec should move the user
-  // to the Building tab so they land on the filtered list that contains
+  // to the In Progress tab so they land on the filtered list that contains
   // the plan they just built instead of staring at their old tab.
-  it('Build it switches to Building tab on success', async () => {
+  it('Build it switches to In Progress tab on success', async () => {
     mockedApiPost.mockResolvedValue({
       agents: ['agent-a', 'agent-b'],
       message: 'Spawned 2 agents.',
@@ -1497,10 +1489,10 @@ describe('Specs page real-time bus', () => {
       expect(screen.getByText('auth system')).toBeInTheDocument()
     })
 
-    // Default stage filter is "active". Confirm the Building pill does NOT yet
+    // Default stage filter is "all". Confirm the In Progress pill does NOT yet
     // have selected styling before Build fires.
-    const buildingTabBefore = screen.getByTestId('stage-filter-building')
-    expect(buildingTabBefore.className).not.toContain('bg-blue-500')
+    const inProgressTabBefore = screen.getByTestId('stage-filter-in_progress')
+    expect(inProgressTabBefore.className).not.toContain('bg-blue-500')
 
     // Expand the ready spec and click Build it.
     const cards = screen.getAllByTestId('spec-card')
@@ -1513,12 +1505,12 @@ describe('Specs page real-time bus', () => {
 
     fireEvent.click(screen.getByText('Build it'))
 
-    // After the build POST resolves with agents, the Building stage pill
+    // After the build POST resolves with agents, the In Progress stage pill
     // should carry the selected styling.
     await waitFor(() => {
-      const buildingTab = screen.getByTestId('stage-filter-building')
-      expect(buildingTab.className).toContain('bg-blue-500')
-      expect(buildingTab.className).toContain('text-white')
+      const inProgressTab = screen.getByTestId('stage-filter-in_progress')
+      expect(inProgressTab.className).toContain('bg-blue-500')
+      expect(inProgressTab.className).toContain('text-white')
     })
   })
 
@@ -1724,21 +1716,11 @@ const mockStageDocsResponse = {
       filename: 'dark-mode.md',
       title: 'dark mode',
       status: 'in-progress',
-      stage: 'building',
+      stage: 'in_progress',
       created_at: '2026-03-01T00:00:00Z',
       promoted_at: '2026-03-05T00:00:00Z',
       body: 'Dark mode spec.',
       task_summary: { total: 3, open: 1, closed: 2 },
-    },
-    {
-      path: 'docs/spec/old-feature.md',
-      filename: 'old-feature.md',
-      title: 'old feature',
-      status: 'complete',
-      stage: 'shipped',
-      created_at: '2026-01-01T00:00:00Z',
-      promoted_at: '2026-01-05T00:00:00Z',
-      body: 'This feature is fully shipped.',
     },
   ],
 }
@@ -1784,24 +1766,21 @@ function renderSpecsWithStageData(extraDocs: object[] = []) {
 describe('FR-008: stage filter pills', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
-  it('renders stage filter pills for all six stages', async () => {
+  it('renders stage filter pills for all four stages', async () => {
     renderSpecsWithStageData()
     await waitFor(() => expect(screen.getByText('payment flow')).toBeInTheDocument())
     expect(screen.getByTestId('stage-filter-all')).toBeInTheDocument()
     expect(screen.getByTestId('stage-filter-draft')).toBeInTheDocument()
     expect(screen.getByTestId('stage-filter-ready')).toBeInTheDocument()
-    expect(screen.getByTestId('stage-filter-building')).toBeInTheDocument()
-    expect(screen.getByTestId('stage-filter-shipped')).toBeInTheDocument()
-    expect(screen.getByTestId('stage-filter-archived')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-filter-in_progress')).toBeInTheDocument()
   })
 
-  it('default filter shows only Ready and Building stage specs', async () => {
+  it('default filter shows all specs', async () => {
     renderSpecsWithStageData()
     await waitFor(() => expect(screen.getByText('payment flow')).toBeInTheDocument())
     expect(screen.getByText('payment flow')).toBeInTheDocument()
     expect(screen.getByText('dark mode')).toBeInTheDocument()
-    expect(screen.queryByText('empty idea')).not.toBeInTheDocument()
-    expect(screen.queryByText('old feature')).not.toBeInTheDocument()
+    expect(screen.getByText('empty idea')).toBeInTheDocument()
   })
 
   it('clicking All shows every spec', async () => {
@@ -1810,7 +1789,7 @@ describe('FR-008: stage filter pills', () => {
     fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => {
       expect(screen.getByText('empty idea')).toBeInTheDocument()
-      expect(screen.getByText('old feature')).toBeInTheDocument()
+      expect(screen.getByText('dark mode')).toBeInTheDocument()
     })
   })
 
@@ -1823,49 +1802,17 @@ describe('FR-008: stage filter pills', () => {
     expect(screen.queryByText('old feature')).not.toBeInTheDocument()
   })
 
-  it('clicking Shipped shows only shipped-stage specs', async () => {
-    renderSpecsWithStageData()
-    await waitFor(() => expect(screen.getByText('payment flow')).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('stage-filter-shipped'))
-    await waitFor(() => expect(screen.getByText('old feature')).toBeInTheDocument())
-    expect(screen.queryByText('payment flow')).not.toBeInTheDocument()
-    expect(screen.queryByText('dark mode')).not.toBeInTheDocument()
-  })
-
   it('each spec card renders a stage chip with the doc stage', async () => {
     renderSpecsWithStageData()
     fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => expect(screen.getAllByTestId('stage-chip').length).toBeGreaterThan(0))
     const chips = screen.getAllByTestId('stage-chip').map(c => c.textContent)
     expect(chips).toContain('Ready')
-    expect(chips).toContain('Building')
+    expect(chips).toContain('In Progress')
   })
 })
 
-describe('FR-009: archive affordance for shipped specs', () => {
-  beforeEach(() => { vi.clearAllMocks() })
 
-  it('shows archive button on a shipped spec card header', async () => {
-    renderSpecsWithStageData()
-    fireEvent.click(screen.getByTestId('stage-filter-shipped'))
-    await waitFor(() => expect(screen.getByText('old feature')).toBeInTheDocument())
-    expect(screen.getByTestId('archive-spec-button')).toBeInTheDocument()
-  })
-
-  it('archive button calls POST /specs/{path}/archive', async () => {
-    mockedApiPost.mockResolvedValue({ result: 'archived' })
-    renderSpecsWithStageData()
-    fireEvent.click(screen.getByTestId('stage-filter-shipped'))
-    await waitFor(() => expect(screen.getByTestId('archive-spec-button')).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('archive-spec-button'))
-    await waitFor(() => {
-      expect(mockedApiPost).toHaveBeenCalledWith(
-        expect.stringMatching(/\/specs\/.*old-feature.*\/archive/),
-        expect.anything(),
-      )
-    })
-  })
-})
 
 describe('FR-010: husk tag', () => {
   beforeEach(() => { vi.clearAllMocks() })

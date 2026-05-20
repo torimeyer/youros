@@ -510,13 +510,8 @@ def test_compute_husk_result_shape(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# compute_stage
+# compute_stage  (→1561: 3-stage model — draft / ready / in_progress)
 # ---------------------------------------------------------------------------
-
-
-def test_compute_stage_archived():
-    spec = {"path": "/Users/foo/.myos/specs/archive/20260101T000000Z-foo.md"}
-    assert compute_stage(spec) == "archived"
 
 
 def test_compute_stage_draft_from_status():
@@ -525,20 +520,12 @@ def test_compute_stage_draft_from_status():
     assert result == "draft"
 
 
-def test_compute_stage_shipped():
-    from services.spec_audit import ShippedResult, HuskResult
-    spec = {"path": "~/.myos/specs/foo.md", "status": "spec"}
-    shipped = ShippedResult(is_shipped=True, missing_files=[], open_needles=[])
-    husk = HuskResult(is_husk=False, reason="")
-    assert compute_stage(spec, husk=husk, shipped=shipped) == "shipped"
-
-
-def test_compute_stage_building():
+def test_compute_stage_in_progress():
     from services.spec_audit import ShippedResult, HuskResult
     spec = {"path": "~/.myos/specs/foo.md", "status": "spec"}
     shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=["1234"])
     husk = HuskResult(is_husk=False, reason="")
-    assert compute_stage(spec, husk=husk, shipped=shipped) == "building"
+    assert compute_stage(spec, husk=husk, shipped=shipped) == "in_progress"
 
 
 def test_compute_stage_ready():
@@ -555,3 +542,40 @@ def test_compute_stage_husk_is_draft():
     shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
     husk = HuskResult(is_husk=True, reason="no content")
     assert compute_stage(spec, husk=husk, shipped=shipped) == "draft"
+
+
+def test_silent_auto_archive_on_completion(tmp_path):
+    """Specs meeting the shipped condition have is_shipped=True — auto-archive
+    logic in list_specs moves them off the board. Verify compute_shipped
+    returns is_shipped=True when all needles closed and all files exist."""
+    from services.spec_audit import ShippedResult, compute_shipped, HuskResult
+
+    # Create a real file to reference
+    ref_file = tmp_path / "app" / "src" / "pages" / "Specs.tsx"
+    ref_file.parent.mkdir(parents=True)
+    ref_file.write_text("// real file")
+
+    spec_text = f"""\
+---
+status: spec
+---
+# Done spec
+
+See app/src/pages/Specs.tsx for the implementation.
+
+References: →9001
+"""
+    spec_file = tmp_path / "done.md"
+    spec_file.write_text(spec_text)
+
+    needle_statuses = {"9001": "closed"}
+    result = compute_shipped(spec_file, repo_root=tmp_path, needle_statuses=needle_statuses)
+    assert result.is_shipped is True
+    assert result.open_needles == []
+
+    # compute_stage never sees a shipped spec in the 3-stage model;
+    # the list endpoint archives it first. But if somehow called,
+    # it returns "ready" (no open needles, not a husk, not draft).
+    husk = HuskResult(is_husk=False, reason="")
+    stage = compute_stage({"status": "spec"}, husk=husk, shipped=result)
+    assert stage == "ready"
