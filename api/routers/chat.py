@@ -1652,6 +1652,18 @@ async def chat_websocket(websocket: WebSocket):
                                 })
                         except Exception:
                             pass
+                    # --- Pattern watcher: end-of-turn observation write (→1539 AC1/AC2) ---
+                    try:
+                        from services.pattern_watcher import observe_turn as _pw_observe
+                        _fire_and_forget(
+                            asyncio.to_thread(
+                                _pw_observe,
+                                last_text if isinstance(last_text, str) else "",
+                                _reply_text or "",
+                            )
+                        )
+                    except Exception:
+                        pass
             except WebSocketDisconnect:
                 raise
             except BaseException as exc:
