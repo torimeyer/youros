@@ -1089,27 +1089,15 @@ function TrackingStep({
       </div>
       {selectedOption === 'repo' && (
         <div className="mt-4" data-testid="tracking-folder-picker">
-          <p className={`text-xs mb-2 ${subtextCls}`}>Pick your work project folder:</p>
+          <p className={`text-xs mb-2 ${subtextCls}`}>Paste the full path to your work project folder:</p>
           <input
-            type="file"
-            // @ts-expect-error webkitdirectory is not in standard React types
-            webkitdirectory=""
-            directory=""
+            type="text"
             data-testid="tracking-folder-input"
-            onChange={(e) => {
-              const files = (e.target as HTMLInputElement).files
-              if (files && files.length > 0) {
-                const rel = (files[0] as File & { webkitRelativePath: string }).webkitRelativePath
-                onRepoPath(rel ? rel.split('/')[0] : files[0].name)
-              }
-            }}
-            className="text-sm"
+            value={repoPath}
+            onChange={(e) => onRepoPath(e.target.value)}
+            placeholder="/Users/you/work/myproject"
+            className="text-sm w-full px-3 py-2 rounded-lg border border-slate-600 bg-transparent"
           />
-          {repoPath && (
-            <p className={`text-xs mt-1 ${subtextCls}`} data-testid="tracking-folder-display">
-              Selected: {repoPath}
-            </p>
-          )}
         </div>
       )}
     </div>

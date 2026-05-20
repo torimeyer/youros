@@ -1529,3 +1529,59 @@ describe('TeamOnboardingSteps — Enter key on inputs', () => {
     expect(onNext).not.toHaveBeenCalled()
   })
 })
+
+describe('OnboardingWizard — TrackingStep repo path (→1520)', () => {
+  beforeEach(() => {
+    localStorageMock.clear()
+    useAppStore.setState({
+      onboarded: false,
+      osName: 'myOS',
+      darkMode: true,
+      defaultChatModel: 'claude',
+      instanceMode: 'personal',
+      orgName: '',
+      teamAccentColor: '#6366f1',
+      displayOsName: () => 'myOS',
+      setInstanceMode: vi.fn() as unknown as (mode: 'personal' | 'team') => void,
+      setOrgName: vi.fn(),
+      setAgentsLastViewed: vi.fn() as unknown as (v: string) => void,
+    })
+    vi.mocked(api.get).mockReset()
+    vi.mocked(api.post).mockReset()
+    vi.mocked(api.get).mockResolvedValue(MOCK_ADVENTURES)
+    vi.mocked(api.post).mockResolvedValue({})
+  })
+
+  it('tracking-folder-input is a text input, not a file picker', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(7) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize -> Theme -> Tracking
+
+    fireEvent.click(screen.getByTestId('tracking-option-repo'))
+
+    const input = screen.getByTestId('tracking-folder-input') as HTMLInputElement
+    expect(input.type).toBe('text')
+  })
+
+  it('captures the full absolute path typed by the user and sends it to the backend', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(7) // -> Tracking
+
+    fireEvent.click(screen.getByTestId('tracking-option-repo'))
+
+    const pathInput = screen.getByTestId('tracking-folder-input') as HTMLInputElement
+    fireEvent.change(pathInput, { target: { value: '/Users/tori/work/myproject' } })
+    expect(pathInput.value).toBe('/Users/tori/work/myproject')
+
+    clickNext(2) // Tracking -> Connect -> Ready
+    fireEvent.click(screen.getByTestId('finish-button'))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith(
+        '/onboarding/enable-myos-hooks',
+        expect.objectContaining({ scope: 'repo', path: '/Users/tori/work/myproject' }),
+      )
+    })
+  })
+})
