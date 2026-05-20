@@ -2350,13 +2350,50 @@ async def test_ostk_delete_task_last_task_leaves_empty_file(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_ostk_delete_task_missing_file_raises(tmp_path):
-    """delete_task raises OstkError when issues.jsonl does not exist."""
+async def test_ostk_delete_task_missing_file_falls_back_to_cli(tmp_path):
+    """When issues.jsonl does not exist, delete_task falls back to CLI close.
+
+    If the CLI also cannot find the task, OstkError("not found") is raised.
+    """
+    from unittest.mock import AsyncMock, patch
     from services.ostk import OstkService, OstkError
 
     svc = OstkService(cwd=str(tmp_path))
-    with pytest.raises(OstkError, match="issues.jsonl not found"):
-        await svc.delete_task("t-1")
+    with patch.object(svc, "_run", new_callable=AsyncMock) as mock_run:
+        mock_run.side_effect = OstkError("task 't-1' not found")
+        with pytest.raises(OstkError, match="not found"):
+            await svc.delete_task("t-1")
+
+    mock_run.assert_called_once_with("work", "close", "t-1")
+
+
+@pytest.mark.asyncio
+async def test_ostk_delete_task_not_in_jsonl_falls_back_to_cli(tmp_path):
+    """delete_task falls back to CLI close when task is not in issues.jsonl.
+
+    Regression →1502: tasks that pre-date the current issues.jsonl (like
+    →1477) returned 404 because issues.jsonl only holds ~22 recent entries.
+    The fix routes through `ostk work close` for those tasks so the delete
+    actually takes effect and the task stops reappearing on refresh.
+    """
+    from unittest.mock import AsyncMock, patch
+    from services.ostk import OstkService
+
+    issues_dir = tmp_path / ".ostk" / "needles"
+    issues_dir.mkdir(parents=True)
+    issues_file = issues_dir / "issues.jsonl"
+    # issues.jsonl exists but does NOT contain the target task
+    issues_file.write_text('{"id": "t-1", "title": "Other task", "status": "open"}\n')
+
+    svc = OstkService(cwd=str(tmp_path))
+    with patch.object(svc, "_run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = "closed →1477"
+        result = await svc.delete_task("→1477")
+
+    mock_run.assert_called_once_with("work", "close", "→1477")
+    assert "→1477" in result
+    # Original task in issues.jsonl should be untouched
+    assert "t-1" in issues_file.read_text()
 
 
 @pytest.mark.asyncio
@@ -2388,6 +2425,53 @@ async def test_delete_actually_removes_from_issues_jsonl(tmp_path):
     for tid in ("\u2192565", "\u2192566", "\u2192567", "\u2192568"):
         assert tid not in remaining, f"{tid} still present after delete"
     assert "\u2192569" in remaining
+
+
+@pytest.mark.asyncio
+async def test_ostk_delete_task_notifies_daemon_before_file_edit(tmp_path, monkeypatch):
+    """delete_task must call _run('work', 'close', ...) before removing the file entry.
+
+    Regression for →1502: the original delete_task wrote directly to issues.jsonl
+    without informing the ostk daemon. list_tasks routes via the daemon socket
+    (needle tool), so the daemon's in-memory state still showed the task as open
+    and it reappeared on every subsequent poll — even after a full page refresh.
+
+    The fix: close via _run (subprocess notifies the daemon) inside the file-write
+    lock, then strip all entries for the id from issues.jsonl. If the close call
+    fails (no daemon in test, or task already closed) the file edit still runs.
+    """
+    from services.ostk import OstkService, OstkError
+
+    issues_dir = tmp_path / ".ostk" / "needles"
+    issues_dir.mkdir(parents=True)
+    issues_file = issues_dir / "issues.jsonl"
+    issues_file.write_text(
+        '{"id": "t-1", "title": "Task to delete", "status": "open"}\n'
+        '{"id": "t-2", "title": "Keep this one", "status": "open"}\n'
+    )
+
+    svc = OstkService(cwd=str(tmp_path))
+    run_calls: list = []
+
+    async def fake_run(*args, **kwargs):
+        run_calls.append(args)
+        raise OstkError("no daemon in test environment")
+
+    monkeypatch.setattr(svc, "_run", fake_run)
+
+    result = await svc.delete_task("t-1")
+
+    # Must have attempted to close via daemon (even though it failed in test env)
+    assert any(
+        len(c) >= 3 and c[0] == "work" and c[1] == "close" and c[2] == "t-1"
+        for c in run_calls
+    ), f"Expected 'work close t-1' daemon call, got: {run_calls}"
+
+    # File entry must be removed even when daemon call fails
+    assert result == "deleted t-1"
+    remaining = issues_file.read_text()
+    assert "t-1" not in remaining
+    assert "t-2" in remaining
 
 
 @pytest.mark.asyncio

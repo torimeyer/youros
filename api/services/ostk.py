@@ -502,25 +502,63 @@ class OstkService:
         return f"reopened {task_id}"
 
     async def delete_task(self, task_id: str) -> str:
-        """Permanently remove a task from issues.jsonl."""
+        """Permanently remove a task from issues.jsonl.
+
+        Always calls ``ostk work close`` first so the daemon's in-memory state
+        is updated. Without this step list_tasks (which reads via the daemon
+        socket) returns stale data and the row reappears on the next poll even
+        after a full page refresh (→1502).
+
+        Two cases:
+        - Task in issues.jsonl: close notifies daemon, file edit removes entry.
+          Close errors are swallowed so the file removal always runs.
+        - Task not in issues.jsonl (older needle): close IS the delete. If close
+          fails the task truly doesn't exist and OstkError is raised.
+        """
         issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
-        if not issues_path.exists():
-            raise OstkError("issues.jsonl not found")
 
-        lines = issues_path.read_text().strip().splitlines()
-        updated = []
-        found = False
-        for line in lines:
-            entry = json.loads(line)
-            if entry.get("id") == task_id:
-                found = True
-            else:
-                updated.append(json.dumps(entry, ensure_ascii=False))
+        async with _get_close_task_lock():
+            found_in_file = False
+            if issues_path.exists():
+                for line in issues_path.read_text().strip().splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        if json.loads(line).get("id") == task_id:
+                            found_in_file = True
+                            break
+                    except json.JSONDecodeError:
+                        pass
 
-        if not found:
-            raise OstkError(f"task '{task_id}' not found")
+            # Notify the daemon. For tasks not in the file this is the primary
+            # delete path. Catch broadly so FileNotFoundError (ostk not in PATH
+            # in some test environments) is also handled gracefully.
+            try:
+                await self._run("work", "close", task_id)
+                daemon_closed = True
+            except Exception:
+                daemon_closed = False
+                if not found_in_file:
+                    raise OstkError(f"task '{task_id}' not found")
 
-        issues_path.write_text("\n".join(updated) + ("\n" if updated else ""))
+            if not issues_path.exists():
+                return f"deleted {task_id}"
+
+            # Re-read after close (close may append a new closed line) then
+            # strip all occurrences of task_id so the entry is permanently gone.
+            lines = issues_path.read_text().strip().splitlines()
+            updated = []
+            for line in lines:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    updated.append(line)
+                    continue
+                if entry.get("id") != task_id:
+                    updated.append(json.dumps(entry, ensure_ascii=False))
+
+            issues_path.write_text("\n".join(updated) + ("\n" if updated else ""))
+
         return f"deleted {task_id}"
 
     async def update_task_priority(
