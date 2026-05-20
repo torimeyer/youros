@@ -10473,6 +10473,71 @@ def test_complete_agent_hook_queues_on_transport_failure(tmp_path):
     )
 
 
+def test_complete_agent_hook_queues_on_transport_failure__isolation_stress(
+    tmp_path,
+):
+    """→1460: guard uses content comparison so mtime-only concurrent writes don't trip it.
+
+    Runs the hook 20 times. Between each run, os.utime() bumps the real
+    issues.jsonl mtime without changing content — reproducing the concurrent
+    ostk atomic-rewrite pattern that caused the original flakiness. The guard
+    must not fire for any run, proving content-based snapshot (not mtime+size)
+    is the correct implementation.
+    """
+    import os
+    import subprocess
+    from pathlib import Path
+    from config import PROJECT_ROOT
+
+    real_issues = PROJECT_ROOT / ".ostk" / "needles" / "issues.jsonl"
+
+    # Verify the invariant the fix relies on: os.utime() changes mtime but
+    # not content. If the guard compared mtime (old code) it would trip;
+    # with content comparison (fix) it ignores mtime-only changes.
+    if real_issues.exists():
+        content_before = real_issues.read_bytes()
+        os.utime(str(real_issues), None)
+        assert real_issues.read_bytes() == content_before, (
+            "os.utime must not change file content — "
+            "this is the invariant the →1460 guard fix relies on"
+        )
+
+    hooks_dir = (
+        Path(__file__).resolve().parent.parent.parent / ".claude" / "hooks"
+    )
+    complete_hook = hooks_dir / "complete-agent.sh"
+    fake_home = tmp_path / "home"
+    (fake_home / ".myos" / "subagents").mkdir(parents=True)
+    (fake_home / ".myos" / "subagents" / "last.name").write_text("stress-agent")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_curl = bin_dir / "curl"
+    fake_curl.write_text("#!/bin/bash\nexit 7\n")
+    fake_curl.chmod(0o755)
+    fake_sleep = bin_dir / "sleep"
+    fake_sleep.write_text("#!/bin/bash\nexit 0\n")
+    fake_sleep.chmod(0o755)
+    env = {"HOME": str(fake_home), "PATH": f"{bin_dir}:/usr/bin:/bin"}
+
+    for i in range(20):
+        # Touch real issues.jsonl between runs (mtime-only) — the guard
+        # must not fire since content is unchanged (→1460 fix).
+        if real_issues.exists():
+            os.utime(str(real_issues), None)
+
+        result = subprocess.run(
+            ["bash", str(complete_hook)],
+            input=json.dumps({"tool_response": {"output": "done"}}),
+            capture_output=True, text=True, env=env, timeout=15,
+        )
+        assert result.returncode == 0, (
+            f"Run {i}: hook must exit cleanly: {result.stderr!r}"
+        )
+
+    pending = fake_home / ".myos" / "subagents" / "pending-complete.jsonl"
+    assert pending.exists(), "Hook must have queued the failed /complete"
+
+
 @pytest.mark.asyncio
 async def test_pending_complete_drain_replays_against_live_endpoint(tmp_path, client):
     """The drain helper must replay queued /complete entries against the
