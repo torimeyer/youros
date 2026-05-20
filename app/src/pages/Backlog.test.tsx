@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Backlog from './Backlog'
 
@@ -105,12 +105,12 @@ describe('Backlog AllView — real API response shapes (→1468)', () => {
     })
   })
 
-  it('shows all open tasks (including spec-linked) in the kanban drafting column', async () => {
+  it('shows all open tasks (including spec-linked) in the kanban ready column', async () => {
     renderBacklog('/backlog')
     await waitFor(() => {
-      expect(screen.getByTestId('kanban-column-drafting')).toBeInTheDocument()
+      expect(screen.getByTestId('kanban-column-ready')).toBeInTheDocument()
     })
-    // All open tasks appear in Drafting column regardless of spec linkage
+    // All open tasks appear in Ready column (Patterson step 3)
     expect(screen.getByText('Write tests')).toBeInTheDocument()
     expect(screen.getByText('Implement login')).toBeInTheDocument()
   })
@@ -183,12 +183,12 @@ describe('Backlog page (→1466)', () => {
     })
   })
 
-  it('shows all open tasks in the kanban (including spec-linked)', async () => {
+  it('shows all open tasks in the kanban ready column (including spec-linked)', async () => {
     renderBacklog()
     await waitFor(() => {
-      expect(screen.getByTestId('kanban-column-drafting')).toBeInTheDocument()
+      expect(screen.getByTestId('kanban-column-ready')).toBeInTheDocument()
     })
-    // All open tasks appear in Drafting column; spec-linked tasks are no longer filtered out
+    // All open tasks appear in Ready column (Patterson step 3); spec-linked tasks included
     expect(screen.getByText('Write tests')).toBeInTheDocument()
     expect(screen.getByText('Implement login')).toBeInTheDocument()
   })
@@ -309,5 +309,67 @@ describe('Backlog card description expand/collapse (Patterson step 1)', () => {
       expect(screen.getByText('Redesign dashboard')).toBeInTheDocument()
     })
     expect(screen.queryByTestId('card-expand')).toBeNull()
+  })
+})
+
+describe('Backlog column semantics (Patterson step 3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('Drafting column renders only draft specs, no tasks', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [SAMPLE_SPECS[1]] })
+      if (url === '/tasks') return Promise.resolve({ tasks: [SAMPLE_TASKS[0]] })
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByTestId('kanban-column-drafting')).toBeInTheDocument()
+    })
+    const draftingCol = screen.getByTestId('kanban-column-drafting')
+    expect(within(draftingCol).getByText('Redesign dashboard')).toBeInTheDocument()
+    expect(within(draftingCol).queryByText('Write tests')).toBeNull()
+  })
+
+  it('Ready column renders both ready specs and open tasks', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [SAMPLE_SPECS[0]] })
+      if (url === '/tasks') return Promise.resolve({ tasks: [SAMPLE_TASKS[2]] })
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByTestId('kanban-column-ready')).toBeInTheDocument()
+    })
+    const readyCol = screen.getByTestId('kanban-column-ready')
+    expect(within(readyCol).getByText('Build auth module')).toBeInTheDocument()
+    expect(within(readyCol).getByText('Fix header bug')).toBeInTheDocument()
+  })
+
+  it('task with status open shows Ready as pill label', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [] })
+      if (url === '/tasks') return Promise.resolve({ tasks: [{ id: 'to1', title: 'Open task', status: 'open', spec_id: null }] })
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText('Open task')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('card-status-pill')).toHaveTextContent('Ready')
+  })
+
+  it('task with status in_progress shows In progress as pill label', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [] })
+      if (url === '/tasks') return Promise.resolve({ tasks: [{ id: 'tip1', title: 'Active task', status: 'in_progress', spec_id: null }] })
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText('Active task')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('card-status-pill')).toHaveTextContent('In progress')
   })
 })

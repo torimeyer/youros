@@ -47,6 +47,12 @@ function taskStatusClass(s: string): string {
   return 'bg-slate-700 text-slate-200'
 }
 
+function taskDisplayStatus(s: string): string {
+  if (s === 'open') return 'Ready'
+  if (s === 'in_progress') return 'In progress'
+  return s
+}
+
 function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void }) {
   const ds = displayStatus(spec.status)
   const [expanded, setExpanded] = useState(false)
@@ -129,7 +135,7 @@ function TaskCard({ task }: { task: Task }) {
           data-testid="card-status-pill"
           className={`text-xs px-2 py-0.5 rounded-full ${taskStatusClass(task.status)}`}
         >
-          {task.status}
+          {taskDisplayStatus(task.status)}
         </span>
         {task.spec_id && (
           <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-300">
@@ -227,13 +233,10 @@ function AllView() {
           id="drafting"
           label="Drafting"
           emptyTestId="empty-state-drafting"
-          isEmpty={draftingSpecs.length + openTasks.length === 0}
+          isEmpty={draftingSpecs.length === 0}
         >
           {draftingSpecs.map((s) => (
             <SpecCard key={s.id} spec={s} onBuild={handleBuild} />
-          ))}
-          {openTasks.map((t) => (
-            <TaskCard key={t.id} task={t} />
           ))}
         </KanbanColumn>
 
@@ -241,10 +244,13 @@ function AllView() {
           id="ready"
           label="Ready"
           emptyTestId="empty-state-ready"
-          isEmpty={readySpecs.length === 0}
+          isEmpty={readySpecs.length + openTasks.length === 0}
         >
           {readySpecs.map((s) => (
             <SpecCard key={s.id} spec={s} onBuild={handleBuild} />
+          ))}
+          {openTasks.map((t) => (
+            <TaskCard key={t.id} task={t} />
           ))}
         </KanbanColumn>
 
