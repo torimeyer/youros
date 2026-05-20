@@ -3437,3 +3437,74 @@ describe('Plan waves button (→1370)', () => {
     expect(screen.queryByTestId('wave-badge-3')).not.toBeInTheDocument()
   })
 })
+
+describe('Sort by wave (→1523)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  it('sort control renders with "Wave" as an option', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path === '/tasks/waves/assignments') return Promise.resolve({ assignments: {} })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => expect(screen.getByTestId('sort-by-wave')).toBeInTheDocument())
+    expect(screen.getByTestId('sort-by-wave')).toHaveTextContent('Wave')
+  })
+
+  it('selecting Wave groups tasks by wave name in the rendered list', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path === '/tasks/waves/assignments')
+        return Promise.resolve({ assignments: { '1': 1, '2': 1, '3': 2 } })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => expect(screen.getByTestId('sort-by-wave')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('sort-by-wave'))
+    await waitFor(() => expect(screen.getByTestId('wave-group-1')).toBeInTheDocument())
+    expect(screen.getByTestId('wave-group-1')).toHaveTextContent('Wave 1')
+    expect(screen.getByTestId('wave-group-2')).toBeInTheDocument()
+    expect(screen.getByTestId('wave-group-2')).toHaveTextContent('Wave 2')
+  })
+
+  it('tasks without a wave assignment appear under "Unassigned"', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      // tasks 1 and 2 are in wave 1; task 3 and 4 have no assignment
+      if (path === '/tasks/waves/assignments')
+        return Promise.resolve({ assignments: { '1': 1, '2': 1 } })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => expect(screen.getByTestId('sort-by-wave')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('sort-by-wave'))
+    await waitFor(() => expect(screen.getByTestId('wave-group-unassigned')).toBeInTheDocument())
+    expect(screen.getByTestId('wave-group-unassigned')).toHaveTextContent('Unassigned')
+  })
+
+  it('switching back to default sort removes wave group headers', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path === '/tasks/waves/assignments')
+        return Promise.resolve({ assignments: { '1': 1, '2': 1, '3': 2 } })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => expect(screen.getByTestId('sort-by-wave')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('sort-by-wave'))
+    await waitFor(() => expect(screen.getByTestId('wave-group-1')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('sort-by-date-desc'))
+    await waitFor(() => expect(screen.queryByTestId('wave-group-1')).not.toBeInTheDocument())
+    expect(screen.queryByTestId('wave-group-2')).not.toBeInTheDocument()
+  })
+})
