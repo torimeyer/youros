@@ -21,6 +21,7 @@ import { detectIMessageSendIntent } from '../lib/imessageIntentDetector'
 import { IMessageConfirmBubble } from './IMessageConfirmBubble'
 import { PlanBanner } from './PlanBanner'
 import { TodoListPanel, type Todo } from './TodoListPanel'
+import FileChangesPanel, { type FileChange } from './FileChangesPanel'
 import AttachmentPicker, { type AttachmentFile } from './AttachmentPicker'
 import { PeerChatTurnsPicker } from './PeerChatTurnsPicker'
 import { StructuredPicker } from './StructuredPicker'
@@ -138,6 +139,12 @@ interface Message {
    *  "fixed", etc.) with no supporting evidence. Rendered as a yellow warning
    *  strip pinned below the bubble. */
   receiptsWarning?: string
+  /** Turn UUID from the backend audit trail. Present on assistant turns that
+   *  wrote files so the FileChangesPanel can call undo endpoints. */
+  turn_id?: string
+  /** File changes recorded during this turn. Non-empty only on turns where the
+   *  model wrote files tracked by the ostk gen_table. */
+  fileChanges?: FileChange[]
 }
 
 interface GiphyResult {
@@ -1273,6 +1280,18 @@ export function ChatPanel() {
         }
         return updated
       })
+    } else if (lastMessage.type === 'file_changes') {
+      const fc = lastMessage as unknown as { turn_id: string; files: FileChange[] }
+      if (fc.turn_id && Array.isArray(fc.files) && fc.files.length > 0) {
+        setMessages(prev => {
+          const updated = [...prev]
+          const last = updated[updated.length - 1]
+          if (last && last.role === 'assistant') {
+            updated[updated.length - 1] = { ...last, turn_id: fc.turn_id, fileChanges: fc.files }
+          }
+          return updated
+        })
+      }
     } else if (lastMessage.type === 'done') {
       // Extract cache stats from the usage payload so the indicator can show
       // the cache hit ratio for this turn. Only update when cache data exists
@@ -2813,6 +2832,11 @@ export function ChatPanel() {
                       <span className="shrink-0 mt-0.5">⚠</span>
                       <span>{msg.receiptsWarning}</span>
                     </div>
+                  )}
+
+                  {/* File changes audit trail — inline collapsed diff + undo per file */}
+                  {msg.role === 'assistant' && msg.turn_id && msg.fileChanges && msg.fileChanges.length > 0 && (
+                    <FileChangesPanel turnId={msg.turn_id} files={msg.fileChanges} />
                   )}
 
                   {/* Reaction pills */}
