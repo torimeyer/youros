@@ -1512,28 +1512,6 @@ print(msgs[0].get('id','') if msgs else '')
             phase_fail "journey: could not create workflow for run test"
         fi
 
-        # --- Journey: Fleet spawn ---
-        fleet_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/fleets/spawn" \
-            -H 'content-type: application/json' \
-            -d '{"fleet_id":"fleet-build-website","context":"e2e test only","model":"sonnet","budget":0}' 2>/dev/null)
-        if echo "$fleet_resp" | grep -q '"spawned"\|"agents"\|"result"\|"members"'; then
-            phase_pass "journey: fleet spawn starts agents"
-            # Extract spawned agent names and cancel them all
-            fleet_agents=$(echo "$fleet_resp" | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-for a in d.get('spawned', d.get('agents', d.get('members', []))):
-    name = a.get('name','') if isinstance(a, dict) else a
-    if name: print(name)
-" 2>/dev/null || true)
-            for fa in $fleet_agents; do
-                curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/${fa}/cancel" \
-                    -H 'content-type: application/json' \
-                    -d '{"reason":"e2e cleanup"}' > /dev/null 2>&1
-            done
-        else
-            phase_fail "journey: fleet spawn failed (body: $fleet_resp)"
-        fi
 
         # =================================================================
         # END USER JOURNEY TESTS

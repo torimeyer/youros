@@ -7,9 +7,7 @@ criteria checklist, and a list of task titles ready for decompose.
 Templates seeded here include migrations of the fleet team templates
 (so "Build a Website" still works as a one-click starter) plus a few
 templates that do not correspond to a fleet (weekly review writeup,
-launch announcement). The fleet service still exists for backwards
-compatibility with the old /agents/fleets/spawn endpoint, but the
-Plans page uses this module exclusively.
+launch announcement). The Plans page uses this module exclusively.
 """
 
 from typing import Any, Optional

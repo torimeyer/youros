@@ -5130,9 +5130,7 @@ export default function Agents() {
           </div>
         )}
 
-        {/* Fleets panel removed: fleet launching has been folded into the
-            Plans page template grid. The backend /agents/fleets/spawn
-            endpoint stays alive for backwards compatibility. */}
+        {/* Fleets panel removed: fleet launching has been folded into the Plans page template grid. */}
 
         {/* Agents catalog (always visible) */}
         <div className="mt-8 bg-slate-900/40 border border-slate-800 rounded-xl p-6" data-testid="marketplace-section">
