@@ -2683,6 +2683,102 @@ async def test_list_specs_excludes_plan_transcripts(client, tmp_path, monkeypatc
     )
 
 
+@pytest.mark.asyncio
+async def test_list_specs_umbrella_spec_has_is_umbrella_true(
+    client, tmp_path, monkeypatch
+):
+    """GET /api/specs sets is_umbrella=True on specs with umbrella: true frontmatter.
+
+    An umbrella spec consolidates multiple leaf specs under one entry so the
+    Backlog board can render them grouped. The API must surface the flag so
+    the frontend knows which rows are umbrella roots.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "no-user-specs")
+
+    spec_file = tmp_path / "docs" / "spec" / "big-feature-umbrella.md"
+    spec_file.write_text(
+        "---\ntitle: Big Feature\nstatus: spec\numbrella: true\n---\n\n- [ ] Ship it\n"
+    )
+
+    res = await client.get("/api/specs")
+    assert res.status_code == 200
+    docs = res.json()["docs"]
+    umbrella = next((d for d in docs if "big-feature-umbrella" in d["path"]), None)
+    assert umbrella is not None, "umbrella spec not found in /api/specs response"
+    assert umbrella["is_umbrella"] is True
+    assert umbrella["parent_slug"] is None
+
+
+@pytest.mark.asyncio
+async def test_list_specs_leaf_spec_has_parent_slug(client, tmp_path, monkeypatch):
+    """GET /api/specs sets parent_slug on specs with parent: <slug> frontmatter.
+
+    A leaf spec declares which umbrella it belongs to via parent: <slug>. The
+    API must surface parent_slug so the frontend can group leaves under their
+    umbrella row without a second network call.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "no-user-specs")
+
+    (tmp_path / "docs" / "spec" / "big-feature-umbrella.md").write_text(
+        "---\ntitle: Big Feature\nstatus: spec\numbrella: true\n---\n\n- [ ] Ship it\n"
+    )
+    leaf_file = tmp_path / "docs" / "spec" / "big-feature-leaf-one.md"
+    leaf_file.write_text(
+        "---\ntitle: Leaf One\nstatus: spec\nparent: big-feature-umbrella\n---\n\n- [ ] Do part one\n"
+    )
+
+    res = await client.get("/api/specs")
+    assert res.status_code == 200
+    docs = res.json()["docs"]
+    leaf = next((d for d in docs if "leaf-one" in d["path"]), None)
+    assert leaf is not None, "leaf spec not found in /api/specs response"
+    assert leaf["is_umbrella"] is False
+    assert leaf["parent_slug"] == "big-feature-umbrella"
+
+
+@pytest.mark.asyncio
+async def test_list_specs_standalone_spec_has_no_umbrella_fields(
+    client, tmp_path, monkeypatch
+):
+    """GET /api/specs sets is_umbrella=False and parent_slug=None on ordinary specs.
+
+    Specs without umbrella or parent frontmatter are standalone. They must
+    still appear in the response and must not have stale hierarchy values.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "no-user-specs")
+
+    spec_file = tmp_path / "docs" / "spec" / "standalone-spec.md"
+    spec_file.write_text(
+        "---\ntitle: Standalone\nstatus: spec\n---\n\n- [ ] Just one thing\n"
+    )
+
+    res = await client.get("/api/specs")
+    assert res.status_code == 200
+    docs = res.json()["docs"]
+    standalone = next((d for d in docs if "standalone-spec" in d["path"]), None)
+    assert standalone is not None, "standalone spec not found in /api/specs response"
+    assert standalone["is_umbrella"] is False
+    assert standalone["parent_slug"] is None
+
+
 def test_user_specs_dir_honors_myos_user_specs_dir_env_var(tmp_path):
     """USER_SPECS_DIR must read MYOS_USER_SPECS_DIR at module load.
 
