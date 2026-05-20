@@ -82,6 +82,37 @@ export interface AgentInfo {
   template_produces_doc?: boolean;
   /** Plain-language summary generated at completion for template-run agents. */
   actionable_doc?: string;
+  /** OS process ID of the agent subprocess. Null when the agent is not a
+   *  direct child of the backend (e.g. external claude-code sessions). */
+  pid?: number | null;
+  /** Last step description POSTed via /heartbeat. Truncate to 60 chars in UI. */
+  current_step?: string | null;
+}
+
+/**
+ * Determines ghost/alive state for a running agent.
+ *
+ * Ghost detection rule (keep in sync with AgentGhostBadge in Agents.tsx):
+ *   - status === 'abandoned'  → ghost
+ *   - status === 'running' AND pid is null/undefined  → ghost
+ *   - status === 'running' AND last_heartbeat_at AND now - heartbeat > 120 000 ms  → ghost
+ *   - status === 'running' AND pid present AND recent heartbeat  → alive
+ *   - any other status  → null (badge not shown)
+ */
+export function computeAgentGhostState(
+  agent: Pick<AgentInfo, "status" | "pid" | "last_heartbeat_at">,
+  now: number,
+): "ghost" | "alive" | null {
+  const active = agent.status === "running" || agent.status === "spawned";
+  if (!active && agent.status !== "abandoned") return null;
+  if (agent.status === "abandoned") return "ghost";
+  if (agent.pid === null || agent.pid === undefined) return "ghost";
+  if (
+    agent.last_heartbeat_at &&
+    now - Date.parse(agent.last_heartbeat_at) > 120_000
+  )
+    return "ghost";
+  return "alive";
 }
 
 /**

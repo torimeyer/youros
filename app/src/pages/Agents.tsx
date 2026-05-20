@@ -14,7 +14,7 @@ import { useLocksStore } from "../stores/locksStore";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 import { AGENT_MARKETPLACE } from "../data/agentMarketplace";
-import { type AgentInfo, agentTitleParts, isAgentActive, isUserSpawnedAgent } from "../lib/agentUtils";
+import { type AgentInfo, agentTitleParts, isAgentActive, isUserSpawnedAgent, computeAgentGhostState } from "../lib/agentUtils";
 import { renderMarkdown } from "../lib/markdown";
 import { hasSpeakerPrefixes, parseTranscript } from "../lib/transcript";
 import { Button, EmptyState, Card } from "../components/ui";
@@ -1466,12 +1466,13 @@ function AgentStatusBar({ spawnedAt, budget, model, transcriptBytes, transcriptL
 // Mirrors the AgentStatusBar but in a single inline row so the card stays
 // tiny. Tori asked for this so the Active Sessions list is scannable by
 // default and the full chat + controls only appear on demand.
-function AgentCompactSummary({ spawnedAt, budget, model, costEstimate: _costEstimate, durationStats }: {
+function AgentCompactSummary({ spawnedAt, budget, model, costEstimate: _costEstimate, durationStats, transcriptBytes }: {
   spawnedAt?: string;
   budget?: string;
   model?: string;
   costEstimate?: number;
   durationStats?: { median_seconds: number; sample_count: number } | null;
+  transcriptBytes?: number;
 }) {
   const [now, setNow] = useState(Date.now());
 
@@ -1497,6 +1498,9 @@ function AgentCompactSummary({ spawnedAt, budget, model, costEstimate: _costEsti
   // app/src/lib/budgetDisplay.ts for the conversion source.
   if (budget) {
     segments.push(formatTokenBudget(budget, model));
+  }
+  if (transcriptBytes && transcriptBytes > 0) {
+    segments.push(formatBytes(transcriptBytes));
   }
 
   // See AgentStatusBar above for the rationale. Once elapsed exceeds
@@ -1596,6 +1600,72 @@ function RecoveryBadge({ recoveryCount, maxRecoveries }: {
       data-testid="recovery-badge"
     >
       Recovered ({recoveryCount}/{maxRecoveries})
+    </span>
+  );
+}
+
+/**
+ * Ghost vs alive indicator for active agent rows.
+ *
+ * Ghost detection (mirrors computeAgentGhostState in agentUtils.ts):
+ *   - status === 'abandoned'  → ghost
+ *   - status === 'running' AND pid is null  → ghost
+ *   - status === 'running' AND last_heartbeat_at AND now - heartbeat > 120 000 ms  → ghost
+ *   - otherwise  → alive (only shown for running/spawned)
+ *
+ * Ghost badge is actionable: clicking reveals a Dismiss button that POSTs
+ * /api/agents/<name>/cancel to clear the stalled row.
+ */
+function AgentGhostBadge({
+  agent,
+  onDismiss,
+  dismissing,
+}: {
+  agent: Pick<AgentInfo, "status" | "pid" | "last_heartbeat_at" | "name">;
+  onDismiss: () => void;
+  dismissing: boolean;
+}) {
+  const [showDismiss, setShowDismiss] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(t);
+  }, []);
+  const state = computeAgentGhostState(agent, now);
+  if (!state) return null;
+
+  if (state === "alive") {
+    return (
+      <span
+        className="text-xs px-2 py-0.5 rounded bg-green-500/15 text-green-400 font-semibold"
+        data-testid="alive-badge"
+        title="Agent is running and has checked in recently"
+      >
+        ● Alive
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-1">
+      <button
+        onClick={() => setShowDismiss((s) => !s)}
+        className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 font-semibold hover:bg-red-500/30 transition-colors"
+        data-testid="ghost-badge"
+        title="This agent may have stalled — no recent heartbeat or PID. Click to dismiss."
+      >
+        ⚠ Ghost
+      </button>
+      {showDismiss && (
+        <button
+          onClick={() => { setShowDismiss(false); onDismiss(); }}
+          disabled={dismissing}
+          className="text-xs px-2 py-0.5 rounded bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-semibold transition-colors"
+          data-testid="ghost-dismiss-btn"
+        >
+          {dismissing ? "Dismissing…" : "Dismiss"}
+        </button>
+      )}
     </span>
   );
 }
@@ -3991,6 +4061,15 @@ export default function Agents() {
                             Context: {contextPressure[agent.name]?.pressure_pct}%
                           </span>
                         )}
+                        {/* Ghost vs alive indicator. Only shown for active
+                            agents (running/spawned/abandoned). Ghost means
+                            no recent heartbeat or no PID — badge is
+                            actionable via a Dismiss button. */}
+                        <AgentGhostBadge
+                          agent={agent}
+                          onDismiss={() => handleKill(agent.name)}
+                          dismissing={killingAgents[agent.name] ?? false}
+                        />
                         {/* One-line compact summary shown inline with the title
                             row when the card is collapsed. See
                             AgentCompactSummary for the format. */}
@@ -4001,7 +4080,22 @@ export default function Agents() {
                             model={agent.model}
                             costEstimate={agent.cost_estimate}
                             durationStats={durationStats}
+                            transcriptBytes={agent.transcript_bytes}
                           />
+                        )}
+                        {/* current_step — shown prominently when collapsed so
+                            the user can see what the agent is doing without
+                            expanding. Truncated to 60 chars to fit the row. */}
+                        {!isActiveExpanded && agent.current_step && (
+                          <span
+                            className="w-full text-xs text-slate-400 mt-0.5 truncate"
+                            data-testid="agent-current-step"
+                            title={agent.current_step}
+                          >
+                            {agent.current_step.length > 60
+                              ? `${agent.current_step.slice(0, 60)}…`
+                              : agent.current_step}
+                          </span>
                         )}
                       </div>
                       <button
