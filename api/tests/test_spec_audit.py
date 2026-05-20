@@ -240,6 +240,77 @@ async def test_get_specs_audit_returns_200(tmp_path):
     assert "summary" in body
 
 
+# ---------------------------------------------------------------------------
+# Path resolution: docs/spec resolved against repo root, not CWD (→1498)
+# ---------------------------------------------------------------------------
+
+
+def test_docs_spec_resolved_against_repo_root(tmp_path, monkeypatch):
+    """audit_all_specs must find docs/spec even when CWD is /tmp/."""
+    # Build a fake repo tree under tmp_path.
+    docs_spec = tmp_path / "docs" / "spec"
+    docs_spec.mkdir(parents=True)
+    (docs_spec / "a.md").write_text(FULL_SPEC)
+
+    # Point MYOS_REPO_ROOT at our fake repo; CWD stays wherever pytest set it.
+    monkeypatch.setenv("MYOS_REPO_ROOT", str(tmp_path))
+    monkeypatch.chdir("/tmp")
+
+    # Re-import to pick up the new env var (module-level _REPO_ROOT is set at import).
+    import importlib
+    import services.spec_audit as sa
+    importlib.reload(sa)
+
+    report = sa.audit_all_specs(spec_dirs=[sa._REPO_ROOT / "docs" / "spec"])
+    assert report["summary"]["total"] >= 1
+    paths = [r["path"] for r in report["specs"]]
+    assert any("docs/spec" in p or "docs" + "/" + "spec" in p for p in paths), paths
+
+
+def test_myos_specs_resolved_from_home(tmp_path, monkeypatch):
+    """~/.myos/specs is always resolved via Path.home(), not CWD."""
+    fake_home = tmp_path / "home"
+    myos_specs = fake_home / ".myos" / "specs"
+    myos_specs.mkdir(parents=True)
+    (myos_specs / "b.md").write_text(FULL_SPEC)
+
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    from pathlib import Path as _Path
+    report = audit_all_specs(spec_dirs=[_Path.home() / ".myos" / "specs"])
+    assert report["summary"]["total"] >= 1
+    paths = [r["path"] for r in report["specs"]]
+    assert any(".myos" in p for p in paths), paths
+
+
+def test_audit_includes_both_dirs_with_env_var(tmp_path, monkeypatch):
+    """With MYOS_REPO_ROOT set, default audit_all_specs picks up both dirs."""
+    # Fake repo docs/spec.
+    docs_spec = tmp_path / "docs" / "spec"
+    docs_spec.mkdir(parents=True)
+    (docs_spec / "x.md").write_text(FULL_SPEC)
+
+    # Fake ~/.myos/specs using HOME override.
+    fake_home = tmp_path / "home"
+    myos_specs = fake_home / ".myos" / "specs"
+    myos_specs.mkdir(parents=True)
+    (myos_specs / "y.md").write_text(HALF_SPEC)
+
+    monkeypatch.setenv("MYOS_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.chdir("/tmp")
+
+    import importlib
+    import services.spec_audit as sa
+    importlib.reload(sa)
+
+    report = sa.audit_all_specs()
+    assert report["summary"]["total"] == 2, report["summary"]
+    paths = [r["path"] for r in report["specs"]]
+    assert any("docs" in p for p in paths), paths
+    assert any(".myos" in p for p in paths), paths
+
+
 @pytest.mark.anyio
 async def test_get_specs_audit_shape(tmp_path):
     mock_report = {

@@ -8,7 +8,9 @@ and returns a JSON-serialisable report. Used by:
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,49 @@ try:
     import yaml
 except ImportError:
     yaml = None  # type: ignore[assignment]
+
+
+def _find_repo_root() -> Path:
+    """Return the repo root, resolved regardless of the server's CWD.
+
+    Resolution order:
+      1. MYOS_REPO_ROOT env var (explicit override)
+      2. git rev-parse --show-toplevel (reliable when inside a git repo)
+      3. Walk up from this file looking for CLAUDE.md or pyproject.toml
+      4. CWD as last resort
+    """
+    env_root = os.environ.get("MYOS_REPO_ROOT")
+    if env_root:
+        return Path(env_root).resolve()
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=Path(__file__).parent,
+        )
+        if result.returncode == 0:
+            return Path(result.stdout.strip()).resolve()
+    except Exception:
+        pass
+
+    # Walk up from this file's location.
+    candidate = Path(__file__).resolve().parent
+    for _ in range(10):
+        if (candidate / "CLAUDE.md").exists() or (candidate / "pyproject.toml").exists():
+            return candidate
+        parent = candidate.parent
+        if parent == candidate:
+            break
+        candidate = parent
+
+    return Path.cwd()
+
+
+# Resolved once at import time so callers don't pay the subprocess cost per request.
+_REPO_ROOT: Path = _find_repo_root()
 
 
 TEMPLATE_SECTIONS = [
@@ -116,7 +161,7 @@ def audit_all_specs(
         home = Path.home()
         spec_dirs = [
             home / ".myos" / "specs",
-            Path("docs") / "spec",
+            _REPO_ROOT / "docs" / "spec",
         ]
 
     results: list[dict[str, Any]] = []
