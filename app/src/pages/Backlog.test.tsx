@@ -373,3 +373,39 @@ describe('Backlog column semantics (Patterson step 3)', () => {
     expect(screen.getByTestId('card-status-pill')).toHaveTextContent('In progress')
   })
 })
+
+describe('Backlog needle ID chips (→1488)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('task card renders task-id-chip showing the task ID', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [] })
+      if (url === '/tasks') return Promise.resolve({ tasks: [{ id: 'to1', title: 'Some task', status: 'open', spec_id: null }] })
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText('Some task')).toBeInTheDocument()
+    })
+    const chip = screen.getByTestId('task-id-chip')
+    expect(chip).toBeInTheDocument()
+    expect(chip).toHaveTextContent('→to1')
+  })
+
+  it('spec card renders spec-id-chip showing the slug derived from path', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [{ id: 's1', title: 'Auth spec', status: 'draft', task_ids: [], path: 'docs/spec/auth.md' }] })
+      if (url === '/tasks') return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText('Auth spec')).toBeInTheDocument()
+    })
+    const chip = screen.getByTestId('spec-id-chip')
+    expect(chip).toBeInTheDocument()
+    expect(chip).toHaveTextContent('auth')
+  })
+})
