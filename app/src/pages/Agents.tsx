@@ -533,6 +533,9 @@ function TemplateEditorModal({
   source,
   aliases,
   userInputs,
+  declaredMcps,
+  declaredSkills,
+  workspaceMcps,
   onSpawn,
   onSave,
   onCancel,
@@ -545,6 +548,9 @@ function TemplateEditorModal({
   source?: string;
   aliases?: string[];
   userInputs?: UserInput[];
+  declaredMcps?: string[];
+  declaredSkills?: string[];
+  workspaceMcps?: string[];
   onSpawn: (t: CustomTemplate, userMessage: string) => void;
   onSave: (t: CustomTemplate) => void;
   onCancel: () => void;
@@ -775,6 +781,44 @@ function TemplateEditorModal({
                   >
                     {promptExpanded ? "Show less" : "Show full prompt"}
                   </button>
+                )}
+              </div>
+            )}
+
+            {/* MCPs and Skills declared by this agent */}
+            {((declaredMcps && declaredMcps.length > 0) || (declaredSkills && declaredSkills.length > 0) || (workspaceMcps && workspaceMcps.length > 0)) && (
+              <div data-testid="template-mcp-skills-section">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  Tools &amp; integrations
+                </p>
+                {declaredMcps && declaredMcps.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-[10px] text-slate-500 mb-1.5">This agent uses:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {declaredMcps.map((mcp) => (
+                        <span key={mcp} className="text-[10px] px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 font-mono" data-testid="declared-mcp-chip">
+                          {mcp}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {declaredSkills && declaredSkills.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-[10px] text-slate-500 mb-1.5">Skills:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {declaredSkills.map((skill) => (
+                        <span key={skill} className="text-[10px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-400 font-mono" data-testid="declared-skill-chip">
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {workspaceMcps && workspaceMcps.length > 0 && (
+                  <p className="text-[10px] text-slate-400" data-testid="workspace-mcps-note">
+                    Plus all enabled MCPs in your workspace: {workspaceMcps.join(", ")}.
+                  </p>
                 )}
               </div>
             )}
@@ -1838,6 +1882,8 @@ interface PMAgentTemplate {
   user_inputs?: UserInput[];
   attached_files?: string[];
   follow_on_actions?: FollowOnAction[];
+  declared_mcps?: string[];
+  declared_skills?: string[];
 }
 
 interface PMTemplatesResponse {
@@ -2635,6 +2681,8 @@ export default function Agents() {
   const [editorSource, setEditorSource] = useState<string | undefined>(undefined);
   const [editorAliases, setEditorAliases] = useState<string[] | undefined>(undefined);
   const [editorUserInputs, setEditorUserInputs] = useState<UserInput[] | undefined>(undefined);
+  const [editorDeclaredMcps, setEditorDeclaredMcps] = useState<string[] | undefined>(undefined);
+  const [editorDeclaredSkills, setEditorDeclaredSkills] = useState<string[] | undefined>(undefined);
   // Full marketplace catalog — all builtin marketplace templates with user_inputs.
   // Used to look up user_inputs when spawning a marketplace-installed template
   // that is not in the current persona's pmTemplates list.
@@ -2891,6 +2939,8 @@ export default function Agents() {
     setEditorSource(tpl.source ?? (tpl.builtin ? "builtin" : "marketplace"));
     setEditorAliases(undefined);
     setEditorUserInputs(tpl.user_inputs);
+    setEditorDeclaredMcps(tpl.declared_mcps);
+    setEditorDeclaredSkills(tpl.declared_skills);
     setEditorOpen(true);
   };
 
@@ -4944,6 +4994,8 @@ export default function Agents() {
               setEditorSource(undefined);
               setEditorAliases(undefined);
               setEditorUserInputs(undefined);
+              setEditorDeclaredMcps(undefined);
+              setEditorDeclaredSkills(undefined);
               setEditorOpen(true);
             }}
             className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
@@ -5000,6 +5052,8 @@ export default function Agents() {
                     (m) => m.name.toLowerCase().trim() === tpl.name.toLowerCase().trim()
                   );
                   setEditorUserInputs(matchedTpl?.user_inputs);
+                  setEditorDeclaredMcps(matchedTpl?.declared_mcps);
+                  setEditorDeclaredSkills(matchedTpl?.declared_skills);
                   setEditorOpen(true);
                 } : undefined}
                 actionLabel="Use"
@@ -5351,6 +5405,9 @@ export default function Agents() {
             source={editorSource}
             aliases={editorAliases}
             userInputs={editorUserInputs}
+            declaredMcps={editorDeclaredMcps}
+            declaredSkills={editorDeclaredSkills}
+            workspaceMcps={mcpServers.filter((s) => s.enabled).map((s) => s.name)}
             onSpawn={(t, userMessage) => {
               // If the user typed a message, use it as the prompt. Otherwise
               // fall back to the template description so the agent has context.
