@@ -48,7 +48,7 @@ function renderSidebar(initialPath = '/') {
 // Helper: expand all groups so every nav item is in the DOM.
 // Only expands groups that are currently collapsed (items container absent).
 function expandAllGroups() {
-  for (const id of ['files', 'comms']) {
+  for (const id of ['integrations']) {
     if (!screen.queryByTestId(`group-items-${id}`)) {
       const header = screen.queryByTestId(`group-header-${id}`)
       if (header) fireEvent.click(header)
@@ -721,35 +721,36 @@ describe('Sidebar grouped nav', () => {
     })
   })
 
-  it('Comms group header is rendered', () => {
+  it('Integrations group header is rendered', () => {
     renderSidebar()
-    expect(screen.getByTestId('group-header-comms')).toBeInTheDocument()
+    expect(screen.getByTestId('group-header-integrations')).toBeInTheDocument()
   })
 
-  it('collapsed Comms group shows only its header, not sub-items', () => {
+  it('collapsed Integrations group shows only its header, not sub-items', () => {
     // Default state: no saved collapsed state, groups start in default (not collapsed = open)
     // Force collapsed via localStorage before render
-    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ comms: true }))
+    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: true }))
     renderSidebar()
 
     // Header should be visible
-    expect(screen.getByTestId('group-header-comms')).toBeInTheDocument()
+    expect(screen.getByTestId('group-header-integrations')).toBeInTheDocument()
     // Items container should NOT be in the DOM
-    expect(screen.queryByTestId('group-items-comms')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('group-items-integrations')).not.toBeInTheDocument()
     // Gmail link should not appear
     expect(screen.queryByText('Gmail')).not.toBeInTheDocument()
   })
 
-  it('expanded Comms group shows all 7 sub-items including Jira and Confluence', () => {
+  it('expanded Integrations group shows all sub-items including Jira and Confluence', () => {
     renderSidebar()
-    // Ensure comms is expanded (click header to expand if collapsed)
-    const header = screen.getByTestId('group-header-comms')
+    // Ensure integrations is expanded (click header to expand if collapsed)
+    const header = screen.getByTestId('group-header-integrations')
     // If items not present, expand
-    if (!screen.queryByTestId('group-items-comms')) {
+    if (!screen.queryByTestId('group-items-integrations')) {
       fireEvent.click(header)
     }
-    const items = screen.getByTestId('group-items-comms')
+    const items = screen.getByTestId('group-items-integrations')
     expect(items).toBeInTheDocument()
+    expect(screen.getByText('Gems')).toBeInTheDocument()
     expect(screen.getByText('Gmail')).toBeInTheDocument()
     expect(screen.getByText('Calendar')).toBeInTheDocument()
     expect(screen.getByText('Messages')).toBeInTheDocument()
@@ -760,41 +761,41 @@ describe('Sidebar grouped nav', () => {
   })
 
   it('clicking a collapsed group header expands it and shows sub-items', () => {
-    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ comms: true }))
+    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: true }))
     renderSidebar()
 
     // Start collapsed
-    expect(screen.queryByTestId('group-items-comms')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('group-items-integrations')).not.toBeInTheDocument()
 
     // Click header to expand
-    fireEvent.click(screen.getByTestId('group-header-comms'))
+    fireEvent.click(screen.getByTestId('group-header-integrations'))
 
     // Items should now be visible
-    expect(screen.getByTestId('group-items-comms')).toBeInTheDocument()
+    expect(screen.getByTestId('group-items-integrations')).toBeInTheDocument()
     expect(screen.getByText('Gmail')).toBeInTheDocument()
   })
 
   it('clicking an expanded group header collapses it and hides sub-items', () => {
     renderSidebar()
-    const header = screen.getByTestId('group-header-comms')
+    const header = screen.getByTestId('group-header-integrations')
 
     // Ensure expanded first
-    if (!screen.queryByTestId('group-items-comms')) {
+    if (!screen.queryByTestId('group-items-integrations')) {
       fireEvent.click(header)
     }
-    expect(screen.getByTestId('group-items-comms')).toBeInTheDocument()
+    expect(screen.getByTestId('group-items-integrations')).toBeInTheDocument()
 
     // Click to collapse
     fireEvent.click(header)
-    expect(screen.queryByTestId('group-items-comms')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('group-items-integrations')).not.toBeInTheDocument()
   })
 
   it('toggle persists collapsed state to localStorage', () => {
     renderSidebar()
-    const header = screen.getByTestId('group-header-comms')
+    const header = screen.getByTestId('group-header-integrations')
 
     // Expand first if needed
-    if (!screen.queryByTestId('group-items-comms')) {
+    if (!screen.queryByTestId('group-items-integrations')) {
       fireEvent.click(header)
     }
 
@@ -802,37 +803,37 @@ describe('Sidebar grouped nav', () => {
     fireEvent.click(header)
 
     const saved = JSON.parse(localStorage.getItem('sidebar-group-collapsed') ?? '{}')
-    expect(saved.comms).toBe(true)
+    expect(saved.integrations).toBe(true)
   })
 
   it('toggle persists expanded state (false) to localStorage', () => {
-    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ comms: true }))
+    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: true }))
     renderSidebar()
 
     // Click to expand
-    fireEvent.click(screen.getByTestId('group-header-comms'))
+    fireEvent.click(screen.getByTestId('group-header-integrations'))
 
     const saved = JSON.parse(localStorage.getItem('sidebar-group-collapsed') ?? '{}')
-    expect(saved.comms).toBe(false)
+    expect(saved.integrations).toBe(false)
   })
 
-  it('active route group (Comms) auto-expands on mount when collapsed in localStorage', () => {
-    // Store comms as collapsed
-    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ comms: true }))
-    // Render with a comms route active
+  it('active route group (Integrations) auto-expands on mount when collapsed in localStorage', () => {
+    // Store integrations as collapsed
+    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: true }))
+    // Render with a route that belongs to integrations
     renderSidebar('/gmail')
 
-    // Group items must be visible because /gmail belongs to comms
-    expect(screen.getByTestId('group-items-comms')).toBeInTheDocument()
+    // Group items must be visible because /gmail belongs to integrations
+    expect(screen.getByTestId('group-items-integrations')).toBeInTheDocument()
     expect(screen.getByText('Gmail')).toBeInTheDocument()
   })
 
-  it('non-active group (Files) stays collapsed on mount when set in localStorage', () => {
-    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ files: true }))
-    // Render at a non-files route
+  it('Integrations group stays collapsed when navigating to a non-integrations route', () => {
+    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: true }))
+    // Render at a top-level route (Home)
     renderSidebar('/')
 
-    expect(screen.queryByTestId('group-items-files')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('group-items-integrations')).not.toBeInTheDocument()
   })
 
   it('every route is reachable: all links present when all groups expanded', () => {
@@ -865,10 +866,11 @@ describe('Sidebar grouped nav', () => {
     expect(screen.queryByText('Automations')).not.toBeInTheDocument()
   })
 
-  it('two group headers are rendered: files, comms (automation group removed)', () => {
+  it('one group header rendered: integrations (files/comms/automation groups removed)', () => {
     renderSidebar()
-    expect(screen.getByTestId('group-header-files')).toBeInTheDocument()
-    expect(screen.getByTestId('group-header-comms')).toBeInTheDocument()
+    expect(screen.getByTestId('group-header-integrations')).toBeInTheDocument()
+    expect(screen.queryByTestId('group-header-files')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('group-header-comms')).not.toBeInTheDocument()
     expect(screen.queryByTestId('group-header-automation')).not.toBeInTheDocument()
   })
 
@@ -902,19 +904,19 @@ describe('Sidebar grouped nav', () => {
     expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('Comms group header shows rolled-up gmail badge when collapsed and gmail unread > 0', async () => {
+  it('Integrations group header shows rolled-up gmail badge when collapsed and gmail unread > 0', async () => {
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
       if (url === '/gmail/auth/status') return Promise.resolve({ authenticated: true, unread_count: 5 })
       return Promise.resolve({})
     })
-    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ comms: true }))
+    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: true }))
     renderSidebar()
 
     // Wait for gmail badge to load
     await waitFor(() => {
-      const header = screen.getByTestId('group-header-comms')
+      const header = screen.getByTestId('group-header-integrations')
       // Badge should appear inside the header
       expect(header.textContent).toContain('5')
     })
@@ -923,7 +925,7 @@ describe('Sidebar grouped nav', () => {
   it('ostk entry is hidden when power user mode is off', () => {
     useAppStore.setState({ powerUserMode: false })
     renderSidebar()
-    // Files & Docs group is expanded by default; ostk entry must NOT appear
+    // Integrations group is expanded by default; ostk entry must NOT appear
     expect(screen.queryByText(/^ostk$/)).not.toBeInTheDocument()
   })
 
@@ -931,6 +933,41 @@ describe('Sidebar grouped nav', () => {
     useAppStore.setState({ powerUserMode: true })
     renderSidebar()
     expect(screen.getByText(/^ostk$/)).toBeInTheDocument()
+  })
+
+  // --- new tests for →1506 ---
+
+  it('Integrations group header has aria-expanded=true when expanded', () => {
+    renderSidebar()
+    const header = screen.getByTestId('group-header-integrations')
+    if (!screen.queryByTestId('group-items-integrations')) {
+      fireEvent.click(header)
+    }
+    expect(header).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('Integrations group header has aria-expanded=false when collapsed', () => {
+    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: true }))
+    renderSidebar()
+    const header = screen.getByTestId('group-header-integrations')
+    expect(header).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('Integrations group header has aria-controls linking to items container', () => {
+    renderSidebar()
+    const header = screen.getByTestId('group-header-integrations')
+    expect(header).toHaveAttribute('aria-controls', 'group-items-integrations')
+  })
+
+  it('Docs/Drive/Gmail/Gems are NOT direct children of primary-nav (only under Integrations)', () => {
+    renderSidebar()
+    const primaryNav = screen.getByTestId('primary-nav')
+    const directLinks = Array.from(primaryNav.querySelectorAll(':scope > a'))
+    const directHrefs = directLinks.map((l) => l.getAttribute('href'))
+    expect(directHrefs).not.toContain('/files')
+    expect(directHrefs).not.toContain('/drive')
+    expect(directHrefs).not.toContain('/gmail')
+    expect(directHrefs).not.toContain('/gems')
   })
 })
 
@@ -1306,13 +1343,13 @@ describe('Jira and Confluence sidebar entries', () => {
     })
   })
 
-  it('Jira link renders in Comms group', () => {
+  it('Jira link renders in Integrations group', () => {
     renderSidebar()
     expandAllGroups()
     expect(screen.getByText('Jira')).toBeInTheDocument()
   })
 
-  it('Confluence link renders in Comms group', () => {
+  it('Confluence link renders in Integrations group', () => {
     renderSidebar()
     expandAllGroups()
     expect(screen.getByText('Confluence')).toBeInTheDocument()
@@ -1334,7 +1371,7 @@ describe('Jira and Confluence sidebar entries', () => {
 })
 
 describe('Files and Drive sidebar entries', () => {
-  it('shows Docs entry in Files & Docs group (renamed from Files)', () => {
+  it('shows Docs entry in Integrations group (renamed from Files)', () => {
     renderSidebar()
     expandAllGroups()
     expect(screen.getByText('Docs')).toBeInTheDocument()
@@ -1475,20 +1512,20 @@ describe('nav rename and reorder', () => {
     expect(screen.queryByText('My Gems')).not.toBeInTheDocument()
   })
 
-  it('Gems is a top-level nav item linking to /gems', () => {
-    renderSidebar()
-    const link = screen.getByText('Gems').closest('a')
-    expect(link).toHaveAttribute('href', '/gems')
-  })
-
-  it('Gems is not inside the files collapsible group', () => {
+  it('Gems is inside the Integrations group linking to /gems', () => {
     renderSidebar()
     expandAllGroups()
-    const gemsLink = screen.getByText('Gems').closest('a')
-    const filesGroup = screen.queryByTestId('group-items-files')
-    if (filesGroup) {
-      expect(filesGroup.contains(gemsLink)).toBe(false)
-    }
+    const link = screen.getByText('Gems').closest('a')
+    expect(link).toHaveAttribute('href', '/gems')
+    const integrationsGroup = screen.getByTestId('group-items-integrations')
+    expect(integrationsGroup.contains(link)).toBe(true)
+  })
+
+  it('Gems is NOT a direct top-level nav item (lives inside Integrations)', () => {
+    renderSidebar()
+    const primaryNav = screen.getByTestId('primary-nav')
+    const directLinks = Array.from(primaryNav.querySelectorAll(':scope > a'))
+    expect(directLinks.some((l) => l.getAttribute('href') === '/gems')).toBe(false)
   })
 
   it('Home is the first link in the primary nav', () => {
