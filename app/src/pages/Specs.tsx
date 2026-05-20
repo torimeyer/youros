@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
 import SpecTemplateDetailsModal, {
@@ -446,6 +446,9 @@ function SpecsOnboarding() {
 
 export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const focusParam = searchParams.get("focus");
+  const specRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [tab, setTab] = useState<Tab>("all");
   const [spawnGeminiSpec, setSpawnGeminiSpec] = useState<{ path: string; title: string; checks?: ReadinessCheck[] } | null>(null);
   const [docs, setDocs] = useState<Spec[]>([]);
@@ -594,6 +597,18 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
     });
     return off;
   }, []);
+
+  useEffect(() => {
+    if (!focusParam) return;
+    const path = decodeURIComponent(focusParam);
+    const el = specRowRefs.current[path];
+    if (!el) return;
+    setTimeout(() => {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-2", "ring-emerald-400");
+      setTimeout(() => el.classList.remove("ring-2", "ring-emerald-400"), 1500);
+    }, 60);
+  }, [focusParam, docs]);
 
   useEffect(() => {
     api
@@ -1106,6 +1121,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
               return (
                 <div
                   key={doc.path}
+                  ref={(el) => { specRowRefs.current[doc.path] = el; }}
                   className="bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden"
                 >
                   {/* Card header (always visible, clickable) */}

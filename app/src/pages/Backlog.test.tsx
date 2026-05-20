@@ -406,3 +406,34 @@ describe('Backlog needle ID chips (→1488)', () => {
     expect(chip).toHaveTextContent('auth')
   })
 })
+
+describe('Backlog →1501 — cards link to detail pages', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [{ id: 's1', title: 'Auth spec', status: 'draft', task_ids: [], path: 'docs/spec/auth.md' }] })
+      if (url === '/tasks') return Promise.resolve({ tasks: [{ id: 't1', title: 'Write tests', status: 'open', spec_id: null }] })
+      return Promise.resolve({})
+    })
+  })
+
+  it('TaskCard wraps card in a Link to /tasks?focus={id}', async () => {
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText('Write tests')).toBeInTheDocument()
+    })
+    const link = screen.getByTestId('task-card-link')
+    expect(link).toBeInTheDocument()
+    expect(link).toHaveAttribute('href', '/tasks?focus=t1')
+  })
+
+  it('SpecCard wraps card in a Link to /specs?focus={path}', async () => {
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByText('Auth spec')).toBeInTheDocument()
+    })
+    const link = screen.getByTestId('spec-card-link')
+    expect(link).toBeInTheDocument()
+    expect(link).toHaveAttribute('href', '/specs?focus=docs%2Fspec%2Fauth.md')
+  })
+})

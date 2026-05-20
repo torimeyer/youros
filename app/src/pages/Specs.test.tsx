@@ -1710,3 +1710,30 @@ describe('SpecBody', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Title' })).toBeInTheDocument()
   })
 })
+
+describe('Specs focus from kanban link (→1501)', () => {
+  it('scrolls matching spec into view when ?focus=<path>', async () => {
+    const scrollIntoViewMock = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoViewMock
+
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [mockDocsResponse.docs[0]] })
+      if (url.startsWith('/specs/') && url.endsWith('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/specs?focus=docs%2Fdraft%2Fonboarding-flow.md']}>
+        <Specs />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('onboarding flow')).toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(scrollIntoViewMock).toHaveBeenCalled()
+    })
+  })
+})
