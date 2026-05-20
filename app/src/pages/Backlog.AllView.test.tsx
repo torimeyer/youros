@@ -76,10 +76,10 @@ describe('AllView kanban (→1478)', () => {
     expect(draftCard.querySelector('[data-testid="card-build-button"]')).toBeNull()
   })
 
-  it('RED 4: open task appears in kanban-column-drafting with type chip "Task"', async () => {
+  it('RED 4: open task appears in kanban-column-ready with type chip "Task" (Patterson step 3)', async () => {
     setup()
     await waitFor(() => expect(screen.getByTestId('kanban-card-open-task')).toBeInTheDocument())
-    const col = screen.getByTestId('kanban-column-drafting')
+    const col = screen.getByTestId('kanban-column-ready')
     expect(col).toContainElement(screen.getByTestId('kanban-card-open-task'))
     const card = screen.getByTestId('kanban-card-open-task')
     expect(card.querySelector('[data-testid="card-type-chip"]')).toHaveTextContent('Task')
