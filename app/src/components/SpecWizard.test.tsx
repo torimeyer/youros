@@ -147,13 +147,17 @@ describe("SpecWizard", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
-    // Step 3: Criteria (auto-suggested: a, b, c from mock)
+    // Step 3: Produces (leave default Code and advance)
+    await waitFor(() => expect(screen.getByTestId("wizard-produces")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 4: Criteria (auto-suggested: a, b, c from mock)
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /next/i })).not.toBeDisabled();
     });
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
-    // Step 4: Review - submit
+    // Step 5: Review - submit
     await waitFor(() => {
       expect(screen.getByTestId("spec-submit")).toBeInTheDocument();
     });
@@ -181,6 +185,120 @@ describe("SpecWizard", () => {
     fireEvent.click(screen.getByTestId("mode-needle"));
     expect(screen.getByTestId("needle-mode")).toBeInTheDocument();
     expect(screen.queryByTestId("wizard-title")).not.toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------
+  // Produces step (→1531)
+  // -------------------------------------------------------------------
+
+  it("spec mode shows Produces step between Scope and Criteria", async () => {
+    render(<SpecWizard {...defaultProps} />);
+    fireEvent.click(screen.getByTestId("mode-spec"));
+
+    // Fill Problem
+    fireEvent.change(screen.getByTestId("wizard-title"), { target: { value: "Q3 strategy" } });
+    fireEvent.change(screen.getByTestId("wizard-problem"), { target: { value: "We need a strategy doc" } });
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Scope step
+    await waitFor(() => expect(screen.getByTestId("wizard-in-scope")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Produces step should appear before Criteria
+    await waitFor(() => expect(screen.getByTestId("wizard-produces")).toBeInTheDocument());
+    expect(screen.queryByTestId("wizard-criteria")).not.toBeInTheDocument();
+  });
+
+  it("produces step shows all 6 options with Code pre-selected", async () => {
+    render(<SpecWizard {...defaultProps} />);
+    fireEvent.click(screen.getByTestId("mode-spec"));
+    fireEvent.change(screen.getByTestId("wizard-title"), { target: { value: "My spec" } });
+    fireEvent.change(screen.getByTestId("wizard-problem"), { target: { value: "Some problem" } });
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => expect(screen.getByTestId("wizard-in-scope")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    await waitFor(() => expect(screen.getByTestId("wizard-produces")).toBeInTheDocument());
+    expect(screen.getByTestId("produces-code")).toBeInTheDocument();
+    expect(screen.getByTestId("produces-agent")).toBeInTheDocument();
+    expect(screen.getByTestId("produces-document")).toBeInTheDocument();
+    expect(screen.getByTestId("produces-slides")).toBeInTheDocument();
+    expect(screen.getByTestId("produces-diagram")).toBeInTheDocument();
+    expect(screen.getByTestId("produces-skill")).toBeInTheDocument();
+  });
+
+  it("selecting Document sends produces=document in wizard create", async () => {
+    mockedPost
+      .mockResolvedValueOnce({ criteria: ["a", "b", "c"], non_goals: [], after_statement: "" }) // suggest
+      .mockResolvedValueOnce({ path: "docs/spec/q3-strategy.md" }); // create
+
+    render(<SpecWizard {...defaultProps} />);
+    fireEvent.click(screen.getByTestId("mode-spec"));
+
+    // Problem
+    fireEvent.change(screen.getByTestId("wizard-title"), { target: { value: "Q3 strategy" } });
+    fireEvent.change(screen.getByTestId("wizard-problem"), { target: { value: "Need a doc" } });
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Scope
+    await waitFor(() => expect(screen.getByTestId("wizard-in-scope")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Produces — pick Document and advance (suggest fires on next transition)
+    await waitFor(() => expect(screen.getByTestId("produces-document")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("produces-document"));
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Criteria — auto-suggested via mock, wait for Next to enable
+    await waitFor(() => expect(screen.getByRole("button", { name: /next/i })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Review + submit
+    await waitFor(() => expect(screen.getByTestId("spec-submit")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("spec-submit"));
+
+    await waitFor(() => {
+      expect(mockedPost).toHaveBeenLastCalledWith(
+        "/specs/wizard/create",
+        expect.objectContaining({ produces: "document", kind: "spec" }),
+      );
+    });
+  });
+
+  it("code (default) sends produces=code in wizard create", async () => {
+    mockedPost
+      .mockResolvedValueOnce({ criteria: ["a", "b", "c"], non_goals: [], after_statement: "" }) // suggest
+      .mockResolvedValueOnce({ path: "docs/spec/my-spec.md" }); // create
+
+    render(<SpecWizard {...defaultProps} />);
+    fireEvent.click(screen.getByTestId("mode-spec"));
+
+    fireEvent.change(screen.getByTestId("wizard-title"), { target: { value: "Code feature" } });
+    fireEvent.change(screen.getByTestId("wizard-problem"), { target: { value: "Need code" } });
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Scope
+    await waitFor(() => expect(screen.getByTestId("wizard-in-scope")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Produces — leave default (Code) and advance (suggest fires on next transition)
+    await waitFor(() => expect(screen.getByTestId("wizard-produces")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Criteria — auto-suggested via mock, wait for Next to enable
+    await waitFor(() => expect(screen.getByRole("button", { name: /next/i })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Review + submit
+    await waitFor(() => expect(screen.getByTestId("spec-submit")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("spec-submit"));
+
+    await waitFor(() => {
+      expect(mockedPost).toHaveBeenLastCalledWith(
+        "/specs/wizard/create",
+        expect.objectContaining({ produces: "code", kind: "spec" }),
+      );
+    });
   });
 
   // -------------------------------------------------------------------

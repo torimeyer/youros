@@ -16,8 +16,19 @@ interface Suggestions {
 
 type Mode = "needle" | "spec";
 
-const SPEC_STEPS = ["Problem", "Scope", "Criteria", "Review"] as const;
+const SPEC_STEPS = ["Problem", "Scope", "Produces", "Criteria", "Review"] as const;
 type SpecStep = typeof SPEC_STEPS[number];
+
+type ProducesOption = "code" | "agent" | "document" | "slides" | "diagram" | "skill";
+
+const PRODUCES_OPTIONS: { value: ProducesOption; label: string; description: string; icon: string }[] = [
+  { value: "code", label: "Code", description: "Breaks into tasks, builds files and features", icon: "code" },
+  { value: "agent", label: "Agent", description: "Writes a new agent to your agent library", icon: "smart_toy" },
+  { value: "document", label: "Document", description: "Drafts a .docx and saves it to Drive", icon: "description" },
+  { value: "slides", label: "Slide deck", description: "Builds a .pptx and saves it to Drive", icon: "slideshow" },
+  { value: "diagram", label: "Diagram", description: "Draws a .drawio and saves it to Drive", icon: "account_tree" },
+  { value: "skill", label: "Skill", description: "Writes a reusable skill to your skill library", icon: "extension" },
+];
 
 export default function SpecWizard({ onComplete, onCancel }: Props) {
   const [mode, setMode] = useState<Mode>("needle");
@@ -40,6 +51,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
   const [newOutItem, setNewOutItem] = useState("");
   const [newNonGoal, setNewNonGoal] = useState("");
   const [newCriterion, setNewCriterion] = useState("");
+  const [produces, setProduces] = useState<ProducesOption>("code");
   const [suggesting, setSuggesting] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -66,6 +78,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
   const canAdvance = () => {
     if (step === "Problem") return title.trim().length > 0 && problem.trim().length > 0;
     if (step === "Scope") return true;
+    if (step === "Produces") return true;
     if (step === "Criteria") return criteria.length >= 3;
     return true;
   };
@@ -120,6 +133,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
         non_goals: nonGoals,
         criteria,
         kind: "spec",
+        produces,
       });
       onComplete(data.path || "");
     } catch {
@@ -384,6 +398,34 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
             </div>
           )}
 
+          {step === "Produces" && (
+            <div data-testid="wizard-produces" className="space-y-3">
+              <p className="text-sm text-slate-400 mb-4">
+                What should this spec produce when you click "Build it"?
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {PRODUCES_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    data-testid={`produces-${opt.value}`}
+                    onClick={() => setProduces(opt.value)}
+                    className={`flex items-start gap-3 rounded-xl border p-4 text-left transition-colors ${
+                      produces === opt.value
+                        ? "border-blue-500 bg-blue-500/10 text-white"
+                        : "border-slate-700 bg-slate-800/40 text-slate-300 hover:border-slate-500"
+                    }`}
+                  >
+                    <Icon name={opt.icon} size={20} className={produces === opt.value ? "text-blue-400" : "text-slate-500"} />
+                    <div>
+                      <div className="font-medium text-sm">{opt.label}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{opt.description}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {step === "Criteria" && (
             <div className="space-y-6">
               {suggesting && (
@@ -433,6 +475,11 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
           {step === "Review" && (
             <div className="space-y-4 text-sm">
               <h3 className="text-white font-semibold text-base">{title}</h3>
+
+              <div>
+                <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Produces</h4>
+                <p className="text-slate-300">{PRODUCES_OPTIONS.find(o => o.value === produces)?.label ?? produces}</p>
+              </div>
 
               <div>
                 <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Problem</h4>
