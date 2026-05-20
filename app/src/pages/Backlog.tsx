@@ -261,10 +261,10 @@ function AllView() {
 
       <div className="flex gap-4">
         <KanbanColumn
-          id="drafting"
-          label="Drafting"
+          id="drafts"
+          label="Drafts"
           count={draftingSpecs.length}
-          emptyTestId="empty-state-drafting"
+          emptyTestId="empty-state-drafts"
           isEmpty={draftingSpecs.length === 0}
         >
           {draftingSpecs.map((s) => (
@@ -273,15 +273,24 @@ function AllView() {
         </KanbanColumn>
 
         <KanbanColumn
-          id="ready"
-          label="Ready"
-          count={readySpecs.length + openTasks.length}
-          emptyTestId="empty-state-ready"
-          isEmpty={readySpecs.length + openTasks.length === 0}
+          id="ready-specs"
+          label="Ready specs"
+          count={readySpecs.length}
+          emptyTestId="empty-state-ready-specs"
+          isEmpty={readySpecs.length === 0}
         >
           {readySpecs.map((s) => (
             <SpecCard key={s.id} spec={s} onBuild={handleBuild} />
           ))}
+        </KanbanColumn>
+
+        <KanbanColumn
+          id="ready-tasks"
+          label="Ready tasks"
+          count={openTasks.length}
+          emptyTestId="empty-state-ready-tasks"
+          isEmpty={openTasks.length === 0}
+        >
           {openTasks.map((t) => (
             <TaskCard key={t.id} task={t} />
           ))}
