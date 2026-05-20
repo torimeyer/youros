@@ -3,6 +3,7 @@ PROMPT "You are a sales assistant. From the user's notes on a call, write a reca
 TOOL shell
 TOOL file:read
 TOOL file:write
+MCP hubspot
 LIMIT tokens 100000
 LIMIT test_coverage 0
 ISOLATION nono

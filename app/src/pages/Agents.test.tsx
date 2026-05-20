@@ -6784,3 +6784,125 @@ describe('Agents page - AgentStatusBadge (→1510)', () => {
     expect(screen.queryByTestId('agent-status-badge')).toBeNull()
   })
 })
+
+// ── B3: per-agent MCP/Skill visibility (→1532) ──────────────────────────────
+
+describe('Agents page - Template MCP/Skill visibility (→1532)', () => {
+  const mockTemplateWithMcps = {
+    id: 'builtin-sales-follow-up',
+    name: 'Follow Up',
+    description: 'After a call, turn notes into a recap email.',
+    icon: 'forward_to_inbox',
+    prompt_template: 'You are a sales assistant. Write a follow-up email.',
+    model: 'sonnet',
+    budget: 2.0,
+    source: 'marketplace',
+    personas: ['sales'],
+    installed: true,
+    builtin: true,
+    declared_mcps: ['hubspot'],
+    declared_skills: [],
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: false, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path.startsWith('/agents/persona-templates')) return { templates: [mockTemplateWithMcps], persona: 'pm' }
+      if (path === '/agents/user-templates') return { templates: [] }
+      if (path === '/settings') return {
+        persona: 'pm',
+        mcp_servers: [{ name: 'HubSpot', url: 'http://hubspot', enabled: true }],
+      }
+      if (path === '/agents/fleets') return { fleets: [] }
+      if (path.includes('/alias')) return { alias: null }
+      return {}
+    })
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  it('template detail modal shows declared MCP chips when template has declared_mcps', async () => {
+    renderAgents()
+
+    const templatesTab = await screen.findByText('Templates')
+    fireEvent.click(templatesTab)
+
+    const useBtn = await screen.findByTestId('pm-template-card-builtin-sales-follow-up-action')
+    fireEvent.click(useBtn)
+
+    await waitFor(() => {
+      const chips = screen.getAllByTestId('declared-mcp-chip')
+      expect(chips.length).toBeGreaterThan(0)
+      expect(chips[0].textContent).toBe('hubspot')
+    })
+  })
+
+  it('template detail modal shows MCP/Skills section header when MCPs are declared', async () => {
+    renderAgents()
+
+    const templatesTab = await screen.findByText('Templates')
+    fireEvent.click(templatesTab)
+
+    const useBtn = await screen.findByTestId('pm-template-card-builtin-sales-follow-up-action')
+    fireEvent.click(useBtn)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('template-mcp-skills-section')).toBeInTheDocument()
+    })
+  })
+
+  it('template detail modal shows workspace MCPs note when enabled MCPs are configured', async () => {
+    renderAgents()
+
+    const templatesTab = await screen.findByText('Templates')
+    fireEvent.click(templatesTab)
+
+    const useBtn = await screen.findByTestId('pm-template-card-builtin-sales-follow-up-action')
+    fireEvent.click(useBtn)
+
+    await waitFor(() => {
+      const note = screen.getByTestId('workspace-mcps-note')
+      expect(note).toBeInTheDocument()
+      expect(note.textContent).toContain('HubSpot')
+    })
+  })
+
+  it('template detail modal shows no MCP section when template has no declared_mcps and no workspace MCPs', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: false, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path.startsWith('/agents/persona-templates')) return {
+        templates: [{
+          ...mockTemplateWithMcps,
+          declared_mcps: [],
+          declared_skills: [],
+        }],
+        persona: 'pm',
+      }
+      if (path === '/agents/user-templates') return { templates: [] }
+      if (path === '/settings') return { persona: 'pm', mcp_servers: [] }
+      if (path === '/agents/fleets') return { fleets: [] }
+      if (path.includes('/alias')) return { alias: null }
+      return {}
+    })
+
+    renderAgents()
+
+    const templatesTab = await screen.findByText('Templates')
+    fireEvent.click(templatesTab)
+
+    const useBtn = await screen.findByTestId('pm-template-card-builtin-sales-follow-up-action')
+    fireEvent.click(useBtn)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('template-detail-modal')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('template-mcp-skills-section')).toBeNull()
+  })
+})

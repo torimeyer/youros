@@ -1142,3 +1142,60 @@ def test_review_quality_gates_come_from_manifest():
     config = parse_agentfile(path)
     assert len(config.review_checklists) >= 1, "review must have review checklists via manifest"
     assert config.standards_path is not None, "review must have standards_path via manifest"
+
+
+# ── B3: per-agent MCP/Skill visibility (→1532) ──────────────────────────────
+
+
+def test_mcp_directive_adds_to_mcp_servers_list(tmp_path):
+    """MCP line is captured in config.mcp_servers."""
+    af = tmp_path / "test.agent"
+    af.write_text("FROM auto\nPROMPT test\nMCP hubspot\n")
+    config = parse_agentfile(af)
+    assert config.mcp_servers == ["hubspot"]
+
+
+def test_skill_directive_adds_to_skills_list(tmp_path):
+    """SKILL line is captured in config.skills."""
+    af = tmp_path / "test.agent"
+    af.write_text("FROM auto\nPROMPT test\nSKILL seo-optimizer\n")
+    config = parse_agentfile(af)
+    assert config.skills == ["seo-optimizer"]
+
+
+def test_multiple_mcp_directives_all_captured(tmp_path):
+    """Multiple MCP lines all appear in mcp_servers in declaration order."""
+    af = tmp_path / "test.agent"
+    af.write_text("FROM auto\nPROMPT test\nMCP hubspot\nMCP google-docs\n")
+    config = parse_agentfile(af)
+    assert config.mcp_servers == ["hubspot", "google-docs"]
+
+
+def test_marketplace_blog_post_declares_mcp():
+    """blog-post.agent must declare at least one MCP server."""
+    from config import PROJECT_ROOT
+    path = PROJECT_ROOT / "agents" / "marketplace" / "blog-post.agent"
+    if not path.exists():
+        pytest.skip("blog-post.agent not present")
+    config = parse_agentfile(path)
+    assert config.mcp_servers, "blog-post.agent must declare at least one MCP server (→1532)"
+
+
+def test_marketplace_prospect_research_declares_mcp():
+    """prospect-research.agent must declare at least one MCP server."""
+    from config import PROJECT_ROOT
+    path = PROJECT_ROOT / "agents" / "marketplace" / "prospect-research.agent"
+    if not path.exists():
+        pytest.skip("prospect-research.agent not present")
+    config = parse_agentfile(path)
+    assert config.mcp_servers, "prospect-research.agent must declare at least one MCP server (→1532)"
+
+
+def test_marketplace_follow_up_declares_mcp():
+    """follow-up.agent must declare at least one MCP server."""
+    from config import PROJECT_ROOT
+    path = PROJECT_ROOT / "agents" / "marketplace" / "follow-up.agent"
+    if not path.exists():
+        pytest.skip("follow-up.agent not present")
+    config = parse_agentfile(path)
+    assert config.mcp_servers, "follow-up.agent must declare at least one MCP server (→1532)"

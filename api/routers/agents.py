@@ -8826,6 +8826,8 @@ def _build_templates_list() -> list[dict]:
             config = parse_agentfile(f)
             entry["capabilities"] = build_capabilities_summary(config)
             entry["description"] = config.description or ""
+            entry["mcp_servers"] = config.mcp_servers
+            entry["skills"] = config.skills
         except AgentfileParseError as exc:
             entry["parse_error"] = str(exc)
         parsed.append((f, entry, config))
@@ -8935,8 +8937,21 @@ async def list_pm_templates():
 
 @router.get("/agents/pm-templates/marketplace")
 async def list_marketplace_templates():
-    """List marketplace templates not yet installed by the user."""
-    return {"templates": agent_templates_store.list_marketplace()}
+    """List marketplace templates not yet installed by the user.
+
+    Each entry is augmented with ``declared_mcps`` and ``declared_skills``
+    parsed from the corresponding agentfile so the Agents page can display
+    which integrations an agent will use before the user spawns it.
+    """
+    from services.agentfile_parser import get_agent_config_by_template
+    templates = [dict(t) for t in agent_templates_store.list_marketplace()]
+    for t in templates:
+        stem = t["name"].lower().replace(" ", "-")
+        config = get_agent_config_by_template(stem)
+        if config:
+            t["declared_mcps"] = config.mcp_servers
+            t["declared_skills"] = config.skills
+    return {"templates": templates}
 
 
 @router.post("/agents/pm-templates/install-persona")
@@ -9008,8 +9023,15 @@ async def list_persona_templates(persona: str = "pm"):
 
     If ``persona`` is empty the PM set is returned as a safe default.
     """
+    from services.agentfile_parser import get_agent_config_by_template
     effective_persona = (persona or "pm").strip()
-    templates = agent_templates_store.list_for_persona(effective_persona)
+    templates = [dict(t) for t in agent_templates_store.list_for_persona(effective_persona)]
+    for t in templates:
+        stem = t["name"].lower().replace(" ", "-")
+        config = get_agent_config_by_template(stem)
+        if config:
+            t["declared_mcps"] = config.mcp_servers
+            t["declared_skills"] = config.skills
     return {"templates": templates, "persona": effective_persona}
 
 
