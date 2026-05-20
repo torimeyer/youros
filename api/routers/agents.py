@@ -2160,7 +2160,7 @@ def _recover_bulk_cancelled_agents() -> bool:
 _WORKFLOW_ORPHAN_GRACE_SECONDS = 120
 
 
-def _reconcile_workflow_step_agents() -> bool:
+def _reconcile_workflow_step_agents(all_workflows: dict | None = None) -> bool:
     """Auto-cancel step agents whose parent workflow has already finished.
 
     Called at the top of GET /agents (cheap: only touches in-memory dicts).
@@ -2173,10 +2173,18 @@ def _reconcile_workflow_step_agents() -> bool:
       ``_WORKFLOW_ORPHAN_GRACE_SECONDS``, the step agent is cancelled.
     - A user-spawned agent that has no ``workflow_run_id`` is NEVER touched.
 
+    all_workflows: optional pre-loaded dict from workflows.json. When supplied,
+    no file I/O is performed inside this function. Pass it from
+    _compute_agents_snapshot_async (which pre-loads via run_in_executor) to
+    avoid N synchronous file reads on the event loop per 500ms cycle (→1526).
+
     Returns True if any record changed so the caller can persist once.
     """
     try:
-        from services.workflows import get_workflow, WF_DONE, WF_FAILED
+        from services.workflows import WF_DONE, WF_FAILED
+        if all_workflows is None:
+            from services.workflows import _load as _load_wf
+            all_workflows = _load_wf()
     except ImportError:
         return False
 
@@ -2191,7 +2199,7 @@ def _reconcile_workflow_step_agents() -> bool:
         if not wf_run_id:
             continue
 
-        wf = get_workflow(wf_run_id)
+        wf = all_workflows.get(wf_run_id)
         # Workflow was deleted entirely: treat as terminal.
         if wf is None:
             is_terminal = True
@@ -3899,7 +3907,12 @@ async def _compute_agents_snapshot_async() -> dict:
                     agents_map[name]["status"] = "completed"
                     agents_map[name]["completed_at"] = meta.get("completed_at", "")
 
-    rc_changed = _recover_bulk_cancelled_agents()
+    # Offload to thread pool: both functions do synchronous file I/O
+    # (_emit_audit_event reads/writes audit.jsonl; _reconcile calls
+    # _load which reads workflows.json). Running them directly on the
+    # event loop blocks TLS handshakes and new connection acceptance
+    # for the duration of each file operation (→1526).
+    rc_changed = await asyncio.to_thread(_recover_bulk_cancelled_agents)
     if rc_changed:
         await _save_agent_state_async()
         for name, meta in agent_metadata.items():
@@ -3910,7 +3923,11 @@ async def _compute_agents_snapshot_async() -> dict:
                     agents_map[name].pop("terminated_at", None)
                     agents_map[name].pop("terminated_reason", None)
 
-    wf_changed = _reconcile_workflow_step_agents()
+    # Pre-load workflows.json once via executor so _reconcile does zero
+    # file reads on the loop (instead of one read per workflow agent).
+    from services.workflows import _load as _load_wf_sync
+    all_wf = await loop.run_in_executor(None, _load_wf_sync)
+    wf_changed = await asyncio.to_thread(_reconcile_workflow_step_agents, all_wf)
     if wf_changed:
         await _save_agent_state_async()
         for name, meta in agent_metadata.items():
@@ -8058,7 +8075,11 @@ async def _reconcile_loop():
     await asyncio.sleep(1)
     while True:
         try:
-            stale_changed = _sweep_stale_running_agents()
+            # Offload to thread pool: _sweep_stale_running_agents iterates
+            # agent_metadata and calls _transcript_is_stub / _transcript_has_real_content
+            # which open files synchronously. Running it on the loop blocks
+            # TLS handshakes (→1526).
+            stale_changed = await asyncio.to_thread(_sweep_stale_running_agents)
             ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
             if stale_changed or ac_changed:
                 await _save_agent_state_async()
