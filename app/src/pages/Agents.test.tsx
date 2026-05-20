@@ -6453,3 +6453,210 @@ describe('Agents page - template-spawned agent visibility (→1266 →1271)', ()
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Ghost / Alive indicator + progress signals (→1490)
+// ---------------------------------------------------------------------------
+import { computeAgentGhostState } from '../lib/agentUtils'
+
+describe('computeAgentGhostState', () => {
+  const now = Date.now()
+
+  it('returns "ghost" for abandoned status', () => {
+    expect(computeAgentGhostState({ status: 'abandoned', pid: 1234, last_heartbeat_at: new Date(now - 5000).toISOString() }, now)).toBe('ghost')
+  })
+
+  it('returns "ghost" when pid is null', () => {
+    expect(computeAgentGhostState({ status: 'running', pid: null, last_heartbeat_at: new Date(now - 5000).toISOString() }, now)).toBe('ghost')
+  })
+
+  it('returns "ghost" when pid is undefined', () => {
+    expect(computeAgentGhostState({ status: 'running', pid: undefined, last_heartbeat_at: new Date(now - 5000).toISOString() }, now)).toBe('ghost')
+  })
+
+  it('returns "ghost" when heartbeat is stale (> 120s)', () => {
+    expect(computeAgentGhostState({ status: 'running', pid: 1234, last_heartbeat_at: new Date(now - 130_000).toISOString() }, now)).toBe('ghost')
+  })
+
+  it('returns "alive" for running agent with pid and recent heartbeat', () => {
+    expect(computeAgentGhostState({ status: 'running', pid: 1234, last_heartbeat_at: new Date(now - 30_000).toISOString() }, now)).toBe('alive')
+  })
+
+  it('returns "alive" for spawned agent with pid and recent heartbeat', () => {
+    expect(computeAgentGhostState({ status: 'spawned', pid: 9999, last_heartbeat_at: new Date(now - 10_000).toISOString() }, now)).toBe('alive')
+  })
+
+  it('returns null for completed agents', () => {
+    expect(computeAgentGhostState({ status: 'completed', pid: 1234, last_heartbeat_at: new Date(now - 5000).toISOString() }, now)).toBeNull()
+  })
+
+  it('returns null for cancelled agents', () => {
+    expect(computeAgentGhostState({ status: 'cancelled', pid: null, last_heartbeat_at: undefined }, now)).toBeNull()
+  })
+})
+
+describe('Agents page - ghost/alive badge, progress, and step display (→1490)', () => {
+  const RECENT_HB = new Date(Date.now() - 30_000).toISOString()
+  const STALE_HB = new Date(Date.now() - 200_000).toISOString()
+
+  function mkAgent(overrides: Record<string, unknown>) {
+    return {
+      name: 'ghost-test-agent',
+      status: 'running',
+      source: 'claude-code',
+      model: 'sonnet',
+      spawned_at: new Date(Date.now() - 90_000).toISOString(),
+      transcript_bytes: 4096,
+      pid: 12345,
+      last_heartbeat_at: RECENT_HB,
+      ...overrides,
+    }
+  }
+
+  function mockWithAgent(agent: Record<string, unknown>) {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') {
+        return { daemon_running: true, status: 'ok', active: [agent.name], agents: [agent] }
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path.includes('/nudges')) return { agent: agent.name, nudges: [], session_nudges: [] }
+      return {}
+    })
+    mockedApiPost.mockResolvedValue({})
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+  })
+
+  it('shows alive badge for running agent with pid and recent heartbeat', async () => {
+    mockWithAgent(mkAgent({ pid: 12345, last_heartbeat_at: RECENT_HB }))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      expect(screen.getByTestId('alive-badge')).toBeInTheDocument()
+    })
+  })
+
+  it('shows ghost badge when pid is null', async () => {
+    mockWithAgent(mkAgent({ pid: null, last_heartbeat_at: RECENT_HB }))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      expect(screen.getByTestId('ghost-badge')).toBeInTheDocument()
+    })
+  })
+
+  it('shows ghost badge when heartbeat is stale', async () => {
+    mockWithAgent(mkAgent({ pid: 12345, last_heartbeat_at: STALE_HB }))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      expect(screen.getByTestId('ghost-badge')).toBeInTheDocument()
+    })
+  })
+
+  it('shows ghost badge for abandoned status', async () => {
+    mockWithAgent(mkAgent({ status: 'abandoned', pid: 12345, last_heartbeat_at: RECENT_HB }))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      expect(screen.getByTestId('ghost-badge')).toBeInTheDocument()
+    })
+  })
+
+  it('clicking ghost badge reveals Dismiss button', async () => {
+    mockWithAgent(mkAgent({ pid: null }))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      expect(screen.getByTestId('ghost-badge')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('ghost-badge'))
+    expect(screen.getByTestId('ghost-dismiss-btn')).toBeInTheDocument()
+  })
+
+  it('Dismiss button calls cancel endpoint', async () => {
+    mockWithAgent(mkAgent({ pid: null }))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      expect(screen.getByTestId('ghost-badge')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('ghost-badge'))
+    fireEvent.click(screen.getByTestId('ghost-dismiss-btn'))
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith(
+        '/agents/ghost-test-agent/cancel',
+        expect.objectContaining({ reason: expect.any(String) }),
+      )
+    })
+  })
+
+  it('shows time-running in compact summary (collapsed row)', async () => {
+    mockWithAgent(mkAgent({}))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      // The compact summary renders elapsed time as M:SS or Ns
+      const summary = screen.getByTestId('agent-compact-summary')
+      expect(summary).toBeInTheDocument()
+      // 90s elapsed → should show something like "1:30" or "90s"
+      expect(summary.textContent).toMatch(/\d+/)
+    })
+  })
+
+  it('shows transcript_bytes in compact summary when non-zero', async () => {
+    mockWithAgent(mkAgent({ transcript_bytes: 8192 }))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      const summary = screen.getByTestId('agent-compact-summary')
+      // 8192 bytes → "8.0KB"
+      expect(summary.textContent).toContain('KB')
+    })
+  })
+
+  it('shows current_step in collapsed row when present', async () => {
+    mockWithAgent(mkAgent({ current_step: 'running vitest on src/lib' }))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-current-step')).toBeInTheDocument()
+      expect(screen.getByTestId('agent-current-step').textContent).toContain('running vitest on src/lib')
+    })
+  })
+
+  it('truncates current_step to 60 chars with ellipsis', async () => {
+    const longStep = 'a'.repeat(80)
+    mockWithAgent(mkAgent({ current_step: longStep }))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      const el = screen.getByTestId('agent-current-step')
+      expect(el.textContent!.length).toBeLessThanOrEqual(62) // 60 + "…"
+    })
+  })
+
+  it('does not show current_step element when current_step is null', async () => {
+    mockWithAgent(mkAgent({ current_step: null }))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      expect(screen.queryByTestId('agent-current-step')).toBeNull()
+    })
+  })
+
+  it('expands and collapses agent card on toggle click', async () => {
+    mockWithAgent(mkAgent({ pid: 12345, last_heartbeat_at: RECENT_HB }))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      expect(screen.getByTestId('active-agent-toggle-ghost-test-agent')).toBeInTheDocument()
+    })
+    // Initially collapsed: compact summary visible
+    expect(screen.getByTestId('agent-compact-summary')).toBeInTheDocument()
+    // Expand
+    fireEvent.click(screen.getByTestId('active-agent-toggle-ghost-test-agent'))
+    // After expand: compact summary hidden
+    await waitFor(() => {
+      expect(screen.queryByTestId('agent-compact-summary')).toBeNull()
+    })
+    // Collapse again
+    fireEvent.click(screen.getByTestId('active-agent-toggle-ghost-test-agent'))
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-compact-summary')).toBeInTheDocument()
+    })
+  })
+})
