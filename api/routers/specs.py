@@ -292,6 +292,54 @@ def _validate_doc_path(path: str) -> None:
         )
 
 
+def _read_umbrella_fields(path_str: str) -> dict:
+    """Return is_umbrella and parent_slug by reading frontmatter from the spec file.
+
+    Specs declare hierarchy via two frontmatter keys:
+      umbrella: true        — this spec groups one or more leaf specs under it
+      parent: <slug>        — this leaf belongs to the umbrella whose filename
+                              stem matches <slug>
+
+    Both fields default to False / None when absent or unreadable.
+    """
+    if not path_str:
+        return {"is_umbrella": False, "parent_slug": None}
+    raw = path_str.expanduser() if hasattr(path_str, "expanduser") else path_str
+    if raw.startswith("~"):
+        abs_path = Path(raw).expanduser()
+    elif raw.startswith("/"):
+        abs_path = Path(raw)
+    else:
+        abs_path = Path(PROJECT_ROOT) / raw
+    try:
+        text = abs_path.read_text()
+    except OSError:
+        return {"is_umbrella": False, "parent_slug": None}
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return {"is_umbrella": False, "parent_slug": None}
+    end = None
+    for i, line in enumerate(lines[1:], 1):
+        if line.strip() == "---":
+            end = i
+            break
+    if not end:
+        return {"is_umbrella": False, "parent_slug": None}
+    is_umbrella = False
+    parent_slug = None
+    for line in lines[1:end]:
+        if ":" not in line:
+            continue
+        key, _, val = line.partition(":")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key == "umbrella" and val.lower() in ("true", "yes", "1"):
+            is_umbrella = True
+        elif key == "parent" and val:
+            parent_slug = val
+    return {"is_umbrella": is_umbrella, "parent_slug": parent_slug}
+
+
 @router.get("/specs")
 async def list_specs(gemini_ready: Optional[bool] = None):
     """List all draft and spec documents with lifecycle metadata.
@@ -306,6 +354,9 @@ async def list_specs(gemini_ready: Optional[bool] = None):
     try:
         docs = await ostk.list_docs()
         docs = [d for d in docs if d.get("status") != "plan"]
+        # Umbrella / leaf hierarchy enrichment
+        for d in docs:
+            d.update(_read_umbrella_fields(d.get("path", "")))
         # Gemini-ready enrichment
         try:
             from services.gemini_ready import compute_spec_readiness
