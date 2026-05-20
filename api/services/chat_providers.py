@@ -2395,7 +2395,38 @@ class ChatService:
                         },
                         "required": ["question", "options"],
                     },
-                }
+                },
+                {
+                    "name": "TodoWrite",
+                    "description": (
+                        "Track the current turn's subtask list so the user can see "
+                        "your progress. Call it when you start, update statuses as "
+                        "you go, and mark each item completed when done."
+                    ),
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "todos": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "id": {"type": "string"},
+                                        "content": {"type": "string"},
+                                        "status": {
+                                            "type": "string",
+                                            "enum": ["pending", "in_progress", "completed"],
+                                        },
+                                        "activeForm": {"type": "string"},
+                                    },
+                                    "required": ["id", "content", "status"],
+                                },
+                                "description": "Full list of subtasks for this turn.",
+                            }
+                        },
+                        "required": ["todos"],
+                    },
+                },
             ]
 
         # Enable extended thinking for complex questions so the model
@@ -2575,6 +2606,26 @@ class ChatService:
                     if _inp.get("multiSelect"):
                         _picker_msg["multiSelect"] = True
                     await websocket.send_json(_picker_msg)
+                    break
+
+            # Check if the model used TodoWrite. Emit a todo-list frame so
+            # the LiveTodoPanel can show per-turn subtask progress.
+            for _block in getattr(response, "content", []):
+                if (
+                    getattr(_block, "type", None) == "tool_use"
+                    and getattr(_block, "name", None) == "TodoWrite"
+                ):
+                    _inp = getattr(_block, "input", {}) or {}
+                    _raw_todos = _inp.get("todos", [])
+                    _todos = [
+                        {
+                            "subject": t.get("content", t.get("subject", "")),
+                            "status": t.get("status", "pending"),
+                            **({"activeForm": t["activeForm"]} if "activeForm" in t else {}),
+                        }
+                        for t in _raw_todos
+                    ]
+                    await websocket.send_json({"type": "todo-list", "todos": _todos})
                     break
 
             try:
