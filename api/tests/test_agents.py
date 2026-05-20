@@ -13612,3 +13612,96 @@ def test_sanitize_clean_row_passes_through_unchanged():
     assert _sanitize_for_json(None) is None
     assert _sanitize_for_json(["a"]) == ["a"]
 
+
+# →1500: transcript-tail (hyphen) endpoint tests
+@pytest.mark.asyncio
+async def test_transcript_tail_hyphen_returns_last_20_lines(tmp_path, monkeypatch):
+    """GET /agents/{name}/transcript-tail returns last 20 lines by default."""
+    from routers.agents import agent_metadata
+
+    name = "test-tail-v2-1500-basic"
+    agent_metadata.pop(name, None)
+
+    transcript_file = tmp_path / f"{name}.md"
+    transcript_file.write_text("\n".join(f"line {i}" for i in range(1, 51)) + "\n")
+    agent_metadata[name] = {"status": "running", "transcript_path": str(transcript_file)}
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/agents/{name}/transcript-tail")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == name
+        assert data["lines_returned"] == 20
+        assert len(data["lines"]) == 20
+        assert data["lines"][0] == "line 31"
+        assert data["lines"][-1] == "line 50"
+        assert "transcript_path" in data
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_transcript_tail_hyphen_missing_returns_404():
+    """GET /agents/{name}/transcript-tail returns 404 for an unknown agent."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/agents/no-such-agent-1500/transcript-tail")
+    assert resp.status_code == 404
+    assert "no transcript" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_transcript_tail_hyphen_caps_at_100(tmp_path):
+    """GET /agents/{name}/transcript-tail?lines=200 is capped to 100."""
+    from routers.agents import agent_metadata
+
+    name = "test-tail-v2-1500-cap"
+    agent_metadata.pop(name, None)
+
+    transcript_file = tmp_path / f"{name}.md"
+    transcript_file.write_text("\n".join(f"line {i}" for i in range(1, 201)) + "\n")
+    agent_metadata[name] = {"status": "running", "transcript_path": str(transcript_file)}
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/agents/{name}/transcript-tail?lines=200")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["lines_returned"] == 100
+        assert len(data["lines"]) == 100
+        assert data["lines"][-1] == "line 200"
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_transcript_tail_hyphen_sanitizes_control_chars(tmp_path):
+    """GET /agents/{name}/transcript-tail sanitizes control characters in lines."""
+    from routers.agents import agent_metadata
+
+    name = "test-tail-v2-1500-ctrl"
+    agent_metadata.pop(name, None)
+
+    transcript_file = tmp_path / f"{name}.md"
+    # Write lines containing control chars (e.g. \x01, \x07)
+    transcript_file.write_bytes(b"normal line\nline with \x01bell\x07 chars\nlast line\n")
+    agent_metadata[name] = {"status": "running", "transcript_path": str(transcript_file)}
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/agents/{name}/transcript-tail")
+        assert resp.status_code == 200
+        data = resp.json()
+        dirty = data["lines"][1]
+        # Raw control chars must not appear; they become \uXXXX escapes
+        assert "\x01" not in dirty
+        assert "\x07" not in dirty
+        assert "\\u0001" in dirty
+        assert "\\u0007" in dirty
+    finally:
+        agent_metadata.pop(name, None)
+

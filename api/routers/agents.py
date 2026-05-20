@@ -9580,6 +9580,44 @@ async def agent_transcript_tail(name: str, lines: int = 80):
     return {"agent": name, "found": True, "lines": tail}
 
 
+# →1500 transcript-tail endpoint (hyphen path, stricter contract than →1454 underscore variant)
+@router.get("/agents/{name}/transcript-tail")
+async def agent_transcript_tail_v2(name: str, lines: int = 20):
+    """Return the last N lines of the agent's transcript file.
+
+    Default N=20, capped at 100. Control characters are sanitized.
+    Returns 404 when no transcript exists for the agent.
+
+    Response: {"lines": [...], "name": str, "transcript_path": str, "lines_returned": int}
+    """
+    if "/" in name or ".." in name:
+        raise HTTPException(status_code=400, detail="Invalid agent name")
+
+    lines = min(max(lines, 1), 100)
+
+    source = await asyncio.to_thread(_resolve_transcript_source, name)
+    if source is None:
+        raise HTTPException(status_code=404, detail=f"no transcript for agent {name}")
+
+    def _read_tail() -> list:
+        try:
+            with open(source, "rb") as fh:
+                content = fh.read().decode("utf-8", errors="replace")
+            all_lines = content.splitlines()
+            tail = all_lines[-lines:] if len(all_lines) > lines else all_lines
+            return [sanitize_for_json(ln) for ln in tail]
+        except OSError:
+            return []
+
+    tail = await asyncio.to_thread(_read_tail)
+    return {
+        "lines": tail,
+        "name": name,
+        "transcript_path": str(source),
+        "lines_returned": len(tail),
+    }
+
+
 _WS_ACTIVE_STATUSES = frozenset({"running", "spawned", "starting"})
 
 
