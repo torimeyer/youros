@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import fcntl
 import logging
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -105,6 +106,37 @@ def append_bullet(section: str, text: str) -> None:
         )
 
 
+def remove_bullet(text: str) -> dict:
+    """Find and remove the bullet best matching *text*.
+
+    Always reads fresh from disk (bypasses cache) to avoid TOCTOU.
+    Fuzzy match: substring OR shared-keyword (case-insensitive).
+
+    Returns one of:
+        {"status": "removed",   "bullet": str, "section": str}
+        {"status": "ambiguous", "candidates": list[str]}
+        {"status": "not_found"}
+    """
+    path = _memory_path()
+    try:
+        content = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {"status": "not_found"}
+
+    bullets = _parse_all_bullets(content)
+    query = text.lower().strip()
+    matches = [(raw, display, section) for raw, display, section in bullets if _bullet_matches(query, display)]
+
+    if not matches:
+        return {"status": "not_found"}
+    if len(matches) > 1:
+        return {"status": "ambiguous", "candidates": [d for _, d, _ in matches]}
+
+    raw_line, display_text, section = matches[0]
+    _write_direct(path, _remove_line(content, raw_line))
+    return {"status": "removed", "bullet": display_text, "section": section}
+
+
 def replace_all(text: str) -> None:
     """Replace the entire memory file with *text*.
 
@@ -129,6 +161,62 @@ def replace_all(text: str) -> None:
 
 def _memory_path() -> Path:
     return _MEMORY_PATH
+
+
+def _parse_all_bullets(content: str) -> list[tuple[str, str, str]]:
+    """Return (raw_line, display_text, section) for each bullet in *content*."""
+    results: list[tuple[str, str, str]] = []
+    current_section = "Preferences"
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            current_section = stripped[2:].strip()
+        elif stripped.startswith("- "):
+            display = re.sub(r"\s*<!--.*?-->\s*$", "", stripped[2:]).strip()
+            results.append((line, display, current_section))
+    return results
+
+
+def _bullet_matches(query: str, display_text: str) -> bool:
+    """Return True if *query* fuzzy-matches *display_text* (case-insensitive).
+
+    Substring check first (fast path).  Keyword fallback requires ALL
+    significant words (>3 chars) from the query to appear in the display text —
+    so "plain language" does not accidentally match "Always use plain style".
+    """
+    dt = display_text.lower()
+    if query in dt:
+        return True
+    query_words = {w for w in query.split() if len(w) > 3}
+    if query_words:
+        dt_words = set(dt.split())
+        return query_words.issubset(dt_words)
+    return False
+
+
+def _remove_line(content: str, raw_line: str) -> str:
+    """Remove the first occurrence of *raw_line* from *content*."""
+    lines = content.splitlines(keepends=True)
+    result: list[str] = []
+    removed = False
+    for line in lines:
+        if not removed and line.rstrip("\n") == raw_line.rstrip("\n"):
+            removed = True
+            continue
+        result.append(line)
+    return "".join(result)
+
+
+def _write_direct(path: Path, content: str) -> None:
+    """Write *content* to *path* with an exclusive lock, then invalidate cache."""
+    with open(path, "w", encoding="utf-8") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            fh.write(content)
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+    with _cache_lock:
+        _reset_cache()
 
 
 def _reset_cache() -> None:

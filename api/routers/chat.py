@@ -20,7 +20,7 @@ from services.chat_providers import (
     stream_group_broadcast,
     stream_multi_ai_conversation,
 )
-from services.memory_trigger import handle as _handle_memory_trigger
+from services.memory_trigger import handle as _handle_memory_trigger, handle_forget as _handle_forget_trigger
 from services.ostk import ostk
 from services.settings_store import settings_store
 
@@ -1241,12 +1241,14 @@ async def chat_websocket(websocket: WebSocket):
                 if handled:
                     continue
 
-            # --- Memory trigger: detect "remember X", "from now on X", etc. ---
-            # Fires before model routing so the bullet lands in the file
-            # before the model assembles its system prompt for this turn.
-            # The message is still forwarded to the model unchanged.
+            # --- Memory trigger: detect "remember X" writes and "forget X" removes. ---
+            # Fires before model routing so MEMORY.md is updated before the
+            # model assembles its system prompt for this turn.
             if isinstance(last_text, str):
-                await _handle_memory_trigger(last_text.strip(), websocket)
+                _msg = last_text.strip()
+                _forgot = await _handle_forget_trigger(_msg, websocket)
+                if not _forgot:
+                    await _handle_memory_trigger(_msg, websocket)
 
             # Clear the 30s dead-backend timer BEFORE any blocking work.
             # build_baseline_context (ostk.list_tasks) and image transforms can

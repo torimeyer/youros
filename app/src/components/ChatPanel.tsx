@@ -1257,8 +1257,15 @@ export function ChatPanel() {
       })
     } else if (lastMessage.type === 'memory_added') {
       // A preference was detected and written to ~/.myos/users/default/MEMORY.md.
-      // Fire the toast so the user sees confirmation immediately.
       useMemoryToastStore.getState().trigger(lastMessage.data as string)
+    } else if (lastMessage.type === 'memory_removed') {
+      const d = lastMessage as unknown as { data: string; section: string }
+      useMemoryToastStore.getState().triggerForgot(d.data, d.section ?? 'Preferences')
+    } else if (lastMessage.type === 'memory_remove_ambiguous') {
+      const d = lastMessage as unknown as { candidates: string[] }
+      useMemoryToastStore.getState().triggerAmbiguous(d.candidates ?? [])
+    } else if (lastMessage.type === 'memory_remove_failed') {
+      useMemoryToastStore.getState().triggerFailed()
     } else if (lastMessage.type === 'plan_banner') {
       const data = lastMessage.data as unknown as { id: string; plan: string }
       if (data?.id && data?.plan) {

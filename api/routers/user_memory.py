@@ -21,6 +21,11 @@ class UserMemoryPayload(BaseModel):
     content: str
 
 
+class RestoreBulletPayload(BaseModel):
+    section: str
+    bullet: str
+
+
 @router.get("/memory")
 async def get_user_memory():
     """Return the current user memory file as plain text."""
@@ -32,4 +37,11 @@ async def get_user_memory():
 async def put_user_memory(body: UserMemoryPayload):
     """Replace the entire user memory file."""
     store.replace_all(body.content)
+    return {"ok": True}
+
+
+@router.post("/memory/restore")
+async def restore_bullet(body: RestoreBulletPayload):
+    """Re-add a bullet removed by the forget trigger (Undo support)."""
+    store.append_bullet(body.section, body.bullet)
     return {"ok": True}
