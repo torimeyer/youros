@@ -159,11 +159,21 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {
                 "title": {
                     "type": "string",
-                    "description": "The task title.",
+                    "description": (
+                        "One sentence, imperative, max 80 chars. "
+                        "Never put file paths, blocker IDs, or numbered steps in the title "
+                        "— those go in description."
+                    ),
                 },
                 "description": {
                     "type": "string",
-                    "description": "Optional plain-language description of what needs to be done.",
+                    "description": (
+                        "Structured body following this exact shape:\n"
+                        "**Why:** 1-3 sentences — the user problem or constraint this addresses.\n"
+                        "**Acceptance:**\n- [ ] checkbox 1\n- [ ] checkbox 2\n"
+                        "**Blockers:** comma-separated needle IDs or 'none'\n"
+                        "**Notes:** optional free-form — file paths, references, background"
+                    ),
                 },
                 "priority": {
                     "type": "string",

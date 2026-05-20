@@ -291,14 +291,15 @@ async def _call_llm(adventure: AdventureTemplate, description: str) -> Adventure
 async def _persist_tasks(plan: AdventurePlan) -> None:
     """Save the generated tasks via ostk so they show up on the dashboard."""
     for task in plan.tasks:
+        safe_title = task.title if len(task.title) <= 80 else task.title[:77].rstrip() + "..."
         try:
-            result = await ostk.add_task(task.title, task.priority)
+            result = await ostk.add_task(safe_title, task.priority)
         except OstkError as exc:
-            logger.warning("Failed to persist task '%s': %s", task.title, exc)
+            logger.warning("Failed to persist task '%s': %s", safe_title, exc)
             continue
         # Fire-and-forget auto label suggestion. Never blocks task creation.
         new_id = extract_task_id(result)
-        schedule_auto_labels(new_id, task.title, "")
+        schedule_auto_labels(new_id, safe_title, "")
 
 
 # --- Endpoints ---

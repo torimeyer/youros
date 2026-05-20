@@ -484,7 +484,7 @@ async def auto_create_tasks(
 
     created: list[dict[str, Any]] = []
     for item in items:
-        title = item if len(item) <= 120 else item[:117].rstrip() + "..."
+        title = item if len(item) <= 80 else item[:77].rstrip() + "..."
         key = _normalize_title(title)
         if not key:
             continue

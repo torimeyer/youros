@@ -77,6 +77,25 @@ class TestToolDefinitions:
         assert "description" in props
         assert "labels" in props
 
+    def test_create_task_title_contract_enforces_80_char_cap(self):
+        """Title field description must instruct AI to keep titles under 80 chars."""
+        tool = next(t for t in TOOL_DEFINITIONS if t["name"] == "create_task")
+        title_desc = tool["input_schema"]["properties"]["title"]["description"]
+        assert "max 80 chars" in title_desc, (
+            f"Title description must contain 'max 80 chars' but got: {title_desc!r}"
+        )
+
+    def test_create_task_description_contract_has_why_and_acceptance(self):
+        """Description field must spell out the Why/Acceptance/Blockers/Notes shape."""
+        tool = next(t for t in TOOL_DEFINITIONS if t["name"] == "create_task")
+        desc_desc = tool["input_schema"]["properties"]["description"]["description"]
+        assert "Why:" in desc_desc, (
+            f"Description contract must contain 'Why:' but got: {desc_desc!r}"
+        )
+        assert "Acceptance:" in desc_desc, (
+            f"Description contract must contain 'Acceptance:' but got: {desc_desc!r}"
+        )
+
     def test_create_tasks_from_spec_definition(self):
         """create_tasks_from_spec must be well-formed with spec_path required."""
         tool = next(t for t in TOOL_DEFINITIONS if t["name"] == "create_tasks_from_spec")
