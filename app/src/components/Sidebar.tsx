@@ -52,24 +52,18 @@ interface NavGroup {
 // Value is a JSON object: { [groupId]: boolean }
 const COLLAPSED_KEY = 'sidebar-group-collapsed'
 
-const TOP_LEVEL_ROUTES = new Set(['/', '/backlog', '/agents', '/gems', '/tasks', '/specs'])
+const TOP_LEVEL_ROUTES = new Set(['/', '/backlog', '/agents', '/tasks', '/specs'])
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    id: 'files',
-    label: 'Files & Docs',
-    icon: 'folder_open',
+    id: 'integrations',
+    label: 'Integrations',
+    icon: 'hub',
     items: [
+      { to: '/gems', icon: 'auto_awesome', label: 'Gems', featureLabel: 'Gems' },
       { to: '/files', icon: 'folder', label: 'Docs', featureLabel: 'Projects' },
       { to: '/ostk', icon: 'terminal', label: 'ostk', featureLabel: 'ostk' },
       { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
-    ],
-  },
-  {
-    id: 'comms',
-    label: 'Comms',
-    icon: 'forum',
-    items: [
       { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: 'Gmail', gmailBadge: true },
       { to: '/calendar', icon: 'calendar_month', label: 'Calendar', featureLabel: 'Calendar' },
       { to: '/imessage', icon: 'sms', label: 'Messages', featureLabel: 'iMessage' },
@@ -88,7 +82,6 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/specs', icon: 'article', label: 'Specs', featureLabel: 'Specs', specsBadge: true },
   { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
   { to: '/backlog', icon: 'inventory_2', label: 'Kanban view', featureLabel: 'Backlog' },
-  { to: '/gems', icon: 'auto_awesome', label: 'Gems', featureLabel: 'Gems' },
   ...NAV_GROUPS.flatMap((g) => g.items),
 ]
 
@@ -264,6 +257,8 @@ function SidebarGroup({
         type="button"
         data-testid={`group-header-${group.id}`}
         onClick={onToggle}
+        aria-expanded={!collapsed}
+        aria-controls={`group-items-${group.id}`}
         className="flex items-center gap-3 w-full px-4 py-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800/30 transition-colors duration-150 cursor-pointer select-none"
       >
         <Icon name={group.icon} className="text-base" />
@@ -293,7 +288,7 @@ function SidebarGroup({
 
       {/* Group items */}
       {!collapsed && (
-        <div data-testid={`group-items-${group.id}`} className="ml-2">
+        <div id={`group-items-${group.id}`} data-testid={`group-items-${group.id}`} className="ml-2">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -582,7 +577,7 @@ export function Sidebar() {
 
   // Top-level items (Home + Tasks + Agents) that are not in any group
   const topLevelItems = ALL_NAV_ITEMS.filter((i) => TOP_LEVEL_ROUTES.has(i.to) && isEnabled(i)).sort((a, b) => {
-    const order = ['/', '/tasks', '/specs', '/agents', '/backlog', '/gems']
+    const order = ['/', '/tasks', '/specs', '/agents', '/backlog']
     return order.indexOf(a.to) - order.indexOf(b.to)
   })
 
