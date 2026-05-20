@@ -14,6 +14,7 @@ interface Spec {
   title: string
   status: string
   task_ids: string[]
+  description?: string
 }
 
 interface Task {
@@ -21,6 +22,9 @@ interface Task {
   title: string
   status: string
   spec_id: string | null
+  description?: string
+  priority?: string
+  tags?: string[]
 }
 
 function displayStatus(s: string): 'Draft' | 'Ready' | 'Building' | 'Done' {
@@ -45,13 +49,14 @@ function taskStatusClass(s: string): string {
 
 function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void }) {
   const ds = displayStatus(spec.status)
+  const [expanded, setExpanded] = useState(false)
   return (
     <div
       data-testid={`kanban-card-${spec.id}`}
-      className="rounded-xl bg-slate-800/50 p-4 flex flex-col gap-2 hover:-translate-y-px transition-transform cursor-pointer"
+      className="rounded-xl bg-slate-800/50 p-4 flex flex-col gap-2 hover:-translate-y-px transition-transform cursor-pointer min-w-0 overflow-hidden"
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium text-slate-200 flex-1">{spec.title}</span>
+        <span className="text-sm font-medium text-slate-200 flex-1 line-clamp-2 break-words">{spec.title}</span>
         <span
           data-testid="card-type-chip"
           className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30 shrink-0"
@@ -76,6 +81,20 @@ function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void })
           </span>
         ))}
       </div>
+      {spec.description && (
+        <div className="flex flex-col gap-1">
+          <div className={`text-xs text-slate-400 whitespace-pre-wrap break-words ${expanded ? '' : 'line-clamp-3'}`}>
+            {spec.description}
+          </div>
+          <button
+            data-testid="card-expand"
+            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
+            className="text-xs text-slate-500 hover:text-slate-300 self-start"
+          >
+            {expanded ? 'Show less' : 'Show more'}
+          </button>
+        </div>
+      )}
       {ds === 'Ready' && (
         <button
           data-testid="card-build-button"
@@ -90,13 +109,14 @@ function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void })
 }
 
 function TaskCard({ task }: { task: Task }) {
+  const [expanded, setExpanded] = useState(false)
   return (
     <div
       data-testid={`kanban-card-${task.id}`}
-      className="rounded-xl bg-slate-800/50 p-4 flex flex-col gap-2 hover:-translate-y-px transition-transform cursor-pointer"
+      className="rounded-xl bg-slate-800/50 p-4 flex flex-col gap-2 hover:-translate-y-px transition-transform cursor-pointer min-w-0 overflow-hidden"
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium text-slate-200 flex-1">{task.title}</span>
+        <span className="text-sm font-medium text-slate-200 flex-1 line-clamp-2 break-words">{task.title}</span>
         <span
           data-testid="card-type-chip"
           className="text-xs px-2 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 shrink-0"
@@ -117,6 +137,20 @@ function TaskCard({ task }: { task: Task }) {
           </span>
         )}
       </div>
+      {task.description && (
+        <div className="flex flex-col gap-1">
+          <div className={`text-xs text-slate-400 whitespace-pre-wrap break-words ${expanded ? '' : 'line-clamp-3'}`}>
+            {task.description}
+          </div>
+          <button
+            data-testid="card-expand"
+            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
+            className="text-xs text-slate-500 hover:text-slate-300 self-start"
+          >
+            {expanded ? 'Show less' : 'Show more'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
