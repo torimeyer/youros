@@ -142,7 +142,7 @@ describe('ChatPanel tabs', () => {
     render(<ChatPanel />)
 
     // Type a message in the first tab input
-    const input = screen.getByPlaceholderText(/Message claude/i)
+    const input = screen.getByTestId('chat-input')
     await user.type(input, 'Hello from tab one')
     // The input should have the text
     expect(input).toHaveValue('Hello from tab one')
