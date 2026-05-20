@@ -149,6 +149,8 @@ async def create_tasks_from_briefing(event_id: str):
         clean = title.lstrip("-*0123456789.) ").strip()
         if not clean or len(clean) < 5:
             continue
+        if len(clean) > 80:
+            clean = clean[:77].rstrip() + "..."
         description = f"From meeting prep: {event_title}"
         try:
             add_result = await ostk.add_task(clean, "P1", description=description)

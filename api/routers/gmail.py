@@ -215,6 +215,8 @@ async def gmail_to_task(body: EmailToTaskRequest):
     # Parse the two-line response.
     lines = [l.strip() for l in result.strip().splitlines() if l.strip()]
     title = lines[0] if lines else f"Follow up on: {subject}"
+    if len(title) > 80:
+        title = title[:77].rstrip() + "..."
     description = lines[1] if len(lines) > 1 else f"Email from {sender} about: {subject}"
 
     # Create the task via ostk.
