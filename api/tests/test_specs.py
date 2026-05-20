@@ -1220,7 +1220,10 @@ async def test_spec_counts_returns_unfinished_and_total(
     res = await client.get("/api/specs/counts")
     assert res.status_code == 200
     body = res.json()
-    assert body == {"unfinished": 3, "total": 5}
+    # →1512: unfinished = Ready + Building only (draft is not unfinished)
+    assert body["total"] == 5
+    assert body["unfinished"] == 2  # ready + in-progress(=building); draft excluded
+    assert "by_stage" in body
 
 
 @pytest.mark.asyncio
@@ -1237,7 +1240,10 @@ async def test_spec_counts_zero_when_no_specs(
 
     res = await client.get("/api/specs/counts")
     assert res.status_code == 200
-    assert res.json() == {"unfinished": 0, "total": 0}
+    body = res.json()
+    assert body["unfinished"] == 0
+    assert body["total"] == 0
+    assert "by_stage" in body
 
 
 # ---------------------------------------------------------------------------
@@ -2938,6 +2944,75 @@ async def test_archive_returns_404_for_missing_spec(client, tmp_path, monkeypatc
 
     resp = await client.post("/api/specs/ghost-slug/archive")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_archive_returns_409_if_already_archived(client, tmp_path, monkeypatch):
+    """archive on a slug that is already in archive/ returns 409 (→1512)."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    specs_dir = tmp_path / "specs"
+    specs_dir.mkdir(parents=True)
+    archive_dir = specs_dir / "archive"
+    archive_dir.mkdir(parents=True)
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    slug = "already-done"
+    # Spec exists at user-local path
+    (specs_dir / f"{slug}.md").write_text("---\ntitle: done\n---\n")
+    # Already archived with a timestamp prefix
+    (archive_dir / f"20260101T000000Z-{slug}.md").write_text("---\ntitle: done\n---\n")
+
+    resp = await client.post(f"/api/specs/{slug}/archive")
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_spec_counts_by_stage_breakdown(client, monkeypatch):
+    """spec_counts returns by_stage dict with correct counts (→1512)."""
+    from services import ostk as ostk_module
+
+    async def fake_list_docs():
+        return [
+            {"path": "docs/draft/a.md", "status": "draft", "stage": "draft"},
+            {"path": "~/.myos/specs/b.md", "status": "spec", "stage": "ready"},
+            {"path": "~/.myos/specs/c.md", "status": "in-progress", "stage": "building"},
+            {"path": "~/.myos/specs/d.md", "status": "complete", "stage": "shipped"},
+        ]
+
+    monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
+
+    res = await client.get("/api/specs/counts")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["total"] == 4
+    assert body["unfinished"] == 2  # ready + building
+    assert body["by_stage"]["draft"] == 1
+    assert body["by_stage"]["ready"] == 1
+    assert body["by_stage"]["building"] == 1
+    assert body["by_stage"]["shipped"] == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_write_doc_path_rejects_docs_spec(client):
+    """POST to docs/spec/ path is rejected with 400 (→1512 FR-007)."""
+    from routers.specs import _validate_write_doc_path
+    from fastapi import HTTPException
+    import pytest
+
+    with pytest.raises(HTTPException) as exc_info:
+        _validate_write_doc_path("docs/spec/foo.md")
+    assert exc_info.value.status_code == 400
+    assert "docs/spec/" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_validate_write_doc_path_allows_docs_draft(client):
+    """docs/draft/ paths are accepted by the write validator (→1512 FR-007)."""
+    from routers.specs import _validate_write_doc_path
+    _validate_write_doc_path("docs/draft/foo.md")  # must not raise
 
 
 # ---------------------------------------------------------------------------

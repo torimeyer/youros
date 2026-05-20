@@ -2344,6 +2344,47 @@ class OstkService:
                 doc["status"], norm_ids, task_status_map, ac_all_met=ac_all_met
             )
 
+        # Stage enrichment (→1512): compute shipped/husk/stage per doc
+        try:
+            from services.spec_audit import compute_shipped, compute_husk_status, compute_stage, ShippedResult, HuskResult
+            repo_root = Path(self.cwd)
+            for doc in results:
+                raw_path = doc.get("path", "")
+                if not raw_path or doc.get("status") == "plan":
+                    doc.setdefault("stage", "draft")
+                    doc.setdefault("husk", False)
+                    doc.setdefault("missing_files", [])
+                    doc.setdefault("open_linked_needles", [])
+                    continue
+                # Resolve absolute path
+                if raw_path.startswith("/") or raw_path.startswith("~"):
+                    abs_path = Path(raw_path).expanduser()
+                else:
+                    abs_path = repo_root / raw_path
+                # Build needle_statuses from task_status_map for this doc
+                needle_statuses = dict(task_status_map)
+                try:
+                    shipped = compute_shipped(abs_path, repo_root=repo_root, needle_statuses=needle_statuses)
+                except Exception:
+                    shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
+                try:
+                    husk = compute_husk_status(abs_path)
+                except Exception:
+                    husk = HuskResult(is_husk=False, reason="")
+                stage = compute_stage(doc, husk=husk, shipped=shipped)
+                doc["stage"] = stage
+                doc["husk"] = husk.is_husk
+                doc["husk_reason"] = husk.reason
+                doc["missing_files"] = shipped.missing_files
+                doc["open_linked_needles"] = shipped.open_needles
+        except Exception:
+            for doc in results:
+                doc.setdefault("stage", "draft")
+                doc.setdefault("husk", False)
+                doc.setdefault("husk_reason", "")
+                doc.setdefault("missing_files", [])
+                doc.setdefault("open_linked_needles", [])
+
         return results
 
     @staticmethod
