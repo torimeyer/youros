@@ -2081,8 +2081,6 @@ async def build_spec(spec_path: str, model: Optional[str] = None):
     # total wall time is ~one spawn, not N. Each spawn does a subprocess
     # fork, a stdin drain, a chat-state purge, and an audit write. Serial
     # with 3 tasks measured at ~3 to 6 s end to end; parallel lands in
-    # well under a second. Same pattern fleet_spawn uses
-    # (api/routers/agents.py fleet_spawn_agents gather).
     #
     # Progress visibility: we stamp _task_assignments BEFORE awaiting
     # each spawn, so GET /specs/{path}/tasks already shows the agent

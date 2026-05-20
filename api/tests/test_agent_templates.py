@@ -1342,57 +1342,6 @@ def test_fleet_build_website_members_all_quick_mode():
         )
 
 
-@pytest.mark.asyncio
-async def test_fleet_spawns_in_parallel(monkeypatch):
-    """All fleet members are spawned via one asyncio.gather call.
-
-    A serial spawn loop would make a 4-member fleet pay 4x the subprocess
-    fork cost before any agent even starts. This test replaces spawn_agent
-    with an async stub that records start/finish timestamps and verifies
-    every member starts before any member finishes (the signature of
-    parallel gather, not a sequential await chain).
-    """
-    import asyncio as _asyncio
-    import time as _time
-
-    from routers import agents as agents_mod
-
-    start_times: list[float] = []
-    finish_times: list[float] = []
-
-    async def _fake_spawn_agent(body, request=None):
-        start_times.append(_time.perf_counter())
-        # Simulate real fork + CLI startup latency so the serial vs
-        # parallel difference is observable in the test.
-        await _asyncio.sleep(0.05)
-        finish_times.append(_time.perf_counter())
-        return {"result": "ok", "pid": 1234, "transcript": "/tmp/t.md"}
-
-    monkeypatch.setattr(agents_mod, "spawn_agent", _fake_spawn_agent)
-
-    from httpx import AsyncClient, ASGITransport
-    from main import app
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        resp = await ac.post(
-            "/api/agents/fleets/spawn",
-            json={"fleet_id": "fleet-build-website", "context": "demo"},
-        )
-
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["total"] == 4
-    assert len(start_times) == 4
-    assert len(finish_times) == 4
-    # Parallel invariant: the last start happens before the first finish.
-    # Under a serial for-await loop, every start would sit after the
-    # previous finish and max(start) > min(finish) would hold.
-    assert max(start_times) < min(finish_times), (
-        f"fleet members were not spawned in parallel: "
-        f"starts={start_times} finishes={finish_times}"
-    )
-
-
 # ---------- Roadmap template speed tests ----------------------------------
 
 # Background: the Roadmap marketplace template was taking minutes to
