@@ -52,6 +52,7 @@ import AgentfileEditor from './pages/AgentfileEditor'
 import MySetup from './pages/MySetup'
 
 import MyGems from './pages/MyGems'
+import Library from './pages/Library'
 
 export default function App() {
   useRunningAgentsFeed()
@@ -157,6 +158,7 @@ export default function App() {
           <Route path="specs" element={<Specs />} />
           <Route path="specs/import" element={<SpecImport />} />
           <Route path="files" element={<Files />} />
+          <Route path="library" element={<Library />} />
           <Route path="ostk" element={<OstkFiles />} />
           <Route path="sessions" element={<Sessions />} />
           <Route path="drive" element={<Drive />} />

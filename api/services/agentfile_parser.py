@@ -225,6 +225,11 @@ class AgentfileConfig:
     pin_policy: PinPolicy = field(default_factory=PinPolicy)
     limits: LimitPolicy = field(default_factory=LimitPolicy)
 
+    # Source library grounding tags. ``KNOWLEDGE brand`` tells spawn-time
+    # injection to find all sources tagged "brand" and prepend top 3
+    # excerpts under a "Reference material:" header.
+    knowledge_tags: list[str] = field(default_factory=list)
+
     # Structured user-input fields for the spawn modal (UI concept).
     # Serialized as ``USER_INPUTS <json>`` for round-trip through .agent files.
     user_inputs: list = field(default_factory=list)
@@ -577,6 +582,14 @@ def parse_agentfile(path: Path) -> AgentfileConfig:
                     config.user_inputs = parsed
             except (ValueError, TypeError):
                 pass  # Malformed JSON is a no-op; unknown directives are ignored.
+        elif directive == "KNOWLEDGE":
+            if not value:
+                raise AgentfileParseError(
+                    "KNOWLEDGE expects a tag name (e.g. 'KNOWLEDGE brand')",
+                    raw_line_number,
+                    path,
+                )
+            config.knowledge_tags.append(value.strip())
         elif directive == "AC":
             config.acceptance_criteria.append(value)
             _in_file.add("AC")
@@ -1021,6 +1034,9 @@ def serialize_agentfile(config: AgentfileConfig) -> str:
     if config.user_inputs:
         import json as _json
         lines.append(f"USER_INPUTS {_json.dumps(config.user_inputs, separators=(',', ':'))}")
+
+    for tag in config.knowledge_tags:
+        lines.append(f"KNOWLEDGE {tag}")
 
     # Quality gates
     for ac in config.acceptance_criteria:

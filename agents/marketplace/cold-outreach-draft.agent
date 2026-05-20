@@ -5,3 +5,4 @@ TOOL file:read
 LIMIT tokens 100000
 LIMIT test_coverage 0
 ISOLATION nono
+KNOWLEDGE brand
