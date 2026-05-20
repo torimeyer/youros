@@ -1157,6 +1157,11 @@ def _clean_task_title(title: str) -> str:
 
 @router.post("/tasks")
 async def create_task(body: TaskCreate, include_test_data: bool = False):
+    if len(body.title) > 120:
+        raise HTTPException(
+            status_code=400,
+            detail="Title should be one short sentence (max 120 chars). Put longer detail into the `description` field.",
+        )
     clean_title = _clean_task_title(body.title)
 
     # Reject titles that are empty or obvious test artifacts so
