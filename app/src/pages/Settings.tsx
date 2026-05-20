@@ -11,6 +11,7 @@ import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe 
 import SlackConnect from '../components/SlackConnect';
 import { AtlassianSetupCard, GithubSetupCard } from '../components/OnboardingWizard';
 import CustomVerbs from '../components/CustomVerbs';
+import { parseMemoryProvenance } from '../lib/parseMemoryProvenance';
 
 
 interface SettingsData {
@@ -1846,6 +1847,32 @@ export default function Settings() {
               <p className="text-sm text-slate-400 mb-4">
                 Things you tell me to remember show up here. You can edit or remove them anytime.
               </p>
+              {(() => {
+                const bullets = parseMemoryProvenance(memoryContent);
+                if (bullets.length > 0) {
+                  return (
+                    <ul data-testid="memory-bullet-list" className="mb-4 space-y-2">
+                      {bullets.map((bullet, i) => {
+                        const label = bullet.added
+                          ? `added ${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(bullet.added)}`
+                          : 'edited manually';
+                        return (
+                          <li key={i} className="flex items-baseline gap-3">
+                            <span className="text-sm text-slate-200 flex-1">{bullet.text}</span>
+                            <span
+                              data-testid={`memory-provenance-${i}`}
+                              className="text-xs text-slate-500 shrink-0"
+                            >
+                              {label}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  );
+                }
+                return null;
+              })()}
               <textarea
                 data-testid="memory-editor"
                 value={memoryContent}
