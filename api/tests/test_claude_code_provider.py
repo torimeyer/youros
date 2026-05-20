@@ -827,6 +827,100 @@ class TestStreamChat:
         assert len(errors) == 1
         assert "set up" in errors[0]["data"].lower() or "subscription" in errors[0]["data"].lower()
 
+    @pytest.mark.asyncio
+    async def test_todowrite_emits_todo_list_ws_message(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        todos = [
+            {"subject": "Read the file", "status": "in_progress", "activeForm": "Reading the file"},
+            {"subject": "Edit it", "status": "pending"},
+        ]
+        assistant_event = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "name": "TodoWrite", "id": "tu_1", "input": {"todos": todos}},
+                ]
+            },
+        }
+        result_event = {"type": "result", "subtype": "success", "is_error": False, "usage": {}}
+        lines = [
+            (json.dumps(assistant_event) + "\n").encode(),
+            (json.dumps(result_event) + "\n").encode(),
+        ]
+
+        async def fake_create(*args, **kwargs):
+            return FakeProcess(stdout_lines=lines, return_code=0)
+
+        websocket = FakeWebSocket()
+        with patch("services.claude_code_provider._find_claude_binary", return_value="/usr/local/bin/claude"), \
+             patch("asyncio.create_subprocess_exec", new=fake_create):
+            await stream_chat([{"role": "user", "content": "do stuff"}], websocket, system_prompt=None)
+        todo_msgs = websocket.of_type("todo-list")
+        assert len(todo_msgs) == 1
+        assert todo_msgs[0]["todos"] == todos
+
+    @pytest.mark.asyncio
+    async def test_todowrite_multiple_todos_in_payload(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        todos = [
+            {"subject": "Task A", "status": "completed"},
+            {"subject": "Task B", "status": "in_progress"},
+            {"subject": "Task C", "status": "pending"},
+        ]
+        assistant_event = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "name": "TodoWrite", "id": "tu_2", "input": {"todos": todos}},
+                ]
+            },
+        }
+        result_event = {"type": "result", "subtype": "success", "is_error": False, "usage": {}}
+        lines = [
+            (json.dumps(assistant_event) + "\n").encode(),
+            (json.dumps(result_event) + "\n").encode(),
+        ]
+
+        async def fake_create(*args, **kwargs):
+            return FakeProcess(stdout_lines=lines, return_code=0)
+
+        websocket = FakeWebSocket()
+        with patch("services.claude_code_provider._find_claude_binary", return_value="/usr/local/bin/claude"), \
+             patch("asyncio.create_subprocess_exec", new=fake_create):
+            await stream_chat([{"role": "user", "content": "tasks"}], websocket, system_prompt=None)
+        todo_msgs = websocket.of_type("todo-list")
+        assert len(todo_msgs) == 1
+        assert len(todo_msgs[0]["todos"]) == 3
+        assert todo_msgs[0]["todos"][0]["status"] == "completed"
+        assert todo_msgs[0]["todos"][1]["status"] == "in_progress"
+        assert todo_msgs[0]["todos"][2]["status"] == "pending"
+
+    @pytest.mark.asyncio
+    async def test_non_todowrite_tool_does_not_emit_todo_list(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        assistant_event = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "name": "Bash", "id": "tu_3", "input": {"command": "ls"}},
+                ]
+            },
+        }
+        result_event = {"type": "result", "subtype": "success", "is_error": False, "usage": {}}
+        lines = [
+            (json.dumps(assistant_event) + "\n").encode(),
+            (json.dumps(result_event) + "\n").encode(),
+        ]
+
+        async def fake_create(*args, **kwargs):
+            return FakeProcess(stdout_lines=lines, return_code=0)
+
+        websocket = FakeWebSocket()
+        with patch("services.claude_code_provider._find_claude_binary", return_value="/usr/local/bin/claude"), \
+             patch("asyncio.create_subprocess_exec", new=fake_create):
+            await stream_chat([{"role": "user", "content": "run it"}], websocket, system_prompt=None)
+        assert len(websocket.of_type("todo-list")) == 0
+
 
 class TestSubprocessCwd:
     """Verify the chat subprocess runs from the repo root.

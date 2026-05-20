@@ -19,6 +19,7 @@ import { isPeerChatIntent } from '../lib/peerChatIntentDetector'
 import { detectIMessageSendIntent } from '../lib/imessageIntentDetector'
 import { IMessageConfirmBubble } from './IMessageConfirmBubble'
 import { PlanBanner } from './PlanBanner'
+import { TodoListPanel, type Todo } from './TodoListPanel'
 import AttachmentPicker, { type AttachmentFile } from './AttachmentPicker'
 import { PeerChatTurnsPicker } from './PeerChatTurnsPicker'
 import { StructuredPicker } from './StructuredPicker'
@@ -599,6 +600,7 @@ export function ChatPanel() {
   } | null>(null)
   const [inlinePrompt, setInlinePrompt] = useState<{ label: string; placeholder: string; prefix: string } | null>(null)
   const [planBannerPending, setPlanBannerPending] = useState<{ id: string; plan: string } | null>(null)
+  const [currentTodos, setCurrentTodos] = useState<Todo[]>([])
 
   const [imessagePending, setImessagePending] = useState<{
     phrase: string
@@ -1254,6 +1256,11 @@ export function ChatPanel() {
         setPlaceholderAwaitingServer(false)
         setPlanBannerPending({ id: data.id, plan: data.plan })
       }
+    } else if (lastMessage.type === 'todo-list') {
+      const data = lastMessage as unknown as { todos: Todo[] }
+      if (Array.isArray(data.todos)) {
+        setCurrentTodos(data.todos)
+      }
     } else if (lastMessage.type === 'receipts-warning') {
       const warningMsg = (lastMessage as unknown as { message: string }).message
       setMessages(prev => {
@@ -1826,6 +1833,7 @@ export function ChatPanel() {
   }
 
   const sendMessage = (text: string) => {
+    setCurrentTodos([])
     // Handle /giphy command
     if (text.trim().toLowerCase().startsWith('/giphy')) {
       const searchTerm = text.trim().slice(6).trim()
@@ -2955,6 +2963,9 @@ export function ChatPanel() {
             onSubmit={(full) => { setInlinePrompt(null); sendMessage(full) }}
             onCancel={() => setInlinePrompt(null)}
           />
+        )}
+        {currentTodos.length > 0 && (
+          <TodoListPanel todos={currentTodos} />
         )}
         {planBannerPending && (
           <PlanBanner
