@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException
@@ -89,6 +90,94 @@ async def undo_remove_bullet():
     if not restored:
         raise HTTPException(status_code=404, detail="No removal to undo")
     return {"ok": True}
+
+
+@router.get("/user/overflow-status")
+async def get_overflow_status():
+    """Return overflow and hard-cap status for the memory store."""
+    return _user_mem.compute_overflow_status()
+
+
+class SplitTopicRequest(BaseModel):
+    bullet_text: str
+    topic_name: str
+
+
+class RenameTopicRequest(BaseModel):
+    old_name: str
+    new_name: str
+
+
+@router.post("/user/split-topic")
+async def split_topic(body: SplitTopicRequest):
+    """Move a bullet from the index into a named topic file."""
+    ok = _user_mem.split_into_topic(body.bullet_text, body.topic_name)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Bullet not found in memory")
+    return {"ok": True}
+
+
+@router.post("/user/rename-topic")
+async def rename_topic(body: RenameTopicRequest):
+    """Rename a topic file and update the index link."""
+    ok = _user_mem.rename_topic(body.old_name, body.new_name)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Topic file not found")
+    return {"ok": True}
+
+
+class SuggestTopicsRequest(BaseModel):
+    content: str
+
+
+@router.post("/user/suggest-topics")
+async def suggest_topics(body: SuggestTopicsRequest):
+    """Propose 4-6 topic groupings for the given memory content.
+
+    Uses a simple heuristic: clusters bullets by shared keywords.
+    Falls back to a generic grouping when content is thin.
+    """
+    bullets = [
+        re.sub(r"\s*<!--.*?-->", "", line).strip().lstrip("- ").strip()
+        for line in body.content.splitlines()
+        if line.lstrip().startswith("- ")
+    ]
+    if not bullets:
+        return {"topics": []}
+
+    # Heuristic clusters keyed on theme words found in bullet text.
+    _THEME_KEYS: list[tuple[str, list[str]]] = [
+        ("writing-style", ["jargon", "em-dash", "plain", "say ", "word", "tone", "language", "write", "phrase", "label"]),
+        ("git-and-code", ["commit", "git", "branch", "merge", "pr ", "code", "test", "debug", "deploy"]),
+        ("agent-behavior", ["agent", "spawn", "subagent", "monitor", "task", "needle", "saa", "register"]),
+        ("memory-and-recall", ["remember", "forget", "memory", "preference", "fact", "recall"]),
+        ("ui-and-ux", ["ui", "ux", "button", "modal", "dialog", "frontend", "component", "toast", "banner"]),
+        ("project-context", ["torios", "ostk", "nr", "spec", "plan", "release", "v3", "wave"]),
+    ]
+
+    grouped: dict[str, list[str]] = {name: [] for name, _ in _THEME_KEYS}
+    ungrouped: list[str] = []
+
+    for bullet in bullets:
+        bl = bullet.lower()
+        placed = False
+        for name, keywords in _THEME_KEYS:
+            if any(kw in bl for kw in keywords):
+                grouped[name].append(bullet)
+                placed = True
+                break
+        if not placed:
+            ungrouped.append(bullet)
+
+    topics = [
+        {"topic": name, "bullets": blist}
+        for name, blist in grouped.items()
+        if blist
+    ]
+    if ungrouped:
+        topics.append({"topic": "other", "bullets": ungrouped})
+
+    return {"topics": topics[:6]}
 
 
 @router.delete("/{agent_name}")

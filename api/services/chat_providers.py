@@ -1933,19 +1933,40 @@ def _standing_instructions_block() -> str:
     )
 
 
-def _user_memory_block() -> str:
+def _user_memory_block(context_keywords: "list[str] | None" = None) -> str:
     """Return the user memory markdown block for system-prompt injection.
 
-    Reads ~/.myos/users/default/MEMORY.md via the mtime-cached store.
-    Returns an empty string when the file is absent or empty (no error logged).
+    When the memory store is under the overflow threshold, returns the full
+    index content.  When overflow mode is active (index > 30KB or 150 lines
+    AND topic files exist), returns the index plus any topic files whose
+    names match a keyword from *context_keywords*.
+
+    Returns an empty string when the file is absent or empty.
     """
-    content = _user_memory_store.read().strip()
+    content = _user_memory_store.read_for_context(context_keywords or []).strip()
     if not content:
         return ""
     return f"## User preferences and facts\n\n{content}"
 
 
-def _compose_system_prompt(matched_template: Optional[dict]) -> str:
+def _extract_context_keywords(messages: "list[dict] | None") -> "list[str]":
+    """Extract space-split words from the last 3 user messages for topic matching."""
+    if not messages:
+        return []
+    user_texts = [
+        m.get("content", "") if isinstance(m.get("content"), str)
+        else " ".join(
+            block.get("text", "") for block in (m.get("content") or [])
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+        for m in messages
+        if m.get("role") == "user"
+    ]
+    combined = " ".join(user_texts[-3:])
+    return [w.lower() for w in combined.split() if len(w) >= 3]
+
+
+def _compose_system_prompt(matched_template: Optional[dict], messages: "list[dict] | None" = None) -> str:
     """Return the full system prompt as a single string.
 
     Used by the Claude Code backend fallback where we cannot split into
@@ -1967,7 +1988,7 @@ def _compose_system_prompt(matched_template: Optional[dict]) -> str:
     activity = _recent_activity_context()
     if activity:
         base += f"\n\n{activity}\n"
-    user_memory = _user_memory_block()
+    user_memory = _user_memory_block(_extract_context_keywords(messages))
     if user_memory:
         base += f"\n\n{user_memory}\n"
     if not matched_template:
@@ -1978,7 +1999,7 @@ def _compose_system_prompt(matched_template: Optional[dict]) -> str:
     return base + "\n\n---\nACTIVE TEMPLATE: " + str(matched_template.get("name", "")) + "\n" + extra
 
 
-def _build_cached_system_blocks(matched_template: Optional[dict]) -> list[dict]:
+def _build_cached_system_blocks(matched_template: Optional[dict], messages: "list[dict] | None" = None) -> list[dict]:
     """Build system prompt as separate cached blocks.
 
     Splits the system prompt into a stable instructions block (cached)
@@ -2010,7 +2031,7 @@ def _build_cached_system_blocks(matched_template: Optional[dict]) -> list[dict]:
 
     boot_context = _get_boot_context()
     activity = _recent_activity_context()
-    user_memory = _user_memory_block()
+    user_memory = _user_memory_block(_extract_context_keywords(messages))
 
     volatile_parts: list[str] = []
     if boot_context:
@@ -2268,7 +2289,7 @@ class ChatService:
         # instructions saved, even if no template matched, so the Claude
         # Code fallback still picks them up.
         if matched_template or _standing_instructions_block():
-            system_prompt = _compose_system_prompt(matched_template)
+            system_prompt = _compose_system_prompt(matched_template, messages)
         else:
             system_prompt = None
 
@@ -2336,7 +2357,7 @@ class ChatService:
         if disable_tools:
             stream_kwargs["system"] = _no_tools_system_blocks(matched_template)
         else:
-            stream_kwargs["system"] = _build_cached_system_blocks(matched_template)
+            stream_kwargs["system"] = _build_cached_system_blocks(matched_template, messages)
             # Register AskUserQuestion so the model can present structured
             # choices inline. The backend intercepts this tool_use block
             # and emits a structured_picker WS frame instead of executing
@@ -2667,8 +2688,8 @@ class ChatService:
         matched_template = await _maybe_match_template(messages, websocket, api_key)
         # Use split system blocks so stable instructions stay cached
         # even when volatile boot context changes between turns.
-        cached_system_prompt = _build_cached_system_blocks(matched_template)
-        active_system_prompt = _compose_system_prompt(matched_template)
+        cached_system_prompt = _build_cached_system_blocks(matched_template, messages)
+        active_system_prompt = _compose_system_prompt(matched_template, messages)
 
         # With session mode, the local program handles tools natively
         # via --dangerously-skip-permissions. The tab_id enables session
@@ -3248,7 +3269,7 @@ class ChatService:
                     api_key = await _resolve_api_key("anthropic_api_key")
                     matched_template = await _maybe_match_template(messages, websocket, api_key)
                     if matched_template or _standing_instructions_block():
-                        system_instruction = _compose_system_prompt(matched_template)
+                        system_instruction = _compose_system_prompt(matched_template, messages)
 
                 return await gemini_cli_provider.stream_chat(
                     messages, websocket, system_prompt=system_instruction, **kwargs

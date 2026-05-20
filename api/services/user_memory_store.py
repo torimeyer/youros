@@ -27,7 +27,11 @@ from pathlib import Path
 _log = logging.getLogger(__name__)
 
 _MEMORY_PATH = Path.home() / ".myos" / "users" / "default" / "MEMORY.md"
-_WARN_SIZE_BYTES = 50 * 1024  # 50 KB
+_TOPIC_DIR = Path.home() / ".myos" / "users" / "default" / "memory"
+_WARN_SIZE_BYTES = 50 * 1024   # 50 KB
+_OVERFLOW_KB = 30              # F5: soft threshold (kilobytes)
+_OVERFLOW_LINES = 150          # F5: soft threshold (line count)
+_HARD_CAP_BYTES = 200 * 1024   # F5: hard cap — total across index + topics
 
 # Module-level mtime cache. Protected by a threading.Lock because uvicorn
 # may service multiple concurrent requests in a single process.
@@ -167,6 +171,183 @@ def restore_undo() -> bool:
     _undo_snapshot = None
     replace_all(snapshot)
     return True
+
+
+def compute_overflow_status() -> dict:
+    """Return overflow + hard-cap status for the memory store.
+
+    Returns a dict::
+
+        {
+            "overflowed": bool,   # True if index exceeds 30KB or 150 lines
+            "reason": str,        # "kb" | "lines" | ""
+            "kb": float,          # current index size in KB
+            "lines": int,         # current index line count
+            "total_kb": float,    # index + all topic files combined
+            "hard_cap": bool,     # True if total > 200KB
+        }
+    """
+    path = _memory_path()
+    if not path.exists():
+        return {"overflowed": False, "reason": "", "kb": 0.0, "lines": 0,
+                "total_kb": 0.0, "hard_cap": False}
+
+    size_bytes = path.stat().st_size
+    kb = size_bytes / 1024
+    content = path.read_text(encoding="utf-8")
+    lines = len(content.splitlines())
+
+    total_bytes = size_bytes
+    topic_dir = _TOPIC_DIR
+    if topic_dir.exists():
+        for tf in topic_dir.glob("*.md"):
+            total_bytes += tf.stat().st_size
+    total_kb = total_bytes / 1024
+
+    hard_cap = total_bytes > _HARD_CAP_BYTES
+
+    if kb > _OVERFLOW_KB:
+        return {"overflowed": True, "reason": "kb", "kb": kb, "lines": lines,
+                "total_kb": total_kb, "hard_cap": hard_cap}
+    if lines > _OVERFLOW_LINES:
+        return {"overflowed": True, "reason": "lines", "kb": kb, "lines": lines,
+                "total_kb": total_kb, "hard_cap": hard_cap}
+    return {"overflowed": False, "reason": "", "kb": kb, "lines": lines,
+            "total_kb": total_kb, "hard_cap": hard_cap}
+
+
+def split_into_topic(bullet_text: str, topic_name: str) -> bool:
+    """Move a bullet from the index into a topic file.
+
+    Creates the topic file (and ``memory/`` subdirectory) if absent.
+    Replaces the bullet in the index with a ``[topic](memory/<topic>.md)``
+    link if no link for that topic already exists.
+    Saves an undo snapshot so ``restore_undo()`` can reverse the operation.
+
+    Returns True on success, False if the bullet was not found.
+    """
+    global _undo_snapshot
+
+    path = _memory_path()
+    if not path.exists():
+        return False
+
+    with open(path, "r+", encoding="utf-8") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            content = fh.read()
+            bullets = _extract_bullets(content)
+            q_lower = bullet_text.lower()
+            matches = [b for b in bullets if _fuzzy_match(q_lower, b.lower())]
+            if not matches:
+                return False
+
+            target = matches[0]
+            _undo_snapshot = content
+
+            # Remove the matched bullet from the index.
+            new_content = _remove_line_containing(content, target)
+
+            # Append topic link to index if not already present.
+            link = f"[{topic_name}](memory/{topic_name}.md)"
+            if link not in new_content:
+                if not new_content.endswith("\n"):
+                    new_content += "\n"
+                new_content += f"\n{link}\n"
+
+            fh.seek(0)
+            fh.truncate()
+            fh.write(new_content)
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+    # Write bullet to topic file (create if absent).
+    topic_dir = _TOPIC_DIR
+    topic_dir.mkdir(parents=True, exist_ok=True)
+    topic_file = topic_dir / f"{topic_name}.md"
+
+    bullet_clean = _strip_provenance(target)
+    heading = f"# {topic_name}"
+    if topic_file.exists():
+        existing = topic_file.read_text(encoding="utf-8")
+        if heading not in existing:
+            existing = f"{heading}\n{existing}"
+        existing = _insert_bullet(existing, heading, bullet_clean)
+        topic_file.write_text(existing, encoding="utf-8")
+    else:
+        topic_file.write_text(f"{heading}\n{bullet_clean}\n", encoding="utf-8")
+
+    with _cache_lock:
+        _reset_cache()
+
+    return True
+
+
+def rename_topic(old_name: str, new_name: str) -> bool:
+    """Rename a topic file and update the index link.
+
+    Returns True on success, False if the topic file does not exist.
+    """
+    topic_dir = _TOPIC_DIR
+    old_file = topic_dir / f"{old_name}.md"
+    new_file = topic_dir / f"{new_name}.md"
+
+    if not old_file.exists():
+        return False
+
+    old_file.rename(new_file)
+
+    path = _memory_path()
+    if path.exists():
+        content = path.read_text(encoding="utf-8")
+        old_link = f"[{old_name}](memory/{old_name}.md)"
+        new_link = f"[{new_name}](memory/{new_name}.md)"
+        updated = content.replace(old_link, new_link)
+        if updated != content:
+            path.write_text(updated, encoding="utf-8")
+            with _cache_lock:
+                _reset_cache()
+
+    return True
+
+
+def read_for_context(context_keywords: "list[str]") -> str:
+    """Return memory content appropriate for system-prompt injection.
+
+    When the index is under the overflow threshold:
+      - Returns full index content (same as ``read()``).
+
+    When the index is over the threshold AND topic files exist:
+      - Always returns the full index.
+      - Additionally loads topic files whose filenames match any keyword
+        in *context_keywords* (plain substring match, case-insensitive).
+
+    This keeps injection fast and cache-friendly — only relevant topic
+    files are included in the system prompt.
+    """
+    status = compute_overflow_status()
+    index_content = read()
+
+    topic_dir = _TOPIC_DIR
+    topic_files = list(topic_dir.glob("*.md")) if topic_dir.exists() else []
+
+    if not status["overflowed"] or not topic_files:
+        return index_content
+
+    # Overflow mode: index + keyword-matched topic files.
+    parts = [index_content] if index_content.strip() else []
+    kw_lower = [k.lower() for k in context_keywords]
+    for tf in sorted(topic_files):
+        topic_name = tf.stem.lower()
+        if any(kw in topic_name or topic_name in kw for kw in kw_lower):
+            try:
+                tc = tf.read_text(encoding="utf-8").strip()
+                if tc:
+                    parts.append(tc)
+            except OSError:
+                pass
+
+    return "\n\n".join(parts)
 
 
 def replace_all(text: str) -> None:
