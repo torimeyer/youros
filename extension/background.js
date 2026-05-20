@@ -8,7 +8,7 @@ chrome.runtime.onMessage.addListener((message) => {
 
   chrome.storage.local.get(['authToken', 'backendUrl'], (result) => {
     const token = result.authToken || '';
-    const backendUrl = (result.backendUrl || 'http://127.0.0.1:8000').replace(/\/$/, '');
+    const backendUrl = (result.backendUrl || 'https://127.0.0.1:8000').replace(/\/$/, '');
 
     if (!token) {
       console.warn('[myOS Capture] No auth token configured. Open Options to set one.');

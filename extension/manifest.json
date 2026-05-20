@@ -6,6 +6,7 @@
   "permissions": ["storage"],
   "host_permissions": [
     "https://gemini.google.com/*",
+    "https://127.0.0.1:8000/*",
     "http://127.0.0.1:8000/*"
   ],
   "content_scripts": [

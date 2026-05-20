@@ -130,14 +130,21 @@ if [ ! -f .venv/bin/activate ]; then
 fi
 source .venv/bin/activate
 
-echo -e "${GREEN}myOS is starting at http://localhost:8000${NC}"
+# Auto-detect scheme (same logic as scripts/api-probe.sh →1338)
+if [ -f "$HOME/.myos/localhost.key" ] && [ -f "$HOME/.myos/localhost.crt" ]; then
+    LAUNCH_URL="https://localhost:8000"
+else
+    LAUNCH_URL="http://localhost:8000"
+fi
+
+echo -e "${GREEN}myOS is starting at ${LAUNCH_URL}${NC}"
 echo "Keep this window open while using myOS. Press Ctrl+C to stop."
 
 # Open the browser after a brief delay
 if [[ "$(uname)" == "Darwin" ]]; then
-    (sleep 2 && open http://localhost:8000) &
+    (sleep 2 && open "${LAUNCH_URL}") &
 else
-    (sleep 2 && xdg-open http://localhost:8000 2>/dev/null) &
+    (sleep 2 && xdg-open "${LAUNCH_URL}" 2>/dev/null) &
 fi
 
 # Load local env overrides (e.g. GOOGLE_CLIENT_ID for OAuth) if present.

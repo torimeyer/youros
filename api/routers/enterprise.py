@@ -338,7 +338,7 @@ async def send_magic_link(body: MagicLinkRequest):
     enterprise_store.add_login_token(body.email, token)
 
     import os
-    base_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
+    base_url = os.environ.get("BACKEND_URL", "https://localhost:8000")
     login_url = f"{base_url}/api/enterprise/login/{token}"
 
     return {

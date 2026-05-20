@@ -114,7 +114,7 @@ Or from anywhere after install:
 myos
 ```
 
-Your browser will open to http://localhost:8000.
+Your browser will open to https://localhost:8000.
 
 For development (Vite hot reload on `app/` source), use the two-terminal setup instead:
 
