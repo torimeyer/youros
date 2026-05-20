@@ -224,6 +224,7 @@ function AllView() {
   }, [])
 
   async function handleBuild(spec: Spec) {
+    if (!spec.path) return
     const result = await buildSpec(spec.path)
     if (result?.status === 'conflict') setConflicts(result.conflicts)
   }
