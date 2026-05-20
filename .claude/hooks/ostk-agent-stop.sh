@@ -79,9 +79,73 @@ if [ -z "$AGENT_NAME" ]; then
     AGENT_NAME=$(cat "${HOME}/.myos/subagents/last.name" 2>/dev/null | tr -d '[:space:]')
 fi
 
+# ── Auto-merge: SubagentStop fires in the child (worktree context) ────────────
+# Runs BEFORE the AGENT_NAME early-exit so it fires even for agents where
+# register-agent.sh exited via the bridge guard (most real saa agents have
+# edit verbs in their prompt → bridge guard → last.name never written →
+# AGENT_NAME stays empty). The merge itself uses git plumbing only; AGENT_NAME
+# is used solely for diagnostic log labels. See →1548 for root cause detail.
+# complete-agent.sh (PostToolUse) runs in the PARENT session and must skip
+# background agents because PostToolUse fires at LAUNCH, not at finish.
+# SubagentStop fires when the child subprocess actually exits — the right
+# place to auto-merge background worktree agents without guessing the branch.
+#
+# The child is inside the git worktree so:
+#   git branch --show-current  → the worktree branch (worktree-agent-<slug>)
+#   git rev-parse --git-common-dir → absolute path to main .git
+# No side-channel files or description-slug matching required.
+#
+# Guards (same policy as complete-agent.sh, never destructive):
+#   - branch must start with worktree-agent-
+#   - must exist as a ref in the main repo
+#   - merge must be --ff-only; diverged branches stay parked
+
+_SA_DEBT_LOG="$HOME/.myos/logs/merge-debt.log"
+mkdir -p "$(dirname "$_SA_DEBT_LOG")" 2>/dev/null || true
+
+_SA_BRANCH=$(git branch --show-current 2>/dev/null || true)
+_SA_GIT_COMMON=$(git rev-parse --git-common-dir 2>/dev/null || true)
+
+if [ -n "$_SA_BRANCH" ] && [ -n "$_SA_GIT_COMMON" ]; then
+    case "$_SA_BRANCH" in
+        worktree-agent-*)
+            # Strip /.git suffix to get the main repo root
+            _SA_MAIN_REPO=$(dirname "$_SA_GIT_COMMON")
+            if [ -n "$_SA_MAIN_REPO" ] && [ "$_SA_MAIN_REPO" != "." ]; then
+                if git -C "$_SA_MAIN_REPO" rev-parse --verify "refs/heads/$_SA_BRANCH" >/dev/null 2>&1; then
+                    _SA_OUT=$(git -C "$_SA_MAIN_REPO" merge --ff-only "$_SA_BRANCH" 2>&1) && _SA_RC=0 || _SA_RC=$?
+                    if [ "$_SA_RC" -eq 0 ]; then
+                        if echo "$_SA_OUT" | grep -qi "already up.to.date"; then
+                            printf '%s\tALREADY-MERGED\t%s\t%s\n' \
+                                "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_SA_BRANCH" "${AGENT_NAME:-unknown}" \
+                                >> "$_SA_DEBT_LOG" 2>/dev/null || true
+                        else
+                            _SA_TIP=$(git -C "$_SA_MAIN_REPO" rev-parse --short HEAD 2>/dev/null || true)
+                            printf '%s\tMERGED\t%s\t%s\t%s\n' \
+                                "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_SA_BRANCH" "${AGENT_NAME:-unknown}" "$_SA_TIP" \
+                                >> "$_SA_DEBT_LOG" 2>/dev/null || true
+                            echo "ostk-agent-stop: auto-merged $_SA_BRANCH onto main (HEAD $_SA_TIP)" >&2
+                        fi
+                    else
+                        printf '%s\tATTN-NOT-FF\t%s\t%s\n' \
+                            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_SA_BRANCH" "${AGENT_NAME:-unknown}" \
+                            >> "$_SA_DEBT_LOG" 2>/dev/null || true
+                        echo "ostk-agent-stop: ATTN: ${AGENT_NAME:-unknown} finished on $_SA_BRANCH — not fast-forward, parked (needs manual merge)" >&2
+                    fi
+                else
+                    printf '%s\tATTN-BRANCH-NOT-FOUND\t%s\t%s\n' \
+                        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_SA_BRANCH" "${AGENT_NAME:-unknown}" \
+                        >> "$_SA_DEBT_LOG" 2>/dev/null || true
+                    echo "ostk-agent-stop: ATTN: ${AGENT_NAME:-unknown} finished on $_SA_BRANCH — branch not found in main repo" >&2
+                fi
+            fi
+            ;;
+    esac
+fi
+
+# 4. POST /complete — only if AGENT_NAME resolved; idempotent server-side.
 [ -z "$AGENT_NAME" ] && exit 0
 
-# 4. POST /complete — idempotent, fails silently if backend is down
 curl -sSk --connect-timeout 3 -m 5 \
     -X POST "${API_BASE}/api/agents/${AGENT_NAME}/complete" \
     -H 'Content-Type: application/json' \
