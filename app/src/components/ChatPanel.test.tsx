@@ -3424,6 +3424,31 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('todo-list WS message', () => {
+    it('shows TodoListPanel when todo-list WS message arrives', async () => {
+      render(<ChatPanel />)
+      await act(async () => {
+        mockLastMessage = {
+          type: 'todo-list',
+          todos: [
+            { subject: 'Read the file', status: 'in_progress', activeForm: 'Reading the file' },
+            { subject: 'Edit it', status: 'pending' },
+          ],
+        } as unknown as { type: string; data?: unknown }
+      })
+      await waitFor(() => {
+        expect(screen.getByTestId('todo-list-panel')).toBeDefined()
+        expect(screen.getByTestId('todo-item-in_progress')).toBeDefined()
+        expect(screen.getByTestId('todo-item-pending')).toBeDefined()
+      })
+    })
+
+    it('does not show TodoListPanel when no todo-list message received', () => {
+      render(<ChatPanel />)
+      expect(screen.queryByTestId('todo-list-panel')).toBeNull()
+    })
+  })
+
   describe('plan_banner WS message', () => {
     it('shows PlanBanner when plan_banner WS message arrives', async () => {
       render(<ChatPanel />)

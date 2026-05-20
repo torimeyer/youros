@@ -741,6 +741,22 @@ async def stream_chat(
                     await _send_safe(websocket, {"type": "token", "data": text})
             if extra_msg:
                 await _send_safe(websocket, extra_msg)
+            # Intercept TodoWrite calls to push live todo-list WS messages.
+            # The full input is only available in the "assistant" event (not
+            # streaming deltas), so we inspect there after the main handler.
+            if etype == "assistant":
+                _blocks = (event.get("message") or {}).get("content") or []
+                for _blk in _blocks:
+                    if (
+                        isinstance(_blk, dict)
+                        and _blk.get("type") == "tool_use"
+                        and _blk.get("name") == "TodoWrite"
+                    ):
+                        _todos = (_blk.get("input") or {}).get("todos", [])
+                        if isinstance(_todos, list):
+                            await _send_safe(
+                                websocket, {"type": "todo-list", "todos": _todos}
+                            )
             if done:
                 if usage:
                     final_usage = usage
