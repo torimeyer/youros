@@ -52,7 +52,7 @@ interface NavGroup {
 // Value is a JSON object: { [groupId]: boolean }
 const COLLAPSED_KEY = 'sidebar-group-collapsed'
 
-const TOP_LEVEL_ROUTES = new Set(['/', '/backlog', '/agents', '/gems'])
+const TOP_LEVEL_ROUTES = new Set(['/', '/backlog', '/agents', '/gems', '/tasks', '/specs'])
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -84,8 +84,10 @@ const NAV_GROUPS: NavGroup[] = [
 // All items for route-based lookups (preserves featureLabel for feature filtering)
 const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/', icon: 'home', label: 'Home', featureLabel: null },
+  { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks', tasksBadge: true },
+  { to: '/specs', icon: 'article', label: 'Specs', featureLabel: 'Specs', specsBadge: true },
   { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
-  { to: '/backlog', icon: 'inventory_2', label: 'Backlog', featureLabel: 'Backlog', backlogBadge: true },
+  { to: '/backlog', icon: 'inventory_2', label: 'Kanban view', featureLabel: 'Backlog' },
   { to: '/gems', icon: 'auto_awesome', label: 'Gems', featureLabel: 'Gems' },
   ...NAV_GROUPS.flatMap((g) => g.items),
 ]
@@ -580,7 +582,7 @@ export function Sidebar() {
 
   // Top-level items (Home + Tasks + Agents) that are not in any group
   const topLevelItems = ALL_NAV_ITEMS.filter((i) => TOP_LEVEL_ROUTES.has(i.to) && isEnabled(i)).sort((a, b) => {
-    const order = ['/', '/agents', '/backlog', '/gems']
+    const order = ['/', '/tasks', '/specs', '/agents', '/backlog', '/gems']
     return order.indexOf(a.to) - order.indexOf(b.to)
   })
 
@@ -674,10 +676,10 @@ export function Sidebar() {
                     {openTasksCount}
                   </span>
                 )}
-                {item.backlogBadge && (openTasksCount + unfinishedSpecs) > 0 && (
+                {item.specsBadge && Math.max(0, unfinishedSpecs + pendingSpecDelta) > 0 && (
                   <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                    {openTasksCount + unfinishedSpecs}
+                    {Math.max(0, unfinishedSpecs + pendingSpecDelta)}
                   </span>
                 )}
 
