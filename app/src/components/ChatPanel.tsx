@@ -1259,6 +1259,13 @@ export function ChatPanel() {
       // A preference was detected and written to ~/.myos/users/default/MEMORY.md.
       // Fire the toast so the user sees confirmation immediately.
       useMemoryToastStore.getState().trigger(lastMessage.data as string)
+    } else if (lastMessage.type === 'memory_removed') {
+      useMemoryToastStore.getState().triggerForgot(lastMessage.data as string)
+    } else if (lastMessage.type === 'memory_remove_ambiguous') {
+      useMemoryToastStore.getState().triggerForgotAmbiguous(lastMessage.data as unknown as string[])
+    } else if (lastMessage.type === 'memory_remove_failed') {
+      // No matching bullet — show a brief "I don't have a preference about that." toast.
+      useMemoryToastStore.getState().triggerForgot(lastMessage.data as string)
     } else if (lastMessage.type === 'plan_banner') {
       const data = lastMessage.data as unknown as { id: string; plan: string }
       if (data?.id && data?.plan) {

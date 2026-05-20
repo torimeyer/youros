@@ -82,6 +82,15 @@ async def update_config(agent_name: str, body: CadenceConfigRequest):
     return {"ok": True, "reread_cadence_hours": body.reread_cadence_hours}
 
 
+@router.post("/user/undo-remove")
+async def undo_remove_bullet():
+    """Restore the last removed bullet to its original position."""
+    restored = _user_mem.restore_undo()
+    if not restored:
+        raise HTTPException(status_code=404, detail="No removal to undo")
+    return {"ok": True}
+
+
 @router.delete("/{agent_name}")
 async def delete_memory(agent_name: str):
     mem.clear_memory(agent_name)

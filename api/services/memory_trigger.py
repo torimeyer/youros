@@ -1,10 +1,15 @@
-"""Memory trigger — detect preference-write phrases in user messages.
+"""Memory trigger — detect preference-write and forget phrases in user messages.
 
 Trigger grammar (from spec USER FEEDBACK):
     remember      — but NOT "remember when...", "remember to <verb>..."
     from now on   — any follow-on text
     always        — any follow-on text
     I prefer      — but NOT "I prefer not..."
+
+Forget grammar (F2):
+    forget X           — but NOT "forget when...", "forget to <verb>..."
+    stop remembering X — any follow-on text
+    never mind X       — any follow-on text
 
 False-positive guard:
     After the regex passes, a lightweight keyword heuristic classifies
@@ -13,6 +18,7 @@ False-positive guard:
 
 Public surface:
     match_trigger(text)        -> Optional[str]  — extracted preference text or None
+    match_forget_trigger(text) -> Optional[str]  — extracted forget text or None
     classify_section(text)     -> str            — "Preferences" | "Facts"
     handle(text, websocket)    -> bool           — full pipeline; returns True if triggered
 """
@@ -54,6 +60,22 @@ _CONVERSATIONAL_PREFIX: re.Pattern[str] = re.compile(
     re.IGNORECASE,
 )
 
+# ── forget patterns ───────────────────────────────────────────────────────────
+
+_FORGET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # "forget X" — excludes "forget when...", "forget to <verb>..."
+    (re.compile(r"^forget\s*[,:]?\s*(?!when\b)(?!to\s+\w)(.+)", re.IGNORECASE | re.DOTALL), "forget"),
+    # "stop remembering X"
+    (re.compile(r"^stop\s+remembering\s*[,:]?\s*(.+)", re.IGNORECASE | re.DOTALL), "stop_remembering"),
+    # "never mind X" / "never mind about X"
+    (re.compile(r"^never\s+mind\s+(?:about\s+)?(.+)", re.IGNORECASE | re.DOTALL), "never_mind"),
+]
+
+_FORGET_EXCLUSION_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"^forget\s+when\b", re.IGNORECASE),
+    re.compile(r"^forget\s+to\s+\w", re.IGNORECASE),
+]
+
 # ── trigger patterns ──────────────────────────────────────────────────────────
 
 # Each tuple is (compiled-regex, group-name).
@@ -88,6 +110,28 @@ _FACT_SIGNALS: list[re.Pattern[str]] = [
 
 
 # ── public API ────────────────────────────────────────────────────────────────
+
+
+def match_forget_trigger(text: str) -> Optional[str]:
+    """Return extracted forget text if *text* is a forget-trigger phrase.
+
+    Returns None when the message is not a forget trigger.
+    Applies the same conversational-prefix normalization as match_trigger.
+    """
+    stripped = text.strip()
+    normalized = _CONVERSATIONAL_PREFIX.sub("", stripped)
+
+    for excl in _FORGET_EXCLUSION_PATTERNS:
+        if excl.match(normalized):
+            return None
+
+    for pattern, _kind in _FORGET_PATTERNS:
+        m = pattern.match(normalized)
+        if m:
+            extracted = m.group(1).strip()
+            if extracted:
+                return extracted
+    return None
 
 
 def match_trigger(text: str) -> Optional[str]:
@@ -132,12 +176,57 @@ def classify_section(text: str) -> str:
 
 
 async def handle(text: str, websocket) -> bool:  # type: ignore[type-arg]
-    """Attempt a memory write for *text*.
+    """Attempt a memory write or forget for *text*.
 
-    Returns True if a write was triggered, False otherwise.
-    On success: appends the bullet and emits a ``memory_added`` websocket event.
-    On write failure: emits ``memory_write_failed``; does NOT raise (chat continues).
+    Forget path: checked first. If *text* is a forget phrase, calls
+    ``store.remove_bullet`` and emits one of:
+      - ``memory_removed``          — single match removed
+      - ``memory_remove_ambiguous`` — multiple matches; user must pick
+      - ``memory_remove_failed``    — no match found
+
+    Remember path: if not a forget phrase, appends a bullet and emits
+    ``memory_added``. On write failure emits ``memory_write_failed``.
+
+    Returns True if either path fired (forget matched or remember matched),
+    False if the message is not a memory trigger at all.
     """
+    # ── forget path ───────────────────────────────────────────────────────────
+    forget_text = match_forget_trigger(text)
+    if forget_text is not None:
+        try:
+            result = store.remove_bullet(forget_text)
+        except Exception as exc:
+            _log.error("memory remove failed: %s", exc)
+            try:
+                await websocket.send_json({"type": "memory_remove_failed", "data": str(exc)})
+            except Exception:
+                pass
+            return True
+
+        if result is None:
+            try:
+                await websocket.send_json({
+                    "type": "memory_remove_failed",
+                    "data": "I don't have a preference about that.",
+                })
+            except Exception:
+                pass
+        elif isinstance(result, list):
+            try:
+                await websocket.send_json({
+                    "type": "memory_remove_ambiguous",
+                    "data": result,
+                })
+            except Exception:
+                pass
+        else:
+            try:
+                await websocket.send_json({"type": "memory_removed", "data": result})
+            except Exception:
+                pass
+        return True
+
+    # ── remember path ─────────────────────────────────────────────────────────
     extracted = match_trigger(text)
     if extracted is None:
         return False
