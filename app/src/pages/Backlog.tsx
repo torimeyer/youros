@@ -1,12 +1,8 @@
 import { useState, useEffect, type ReactNode } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
 import { api } from '../lib/api'
 import { buildSpec } from '../lib/spawn'
 import type { ConflictItem } from '../lib/spawn'
 import ConflictDialog from '../components/ConflictDialog'
-
-import Specs from './Specs'
-import Tasks from './Tasks'
 
 interface Spec {
   id: string
@@ -284,35 +280,9 @@ function AllView() {
 }
 
 export default function Backlog() {
-  const location = useLocation()
-  const path = location.pathname
-
-  const tabClass = (active: boolean) =>
-    `px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-      active ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'
-    }`
-
-  const isAll = path === '/backlog'
-  const isSpecs = path === '/backlog/specs'
-  const isTasksTab = path === '/backlog/tasks'
   return (
     <div className="flex flex-col h-full p-6 gap-6">
-      <nav className="flex gap-1">
-        <NavLink to="/backlog" end className={() => tabClass(isAll)}>
-          All
-        </NavLink>
-        <NavLink to="/backlog/specs" className={() => tabClass(isSpecs)}>
-          Specs
-        </NavLink>
-        <NavLink to="/backlog/tasks" className={() => tabClass(isTasksTab)}>
-          Tasks
-        </NavLink>
-      </nav>
-
-      {isAll && <AllView />}
-      {isSpecs && <Specs embedded />}
-      {isTasksTab && <Tasks embedded />}
-
+      <AllView />
     </div>
   )
 }

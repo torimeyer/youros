@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import Backlog from './Backlog'
 
+
 vi.mock('../lib/api', () => ({
   api: {
     get: vi.fn(),
@@ -12,14 +13,6 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
-
-vi.mock('./Specs', () => ({
-  default: () => <div data-testid="specs-page">Specs page</div>,
-}))
-
-vi.mock('./Tasks', () => ({
-  default: () => <div data-testid="tasks-page">Tasks page</div>,
-}))
 
 vi.mock('../lib/spawn', () => ({
   buildSpec: vi.fn(),
@@ -116,7 +109,7 @@ describe('Backlog AllView — real API response shapes (→1468)', () => {
   })
 })
 
-describe('Backlog page (→1466)', () => {
+describe('Backlog (Kanban view) — no sub-tabs (→1489)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockedApiGet.mockImplementation((url: string) => {
@@ -126,39 +119,31 @@ describe('Backlog page (→1466)', () => {
     })
   })
 
-  it('renders three sub-tab links: All, Specs, Tasks', async () => {
+  it('renders the kanban AllView directly — no sub-tab nav', async () => {
     renderBacklog()
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'All' })).toBeInTheDocument()
-      expect(screen.getByRole('link', { name: 'Specs' })).toBeInTheDocument()
-      expect(screen.getByRole('link', { name: 'Tasks' })).toBeInTheDocument()
+      expect(screen.getByTestId('backlog-allview')).toBeInTheDocument()
     })
+    expect(screen.queryByRole('link', { name: 'All' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Specs' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Tasks' })).toBeNull()
   })
 
-  it('All tab shows the All view by default at /backlog — not Specs or Tasks sub-pages', async () => {
-    renderBacklog('/backlog')
-    await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'All' })).toBeInTheDocument()
-    })
-    expect(screen.queryByTestId('specs-page')).toBeNull()
-    expect(screen.queryByTestId('tasks-page')).toBeNull()
-  })
-
-  it('shows kanban Drafting column on the All tab', async () => {
+  it('shows kanban Drafting column', async () => {
     renderBacklog()
     await waitFor(() => {
       expect(screen.getByTestId('kanban-column-drafting')).toBeInTheDocument()
     })
   })
 
-  it('shows kanban In progress column on the All tab', async () => {
+  it('shows kanban In progress column', async () => {
     renderBacklog()
     await waitFor(() => {
       expect(screen.getByTestId('kanban-column-in-progress')).toBeInTheDocument()
     })
   })
 
-  it('renders spec titles in Plans in flight section', async () => {
+  it('renders spec titles', async () => {
     renderBacklog()
     await waitFor(() => {
       expect(screen.getByText('Build auth module')).toBeInTheDocument()
@@ -175,7 +160,7 @@ describe('Backlog page (→1466)', () => {
     expect(buildButtons).toHaveLength(1)
   })
 
-  it('renders standalone tasks (those not linked to any spec)', async () => {
+  it('renders standalone tasks', async () => {
     renderBacklog()
     await waitFor(() => {
       expect(screen.getByText('Fix header bug')).toBeInTheDocument()
@@ -188,53 +173,8 @@ describe('Backlog page (→1466)', () => {
     await waitFor(() => {
       expect(screen.getByTestId('kanban-column-ready')).toBeInTheDocument()
     })
-    // All open tasks appear in Ready column (Patterson step 3); spec-linked tasks included
     expect(screen.getByText('Write tests')).toBeInTheDocument()
     expect(screen.getByText('Implement login')).toBeInTheDocument()
-  })
-
-  it('renders the Specs sub-page at /backlog/specs', async () => {
-    renderBacklog('/backlog/specs')
-    await waitFor(() => {
-      expect(screen.getByTestId('specs-page')).toBeInTheDocument()
-    })
-  })
-
-  it('renders the Tasks sub-page at /backlog/tasks', async () => {
-    renderBacklog('/backlog/tasks')
-    await waitFor(() => {
-      expect(screen.getByTestId('tasks-page')).toBeInTheDocument()
-    })
-  })
-
-  it('clicking the Specs tab navigates to /backlog/specs', async () => {
-    renderBacklog('/backlog')
-    await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'Specs' })).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByRole('link', { name: 'Specs' }))
-    await waitFor(() => {
-      expect(screen.getByTestId('specs-page')).toBeInTheDocument()
-    })
-  })
-
-  it('clicking the Tasks tab navigates to /backlog/tasks', async () => {
-    renderBacklog('/backlog')
-    await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'Tasks' })).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByRole('link', { name: 'Tasks' }))
-    await waitFor(() => {
-      expect(screen.getByTestId('tasks-page')).toBeInTheDocument()
-    })
-  })
-
-  it('does not render a Spec Health tab link (→1479)', async () => {
-    renderBacklog()
-    await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'All' })).toBeInTheDocument()
-    })
-    expect(screen.queryByRole('link', { name: 'Spec Health' })).toBeNull()
   })
 })
 
