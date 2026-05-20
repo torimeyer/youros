@@ -5,6 +5,9 @@ import TopBar from '../components/TopBar';
 import QuickAddTaskModal from '../components/QuickAddTaskModal';
 import QuickSpawnAgentModal from '../components/QuickSpawnAgentModal';
 import DashboardCustomizeModal from '../components/DashboardCustomizeModal';
+import NeedlesCountWidget from '../components/NeedlesCountWidget';
+import ActiveAgentsWidget from '../components/ActiveAgentsWidget';
+import QuickActionsWidget from '../components/QuickActionsWidget';
 import RecentSpecsWidget from '../components/RecentSpecsWidget';
 import JiraWidget from '../components/JiraWidget';
 import ConfluenceWidget from '../components/ConfluenceWidget';
@@ -1048,6 +1051,24 @@ export default function Dashboard() {
     );
   };
 
+  const renderNeedlesCount = () => (
+    <div key="needles_count" data-testid="widget-needles-count">
+      <NeedlesCountWidget />
+    </div>
+  );
+
+  const renderActiveAgents = () => (
+    <div key="active_agents" data-testid="widget-active-agents">
+      <ActiveAgentsWidget />
+    </div>
+  );
+
+  const renderQuickActions = () => (
+    <div key="quick_actions" data-testid="widget-quick-actions">
+      <QuickActionsWidget onAddNeedle={() => setQuickAddTaskOpen(true)} />
+    </div>
+  );
+
   const renderRecentSpecs = () => (
     <div key="recent_specs" data-testid="widget-recent-specs">
       <RecentSpecsWidget />
@@ -1091,6 +1112,9 @@ export default function Dashboard() {
   const widgetRenderers: Record<string, () => ReactNode> = {
     briefing: renderBriefing,
     focus_first: renderFocusFirst,
+    needles_count: renderNeedlesCount,
+    active_agents: renderActiveAgents,
+    quick_actions: renderQuickActions,
     adventure: renderAdventure,
     todays_focus: renderTodaysFocus,
     quick_launch: renderQuickLaunch,
