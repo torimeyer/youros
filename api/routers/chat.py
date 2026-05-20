@@ -1652,6 +1652,21 @@ async def chat_websocket(websocket: WebSocket):
                                 })
                         except Exception:
                             pass
+                    # Pattern watcher: observe task-defer and new vocab after each turn.
+                    # Never blocks the turn — all errors are swallowed.
+                    try:
+                        from services.pattern_watcher import (
+                            detect_task_defer as _detect_defer,
+                            write_task_defer as _write_defer,
+                            write_vocab_new as _write_vocab,
+                        )
+                        _user_text = last_text if isinstance(last_text, str) else ""
+                        _defer_reason = _detect_defer(_user_text)
+                        if _defer_reason:
+                            _write_defer(_user_text, _defer_reason)
+                        _write_vocab(_user_text)
+                    except Exception:
+                        pass
             except WebSocketDisconnect:
                 raise
             except BaseException as exc:
