@@ -110,6 +110,78 @@ class TestTriggerWritesMemoryFile:
             "trigger.handle() returned False for 'always use plain language'."
         )
 
+    # -----------------------------------------------------------------------
+    # Natural-language prefix tests (RED until prefix normalization is added)
+    # These are the phrases real users type. Without the fix they return False.
+    # -----------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_please_remember_triggers(self, isolated_memory):
+        """'please remember I prefer plain language' must trigger.
+
+        Root cause of dormancy: the ^ anchor in _TRIGGER_PATTERNS means
+        'please remember X' does not match '^remember'. Fix: strip
+        conversational prefixes before applying patterns.
+        """
+        ws = AsyncMock()
+        fired = await trigger.handle("please remember I prefer plain language", ws)
+        assert fired is True, (
+            "trigger.handle() returned False for 'please remember I prefer plain language'. "
+            "Root cause: ^ anchor too strict. Fix conversational prefix stripping."
+        )
+        assert isolated_memory.exists(), "MEMORY.md not created after 'please remember' trigger"
+
+    @pytest.mark.asyncio
+    async def test_can_you_always_triggers(self, isolated_memory):
+        """'can you always use plain language' must trigger."""
+        ws = AsyncMock()
+        fired = await trigger.handle("can you always use plain language", ws)
+        assert fired is True, (
+            "trigger.handle() returned False for 'can you always use plain language'."
+        )
+
+    @pytest.mark.asyncio
+    async def test_note_that_i_prefer_triggers(self, isolated_memory):
+        """'note that I prefer plain language' must trigger."""
+        ws = AsyncMock()
+        fired = await trigger.handle("note that I prefer plain language", ws)
+        assert fired is True, (
+            "trigger.handle() returned False for 'note that I prefer plain language'."
+        )
+
+    @pytest.mark.asyncio
+    async def test_ok_so_remember_triggers(self, isolated_memory):
+        """'ok so remember I prefer concise answers' must trigger."""
+        ws = AsyncMock()
+        fired = await trigger.handle("ok so remember I prefer concise answers", ws)
+        assert fired is True, (
+            "trigger.handle() returned False for 'ok so remember I prefer concise answers'."
+        )
+
+    # -----------------------------------------------------------------------
+    # False-positive guard: prefix stripping must not create spurious matches
+    # -----------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_please_remember_when_does_not_trigger(self, isolated_memory):
+        """'please remember when we launched' must NOT trigger (narrative, not a preference)."""
+        ws = AsyncMock()
+        fired = await trigger.handle("please remember when we launched", ws)
+        assert fired is False, (
+            "trigger.handle() wrongly fired for 'please remember when we launched'. "
+            "The 'remember when' exclusion must survive prefix normalization."
+        )
+
+    @pytest.mark.asyncio
+    async def test_can_you_remember_to_pick_up_does_not_trigger(self, isolated_memory):
+        """'can you remember to pick up milk' must NOT trigger (task reminder, not preference)."""
+        ws = AsyncMock()
+        fired = await trigger.handle("can you remember to pick up milk", ws)
+        assert fired is False, (
+            "trigger.handle() wrongly fired for 'can you remember to pick up milk'. "
+            "The 'remember to <verb>' exclusion must survive prefix normalization."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Test 2: preference appears in system-prompt block

@@ -27,6 +27,33 @@ import services.user_memory_store as store
 
 _log = logging.getLogger(__name__)
 
+# ── conversational prefix normalization ───────────────────────────────────────
+
+# Real users rarely start with a bare "remember" — they say "please remember",
+# "can you always", "note that I prefer", etc. Strip these polite prefixes
+# before applying the anchored patterns so natural phrasing is recognized.
+# The existing exclusion patterns ("remember when", "remember to <verb>") are
+# applied after normalization and continue to block false positives.
+_CONVERSATIONAL_PREFIX: re.Pattern[str] = re.compile(
+    r"^(?:"
+    r"please\s+"
+    r"|can\s+you\s+"
+    r"|could\s+you\s+"
+    r"|would\s+you\s+"
+    r"|hey,?\s+"
+    r"|ok(?:ay)?,?\s+(?:so\s+)?"
+    r"|so,?\s+"
+    r"|just\s+"
+    r"|also,?\s+"
+    r"|and\s+"
+    r"|btw,?\s+"
+    r"|fyi,?\s+"
+    r"|note\s+that\s+"
+    r"|note:\s*"
+    r")",
+    re.IGNORECASE,
+)
+
 # ── trigger patterns ──────────────────────────────────────────────────────────
 
 # Each tuple is (compiled-regex, group-name).
@@ -67,16 +94,24 @@ def match_trigger(text: str) -> Optional[str]:
     """Return extracted preference text if *text* triggers a memory write.
 
     Returns None when the message is not a memory-write trigger.
+
+    Normalizes common conversational prefixes ("please", "can you", "note that",
+    etc.) before applying the anchored patterns, so natural-language phrasing
+    like "please remember I prefer plain language" fires the same code path as
+    the bare "remember I prefer plain language".
     """
     stripped = text.strip()
 
-    # Phrase-level exclusions run first (fast bail-out).
+    # Strip conversational prefixes so "please remember X" hits '^remember'.
+    normalized = _CONVERSATIONAL_PREFIX.sub("", stripped)
+
+    # Phrase-level exclusions run against the normalized text (fast bail-out).
     for excl in _EXCLUSION_PATTERNS:
-        if excl.match(stripped):
+        if excl.match(normalized):
             return None
 
     for pattern, _kind in _TRIGGER_PATTERNS:
-        m = pattern.match(stripped)
+        m = pattern.match(normalized)
         if m:
             extracted = m.group(1).strip()
             if extracted:
