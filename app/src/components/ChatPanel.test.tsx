@@ -3424,4 +3424,52 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('plan_banner WS message', () => {
+    it('shows PlanBanner when plan_banner WS message arrives', async () => {
+      render(<ChatPanel />)
+      await act(async () => {
+        mockLastMessage = {
+          type: 'plan_banner',
+          data: { id: 'plan-1', plan: '1. Read the file\n2. Edit it\n3. Run tests' },
+        }
+      })
+      await waitFor(() => {
+        expect(screen.getByTestId('plan-banner')).toBeDefined()
+        expect(screen.getByText(/Read the file/)).toBeDefined()
+      })
+    })
+
+    it('hides PlanBanner and sends plan_confirm on Confirm click', async () => {
+      render(<ChatPanel />)
+      await act(async () => {
+        mockLastMessage = {
+          type: 'plan_banner',
+          data: { id: 'plan-2', plan: 'Do the work' },
+        }
+      })
+      await waitFor(() => screen.getByTestId('plan-banner-confirm'))
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('plan-banner-confirm'))
+      })
+      expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ type: 'plan_confirm', id: 'plan-2' }))
+      expect(screen.queryByTestId('plan-banner')).toBeNull()
+    })
+
+    it('hides PlanBanner and sends plan_cancel on Cancel click', async () => {
+      render(<ChatPanel />)
+      await act(async () => {
+        mockLastMessage = {
+          type: 'plan_banner',
+          data: { id: 'plan-3', plan: 'Do the work' },
+        }
+      })
+      await waitFor(() => screen.getByTestId('plan-banner-cancel'))
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('plan-banner-cancel'))
+      })
+      expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ type: 'plan_cancel', id: 'plan-3' }))
+      expect(screen.queryByTestId('plan-banner')).toBeNull()
+    })
+  })
+
 })

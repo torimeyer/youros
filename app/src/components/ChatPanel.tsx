@@ -18,6 +18,7 @@ import {
 import { isPeerChatIntent } from '../lib/peerChatIntentDetector'
 import { detectIMessageSendIntent } from '../lib/imessageIntentDetector'
 import { IMessageConfirmBubble } from './IMessageConfirmBubble'
+import { PlanBanner } from './PlanBanner'
 import AttachmentPicker, { type AttachmentFile } from './AttachmentPicker'
 import { PeerChatTurnsPicker } from './PeerChatTurnsPicker'
 import { InlineTextPrompt } from './InlineTextPrompt'
@@ -588,6 +589,8 @@ export function ChatPanel() {
   // and show the turns picker first. Cleared after the user picks turns.
   const [pendingPeerChatText, setPendingPeerChatText] = useState<string | null>(null)
   const [inlinePrompt, setInlinePrompt] = useState<{ label: string; placeholder: string; prefix: string } | null>(null)
+  const [planBannerPending, setPlanBannerPending] = useState<{ id: string; plan: string } | null>(null)
+
   const [imessagePending, setImessagePending] = useState<{
     phrase: string
     originalInput: string
@@ -1220,6 +1223,13 @@ export function ChatPanel() {
       // A preference was detected and written to ~/.myos/users/default/MEMORY.md.
       // Fire the toast so the user sees confirmation immediately.
       useMemoryToastStore.getState().trigger(lastMessage.data as string)
+    } else if (lastMessage.type === 'plan_banner') {
+      const data = lastMessage.data as unknown as { id: string; plan: string }
+      if (data?.id && data?.plan) {
+        setIsStreaming(false)
+        setPlaceholderAwaitingServer(false)
+        setPlanBannerPending({ id: data.id, plan: data.plan })
+      }
     } else if (lastMessage.type === 'done') {
       // Extract cache stats from the usage payload so the indicator can show
       // the cache hit ratio for this turn. Only update when cache data exists
@@ -2888,6 +2898,22 @@ export function ChatPanel() {
             prefix={inlinePrompt.prefix}
             onSubmit={(full) => { setInlinePrompt(null); sendMessage(full) }}
             onCancel={() => setInlinePrompt(null)}
+          />
+        )}
+        {planBannerPending && (
+          <PlanBanner
+            plan={planBannerPending.plan}
+            onConfirm={() => {
+              const { id } = planBannerPending
+              setPlanBannerPending(null)
+              send({ type: 'plan_confirm', id })
+            }}
+            onCancel={() => {
+              const { id } = planBannerPending
+              setPlanBannerPending(null)
+              send({ type: 'plan_cancel', id })
+              setIsStreaming(false)
+            }}
           />
         )}
         {imessagePending && (
