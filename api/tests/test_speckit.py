@@ -217,6 +217,7 @@ class TestImportEndpoint:
             resp = await client.post("/api/specs/import", json={
                 "yaml": VALID_YAML,
                 "format": "speckit",
+                "kind": "spec",
             })
         assert resp.status_code == 200
         data = resp.json()
@@ -233,8 +234,8 @@ class TestImportEndpoint:
 
         add_task_calls = []
 
-        async def fake_add_task(**kwargs):
-            add_task_calls.append(kwargs)
+        async def fake_add_task(title, **kwargs):
+            add_task_calls.append({"title": title, **kwargs})
             return "→99\nok"
 
         with (
@@ -249,6 +250,7 @@ class TestImportEndpoint:
             await client.post("/api/specs/import", json={
                 "yaml": VALID_YAML,
                 "format": "speckit",
+                "kind": "spec",
             })
         assert len(add_task_calls) == 2
         titles = [c["title"] for c in add_task_calls]
