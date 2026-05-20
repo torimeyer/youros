@@ -10,6 +10,8 @@ interface Spec {
   path?: string
   title: string
   status: string
+  effective_status?: string
+  needs_clarity?: boolean
   task_ids: string[]
   description?: string
 }
@@ -241,8 +243,9 @@ function AllView() {
   const q = search.toLowerCase()
   const matches = (title: string) => !q || title.toLowerCase().includes(q)
 
-  const draftingSpecs = specs.filter((s) => s.status === 'draft' && matches(s.title))
-  const readySpecs = specs.filter((s) => (s.status === 'ready' || s.status === 'spec') && matches(s.title))
+  const effectiveStatus = (s: Spec) => s.effective_status ?? s.status
+  const draftingSpecs = specs.filter((s) => effectiveStatus(s) === 'draft' && matches(s.title))
+  const readySpecs = specs.filter((s) => (effectiveStatus(s) === 'ready' || effectiveStatus(s) === 'spec') && matches(s.title))
   const openTasks = tasks.filter((t) => t.status === 'open' && matches(t.title))
   const inProgressTasks = tasks.filter((t) => t.status === 'in_progress' && matches(t.title))
 

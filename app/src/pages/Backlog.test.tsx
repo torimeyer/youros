@@ -101,7 +101,7 @@ describe('Backlog AllView — real API response shapes (→1468)', () => {
   it('shows all open tasks (including spec-linked) in the kanban ready column', async () => {
     renderBacklog('/backlog')
     await waitFor(() => {
-      expect(screen.getByTestId('kanban-column-ready')).toBeInTheDocument()
+      expect(screen.getByTestId('kanban-column-ready-tasks')).toBeInTheDocument()
     })
     // All open tasks appear in Ready column (Patterson step 3)
     expect(screen.getByText('Write tests')).toBeInTheDocument()
@@ -132,7 +132,7 @@ describe('Backlog (Kanban view) — no sub-tabs (→1489)', () => {
   it('shows kanban Drafting column', async () => {
     renderBacklog()
     await waitFor(() => {
-      expect(screen.getByTestId('kanban-column-drafting')).toBeInTheDocument()
+      expect(screen.getByTestId('kanban-column-drafts')).toBeInTheDocument()
     })
   })
 
@@ -171,7 +171,7 @@ describe('Backlog (Kanban view) — no sub-tabs (→1489)', () => {
   it('shows all open tasks in the kanban ready column (including spec-linked)', async () => {
     renderBacklog()
     await waitFor(() => {
-      expect(screen.getByTestId('kanban-column-ready')).toBeInTheDocument()
+      expect(screen.getByTestId('kanban-column-ready-tasks')).toBeInTheDocument()
     })
     expect(screen.getByText('Write tests')).toBeInTheDocument()
     expect(screen.getByText('Implement login')).toBeInTheDocument()
@@ -269,9 +269,9 @@ describe('Backlog column count badges (→1487)', () => {
     })
     renderBacklog('/backlog')
     await waitFor(() => {
-      expect(screen.getByTestId('column-count-drafting')).toBeInTheDocument()
+      expect(screen.getByTestId('column-count-drafts')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('column-count-drafting')).toHaveTextContent('3')
+    expect(screen.getByTestId('column-count-drafts')).toHaveTextContent('3')
   })
 
   it('empty drafting column badge shows 0', async () => {
@@ -282,9 +282,9 @@ describe('Backlog column count badges (→1487)', () => {
     })
     renderBacklog('/backlog')
     await waitFor(() => {
-      expect(screen.getByTestId('column-count-drafting')).toBeInTheDocument()
+      expect(screen.getByTestId('column-count-drafts')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('column-count-drafting')).toHaveTextContent('0')
+    expect(screen.getByTestId('column-count-drafts')).toHaveTextContent('0')
   })
 
   it('ready column badge shows combined count of ready specs plus open tasks', async () => {
@@ -303,9 +303,10 @@ describe('Backlog column count badges (→1487)', () => {
     })
     renderBacklog('/backlog')
     await waitFor(() => {
-      expect(screen.getByTestId('column-count-ready')).toBeInTheDocument()
+      expect(screen.getByTestId('column-count-ready-specs')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('column-count-ready')).toHaveTextContent('6')
+    expect(screen.getByTestId('column-count-ready-specs')).toHaveTextContent('2')
+    expect(screen.getByTestId('column-count-ready-tasks')).toHaveTextContent('4')
   })
 })
 
@@ -322,9 +323,9 @@ describe('Backlog column semantics (Patterson step 3)', () => {
     })
     renderBacklog('/backlog')
     await waitFor(() => {
-      expect(screen.getByTestId('kanban-column-drafting')).toBeInTheDocument()
+      expect(screen.getByTestId('kanban-column-drafts')).toBeInTheDocument()
     })
-    const draftingCol = screen.getByTestId('kanban-column-drafting')
+    const draftingCol = screen.getByTestId('kanban-column-drafts')
     expect(within(draftingCol).getByText('Redesign dashboard')).toBeInTheDocument()
     expect(within(draftingCol).queryByText('Write tests')).toBeNull()
   })
@@ -337,11 +338,12 @@ describe('Backlog column semantics (Patterson step 3)', () => {
     })
     renderBacklog('/backlog')
     await waitFor(() => {
-      expect(screen.getByTestId('kanban-column-ready')).toBeInTheDocument()
+      expect(screen.getByTestId('kanban-column-ready-specs')).toBeInTheDocument()
     })
-    const readyCol = screen.getByTestId('kanban-column-ready')
-    expect(within(readyCol).getByText('Build auth module')).toBeInTheDocument()
-    expect(within(readyCol).getByText('Fix header bug')).toBeInTheDocument()
+    const readySpecsCol = screen.getByTestId('kanban-column-ready-specs')
+    const readyTasksCol = screen.getByTestId('kanban-column-ready-tasks')
+    expect(within(readySpecsCol).getByText('Build auth module')).toBeInTheDocument()
+    expect(within(readyTasksCol).getByText('Fix header bug')).toBeInTheDocument()
   })
 
   it('task with status open shows Ready as pill label', async () => {

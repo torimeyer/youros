@@ -341,7 +341,7 @@ def _read_umbrella_fields(path_str: str) -> dict:
 
 
 @router.get("/specs")
-async def list_specs(gemini_ready: Optional[bool] = None):
+async def list_specs(clear_to_build: Optional[bool] = None):
     """List all draft and spec documents with lifecycle metadata.
 
     Each document includes task_ids, task_summary, acceptance_criteria,
@@ -369,14 +369,18 @@ async def list_specs(gemini_ready: Optional[bool] = None):
                     else str(_Path(PROJECT_ROOT) / raw_path)
                 )
                 r = compute_spec_readiness(abs_path)
-                d["gemini_ready"] = r.ready
-                d["gemini_ready_checks"] = r.as_dict()["checks"]
+                d["clear_to_build"] = r.ready
+                d["clear_to_build_checks"] = r.as_dict()["checks"]
+                if not r.ready:
+                    d["needs_clarity"] = True
+                    if d.get("status") in ("ready", "spec"):
+                        d["effective_status"] = "draft"
         except Exception:
             for d in docs:
-                d.setdefault("gemini_ready", False)
-                d.setdefault("gemini_ready_checks", [])
-        if gemini_ready is not None:
-            docs = [d for d in docs if d.get("gemini_ready") is gemini_ready]
+                d.setdefault("clear_to_build", False)
+                d.setdefault("clear_to_build_checks", [])
+        if clear_to_build is not None:
+            docs = [d for d in docs if d.get("clear_to_build") is clear_to_build]
         return {"docs": docs}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -207,7 +207,7 @@ async def list_tasks(
     include_test_data: bool = False,
     include_session_tasks: bool = False,
     source: Optional[str] = None,
-    gemini_ready: Optional[bool] = None,
+    clear_to_build: Optional[bool] = None,
 ):
     try:
         tasks = await ostk.list_tasks(status=status, priority=priority)
@@ -312,14 +312,18 @@ async def list_tasks(
             from services.gemini_ready import compute_task_readiness
             for t in all_tasks:
                 r = compute_task_readiness(t)
-                t["gemini_ready"] = r.ready
-                t["gemini_ready_checks"] = r.as_dict()["checks"]
+                t["clear_to_build"] = r.ready
+                t["clear_to_build_checks"] = r.as_dict()["checks"]
+                if not r.ready:
+                    t["needs_clarity"] = True
+                    if t.get("status") == "ready":
+                        t["effective_status"] = "draft"
         except Exception:
             for t in all_tasks:
-                t.setdefault("gemini_ready", False)
-                t.setdefault("gemini_ready_checks", [])
-        if gemini_ready is not None:
-            all_tasks = [t for t in all_tasks if t.get("gemini_ready") is gemini_ready]
+                t.setdefault("clear_to_build", False)
+                t.setdefault("clear_to_build_checks", [])
+        if clear_to_build is not None:
+            all_tasks = [t for t in all_tasks if t.get("clear_to_build") is clear_to_build]
         return {"tasks": all_tasks}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
