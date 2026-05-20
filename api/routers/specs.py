@@ -292,6 +292,25 @@ def _validate_doc_path(path: str) -> None:
         )
 
 
+def _validate_write_doc_path(path: str) -> None:
+    """Like _validate_doc_path but also rejects docs/spec/ for new writes (→1512).
+
+    docs/spec/ is gitignored and redundant — all promoted specs now live in
+    ~/.myos/specs/. Preventing new writes stops the directory from being
+    resurrected after cleanup.
+    """
+    _validate_doc_path(path)
+    p = PurePosixPath(path)
+    if str(p).startswith("docs/spec/"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Writing to docs/spec/ is no longer allowed. "
+                "Use docs/draft/ for new drafts or promote to ~/.myos/specs/ via /specs/promote."
+            ),
+        )
+
+
 def _read_umbrella_fields(path_str: str) -> dict:
     """Return is_umbrella and parent_slug by reading frontmatter from the spec file.
 
@@ -432,10 +451,20 @@ async def spec_counts():
         docs = await ostk.list_docs()
         real_specs = [d for d in docs if d.get("status") != "plan"]
         total = len(real_specs)
-        unfinished = sum(
-            1 for d in real_specs if d.get("status") != "complete"
-        )
-        return {"unfinished": unfinished, "total": total}
+        # →1512: unfinished = Ready + Building only (not Draft, Shipped, Archived)
+        _status_to_stage = {
+            "draft": "draft",
+            "ready": "ready",
+            "spec": "ready",
+            "in-progress": "building",
+            "complete": "shipped",
+        }
+        by_stage: dict[str, int] = {}
+        for d in real_specs:
+            stage = d.get("stage") or _status_to_stage.get(d.get("status", "draft"), "draft")
+            by_stage[stage] = by_stage.get(stage, 0) + 1
+        unfinished = by_stage.get("ready", 0) + by_stage.get("building", 0)
+        return {"unfinished": unfinished, "total": total, "by_stage": by_stage}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2527,12 +2556,25 @@ async def backfill_spec(slug: str):
 
 @router.post("/specs/{slug}/archive")
 async def archive_spec(slug: str):
-    """Move a spec from ~/.myos/specs/<slug>.md to ~/.myos/specs/archive/<ts>-<slug>.md.
+    """Move a spec from ~/.myos/specs/<slug>.md to ~/.myos/specs/archive/<ts>-<slug>.md (→1512).
 
     Returns the new path.  The original file is removed.
+    404 if the spec does not exist.
+    409 if the spec is already in the archive directory.
     """
     from datetime import timezone
     from services.ostk import USER_SPECS_DIR
+
+    archive_dir = USER_SPECS_DIR / "archive"
+
+    # 409 if already archived (file found in archive/ by any ts prefix)
+    if archive_dir.is_dir():
+        existing = list(archive_dir.glob(f"*-{slug}.md"))
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Spec '{slug}' is already archived at {existing[0].name}",
+            )
 
     spec_file = USER_SPECS_DIR / f"{slug}.md"
     if not spec_file.exists():
@@ -2540,7 +2582,6 @@ async def archive_spec(slug: str):
 
     import datetime as _dt
     ts = _dt.datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    archive_dir = USER_SPECS_DIR / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
     dest = archive_dir / f"{ts}-{slug}.md"
 
