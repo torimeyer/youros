@@ -4855,6 +4855,19 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     prompt_with_memory = _file_ctx + "\n\n---\n\n" + prompt_with_memory
         except Exception:
             pass  # file injection is best-effort; never block a spawn
+
+        # KNOWLEDGE grounding: prepend tagged source excerpts (→1530)
+        try:
+            if getattr(template_config, "knowledge_tags", None):
+                from services.source_library import get_knowledge_excerpts
+                excerpts_block = get_knowledge_excerpts(
+                    template_config.knowledge_tags,
+                    body.prompt or "",
+                )
+                if excerpts_block:
+                    prompt_with_memory = excerpts_block + "\n\n---\n\n" + prompt_with_memory
+        except Exception:
+            pass  # grounding is best-effort; never block a spawn
     else:
         agent_config = get_agent_config(body.name)
         quality_instructions = build_quality_gate_instructions(agent_config)
