@@ -1550,7 +1550,36 @@ async def chat_websocket(websocket: WebSocket):
                         except Exception:
                             pass
                     label = model.capitalize() if len(mentioned_models) > 0 else ""
+                    try:
+                        from services.turn_audit_store import turn_audit_store as _turn_audit_store
+                        _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+                        _turn_id = _turn_audit_store.begin_turn(tab_id=tab_id, repo_root=_REPO_ROOT)
+                    except Exception:
+                        _turn_id = None
                     _reply_text = await call_model(model, messages, tracked_ws, label=label, use_tools=use_tools, tab_id=tab_id, claude_tier=claude_tier)
+                    if _turn_id:
+                        try:
+                            from services.turn_audit_store import turn_audit_store as _turn_audit_store
+                            _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+                            _turn_audit_store.end_turn(_turn_id, repo_root=_REPO_ROOT)
+                            _fc = _turn_audit_store.get_file_changes(_turn_id)
+                            if _fc:
+                                await tracked_ws.send_json({
+                                    "type": "file_changes",
+                                    "turn_id": _turn_id,
+                                    "files": [
+                                        {
+                                            "path": f["path"],
+                                            "diff": f["diff"],
+                                            "is_binary": f["is_binary"],
+                                            "size_bytes": f["size_bytes"],
+                                            "mime_type": f["mime_type"],
+                                        }
+                                        for f in _fc
+                                    ],
+                                })
+                        except Exception:
+                            pass
                     if settings_store.get("chat_receipts_gate_enabled", True):
                         try:
                             from services.receipts_gate import check_receipts as _check_receipts
