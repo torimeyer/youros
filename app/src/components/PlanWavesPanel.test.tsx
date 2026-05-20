@@ -77,7 +77,7 @@ beforeEach(() => {
   mockedApiGet.mockImplementation((path: string) => {
     if (path.includes('/tasks/waves')) return Promise.resolve(makeWavesResponse('general'))
     if (path === '/specs') return Promise.resolve(sampleSpecsResponse)
-    if (path === '/tasks') return Promise.resolve({ tasks: [] })
+    if (path.startsWith('/tasks') && !path.includes('/waves') && !path.includes('/assignments')) return Promise.resolve({ tasks: [] })
     return Promise.resolve({})
   })
 })
@@ -246,5 +246,43 @@ describe('PlanWavesPanel — Specs subtab', () => {
     await waitFor(() => expect(screen.queryByTestId('conflict-dialog')).toBeNull())
     // No second buildSpec call.
     expect(mockedBuildSpec).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('PlanWavesPanel — Tasks subtab (→1504)', () => {
+  it('requests /tasks?status=open to exclude closed tasks that may have null titles', async () => {
+    render(<PlanWavesPanel open={true} onClose={() => {}} />)
+    fireEvent.click(screen.getByTestId('plan-waves-subtab-tasks'))
+
+    await waitFor(() => {
+      const paths = mockedApiGet.mock.calls.map((c) => c[0] as string)
+      expect(paths).toContain('/tasks?status=open')
+    })
+    // Must NOT call the unfiltered /tasks endpoint
+    const allPaths = mockedApiGet.mock.calls.map((c) => c[0] as string)
+    expect(allPaths).not.toContain('/tasks')
+  })
+
+  it('does not crash when a task in the response has a null title', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/tasks/waves')) return Promise.resolve(makeWavesResponse('general'))
+      if (path.startsWith('/tasks') && !path.includes('/waves') && !path.includes('/assignments')) {
+        return Promise.resolve({
+          tasks: [
+            { id: '→147', title: null, status: 'closed', priority: 'P2' },
+            { id: '→200', title: 'Normal task', status: 'open', priority: 'P1' },
+          ],
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    render(<PlanWavesPanel open={true} onClose={() => {}} />)
+    fireEvent.click(screen.getByTestId('plan-waves-subtab-tasks'))
+
+    // The non-null task must render; the null-title task must not crash React.
+    await waitFor(() => {
+      expect(screen.getByTestId('task-row-→200')).toBeInTheDocument()
+    })
   })
 })
