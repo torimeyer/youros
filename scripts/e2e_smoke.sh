@@ -878,13 +878,23 @@ print(d.get('label',{}).get('id', d.get('id','')))
         settings_after=$(curl -sS $CURL_OPTS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
         if [ "$settings_after" = "e2e-test-os" ]; then
             phase_pass "settings PATCH round trip works"
-            # Restore immediately (trap is the safety net if this fails).
-            curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
+            # Restore immediately.  Only clear _E2E_ORIGINAL_OS_NAME after
+            # confirming HTTP 200 so the EXIT trap can retry if this curl
+            # fails silently (→1345: the original pollution vector was that
+            # the restore ran with discarded output and then the variable was
+            # unconditionally cleared, leaving the real settings.json dirty
+            # when the backend dropped the connection mid-restore).
+            _restore_http=$(curl -sS $CURL_OPTS -o /dev/null -w "%{http_code}" \
+                -X PATCH "${API_BASE}/api/settings" \
                 -H 'content-type: application/json' \
-                -d "{\"os_name\":\"$_E2E_ORIGINAL_OS_NAME\"}" > /dev/null 2>&1
-            _E2E_ORIGINAL_OS_NAME=""
+                -d "{\"os_name\":\"$_E2E_ORIGINAL_OS_NAME\"}" 2>/dev/null || echo "000")
+            if [ "$_restore_http" = "200" ]; then
+                _E2E_ORIGINAL_OS_NAME=""
+            fi
+            # If not 200, keep _E2E_ORIGINAL_OS_NAME set so the EXIT trap retries.
         else
             phase_fail "settings PATCH did not persist"
+            # os_name was never changed — nothing to restore.
             _E2E_ORIGINAL_OS_NAME=""
         fi
 
