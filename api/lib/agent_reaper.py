@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import subprocess
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional, Tuple
@@ -40,6 +41,16 @@ STUCK_THRESHOLD_SECONDS = 180    # 3 min without progress → declare stuck
 TRANSCRIPT_STUCK_BYTES = 1024    # < 1 KB means essentially nothing written
 SWEEP_INTERVAL_SECONDS = 30      # check every 30 s
 STALL_THRESHOLD_SECONDS = int(os.environ.get("STALL_THRESHOLD_SECONDS", "120"))
+
+# Session-bridge rows self-register under names like "claude-code-NNNN" or
+# "myos-api-NNNN" (where NNNN is a numeric PID or port). They have
+# source="claude-code", pid=None (no spawned subprocess), and produce no
+# transcript. The main sweeper skips them because pid=None. We sweep them
+# independently at a tighter 5-minute threshold. (→1551)
+SESSION_BRIDGE_TIMEOUT_SECONDS = 300  # 5 min
+
+# Matches "claude-code-<digits>" and "myos-api-<digits>".
+_SESSION_BRIDGE_PATTERN = re.compile(r"^(claude-code|myos-api)-\d+$")
 
 # Module-level progress snapshots for stall detection.
 # {agent_name: (last_seen_transcript_bytes, last_progress_iso, worktree_head_hash)}
@@ -360,6 +371,85 @@ def find_zombie_agents(
     return zombies
 
 
+def find_stale_session_bridge_rows(
+    registry: Dict[str, dict],
+    now: datetime,
+    *,
+    get_transcript_bytes: Callable[[str], int],
+    timeout_seconds: int = SESSION_BRIDGE_TIMEOUT_SECONDS,
+    transcript_stuck_bytes: int = TRANSCRIPT_STUCK_BYTES,
+) -> List[Tuple[str, str]]:
+    """Return (name, last_error) for stale session-bridge rows that should be abandoned.
+
+    Session-bridge rows self-register under names matching
+    ``^(claude-code|myos-api)-\\d+$`` with ``source='claude-code'`` and
+    ``pid=None`` (no subprocess handle). The main ``find_stuck_agents`` sweeper
+    skips them because it requires a known, dead PID. This function handles
+    them with a simpler rule: if they are still ``running`` after
+    ``timeout_seconds`` with no transcript content, mark them abandoned. (→1551)
+
+    PID safety (per feedback_ghost_reaper_live_pid_check.md):
+    If a row does carry a PID, we verify it is dead with ``os.kill(pid, 0)``
+    before marking it. Only if the PID is absent OR dead do we proceed.
+
+    Args:
+        registry: snapshot of agent_metadata dict (name -> meta).
+        now: current UTC datetime (injectable for tests).
+        get_transcript_bytes: callable(name) -> int byte count.
+        timeout_seconds: stale threshold (default SESSION_BRIDGE_TIMEOUT_SECONDS).
+        transcript_stuck_bytes: byte ceiling below which transcript is "empty".
+
+    Returns:
+        List of (name, last_error_message) tuples.
+    """
+    cutoff = now - timedelta(seconds=timeout_seconds)
+    victims: List[Tuple[str, str]] = []
+
+    for name, meta in registry.items():
+        if not isinstance(meta, dict):
+            continue
+        if not _SESSION_BRIDGE_PATTERN.match(name):
+            continue
+        if meta.get("status") != "running":
+            continue
+
+        # PID safety: if a PID is recorded, verify it is dead before reaping.
+        pid = meta.get("pid")
+        alive = _pid_alive(pid)
+        if alive is True:
+            continue  # live process — never reap
+
+        # Heartbeat / spawned-at age check.
+        last_seen_raw = meta.get("last_heartbeat_at") or meta.get("spawned_at")
+        last_seen = _parse_iso(last_seen_raw)
+        if last_seen is None:
+            continue
+        if last_seen >= cutoff:
+            continue  # still within window
+
+        # Transcript check — must be empty for this to qualify.
+        try:
+            t_bytes = get_transcript_bytes(name)
+        except Exception:
+            t_bytes = 0
+        if t_bytes >= transcript_stuck_bytes:
+            continue  # has real content; something is running
+
+        age_seconds = int((now - last_seen).total_seconds())
+        pid_desc = f", PID {pid} dead" if pid is not None else ", no PID"
+        error_msg = (
+            f"abandoned: session-bridge row stale for {age_seconds}s "
+            f"with empty transcript ({t_bytes} bytes){pid_desc}"
+        )
+        victims.append((name, error_msg))
+        logger.info(
+            "agent_reaper: stale session-bridge name=%s age=%ds transcript_bytes=%d",
+            name, age_seconds, t_bytes,
+        )
+
+    return victims
+
+
 def _worktree_head_hash(name: str, worktree_path: str) -> Optional[str]:
     """Return the current HEAD commit hash in a worktree, or None on failure."""
     try:
@@ -396,8 +486,11 @@ def _do_sweep_sync() -> int:
         get_worktree_head=_worktree_head_hash,
     )
     zombies = find_zombie_agents(agent_metadata, get_transcript_bytes=_get_bytes)
+    bridge_rows = find_stale_session_bridge_rows(
+        agent_metadata, now, get_transcript_bytes=_get_bytes
+    )
 
-    if not victims and not stalled and not zombies:
+    if not victims and not stalled and not zombies and not bridge_rows:
         return 0
 
     now_iso = now.isoformat()
@@ -432,8 +525,19 @@ def _do_sweep_sync() -> int:
         meta["completion_note"] = note
         logger.info("agent_reaper: zombie completed name=%s note=%s", name, note)
 
+    for name, error_msg in bridge_rows:
+        meta = agent_metadata.get(name)
+        if meta is None or meta.get("status") != "running":
+            continue
+        meta["status"] = "abandoned"
+        meta["abandoned_at"] = now_iso
+        meta["last_error"] = error_msg
+        logger.warning(
+            "agent_reaper: abandoned session-bridge name=%s error=%s", name, error_msg
+        )
+
     _save_agent_state()
-    return len(victims) + len(stalled) + len(zombies)
+    return len(victims) + len(stalled) + len(zombies) + len(bridge_rows)
 
 
 async def _do_sweep() -> int:
