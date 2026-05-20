@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { buildSpec } from '../lib/spawn'
-import type { ReadinessCheck } from './GeminiReadyChip'
+import type { ReadinessCheck } from './NeedsClarityChip'
 
 interface SpawnGeminiModalProps {
   path: string

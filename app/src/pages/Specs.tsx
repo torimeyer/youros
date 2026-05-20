@@ -7,7 +7,7 @@ import SpecTemplateDetailsModal, {
 } from "../components/SpecTemplateDetailsModal";
 import { api } from "../lib/api";
 import { buildSpec } from "../lib/spawn";
-import { GeminiReadyChip, type ReadinessCheck } from "../components/GeminiReadyChip";
+import { NeedsClarityChip, type ReadinessCheck } from "../components/NeedsClarityChip";
 import { SpawnGeminiModal } from "../components/SpawnGeminiModal";
 import { onSpecsChange, bumpAgents, bumpTasks } from "../lib/sidebarBus";
 import { useAppStore } from "../stores/app";
@@ -46,8 +46,10 @@ interface Spec {
   task_summary?: TaskSummary;
   acceptance_criteria?: AcceptanceCriterion[];
   task_ids?: string[];
-  gemini_ready?: boolean;
-  gemini_ready_checks?: ReadinessCheck[];
+  clear_to_build?: boolean;
+  clear_to_build_checks?: ReadinessCheck[];
+  needs_clarity?: boolean;
+  effective_status?: string;
 }
 
 interface SpecsResponse {
@@ -121,7 +123,7 @@ export function displayStatus(backendStatus: string): "Draft" | "Ready" | "Build
   return "Draft";
 }
 
-type Tab = "all" | "drafts" | "ready" | "in-progress" | "complete" | "gemini-ready";
+type Tab = "all" | "drafts" | "ready" | "in-progress" | "complete" | "needs-clarity";
 
 // --- Status badge component ---
 
@@ -920,7 +922,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const inProgressSpecs = docs.filter((d) => d.status === "in-progress");
   const completeSpecs = docs.filter((d) => d.status === "complete");
 
-  const geminiReadySpecs = docs.filter((d) => d.gemini_ready === true);
+  const geminiReadySpecs = docs.filter((d) => d.needs_clarity === true);
 
   const filtered =
     tab === "drafts"
@@ -931,7 +933,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
           ? inProgressSpecs
           : tab === "complete"
             ? completeSpecs
-            : tab === "gemini-ready"
+            : tab === "needs-clarity"
               ? geminiReadySpecs
               : docs;
 
@@ -941,7 +943,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
     { value: "ready", label: "Ready", count: readySpecs.length },
     { value: "in-progress", label: "Building", count: inProgressSpecs.length },
     { value: "complete", label: "Done", count: completeSpecs.length },
-    ...(geminiReadySpecs.length > 0 ? [{ value: "gemini-ready" as Tab, label: "✦ Gemini-ready", count: geminiReadySpecs.length }] : []),
+    ...(geminiReadySpecs.length > 0 ? [{ value: "needs-clarity" as Tab, label: "⚠ Needs clarity", count: geminiReadySpecs.length }] : []),
   ];
 
   return (
@@ -1142,11 +1144,9 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                         </p>
                         <StatusBadge status={doc.status} claims={claimsMap[doc.path] ?? []} />
                         <ClaimsNote claims={claimsMap[doc.path] ?? []} />
-                        {doc.gemini_ready !== undefined && (
-                          <GeminiReadyChip
-                            ready={doc.gemini_ready}
-                            checks={doc.gemini_ready_checks}
-                            onClick={doc.gemini_ready ? () => setSpawnGeminiSpec({ path: doc.path, title: doc.title, checks: doc.gemini_ready_checks }) : undefined}
+                        {doc.needs_clarity && (
+                          <NeedsClarityChip
+                            checks={doc.clear_to_build_checks}
                           />
                         )}
                       </div>
