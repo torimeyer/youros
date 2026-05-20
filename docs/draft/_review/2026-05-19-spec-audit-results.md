@@ -142,7 +142,7 @@ Root cause: `api/services/spec_audit.py` uses `Path("docs") / "spec"` as a relat
 | →1494 | backfill template headings in spec-auto-status.md |
 | →1495 | rename non-standard headings in vp-marketing-first-impression.md |
 | →1496 | merge or archive gemini-cli-integration.md (duplicate of gemini-ready-chip-and-spawn.md) |
-| →1497 | add traceability refs to 6 unreferenced specs |
+| →1497 | add traceability refs to 6 unreferenced specs — **completed 2026-05-19** |
 | →1498 | fix spec audit coverage gap (docs/spec/ not scanned by API) |
 
 All filed P2, tagged `specs,from-audit`.
