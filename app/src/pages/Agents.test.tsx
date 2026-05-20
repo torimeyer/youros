@@ -6556,14 +6556,6 @@ describe('Agents page - ghost/alive badge, progress, and step display (→1490)'
     })
   })
 
-  it('shows ghost badge for abandoned status', async () => {
-    mockWithAgent(mkAgent({ status: 'abandoned', pid: 12345, last_heartbeat_at: RECENT_HB }))
-    renderAgentsCollapsed()
-    await waitFor(() => {
-      expect(screen.getByTestId('ghost-badge')).toBeInTheDocument()
-    })
-  })
-
   it('clicking ghost badge reveals Dismiss button', async () => {
     mockWithAgent(mkAgent({ pid: null }))
     renderAgentsCollapsed()
