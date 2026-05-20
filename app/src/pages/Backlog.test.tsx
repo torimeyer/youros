@@ -312,6 +312,63 @@ describe('Backlog card description expand/collapse (Patterson step 1)', () => {
   })
 })
 
+describe('Backlog column count badges (→1487)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('drafting column badge shows count matching number of draft specs', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [
+        { id: 's1', title: 'Spec A', status: 'draft', task_ids: [] },
+        { id: 's2', title: 'Spec B', status: 'draft', task_ids: [] },
+        { id: 's3', title: 'Spec C', status: 'draft', task_ids: [] },
+      ]})
+      if (url === '/tasks') return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByTestId('column-count-drafting')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('column-count-drafting')).toHaveTextContent('3')
+  })
+
+  it('empty drafting column badge shows 0', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [] })
+      if (url === '/tasks') return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByTestId('column-count-drafting')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('column-count-drafting')).toHaveTextContent('0')
+  })
+
+  it('ready column badge shows combined count of ready specs plus open tasks', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [
+        { id: 's1', title: 'Ready spec 1', status: 'ready', task_ids: [] },
+        { id: 's2', title: 'Ready spec 2', status: 'ready', task_ids: [] },
+      ]})
+      if (url === '/tasks') return Promise.resolve({ tasks: [
+        { id: 't1', title: 'Task 1', status: 'open', spec_id: null },
+        { id: 't2', title: 'Task 2', status: 'open', spec_id: null },
+        { id: 't3', title: 'Task 3', status: 'open', spec_id: null },
+        { id: 't4', title: 'Task 4', status: 'open', spec_id: null },
+      ]})
+      return Promise.resolve({})
+    })
+    renderBacklog('/backlog')
+    await waitFor(() => {
+      expect(screen.getByTestId('column-count-ready')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('column-count-ready')).toHaveTextContent('6')
+  })
+})
+
 describe('Backlog column semantics (Patterson step 3)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
