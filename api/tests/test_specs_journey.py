@@ -283,7 +283,7 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
         AsyncMock(return_value=None),
     )
 
-    resp = await client.post("/api/specs/draft", json={"title": "e2e http journey"})
+    resp = await client.post("/api/specs/draft", json={"title": "e2e http journey", "kind": "spec"})
     assert resp.status_code == 200
 
     # --- Promote ---
