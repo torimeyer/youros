@@ -299,6 +299,14 @@ fi
 # branch onto main so commits are not orphaned before the reaper runs.
 # Skip conditions (never destructive): running inside a worktree, session
 # row (claude-code-*), branch not found, not ahead of main, or diverged.
+#
+# NOTE: This block only fires for FOREGROUND agents (run_in_background=false).
+# Background agents are handled by ostk-agent-stop.sh (SubagentStop hook),
+# which fires in the child session when the agent actually finishes and has
+# direct access to the worktree branch via git plumbing. See →1548.
+
+_AM_DEBT_LOG="$HOME/.myos/logs/merge-debt.log"
+mkdir -p "$(dirname "$_AM_DEBT_LOG")" 2>/dev/null || true
 
 _AM_PROJ="${CLAUDE_PROJECT_DIR:-}"
 if [ -z "$_AM_PROJ" ]; then
@@ -320,7 +328,10 @@ esac
 if [ "$_AM_SKIP" -eq 0 ] && [ -n "$_AM_PROJ" ]; then
     _AM_BRANCH="worktree-agent-${AGENT_NAME}"
     if ! git -C "$_AM_PROJ" rev-parse --verify "refs/heads/$_AM_BRANCH" >/dev/null 2>&1; then
-        echo "complete-agent: skip auto-merge (branch $_AM_BRANCH not found)" >&2
+        echo "complete-agent: ATTN: $AGENT_NAME finished but branch $_AM_BRANCH not found — likely name/branch mismatch (ostk-agent-stop.sh will handle if worktree agent)" >&2
+        printf '%s\tATTN-BRANCH-NOT-FOUND\t%s\t%s\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_AM_BRANCH" "$AGENT_NAME" \
+            >> "$_AM_DEBT_LOG" 2>/dev/null || true
     else
         _AM_OUT=$(git -C "$_AM_PROJ" merge --ff-only "$_AM_BRANCH" 2>&1) && _AM_RC=0 || _AM_RC=$?
         if [ "$_AM_RC" -eq 0 ]; then
@@ -331,7 +342,10 @@ if [ "$_AM_SKIP" -eq 0 ] && [ -n "$_AM_PROJ" ]; then
                 echo "complete-agent: auto-merged $_AM_BRANCH onto main (HEAD $_AM_TIP)" >&2
             fi
         else
-            echo "complete-agent: skip auto-merge (not fast-forward: $_AM_BRANCH)" >&2
+            echo "complete-agent: ATTN: $AGENT_NAME finished — branch $_AM_BRANCH not fast-forward, parked (needs manual merge)" >&2
+            printf '%s\tATTN-NOT-FF\t%s\t%s\n' \
+                "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_AM_BRANCH" "$AGENT_NAME" \
+                >> "$_AM_DEBT_LOG" 2>/dev/null || true
         fi
     fi
 fi
