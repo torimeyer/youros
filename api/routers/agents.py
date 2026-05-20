@@ -2384,6 +2384,7 @@ _enrich_async_lock: asyncio.Lock = asyncio.Lock()
 # rejects them. Sanitize these fields at the serialization boundary so the
 # /api/agents response always round-trips through json.loads(strict=True).
 _SANITIZE_FIELDS = frozenset({
+    "name",
     "current_step",
     "task",
     "description",
@@ -2392,6 +2393,8 @@ _SANITIZE_FIELDS = frozenset({
     "terminated_reason",
     "fail_reason",
     "label",
+    "error",
+    "last_step_output",
 })
 
 
@@ -2410,6 +2413,19 @@ def sanitize_for_json(s: str) -> str:
         c if ord(c) >= 0x20 or c in "\t\n\r" else f"\\u{ord(c):04x}"
         for c in s
     )
+
+
+def _sanitize_for_json(value):
+    """Sanitize a single value for JSON serialization.
+
+    Strings: strips ASCII control chars (except tab, newline, carriage return)
+    by replacing each with its \\uXXXX Unicode escape form so the output
+    round-trips through ``json.loads(strict=True)``.
+    Non-strings: returned unchanged.
+    """
+    if isinstance(value, str):
+        return sanitize_for_json(value)
+    return value
 
 
 def _run_enrich_pipeline(
@@ -3950,9 +3966,15 @@ async def list_agents(
                 if _live_status != "running" or _snap_status not in _TERMINAL_STATUSES:
                     _a["status"] = _live_status
     # Include agents registered since the last snapshot run.
+    # Sanitize string fields here because these rows bypass _run_enrich_pipeline.
     for _n, _meta in list(agent_metadata.items()):
         if _n not in snapshot_names:
-            all_agents.append(dict(_meta, name=_n))
+            _row = dict(_meta, name=_n)
+            for _f in _SANITIZE_FIELDS:
+                _v = _row.get(_f)
+                if isinstance(_v, str):
+                    _row[_f] = sanitize_for_json(_v)
+            all_agents.append(_row)
     daemon_running = snapshot.get("daemon_running", False)
     deleted_names = _load_deleted_agents()
     agents = [a for a in all_agents if a.get("name") not in deleted_names]
