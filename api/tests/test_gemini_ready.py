@@ -1,6 +1,6 @@
-"""Tests for api/services/gemini_ready.py — all 6 readiness checks.
+"""Tests for api/services/gemini_ready.py — all 9 readiness checks.
 
-Strategy: tests that exercise checks 2-6 need a description with a path
+Strategy: tests that exercise checks 2-9 need a description with a path
 matching the plan-path regex. We write fixture content to temp files in
 ~/.claude/plans/ (the canonical plan location) and clean up after each test.
 """
@@ -46,10 +46,10 @@ def _plan_file(fixture_name: str):
             pass
 
 
-def _task(description: str = "", blocked_by: list | None = None) -> dict:
+def _task(description: str = "", blocked_by: list | None = None, title: str = "Test task") -> dict:
     return {
         "id": "→1467",
-        "title": "Test task",
+        "title": title,
         "description": description,
         "status": "open",
         "blocked_by": blocked_by if blocked_by is not None else [],
@@ -176,7 +176,7 @@ class TestCheck3HasAC:
 
 
 # ---------------------------------------------------------------------------
-# Check 4 — no vague AC (TBD / ? / "should we" / "decide" / TODO)
+# Check 4 — no vague AC
 # ---------------------------------------------------------------------------
 
 class TestCheck4NoVagueAC:
@@ -201,7 +201,7 @@ class TestCheck4NoVagueAC:
         assert check.passed is False
 
     def test_vague_tokens_covered(self):
-        """All 5 disqualifying tokens cause check 4 to fail."""
+        """Original 5 disqualifying tokens still cause check 4 to fail."""
         tokens = ["TBD", "?", "should we", "decide", "TODO"]
         PLANS_DIR.mkdir(parents=True, exist_ok=True)
         for token in tokens:
@@ -226,9 +226,63 @@ class TestCheck4NoVagueAC:
                 except FileNotFoundError:
                     pass
 
+    def test_new_vague_token_review(self):
+        """NEW: 'review' in an AC line triggers no_vague_ac failure."""
+        PLANS_DIR.mkdir(parents=True, exist_ok=True)
+        content = (
+            "# Feature\n\n"
+            "- [ ] Review the API design\n"
+            "- [ ] Implement `api/services/gemini_ready.py`\n"
+            "- [ ] Add tests to `api/tests/test_gemini_ready.py`\n"
+        )
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", dir=str(PLANS_DIR),
+            prefix="test-gr-review-", delete=False,
+        ) as f:
+            f.write(content)
+            tmp = f.name
+        try:
+            task = _task(description=f"Plan: {tmp}")
+            result = compute_task_readiness(task)
+            check = _get_check(result, "no_vague_ac")
+            assert check.passed is False
+            assert result.ready is False
+        finally:
+            try:
+                os.unlink(tmp)
+            except FileNotFoundError:
+                pass
+
+    def test_new_vague_tokens_extended(self):
+        """NEW: additional vague tokens (maybe, consider, explore, discuss) fail check 4."""
+        new_tokens = ["maybe", "consider", "explore", "discuss", "clarify", "either"]
+        PLANS_DIR.mkdir(parents=True, exist_ok=True)
+        for token in new_tokens:
+            content = (
+                "- [ ] implement `api/services/gemini_ready.py`\n"
+                f"- [ ] {token} the approach\n"
+                "- [ ] add tests to `api/tests/test_gemini_ready.py`\n"
+            )
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".md", dir=str(PLANS_DIR),
+                prefix="test-gr-vague2-", delete=False,
+            ) as f:
+                f.write(content)
+                tmp = f.name
+            try:
+                task = _task(description=f"Plan: {tmp}")
+                result = compute_task_readiness(task)
+                check = _get_check(result, "no_vague_ac")
+                assert check.passed is False, f"Expected fail for token '{token}'"
+            finally:
+                try:
+                    os.unlink(tmp)
+                except FileNotFoundError:
+                    pass
+
 
 # ---------------------------------------------------------------------------
-# Check 5 — file body contains at least one explicit file path
+# Check 5 — file body has at least one explicit non-self file path (real)
 # ---------------------------------------------------------------------------
 
 class TestCheck5HasFilePaths:
@@ -257,12 +311,176 @@ class TestCheck5HasFilePaths:
         check = _get_check(result, "has_file_paths")
         assert check.passed is False
 
+    def test_fail_self_reference_only(self):
+        """NEW: a spec body that only mentions its own path fails has_file_paths."""
+        result = compute_spec_readiness(str(FIXTURE_DIR / "fail_self_ref_only.md"))
+        check = _get_check(result, "has_file_paths")
+        assert check.passed is False
+        assert "only the spec" in check.detail or "own path" in check.detail
+
 
 # ---------------------------------------------------------------------------
-# Check 6 — task is not blocked
+# Check 6 — AC count threshold (at least 3 unchecked items)
 # ---------------------------------------------------------------------------
 
-class TestCheck6Unblocked:
+class TestCheck6AcCountThreshold:
+    def test_pass_five_ac_items(self):
+        with _plan_file("pass_all.md") as path:
+            task = _task(description=f"Plan: {path}")
+            result = compute_task_readiness(task)
+            check = _get_check(result, "ac_count_threshold")
+            assert check.passed is True
+
+    def test_fail_two_ac_items(self):
+        """NEW: a spec with only 2 AC items fails ac_count_threshold."""
+        with _plan_file("fail_too_few_ac.md") as path:
+            task = _task(description=f"Plan: {path}")
+            result = compute_task_readiness(task)
+            check = _get_check(result, "ac_count_threshold")
+            assert check.passed is False
+            assert result.ready is False
+
+    def test_spec_fail_two_ac_items(self):
+        result = compute_spec_readiness(str(FIXTURE_DIR / "fail_too_few_ac.md"))
+        check = _get_check(result, "ac_count_threshold")
+        assert check.passed is False
+
+    def test_spec_pass_five_ac_items(self):
+        result = compute_spec_readiness(str(FIXTURE_DIR / "pass_all.md"))
+        check = _get_check(result, "ac_count_threshold")
+        assert check.passed is True
+
+    def test_detail_shows_count(self):
+        with _plan_file("fail_too_few_ac.md") as path:
+            task = _task(description=f"Plan: {path}")
+            result = compute_task_readiness(task)
+            check = _get_check(result, "ac_count_threshold")
+            assert "2" in check.detail
+            assert "3" in check.detail
+
+
+# ---------------------------------------------------------------------------
+# Check 7 — referenced files exist (≥50% threshold)
+# ---------------------------------------------------------------------------
+
+class TestCheck7ReferencedFilesExist:
+    def test_pass_all_files_exist(self):
+        with _plan_file("pass_all.md") as path:
+            task = _task(description=f"Plan: {path}")
+            result = compute_task_readiness(task)
+            check = _get_check(result, "referenced_files_exist")
+            assert check.passed is True
+
+    def test_pass_mixed_refs_at_50pct(self):
+        """NEW: 1 real + 1 nonexistent = 50% → passes."""
+        result = compute_spec_readiness(str(FIXTURE_DIR / "pass_mixed_file_refs.md"))
+        check = _get_check(result, "referenced_files_exist")
+        assert check.passed is True
+        assert "1/2" in check.detail or "nonexistent" in check.detail
+
+    def test_fail_no_file_paths(self):
+        with _plan_file("fail_no_files.md") as path:
+            task = _task(description=f"Plan: {path}")
+            result = compute_task_readiness(task)
+            check = _get_check(result, "referenced_files_exist")
+            assert check.passed is False
+
+    def test_fail_self_ref_only(self):
+        """Self-reference excluded → 0 non-self paths → fails."""
+        result = compute_spec_readiness(str(FIXTURE_DIR / "fail_self_ref_only.md"))
+        check = _get_check(result, "referenced_files_exist")
+        assert check.passed is False
+
+    def test_detail_shows_missing_paths(self):
+        result = compute_spec_readiness(str(FIXTURE_DIR / "pass_mixed_file_refs.md"))
+        check = _get_check(result, "referenced_files_exist")
+        assert "nonexistent" in check.detail
+
+
+# ---------------------------------------------------------------------------
+# Check 8 — in repo scope
+# ---------------------------------------------------------------------------
+
+class TestCheck8InRepoScope:
+    def test_fail_upstream_title_1472(self):
+        """NEW: →1472 false positive — upstream title causes in_repo_scope to fail."""
+        task = {
+            "id": "→1472",
+            "title": "Upstream ostk: promote backfiller in promote.rs",
+            "description": "See ~/.myos/specs/spec-quality-gaps-audit.md. Work is in promote.rs in the ostk Rust repo.",
+            "status": "open",
+            "blocked_by": [],
+        }
+        result = compute_task_readiness(task)
+        check = _get_check(result, "in_repo_scope")
+        assert check.passed is False
+        assert result.ready is False
+
+    def test_fail_upstream_prefix_variations(self):
+        for title in ["Upstream: do thing", "upstream: do thing", "[upstream] do thing", "Upstream do thing"]:
+            task = _task(description="no plan", title=title)
+            result = compute_task_readiness(task)
+            check = _get_check(result, "in_repo_scope")
+            assert check.passed is False, f"Expected fail for title: {title}"
+
+    def test_fail_out_of_repo_body(self):
+        with _plan_file("pass_all.md") as path:
+            task = _task(
+                description=f"Plan: {path}. This is upstream ostk work.",
+                title="Normal title",
+            )
+            result = compute_task_readiness(task)
+            check = _get_check(result, "in_repo_scope")
+            assert check.passed is False
+
+    def test_pass_normal_task(self):
+        with _plan_file("pass_all.md") as path:
+            task = _task(
+                description=f"Plan: {path}",
+                title="Add gemini-ready chip to Tasks page",
+            )
+            result = compute_task_readiness(task)
+            check = _get_check(result, "in_repo_scope")
+            assert check.passed is True
+
+    def test_spec_fail_upstream_in_body(self):
+        """NEW: spec body mentioning 'upstream ostk' fails in_repo_scope."""
+        PLANS_DIR.mkdir(parents=True, exist_ok=True)
+        content = (
+            "# Some Feature\n\n"
+            "This is upstream ostk work, done in a different repo.\n\n"
+            "## AC\n"
+            "- [ ] Implement `api/services/gemini_ready.py`.\n"
+            "- [ ] Add tests to `api/tests/test_gemini_ready.py`.\n"
+            "- [ ] Update `app/src/components/GeminiReadyChip.tsx`.\n"
+        )
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", dir=str(PLANS_DIR),
+            prefix="test-gr-scope-", delete=False,
+        ) as f:
+            f.write(content)
+            tmp = f.name
+        try:
+            result = compute_spec_readiness(tmp)
+            check = _get_check(result, "in_repo_scope")
+            assert check.passed is False
+        finally:
+            try:
+                os.unlink(tmp)
+            except FileNotFoundError:
+                pass
+
+    def test_spec_pass_normal_scope(self):
+        result = compute_spec_readiness(str(FIXTURE_DIR / "pass_all.md"))
+        check = _get_check(result, "in_repo_scope")
+        assert check.passed is True
+
+
+# ---------------------------------------------------------------------------
+# Check 9 (was 6) — task is not blocked
+# ---------------------------------------------------------------------------
+
+class TestCheck9Unblocked:
     def test_pass_empty_blocked_by(self):
         with _plan_file("pass_all.md") as path:
             task = _task(description=f"Plan: {path}", blocked_by=[])
@@ -294,7 +512,7 @@ class TestCheck6Unblocked:
             assert check.passed is False
             assert result.ready is False
 
-    def test_spec_check6_always_passes(self):
+    def test_spec_check9_always_passes(self):
         result = compute_spec_readiness(str(FIXTURE_DIR / "pass_all.md"))
         check = _get_check(result, "is_unblocked")
         assert check.passed is True
@@ -311,20 +529,20 @@ class TestFullReadiness:
             result = compute_task_readiness(task)
             assert result.ready is True
             assert result.file_path == path
-            assert len(result.checks) == 6
+            assert len(result.checks) == 9
             assert all(c.passed for c in result.checks)
 
-    def test_task_not_ready_always_6_checks(self):
-        """A task with no plan path returns ready=False with 6 check entries."""
+    def test_task_not_ready_always_9_checks(self):
+        """A task with no plan path returns ready=False with 9 check entries."""
         task = _task(description="no plan link here")
         result = compute_task_readiness(task)
         assert result.ready is False
-        assert len(result.checks) == 6
+        assert len(result.checks) == 9
 
     def test_spec_fully_ready(self):
         result = compute_spec_readiness(str(FIXTURE_DIR / "pass_all.md"))
         assert result.ready is True
-        assert len(result.checks) == 6
+        assert len(result.checks) == 9
 
     def test_readiness_dataclass_shape(self):
         with _plan_file("pass_all.md") as path:
@@ -351,6 +569,17 @@ class TestFullReadiness:
                 assert "name" in c
                 assert "passed" in c
                 assert "detail" in c
+
+    def test_all_9_check_names_present(self):
+        task = _task(description="no plan")
+        result = compute_task_readiness(task)
+        names = [c.name for c in result.checks]
+        expected = [
+            "plan_path_present", "file_exists", "has_ac_checkboxes", "no_vague_ac",
+            "has_file_paths", "ac_count_threshold", "referenced_files_exist",
+            "in_repo_scope", "is_unblocked",
+        ]
+        assert names == expected
 
 
 # ---------------------------------------------------------------------------
