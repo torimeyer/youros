@@ -13565,3 +13565,50 @@ def test_recover_stale_agents_keeps_child_pid_running(monkeypatch):
     finally:
         agent_metadata.pop(name, None)
 
+
+# ---------------------------------------------------------------------------
+# →1486  sanitize_for_json / _sanitize_for_json unit tests
+# ---------------------------------------------------------------------------
+
+def test_sanitize_strips_null_byte_from_current_step():
+    """A row with \\x00 in current_step must return a sanitized string that
+    round-trips through json.loads with default strict=True."""
+    from routers.agents import sanitize_for_json, _SANITIZE_FIELDS
+
+    dirty = "step\x00with\x01null"
+    cleaned = sanitize_for_json(dirty)
+
+    # Must not contain any raw control chars that would break json.loads
+    payload = json.dumps({"current_step": cleaned})
+    parsed = json.loads(payload)  # strict=True is the default
+    assert "\x00" not in parsed["current_step"]
+    assert "\x01" not in parsed["current_step"]
+    assert "current_step" in _SANITIZE_FIELDS
+
+
+def test_sanitize_backslash_quote_roundtrips():
+    """A string with a literal backslash-quote survives json.dumps / json.loads."""
+    from routers.agents import sanitize_for_json
+
+    tricky = 'some text \\"quoted\\"'
+    cleaned = sanitize_for_json(tricky)
+    payload = json.dumps({"task": cleaned})
+    parsed = json.loads(payload)
+    # Content preserved — backslash and quote characters are safe for JSON
+    assert "quoted" in parsed["task"]
+
+
+def test_sanitize_clean_row_passes_through_unchanged():
+    """A well-formed agent row must not be mangled by the sanitizer."""
+    from routers.agents import sanitize_for_json, _SANITIZE_FIELDS
+
+    clean_value = "Running vitest on ChatPanel.tsx"
+    result = sanitize_for_json(clean_value)
+    assert result == clean_value
+
+    # Non-strings returned unchanged by _sanitize_for_json
+    from routers.agents import _sanitize_for_json
+    assert _sanitize_for_json(42) == 42
+    assert _sanitize_for_json(None) is None
+    assert _sanitize_for_json(["a"]) == ["a"]
+
