@@ -27,6 +27,7 @@ from httpx import AsyncClient, ASGITransport
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from fastapi import HTTPException
 from main import app
 from services.ostk import OstkService, OstkError, OSTK_DIR, ostk
 
@@ -13591,4 +13592,73 @@ async def test_transcript_tail_hyphen_sanitizes_control_chars(tmp_path):
         assert "\\u0007" in dirty
     finally:
         agent_metadata.pop(name, None)
+
+
+# ── Spawn-burst rate-limit token bucket (→1544) ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_spawn_rate_limit_allows_3_within_30s():
+    """First 3 spawns are granted immediately — no wait, no queuing."""
+    from services.spawn_throttle import SpawnBurstThrottle
+
+    throttle = SpawnBurstThrottle(burst_limit=3, window_s=30.0, max_wait_s=90.0)
+    waits = await asyncio.gather(
+        throttle.acquire("agent-rl-1"),
+        throttle.acquire("agent-rl-2"),
+        throttle.acquire("agent-rl-3"),
+    )
+    assert all(w < 0.5 for w in waits), f"Expected near-zero waits, got: {waits}"
+    assert len(throttle._timestamps) == 3
+
+
+@pytest.mark.asyncio
+async def test_spawn_rate_limit_queues_4th_within_30s(monkeypatch):
+    """4th spawn within the window sleeps (queued) then succeeds once a slot opens."""
+    from services import spawn_throttle as throttle_mod
+
+    throttle_ref: list = [None]
+    sleep_calls: list = []
+    original_sleep = asyncio.sleep
+
+    async def _fast_sleep(n):
+        sleep_calls.append(n)
+        # After sleeping, backdate the oldest timestamp so _prune expires it.
+        t = throttle_ref[0]
+        if t is not None and t._timestamps:
+            t._timestamps[0] -= t._window_s + 1.0
+        await original_sleep(0)
+
+    monkeypatch.setattr(asyncio, "sleep", _fast_sleep)
+
+    throttle = throttle_mod.SpawnBurstThrottle(burst_limit=3, window_s=30.0, max_wait_s=90.0)
+    throttle_ref[0] = throttle
+
+    await throttle.acquire("agent-rl-1")
+    await throttle.acquire("agent-rl-2")
+    await throttle.acquire("agent-rl-3")
+
+    # 4th call: bucket full → must sleep at least once before succeeding
+    wait = await throttle.acquire("agent-rl-4")
+    assert len(sleep_calls) >= 1, "4th spawn should have slept waiting for a slot"
+    assert isinstance(wait, float) and wait >= 0
+
+
+@pytest.mark.asyncio
+async def test_spawn_rate_limit_429_after_max_wait():
+    """When max_wait_s is exhausted, spawn raises HTTP 429 with Retry-After."""
+    from services.spawn_throttle import SpawnBurstThrottle
+
+    # max_wait_s=0 → any non-zero sleep budget is immediately over budget → 429
+    throttle = SpawnBurstThrottle(burst_limit=1, window_s=30.0, max_wait_s=0.0)
+    await throttle.acquire("agent-rl-ok")  # fills the single slot
+
+    with pytest.raises(HTTPException) as exc_info:
+        await throttle.acquire("agent-rl-blocked")
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.headers.get("Retry-After") is not None
+    detail = exc_info.value.detail
+    assert detail["error"] == "spawn_burst_throttled"
+    assert detail["retry_after_seconds"] > 0
 

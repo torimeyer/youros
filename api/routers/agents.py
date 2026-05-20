@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Iterable, Optional
-from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from models.schemas import AgentSpawn, AgentNudge, AgentNudgeReply, GrantApprove, GrantDeny
@@ -4356,10 +4356,17 @@ def _build_spec_ac_block(task_id: str, docs: list[dict]) -> str:
 
 
 @router.post("/agents/spawn")
-async def spawn_agent(body: AgentSpawn, request: Request = None):
+async def spawn_agent(body: AgentSpawn, request: Request = None, response: Response = None):
     from services.rate_limit import rate_limit_check
     if request is not None:
         rate_limit_check(request, "agents.spawn")
+
+    # Burst-rate throttle: max MYOS_SPAWN_BURST_LIMIT (default 3) spawns per 30s.
+    # Excess spawns queue here until a slot opens (or 429 after 90s).
+    from services.spawn_throttle import acquire_spawn_slot as _acquire_spawn_slot
+    _throttle_wait = await _acquire_spawn_slot(body.name)
+    if _throttle_wait > 0 and response is not None:
+        response.headers["X-Spawn-Throttled"] = "1"
 
     import time as _time
     _loop_t0 = _time.monotonic()
