@@ -22,7 +22,7 @@ The extension icon should appear in your toolbar.
 
 2. **Configure the extension**
    Click the extension icon, then click **Settings**.
-   - **Backend URL**: leave as `http://127.0.0.1:8000` (default)
+   - **Backend URL**: leave as `https://127.0.0.1:8000` (default)
    - **Auth token**: paste the value from step 1
    - Click **Save**
 
