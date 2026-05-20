@@ -1,18 +1,19 @@
 """FastAPI router for competitive intel captures (Theme C MVP — →1440).
 
 Endpoints:
-  POST /api/intel/capture        — store a competitor signal
-  GET  /api/intel/feed?since=ISO — captures newest first
-  GET  /api/intel/competitors    — distinct competitor names (for autocomplete)
+  POST /api/intel/capture            — store a competitor signal
+  GET  /api/intel/feed?since=ISO     — captures newest first
+  GET  /api/intel/competitors        — distinct competitor names (for autocomplete)
+  GET  /api/intel/digest?window_days — synthesize captures into a markdown digest (SC-016, SC-017)
 """
 
 from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Awaitable, Callable, List, Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -21,6 +22,22 @@ router = APIRouter()
 
 # Storage root — redirected in tests via monkeypatch.setattr(intel_router, "CAPTURES_DIR", ...)
 CAPTURES_DIR: Path = Path.home() / ".myos" / "intel" / "captures"
+
+# Spec promotion target — redirected in tests via monkeypatch.setattr(intel_router, "DIGEST_SPECS_DIR", ...)
+DIGEST_SPECS_DIR: Path = Path.home() / ".myos" / "specs"
+
+# Synthesis callable — lazily resolved to routers.chat.synthesize_intel_digest.
+# Tests replace this with a stub via monkeypatch.setattr(intel_router, "_synthesize", stub).
+_synthesize: Callable[[list[dict]], Awaitable[str]] | None = None
+
+
+def _get_synthesizer() -> Callable[[list[dict]], Awaitable[str]]:
+    """Return the synthesis callable, loading it lazily on first use."""
+    global _synthesize
+    if _synthesize is None:
+        from routers.chat import synthesize_intel_digest  # lazy to avoid circular import
+        _synthesize = synthesize_intel_digest
+    return _synthesize
 
 
 # ---------------------------------------------------------------------------
@@ -122,3 +139,42 @@ async def get_competitors() -> dict:
         if name:
             seen.add(name)
     return {"competitors": sorted(seen)}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/intel/digest  (SC-016, SC-017, FR-005)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/intel/digest")
+async def get_digest(window_days: int = 7) -> dict:
+    """Synthesize captures from the last window_days days into a markdown digest.
+
+    SC-016: returns {digest, capture_count, spec_path}.
+    SC-017: promotes the digest to DIGEST_SPECS_DIR/intel-digest-{date}.md.
+    FR-005: synthesis is delegated to routers.chat.synthesize_intel_digest which
+            carries the TODO marker for the future intel-synthesize skill.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+    all_captures = _load_all_captures()
+    in_window = [
+        c for c in all_captures
+        if c.get("captured_at", "") >= cutoff.isoformat()
+    ]
+
+    synthesizer = _get_synthesizer()
+    digest_text = await synthesizer(in_window)
+
+    # SC-017 — promote digest to a dated spec file
+    DIGEST_SPECS_DIR.mkdir(parents=True, exist_ok=True)
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    spec_filename = f"intel-digest-{date_str}.md"
+    spec_path = DIGEST_SPECS_DIR / spec_filename
+    spec_path.write_text(digest_text)
+
+    return {
+        "digest": digest_text,
+        "capture_count": len(in_window),
+        "spec_path": str(spec_path),
+        "window_days": window_days,
+    }
