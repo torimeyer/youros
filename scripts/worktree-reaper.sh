@@ -140,7 +140,7 @@ while IFS= read -r line; do
                 else
                   printf '%-48s %-10s %s\n' "$wt_branch" "unique" "$ahead"
                   echo "  [reaper] REFUSING to delete $wt_branch: $ahead unmerged commit(s) ahead of main -- cherry-pick before removing" >&2
-                  git log --oneline "$BASE..$wt_branch" 2>/dev/null | head -5 | while IFS= read -r oneline; do
+                  git log --oneline -n 5 "$BASE..$wt_branch" 2>/dev/null | while IFS= read -r oneline; do
                     echo "    commit: $oneline" >&2
                   done
                   unique_count=$((unique_count + 1))
