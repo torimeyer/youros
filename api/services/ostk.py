@@ -536,10 +536,11 @@ class OstkService:
             try:
                 await self._run("work", "close", task_id)
                 daemon_closed = True
-            except Exception:
+            except Exception as exc:
                 daemon_closed = False
                 if not found_in_file:
-                    raise OstkError(f"task '{task_id}' not found")
+                    raise OstkError(f"task '{task_id}' not found") from exc
+                raise OstkError(f"daemon close failed for '{task_id}': {exc}") from exc
 
             if not issues_path.exists():
                 return f"deleted {task_id}"
