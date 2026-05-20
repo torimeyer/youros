@@ -1328,3 +1328,61 @@ describe('Settings page — Push notifications toggle', () => {
     })
   })
 })
+
+describe('Settings — Memory provenance (F4)', () => {
+  function switchToPreferences() {
+    const btn = screen.getAllByRole('button').find(b => b.textContent?.trim() === 'Preferences')
+    if (btn) fireEvent.click(btn)
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({
+      osName: 'myOS',
+      darkMode: true,
+      accentColor: 'blue',
+      features: [
+        { label: 'Chat', enabled: true },
+        { label: 'Tasks', enabled: true },
+        { label: 'Agents', enabled: true },
+        { label: 'Activity', enabled: true },
+        { label: 'Projects', enabled: true },
+        { label: 'Specs', enabled: true },
+        { label: 'Automations', enabled: false },
+        { label: 'Cost Tracking', enabled: true },
+      ],
+    })
+  })
+
+  it('renders a timestamp for a bullet that has a provenance comment', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/memory') {
+        return Promise.resolve({
+          content: '- I prefer plain language <!-- added 2026-05-17T22:18:30Z -->',
+        })
+      }
+      return Promise.resolve({})
+    })
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    switchToPreferences()
+    await waitFor(() => {
+      expect(screen.getByTestId('memory-bullet-list')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('memory-provenance-0')).toHaveTextContent('added May 17, 2026')
+  })
+
+  it('renders "edited manually" for a bullet without a provenance comment', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/memory') {
+        return Promise.resolve({ content: '- I like coffee' })
+      }
+      return Promise.resolve({})
+    })
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    switchToPreferences()
+    await waitFor(() => {
+      expect(screen.getByTestId('memory-bullet-list')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('memory-provenance-0')).toHaveTextContent('edited manually')
+  })
+})
