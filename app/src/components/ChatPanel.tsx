@@ -1990,6 +1990,8 @@ export function ChatPanel() {
       side_by_side: sideBySideEnabled,
       // Claude tier selection (→1065): haiku / sonnet / opus
       claude_tier: claudeTier,
+      // Plan mode: when on, backend asks model to write a plan first.
+      plan_mode: localStorage.getItem('plan_mode') === '1',
     })
   }
 
@@ -3027,6 +3029,11 @@ export function ChatPanel() {
               setPlanBannerPending(null)
               send({ type: 'plan_cancel', id })
               setIsStreaming(false)
+            }}
+            onRevise={(comment: string) => {
+              const { id } = planBannerPending
+              setPlanBannerPending(null)
+              send({ type: 'plan_revise', id, comment })
             }}
           />
         )}

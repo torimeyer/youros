@@ -2622,7 +2622,7 @@ class ChatService:
             return []
         return [s for s in servers if isinstance(s, dict) and s.get("enabled", True) and s.get("url")]
 
-    async def agent_anthropic(self, messages: list[dict], websocket: WebSocket, tab_id: str = "") -> str:
+    async def agent_anthropic(self, messages: list[dict], websocket: WebSocket, tab_id: str = "", plan_mode: bool = False) -> str:
         """Run the Anthropic agent loop with tool use.
 
         Sends messages with tool definitions, executes any tool calls Claude
@@ -2678,6 +2678,78 @@ class ChatService:
 
         client = _get_anthropic_client(api_key)
         conversation: list[dict] = _sanitize_messages_for_wire(messages)
+
+        # --- Plan-mode intercept (→1533) ------------------------------------
+        # When plan_mode is on and the message looks non-trivial, ask the
+        # model to write a plan FIRST (no tools), then pause and emit a
+        # plan_banner frame. The outer WebSocket loop holds the pending
+        # conversation in plan_mode_store; plan_confirm resumes execution.
+        if plan_mode:
+            from services.plan_mode_store import plan_mode_store, is_trivial, extract_plan
+            import uuid as _plan_uuid
+
+            last_user_text = ""
+            for m in reversed(messages):
+                if isinstance(m, dict) and m.get("role") == "user":
+                    c = m.get("content", "")
+                    if isinstance(c, str):
+                        last_user_text = c
+                    break
+
+            if not is_trivial(last_user_text):
+                plan_instruction = (
+                    "\n\nIMPORTANT: Plan mode is ON for this turn. "
+                    "Before any tool calls, write your full step-by-step plan inside "
+                    "<plan>...</plan> tags. After </plan>, STOP immediately — "
+                    "do not call any tools or take any actions. "
+                    "The user will approve, reject, or revise the plan first."
+                )
+                plan_system = active_system_prompt + plan_instruction
+
+                await websocket.send_json({"type": "thinking", "data": True})
+
+                plan_response = await _with_ws_heartbeat(
+                    websocket,
+                    lambda: _anthropic_retry_call(
+                        lambda: client.messages.create(
+                            model="claude-sonnet-4-20250514",
+                            max_tokens=2048,
+                            system=plan_system,
+                            messages=conversation,
+                        ),
+                        op_name="anthropic.messages.create (plan)",
+                    ),
+                )
+
+                plan_text_raw = "".join(
+                    b.text for b in plan_response.content if b.type == "text"
+                )
+                plan_text = extract_plan(plan_text_raw) or plan_text_raw.strip()
+
+                plan_id = str(_plan_uuid.uuid4())
+                plan_mode_store.store(
+                    plan_id=plan_id,
+                    messages=list(messages),
+                    tab_id=tab_id,
+                    model="claude",
+                )
+
+                await websocket.send_json({
+                    "type": "plan_banner",
+                    "data": {"id": plan_id, "plan": plan_text},
+                })
+                # Explicit done so the terminal-tracking wrapper doesn't emit
+                # a second one and the frontend's streaming state clears.
+                await websocket.send_json({
+                    "type": "done",
+                    "usage": {
+                        "input_tokens": plan_response.usage.input_tokens,
+                        "output_tokens": plan_response.usage.output_tokens,
+                    },
+                })
+                return ""
+        # --- End plan-mode intercept ----------------------------------------
+
         total_input_tokens = 0
         total_output_tokens = 0
         total_cache_creation_tokens = 0
