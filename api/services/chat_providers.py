@@ -2365,7 +2365,11 @@ class ChatService:
                                     },
                                     "required": ["label"],
                                 },
-                                "description": "Choices for the user to pick from",
+                                "description": "Choices for the user to pick from (2-4 options)",
+                            },
+                            "multiSelect": {
+                                "type": "boolean",
+                                "description": "Allow user to pick multiple options. Defaults to false.",
                             },
                         },
                         "required": ["question", "options"],
@@ -2542,11 +2546,14 @@ class ChatService:
                     and getattr(_block, "name", None) == "AskUserQuestion"
                 ):
                     _inp = getattr(_block, "input", {}) or {}
-                    await websocket.send_json({
+                    _picker_msg: dict = {
                         "type": "structured_picker",
                         "question": _inp.get("question", ""),
                         "options": _inp.get("options", []),
-                    })
+                    }
+                    if _inp.get("multiSelect"):
+                        _picker_msg["multiSelect"] = True
+                    await websocket.send_json(_picker_msg)
                     break
 
             try:

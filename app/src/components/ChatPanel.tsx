@@ -610,6 +610,7 @@ export function ChatPanel() {
   const [pendingStructuredPicker, setPendingStructuredPicker] = useState<{
     question: string
     options: Array<{ label: string; description?: string }>
+    multiSelect?: boolean
   } | null>(null)
   const [inlinePrompt, setInlinePrompt] = useState<{ label: string; placeholder: string; prefix: string } | null>(null)
   const [planBannerPending, setPlanBannerPending] = useState<{ id: string; plan: string } | null>(null)
@@ -1024,6 +1025,7 @@ export function ChatPanel() {
       const data = lastMessage as unknown as {
         question: string
         options: Array<{ label: string; description?: string }>
+        multiSelect?: boolean
       }
       setMessages(prev => {
         const last = prev[prev.length - 1]
@@ -1034,7 +1036,7 @@ export function ChatPanel() {
       })
       setIsStreaming(false)
       setPlaceholderAwaitingServer(false)
-      setPendingStructuredPicker({ question: data.question, options: data.options })
+      setPendingStructuredPicker({ question: data.question, options: data.options, multiSelect: data.multiSelect })
     } else if (lastMessage.type === 'peer_chat_turns_required') {
       // Backend is waiting for the user to pick a turn count before starting
       // the AI-to-AI conversation. Remove the empty assistant placeholder so
@@ -3016,6 +3018,7 @@ export function ChatPanel() {
           <StructuredPicker
             question={pendingStructuredPicker.question}
             options={pendingStructuredPicker.options}
+            multiSelect={pendingStructuredPicker.multiSelect}
             onSelect={(label) => {
               setPendingStructuredPicker(null)
               sendMessage(label)
