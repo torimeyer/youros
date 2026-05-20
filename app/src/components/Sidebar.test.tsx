@@ -1329,10 +1329,11 @@ describe('Jira and Confluence sidebar entries', () => {
 })
 
 describe('Files and Drive sidebar entries', () => {
-  it('shows Files entry in Files & Docs group', () => {
+  it('shows Docs entry in Files & Docs group (renamed from Files)', () => {
     renderSidebar()
     expandAllGroups()
-    expect(screen.getByText('Files')).toBeInTheDocument()
+    expect(screen.getByText('Docs')).toBeInTheDocument()
+    expect(screen.queryByText('Files')).not.toBeInTheDocument()
   })
 
   it('shows Drive entry in Files & Docs group', () => {
@@ -1419,5 +1420,75 @@ describe('Sidebar — Backlog consolidation (→1466)', () => {
       const backlogLink = screen.getByText('Backlog').closest('a')
       expect(backlogLink?.textContent).toContain('10')
     })
+  })
+})
+
+describe('nav rename and reorder', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    _resetSidebarBus()
+    useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
+    useAppStore.setState({ osName: 'myOS', features: DEFAULT_FEATURES })
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+  })
+
+  it('Files label is renamed to Docs', () => {
+    renderSidebar()
+    expandAllGroups()
+    expect(screen.queryByText('Files')).not.toBeInTheDocument()
+    expect(screen.getByText('Docs')).toBeInTheDocument()
+  })
+
+  it('Docs nav link points to /files route', () => {
+    renderSidebar()
+    expandAllGroups()
+    const link = screen.getByText('Docs').closest('a')
+    expect(link).toHaveAttribute('href', '/files')
+  })
+
+  it('"My Gems" label is not in the sidebar', () => {
+    renderSidebar()
+    expandAllGroups()
+    expect(screen.queryByText('My Gems')).not.toBeInTheDocument()
+  })
+
+  it('Gems is a top-level nav item linking to /gems', () => {
+    renderSidebar()
+    const link = screen.getByText('Gems').closest('a')
+    expect(link).toHaveAttribute('href', '/gems')
+  })
+
+  it('Gems is not inside the files collapsible group', () => {
+    renderSidebar()
+    expandAllGroups()
+    const gemsLink = screen.getByText('Gems').closest('a')
+    const filesGroup = screen.queryByTestId('group-items-files')
+    if (filesGroup) {
+      expect(filesGroup.contains(gemsLink)).toBe(false)
+    }
+  })
+
+  it('Home is the first link in the primary nav', () => {
+    renderSidebar()
+    const primaryNav = screen.getByTestId('primary-nav')
+    const directLinks = primaryNav.querySelectorAll(':scope > a')
+    expect(directLinks[0]?.getAttribute('href')).toBe('/')
+  })
+
+  it('Agents appears before Backlog in the primary nav', () => {
+    renderSidebar()
+    const primaryNav = screen.getByTestId('primary-nav')
+    const allLinks = Array.from(primaryNav.querySelectorAll('a'))
+    const agentsIdx = allLinks.findIndex((l) => l.getAttribute('href') === '/agents')
+    const backlogIdx = allLinks.findIndex((l) => l.getAttribute('href') === '/backlog')
+    expect(agentsIdx).toBeGreaterThan(-1)
+    expect(backlogIdx).toBeGreaterThan(-1)
+    expect(agentsIdx).toBeLessThan(backlogIdx)
   })
 })
