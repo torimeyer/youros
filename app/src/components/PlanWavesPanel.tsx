@@ -324,7 +324,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
                       </span>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-slate-200 leading-snug line-clamp-2">{t.title.split('⊕')[0].trim()}</p>
+                      <p className="text-sm text-slate-200 leading-snug line-clamp-2">{(t.title ?? '').split('⊕')[0].trim()}</p>
                       {specBadge && (
                         <p className="text-xs text-purple-400/80 mt-0.5">from spec: {specBadge}</p>
                       )}

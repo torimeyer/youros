@@ -146,6 +146,54 @@ describe('PlanWavesPanel — scope_hint rendering', () => {
   })
 })
 
+describe('PlanWavesPanel — Tasks subtab', () => {
+  it('renders without crashing when a task has a null title (→1504)', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/tasks/waves')) return Promise.resolve(makeWavesResponse('general'))
+      if (path === '/specs') return Promise.resolve(sampleSpecsResponse)
+      if (path === '/tasks')
+        return Promise.resolve({
+          tasks: [
+            { id: '1', title: 'Normal task', status: 'open', priority: 'P1' },
+            // closed task with no title — this is what was crashing the panel
+            { id: '2', title: null, status: 'closed', priority: 'P2' },
+            { id: '3', title: undefined, status: 'closed' },
+          ],
+        })
+      return Promise.resolve({})
+    })
+
+    render(<PlanWavesPanel open={true} onClose={() => {}} />)
+    await waitFor(() => screen.getByTestId('plan-waves-subtab-tasks'))
+    fireEvent.click(screen.getByTestId('plan-waves-subtab-tasks'))
+
+    // Panel must render without throwing — task row 1 is visible.
+    await waitFor(() => screen.getByTestId('task-row-1'))
+    expect(screen.getByTestId('task-row-1')).toBeInTheDocument()
+    // Rows for null-title tasks render without error.
+    expect(screen.getByTestId('task-row-2')).toBeInTheDocument()
+  })
+
+  it('strips ⊕-suffix from task title in Tasks subtab', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/tasks/waves')) return Promise.resolve(makeWavesResponse('general'))
+      if (path === '/specs') return Promise.resolve(sampleSpecsResponse)
+      if (path === '/tasks')
+        return Promise.resolve({
+          tasks: [{ id: 't1', title: 'Ship it ⊕ extra body text', status: 'open', priority: 'P1' }],
+        })
+      return Promise.resolve({})
+    })
+
+    render(<PlanWavesPanel open={true} onClose={() => {}} />)
+    fireEvent.click(screen.getByTestId('plan-waves-subtab-tasks'))
+
+    await waitFor(() => screen.getByTestId('task-row-t1'))
+    const row = screen.getByTestId('task-row-t1')
+    expect(row.querySelector('p.text-slate-200')?.textContent).toBe('Ship it')
+  })
+})
+
 describe('PlanWavesPanel — subtabs', () => {
   it('renders Specs, Tasks, and Waves subtab buttons', async () => {
     render(<PlanWavesPanel open={true} onClose={() => {}} />)
