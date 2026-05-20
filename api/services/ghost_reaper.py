@@ -115,6 +115,26 @@ def reap_ghost_agents(
         if hb >= cutoff:
             continue  # fresh — still alive
 
+        # Worktree-commits guard: if the agent's worktree has commits ahead of
+        # main since spawn, the agent was doing real work.  This is defense-in-
+        # depth; the PID check above is the primary guard.  We only check when
+        # worktree_path is set AND the directory exists — missing path falls
+        # through to the transcript check below.
+        worktree_path_raw = meta.get("worktree_path")
+        if worktree_path_raw:
+            try:
+                import subprocess as _sp
+                _wt_p = Path(worktree_path_raw)
+                if _wt_p.exists():
+                    _r = _sp.run(
+                        ["git", "log", "--oneline", "main..HEAD"],
+                        capture_output=True, text=True, timeout=3, cwd=str(_wt_p),
+                    )
+                    if _r.returncode == 0 and _r.stdout.strip():
+                        continue  # has commits ahead of main — agent was working
+            except Exception:
+                pass
+
         # Transcript check — 0 bytes or absent means no real work done.
         # Bridge-spawned agents (hook_preregister=True) write their real
         # transcript to a .output or .jsonl file recorded in transcript_path,

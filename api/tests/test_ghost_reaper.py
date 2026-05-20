@@ -125,6 +125,103 @@ def test_does_not_reap_agent_with_live_pid(tmp_path):
     assert result == [], "agent with live PID must not be reaped"
 
 
+def test_does_not_reap_worktree_with_commits_ahead_of_main(tmp_path):
+    """Agent with worktree commits ahead of main must not be reaped (→1505).
+
+    Even when the heartbeat is stale and the transcript is 0 bytes, if the
+    agent's worktree has commits ahead of main it was doing real work.
+    The reaper must leave the registry entry alone.
+    """
+    import subprocess
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    # Minimal git repo setup
+    for cmd in [
+        ["git", "init", "-b", "main"],
+        ["git", "config", "user.email", "test@example.com"],
+        ["git", "config", "user.name", "Test"],
+    ]:
+        subprocess.run(cmd, cwd=str(repo), capture_output=True)
+    (repo / "README.md").write_text("hello")
+    subprocess.run(["git", "add", "."], cwd=str(repo), capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=str(repo), capture_output=True,
+        env={**subprocess.os.environ, "GIT_AUTHOR_NAME": "Test",
+             "GIT_AUTHOR_EMAIL": "test@example.com",
+             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.com"},
+    )
+
+    # Create worktree with a commit ahead of main
+    wt_path = tmp_path / "worktree"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "worktree-agent-test-1505", str(wt_path)],
+        cwd=str(repo), capture_output=True,
+    )
+    (wt_path / "work.txt").write_text("some work done")
+    subprocess.run(["git", "add", "work.txt"], cwd=str(wt_path), capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "agent: real work"],
+        cwd=str(wt_path), capture_output=True,
+        env={**subprocess.os.environ, "GIT_AUTHOR_NAME": "Test",
+             "GIT_AUTHOR_EMAIL": "test@example.com",
+             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.com"},
+    )
+
+    # Agent with stale heartbeat + 0-byte transcript + live worktree commits
+    (tmp_path / "stale-worktree-agent.md").write_bytes(b"")
+    meta = {**_ghost_meta(), "pid": None, "worktree_path": str(wt_path)}
+    reg = _registry(("stale-worktree-agent", meta))
+    result = reap_ghost_agents(reg, tmp_path, _NOW)
+    assert result == [], (
+        "agent with commits ahead of main in worktree must not be reaped even with stale HB"
+    )
+
+
+def test_reaps_worktree_agent_with_no_commits(tmp_path):
+    """Agent with a worktree that has NO commits ahead of main is still reaped.
+
+    The worktree-commits guard should only fire when there ARE commits ahead
+    of main.  A scaffold-only agent with no commits is a ghost.
+    """
+    import subprocess
+
+    repo = tmp_path / "repo2"
+    repo.mkdir()
+    for cmd in [
+        ["git", "init", "-b", "main"],
+        ["git", "config", "user.email", "test@example.com"],
+        ["git", "config", "user.name", "Test"],
+    ]:
+        subprocess.run(cmd, cwd=str(repo), capture_output=True)
+    (repo / "README.md").write_text("hello")
+    subprocess.run(["git", "add", "."], cwd=str(repo), capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=str(repo), capture_output=True,
+        env={**subprocess.os.environ, "GIT_AUTHOR_NAME": "Test",
+             "GIT_AUTHOR_EMAIL": "test@example.com",
+             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.com"},
+    )
+
+    # Worktree with NO commits ahead of main
+    wt_path = tmp_path / "clean-worktree"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "worktree-agent-clean-1505", str(wt_path)],
+        cwd=str(repo), capture_output=True,
+    )
+
+    (tmp_path / "clean-wt-agent.md").write_bytes(b"")
+    meta = {**_ghost_meta(), "pid": None, "worktree_path": str(wt_path)}
+    reg = _registry(("clean-wt-agent", meta))
+    result = reap_ghost_agents(reg, tmp_path, _NOW)
+    assert result == ["clean-wt-agent"], (
+        "worktree with no commits ahead of main + stale HB + empty transcript is a ghost"
+    )
+
+
 def test_reaps_agent_with_dead_pid(tmp_path):
     """Agent whose subprocess PID is dead falls through to normal ghost check."""
     import os
