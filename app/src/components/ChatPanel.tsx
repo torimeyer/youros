@@ -30,6 +30,7 @@ import SlashCommandPopover from './SlashCommandPopover'
 import QuickAddTaskModal from './QuickAddTaskModal'
 import SpecWizard from './SpecWizard'
 import MemoryPill from './MemoryPill'
+import ReceiptsPill, { type ReceiptsStatus } from './ReceiptsPill'
 import { createSlashCommands, filterCommands } from '../lib/slashCommands'
 
 // Local cache key. The server is the source of truth for chat history.
@@ -140,6 +141,9 @@ interface Message {
    *  "fixed", etc.) with no supporting evidence. Rendered as a yellow warning
    *  strip pinned below the bubble. */
   receiptsWarning?: string
+  /** Receipts gate status from the new receipts_check event (→1534).
+   *  "missing" → amber pill, "present" → green pill, undefined → nothing. */
+  receiptsStatus?: ReceiptsStatus
   /** Turn UUID from the backend audit trail. Present on assistant turns that
    *  wrote files so the FileChangesPanel can call undo endpoints. */
   turn_id?: string
@@ -1288,6 +1292,18 @@ export function ChatPanel() {
         }
         return updated
       })
+    } else if (lastMessage.type === 'receipts_check') {
+      const payload = (lastMessage as unknown as { data: { status: ReceiptsStatus } }).data
+      if (payload?.status && payload.status !== 'no_trigger' as string) {
+        setMessages(prev => {
+          const updated = [...prev]
+          const last = updated[updated.length - 1]
+          if (last && last.role === 'assistant') {
+            updated[updated.length - 1] = { ...last, receiptsStatus: payload.status }
+          }
+          return updated
+        })
+      }
     } else if (lastMessage.type === 'file_changes') {
       const fc = lastMessage as unknown as { turn_id: string; files: FileChange[] }
       if (fc.turn_id && Array.isArray(fc.files) && fc.files.length > 0) {
@@ -2832,17 +2848,19 @@ export function ChatPanel() {
                     )}
                   </div>
 
-                  {/* Receipts gate warning — shown when the reply claims work is done
-                      but includes no commit hash, test output, or file reference. */}
-                  {msg.receiptsWarning && (
-                    <div
-                      data-testid="receipts-warning-bubble"
-                      className="mt-1.5 flex items-start gap-2 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-200 text-xs"
-                    >
-                      <span className="shrink-0 mt-0.5">⚠</span>
-                      <span>{msg.receiptsWarning}</span>
-                    </div>
-                  )}
+                  {/* Receipts gate — amber/green pill when the model claims done (→1534). */}
+                  {msg.receiptsStatus
+                    ? <ReceiptsPill status={msg.receiptsStatus} />
+                    : msg.receiptsWarning && (
+                      <div
+                        data-testid="receipts-warning-bubble"
+                        className="mt-1.5 flex items-start gap-2 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-200 text-xs"
+                      >
+                        <span className="shrink-0 mt-0.5">⚠</span>
+                        <span>{msg.receiptsWarning}</span>
+                      </div>
+                    )
+                  }
 
                   {/* File changes audit trail — inline collapsed diff + undo per file */}
                   {msg.role === 'assistant' && msg.turn_id && msg.fileChanges && msg.fileChanges.length > 0 && (

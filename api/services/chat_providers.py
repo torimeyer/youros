@@ -2549,6 +2549,18 @@ class ChatService:
                     })
                     break
 
+            try:
+                from services.receipts_check import check as _rc_check
+                from services.settings_store import settings_store as _ss
+                if _ss.get("chat_receipts_gate_enabled", True):
+                    _rc_status = _rc_check(full_text, [])
+                    if _rc_status != "no_trigger":
+                        await websocket.send_json({
+                            "type": "receipts_check",
+                            "data": {"status": _rc_status},
+                        })
+            except Exception:
+                pass
             await websocket.send_json({
                 "type": "done",
                 "usage": {
@@ -2766,6 +2778,7 @@ class ChatService:
             turn = 0
             WARN_AT = 15
             files_modified: set[str] = set()
+            _all_tool_result_texts: list[str] = []
             while True:
                 turn += 1
                 # Stop check runs first so WARN_AT can never fire on the same
@@ -2945,6 +2958,20 @@ class ChatService:
                     # No local tools to execute. Stream the final text and exit.
                     for text in text_parts:
                         await websocket.send_json({"type": "token", "data": text})
+                    try:
+                        from services.receipts_check import check as _rc_check
+                        from services.settings_store import settings_store as _ss
+                        if _ss.get("chat_receipts_gate_enabled", True):
+                            _rc_status = _rc_check(
+                                "\n".join(text_parts), _all_tool_result_texts
+                            )
+                            if _rc_status != "no_trigger":
+                                await websocket.send_json({
+                                    "type": "receipts_check",
+                                    "data": {"status": _rc_status},
+                                })
+                    except Exception:
+                        pass
                     await websocket.send_json({
                         "type": "done",
                         "usage": {
@@ -3029,6 +3056,9 @@ class ChatService:
                         "content": result,
                     })
 
+                _all_tool_result_texts.extend(
+                    r[:500] for r in raw_results if isinstance(r, str)
+                )
                 conversation.append({"role": "user", "content": tool_results})
 
             # Loop exits naturally when Claude responds with text only (no tool calls)

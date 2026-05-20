@@ -118,6 +118,7 @@ export default function Settings() {
   const [autoTemplateMatching, setAutoTemplateMatching] = useState(true);
   const [briefingEnabled, setBriefingEnabled] = useState(true);
   const [chatMemoryEnabled, setChatMemoryEnabled] = useState(true);
+  const [chatReceiptsGateEnabled, setChatReceiptsGateEnabled] = useState(true);
   const [memoryContent, setMemoryContent] = useState('');
   const [memorySaveStatus, setMemorySaveStatus] = useState<string | null>(null);
   const [standingInstructions, setStandingInstructions] = useState('');
@@ -250,6 +251,9 @@ export default function Settings() {
         }
         if ((data as any).chat_memory_enabled !== undefined) {
           setChatMemoryEnabled((data as any).chat_memory_enabled);
+        }
+        if ((data as any).chat_receipts_gate_enabled !== undefined) {
+          setChatReceiptsGateEnabled((data as any).chat_receipts_gate_enabled);
         }
         if ((data as any).use_gemini_cli !== undefined) {
           setUseGeminiCli((data as any).use_gemini_cli);
@@ -569,6 +573,12 @@ export default function Settings() {
     const next = !chatMemoryEnabled;
     setChatMemoryEnabled(next);
     api.patch('/settings', { chat_memory_enabled: next }).catch(() => {});
+  };
+
+  const handleReceiptsGateToggle = () => {
+    const next = !chatReceiptsGateEnabled;
+    setChatReceiptsGateEnabled(next);
+    api.patch('/settings', { chat_receipts_gate_enabled: next }).catch(() => {});
   };
 
   const handleAdhdToggle = () => {
@@ -1835,6 +1845,13 @@ export default function Settings() {
                     <p className="text-xs text-slate-500">Let the AI remember what you talked about in your previous chat.</p>
                   </div>
                   <Toggle checked={chatMemoryEnabled} onChange={handleChatMemoryToggle} testId="chat-memory-toggle" />
+                </div>
+                <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+                  <div className="pr-3">
+                    <p className="text-sm text-slate-300">Warn when the model claims done without evidence</p>
+                    <p className="text-xs text-slate-500">Shows a pill on messages that say "done" or "fixed" without a commit hash, test output, or file reference.</p>
+                  </div>
+                  <Toggle checked={chatReceiptsGateEnabled} onChange={handleReceiptsGateToggle} testId="receipts-gate-toggle" />
                 </div>
               </div>
             </div>
