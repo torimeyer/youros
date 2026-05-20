@@ -1,11 +1,16 @@
 from __future__ import annotations
+from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import services.agent_memory as mem
+import services.user_memory_store as _user_mem
 from services import recent_deletes
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
+
+# Path to the per-user memory file — patchable in tests.
+_USER_MEMORY_PATH = Path.home() / ".myos" / "users" / "default" / "MEMORY.md"
 
 
 class SaveFactRequest(BaseModel):
@@ -18,6 +23,15 @@ class FeedbackRequest(BaseModel):
 
 class CadenceConfigRequest(BaseModel):
     reread_cadence_hours: float
+
+
+@router.get("/count")
+async def get_user_memory_count():
+    """Return bullet count + file_exists so the frontend memory pill can decide whether to render."""
+    content = _user_mem.read()
+    file_exists = _USER_MEMORY_PATH.exists()
+    bullet_count = sum(1 for line in content.splitlines() if line.lstrip().startswith("- "))
+    return {"bullet_count": bullet_count, "file_exists": file_exists}
 
 
 @router.get("/{agent_name}")

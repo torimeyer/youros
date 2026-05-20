@@ -29,6 +29,7 @@ import { InlineTextPrompt } from './InlineTextPrompt'
 import SlashCommandPopover from './SlashCommandPopover'
 import QuickAddTaskModal from './QuickAddTaskModal'
 import SpecWizard from './SpecWizard'
+import MemoryPill from './MemoryPill'
 import { createSlashCommands, filterCommands } from '../lib/slashCommands'
 
 // Local cache key. The server is the source of truth for chat history.
@@ -3125,7 +3126,7 @@ export function ChatPanel() {
 
         {/* NEEDLE: removed gray box container around input */}
         <div className="flex flex-col gap-1.5">
-          {/* Row 1: provider + model selectors */}
+          {/* Row 1: provider + model selectors + memory pill */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => { setSideBySideEnabled(false); setDefaultChatModel('claude'); }}
@@ -3192,6 +3193,9 @@ export function ChatPanel() {
                 ))}
               </div>
             )}
+            <div className="ml-auto">
+              <MemoryPill />
+            </div>
           </div>
           {/* Row 2: input + action buttons */}
           <div className="flex items-center gap-2">
