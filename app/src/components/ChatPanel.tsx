@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import ParkedTaskPill, { type ParkedTask } from './ParkedTaskPill'
 import TackAutocomplete from './TackAutocomplete'
 import Icon from './Icon'
 import ConfirmModal from './ConfirmModal'
@@ -724,6 +725,7 @@ export function ChatPanel() {
   type TrackedAgent = { name: string }
   const [trackedAgents, setTrackedAgents] = useState<TrackedAgent[]>([])
   const [stepProgress, setStepProgress] = useState<{ step: number; maxSteps: number } | null>(null)
+  const [parkedTasks, setParkedTasks] = useState<ParkedTask[]>([])
 
   // Push-fed running set from useRunningAgentsStore. When a tracked
   // agent disappears from this set, the banner hides instantly.
@@ -1380,6 +1382,21 @@ export function ChatPanel() {
           }
         }, 500)
         doneGraceTimersRef.current.set(msgId, timer)
+      }
+    } else if (lastMessage.type === 'task_parked') {
+      const task = lastMessage.data as unknown as ParkedTask
+      if (task?.id) {
+        setParkedTasks(prev => [...prev.filter(t => t.id !== task.id), task])
+      }
+    } else if (lastMessage.type === 'task_resumed') {
+      const data = lastMessage.data as unknown as { id: string }
+      if (data?.id) {
+        setParkedTasks(prev => prev.filter(t => t.id !== data.id))
+      }
+    } else if (lastMessage.type === 'task_cancelled') {
+      const data = lastMessage.data as unknown as { id: string }
+      if (data?.id) {
+        setParkedTasks(prev => prev.filter(t => t.id !== data.id))
       }
     } else if (lastMessage.type === 'error') {
       // If the error is tagged with a model, it belongs to just that
@@ -2493,6 +2510,11 @@ export function ChatPanel() {
           </button>
         </div>
       </div>
+
+      <ParkedTaskPill
+        tasks={parkedTasks.filter(t => t.tab_id === activeTabId)}
+        onCancelled={id => setParkedTasks(prev => prev.filter(t => t.id !== id))}
+      />
 
       {/* Tab bar */}
       <div className="flex items-center gap-0.5 px-2 pt-1 pb-0 border-b border-slate-800 overflow-x-auto" data-testid="tab-bar">

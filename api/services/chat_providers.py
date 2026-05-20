@@ -2685,6 +2685,11 @@ class ChatService:
         mcp_servers = self._get_mcp_servers()
         use_mcp = len(mcp_servers) > 0
 
+        # Make tab_id + ws_send available to chat_schedule_wakeup / chat_monitor
+        # tool handlers without changing execute_tool's signature (→1399).
+        from services.parked_tasks_store import parked_tasks_store as _pts
+        _pts.set_context(tab_id, websocket.send_json)
+
         try:
             turn = 0
             WARN_AT = 15
