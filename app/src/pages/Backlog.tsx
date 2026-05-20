@@ -10,7 +10,7 @@ import Tasks from './Tasks'
 
 interface Spec {
   id: string
-  path: string
+  path?: string
   title: string
   status: string
   task_ids: string[]
@@ -56,11 +56,15 @@ function taskDisplayStatus(s: string): string {
 function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void }) {
   const ds = displayStatus(spec.status)
   const [expanded, setExpanded] = useState(false)
+  const specSlug = spec.path?.split('/').pop()?.replace('.md', '') ?? spec.id
   return (
     <div
       data-testid={`kanban-card-${spec.id}`}
       className="rounded-xl bg-slate-800/50 p-4 flex flex-col gap-2 hover:-translate-y-px transition-transform cursor-pointer min-w-0 overflow-hidden"
     >
+      <span className="font-mono text-xs text-slate-400" data-testid="spec-id-chip">
+        {specSlug}
+      </span>
       <div className="flex items-start justify-between gap-2">
         <span className="text-sm font-medium text-slate-200 flex-1 line-clamp-2 break-words">{spec.title}</span>
         <span
@@ -121,6 +125,9 @@ function TaskCard({ task }: { task: Task }) {
       data-testid={`kanban-card-${task.id}`}
       className="rounded-xl bg-slate-800/50 p-4 flex flex-col gap-2 hover:-translate-y-px transition-transform cursor-pointer min-w-0 overflow-hidden"
     >
+      <span className="font-mono text-xs text-slate-400" data-testid="task-id-chip">
+        →{task.id}
+      </span>
       <div className="flex items-start justify-between gap-2">
         <span className="text-sm font-medium text-slate-200 flex-1 line-clamp-2 break-words">{task.title}</span>
         <span
