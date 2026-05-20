@@ -46,22 +46,24 @@ function setup(
 describe('AllView kanban (→1478)', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('RED 1: renders backlog-allview with three kanban columns', async () => {
+  it('RED 1: renders backlog-allview with four kanban columns (→1514)', async () => {
     setup()
     await waitFor(() => expect(screen.getByTestId('backlog-allview')).toBeInTheDocument())
-    expect(screen.getByTestId('kanban-column-drafting')).toBeInTheDocument()
-    expect(screen.getByTestId('kanban-column-ready')).toBeInTheDocument()
+    expect(screen.getByTestId('kanban-column-drafts')).toBeInTheDocument()
+    expect(screen.getByTestId('kanban-column-ready-specs')).toBeInTheDocument()
+    expect(screen.getByTestId('kanban-column-ready-tasks')).toBeInTheDocument()
     expect(screen.getByTestId('kanban-column-in-progress')).toBeInTheDocument()
     // Use heading role to avoid collision with card status pills that share text with column names
-    expect(within(screen.getByTestId('kanban-column-drafting')).getByRole('heading')).toHaveTextContent('Drafting')
-    expect(within(screen.getByTestId('kanban-column-ready')).getByRole('heading')).toHaveTextContent('Ready')
+    expect(within(screen.getByTestId('kanban-column-drafts')).getByRole('heading')).toHaveTextContent('Drafts')
+    expect(within(screen.getByTestId('kanban-column-ready-specs')).getByRole('heading')).toHaveTextContent('Ready specs')
+    expect(within(screen.getByTestId('kanban-column-ready-tasks')).getByRole('heading')).toHaveTextContent('Ready tasks')
     expect(within(screen.getByTestId('kanban-column-in-progress')).getByRole('heading')).toHaveTextContent('In progress')
   })
 
-  it('RED 2: draft spec appears in kanban-column-drafting with type chip "Spec"', async () => {
+  it('RED 2: draft spec appears in kanban-column-drafts with type chip "Spec"', async () => {
     setup()
     await waitFor(() => expect(screen.getByTestId('kanban-card-draft-spec')).toBeInTheDocument())
-    const col = screen.getByTestId('kanban-column-drafting')
+    const col = screen.getByTestId('kanban-column-drafts')
     expect(col).toContainElement(screen.getByTestId('kanban-card-draft-spec'))
     const card = screen.getByTestId('kanban-card-draft-spec')
     expect(card.querySelector('[data-testid="card-type-chip"]')).toHaveTextContent('Spec')
@@ -76,13 +78,20 @@ describe('AllView kanban (→1478)', () => {
     expect(draftCard.querySelector('[data-testid="card-build-button"]')).toBeNull()
   })
 
-  it('RED 4: open task appears in kanban-column-ready with type chip "Task" (Patterson step 3)', async () => {
+  it('RED 4: open task appears in kanban-column-ready-tasks with type chip "Task"', async () => {
     setup()
     await waitFor(() => expect(screen.getByTestId('kanban-card-open-task')).toBeInTheDocument())
-    const col = screen.getByTestId('kanban-column-ready')
+    const col = screen.getByTestId('kanban-column-ready-tasks')
     expect(col).toContainElement(screen.getByTestId('kanban-card-open-task'))
     const card = screen.getByTestId('kanban-card-open-task')
     expect(card.querySelector('[data-testid="card-type-chip"]')).toHaveTextContent('Task')
+  })
+
+  it('RED 4b: ready spec appears in kanban-column-ready-specs (→1514)', async () => {
+    setup()
+    await waitFor(() => expect(screen.getByTestId('kanban-card-ready-spec')).toBeInTheDocument())
+    const col = screen.getByTestId('kanban-column-ready-specs')
+    expect(col).toContainElement(screen.getByTestId('kanban-card-ready-spec'))
   })
 
   it('RED 5: in_progress task appears in kanban-column-in-progress', async () => {
