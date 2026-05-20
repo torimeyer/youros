@@ -164,19 +164,33 @@ function TaskCard({ task }: { task: Task }) {
 function KanbanColumn({
   id,
   label,
+  count,
   emptyTestId,
   isEmpty,
   children,
 }: {
   id: string
   label: string
+  count: number
   emptyTestId: string
   isEmpty: boolean
   children: ReactNode
 }) {
   return (
     <div data-testid={`kanban-column-${id}`} className="flex-1 flex flex-col gap-3 min-w-0">
-      <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">{label}</h3>
+      <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider flex items-center">
+        {label}
+        <span
+          data-testid={`column-count-${id}`}
+          className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
+            count > 0
+              ? 'bg-emerald-500/15 text-emerald-300'
+              : 'bg-slate-700/60 text-slate-300'
+          }`}
+        >
+          {count}
+        </span>
+      </h3>
       {isEmpty ? (
         <div
           data-testid={emptyTestId}
@@ -232,6 +246,7 @@ function AllView() {
         <KanbanColumn
           id="drafting"
           label="Drafting"
+          count={draftingSpecs.length}
           emptyTestId="empty-state-drafting"
           isEmpty={draftingSpecs.length === 0}
         >
@@ -243,6 +258,7 @@ function AllView() {
         <KanbanColumn
           id="ready"
           label="Ready"
+          count={readySpecs.length + openTasks.length}
           emptyTestId="empty-state-ready"
           isEmpty={readySpecs.length + openTasks.length === 0}
         >
@@ -257,6 +273,7 @@ function AllView() {
         <KanbanColumn
           id="in-progress"
           label="In progress"
+          count={inProgressTasks.length}
           emptyTestId="empty-state-in-progress"
           isEmpty={inProgressTasks.length === 0}
         >
