@@ -5,7 +5,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import GemImportModal from '../components/GemImportModal';
 import GemChatPanel from '../components/GemChatPanel';
 import { useConfirm } from '../hooks/useConfirm';
-import { api } from '../lib/api';
+import { api, ApiError, ApiTimeoutError } from '../lib/api';
 
 export interface GeminiConversation {
   conversation_id: string;
@@ -151,9 +151,17 @@ export default function MyGems() {
     try {
       await api.delete(`/gems/${gem.id}`);
       setToast({ kind: 'success', message: `"${gem.name}" deleted.` });
-    } catch {
-      setGems(previous);
-      setToast({ kind: 'error', message: `Could not delete "${gem.name}". Try again.` });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        // Already gone — keep the optimistic remove, just inform the user.
+        setToast({ kind: 'info', message: `"${gem.name}" was already deleted. Your list is up to date.` });
+      } else if (err instanceof ApiTimeoutError) {
+        setGems(previous);
+        setToast({ kind: 'error', message: `Couldn't reach the server in time. Make sure myOS is running, then try again.` });
+      } else {
+        setGems(previous);
+        setToast({ kind: 'error', message: `Something went wrong deleting "${gem.name}". Try again, or restart myOS if this keeps happening.` });
+      }
     }
   };
 

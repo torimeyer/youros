@@ -96,6 +96,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       const text = await res.text()
       throw new ApiError(res.status, text)
     }
+    if (res.status === 204) {
+      notifySidebarOnWrite(method, path)
+      return undefined as T
+    }
     const data = await res.json()
     notifySidebarOnWrite(method, path)
     return data
