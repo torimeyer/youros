@@ -58,7 +58,9 @@ def _validate_return_to(return_to: str, default: str, request: Request) -> str:
 class AtlassianConnectRequest(BaseModel):
     email: str
     api_token: str
-    site: str
+    site: str = ""           # legacy: if provided alone, used for both jira_site and confluence_site
+    jira_site: str = ""
+    confluence_site: str = ""
 
 
 @router.get("/atlassian/defaults")
@@ -206,26 +208,50 @@ async def atlassian_callback(
 
 @router.post("/atlassian/connect")
 async def atlassian_connect(req: AtlassianConnectRequest):
-    """Verify Atlassian credentials, save them, and return user info."""
-    if not req.email.strip():
+    """Verify Atlassian credentials, save them, and return user info.
+
+    Accepts either the legacy ``site`` field (used for both Jira and Confluence)
+    or separate ``jira_site`` / ``confluence_site`` fields. When the two sites
+    differ, each is verified independently and per-product status is returned.
+    """
+    email = req.email.strip()
+    token = req.api_token.strip()
+    if not email:
         raise HTTPException(status_code=400, detail="Email cannot be empty.")
-    if not req.api_token.strip():
-        raise HTTPException(status_code=400, detail="API token cannot be empty.")
-    if not req.site.strip():
+    if not token:
+        raise HTTPException(status_code=400, detail="Your access token cannot be empty.")
+
+    # Resolve the effective sites.
+    jira_site = (req.jira_site or req.site or "").strip()
+    confluence_site = (req.confluence_site or req.site or jira_site or "").strip()
+
+    if not jira_site and not confluence_site:
         raise HTTPException(status_code=400, detail="Site URL cannot be empty.")
 
-    try:
-        user = await atlassian_service.verify_creds(
-            req.email.strip(), req.api_token.strip(), req.site.strip()
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Verify Jira with the jira_site.
+    jira_ok = False
+    user: dict = {}
+    if jira_site:
+        try:
+            user = await atlassian_service.verify_creds(email, token, jira_site)
+            jira_ok = True
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    await atlassian_service.save_config(
-        req.email.strip(), req.api_token.strip(), req.site.strip()
-    )
+    # Verify Confluence independently only when it differs from Jira.
+    confluence_ok = False
+    if confluence_site and confluence_site != jira_site:
+        try:
+            await atlassian_service.verify_confluence_creds(email, token, confluence_site)
+            confluence_ok = True
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    else:
+        confluence_ok = jira_ok  # same site — Jira verify covers it
 
-    return {"ok": True, "user": user}
+    await atlassian_service.save_config(email, token, jira_site or confluence_site, confluence_site or jira_site)
+
+    return {"ok": True, "jira_ok": jira_ok, "confluence_ok": confluence_ok, "user": user}
 
 
 @router.get("/atlassian/status")
@@ -234,6 +260,8 @@ async def atlassian_status():
     connected = atlassian_service.is_connected()
     email = ""
     site = ""
+    jira_site = ""
+    confluence_site = ""
     jira_url = ""
     confluence_url = ""
     expired = False
@@ -241,10 +269,13 @@ async def atlassian_status():
         try:
             config = atlassian_service.get_config()
             email = config.get("email", "")
-            site = config.get("site", "")
-            if site:
-                jira_url = f"https://{site}/jira"
-                confluence_url = f"https://{site}/wiki"
+            jira_site = config.get("jira_site") or config.get("site", "")
+            confluence_site = config.get("confluence_site") or config.get("site", "")
+            site = jira_site or confluence_site  # backward-compat field
+            if jira_site:
+                jira_url = f"https://{jira_site}/jira"
+            if confluence_site:
+                confluence_url = f"https://{confluence_site}/wiki"
         except Exception:
             pass
         try:
@@ -255,6 +286,8 @@ async def atlassian_status():
         "connected": connected,
         "email": email,
         "site": site,
+        "jira_site": jira_site,
+        "confluence_site": confluence_site,
         "jira_url": jira_url,
         "confluence_url": confluence_url,
         "expired": expired,
@@ -298,13 +331,17 @@ async def jira_get_issue(key: str):
 
 
 @router.get("/atlassian/confluence/pages")
-async def confluence_list_pages():
-    """List recently-updated Confluence pages."""
+async def confluence_list_pages(space_key: str = ""):
+    """List recently-updated Confluence pages.
+
+    Pass ``?space_key=IAM`` to scope results to a single Confluence space.
+    When omitted, returns the most-recently-modified pages across all spaces.
+    """
     if not atlassian_service.is_connected():
         raise HTTPException(status_code=401, detail="Not connected to Atlassian.")
 
     try:
-        pages = await atlassian_service.list_recent_pages()
+        pages = await atlassian_service.list_recent_pages(space_key=space_key)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

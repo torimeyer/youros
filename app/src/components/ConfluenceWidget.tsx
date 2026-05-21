@@ -27,7 +27,17 @@ export default function ConfluenceWidget() {
       try {
         setLoading(true);
         setError(null);
-        const res = await api.get<ConfluencePagesResponse>('/atlassian/confluence/pages');
+        let spaceKey = '';
+        try {
+          const settings = await api.get<{ default_confluence_space?: string }>('/settings');
+          spaceKey = (settings.default_confluence_space || '').trim();
+        } catch {
+          // settings fetch is best-effort
+        }
+        const url = spaceKey
+          ? `/atlassian/confluence/pages?space_key=${encodeURIComponent(spaceKey)}`
+          : '/atlassian/confluence/pages';
+        const res = await api.get<ConfluencePagesResponse>(url);
         setPages((res.pages || []).slice(0, 5));
       } catch (err) {
         console.error('Failed to fetch confluence pages:', err);

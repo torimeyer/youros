@@ -24,6 +24,7 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
   'competitive_intel',
   'blockers_widget',
   'dependency_map_widget',
+  'exec_update',
 ]
 
 // Human readable labels for each dashboard widget id. Keep this in sync
@@ -47,6 +48,7 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   competitive_intel: 'Competitor Signals',
   blockers_widget: 'Cross-team Blockers',
   dependency_map_widget: 'Dependency Map',
+  exec_update: 'Exec Update',
 }
 
 export interface FeatureToggle {
