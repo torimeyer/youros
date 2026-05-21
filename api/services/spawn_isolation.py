@@ -517,6 +517,37 @@ async def _run_git(
     return proc.returncode or 0, out, err
 
 
+async def _check_worktree_reuse_safe(
+    wt_path: str,
+    branch: str,
+) -> tuple[bool, str]:
+    """Return (True, "") when an existing worktree is safe to reuse for a retry.
+
+    Safe means:
+      - HEAD is on the expected branch (not detached, not a different branch).
+      - No unresolved merge conflicts (git ls-files --unmerged is empty).
+
+    The worktree may have uncommitted changes — those are the agent's own
+    in-progress work and should be preserved.  Only the two structural
+    invariants above are checked.
+    """
+    rc, out, _ = await _run_git("symbolic-ref", "HEAD", cwd=wt_path, timeout=5.0)
+    if rc != 0:
+        return False, "detached HEAD (symbolic-ref failed)"
+    head_ref = out.decode(errors="replace").strip()
+    expected_ref = f"refs/heads/{branch}"
+    if head_ref != expected_ref:
+        return False, f"HEAD on wrong branch: {head_ref!r} != {expected_ref!r}"
+
+    rc, out, _ = await _run_git("ls-files", "--unmerged", cwd=wt_path, timeout=5.0)
+    if rc != 0:
+        return False, "ls-files --unmerged failed"
+    if out.strip():
+        return False, "unresolved merge conflicts"
+
+    return True, ""
+
+
 async def create_worktree(
     *,
     project_root,
@@ -529,6 +560,13 @@ async def create_worktree(
 
     Handles the re-spawn case: if the branch or worktree already exists from a
     prior run, removes them before creating a fresh one. Returns (ok, error).
+
+    When the prior worktree has commits not yet on main (e.g. an abandoned
+    agent that completed its scaffold commit), the function checks whether the
+    checkout is safe to reuse (HEAD on expected branch, no merge conflicts).
+    If safe, it returns (True, "") without touching the checkout so the retry
+    inherits all prior work.  If not safe, it falls through to the existing
+    "refuse if unmerged" guard.
 
     This is the authoritative worktree-creation path. Callers must not call
     git worktree add directly so the pre-clean logic is always applied.
@@ -545,7 +583,30 @@ async def create_worktree(
     # `git branch -D` at step 2 below would orphan those commits without this
     # gate. This is the fix for the "second deletion path" (see CLAUDE.md
     # "Worktree hygiene": unique worktrees are always parked, never deleted).
+    #
+    # Exception (→1546): when the worktree directory still exists, try to reuse
+    # it instead of refusing. A retry running in the same checkout is safer than
+    # falling back to the main repo (race hazard) and preserves the prior
+    # agent's in-progress work. Safety checks: HEAD on expected branch and no
+    # unresolved merge conflicts.
     if await _has_unmerged_commits(cwd, branch):
+        if wt.exists():
+            reuse_ok, reuse_reason = await _check_worktree_reuse_safe(str(wt), branch)
+            if reuse_ok:
+                logger.info(
+                    "spawn.worktree.reusing name=%s path=%s branch=%s "
+                    "-- abandoned worktree has unmerged commits but is safe to reuse",
+                    agent_name, wt, branch,
+                )
+                return True, ""
+            logger.warning(
+                "spawn.worktree.reuse_unsafe name=%s branch=%s reason=%s "
+                "-- worktree has unmerged commits and is not safe to reuse",
+                agent_name, branch, reuse_reason,
+            )
+            return False, (
+                f"worktree has unmerged commits and is not safe to reuse: {reuse_reason}"
+            )
         _onelines = await _unmerged_onelines(cwd, branch)
         logger.warning(
             "spawn.worktree.unmerged_safety name=%s branch=%s -- refusing pre-clean; "
