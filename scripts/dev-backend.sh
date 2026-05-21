@@ -337,6 +337,9 @@ echo $$ > "$PIDFILE"
 # fails and bash falls through to an unexpected exit path.
 trap - EXIT INT TERM
 
+# Install the passive-claim post-commit hook (→1427) idempotently.
+"$SCRIPT_DIR/install-post-commit-hook.sh" 2>/dev/null || true
+
 if [ "${RELEASE_MODE:-0}" = "1" ]; then
     echo "RELEASE_MODE=1 detected. Starting uvicorn with reload DISABLED."
     echo "This prevents the watchfiles thrash loop during release verification."

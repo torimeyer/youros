@@ -66,6 +66,7 @@ async def lifespan(app: FastAPI):
     await schedule_test_artifact_spec_sweep()
     await schedule_atlassian_sync()
     await schedule_merge_debt_watcher()
+    await schedule_spec_commit_scanner()
     await install_signal_shutdown_hook()
     from services.ostk import start_clock_refresher
     await start_clock_refresher()
@@ -780,6 +781,36 @@ async def schedule_merge_debt_watcher():
     import asyncio
     from routers import agents as _agents_router
     _keep(asyncio.create_task(_agents_router._merge_debt_tick_loop()))
+
+
+async def schedule_spec_commit_scanner():
+    """Start the background task that passively detects spec work via git commits (→1427).
+
+    Runs ``services.spec_commit_scanner.scan_and_claim`` every 60 s in a
+    thread so the git subprocess calls don't block the event loop.  This is
+    the fallback for environments where the post-commit hook is not installed.
+    """
+    import asyncio
+
+    async def _loop() -> None:
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
+        # Give other startup tasks a moment to settle.
+        await asyncio.sleep(5)
+        from services.spec_commit_scanner import scan_and_claim
+        while True:
+            try:
+                result = await scan_and_claim()
+                if result.get("claims_recorded", 0) > 0:
+                    _log.info(
+                        "spec_commit_scanner: %d claim(s) from %d commit(s)",
+                        result["claims_recorded"], result["commits_scanned"],
+                    )
+            except Exception:
+                _log.exception("spec_commit_scanner tick failed")
+            await asyncio.sleep(60)
+
+    _keep(asyncio.create_task(_loop()))
 
 
 async def schedule_recurring_task_spawner():

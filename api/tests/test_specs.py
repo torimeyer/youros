@@ -3337,3 +3337,45 @@ async def test_spec_clarity_suggest_404_when_file_missing(client, tmp_path, monk
         json={"check": "has_ac_checkboxes"},
     )
     assert resp.status_code == 404
+
+
+# Phase 3: passive git-commit detection (→1427)
+
+
+@pytest.mark.asyncio
+async def test_claim_accepts_source_passive(client, tmp_path, monkeypatch):
+    """POST /claim with source=passive records a passive claim and returns 200."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+    from unittest.mock import AsyncMock
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
+
+    spec_file = tmp_path / "docs" / "spec" / "my-passive-spec.md"
+    spec_file.write_text(
+        "---\ntitle: passive spec\nstatus: spec\n---\n\n- [ ] Do the thing\n"
+    )
+
+    # Stub out _ensure_decomposed so we don't hit ostk in the test.
+    monkeypatch.setattr(specs_router, "_ensure_decomposed", AsyncMock(return_value=[]))
+    # Clear any leftover claims from prior tests.
+    specs_router._spec_claims.clear()
+
+    resp = await client.post(
+        "/api/specs/docs/spec/my-passive-spec.md/claim",
+        json={"agent": "passive/Tori Meyer", "source": "passive"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["claim"]["source"] == "passive"
+    assert data["claim"]["agent"] == "passive/Tori Meyer"
+
+    # Verify the claim landed in the in-memory registry.
+    spec_path = "docs/spec/my-passive-spec.md"
+    assert spec_path in specs_router._spec_claims
+    recorded = specs_router._spec_claims[spec_path]
+    assert len(recorded) == 1
+    assert recorded[0]["source"] == "passive"
