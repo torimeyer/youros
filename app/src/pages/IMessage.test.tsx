@@ -70,7 +70,7 @@ function setup() {
   )
 }
 
-describe('People page — unified search', () => {
+describe('People page — unified contact picker', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
@@ -81,42 +81,50 @@ describe('People page — unified search', () => {
     await waitFor(() => expect(screen.getByText('People')).toBeTruthy())
   })
 
-  it('shows contacts matching a name query', async () => {
+  it('shows contacts matching a name query in the send-message picker', async () => {
     setup()
-    await waitFor(() => screen.getByTestId('people-search-input'))
-    fireEvent.change(screen.getByTestId('people-search-input'), { target: { value: 'jen' } })
+    await waitFor(() => screen.getByTestId('contact-picker-input'))
+    fireEvent.change(screen.getByTestId('contact-picker-input'), { target: { value: 'jen' } })
     await waitFor(() => {
-      const rows = screen.getAllByTestId('people-search-contact-row')
+      const rows = screen.getAllByTestId('contact-picker-contact-row')
       expect(rows.some((r) => r.textContent?.includes('Jennifer Brown'))).toBe(true)
     })
   })
 
-  it('shows conversation threads matching a name query', async () => {
+  it('shows conversation threads matching a name query in the send-message picker', async () => {
     setup()
-    await waitFor(() => screen.getByTestId('people-search-input'))
-    fireEvent.change(screen.getByTestId('people-search-input'), { target: { value: 'jen' } })
+    await waitFor(() => screen.getByTestId('contact-picker-input'))
+    fireEvent.change(screen.getByTestId('contact-picker-input'), { target: { value: 'jen' } })
     await waitFor(() => {
-      const rows = screen.getAllByTestId('people-search-convo-row')
+      const rows = screen.getAllByTestId('contact-picker-convo-row')
       expect(rows.some((r) => r.textContent?.includes('Jen Wilson'))).toBe(true)
     })
   })
 
-  it('shows threads matching a phone area code', async () => {
+  it('shows threads matching a phone area code in the send-message picker', async () => {
     setup()
-    await waitFor(() => screen.getByTestId('people-search-input'))
-    fireEvent.change(screen.getByTestId('people-search-input'), { target: { value: '+1415' } })
+    await waitFor(() => screen.getByTestId('contact-picker-input'))
+    fireEvent.change(screen.getByTestId('contact-picker-input'), { target: { value: '+1415' } })
     await waitFor(() => {
-      const rows = screen.getAllByTestId('people-search-convo-row')
+      const rows = screen.getAllByTestId('contact-picker-convo-row')
       expect(rows.some((r) => r.textContent?.includes('Jen Wilson'))).toBe(true)
     })
   })
 
-  it('shows no results message when nothing matches', async () => {
+  it('shows no results when nothing matches', async () => {
     setup()
-    await waitFor(() => screen.getByTestId('people-search-input'))
-    fireEvent.change(screen.getByTestId('people-search-input'), { target: { value: 'zzznomatch' } })
+    await waitFor(() => screen.getByTestId('contact-picker-input'))
+    fireEvent.change(screen.getByTestId('contact-picker-input'), { target: { value: 'zzznomatch' } })
+    // No rows should appear for this query
     await waitFor(() => {
-      expect(screen.getByText('No people found')).toBeTruthy()
+      expect(screen.queryByTestId('contact-picker-contact-row')).toBeNull()
+      expect(screen.queryByTestId('contact-picker-convo-row')).toBeNull()
     })
+  })
+
+  it('does not show a top-level people-search-input field', async () => {
+    setup()
+    await waitFor(() => screen.getByText('People'))
+    expect(screen.queryByTestId('people-search-input')).toBeNull()
   })
 })
