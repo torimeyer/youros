@@ -348,6 +348,12 @@ async def test_list_agents_summary_mode_is_compact_for_hook_polling():
             "name", "source", "status", "spawned_at",
             "transcript_bytes", "last_heartbeat_at",
             "description", "model",
+            # Per-agent bytes + kernel event index are cheap ints that
+            # hook pollers diff for activity detection. Keeping them in
+            # compact mode is intentional — hooks should not have to
+            # call the full-snapshot endpoint just to detect that an
+            # agent grew its transcript. Added by →1549.
+            "per_agent_transcript_bytes", "kernel_event_index",
         }
         for a in agents:
             assert a.get("status") == "running"
