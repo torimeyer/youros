@@ -43,18 +43,24 @@ except Exception:
     fi
 fi
 
-# ---- 3. Worktrees with commits ahead of main ----
+# ---- 3. Worktrees with commits ahead of main (capped at 5) ----
 WORKTREE_AHEAD=""
+WORKTREE_COUNT=0
+WORKTREE_TOTAL=0
 WORKTREE_BASE="$REPO_ROOT/.claude/worktrees"
 if [ -d "$WORKTREE_BASE" ]; then
     for wt in "$WORKTREE_BASE"/agent-*/; do
         [ -d "$wt" ] || continue
         ahead=$(git -C "$wt" log main..HEAD --oneline 2>/dev/null | wc -l | tr -d ' ')
         if [ "${ahead:-0}" -gt 0 ]; then
-            name=$(basename "$wt")
-            [ "${#name}" -gt 42 ] && name="${name:0:39}..."
-            WORKTREE_AHEAD="${WORKTREE_AHEAD}  ${name}: ${ahead} commit(s) ahead
+            WORKTREE_TOTAL=$((WORKTREE_TOTAL + 1))
+            if [ "$WORKTREE_COUNT" -lt 5 ]; then
+                name=$(basename "$wt")
+                [ "${#name}" -gt 42 ] && name="${name:0:39}..."
+                WORKTREE_AHEAD="${WORKTREE_AHEAD}  ${name}: ${ahead} commit(s) ahead
 "
+                WORKTREE_COUNT=$((WORKTREE_COUNT + 1))
+            fi
         fi
     done
 fi
@@ -96,10 +102,16 @@ else
 fi
 
 if [ -n "$WORKTREE_AHEAD" ]; then
-    echo "[session-report] Worktrees ahead:"
+    EXTRA=$((WORKTREE_TOTAL - WORKTREE_COUNT))
+    if [ "$EXTRA" -gt 0 ]; then
+        echo "[session-report] Worktrees ahead ($WORKTREE_TOTAL, showing 5):"
+    else
+        echo "[session-report] Worktrees ahead ($WORKTREE_TOTAL):"
+    fi
     while IFS= read -r line; do
         [ -n "$line" ] && echo "[session-report]$line"
     done <<< "$WORKTREE_AHEAD"
+    [ "$EXTRA" -gt 0 ] && echo "[session-report]  … and $EXTRA more"
 fi
 
 if [ -n "$HANDOFF_FILE" ]; then
