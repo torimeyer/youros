@@ -3258,3 +3258,34 @@ async def test_clarity_patch_appends_and_reruns_readiness(client, tmp_path, monk
     # Fix text should have been written to the file
     updated_text = spec_file.read_text()
     assert "add login flow" in updated_text
+
+
+# ---------------------------------------------------------------------------
+# Phase 2b: terminal agent self-register claim preamble (→1425)
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_agent_preamble_includes_claim_instruction():
+    """Preamble block contains the curl claim command with the correct spec path and agent name."""
+    from routers.agents import build_spec_claim_block
+
+    spec_id = "~/.myos/specs/my-feature.md"
+    agent_name = "test-agent-abc123"
+
+    block = build_spec_claim_block(spec_id, agent_name)
+
+    assert block, "block must be non-empty when spec_id is set"
+    assert f"/api/specs/{spec_id}/claim" in block, (
+        f"claim URL not found in block:\n{block}"
+    )
+    assert '"source":"agent"' in block, "source field missing from curl payload"
+    assert f'"agent":"{agent_name}"' in block, "agent name missing from curl payload"
+    assert "curl" in block, "curl command missing from block"
+
+
+def test_terminal_agent_preamble_omits_claim_when_no_spec():
+    """Preamble block is empty when no spec_id is provided."""
+    from routers.agents import build_spec_claim_block
+
+    assert build_spec_claim_block("", "any-agent") == ""
+    assert build_spec_claim_block(None, "any-agent") == ""  # type: ignore[arg-type]
