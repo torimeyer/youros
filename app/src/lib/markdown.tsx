@@ -95,7 +95,7 @@ export function renderMarkdown(text: string): React.ReactNode[] {
       nodes.push(
         <pre
           key={`block-${i}`}
-          className="bg-slate-800 rounded-lg p-3 my-2 overflow-x-auto text-[12px] font-mono text-amber-200 whitespace-pre"
+          className="bg-slate-800 rounded-lg p-3 my-2 overflow-x-auto max-w-full text-[12px] font-mono text-amber-200 whitespace-pre"
           data-lang={lang || undefined}
         >
           <code>{codeLines.join('\n')}</code>
