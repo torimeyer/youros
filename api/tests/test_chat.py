@@ -1966,7 +1966,7 @@ class TestTwoMentionRouting:
         async def fake_orchestration(**kwargs):
             orchestration_calls["count"] += 1
 
-        async def fake_call_model(provider, messages, websocket, label="", use_tools=False, tab_id="", claude_tier=""):
+        async def fake_call_model(provider, messages, websocket, label="", use_tools=False, tab_id="", claude_tier="", **_kwargs):
             call_model_calls["count"] += 1
             call_model_calls["model"] = provider
             await websocket.send_json({"type": "done"})
@@ -2154,7 +2154,7 @@ class TestHostFallbackForConversation:
             orchestration_calls["count"] += 1
 
         async def fake_call_model(
-            provider, messages, websocket, label="", use_tools=False, tab_id="", claude_tier=""
+            provider, messages, websocket, label="", use_tools=False, tab_id="", claude_tier="", **_kwargs
         ):
             call_model_calls["count"] += 1
             call_model_calls["model"] = provider
@@ -2197,7 +2197,7 @@ class TestHostFallbackForConversation:
             orchestration_calls["count"] += 1
 
         async def fake_call_model(
-            provider, messages, websocket, label="", use_tools=False, tab_id="", claude_tier=""
+            provider, messages, websocket, label="", use_tools=False, tab_id="", claude_tier="", **_kwargs
         ):
             call_model_calls["count"] += 1
             call_model_calls["model"] = provider
@@ -3542,9 +3542,17 @@ class TestPromptCaching:
             assert isinstance(system_val, list), (
                 "system prompt must be a list with cache_control, not a plain string"
             )
-            assert len(system_val) == 1
-            assert system_val[0]["type"] == "text"
-            assert system_val[0]["cache_control"] == {"type": "ephemeral"}
+            # After user-memory v2 (→1537), the system prompt has two
+            # cached blocks: the static instructions (CLAUDE.md +
+            # baseline) and the memory block (MEMORY.md). Both must be
+            # ephemeral-cached so the cache hit rate stays high across
+            # turns.
+            assert 1 <= len(system_val) <= 2, (
+                f"expected 1 or 2 cached system blocks, got {len(system_val)}"
+            )
+            for block in system_val:
+                assert block["type"] == "text"
+                assert block["cache_control"] == {"type": "ephemeral"}
 
 
 # --- Extended thinking ---
