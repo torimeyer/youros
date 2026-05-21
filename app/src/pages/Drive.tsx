@@ -1130,6 +1130,7 @@ export default function Drive() {
           fileType=""
           isOpen={true}
           onClose={() => setPreviewFile(null)}
+          webViewLink={previewFile.webViewLink}
         />
       )}
 

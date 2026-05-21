@@ -1679,6 +1679,30 @@ async def test_drive_structured_preview_slides_fallback_on_api_error(client, tmp
 
 
 @pytest.mark.asyncio
+async def test_drive_structured_preview_auth_error_returns_401(client, tmp_path):
+    """When _get_file_meta raises invalid_grant, the endpoint returns 401 not 500."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.expired"}))
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch(
+            "routers.drive._get_file_meta",
+            new=AsyncMock(
+                side_effect=Exception(
+                    "('invalid_grant: Token has been expired or revoked.', "
+                    "{'error': 'invalid_grant', 'error_description': 'Token has been expired or revoked.'})"
+                )
+            ),
+        ),
+    ):
+        resp = await client.get("/api/drive/preview/any-file-id")
+
+    assert resp.status_code == 401
+    assert "reconnect" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_drive_structured_preview_other(client, tmp_path):
     """Unknown mime types return kind=other with no sample."""
     token_path = tmp_path / "google_token.json"

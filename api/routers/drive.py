@@ -788,6 +788,12 @@ async def drive_file_thumbnail(file_id: str):
     try:
         meta = await _get_file_meta(file_id)
     except Exception as exc:
+        exc_str = str(exc).lower()
+        if "invalid_grant" in exc_str or "token has been expired" in exc_str or "revoked" in exc_str:
+            raise HTTPException(
+                status_code=401,
+                detail="Your Google connection expired. Please reconnect from the Drive page.",
+            ) from exc
         raise HTTPException(
             status_code=500,
             detail=f"Could not get file info from Drive: {exc}",
@@ -827,6 +833,12 @@ async def drive_file_preview(file_id: str):
     try:
         meta = await _get_file_meta(file_id)
     except Exception as exc:
+        exc_str = str(exc).lower()
+        if "invalid_grant" in exc_str or "token has been expired" in exc_str or "revoked" in exc_str:
+            raise HTTPException(
+                status_code=401,
+                detail="Your Google connection expired. Please reconnect from the Drive page.",
+            ) from exc
         raise HTTPException(
             status_code=500,
             detail=f"Could not get file info from Drive: {exc}",
@@ -1313,6 +1325,12 @@ async def drive_file_structured_preview(file_id: str):
     try:
         meta = await _get_file_meta(file_id)
     except Exception as exc:
+        exc_str = str(exc).lower()
+        if "invalid_grant" in exc_str or "token has been expired" in exc_str or "revoked" in exc_str:
+            raise HTTPException(
+                status_code=401,
+                detail="Your Google connection expired. Please reconnect from the Drive page.",
+            ) from exc
         raise HTTPException(
             status_code=500,
             detail=f"Could not get file info from Drive: {exc}",
