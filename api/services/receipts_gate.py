@@ -70,3 +70,13 @@ def check_receipts(reply_text: str) -> Optional[ReceiptsWarning]:
             "test output, or file reference as evidence."
         ),
     )
+
+
+def check_brief_receipts(brief_text: str) -> Optional[ReceiptsWarning]:
+    """Return a ReceiptsWarning if a spawn brief claims completion without evidence.
+
+    Same logic as check_receipts — a brief containing "done", "fixed", etc.
+    without a commit hash, test output, or file reference may be relaying an
+    unverified subagent claim into the next agent's context.
+    """
+    return check_receipts(brief_text)
