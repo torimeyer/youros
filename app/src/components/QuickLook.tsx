@@ -55,6 +55,7 @@ export interface QuickLookProps {
   isOpen: boolean
   driveFileId?: string
   driveData?: DrivePreviewData
+  webViewLink?: string
 }
 
 type ViewKind = 'image' | 'pdf' | 'markdown' | 'code' | 'sheet' | 'slides' | 'docx' | 'unknown'
@@ -103,7 +104,7 @@ function classify(fileType: string, filePath: string): ViewKind {
 const PREVIEW_KINDS: ViewKind[] = ['sheet', 'slides', 'docx']
 const TEXT_KINDS: ViewKind[] = ['markdown', 'code']
 
-export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFileId, driveData }: QuickLookProps) {
+export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFileId, driveData, webViewLink }: QuickLookProps) {
   // Local mode state
   const [textContent, setTextContent] = useState<string | null>(null)
   const [previewData, setPreviewData] = useState<PreviewPayload | null>(null)
@@ -216,7 +217,14 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
     setDriveLoading(true)
     setDriveError(null)
     fetch(`/api/drive/preview/${encodeURIComponent(driveFileId)}`)
-      .then(r => { if (!r.ok) throw new Error(`Could not load preview (${r.status}).`); return r.json() })
+      .then(async r => {
+        if (!r.ok) {
+          let msg = `Could not load preview (${r.status}).`
+          try { const body = await r.json(); if (body?.detail) msg = body.detail } catch {}
+          throw new Error(msg)
+        }
+        return r.json()
+      })
       .then((d: DrivePreviewData) => {
         if (!cancelled) { setDrivePreviewData(d); setDriveLoading(false) }
       })
@@ -425,7 +433,14 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                 <p className="text-slate-500 text-sm">Loading…</p>
               )}
               {!driveLoading && driveError && (
-                <p className="text-red-400 text-sm">{driveError}</p>
+                <div className="flex flex-col items-center gap-3 py-12 text-center">
+                  <p className="text-red-400 text-sm">{driveError}</p>
+                  {webViewLink && (
+                    <a href={webViewLink} target="_blank" rel="noreferrer" className="text-xs text-slate-400 hover:text-white underline">
+                      Open in Google Drive
+                    </a>
+                  )}
+                </div>
               )}
               {!driveLoading && !driveError && drivePreviewData && (
                 <>
@@ -530,6 +545,23 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                     const sample = drivePreviewData.sample as SlidesSample | null
                     const slides = sample?.slides ?? []
                     const current = slides[activeSlide] ?? slides[0]
+                    if (slides.length === 0) {
+                      return (
+                        <div className="flex flex-col items-center gap-3 py-12 text-center">
+                          <p className="text-slate-400 text-sm">Slide preview is not available.</p>
+                          {(drivePreviewData.web_view_link || webViewLink) && (
+                            <a
+                              href={drivePreviewData.web_view_link || webViewLink}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-slate-400 hover:text-white underline"
+                            >
+                              Open in Google Slides
+                            </a>
+                          )}
+                        </div>
+                      )
+                    }
                     return (
                       <div data-testid="quicklook-slides" className="flex flex-col gap-3">
                         <div className="flex items-center justify-between">
