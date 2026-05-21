@@ -13662,3 +13662,85 @@ async def test_spawn_rate_limit_429_after_max_wait():
     assert detail["error"] == "spawn_burst_throttled"
     assert detail["retry_after_seconds"] > 0
 
+
+# →1549: per_agent_transcript_bytes / kernel_event_index tests
+
+
+@pytest.mark.asyncio
+async def test_per_agent_transcript_bytes_differs_per_agent(tmp_path, monkeypatch):
+    """Two agents with different-sized transcripts must return distinct per_agent_transcript_bytes.
+
+    Root cause (→1549): _link_session_jsonl assigned the shared orchestrator
+    session JSONL to all claude-code registered agents, making transcript_bytes
+    identical across the whole fleet. per_agent_transcript_bytes must resolve
+    the actual per-agent file instead.
+    """
+    from routers.agents import agent_metadata, _reset_transcript_resolver_cache, _reset_candidates_cache
+    import routers.agents as agents_mod
+
+    name_a = "tb-test-agent-a-1549"
+    name_b = "tb-test-agent-b-1549"
+    agent_metadata.pop(name_a, None)
+    agent_metadata.pop(name_b, None)
+
+    # Write two per-agent .md transcripts with distinct sizes.
+    transcript_a = tmp_path / f"{name_a}.md"
+    transcript_b = tmp_path / f"{name_b}.md"
+    transcript_a.write_text("x" * 111)
+    transcript_b.write_text("x" * 777)
+
+    agent_metadata[name_a] = {"status": "running", "transcript_path": str(transcript_a)}
+    agent_metadata[name_b] = {"status": "running", "transcript_path": str(transcript_b)}
+
+    _reset_transcript_resolver_cache()
+    _reset_candidates_cache()
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/agents?summary=1&status=running")
+        assert resp.status_code == 200
+        rows = {a["name"]: a for a in resp.json()["agents"]}
+        assert name_a in rows and name_b in rows, f"agents not in response: {list(rows)}"
+        pa_a = rows[name_a].get("per_agent_transcript_bytes", -1)
+        pa_b = rows[name_b].get("per_agent_transcript_bytes", -1)
+        assert pa_a == 111, f"agent_a per_agent_transcript_bytes: {pa_a}"
+        assert pa_b == 777, f"agent_b per_agent_transcript_bytes: {pa_b}"
+        assert pa_a != pa_b, "per_agent_transcript_bytes must differ between agents"
+    finally:
+        agent_metadata.pop(name_a, None)
+        agent_metadata.pop(name_b, None)
+        _reset_transcript_resolver_cache()
+        _reset_candidates_cache()
+
+
+@pytest.mark.asyncio
+async def test_kernel_event_index_still_returned_for_backcompat(tmp_path):
+    """kernel_event_index must be present in the /api/agents response (→1549 backward compat)."""
+    from routers.agents import agent_metadata, _reset_transcript_resolver_cache
+
+    name = "kb-test-agent-1549"
+    agent_metadata.pop(name, None)
+
+    transcript_file = tmp_path / f"{name}.md"
+    transcript_file.write_text("hello world")
+
+    agent_metadata[name] = {"status": "running", "transcript_path": str(transcript_file)}
+    _reset_transcript_resolver_cache()
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/agents?summary=1&status=running")
+        assert resp.status_code == 200
+        rows = {a["name"]: a for a in resp.json()["agents"]}
+        assert name in rows
+        row = rows[name]
+        # kernel_event_index must always be present in the response.
+        assert "kernel_event_index" in row, f"kernel_event_index missing from row: {row}"
+        # per_agent_transcript_bytes must also be present.
+        assert "per_agent_transcript_bytes" in row, f"per_agent_transcript_bytes missing from row: {row}"
+    finally:
+        agent_metadata.pop(name, None)
+        _reset_transcript_resolver_cache()
+
