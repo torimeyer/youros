@@ -2723,12 +2723,12 @@ export function ChatPanel() {
                   </div>
                 )}
 
-                <div className={`relative ${msg.role === 'user' ? 'ml-auto max-w-[75%] w-fit' : inBroadcastColumn ? 'w-full min-w-0' : 'max-w-[85%] w-fit'}`}>
+                <div className={`relative ${msg.role === 'user' ? 'ml-auto max-w-[75%] w-fit' : inBroadcastColumn ? 'w-full min-w-0' : 'max-w-[85%]'}`}>
                   <div
                     className={
                       msg.role === 'user'
                         ? 'inline-block bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm text-sm break-words overflow-hidden'
-                        : `${inBroadcastColumn ? 'block w-full' : 'inline-block'} border px-4 py-3 rounded-xl text-sm text-slate-300 overflow-hidden break-words ${
+                        : `${inBroadcastColumn ? 'block w-full' : 'block w-fit max-w-full'} border px-4 py-3 rounded-xl text-sm text-slate-300 overflow-hidden break-words ${
                             msg.model ? MODEL_BG[msg.model] ?? 'bg-slate-900 border-slate-800' : 'bg-slate-900 border-slate-800'
                           }`
                     }

@@ -448,3 +448,35 @@ describe('light mode contrast: code elements use amber classes overridden in ind
     expect(pre!.className).toContain('text-amber-200')
   })
 })
+
+// →1578: code blocks must not overflow the chat bubble
+// JSDOM does not compute CSS layout, so we verify class intent rather than pixel widths.
+// The max-w-full class ensures the <pre> is bounded by its parent's width, which in
+// ChatPanel.tsx is now a block element with a definite max-width (85% of the panel).
+// Combined with overflow-x-auto, this allows long code lines to scroll within the
+// bubble instead of pushing the bubble wider than the chat panel.
+describe('→1578: fenced code blocks are constrained to parent width', () => {
+  it('fenced code block <pre> has max-w-full class so it cannot overflow its parent', () => {
+    const md = '```js\nconst x = "' + 'a'.repeat(200) + '";\n```'
+    const { container } = renderNodes(renderMarkdown(md))
+    const pre = container.querySelector('pre')
+    expect(pre).not.toBeNull()
+    expect(pre!.className).toContain('max-w-full')
+  })
+
+  it('fenced code block <pre> has overflow-x-auto so long lines scroll instead of wrapping', () => {
+    const md = '```\n' + 'x'.repeat(300) + '\n```'
+    const { container } = renderNodes(renderMarkdown(md))
+    const pre = container.querySelector('pre')
+    expect(pre).not.toBeNull()
+    expect(pre!.className).toContain('overflow-x-auto')
+  })
+
+  it('fenced code block preserves whitespace-pre so indentation is not collapsed', () => {
+    const md = '```python\ndef f():\n    return 1\n```'
+    const { container } = renderNodes(renderMarkdown(md))
+    const pre = container.querySelector('pre')
+    expect(pre).not.toBeNull()
+    expect(pre!.className).toContain('whitespace-pre')
+  })
+})
