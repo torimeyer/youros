@@ -346,6 +346,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   const [openBuildHelp, setOpenBuildHelp] = useState<string | null>(null);
   const [showNeedsClarity, setShowNeedsClarity] = useState(false);
   const [spawnGeminiTask, setSpawnGeminiTask] = useState<{ path: string; title: string; checks?: ReadinessCheck[] } | null>(null);
+  const [pendingClaritySpawn, setPendingClaritySpawn] = useState<{
+    taskId: string;
+    spawnMode: SpawnMode;
+    checks: ReadinessCheck[];
+  } | null>(null);
   const buildHelpRef = useRef<HTMLDivElement | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -1116,6 +1121,16 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       }
       return next;
     });
+  };
+
+  // Gate spawn through clarity check. Shows modal if task needs clarity, otherwise spawns directly.
+  const handleSpawnWithGate = (taskId: string, mode: SpawnMode) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (task?.needs_clarity) {
+      setPendingClaritySpawn({ taskId, spawnMode: mode, checks: task.clear_to_build_checks ?? [] });
+      return;
+    }
+    spawnAgentForTask(taskId, mode);
   };
 
   // Bulk Implement all defaults to the comprehensive build pattern.
@@ -1923,7 +1938,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         : "text-slate-500 hover:text-slate-300 border border-transparent hover:border-slate-700"
                     }`}
                   >
-                    ⚠ Needs clarity
+                    ⚠ Draft
                     <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                       showNeedsClarity ? "bg-amber-500/30 text-amber-300" : "bg-slate-700 text-slate-400"
                     }`}>{count}</span>
@@ -2148,11 +2163,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                           }
                           return null;
                         })()}
-                        {task.needs_clarity && (
-                          <NeedsClarityChip
-                            checks={task.clear_to_build_checks}
-                          />
-                        )}
+
                         {task.status === "closed" && task.closed_reason === "completed" && (
                           <span
                             data-testid={`closed-badge-${task.id}`}
@@ -2270,7 +2281,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                           onClick={(e) => e.stopPropagation()}
                         >
                           <button
-                            onClick={() => spawnAgentForTask(task.id, "plan")}
+                            onClick={() => handleSpawnWithGate(task.id, "plan")}
                             disabled={actionLoading === task.id}
                             className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
                           >
@@ -2280,7 +2291,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                           {/* Comprehensive build (default) plus quick escape hatch. */}
                           <div className="flex items-center w-full hover:bg-slate-700 transition-colors">
                             <button
-                              onClick={() => spawnAgentForTask(task.id, "comprehensive")}
+                              onClick={() => handleSpawnWithGate(task.id, "comprehensive")}
                               disabled={actionLoading === task.id}
                               className="flex-1 text-left px-3 py-1.5 text-xs flex items-center gap-2 text-slate-300"
                             >
@@ -2300,7 +2311,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                             </button>
                           </div>
                           <button
-                            onClick={() => spawnAgentForTask(task.id, "quick")}
+                            onClick={() => handleSpawnWithGate(task.id, "quick")}
                             disabled={actionLoading === task.id}
                             className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
                           >
@@ -2426,7 +2437,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                       {/* Action buttons */}
                       <div className="flex items-center gap-2 mb-3">
                         <button
-                          onClick={() => spawnAgentForTask(task.id, "comprehensive")}
+                          onClick={() => handleSpawnWithGate(task.id, "comprehensive")}
                           disabled={actionLoading === task.id}
                           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-50"
                         >
@@ -2434,7 +2445,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                           Comprehensive build
                         </button>
                         <button
-                          onClick={() => spawnAgentForTask(task.id, "plan")}
+                          onClick={() => handleSpawnWithGate(task.id, "plan")}
                           disabled={actionLoading === task.id}
                           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors disabled:opacity-50"
                         >
@@ -2442,7 +2453,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                           Plan
                         </button>
                         <button
-                          onClick={() => spawnAgentForTask(task.id, "quick")}
+                          onClick={() => handleSpawnWithGate(task.id, "quick")}
                           disabled={actionLoading === task.id}
                           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
                         >
@@ -3207,6 +3218,41 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
           >
             Dismiss
           </button>
+        </div>
+      )}
+
+      {pendingClaritySpawn && (
+        <div
+          data-testid="task-clarity-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={(e) => { if (e.target === e.currentTarget) setPendingClaritySpawn(null) }}
+        >
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-lg w-full mx-4 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-white text-lg font-semibold">Clarify before building</h2>
+              <button
+                type="button"
+                onClick={() => setPendingClaritySpawn(null)}
+                className="text-slate-400 hover:text-white"
+                aria-label="Close"
+              >
+                <Icon name="close" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-400 mb-4">
+              Fix these issues first, then the build will start automatically.
+            </p>
+            <NeedsClarityChip
+              mode="task"
+              taskId={pendingClaritySpawn.taskId}
+              checks={pendingClaritySpawn.checks}
+              onResolved={() => {
+                const { taskId, spawnMode } = pendingClaritySpawn;
+                setPendingClaritySpawn(null);
+                spawnAgentForTask(taskId, spawnMode);
+              }}
+            />
+          </div>
         </div>
       )}
 
