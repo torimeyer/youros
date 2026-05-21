@@ -4741,3 +4741,99 @@ async def test_get_wave_assignments_returns_saved_data(client, tmp_path, monkeyp
     assert resp.status_code == 200
     body = resp.json()
     assert body["assignments"] == {"t1": 1, "t2": 2}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/tasks/{task_id}/clarify/suggest  (→1565)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_task_clarify_suggest_returns_proposed_fix(client):
+    """Returns {proposed_fix, rationale} without persisting anything."""
+    from unittest.mock import AsyncMock, patch
+
+    task = _make_task(id="→42", title="Ship the widget", description="TBD details")
+
+    fake_suggest = AsyncMock(return_value={"proposed_fix": "Ship the widget by doing X", "rationale": "TBD removed"})
+
+    with (
+        patch("routers.tasks.ostk.list_tasks", AsyncMock(return_value=[task])),
+        patch("routers.tasks.task_labels_store.get_all_assignments", MagicMock(return_value={})),
+        patch("services.clarity_suggest.suggest_clarification", fake_suggest),
+    ):
+        resp = await client.post("/api/tasks/42/clarify/suggest", json={"check": "outcome_concrete"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["proposed_fix"] == "Ship the widget by doing X"
+    assert body["rationale"] == "TBD removed"
+
+
+@pytest.mark.asyncio
+async def test_task_clarify_suggest_404_when_task_missing(client):
+    with patch("routers.tasks.ostk.list_tasks", AsyncMock(return_value=[])):
+        resp = await client.post("/api/tasks/999/clarify/suggest", json={"check": "outcome_concrete"})
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_task_clarify_suggest_400_when_no_api_key(client):
+    task = _make_task(id="→42", title="Task", description="desc")
+
+    async def _raise_valueerror(*a, **kw):
+        raise ValueError("No Anthropic API key configured.")
+
+    with (
+        patch("routers.tasks.ostk.list_tasks", AsyncMock(return_value=[task])),
+        patch("routers.tasks.task_labels_store.get_all_assignments", MagicMock(return_value={})),
+        patch("services.clarity_suggest.suggest_clarification", _raise_valueerror),
+    ):
+        resp = await client.post("/api/tasks/42/clarify/suggest", json={"check": "outcome_concrete"})
+
+    assert resp.status_code == 400
+    assert "No Anthropic API key" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# POST /api/tasks/{task_id}/clarify/apply  (→1565)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_task_clarify_apply_persists_and_returns_fresh_checks(client):
+    """apply updates the description and returns re-computed readiness checks."""
+    from unittest.mock import AsyncMock, patch
+
+    task = _make_task(id="→42", title="Ship the widget", description="Initial desc")
+
+    updated_task = dict(task, description="Initial desc\n\nAI fix text")
+
+    with (
+        patch("routers.tasks.ostk.list_tasks", AsyncMock(side_effect=[
+            [task],      # first call: fetch task to apply to
+            [updated_task],  # second call: re-fetch after update
+        ])),
+        patch("routers.tasks.task_labels_store.get_all_assignments", MagicMock(return_value={})),
+        patch("routers.tasks.ostk.update_task_fields", AsyncMock(return_value="ok")),
+    ):
+        resp = await client.post(
+            "/api/tasks/42/clarify/apply",
+            json={"check": "outcome_concrete", "fix": "AI fix text"},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "checks" in body
+    assert "ready" in body
+    # outcome_concrete should pass for "Ship the widget" + "AI fix text" (no vague tokens)
+    check_names = [c["name"] for c in body["checks"]]
+    assert "outcome_concrete" in check_names
+
+
+@pytest.mark.asyncio
+async def test_task_clarify_apply_404_when_task_missing(client):
+    with patch("routers.tasks.ostk.list_tasks", AsyncMock(return_value=[])):
+        resp = await client.post(
+            "/api/tasks/999/clarify/apply",
+            json={"check": "outcome_concrete", "fix": "some fix"},
+        )
+    assert resp.status_code == 404
