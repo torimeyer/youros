@@ -98,3 +98,22 @@ class TestCheckReceipts:
 
     def test_mixed_case_trigger_word(self):
         assert self.check("Fixed the issue.") is not None
+
+
+class TestCheckBriefReceipts:
+    def setup_method(self):
+        from services.receipts_gate import check_brief_receipts
+        self.check = check_brief_receipts
+
+    def test_check_brief_receipts_warns_on_done_without_evidence(self):
+        warning = self.check(
+            "The previous agent is done. Extend the feature to cover briefs."
+        )
+        assert warning is not None
+        assert warning.trigger_word == "done"
+
+    def test_check_brief_receipts_passes_when_evidence_present(self):
+        warning = self.check(
+            "The previous agent committed abc1234. Extend the feature."
+        )
+        assert warning is None

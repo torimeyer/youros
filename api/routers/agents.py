@@ -4507,6 +4507,19 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
             body.name, _loop_latency,
         )
 
+    # Receipts gate: warn if the spawn brief uses a completion trigger word
+    # ("done", "fixed", …) without inline evidence. Warn-only for now (→1554).
+    _brief_warning = None
+    from services.settings_store import settings_store as _settings_store_rg
+    if _settings_store_rg.get("chat_receipts_gate_enabled", True):
+        from services.receipts_gate import check_brief_receipts as _check_brief_receipts
+        _brief_warning = _check_brief_receipts(body.prompt or "")
+        if _brief_warning is not None:
+            logger.warning(
+                "spawn.brief_receipts_warning name=%s trigger_word=%s",
+                body.name, _brief_warning.trigger_word,
+            )
+
     # --- ostk run path: env-level canonical (MYOS_SPAWN_USE_OSTK_RUN=1, →1305) or per-request opt-in ---
     # MYOS_SPAWN_USE_OSTK_RUN=1 makes `ostk run <Agentfile>` the default for every spawn.
     # The bespoke claude-code subprocess path is the fallback when:
@@ -4592,6 +4605,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                 "name": body.name,
                 "status": "dry_run" if _ostk_dry_run else "running",
                 "ostk_run": _ostk_result,
+                "brief_warning": _brief_warning.message if _brief_warning else None,
             }
         # _ostk_ran is False: no agentfile found or ostk errored with fallback allowed.
         # Fall through to the bespoke claude-code subprocess path below.
@@ -5857,6 +5871,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
             "pid": proc.pid,
             "transcript": str(transcript_path),
             "build_state": _build_state,
+            "brief_warning": _brief_warning.message if _brief_warning else None,
         }
     except HTTPException:
         # Preserve explicit HTTPException codes raised inside the try
@@ -5927,6 +5942,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                     "name": body.name,
                     "pid": proc.pid,
                     "transcript": str(transcript_path),
+                    "brief_warning": _brief_warning.message if _brief_warning else None,
                 }
             except Exception as retry_exc:
                 logger.exception(

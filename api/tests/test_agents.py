@@ -13935,3 +13935,115 @@ async def test_create_worktree_refuses_when_unsafe_to_reuse(tmp_path):
     # Must not call git — preserving the worktree is the safe default
     mock_git.assert_not_called()
 
+
+@pytest.mark.asyncio
+async def test_spawn_brief_receipts_gate_warns_on_trigger_without_evidence(
+    tmp_path, monkeypatch
+):
+    """POST /agents/spawn with a trigger word in the brief but no evidence
+    must return brief_warning in the response (→1554).
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    class _FakeProc:
+        pid = 777001
+        returncode = None
+        stdin = None
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_name = "brief-receipts-gate-trigger-test-1554"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "The previous agent is done. Now extend the feature.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data.get("brief_warning") is not None, (
+            "Expected brief_warning when brief contains 'done' without evidence"
+        )
+        assert "done" in data["brief_warning"]
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_spawn_brief_receipts_gate_no_warning_with_evidence(
+    tmp_path, monkeypatch
+):
+    """POST /agents/spawn with a trigger word AND inline evidence must NOT
+    return brief_warning in the response (→1554).
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    class _FakeProc:
+        pid = 777002
+        returncode = None
+        stdin = None
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_name = "brief-receipts-gate-evidence-test-1554"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": (
+                        "The previous agent committed abc1234 and is done. "
+                        "Now extend the feature."
+                    ),
+                    "model": "sonnet",
+                    "budget": 2.0,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data.get("brief_warning") is None, (
+            "Expected no brief_warning when brief contains evidence alongside trigger word"
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
