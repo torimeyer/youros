@@ -2003,16 +2003,26 @@ export function ChatPanel() {
       }
     }
 
+    // When replying to a specific model's message, route to that provider
+    // only — don't broadcast to both. Broadcasting a reply to Claude's
+    // answer to Gemini as well is semantically wrong (→1579).
+    const repliedToMsg = replyingTo ? messages.find(m => m.id === replyingTo) : undefined
+    const replyTargetModel = repliedToMsg?.model && (repliedToMsg.model === 'claude' || repliedToMsg.model === 'gemini')
+      ? repliedToMsg.model
+      : null
+    const effectiveSideBySide = sideBySideEnabled && !replyTargetModel
+
     send({
-      model: `@${defaultChatModel}`,
+      model: replyTargetModel ? `@${replyTargetModel}` : `@${defaultChatModel}`,
       messages: apiMessages,
       tools: true,
       tab_id: activeTabId,
       replyToId: replyingTo || undefined,
       thread_id: replyThreadId || undefined,
       // All pill: when sideBySideEnabled is on, fan out to Claude
-      // AND Gemini in parallel on the backend.
-      side_by_side: sideBySideEnabled,
+      // AND Gemini in parallel on the backend. Disabled when replying
+      // to a specific provider's message (→1579).
+      side_by_side: effectiveSideBySide,
       // Claude tier selection (→1065): haiku / sonnet / opus
       claude_tier: claudeTier,
       // Plan mode: when on, backend asks model to write a plan first.
@@ -2946,14 +2956,49 @@ export function ChatPanel() {
               const geminiMsg = msg.model === 'gemini' ? msg : next
               const claudeIdx = messages.indexOf(claudeMsg)
               const geminiIdx = messages.indexOf(geminiMsg)
+              const claudeChildren = threadMap.get(claudeMsg.id) ?? []
+              const geminiChildren = threadMap.get(geminiMsg.id) ?? []
+              const isClaudeCollapsed = collapsedThreads.has(claudeMsg.id)
+              const isGeminiCollapsed = collapsedThreads.has(geminiMsg.id)
+              const renderThreadBlock = (bubbleMsg: Message, children: Message[], isCollapsed: boolean) => (
+                children.length > 0 && (
+                  <div className="mt-1 ml-3 border-l-2 border-slate-700 pl-3" data-testid={`thread-block-${bubbleMsg.id}`}>
+                    <button
+                      onClick={() => toggleThread(bubbleMsg.id)}
+                      className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-blue-400 transition-colors mb-1"
+                      data-testid={`thread-toggle-${bubbleMsg.id}`}
+                      aria-expanded={!isCollapsed}
+                    >
+                      <Icon name={isCollapsed ? 'chevron_right' : 'expand_more'} className="text-xs" />
+                      {isCollapsed
+                        ? `${children.length} ${children.length === 1 ? 'reply' : 'replies'}`
+                        : 'Hide replies'}
+                    </button>
+                    {!isCollapsed && (
+                      <div className="space-y-2">
+                        {children.map((child) => {
+                          const childIdx = messages.indexOf(child)
+                          return renderBubble(child, childIdx, true)
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              )
               rendered.push(
                 <div
                   key={`broadcast-${claudeMsg.id}-${geminiMsg.id}`}
                   data-testid="broadcast-pair"
                   className="grid grid-cols-2 gap-3 items-start w-full"
                 >
-                  {renderBubble(claudeMsg, claudeIdx, false, true)}
-                  {renderBubble(geminiMsg, geminiIdx, false, true)}
+                  <div>
+                    {renderBubble(claudeMsg, claudeIdx, false, true)}
+                    {renderThreadBlock(claudeMsg, claudeChildren, isClaudeCollapsed)}
+                  </div>
+                  <div>
+                    {renderBubble(geminiMsg, geminiIdx, false, true)}
+                    {renderThreadBlock(geminiMsg, geminiChildren, isGeminiCollapsed)}
+                  </div>
                 </div>,
               )
               i += 2

@@ -2171,6 +2171,99 @@ describe('ChatPanel', () => {
   })
 
   // ---------------------------------------------------------------------------
+  // All-mode (broadcast) reply tests (→1579)
+  // In "All" mode both Claude and Gemini respond side-by-side. Replying to
+  // one of those broadcast bubbles must (a) render the reply thread under
+  // that bubble and (b) route the reply to the single provider, not both.
+  // ---------------------------------------------------------------------------
+
+  describe('All-mode broadcast reply (→1579)', () => {
+    it('thread block renders under a broadcast pair message when it has thread children', () => {
+      // Simulate: user sent a message in All mode, got a broadcast pair back,
+      // then replied to the claude bubble (creating a thread child).
+      const messages = [
+        { id: 'user-1', role: 'user', content: 'What is React?' },
+        { id: 'claude-1', role: 'assistant', content: 'React is a UI library.', model: 'claude' },
+        { id: 'gemini-1', role: 'assistant', content: 'React is a JS library.', model: 'gemini' },
+        { id: 'reply-user', role: 'user', content: 'Can you elaborate?', thread_id: 'claude-1' },
+        { id: 'reply-asst', role: 'assistant', content: 'Sure, React uses components...', model: 'claude', thread_id: 'claude-1' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+
+      render(<ChatPanel />)
+
+      // The broadcast pair should be present
+      expect(screen.getByTestId('broadcast-pair')).toBeTruthy()
+
+      // The thread block under the claude bubble should be rendered
+      const threadBlock = screen.getByTestId('thread-block-claude-1')
+      expect(threadBlock).toBeTruthy()
+
+      // The reply bubble should be inside that thread block
+      const replyBubble = screen.getByTestId('bubble-reply-asst')
+      expect(threadBlock.contains(replyBubble)).toBe(true)
+    })
+
+    it('replying to a broadcast claude bubble sends to claude only with side_by_side=false', () => {
+      const messages = [
+        { id: 'user-1', role: 'user', content: 'Hello' },
+        { id: 'claude-1', role: 'assistant', content: 'Hi from Claude!', model: 'claude' },
+        { id: 'gemini-1', role: 'assistant', content: 'Hi from Gemini!', model: 'gemini' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+      // Enable All mode
+      useAppStore.setState({ sideBySideEnabled: true })
+
+      render(<ChatPanel />)
+
+      // Reply to the claude bubble
+      const replyBtn = screen.getByTestId('reply-btn-claude-1')
+      fireEvent.click(replyBtn)
+
+      const input = screen.getByPlaceholderText('Type your reply...')
+      fireEvent.change(input, { target: { value: 'Tell me more' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Send should target claude only, not broadcast
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: '@claude',
+          side_by_side: false,
+          replyToId: 'claude-1',
+        })
+      )
+    })
+
+    it('replying to a broadcast gemini bubble sends to gemini only', () => {
+      const messages = [
+        { id: 'user-1', role: 'user', content: 'Hello' },
+        { id: 'claude-1', role: 'assistant', content: 'Hi from Claude!', model: 'claude' },
+        { id: 'gemini-1', role: 'assistant', content: 'Hi from Gemini!', model: 'gemini' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+      useAppStore.setState({ sideBySideEnabled: true, defaultChatModel: 'claude' })
+
+      render(<ChatPanel />)
+
+      // Reply to the gemini bubble
+      const replyBtn = screen.getByTestId('reply-btn-gemini-1')
+      fireEvent.click(replyBtn)
+
+      const input = screen.getByPlaceholderText('Type your reply...')
+      fireEvent.change(input, { target: { value: 'Tell me more' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: '@gemini',
+          side_by_side: false,
+          replyToId: 'gemini-1',
+        })
+      )
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // Empty bubble regression tests (needle: fix-empty-chat-bubbles)
   // Tori saw two empty CLAUDE labels with nothing inside after a pure
   // tool-use turn. Three scenarios must produce visible content:
