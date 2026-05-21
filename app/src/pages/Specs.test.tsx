@@ -1814,17 +1814,17 @@ describe('FR-008: stage filter pills', () => {
 
 
 
-describe('FR-010: husk tag', () => {
+describe('FR-010: empty draft tag', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
-  it('shows Husk tag on a husk spec', async () => {
+  it('shows Empty draft tag on an empty spec', async () => {
     renderSpecsWithStageData([mockHusk1])
     fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => expect(screen.getByText('stale draft a')).toBeInTheDocument())
     expect(screen.getByTestId('husk-tag')).toBeInTheDocument()
   })
 
-  it('Husk tag title shows husk_reason', async () => {
+  it('Empty draft tag title shows husk_reason', async () => {
     renderSpecsWithStageData([mockHusk1])
     fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => expect(screen.getByTestId('husk-tag')).toBeInTheDocument())
@@ -1832,23 +1832,23 @@ describe('FR-010: husk tag', () => {
   })
 })
 
-describe('FR-011: bulk delete husks', () => {
+describe('FR-011: bulk delete empty drafts', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
-  it('shows delete-all-husks button when 2 or more husks are visible', async () => {
+  it('shows delete empty drafts button when 2 or more empty drafts are visible', async () => {
     renderSpecsWithStageData([mockHusk1, mockHusk2])
     fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => expect(screen.getByTestId('delete-all-husks-button')).toBeInTheDocument())
   })
 
-  it('does NOT show delete-all-husks button when fewer than 2 husks are visible', async () => {
+  it('does NOT show delete empty drafts button when fewer than 2 empty drafts are visible', async () => {
     renderSpecsWithStageData([mockHusk1])
     fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => expect(screen.getByText('stale draft a')).toBeInTheDocument())
     expect(screen.queryByTestId('delete-all-husks-button')).not.toBeInTheDocument()
   })
 
-  it('delete-all-husks button calls DELETE for each old husk', async () => {
+  it('delete empty drafts button calls DELETE for each old empty draft', async () => {
     const mockedApiDelete = vi.mocked(api.delete)
     mockedApiDelete.mockResolvedValue(undefined)
     renderSpecsWithStageData([mockHusk1, mockHusk2])

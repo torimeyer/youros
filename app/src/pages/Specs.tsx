@@ -766,7 +766,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
       oldHusks.map((h) => api.delete(`/specs/${encodeDocPath(h.path)}`))
     );
     await fetchDocs();
-    showMessage(`Deleted ${oldHusks.length} old ${oldHusks.length === 1 ? "husk" : "husks"}.`);
+    showMessage(`Deleted ${oldHusks.length} old ${oldHusks.length === 1 ? "empty draft" : "empty drafts"}.`);
   };
 
   // Wave 2: decompose is no longer user-facing. The /specs/{path}/build
@@ -1049,7 +1049,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
           })}
         </div>
 
-        {/* Bulk husk delete — appears when 2+ husks are visible */}
+        {/* Bulk empty-draft delete — appears when 2+ empty drafts are visible */}
         {visibleHusks.length >= 2 && (
           <div className="flex items-center gap-3 mb-4 px-3 py-2 bg-slate-800/40 border border-slate-700/50 rounded-lg w-fit">
             <span className="text-xs text-slate-400">
@@ -1061,7 +1061,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
               onClick={handleDeleteOldHusks}
               className="text-xs text-red-400 hover:text-red-300 font-medium"
             >
-              Delete all husks older than 7 days
+              Delete empty drafts older than 7 days
             </button>
           </div>
         )}
@@ -1233,7 +1233,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                             data-testid="husk-tag"
                             title={doc.husk_reason ?? "empty or placeholder draft"}
                           >
-                            Husk
+                            Empty draft
                           </span>
                         )}
 
