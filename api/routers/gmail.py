@@ -40,9 +40,20 @@ def _compute_gmail_status() -> dict:
         # the Gmail API. The unread count is fetched by /gmail/messages
         # anyway, so we skip the duplicate round trip here.
         try:
-            from services.google_auth import has_gmail_scope
+            from services.google_auth import has_gmail_scope, TOKEN_PATH
+            import json as _json
             if not has_gmail_scope():
                 reauth = True
+            else:
+                # Check the revoked flag written by _refresh_if_needed when
+                # Google rejects the refresh token with invalid_grant. Lets
+                # the status endpoint report needs_reauth without any network call.
+                try:
+                    _tok = _json.loads(TOKEN_PATH.read_text())
+                    if _tok.get("revoked"):
+                        reauth = True
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -103,6 +114,15 @@ async def gmail_messages():
         ) from exc
     except Exception as exc:
         msg = str(exc).lower()
+        if "invalid_grant" in msg:
+            # Refresh token was revoked by Google. Invalidate the cached auth
+            # status so the next poll reflects reality and show a reconnect
+            # prompt instead of a generic error.
+            connections_cache.invalidate(_GMAIL_STATUS_CACHE_KEY)
+            raise HTTPException(
+                status_code=403,
+                detail={"needs_reauth": True, "message": "Your Google account connection has expired. Reconnect to see your inbox."},
+            ) from exc
         if "accessnotconfigured" in msg or "has not been used" in msg:
             raise HTTPException(
                 status_code=403,

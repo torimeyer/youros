@@ -1116,6 +1116,107 @@ def test_trash_message_calls_gmail_trash():
     trash_exec.assert_called_once()
 
 
+# ---------------------------------------------------------------------------
+# invalid_grant / revoked token tests (→1575)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gmail_auth_status_revoked_token_reports_needs_reauth(client, tmp_path):
+    """When the token file has revoked=True, needs_reauth must be True.
+
+    _refresh_if_needed writes this flag when Google returns invalid_grant.
+    The status endpoint reads it so the UI can show a Reconnect CTA without
+    making a network call.
+    """
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.expired",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly",
+        "revoked": True,
+    }))
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.get("/api/gmail/auth/status")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["authenticated"] is True
+    assert data["needs_reauth"] is True
+
+
+@pytest.mark.asyncio
+async def test_gmail_messages_invalid_grant_returns_403_needs_reauth(client, tmp_path):
+    """invalid_grant from the Gmail API must return 403 with needs_reauth=True.
+
+    Before →1575, this came back as a generic 500 with a plain string detail
+    and the frontend swallowed it, showing an empty inbox with no explanation.
+    """
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.expired", "scope": "https://www.googleapis.com/auth/gmail.readonly"}))
+
+    cache_dir = tmp_path / "gmail_cache"
+    cache_dir.mkdir()
+    cache_path = cache_dir / "inbox.json"
+    full_cache_path = cache_dir / "inbox_full.json"
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.gmail.INBOX_CACHE_PATH", cache_path),
+        patch("services.gmail.FULL_INBOX_CACHE_PATH", full_cache_path),
+        patch(
+            "services.gmail._fetch_inbox_sync",
+            side_effect=RuntimeError("invalid_grant: Token has been expired or revoked."),
+        ),
+    ):
+        resp = await client.get("/api/gmail/messages")
+
+    assert resp.status_code == 403, f"expected 403, got {resp.status_code}: {resp.text}"
+    data = resp.json()
+    assert data["detail"]["needs_reauth"] is True
+
+
+def test_refresh_if_needed_invalid_grant_marks_revoked_and_raises(tmp_path):
+    """When Google returns invalid_grant during token refresh, _refresh_if_needed
+    must write revoked=True to the token file and raise RuntimeError so callers
+    can show a reconnect prompt. Before →1575 it silently returned the stale token.
+    """
+    import io
+    import urllib.error
+    from services.google_auth import _refresh_if_needed
+
+    token_path = tmp_path / "google_token.json"
+    expired_token = {
+        "access_token": "ya29.old",
+        "refresh_token": "1//refresh",
+        "expires_at": 1000.0,  # long-expired
+        "scope": "https://www.googleapis.com/auth/gmail.readonly",
+    }
+    token_path.write_text(json.dumps(expired_token))
+
+    # Build a fake HTTPError with an invalid_grant body.
+    body = json.dumps({"error": "invalid_grant", "error_description": "Token has been expired or revoked."}).encode()
+    http_error = urllib.error.HTTPError(
+        url="https://oauth2.googleapis.com/token",
+        code=400,
+        msg="Bad Request",
+        hdrs={},  # type: ignore[arg-type]
+        fp=io.BytesIO(body),
+    )
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth._load_client_config", return_value={"client_id": "cid", "client_secret": "csec"}),
+        patch("urllib.request.urlopen", side_effect=http_error),
+        patch("services.google_auth._invalidate_google_status_cache"),
+    ):
+        with pytest.raises(RuntimeError, match="invalid_grant"):
+            _refresh_if_needed(expired_token)
+
+    saved = json.loads(token_path.read_text())
+    assert saved.get("revoked") is True
+
+
 def test_permanent_delete_calls_gmail_delete():
     """The permanent path must call messages().delete(), which is irreversible."""
     import asyncio as _asyncio
