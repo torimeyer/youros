@@ -183,7 +183,8 @@ class _OneThenSilentProc:
 async def _run_drain_helper(proc, name: str, tpath: Path) -> None:
     """Invoke the same drain logic spawn_agent uses, isolated for testing.
 
-    Mirrors the three-threshold + stream-json parsing in _drain_stdout.
+    Mirrors the three-threshold + stream-json parsing in _drain_stdout,
+    including the _open_tool_calls guard introduced for →1570.
     Non-JSON chunks fall through to raw write so existing fake procs work.
     """
     import json as _json
@@ -194,6 +195,7 @@ async def _run_drain_helper(proc, name: str, tpath: Path) -> None:
     _last_any_byte_at = [_time.monotonic()]
     _first_any_byte_at = [_time.monotonic()]
     _last_model_output_at = [_time.monotonic()]
+    _open_tool_calls = [0]  # incremented on tool_use, decremented on tool_result
     _MODEL_EVENT_TYPES = frozenset(("text", "tool_use", "tool_result", "thinking"))
 
     async def _heartbeat_loop() -> None:
@@ -215,6 +217,8 @@ async def _run_drain_helper(proc, name: str, tpath: Path) -> None:
                 limit = agents_mod._STDOUT_SILENCE_LIMIT_SECONDS
                 hang_kind = "mid-stream"
             if silent_for > limit:
+                if _open_tool_calls[0] > 0:
+                    continue
                 try:
                     with open(str(tpath), "a") as fh:
                         fh.write(
@@ -263,6 +267,10 @@ async def _run_drain_helper(proc, name: str, tpath: Path) -> None:
                         elif etype in _MODEL_EVENT_TYPES:
                             _had_model_output = True
                             _last_model_output_at[0] = _time.monotonic()
+                            if etype == "tool_use":
+                                _open_tool_calls[0] += 1
+                            elif etype == "tool_result":
+                                _open_tool_calls[0] = max(0, _open_tool_calls[0] - 1)
                         # system/hook events: tracked via _had_any_byte, skip transcript
                     except (ValueError, UnicodeDecodeError):
                         # Non-JSON: write raw (covers plain-text fake procs in tests)
@@ -344,6 +352,67 @@ async def test_api_hang_killed_after_hooks_only(tmp_path, monkeypatch):
     assert "killing wedged process" in body, f"api-hang watchdog did not fire: {body!r}"
     assert "api-hang" in body, f"expected api-hang label, got: {body!r}"
     assert proc._killed, "watchdog did not kill the process"
+
+
+class _ToolWaitProc:
+    """Emits one tool_use event then blocks forever — simulates an agent waiting
+    for a long-running bash/pytest tool result (the →1570 scenario).
+
+    The subprocess is alive and correct; it just can't produce more stdout
+    until the tool_result arrives.
+    """
+
+    def __init__(self) -> None:
+        self.returncode: int | None = None
+        self.stdout = self
+        self._sent = False
+        self._killed = False
+
+    async def read(self, n: int) -> bytes:
+        if self._killed:
+            return b""
+        if not self._sent:
+            self._sent = True
+            # Flat stream-json tool_use event (matches _run_drain_helper's parser)
+            return b'{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"pytest"}}\n'
+        while not self._killed:
+            await asyncio.sleep(0.05)
+        return b""
+
+    def kill(self) -> None:
+        self._killed = True
+        self.returncode = -9
+
+
+@pytest.mark.asyncio
+async def test_tool_wait_subprocess_not_killed(tmp_path, monkeypatch):
+    """Watchdog must NOT kill a subprocess that is waiting for a tool result.
+
+    Regression for →1570: an agent emitted tool_use (starting a 5-min pytest
+    run), then was killed after 317s of stdout silence because _open_tool_calls
+    was not tracked.  The fix increments _open_tool_calls on tool_use and
+    decrements on tool_result, suppressing the Phase-3 kill while a call is
+    in-flight.
+    """
+    monkeypatch.setattr(agents_mod, "_TRANSCRIPT_FLUSH_INTERVAL", 0.05)
+    monkeypatch.setattr(agents_mod, "_STDOUT_SILENCE_LIMIT_SECONDS", 0.2)
+
+    transcript = tmp_path / "transcript.md"
+    transcript.write_text("")
+    proc = _ToolWaitProc()
+
+    # Run for 0.7s — 3.5× the silence limit; watchdog would fire without the fix
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(
+            _run_drain_helper(proc, "test-tool-wait", transcript),
+            timeout=0.7,
+        )
+
+    body = transcript.read_text()
+    assert "killing wedged process" not in body, (
+        f"watchdog incorrectly killed subprocess waiting for tool result: {body!r}"
+    )
+    assert not proc._killed, "watchdog killed a subprocess that was legitimately waiting for a tool"
 
 
 @pytest.mark.asyncio
