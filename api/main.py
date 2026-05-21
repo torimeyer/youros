@@ -65,6 +65,7 @@ async def lifespan(app: FastAPI):
     await schedule_test_artifact_sweep()
     await schedule_test_artifact_spec_sweep()
     await schedule_atlassian_sync()
+    await schedule_merge_debt_watcher()
     await install_signal_shutdown_hook()
     from services.ostk import start_clock_refresher
     await start_clock_refresher()
@@ -772,6 +773,13 @@ async def schedule_agents_snapshotter():
     import asyncio
     from routers import agents as _agents_router
     _keep(asyncio.create_task(_agents_router._agents_snapshot_loop()))
+
+
+async def schedule_merge_debt_watcher():
+    """Start the background task that refreshes merge_debt_count every 60 s (→1555)."""
+    import asyncio
+    from routers import agents as _agents_router
+    _keep(asyncio.create_task(_agents_router._merge_debt_tick_loop()))
 
 
 async def schedule_recurring_task_spawner():
