@@ -59,11 +59,12 @@ _PLAN_PATH_RE = re.compile(
 # Matches unchecked AC checkbox lines
 _AC_RE = re.compile(r"^\s*-\s+\[\s\]\s+(.+)$", re.MULTILINE)
 
-# Tokens that disqualify an AC line (case-insensitive)
+# Tokens that indicate vagueness (case-insensitive).
+# Narrowed in →1564: dropped "either", "consider", "explore", "review", "depends"
+# (false positives on normal English); changed bare "decide" to "decide what".
 _VAGUE_TOKENS_RE = re.compile(
-    r"\bTBD\b|\?|should we|\bdecide\b|\bTODO\b"
-    r"|\breview\b|\bdepends?\b|\bmaybe\b|\bconsider\b|\bexplore\b"
-    r"|\bdiscuss\b|\bclarif(?:y|ication)\b|figure out|we'll see|\beither\b",
+    r"\bTBD\b|\?|should we|\bTODO\b"
+    r"|\bmaybe\b|\bdiscuss\b|\bclarif(?:y|ication)\b|figure out|we'll see|decide what",
     re.IGNORECASE,
 )
 
@@ -81,7 +82,22 @@ _OUT_OF_REPO_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Check names ordered; must stay consistent with test expectations
+# Generic title patterns: "update X" or "fix X" with nothing after the noun
+_GENERIC_TITLE_RE = re.compile(r"^(?:update|fix)\s+\w+\s*$", re.IGNORECASE)
+
+# Task check names (3 checks as of →1564)
+_TASK_CHECK_NAMES = ["outcome_concrete", "in_repo_scope", "is_unblocked"]
+
+# Spec check names (5 checks as of →1564)
+_SPEC_CHECK_NAMES = [
+    "has_ac_checkboxes",
+    "no_vague_ac",
+    "has_file_paths",
+    "referenced_files_exist",
+    "in_repo_scope",
+]
+
+# Legacy list kept for import compatibility — do not use in new code
 _CHECK_NAMES = [
     "plan_path_present",
     "file_exists",
@@ -206,7 +222,7 @@ def _check_referenced_files_exist(text: str, plan_path: Optional[str]) -> tuple[
 
 
 def _check_in_repo_scope(body: str, title: str) -> tuple[bool, str]:
-    """Check 8: task/spec is scoped to this repo (not upstream/external)."""
+    """Check in_repo_scope: task/spec is scoped to this repo (not upstream/external)."""
     if _UPSTREAM_TITLE_RE.search(title):
         return False, f"title starts with upstream marker: {title[:60]}"
     m = _OUT_OF_REPO_RE.search(body)
@@ -215,85 +231,49 @@ def _check_in_repo_scope(body: str, title: str) -> tuple[bool, str]:
     return True, "task appears scoped to this repo"
 
 
+def _check_outcome_concrete(title: str, description: str) -> tuple[bool, str]:
+    """Check outcome_concrete: title+description don't contain vague language.
+
+    Fails when:
+    - title is empty
+    - title matches a bare generic pattern ("update X", "fix X" with no qualifier)
+    - _VAGUE_TOKENS_RE matches anywhere in title + " " + description
+    """
+    if not title or not title.strip():
+        return False, "title is empty"
+    if _GENERIC_TITLE_RE.match(title.strip()):
+        return False, f"title is too generic: '{title.strip()}' — add a concrete specifier"
+    body_text = title + " " + description
+    m = _VAGUE_TOKENS_RE.search(body_text)
+    if m:
+        context = body_text[max(0, m.start() - 20):m.end() + 20].replace("\n", " ")
+        return False, f"vague language in title/description: …{context}…"
+    return True, "title and description are concrete"
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 def compute_task_readiness(task: dict) -> Readiness:
-    """Return Readiness for a task dict (has 'description', 'title', 'blocked_by')."""
+    """Return Readiness for a task dict (3 checks as of →1564).
+
+    Checks: outcome_concrete, in_repo_scope, is_unblocked.
+    Tasks are their own spec; plan path / file / AC structure not required.
+    """
     description = task.get("description") or ""
     title = task.get("title") or ""
     checks: list[ReadinessCheck] = []
 
-    # Check 1: plan path present in description
-    plan_path = _extract_plan_path(description)
-    checks.append(ReadinessCheck(
-        name="plan_path_present",
-        passed=plan_path is not None,
-        detail=f"found: {plan_path}" if plan_path else "no docs/spec, ~/.myos/specs, or ~/.claude/plans path found",
-    ))
+    # Check 1: title and description are concrete (no vague language, no generic title)
+    concrete, concrete_detail = _check_outcome_concrete(title, description)
+    checks.append(ReadinessCheck(name="outcome_concrete", passed=concrete, detail=concrete_detail))
 
-    # Check 2: file exists (guard: only meaningful if plan_path found)
-    exists = plan_path is not None and Path(plan_path).exists()
-    checks.append(ReadinessCheck(
-        name="file_exists",
-        passed=exists,
-        detail=f"{plan_path} exists" if exists else (
-            f"{plan_path} not found on disk" if plan_path else "not evaluated — no plan path"
-        ),
-    ))
-
-    # Read file content (only if file exists)
-    text = (_read_file(plan_path) or "") if exists else ""
-
-    # Check 3: has AC checkboxes
-    ac = _ac_lines(text) if exists else []
-    checks.append(ReadinessCheck(
-        name="has_ac_checkboxes",
-        passed=bool(ac),
-        detail=f"{len(ac)} unchecked AC items" if ac else (
-            "no '- [ ]' lines found" if exists else "not evaluated — file missing"
-        ),
-    ))
-
-    # Check 4: no vague AC
-    clean = _has_clean_ac(ac)
-    vague = [ln for ln in ac if _VAGUE_TOKENS_RE.search(ln)]
-    checks.append(ReadinessCheck(
-        name="no_vague_ac",
-        passed=clean,
-        detail="all AC lines are concrete" if clean else (
-            f"vague tokens in: {vague[0][:60]}" if vague else "not evaluated — no AC"
-        ),
-    ))
-
-    # Check 5: file body has non-self paths that resolve to real files
-    has_files, files_detail = (
-        _check_has_file_paths(text, plan_path) if exists
-        else (False, "not evaluated — file missing")
-    )
-    checks.append(ReadinessCheck(name="has_file_paths", passed=has_files, detail=files_detail))
-
-    # Check 6: AC count threshold (at least 3 unchecked items)
-    ac_count_ok = len(ac) >= 3
-    checks.append(ReadinessCheck(
-        name="ac_count_threshold",
-        passed=ac_count_ok,
-        detail=f"{len(ac)} AC items (need ≥3)",
-    ))
-
-    # Check 7: referenced files exist at ≥50% threshold
-    ref_ok, ref_detail = (
-        _check_referenced_files_exist(text, plan_path) if exists
-        else (False, "not evaluated — file missing")
-    )
-    checks.append(ReadinessCheck(name="referenced_files_exist", passed=ref_ok, detail=ref_detail))
-
-    # Check 8: task is scoped to this repo
+    # Check 2: task is scoped to this repo
     in_scope, scope_detail = _check_in_repo_scope(description, title)
     checks.append(ReadinessCheck(name="in_repo_scope", passed=in_scope, detail=scope_detail))
 
-    # Check 9: task not blocked
+    # Check 3: task not blocked
     unblocked = _is_unblocked(task)
     open_blockers = [b["text"] for b in (task.get("blocked_by") or []) if not b.get("resolved")]
     checks.append(ReadinessCheck(
@@ -302,40 +282,27 @@ def compute_task_readiness(task: dict) -> Readiness:
         detail="no open blockers" if unblocked else f"blocked by: {open_blockers[0][:60]}",
     ))
 
-    return Readiness(ready=all(c.passed for c in checks), file_path=plan_path, checks=checks)
+    return Readiness(ready=all(c.passed for c in checks), file_path=None, checks=checks)
 
 
 def compute_spec_readiness(spec_path: str) -> Readiness:
-    """Return Readiness for a spec document.
+    """Return Readiness for a spec document (5 checks as of →1564).
 
-    Check 1 is a synthetic pass (the spec IS the plan). Checks 2–9 run
-    against the spec file itself. Check 9 always passes (specs have no
-    blocked_by). All checks are always evaluated.
+    Checks: has_ac_checkboxes, no_vague_ac, has_file_paths,
+    referenced_files_exist, in_repo_scope.
+    The spec is its own plan file; plan_path/file_exists/ac_count/is_unblocked
+    checks are dropped.
     """
     checks: list[ReadinessCheck] = []
 
-    # Check 1: synthetic pass
-    checks.append(ReadinessCheck(
-        name="plan_path_present",
-        passed=True,
-        detail="spec is its own plan file",
-    ))
-
-    # Check 2: file exists
     exists = Path(spec_path).exists()
-    checks.append(ReadinessCheck(
-        name="file_exists",
-        passed=exists,
-        detail=f"{spec_path} exists" if exists else f"{spec_path} not found on disk",
-    ))
-
     text = (_read_file(spec_path) or "") if exists else ""
 
     # Extract H1 title for in_repo_scope evaluation
     title_m = re.search(r"^#\s+(.+)$", text, re.MULTILINE)
     spec_title = title_m.group(1).strip() if title_m else ""
 
-    # Check 3: has AC checkboxes
+    # Check 1: has AC checkboxes
     ac = _ac_lines(text) if exists else []
     checks.append(ReadinessCheck(
         name="has_ac_checkboxes",
@@ -345,7 +312,7 @@ def compute_spec_readiness(spec_path: str) -> Readiness:
         ),
     ))
 
-    # Check 4: no vague AC
+    # Check 2: no vague AC
     clean = _has_clean_ac(ac)
     vague = [ln for ln in ac if _VAGUE_TOKENS_RE.search(ln)]
     checks.append(ReadinessCheck(
@@ -356,37 +323,22 @@ def compute_spec_readiness(spec_path: str) -> Readiness:
         ),
     ))
 
-    # Check 5: file body has non-self paths that resolve to real files
+    # Check 3: file body has non-self paths that resolve to real files
     has_files, files_detail = (
         _check_has_file_paths(text, spec_path) if exists
         else (False, "not evaluated — file missing")
     )
     checks.append(ReadinessCheck(name="has_file_paths", passed=has_files, detail=files_detail))
 
-    # Check 6: AC count threshold (at least 3 unchecked items)
-    ac_count_ok = len(ac) >= 3
-    checks.append(ReadinessCheck(
-        name="ac_count_threshold",
-        passed=ac_count_ok,
-        detail=f"{len(ac)} AC items (need ≥3)",
-    ))
-
-    # Check 7: referenced files exist at ≥50% threshold
+    # Check 4: referenced files exist at ≥50% threshold
     ref_ok, ref_detail = (
         _check_referenced_files_exist(text, spec_path) if exists
         else (False, "not evaluated — file missing")
     )
     checks.append(ReadinessCheck(name="referenced_files_exist", passed=ref_ok, detail=ref_detail))
 
-    # Check 8: spec is scoped to this repo (check H1 title and body)
+    # Check 5: spec is scoped to this repo (check H1 title and body)
     in_scope, scope_detail = _check_in_repo_scope(text, spec_title)
     checks.append(ReadinessCheck(name="in_repo_scope", passed=in_scope, detail=scope_detail))
-
-    # Check 9: specs have no blockers — always passes
-    checks.append(ReadinessCheck(
-        name="is_unblocked",
-        passed=True,
-        detail="specs have no blockers",
-    ))
 
     return Readiness(ready=all(c.passed for c in checks), file_path=spec_path, checks=checks)

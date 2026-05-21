@@ -3252,7 +3252,7 @@ async def test_clarity_patch_appends_and_reruns_readiness(client, tmp_path, monk
     assert "checks" in body, f"expected checks in response, got: {body}"
     assert "ready" in body
     assert isinstance(body["checks"], list)
-    assert len(body["checks"]) == 9  # all 9 checks always returned
+    assert len(body["checks"]) == 5  # 5 spec checks as of →1564
 
     # Fix text should have been written to the file
     updated_text = spec_file.read_text()
