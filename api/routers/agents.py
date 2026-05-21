@@ -58,6 +58,10 @@ def _fire_delta(name: str, status: str) -> None:
 _cached_snapshot: dict = {"agents": [], "computed_at": None, "daemon_running": False}
 _snapshot_lock: asyncio.Lock = asyncio.Lock()
 
+# Merge-debt cache (→1555): the merge_debt_tick_loop refreshes every 60 s.
+_cached_merge_debt: dict = {"count": 0, "items": []}
+_merge_debt_lock: asyncio.Lock = asyncio.Lock()
+
 
 def _set_agent_status(name: str, new_status: str, **extra_fields) -> None:
     """Update agent_metadata[name]['status'] and fire a WS delta. No-op if absent."""
@@ -4064,6 +4068,26 @@ async def _agents_snapshot_loop() -> None:
         await asyncio.sleep(0.5)
 
 
+async def _merge_debt_tick_loop() -> None:
+    """Background task: refresh merge-debt count every 60 s (→1555).
+
+    Runs ``services.merge_debt.scan_merge_debt`` in a thread so the git
+    subprocess calls don't block the event loop.
+    """
+    global _cached_merge_debt
+    while True:
+        try:
+            from services.merge_debt import scan_merge_debt
+            result = await asyncio.get_running_loop().run_in_executor(
+                None, scan_merge_debt
+            )
+            async with _merge_debt_lock:
+                _cached_merge_debt = result
+        except Exception:
+            logger.exception("merge_debt_tick_loop iteration failed")
+        await asyncio.sleep(60)
+
+
 @router.get("/agents")
 async def list_agents(
     user_spawned_only: bool = False,
@@ -4177,12 +4201,16 @@ async def list_agents(
         _badge = _compute_agent_badge(_agent_row)
         if _badge is not None:
             _agent_row["badge"] = _badge
+    async with _merge_debt_lock:
+        _md = dict(_cached_merge_debt)
     return {
         "daemon_running": daemon_running,
         "status": snapshot.get("status", "unknown"),
         "active": [a["name"] for a in agents if a.get("status") == "running" and _is_user_spawned(a)],
         "agents": agents,
         "avg_min_per_dollar": snapshot.get("avg_min_per_dollar", 0.0),
+        "merge_debt_count": _md.get("count", 0),
+        "merge_debt_items": _md.get("items", []),
     }
 
 
