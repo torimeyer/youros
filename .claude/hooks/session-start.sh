@@ -183,4 +183,12 @@ if [ -n "$CWD" ] && [ -x "$LIVENESS_SCRIPT" ] && [ -z "${MYOS_AGENT_NAME:-}" ]; 
     bash "$LIVENESS_SCRIPT" >&2 || true
 fi
 
+# ---- 7. Session-start report: "since last session" summary. ----
+# Retro F2+F6, →1556: show commits, closed needles, live worktrees, and
+# any handoff file so Tori can orient quickly without re-reading git log.
+REPORT_SCRIPT="$CWD/scripts/session-start-report.sh"
+if [ -n "$CWD" ] && [ -x "$REPORT_SCRIPT" ] && [ -z "${MYOS_AGENT_NAME:-}" ]; then
+    bash "$REPORT_SCRIPT" "$CWD" >&2 || true
+fi
+
 exit 0
