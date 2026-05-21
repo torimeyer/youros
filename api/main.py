@@ -72,6 +72,13 @@ async def lifespan(app: FastAPI):
     await start_clock_refresher()
     yield
     await notify_chat_clients_on_shutdown()
+    # →1569: cancel background tasks started via _keep() so async tests using
+    # AsyncClient(ASGITransport(app=app)) do not leak tasks across event loops.
+    for t in list(_STARTUP_TASKS):
+        if not t.done():
+            t.cancel()
+    if _STARTUP_TASKS:
+        await asyncio.gather(*_STARTUP_TASKS, return_exceptions=True)
 
 
 app = FastAPI(title="myOS API", lifespan=lifespan)
