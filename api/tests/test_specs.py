@@ -1196,13 +1196,13 @@ def test_ac_prompt_from_roadmap_reframes_subject():
 async def test_spec_counts_returns_unfinished_and_total(
     client, tmp_path, monkeypatch
 ):
-    """GET /api/specs/counts returns unfinished = non-complete specs.
+    """GET /api/specs/counts returns unfinished = ready + in_progress only.
 
-    Anchors the Sidebar badge semantics: draft, ready, and in-progress
-    all count as unfinished; only complete falls off the badge. If this
-    ever drifts (for example, somebody excludes drafts or adds a new
-    terminal state without updating the badge), the Sidebar count will
-    diverge from the Specs page and the user will see a stale badge.
+    Anchors the Sidebar badge semantics for the →1561 3-stage model:
+    ready and in_progress count as unfinished; draft does not. Specs that
+    meet the auto-archive condition (formerly "complete") are moved off the
+    board before list_docs returns them, so they do not affect either count.
+    If this ever drifts the Sidebar badge will diverge from the Specs page.
     """
     from services import ostk as ostk_module
 
@@ -1211,8 +1211,6 @@ async def test_spec_counts_returns_unfinished_and_total(
             {"path": "docs/draft/a.md", "status": "draft"},
             {"path": "docs/spec/b.md", "status": "ready"},
             {"path": "docs/spec/c.md", "status": "in-progress"},
-            {"path": "docs/spec/d.md", "status": "complete"},
-            {"path": "docs/spec/e.md", "status": "complete"},
         ]
 
     monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
@@ -1220,9 +1218,9 @@ async def test_spec_counts_returns_unfinished_and_total(
     res = await client.get("/api/specs/counts")
     assert res.status_code == 200
     body = res.json()
-    # →1512: unfinished = Ready + Building only (draft is not unfinished)
-    assert body["total"] == 5
-    assert body["unfinished"] == 2  # ready + in-progress(=building); draft excluded
+    # →1561: unfinished = ready + in_progress only; draft not counted
+    assert body["total"] == 3
+    assert body["unfinished"] == 2  # ready + in_progress; draft excluded
     assert "by_stage" in body
 
 
@@ -2975,11 +2973,11 @@ async def test_spec_counts_by_stage_breakdown(client, monkeypatch):
     from services import ostk as ostk_module
 
     async def fake_list_docs():
+        # →1561: 3-stage model — draft/ready/in_progress only; no shipped/building
         return [
             {"path": "docs/draft/a.md", "status": "draft", "stage": "draft"},
             {"path": "~/.myos/specs/b.md", "status": "spec", "stage": "ready"},
-            {"path": "~/.myos/specs/c.md", "status": "in-progress", "stage": "building"},
-            {"path": "~/.myos/specs/d.md", "status": "complete", "stage": "shipped"},
+            {"path": "~/.myos/specs/c.md", "status": "in-progress", "stage": "in_progress"},
         ]
 
     monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
@@ -2987,12 +2985,12 @@ async def test_spec_counts_by_stage_breakdown(client, monkeypatch):
     res = await client.get("/api/specs/counts")
     assert res.status_code == 200
     body = res.json()
-    assert body["total"] == 4
-    assert body["unfinished"] == 2  # ready + building
+    assert body["total"] == 3
+    assert body["unfinished"] == 2  # ready + in_progress
     assert body["by_stage"]["draft"] == 1
     assert body["by_stage"]["ready"] == 1
-    assert body["by_stage"]["building"] == 1
-    assert body["by_stage"]["shipped"] == 1
+    assert body["by_stage"]["in_progress"] == 1
+    assert "shipped" not in body["by_stage"]
 
 
 @pytest.mark.asyncio
@@ -3179,31 +3177,34 @@ async def test_promotion_blocked_when_needs_clarity(client, tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_needs_clarity_suppressed_on_shipped_specs(client, tmp_path, monkeypatch):
-    """GET /specs must not set needs_clarity on shipped or archived specs.
+async def test_auto_archived_specs_not_surfaced(client, tmp_path, monkeypatch):
+    """GET /specs silently auto-archives specs that meet the shipped condition.
 
-    Shipped specs that fail readiness checks (e.g. no unchecked AC because
-    all items are done) should not be labelled 'needs clarity' — they are
-    already done. Only draft/ready specs should carry the label.
+    In the →1561 3-stage model there is no "shipped" stage — specs that have
+    all referenced files present and all linked needles closed are silently
+    moved to archive/ and excluded from the list. This test verifies that a
+    spec meeting those conditions (no file refs, no open needles, file exists)
+    does not appear in the docs list returned by GET /api/specs.
     """
     from services import ostk as ostk_module
     from routers import specs as specs_router
 
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
 
-    # A real file on disk with no AC checkboxes — readiness will fail
-    spec_file = tmp_path / "shipped-spec.md"
+    # A real file on disk with no file refs and no needle refs — compute_shipped
+    # will return is_shipped=True, causing the endpoint to auto-archive it.
+    spec_file = tmp_path / "done-spec.md"
     spec_file.write_text(
-        "---\ntitle: Shipped spec\nstatus: shipped\n---\n\n"
-        "All done. No remaining checkboxes.\n"
+        "---\ntitle: Done spec\nstatus: ready\n---\n\n"
+        "All acceptance criteria met. No remaining work.\n"
     )
 
     async def fake_list_docs():
         return [
             {
                 "path": str(spec_file),  # absolute path bypasses PROJECT_ROOT join
-                "title": "Shipped spec",
-                "status": "shipped",
+                "title": "Done spec",
+                "status": "ready",
                 "task_ids": [],
                 "acceptance_criteria": [],
                 "task_summary": {"total": 0, "open": 0, "closed": 0},
@@ -3215,11 +3216,9 @@ async def test_needs_clarity_suppressed_on_shipped_specs(client, tmp_path, monke
     resp = await client.get("/api/specs")
     assert resp.status_code == 200
     docs = resp.json()["docs"]
-    assert len(docs) == 1
-    shipped = docs[0]
-    # needs_clarity must be absent or False on a shipped spec
-    assert not shipped.get("needs_clarity"), (
-        f"shipped spec should not carry needs_clarity, got: {shipped}"
+    # The spec meets auto-archive condition and must not appear in the list
+    assert len(docs) == 0, (
+        f"auto-archived spec should not appear in docs list, got: {docs}"
     )
 
 

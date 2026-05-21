@@ -50,7 +50,7 @@ interface Spec {
   clear_to_build_checks?: ReadinessCheck[];
   needs_clarity?: boolean;
   effective_status?: string;
-  stage?: "draft" | "ready" | "building" | "shipped" | "archived";
+  stage?: "draft" | "ready" | "in_progress";
   husk?: boolean;
   husk_reason?: string;
   missing_files?: string[];
@@ -128,23 +128,20 @@ export function displayStatus(backendStatus: string): "Draft" | "Ready" | "Build
   return "Draft";
 }
 
-type StageFilter = "active" | "all" | "draft" | "ready" | "building" | "shipped" | "archived";
+type StageFilter = "all" | "draft" | "ready" | "in_progress";
 
 function getDocStage(doc: Spec): string {
   if (doc.stage) return doc.stage;
   const s = doc.status;
-  if (s === "complete") return "shipped";
-  if (s === "in-progress") return "building";
+  if (s === "complete" || s === "in-progress") return "in_progress";
   if (s === "ready") return "ready";
   return "draft";
 }
 
 const STAGE_CHIP_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  draft:    { bg: "bg-slate-500/20",  text: "text-slate-400",  label: "Draft" },
-  ready:    { bg: "bg-blue-500/20",   text: "text-blue-400",   label: "Ready" },
-  building: { bg: "bg-yellow-500/20", text: "text-yellow-400", label: "Building" },
-  shipped:  { bg: "bg-green-500/20",  text: "text-green-400",  label: "Shipped ✓" },
-  archived: { bg: "bg-slate-600/20",  text: "text-slate-500",  label: "Archived" },
+  draft:       { bg: "bg-slate-500/20",  text: "text-slate-400",  label: "Draft" },
+  ready:       { bg: "bg-blue-500/20",   text: "text-blue-400",   label: "Ready" },
+  in_progress: { bg: "bg-yellow-500/20", text: "text-yellow-400", label: "In Progress" },
 };
 
 function StageChip({ stage }: { stage: string }) {
@@ -485,7 +482,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const [searchParams] = useSearchParams();
   const focusParam = searchParams.get("focus");
   const specRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const [stageFilter, setStageFilter] = useState<StageFilter>(focusParam ? "all" : "active");
+  const [stageFilter, setStageFilter] = useState<StageFilter>("all");
   const [spawnGeminiSpec, setSpawnGeminiSpec] = useState<{ path: string; title: string; checks?: ReadinessCheck[] } | null>(null);
   const [docs, setDocs] = useState<Spec[]>([]);
   // Pending specs that were optimistically navigated here from
@@ -740,17 +737,6 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
     }
   };
 
-  const handleArchive = async (path: string) => {
-    try {
-      const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-      await api.post(`/specs/${encodedPath}/archive`, {});
-      await fetchDocs();
-      showMessage("Spec archived.");
-    } catch {
-      showMessage("Could not archive this spec. Try again.", "error");
-    }
-  };
-
   const handleDeleteOldHusks = async () => {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const oldHusks = docs.filter(
@@ -834,7 +820,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
         // spec's status flips to "in-progress" on the backend when
         // agents spawn, so leaving the user on "all" or "drafts"
         // would hide the card they were just interacting with.
-        setStageFilter("building");
+        setStageFilter("in_progress");
         // Fetch immediately so spinners and agent chips appear without
         // waiting for the first poll tick. Then fetch once more at
         // 500 ms to catch builder status changes that the backend
@@ -977,23 +963,18 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const stageFiltered =
     stageFilter === "all"
       ? docs
-      : stageFilter === "active"
-        ? docs.filter((d) => ["ready", "building"].includes(getDocStage(d)))
-        : docs.filter((d) => getDocStage(d) === stageFilter);
+      : docs.filter((d) => getDocStage(d) === stageFilter);
 
   const stageCountByKey = (key: string) =>
-    key === "active"
-      ? docs.filter((d) => ["ready", "building"].includes(getDocStage(d))).length
+    key === "all"
+      ? docs.length
       : docs.filter((d) => getDocStage(d) === key).length;
 
   const stagePills: { key: StageFilter; label: string }[] = [
-    { key: "active", label: "Active" },
-    { key: "all",    label: "All" },
-    { key: "draft",  label: "Draft" },
-    { key: "ready",  label: "Ready" },
-    { key: "building", label: "Building" },
-    { key: "shipped",  label: "Shipped" },
-    { key: "archived", label: "Archived" },
+    { key: "all",         label: "All" },
+    { key: "draft",       label: "Draft" },
+    { key: "ready",       label: "Ready" },
+    { key: "in_progress", label: "In Progress" },
   ];
 
   // Husks in the current stage-filtered view
@@ -1031,7 +1012,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
             return (
               <button
                 key={p.key}
-                data-testid={`stage-filter-${p.key === "active" ? "active" : p.key}`}
+                data-testid={`stage-filter-${p.key}`}
                 onClick={() => setStageFilter(p.key)}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   stageFilter === p.key
@@ -1040,7 +1021,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                 }`}
               >
                 {p.label}
-                {count > 0 && p.key !== "active" && (
+                {count > 0 && p.key !== "all" && (
                   <span className="ml-2 text-xs opacity-80">{count}</span>
                 )}
               </button>
@@ -1234,17 +1215,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                             Husk
                           </span>
                         )}
-                        {getDocStage(doc) === "shipped" && (
-                          <button
-                            type="button"
-                            data-testid="archive-spec-button"
-                            onClick={(e) => { e.stopPropagation(); handleArchive(doc.path); }}
-                            className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-600/30 text-slate-400 hover:text-slate-200 transition-colors"
-                            title="Move to archive"
-                          >
-                            Looks shipped — archive?
-                          </button>
-                        )}
+
                       </div>
                       <div className="flex items-center gap-4 flex-shrink-0">
                         {hasTaskSummary && (
