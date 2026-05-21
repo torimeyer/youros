@@ -88,17 +88,6 @@ function writeCache(conversations: Conversation[]) {
   }
 }
 
-function readConnectionCache(): ConnectionState {
-  try {
-    if (typeof window === 'undefined' || !window.localStorage) return 'loading'
-    const raw = window.localStorage.getItem(IMESSAGE_CONNECTION_KEY)
-    if (raw === 'connected' || raw === 'not_connected') return raw
-    return 'loading'
-  } catch {
-    return 'loading'
-  }
-}
-
 function writeConnectionCache(state: 'connected' | 'not_connected') {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return
