@@ -2702,7 +2702,7 @@ def _pick_fresher(a: Optional[Path], b: Optional[Path]) -> Optional[Path]:
     return a if a_t >= b_t else b
 
 
-def _resolve_transcript_source_uncached(name: str) -> Optional[Path]:
+def _resolve_transcript_source_uncached(name: str, skip_transcript_path: bool = False) -> Optional[Path]:
     """Resolve the on-disk transcript for an agent.
 
     Looks in several places and returns the first real hit:
@@ -2795,9 +2795,12 @@ def _resolve_transcript_source_uncached(name: str) -> Optional[Path]:
     # "empty" instead of falling through to the subagent glob scan.
     # Markdown files (.md) are always trusted as-is because they are written
     # directly by the agent spawn path and cannot be misidentified.
+    # skip_transcript_path=True bypasses this step so callers computing
+    # per_agent_transcript_bytes can avoid returning the shared orchestrator
+    # session JSONL that _link_session_jsonl may have stored here (→1549).
     meta = agent_metadata.get(name) or {}
     raw_path = meta.get("transcript_path")
-    if raw_path:
+    if raw_path and not skip_transcript_path:
         candidate = Path(raw_path)
         if candidate.exists() and candidate.stat().st_size > 0:
             suffix = candidate.suffix.lower()
@@ -3393,6 +3396,53 @@ def _get_transcript_metrics(name: str) -> dict:
     metrics = {"transcript_bytes": size, "transcript_lines": lines}
     _transcript_metrics_cache[source] = (size, mtime_ns, metrics)
     return metrics
+
+
+def _is_per_agent_transcript_path(path_str: str) -> bool:
+    """True if transcript_path is a per-agent file, not the shared orchestrator session JSONL.
+
+    Shared session JSONLs live directly under ~/.claude/projects/<label>/<uuid>.jsonl
+    (no subdirectory). Per-agent files are either:
+      - daemon-spawned .md files in transcripts/
+      - subagent JSONLs under .../subagents/agent-*.jsonl
+    """
+    p = Path(path_str)
+    if p.suffix.lower() == ".md":
+        return True
+    if p.suffix.lower() in (".jsonl", ".output") and "subagents" in p.parts:
+        return True
+    return False
+
+
+def _get_per_agent_transcript_bytes(name: str) -> int:
+    """Return the on-disk byte count for THIS agent's own transcript only.
+
+    Unlike transcript_bytes (which reflects the shared orchestrator session
+    JSONL when _link_session_jsonl ran at register time), this always returns
+    a per-agent count. Used by the per_agent_transcript_bytes API field (→1549).
+
+    Priority:
+      1. transcript_path if it's a per-agent file (.md or subagents/ JSONL)
+      2. Resolver steps 3-5 (subagent JSONL scan), skipping the transcript_path
+         shortcut that may point to the shared session file.
+    """
+    meta = agent_metadata.get(name) or {}
+    raw_path = meta.get("transcript_path")
+    if raw_path and _is_per_agent_transcript_path(raw_path):
+        try:
+            p = Path(raw_path)
+            if p.exists():
+                return p.stat().st_size
+        except OSError:
+            pass
+    # transcript_path absent or shared session JSONL — scan for per-agent file.
+    source = _resolve_transcript_source_uncached(name, skip_transcript_path=True)
+    if source is None:
+        return 0
+    try:
+        return source.stat().st_size
+    except OSError:
+        return 0
 
 
 def _format_jsonl_transcript(jsonl_path: Path) -> str:
@@ -4098,8 +4148,18 @@ async def list_agents(
         # With many historical rows (683+), ascending sort returned only ancient
         # rows and made any agent spawned after the 200th-oldest invisible (→1238).
         agents = sorted(agents, key=lambda a: a.get("spawned_at") or "", reverse=True)[:limit]
+    # →1549: annotate every agent row with per_agent_transcript_bytes (per-agent
+    # on-disk JSONL size) and kernel_event_index (the pre-existing shared session
+    # JSONL size, kept for backward compat). transcript_bytes is left as-is so
+    # existing consumers (ghost detection, stall detection, frontend) are unchanged.
+    for _ar in agents:
+        _ar_name = _ar.get("name", "")
+        _ar["kernel_event_index"] = _ar.get("transcript_bytes") or 0
+        _ar["per_agent_transcript_bytes"] = _get_per_agent_transcript_bytes(_ar_name)
     if summary:
-        compact_keys = ("name", "source", "status", "spawned_at", "transcript_bytes", "last_heartbeat_at", "description", "model")
+        compact_keys = ("name", "source", "status", "spawned_at", "transcript_bytes",
+                        "kernel_event_index", "per_agent_transcript_bytes",
+                        "last_heartbeat_at", "description", "model")
         return {"agents": [{k: a.get(k) for k in compact_keys if a.get(k) is not None} for a in agents]}
     from services.agent_filters import is_user_spawned_agent as _is_user_spawned
     try:
