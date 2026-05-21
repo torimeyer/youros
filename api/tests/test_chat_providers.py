@@ -1660,6 +1660,15 @@ class TestGeminiSystemInstruction:
             "Instruction must explicitly forbid local/embedded self-description"
         )
 
+    def test_gemini_system_instruction_includes_fcp_midi_rules(self):
+        """Gemini system prompt must constrain fcp:midi to avoid shell-out and wrong save dir."""
+        from services.chat_providers import GEMINI_SYSTEM_INSTRUCTION
+        lowered = GEMINI_SYSTEM_INSTRUCTION.lower()
+        assert "fcp:midi" in lowered, "must mention fcp:midi plugin"
+        assert "do not shell out" in lowered, "must forbid shell-out rendering"
+        assert "do not install" in lowered, "must forbid system tool installation"
+        assert "app/public/sounds/" in GEMINI_SYSTEM_INSTRUCTION, "must name correct save directory"
+
 
 async def _fake_gemini_stream(messages, websocket):
     """Stand-in for ``chat_service.stream_gemini`` that records its prompt.
