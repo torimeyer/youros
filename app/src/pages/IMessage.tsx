@@ -336,7 +336,7 @@ function ContactPicker({
 }
 
 export default function IMessage() {
-  const [connectionState, setConnectionState] = useState<ConnectionState>(() => readConnectionCache())
+  const [connectionState, setConnectionState] = useState<ConnectionState>('loading')
   const [statusReason, setStatusReason] = useState<string | null>(null)
   const [conversations, setConversations] = useState<Conversation[]>(() => readCache())
   const [loading, setLoading] = useState<boolean>(() => readCache().length === 0)
@@ -508,7 +508,7 @@ export default function IMessage() {
 
   const cardClass = 'bg-slate-900/40 border border-slate-800 p-3 sm:p-4 rounded-xl'
 
-  if (connectionState === 'loading') {
+  if (connectionState === 'loading' && conversations.length === 0) {
     return (
       <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="People" />
