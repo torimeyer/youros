@@ -169,8 +169,18 @@ export default function Gmail() {
       // Keep existing messages on failure so a timeout does not blank
       // the UI. Only clear if we have nothing cached.
       setMessages((prev) => prev.length > 0 ? prev : [])
-      const detail = (err as { response?: { data?: { detail?: { api_not_enabled?: boolean } } } })?.response?.data?.detail
-      if (detail?.api_not_enabled) setApiNotEnabled(true)
+      const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+      if (typeof detail === 'object' && detail !== null) {
+        const d = detail as Record<string, unknown>
+        if (d.api_not_enabled) setApiNotEnabled(true)
+        if (d.needs_reauth) {
+          // Token was revoked; mirror what auth/status will return on next
+          // poll so the ConnectCard appears immediately without waiting.
+          setAuthStatus((prev) =>
+            prev ? { ...prev, needs_reauth: true } : { authenticated: true, needs_reauth: true, email: null, unread_count: 0 }
+          )
+        }
+      }
     }
   }, [])
 

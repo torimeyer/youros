@@ -416,6 +416,31 @@ describe('Gmail ConnectCard (chunk-d migration)', () => {
     expect(screen.getByText(/Gmail access needs to be updated/i)).toBeInTheDocument()
   })
 
+  it('shows ConnectCard when /gmail/messages returns 403 needs_reauth (→1575)', async () => {
+    // Regression guard: when the refresh token is revoked, auth/status
+    // still says needs_reauth=false (it only checks file existence), but
+    // the messages endpoint returns 403 with {needs_reauth: true}. The
+    // frontend must flip the ConnectCard on immediately instead of showing
+    // an empty inbox with no explanation.
+    const reauthError = new ApiError(
+      403,
+      JSON.stringify({ detail: { needs_reauth: true, message: 'Your Google account connection has expired.' } }),
+    )
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/gmail/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/gmail/send_capability')) return Promise.resolve({ has_send_scope: false, reauth_url: null })
+      if (path.includes('/gmail/messages')) return Promise.reject(reauthError)
+      return Promise.resolve({})
+    })
+
+    renderGmail()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-card')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/Gmail access needs to be updated/i)).toBeInTheDocument()
+  })
+
   it('shows a setup guide link in the connect panel and opens the guide modal when clicked', async () => {
     // Regression guard: a person who opens the Gmail tab before finishing
     // their Google Cloud setup needs a way to find the instructions. The

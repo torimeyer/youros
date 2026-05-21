@@ -181,6 +181,7 @@ def _refresh_if_needed(tokens: dict) -> dict:
     try:
         import urllib.request
         import urllib.parse
+        import urllib.error
 
         cfg = _load_client_config()
         payload = urllib.parse.urlencode(
@@ -199,12 +200,35 @@ def _refresh_if_needed(tokens: dict) -> dict:
         with urllib.request.urlopen(req) as resp:
             new_tokens = json.loads(resp.read())
 
+        # Successful refresh clears any previous revoked marker.
+        new_tokens.pop("revoked", None)
         # Merge: keep the refresh token (Google doesn't re-issue it every time).
         new_tokens.setdefault("refresh_token", refresh_token)
         expires_in = new_tokens.get("expires_in", 3600)
         new_tokens["expires_at"] = time.time() + int(expires_in)
         atomic_write_text(TOKEN_PATH, json.dumps(new_tokens))
         return new_tokens
+    except urllib.error.HTTPError as exc:
+        # Read the error body to check for invalid_grant, which means the
+        # refresh token itself was revoked by Google. Persist a flag so the
+        # status endpoint can report needs_reauth without a network call.
+        is_invalid_grant = False
+        try:
+            body = json.loads(exc.read().decode("utf-8", errors="replace"))
+            is_invalid_grant = body.get("error") == "invalid_grant"
+        except Exception:
+            pass
+        if is_invalid_grant:
+            try:
+                revoked = {**tokens, "revoked": True}
+                atomic_write_text(TOKEN_PATH, json.dumps(revoked))
+                _invalidate_google_status_cache()
+            except Exception:
+                pass
+            raise RuntimeError(
+                "invalid_grant: Token has been expired or revoked."
+            ) from exc
+        return tokens
     except Exception:
         return tokens
 
