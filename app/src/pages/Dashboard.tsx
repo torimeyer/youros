@@ -14,6 +14,7 @@ import ConfluenceWidget from '../components/ConfluenceWidget';
 import CompetitiveIntelWidget from '../components/CompetitiveIntelWidget';
 import BlockersWidget from '../components/BlockersWidget';
 import DependencyMapWidget from '../components/DependencyMapWidget';
+import ExecUpdateWidget from '../components/ExecUpdateWidget';
 import { Card, SkeletonLine } from '../components/ui';
 import { api } from '../lib/api';
 import { renderMarkdown } from '../lib/markdown';
@@ -1099,11 +1100,18 @@ export default function Dashboard() {
     </div>
   );
 
+  const renderExecUpdate = () => (
+    <div key="exec_update" data-testid="widget-exec-update">
+      <ExecUpdateWidget />
+    </div>
+  );
+
   const renderDependencyMapWidget = () => (
     <div key="dependency_map_widget" data-testid="widget-dependency-map-widget">
       <DependencyMapWidget />
     </div>
   );
+
 
   // Map of widget id to render function. Only widgets present in
   // dashboardWidgets render, and they render in that order. Widgets above
@@ -1126,6 +1134,7 @@ export default function Dashboard() {
     competitive_intel: renderCompetitiveIntel,
     blockers_widget: renderBlockersWidget,
     dependency_map_widget: renderDependencyMapWidget,
+    exec_update: renderExecUpdate,
   };
 
   const [widgetMenuOpen, setWidgetMenuOpen] = useState<string | null>(null);

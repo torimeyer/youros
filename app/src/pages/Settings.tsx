@@ -191,6 +191,7 @@ export default function Settings() {
 
   const [activeSection, setActiveSection] = useState('section-connections');
   const [expandedConnection, setExpandedConnection] = useState<string | null>(null);
+  const [defaultConfluenceSpace, setDefaultConfluenceSpace] = useState('');
   const [wipeDataError, setWipeDataError] = useState<string | null>(null);
 
 
@@ -279,6 +280,9 @@ export default function Settings() {
           if (adhd.enabled !== undefined) setAdhdEnabled(adhd.enabled);
           if (adhd.check_in_seconds !== undefined) setAdhdCheckInSeconds(adhd.check_in_seconds);
           if (adhd.focus_mode !== undefined) setAdhdFocusMode(adhd.focus_mode);
+        }
+        if (typeof (data as any).default_confluence_space === 'string') {
+          setDefaultConfluenceSpace((data as any).default_confluence_space);
         }
       } catch {
         // API not available, use defaults
@@ -1695,17 +1699,42 @@ export default function Settings() {
               <Icon name={expandedConnection === 'atlassian' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-400 flex-shrink-0" />
             </button>
             {expandedConnection === 'atlassian' && (
-              <div className={cardClass} data-testid="atlassian-connect-section">
-                <div className="flex items-center gap-2 mb-4">
-                  <Icon name="bug_report" size={18} className="text-blue-400" />
-                  <h2 className="text-base font-semibold">Jira & Confluence</h2>
+              <>
+                <div className={cardClass} data-testid="atlassian-connect-section">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Icon name="bug_report" size={18} className="text-blue-400" />
+                    <h2 className="text-base font-semibold">Jira & Confluence</h2>
+                  </div>
+                  <AtlassianSetupCard
+                    darkMode={true}
+                    inputCls="bg-slate-800 border-slate-700 text-white"
+                    subtextCls="text-slate-400"
+                  />
                 </div>
-                <AtlassianSetupCard
-                  darkMode={true}
-                  inputCls="bg-slate-800 border-slate-700 text-white"
-                  subtextCls="text-slate-400"
-                />
-              </div>
+                <div className={cardClass} data-testid="atlassian-preferences-section">
+                  <h2 className="text-base font-semibold mb-3">Confluence preferences</h2>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1" htmlFor="default-confluence-space">
+                      Default Confluence space
+                    </label>
+                    <input
+                      id="default-confluence-space"
+                      type="text"
+                      value={defaultConfluenceSpace}
+                      onChange={(e) => setDefaultConfluenceSpace(e.target.value)}
+                      onBlur={(e) => {
+                        api.patch('/settings', { default_confluence_space: e.target.value.trim() }).catch(() => {});
+                      }}
+                      placeholder="e.g. IAM"
+                      data-testid="default-confluence-space-input"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      Paste a space shortcut (like IAM) or a full Confluence URL. The widget will show pages from this space only.
+                    </p>
+                  </div>
+                </div>
+              </>
             )}
 
             {/* Custom tack commands */}

@@ -14,6 +14,7 @@ import { useLocksStore } from "../stores/locksStore";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 import { AGENT_MARKETPLACE } from "../data/agentMarketplace";
+import { TimePill } from "../lib/timePill";
 import { type AgentInfo, agentTitleParts, isAgentActive, isUserSpawnedAgent, computeAgentGhostState } from "../lib/agentUtils";
 import { renderMarkdown } from "../lib/markdown";
 import { hasSpeakerPrefixes, parseTranscript } from "../lib/transcript";
@@ -4137,6 +4138,8 @@ export default function Agents() {
                           recoveryCount={agent.recovery_count ?? 0}
                           maxRecoveries={agent.max_recoveries ?? 3}
                         />
+                        {/* ETA pill — shows ~Nm when Time primitive has history */}
+                        <TimePill opKind="agent_spawn" />
                         {/* Context pressure indicator (needle 337) */}
                         {contextPressure[agent.name]?.available && contextPressure[agent.name]?.pressure_pct != null && (
                           <span
