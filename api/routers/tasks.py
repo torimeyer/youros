@@ -312,6 +312,10 @@ async def list_tasks(
         try:
             from services.gemini_ready import compute_task_readiness
             for t in all_tasks:
+                if t.get("status") == "closed":
+                    t["clear_to_build"] = False
+                    t["clear_to_build_checks"] = []
+                    continue
                 r = compute_task_readiness(t)
                 t["clear_to_build"] = r.ready
                 t["clear_to_build_checks"] = r.as_dict()["checks"]

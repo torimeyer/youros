@@ -223,15 +223,43 @@ function KanbanColumn({
   )
 }
 
+const KANBAN_SPECS_CACHE_KEY = 'myos.kanbanSpecsCache.v1'
+const KANBAN_TASKS_CACHE_KEY = 'myos.kanbanTasksCache.v1'
+
+function readCache<T>(key: string): T[] {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return []
+    const raw = window.localStorage.getItem(key)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as T[]) : []
+  } catch { return [] }
+}
+
+function writeCache<T>(key: string, data: T[]): void {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return
+    window.localStorage.setItem(key, JSON.stringify(data))
+  } catch { /* quota errors are not fatal */ }
+}
+
 function AllView() {
-  const [specs, setSpecs] = useState<Spec[]>([])
-  const [tasks, setTasks] = useState<Task[]>([])
+  const [specs, setSpecs] = useState<Spec[]>(() => readCache<Spec>(KANBAN_SPECS_CACHE_KEY))
+  const [tasks, setTasks] = useState<Task[]>(() => readCache<Task>(KANBAN_TASKS_CACHE_KEY))
   const [conflicts, setConflicts] = useState<ConflictItem[]>([])
   const [search, setSearch] = useState('')
 
   useEffect(() => {
-    api.get<{ docs: Spec[] }>('/specs').then((r) => setSpecs(r.docs ?? [])).catch(() => {})
-    api.get<{ tasks: Task[] }>('/tasks').then((r) => setTasks(r.tasks ?? [])).catch(() => {})
+    api.get<{ docs: Spec[] }>('/specs').then((r) => {
+      const docs = r.docs ?? []
+      setSpecs(docs)
+      writeCache(KANBAN_SPECS_CACHE_KEY, docs)
+    }).catch(() => {})
+    api.get<{ tasks: Task[] }>('/tasks').then((r) => {
+      const tasks = r.tasks ?? []
+      setTasks(tasks)
+      writeCache(KANBAN_TASKS_CACHE_KEY, tasks)
+    }).catch(() => {})
   }, [])
 
   async function handleBuild(spec: Spec) {

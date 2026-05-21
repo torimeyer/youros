@@ -477,6 +477,25 @@ function SpecsOnboarding() {
   );
 }
 
+const SPECS_CACHE_KEY = 'myos.specsCache.v1'
+
+function readSpecsCache(): Spec[] {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return []
+    const raw = window.localStorage.getItem(SPECS_CACHE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as Spec[]) : []
+  } catch { return [] }
+}
+
+function writeSpecsCache(docs: Spec[]): void {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return
+    window.localStorage.setItem(SPECS_CACHE_KEY, JSON.stringify(docs))
+  } catch { /* quota errors are not fatal */ }
+}
+
 export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -484,7 +503,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const specRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [stageFilter, setStageFilter] = useState<StageFilter>("all");
   const [spawnGeminiSpec, setSpawnGeminiSpec] = useState<{ path: string; title: string; checks?: ReadinessCheck[] } | null>(null);
-  const [docs, setDocs] = useState<Spec[]>([]);
+  const [docs, setDocs] = useState<Spec[]>(() => readSpecsCache());
   // Pending specs that were optimistically navigated here from
   // FilePreviewPane's "Make spec" click. The skeleton rows render in the
   // "all" and "drafts" tabs so the user sees motion the instant they
@@ -609,6 +628,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
           status: normalizeStatus(d.status),
         }));
       setDocs(normalized);
+      writeSpecsCache(normalized);
     } catch {
       // API not available, keep empty state
     }

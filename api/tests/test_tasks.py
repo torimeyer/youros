@@ -4837,3 +4837,53 @@ async def test_task_clarify_apply_404_when_task_missing(client):
             json={"check": "outcome_concrete", "fix": "some fix"},
         )
     assert resp.status_code == 404
+
+
+# --- closed-task readiness skip (→1574 perf) ---
+
+@pytest.mark.asyncio
+async def test_closed_tasks_skip_readiness_check(client):
+    """Closed tasks get clear_to_build=False and empty checks without calling compute_task_readiness."""
+    closed = _make_task(id="c-1", status="closed")
+    open_task = _make_task(id="o-1", status="open")
+
+    readiness_called_for = []
+
+    def fake_readiness(t):
+        readiness_called_for.append(t.get("id"))
+        r = MagicMock()
+        r.ready = False
+        r.as_dict.return_value = {"checks": [{"name": "outcome_concrete", "pass": False}]}
+        return r
+
+    with _patch_ostk_and_labels(
+        list_tasks=AsyncMock(return_value=[closed, open_task])
+    ):
+        with patch("services.gemini_ready.compute_task_readiness", side_effect=fake_readiness):
+            resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 200
+    tasks = {t["id"]: t for t in resp.json()["tasks"]}
+
+    # Closed task: readiness not called, checks are empty
+    assert "c-1" not in readiness_called_for
+    assert tasks["c-1"]["clear_to_build"] is False
+    assert tasks["c-1"]["clear_to_build_checks"] == []
+
+    # Open task: readiness was called
+    assert "o-1" in readiness_called_for
+
+
+@pytest.mark.asyncio
+async def test_closed_tasks_clear_to_build_false_even_if_readiness_import_fails(client):
+    """Closed tasks always get clear_to_build=False regardless of the readiness import path."""
+    closed = _make_task(id="c-2", status="closed")
+
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=[closed])):
+        with patch("services.gemini_ready.compute_task_readiness", side_effect=ImportError("no module")):
+            resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 200
+    tasks = resp.json()["tasks"]
+    assert len(tasks) == 1
+    assert tasks[0]["clear_to_build"] is False
