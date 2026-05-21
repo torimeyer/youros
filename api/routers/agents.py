@@ -672,6 +672,34 @@ MAILBOX_SLOW_POLL_SECONDS = 60
 MAILBOX_CHECK_INTERVAL_SECONDS = MAILBOX_SLOW_POLL_SECONDS
 
 
+def build_spec_claim_block(spec_id: str, agent_name: str) -> str:
+    """Return the spec claim preamble block for terminal agent sessions.
+
+    When a spawn is linked to a spec (spec_id set), this block is appended
+    to the agent's prompt telling it to POST /api/specs/{spec_id}/claim once
+    before starting work. That call flips the Specs page from Ready to
+    Building immediately, covering terminal Claude/Gemini sessions launched
+    outside the wrapper CLI. (→1425)
+
+    Returns empty string when spec_id is falsy so call sites can guard with
+    ``if block: ...`` or just always append (appending "" is a no-op).
+    """
+    if not spec_id:
+        return ""
+    return (
+        "## Spec claim (run before starting implementation)\n\n"
+        f"You are implementing a spec at: {spec_id}\n\n"
+        "Before writing any code, run this command exactly once:\n\n"
+        "```\n"
+        f"curl -sSk -X POST https://127.0.0.1:8000/api/specs/{spec_id}/claim"
+        " -H 'Content-Type: application/json'"
+        f" -d '{{\"source\":\"agent\",\"agent\":\"{agent_name}\"}}'\n"
+        "```\n\n"
+        "This registers you as the active builder so the Specs page shows "
+        "Building instead of Ready. Call it once only."
+    )
+
+
 def agent_mailbox_instruction_short(agent_name: str, model: str = "sonnet") -> str:
     """Return a compact mailbox block for fast-spawning agents.
 
@@ -4793,6 +4821,14 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
             f"{_standing}"
         )
         prompt_with_memory = _standing_block + "\n\n---\n\n" + prompt_with_memory
+
+    # When the spawn is linked to a spec, append a one-time claim instruction
+    # so the agent registers itself before starting work. Covers terminal
+    # Claude/Gemini sessions not launched through the wrapper CLI. (→1425)
+    if body.spec_id:
+        _claim_block = build_spec_claim_block(body.spec_id, body.name)
+        if _claim_block:
+            prompt_with_memory = prompt_with_memory + "\n\n---\n\n" + _claim_block
 
     # Append quality gate instructions from the matching Agentfile.
     # When the caller passes an explicit template name (e.g. template="saa"),
