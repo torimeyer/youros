@@ -1395,6 +1395,98 @@ def test_get_conversations_sync_muted_thread_has_zero_unread(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Unread count: last_read_message_timestamp beats is_read (→1577)
+# ---------------------------------------------------------------------------
+
+_UNREAD_SCHEMA = """
+    CREATE TABLE chat (
+        ROWID INTEGER PRIMARY KEY,
+        guid TEXT,
+        chat_identifier TEXT,
+        display_name TEXT,
+        service_name TEXT,
+        properties BLOB,
+        room_name TEXT,
+        is_archived INTEGER DEFAULT 0,
+        last_read_message_timestamp INTEGER DEFAULT 0
+    );
+    CREATE TABLE message (
+        ROWID INTEGER PRIMARY KEY,
+        text TEXT,
+        date INTEGER,
+        is_from_me INTEGER,
+        is_read INTEGER,
+        service TEXT,
+        handle_id INTEGER
+    );
+    CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
+    CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT);
+"""
+
+
+def _make_unread_db(tmp_path, last_read_ts: int) -> "Path":
+    """Build a minimal chat.db with 3 inbound messages and a given last_read_message_timestamp."""
+    import sqlite3 as _sqlite3
+    db_path = tmp_path / "chat.db"
+    conn = _sqlite3.connect(str(db_path))
+    conn.executescript(_UNREAD_SCHEMA)
+    conn.execute(
+        "INSERT INTO chat VALUES (1,'guid1','+15551234567','','iMessage',NULL,NULL,0,?)",
+        (last_read_ts,),
+    )
+    # Three inbound messages at t=100, t=200, t=300 (all is_read=0 — stale flag)
+    conn.execute("INSERT INTO message VALUES (1,'hi',  100, 0, 0,'iMessage',0)")
+    conn.execute("INSERT INTO message VALUES (2,'hey', 200, 0, 0,'iMessage',0)")
+    conn.execute("INSERT INTO message VALUES (3,'sup', 300, 0, 0,'iMessage',0)")
+    conn.execute("INSERT INTO chat_message_join VALUES (1,1)")
+    conn.execute("INSERT INTO chat_message_join VALUES (1,2)")
+    conn.execute("INSERT INTO chat_message_join VALUES (1,3)")
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+def test_unread_count_uses_last_read_timestamp_when_set(tmp_path):
+    """last_read_message_timestamp=300 covers all messages → unread_count=0.
+
+    Regression test for →1577: is_read in chat.db goes stale. Messages.app
+    uses last_read_message_timestamp; we must prefer it when > 0.
+    """
+    from services import imessage
+    db_path = _make_unread_db(tmp_path, last_read_ts=300)
+    with patch.object(imessage, "CHAT_DB_PATH", db_path):
+        result = imessage.get_conversations_sync(limit=10)
+    assert len(result) == 1
+    assert result[0]["unread_count"] == 0, (
+        "last_read_message_timestamp covers all 3 messages — is_read=0 should be ignored"
+    )
+
+
+def test_unread_count_uses_last_read_timestamp_partial(tmp_path):
+    """last_read_message_timestamp=150 covers msgs at t<=150 → 2 unread (t=200, t=300)."""
+    from services import imessage
+    db_path = _make_unread_db(tmp_path, last_read_ts=150)
+    with patch.object(imessage, "CHAT_DB_PATH", db_path):
+        result = imessage.get_conversations_sync(limit=10)
+    assert len(result) == 1
+    assert result[0]["unread_count"] == 2, (
+        "messages at t=200 and t=300 are after last_read_message_timestamp=150"
+    )
+
+
+def test_unread_count_fallback_to_is_read_when_timestamp_zero(tmp_path):
+    """When last_read_message_timestamp=0, fall back to is_read=0 count."""
+    from services import imessage
+    db_path = _make_unread_db(tmp_path, last_read_ts=0)
+    with patch.object(imessage, "CHAT_DB_PATH", db_path):
+        result = imessage.get_conversations_sync(limit=10)
+    assert len(result) == 1
+    assert result[0]["unread_count"] == 3, (
+        "no timestamp set — all 3 inbound messages with is_read=0 count as unread"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Group chat participant naming (→1326)
 # ---------------------------------------------------------------------------
 

@@ -421,8 +421,12 @@ def get_conversations_sync(limit: int = 50) -> list[dict]:
                 MAX(m.date) as last_message_date,
                 lm_text.text as last_message_text,
                 COUNT(m.ROWID) as message_count,
-                SUM(CASE WHEN m.is_read = 0 AND m.is_from_me = 0
-                    THEN 1 ELSE 0 END) as unread_count
+                SUM(CASE
+                    WHEN m.is_from_me = 1 THEN 0
+                    WHEN c.last_read_message_timestamp > 0 AND m.date > c.last_read_message_timestamp THEN 1
+                    WHEN c.last_read_message_timestamp = 0 AND m.is_read = 0 THEN 1
+                    ELSE 0
+                END) as unread_count
             FROM chat c
             LEFT JOIN chat_message_join cmj ON c.ROWID = cmj.chat_id
             LEFT JOIN message m ON cmj.message_id = m.ROWID

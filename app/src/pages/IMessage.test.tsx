@@ -70,6 +70,47 @@ function setup() {
   )
 }
 
+const CACHE_KEY = 'myos.imessageCache.v1'
+const CONNECTION_KEY = 'myos.imessageConnection.v1'
+
+describe('connection state — bug fixes (→1577)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+
+  it('ignores stale not_connected cache and shows conversations when API returns available', async () => {
+    // Simulate a stale "not connected" in localStorage from a previous visit.
+    localStorage.setItem(CONNECTION_KEY, 'not_connected')
+    setup() // API mock returns available: true
+    // Must eventually show conversations, never show ConnectCard.
+    await waitFor(() => expect(screen.getByText('Jen Wilson')).toBeTruthy())
+    expect(screen.queryByText('iMessage not available')).toBeNull()
+  })
+
+  it('renders cached conversations immediately while status check is in-flight', async () => {
+    // Pre-seed localStorage with cached conversations.
+    localStorage.setItem(CACHE_KEY, JSON.stringify(mockConversations))
+    // Delay the status response so the check is still pending.
+    let resolveStatus!: (v: unknown) => void
+    mockApi.get.mockImplementation((path: string) => {
+      if (path === '/imessage/status') return new Promise(r => { resolveStatus = r })
+      if (path === '/imessage/conversations') return Promise.resolve({ conversations: mockConversations })
+      if (path === '/contacts') return Promise.resolve({ contacts: mockContacts })
+      return Promise.resolve({})
+    })
+    render(
+      <MemoryRouter>
+        <IMessage />
+      </MemoryRouter>
+    )
+    // Conversations from localStorage must be visible before the status check resolves.
+    await waitFor(() => expect(screen.getByText('Jen Wilson')).toBeTruthy())
+    // Clean up: let the status resolve so no pending promises leak.
+    resolveStatus({ available: true, reason: null })
+  })
+})
+
 describe('People page — unified search', () => {
   beforeEach(() => {
     vi.clearAllMocks()
