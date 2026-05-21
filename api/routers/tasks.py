@@ -330,7 +330,7 @@ async def list_tasks(
         if clear_to_build is not None:
             all_tasks = [t for t in all_tasks if t.get("clear_to_build") is clear_to_build]
         return {"tasks": all_tasks}
-    except OstkError as e:
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 

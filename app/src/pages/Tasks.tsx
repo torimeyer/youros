@@ -328,6 +328,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   const [showTaskSharePopover, setShowTaskSharePopover] = useState(false);
   const [undoDelete, setUndoDelete] = useState<{ task: Task; timer: ReturnType<typeof setTimeout> } | null>(null);
   const [closeError, setCloseError] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   // IDs the user has clicked delete on but the 5s undo timer has not
   // fired yet. fetchTasks polls every 3s and the real DELETE only
   // fires on timer expiry, so without this guard the next poll hands
@@ -399,8 +400,10 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         : nextTasks.filter((t) => !pending.has(t.id));
       setTasks(visible);
       writeTasksCache(visible);
+      setFetchError(null);
     } catch (e) {
       console.error("Failed to fetch tasks:", e);
+      setFetchError("Could not load tasks. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -1994,6 +1997,17 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
               onDragEnd={handleDragEnd}
             >
             <div className="flex flex-col gap-2">
+              {fetchError && (
+                <div className="flex items-center justify-between gap-3 rounded-lg bg-red-950 border border-red-800 px-4 py-3 text-sm text-red-300" data-testid="tasks-fetch-error">
+                  <span>{fetchError}</span>
+                  <button
+                    onClick={fetchTasks}
+                    className="shrink-0 rounded px-3 py-1 text-xs font-medium bg-red-800 hover:bg-red-700 text-red-100 transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
               {loading && tasks.length === 0 && (
                 <LoadingState variant="skeleton-list" />
               )}

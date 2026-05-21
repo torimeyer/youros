@@ -540,6 +540,32 @@ async def test_list_tasks_ostk_error(client):
 
 
 @pytest.mark.asyncio
+async def test_list_tasks_json_decode_error_returns_500(client):
+    """json.JSONDecodeError from _run_json must not escape as an unhandled 500.
+
+    Before the fix, _run_json raised JSONDecodeError (not OstkError) when the
+    ostk daemon emitted non-JSON output during startup races. The except clause
+    only caught OstkError so FastAPI returned an opaque 500 with no detail.
+    After the fix, _run_json wraps JSONDecodeError → OstkError, and list_tasks
+    catches Exception, so both paths return a structured 500.
+    """
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(side_effect=ValueError("not json"))):
+        resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "not json"
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_unexpected_exception_returns_500(client):
+    """Any unexpected exception from list_tasks or stores must yield a 500."""
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(side_effect=RuntimeError("boom"))):
+        resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 500
+
+
+@pytest.mark.asyncio
 async def test_list_tasks_closed_sorted_by_closed_at_desc(client):
     mock_tasks = [
         {**_make_task(id="t-old", status="closed"), "closed_at": "2026-01-01T00:00:00Z"},

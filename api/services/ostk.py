@@ -368,7 +368,12 @@ class OstkService:
 
     async def _run_json(self, *args: str) -> Union[list, dict]:
         output = await self._run(*args)
-        return json.loads(output)
+        try:
+            return json.loads(output)
+        except json.JSONDecodeError as exc:
+            raise OstkError(
+                f"invalid JSON from 'ostk {' '.join(args)}': {exc}"
+            ) from exc
 
     # --- Tasks / Needles ---
 
