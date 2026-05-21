@@ -5493,6 +5493,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
             _last_any_byte_at = [time.monotonic()]
             _first_any_byte_at = [time.monotonic()]  # set once; Phase 2 uses this
             _last_model_output_at = [time.monotonic()]
+            _open_tool_calls = [0]  # incremented on tool_use, decremented on tool_result
 
             # stream-json event types that indicate model activity (excluding
             # "assistant" which is handled separately to extract nested text)
@@ -5520,6 +5521,11 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                         limit = _STDOUT_SILENCE_LIMIT_SECONDS
                         hang_kind = "mid-stream"
                     if silent_for > limit:
+                        if _open_tool_calls[0] > 0:
+                            # Subprocess is legitimately waiting for a tool result;
+                            # suppress the kill and let the clock reset when the
+                            # tool_result event arrives.
+                            continue
                         try:
                             with open(str(tpath), "a") as fh:
                                 fh.write(
@@ -5596,10 +5602,13 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                                         elif btype in ("tool_use",):
                                             _had_model_output = True
                                             _last_model_output_at[0] = time.monotonic()
+                                            _open_tool_calls[0] += 1
                                 elif etype in _MODEL_EVENT_TYPES:
                                     # tool_result etc: update watchdog, skip raw JSON in transcript
                                     _had_model_output = True
                                     _last_model_output_at[0] = time.monotonic()
+                                    if etype == "tool_result":
+                                        _open_tool_calls[0] = max(0, _open_tool_calls[0] - 1)
                                 # system/hook events: _had_any_byte already set; skip transcript
                             except (json.JSONDecodeError, UnicodeDecodeError):
                                 # Non-JSON line: write raw (backward compat / plain-text fallback)
