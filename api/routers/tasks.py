@@ -8,6 +8,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from models.schemas import (
     TaskCreate, TaskClose, TaskLink, TaskUpdate, CommitCreate, TaskReorder,
@@ -1372,6 +1373,93 @@ async def delete_task(task_id: str):
     task_source_store.remove_task(task_id)
     trace_event("task_deleted", task_id=task_id, title=deleted_title)
     return {"result": result}
+
+
+# ---------------------------------------------------------------------------
+# Clarity: AI-suggest endpoints (→1565)
+# ---------------------------------------------------------------------------
+
+class TaskClarifySuggestBody(BaseModel):
+    check: str
+
+
+class TaskClarifyApplyBody(BaseModel):
+    check: str
+    fix: str
+
+
+@router.post("/tasks/{task_id}/clarify/suggest")
+async def task_clarify_suggest(task_id: str, body: TaskClarifySuggestBody):
+    """Return an AI-proposed fix for a failing readiness check.
+
+    Does NOT persist anything. The caller previews the suggestion and
+    decides whether to apply it via ``/clarify/apply``.
+    """
+    normalised = task_id if task_id.startswith("→") else f"→{task_id}"
+    try:
+        tasks = await ostk.list_tasks()
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    task = next((t for t in tasks if t.get("id") == normalised), None)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id!r} not found")
+
+    context = {
+        "kind": "task",
+        "title": task.get("title") or "",
+        "description": task.get("description") or "",
+        "file_text": "",
+        "failing_check": body.check,
+    }
+
+    try:
+        from services.clarity_suggest import suggest_clarification
+        result = await suggest_clarification(body.check, context)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI suggestion failed: {e}")
+
+    return result
+
+
+@router.post("/tasks/{task_id}/clarify/apply")
+async def task_clarify_apply(task_id: str, body: TaskClarifyApplyBody):
+    """Append a clarification fix to the task description and re-run readiness.
+
+    Returns the fresh checks dict so the frontend can update the modal live.
+    """
+    normalised = task_id if task_id.startswith("→") else f"→{task_id}"
+    try:
+        tasks = await ostk.list_tasks()
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    task = next((t for t in tasks if t.get("id") == normalised), None)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id!r} not found")
+
+    existing_description = task.get("description") or ""
+    new_description = (existing_description.rstrip() + "\n\n" + body.fix.strip()).strip()
+
+    try:
+        await ostk.update_task_fields(normalised, description=new_description)
+    except OstkError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Re-fetch so readiness sees the updated description
+    try:
+        tasks_fresh = await ostk.list_tasks()
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    task_fresh = next((t for t in tasks_fresh if t.get("id") == normalised), task)
+    task_fresh["description"] = new_description  # ensure in-memory update is reflected
+
+    from services.gemini_ready import compute_task_readiness
+    r = compute_task_readiness(task_fresh)
+    return {"checks": r.as_dict()["checks"], "ready": r.ready}
 
 
 @router.post("/tasks/delete-all")

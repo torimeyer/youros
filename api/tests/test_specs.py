@@ -3288,3 +3288,52 @@ def test_terminal_agent_preamble_omits_claim_when_no_spec():
 
     assert build_spec_claim_block("", "any-agent") == ""
     assert build_spec_claim_block(None, "any-agent") == ""  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# POST /api/specs/{path}/clarity/suggest  (→1565)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_spec_clarity_suggest_returns_proposed_fix(client, tmp_path, monkeypatch):
+    """Returns {proposed_fix, rationale} for a failing spec check."""
+    from unittest.mock import AsyncMock, patch
+    import routers.specs as specs_router
+
+    draft_dir = tmp_path / "docs" / "draft"
+    draft_dir.mkdir(parents=True)
+    spec_file = draft_dir / "my-spec.md"
+    spec_file.write_text("# My Feature\n\nSome body text.\n")
+
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    fake_suggest = AsyncMock(return_value={
+        "proposed_fix": "- [ ] Criterion A\n- [ ] Criterion B",
+        "rationale": "Added missing AC checkboxes",
+    })
+
+    with patch("services.clarity_suggest.suggest_clarification", fake_suggest):
+        resp = await client.post(
+            "/api/specs/docs/draft/my-spec.md/clarity/suggest",
+            json={"check": "has_ac_checkboxes"},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "- [ ] Criterion A" in body["proposed_fix"]
+    assert body["rationale"] == "Added missing AC checkboxes"
+
+
+@pytest.mark.asyncio
+async def test_spec_clarity_suggest_404_when_file_missing(client, tmp_path, monkeypatch):
+    import routers.specs as specs_router
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    # docs/draft/ dir exists but the file does not
+    (tmp_path / "docs" / "draft").mkdir(parents=True)
+
+    resp = await client.post(
+        "/api/specs/docs/draft/nonexistent.md/clarity/suggest",
+        json={"check": "has_ac_checkboxes"},
+    )
+    assert resp.status_code == 404

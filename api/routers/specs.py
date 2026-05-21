@@ -1063,6 +1063,55 @@ async def patch_spec_clarity(spec_path: str, body: SpecClarityFix):
     return {"checks": r.as_dict()["checks"], "ready": r.ready}
 
 
+class SpecClarifySuggestBody(BaseModel):
+    check: str
+
+
+@router.post("/specs/{spec_path:path}/clarity/suggest")
+async def spec_clarity_suggest(spec_path: str, body: SpecClarifySuggestBody):
+    """Return an AI-proposed fix for a failing spec readiness check.
+
+    Does NOT persist anything. The caller previews the suggestion and
+    decides whether to apply it via ``PATCH /specs/{path}/clarity``.
+    """
+    _validate_doc_path(spec_path)
+
+    abs_path = (
+        spec_path
+        if spec_path.startswith("/") or spec_path.startswith("~")
+        else str(Path(PROJECT_ROOT) / spec_path)
+    )
+    abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
+
+    if not Path(abs_path).exists():
+        raise HTTPException(status_code=404, detail="Spec file not found")
+
+    file_text = Path(abs_path).read_text(encoding="utf-8")
+
+    # Extract H1 title for the prompt context
+    import re as _re
+    title_m = _re.search(r"^#\s+(.+)$", file_text, _re.MULTILINE)
+    spec_title = title_m.group(1).strip() if title_m else spec_path
+
+    context = {
+        "kind": "spec",
+        "title": spec_title,
+        "description": file_text[:500],
+        "file_text": file_text,
+        "failing_check": body.check,
+    }
+
+    try:
+        from services.clarity_suggest import suggest_clarification
+        result = await suggest_clarification(body.check, context)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI suggestion failed: {e}")
+
+    return result
+
+
 @router.post("/specs/{spec_path:path}/unlock")
 async def unlock_spec(spec_path: str):
     """Move a ready plan back to draft so the user can edit acceptance criteria.
