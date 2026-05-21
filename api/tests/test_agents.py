@@ -13744,3 +13744,188 @@ async def test_kernel_event_index_still_returned_for_backcompat(tmp_path):
         agent_metadata.pop(name, None)
         _reset_transcript_resolver_cache()
 
+
+# ---------------------------------------------------------------------------
+# →1546: worktree retry reuse tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_check_worktree_reuse_safe_returns_true_when_clean(tmp_path):
+    """_check_worktree_reuse_safe returns (True, "") when HEAD is on the
+    expected branch and there are no unresolved merge conflicts."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from services.spawn_isolation import _check_worktree_reuse_safe
+    from unittest.mock import patch, AsyncMock
+
+    branch = "worktree-agent-test-reuse-1546"
+    expected_ref = f"refs/heads/{branch}"
+
+    # Sequence: symbolic-ref returns branch ref; ls-files --unmerged returns empty
+    git_responses = [
+        (0, expected_ref.encode() + b"\n", b""),  # symbolic-ref
+        (0, b"", b""),                              # ls-files --unmerged
+    ]
+    call_count = 0
+
+    async def _fake_run_git(*args, **kwargs):
+        nonlocal call_count
+        resp = git_responses[call_count]
+        call_count += 1
+        return resp
+
+    with patch("services.spawn_isolation._run_git", side_effect=_fake_run_git):
+        ok, reason = await _check_worktree_reuse_safe(str(tmp_path), branch)
+
+    assert ok is True, f"Expected safe reuse, got reason: {reason}"
+    assert reason == ""
+
+
+@pytest.mark.asyncio
+async def test_check_worktree_reuse_safe_detached_head(tmp_path):
+    """_check_worktree_reuse_safe returns (False, ...) when HEAD is detached
+    (symbolic-ref exits non-zero)."""
+    from services.spawn_isolation import _check_worktree_reuse_safe
+    from unittest.mock import patch
+
+    async def _fake_run_git(*args, **kwargs):
+        return (128, b"", b"fatal: HEAD is not a symbolic ref\n")
+
+    with patch("services.spawn_isolation._run_git", side_effect=_fake_run_git):
+        ok, reason = await _check_worktree_reuse_safe(str(tmp_path), "some-branch")
+
+    assert ok is False
+    assert "detached HEAD" in reason
+
+
+@pytest.mark.asyncio
+async def test_check_worktree_reuse_safe_wrong_branch(tmp_path):
+    """_check_worktree_reuse_safe returns (False, ...) when HEAD is on a
+    different branch than expected."""
+    from services.spawn_isolation import _check_worktree_reuse_safe
+    from unittest.mock import patch
+
+    branch = "worktree-agent-expected"
+    wrong_ref = b"refs/heads/some-other-branch\n"
+
+    async def _fake_run_git(*args, **kwargs):
+        return (0, wrong_ref, b"")
+
+    with patch("services.spawn_isolation._run_git", side_effect=_fake_run_git):
+        ok, reason = await _check_worktree_reuse_safe(str(tmp_path), branch)
+
+    assert ok is False
+    assert "wrong branch" in reason
+
+
+@pytest.mark.asyncio
+async def test_check_worktree_reuse_safe_merge_conflicts(tmp_path):
+    """_check_worktree_reuse_safe returns (False, ...) when there are
+    unresolved merge conflicts in the worktree."""
+    from services.spawn_isolation import _check_worktree_reuse_safe
+    from unittest.mock import patch
+
+    branch = "worktree-agent-conflict-test"
+    expected_ref = f"refs/heads/{branch}"
+    # ls-files --unmerged returns non-empty output (conflicted files)
+    conflict_output = b"100644 abc123 1\tsome/file.py\n100644 def456 2\tsome/file.py\n"
+
+    responses = [
+        (0, expected_ref.encode() + b"\n", b""),  # symbolic-ref OK
+        (0, conflict_output, b""),                 # ls-files --unmerged: conflicts!
+    ]
+    call_count = 0
+
+    async def _fake_run_git(*args, **kwargs):
+        nonlocal call_count
+        resp = responses[call_count]
+        call_count += 1
+        return resp
+
+    with patch("services.spawn_isolation._run_git", side_effect=_fake_run_git):
+        ok, reason = await _check_worktree_reuse_safe(str(tmp_path), branch)
+
+    assert ok is False
+    assert "merge conflict" in reason
+
+
+@pytest.mark.asyncio
+async def test_create_worktree_reuses_abandoned_worktree_when_safe(tmp_path):
+    """create_worktree returns (True, "") without touching git when the
+    abandoned worktree exists and passes safety checks (→1546).
+
+    Verifies the retry-reuse path: branch has unmerged commits (scaffold
+    commit landed but agent was abandoned), worktree dir exists, HEAD is on
+    the expected branch, no merge conflicts. create_worktree must NOT call
+    git worktree remove/add — it must reuse the existing checkout."""
+    from services.spawn_isolation import create_worktree
+    from unittest.mock import patch, AsyncMock
+
+    branch = "worktree-agent-retry-reuse-1546"
+    wt_path = tmp_path / f"agent-retry-reuse-1546"
+    wt_path.mkdir()  # simulate existing worktree directory
+
+    # Track which git operations are called to verify no destructive ops
+    git_calls = []
+
+    async def _fake_has_unmerged(_cwd, _branch):
+        return True  # abandoned agent with scaffold commits
+
+    async def _fake_check_reuse_safe(_wt_path, _branch):
+        return True, ""  # HEAD on branch, no conflicts
+
+    with (
+        patch("services.spawn_isolation._has_unmerged_commits", side_effect=_fake_has_unmerged),
+        patch("services.spawn_isolation._check_worktree_reuse_safe", side_effect=_fake_check_reuse_safe),
+        patch("services.spawn_isolation._run_git") as mock_git,
+    ):
+        ok, err = await create_worktree(
+            project_root=tmp_path,
+            agent_name="retry-reuse-agent-1546",
+            branch=branch,
+            wt_path=wt_path,
+        )
+
+    assert ok is True, f"Expected reuse to succeed, got err: {err}"
+    assert err == ""
+    # Must not call git at all when reusing — no worktree remove/add
+    mock_git.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_worktree_refuses_when_unsafe_to_reuse(tmp_path):
+    """create_worktree returns (False, ...) when the abandoned worktree exists
+    but fails safety checks (e.g. detached HEAD), preserving the unmerged
+    commits rather than silently deleting them."""
+    from services.spawn_isolation import create_worktree
+    from unittest.mock import patch
+
+    branch = "worktree-agent-unsafe-reuse-1546"
+    wt_path = tmp_path / "agent-unsafe-reuse-1546"
+    wt_path.mkdir()
+
+    async def _fake_has_unmerged(_cwd, _branch):
+        return True
+
+    async def _fake_check_reuse_unsafe(_wt_path, _branch):
+        return False, "detached HEAD (symbolic-ref failed)"
+
+    with (
+        patch("services.spawn_isolation._has_unmerged_commits", side_effect=_fake_has_unmerged),
+        patch("services.spawn_isolation._check_worktree_reuse_safe", side_effect=_fake_check_reuse_unsafe),
+        patch("services.spawn_isolation._run_git") as mock_git,
+    ):
+        ok, err = await create_worktree(
+            project_root=tmp_path,
+            agent_name="unsafe-reuse-agent-1546",
+            branch=branch,
+            wt_path=wt_path,
+        )
+
+    assert ok is False
+    assert "not safe to reuse" in err
+    assert "detached HEAD" in err
+    # Must not call git — preserving the worktree is the safe default
+    mock_git.assert_not_called()
+
