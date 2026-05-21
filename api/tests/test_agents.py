@@ -9257,6 +9257,7 @@ def test_builder_template_does_not_opt_in_to_produces_doc():
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(90)
 async def test_spawn_agent_defaults_source_to_api_not_audit(tmp_path, monkeypatch):
     """POST /agents/spawn without a body.source must default to ``api``.
 
