@@ -128,17 +128,27 @@ function formatDate(dateStr: string): string {
   }
 }
 
+function normalizePhoneStr(s: string): string {
+  return s.replace(/\D/g, '')
+}
+
 function ContactPicker({
   value,
   onChange,
+  onSelectConversation,
+  contacts: externalContacts = [],
+  conversations: externalConversations = [],
   className,
 }: {
   value: string
   onChange: (identifier: string) => void
+  onSelectConversation?: (chatId: number) => void
+  contacts?: Contact[]
+  conversations?: Conversation[]
   className?: string
 }) {
   const [inputValue, setInputValue] = useState(value)
-  const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([])
+  const [apiSuggestions, setApiSuggestions] = useState<ContactSuggestion[]>([])
   const [open, setOpen] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -163,35 +173,87 @@ function ContactPicker({
     }
   }, [])
 
+  const localResults = useMemo(() => {
+    if (!inputValue.trim()) return { contacts: [] as Contact[], conversations: [] as Conversation[] }
+    const q = inputValue.toLowerCase()
+    const qDigits = normalizePhoneStr(inputValue)
+
+    const matchedContacts = externalContacts.filter((c) =>
+      c.name.toLowerCase().includes(q) ||
+      c.phone_numbers.some((p) => p.toLowerCase().includes(q) || (qDigits.length >= 3 && normalizePhoneStr(p).includes(qDigits))) ||
+      c.emails.some((e) => e.toLowerCase().includes(q))
+    )
+
+    const matchedConversations = externalConversations.filter((c) =>
+      (c.display_name || '').toLowerCase().includes(q) ||
+      c.identifier.toLowerCase().includes(q) ||
+      (qDigits.length >= 3 && normalizePhoneStr(c.identifier).includes(qDigits))
+    )
+
+    return { contacts: matchedContacts, conversations: matchedConversations }
+  }, [inputValue, externalContacts, externalConversations])
+
+  const hasResults =
+    localResults.contacts.length > 0 ||
+    localResults.conversations.length > 0 ||
+    apiSuggestions.length > 0
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value
     setInputValue(v)
     onChange(v)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (!v.trim()) {
-      setSuggestions([])
+      setApiSuggestions([])
       setOpen(false)
       return
     }
+    setOpen(true)
     debounceRef.current = setTimeout(async () => {
       try {
         const res = await api.get<{ contacts: ContactSuggestion[] }>(
           `/imessage/contacts/search?q=${encodeURIComponent(v)}`
         )
-        const list = res.contacts || []
-        setSuggestions(list)
-        setOpen(list.length > 0)
+        setApiSuggestions(res.contacts || [])
       } catch {
-        setSuggestions([])
-        setOpen(false)
+        setApiSuggestions([])
       }
     }, 200)
   }
 
-  const handleSelect = (c: ContactSuggestion) => {
+  const handleSelectApiSuggestion = (c: ContactSuggestion) => {
     setInputValue(`${c.name} (${c.identifier})`)
     onChange(c.identifier)
-    setSuggestions([])
+    setApiSuggestions([])
+    setOpen(false)
+  }
+
+  const handleSelectLocalContact = (c: Contact) => {
+    const nums = c.phone_numbers.map(normalizePhoneStr).filter(Boolean)
+    const emails = c.emails.map((e) => e.toLowerCase())
+    const match = externalConversations.find((conv) => {
+      const id = conv.identifier.toLowerCase()
+      const idDigits = normalizePhoneStr(conv.identifier)
+      return emails.includes(id) || nums.some((n) => idDigits === n || idDigits.includes(n))
+    })
+    if (match && onSelectConversation) {
+      onSelectConversation(match.id)
+      setInputValue('')
+      onChange('')
+    } else {
+      const identifier = c.phone_numbers[0] || c.emails[0] || ''
+      setInputValue(identifier)
+      onChange(identifier)
+    }
+    setApiSuggestions([])
+    setOpen(false)
+  }
+
+  const handleSelectConversation = (conv: Conversation) => {
+    if (onSelectConversation) onSelectConversation(conv.id)
+    setInputValue('')
+    onChange('')
+    setApiSuggestions([])
     setOpen(false)
   }
 
@@ -202,22 +264,64 @@ function ContactPicker({
         placeholder="Name, phone number, or email"
         value={inputValue}
         onChange={handleChange}
-        onFocus={() => suggestions.length > 0 && setOpen(true)}
+        onFocus={() => hasResults && setOpen(true)}
         className={className}
         data-testid="contact-picker-input"
       />
-      {open && suggestions.length > 0 && (
+      {open && hasResults && (
         <ul
           role="listbox"
           className="absolute z-10 left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden"
         >
-          {suggestions.map((s, i) => (
-            <li key={i}>
+          {localResults.contacts.map((c, i) => (
+            <li key={`lc-${i}`}>
               <button
                 type="button"
                 role="option"
                 aria-selected={false}
-                onClick={() => handleSelect(s)}
+                data-testid="contact-picker-contact-row"
+                onClick={() => handleSelectLocalContact(c)}
+                className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm transition-colors flex items-center gap-2"
+              >
+                <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center shrink-0">
+                  <span className="text-xs font-medium text-slate-300">
+                    {(c.name || '?').charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <span className="font-medium text-white">{c.name}</span>
+                <span className="text-slate-400 text-xs truncate">
+                  {c.phone_numbers[0] || c.emails[0] || ''}
+                </span>
+              </button>
+            </li>
+          ))}
+          {localResults.conversations.map((c) => (
+            <li key={`lv-${c.id}`}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={false}
+                data-testid="contact-picker-convo-row"
+                onClick={() => handleSelectConversation(c)}
+                className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm transition-colors flex items-center gap-2"
+              >
+                <div className="w-6 h-6 rounded-full bg-blue-900/40 flex items-center justify-center shrink-0">
+                  <Icon name="chat_bubble" size={12} className="text-blue-400" />
+                </div>
+                <span className="font-medium text-white truncate">
+                  {c.display_name || c.identifier}
+                </span>
+                <span className="text-slate-400 text-xs truncate">{c.last_message_preview}</span>
+              </button>
+            </li>
+          ))}
+          {apiSuggestions.map((s, i) => (
+            <li key={`api-${i}`}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={false}
+                onClick={() => handleSelectApiSuggestion(s)}
                 className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm transition-colors flex items-center gap-2"
               >
                 <span className="font-medium text-white">{s.name}</span>
@@ -242,13 +346,10 @@ export default function IMessage() {
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
   const locallyReadRef = useRef<Set<number>>(new Set())
 
-  // When a conversation opens or new messages load, jump to the bottom
-  // so the user sees the latest message first (iMessage native behavior).
   useEffect(() => {
     if (messagesLoading) return
     const el = messagesScrollRef.current
     if (!el) return
-    // Next frame so the message list is mounted before we scroll.
     requestAnimationFrame(() => {
       el.scrollTop = el.scrollHeight
     })
@@ -269,7 +370,6 @@ export default function IMessage() {
   const [saveContactError, setSaveContactError] = useState<string | null>(null)
 
   const [contacts, setContacts] = useState<Contact[]>([])
-  const [peopleSearch, setPeopleSearch] = useState('')
 
   const fetchConversations = useCallback(async () => {
     try {
@@ -318,8 +418,6 @@ export default function IMessage() {
       }
       setLoading(false)
     })()
-    // Re-fetch when the window regains focus so messages read in iMessage.app
-    // clear the unread count immediately rather than waiting for the cache TTL.
     window.addEventListener('focus', fetchConversations)
     return () => window.removeEventListener('focus', fetchConversations)
   }, [fetchConversations])
@@ -364,8 +462,6 @@ export default function IMessage() {
     }
   }
 
-
-
   const handleSend = async (recipient: string, text: string) => {
     if (!recipient || !text) return
     setSending(true)
@@ -376,7 +472,6 @@ export default function IMessage() {
       setSendSuccess(true)
       setSendText('')
       setReplyText('')
-      // Refresh conversations to show the sent message
       await fetchConversations()
       if (selectedChat !== null) {
         await fetchMessages(selectedChat)
@@ -410,44 +505,6 @@ export default function IMessage() {
       .then((res) => setContacts(res.contacts || []))
       .catch(() => {})
   }, [])
-
-  const normalizePhone = (s: string) => s.replace(/\D/g, '')
-
-  const peopleResults = useMemo(() => {
-    if (!peopleSearch.trim()) return null
-    const q = peopleSearch.toLowerCase()
-    const qDigits = normalizePhone(peopleSearch)
-
-    const matchedContacts = contacts.filter((c) =>
-      c.name.toLowerCase().includes(q) ||
-      c.phone_numbers.some((p) => p.toLowerCase().includes(q) || (qDigits.length >= 3 && normalizePhone(p).includes(qDigits))) ||
-      c.emails.some((e) => e.toLowerCase().includes(q))
-    )
-
-    const matchedConversations = conversations.filter((c) =>
-      (c.display_name || '').toLowerCase().includes(q) ||
-      c.identifier.toLowerCase().includes(q) ||
-      (qDigits.length >= 3 && normalizePhone(c.identifier).includes(qDigits))
-    )
-
-    return { contacts: matchedContacts, conversations: matchedConversations }
-  }, [peopleSearch, contacts, conversations])
-
-  const handleSelectContact = (contact: Contact) => {
-    const nums = contact.phone_numbers.map(normalizePhone).filter(Boolean)
-    const emails = contact.emails.map((e) => e.toLowerCase())
-    const match = conversations.find((c) => {
-      const id = c.identifier.toLowerCase()
-      const idDigits = normalizePhone(c.identifier)
-      return emails.includes(id) || nums.some((n) => idDigits === n || idDigits.includes(n))
-    })
-    setPeopleSearch('')
-    if (match) {
-      handleSelectChat(match.id)
-    } else {
-      setSendRecipient(contact.phone_numbers[0] || contact.emails[0] || '')
-    }
-  }
 
   const cardClass = 'bg-slate-900/40 border border-slate-800 p-3 sm:p-4 rounded-xl'
 
@@ -492,7 +549,6 @@ export default function IMessage() {
     )
   }
 
-
   return (
     <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="People" />
@@ -508,90 +564,7 @@ export default function IMessage() {
           </div>
         </div>
 
-        {/* Unified people search */}
-        <div className="mb-4">
-          <div className="relative">
-            <Icon
-              name="search"
-              size={16}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none"
-            />
-            <input
-              type="text"
-              placeholder="Search by name or number…"
-              value={peopleSearch}
-              onChange={(e) => setPeopleSearch(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-8 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              data-testid="people-search-input"
-            />
-            {peopleSearch && (
-              <button
-                onClick={() => setPeopleSearch('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-              >
-                <Icon name="close" size={16} />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* People search results */}
-        {peopleResults && (
-          <div className={`${cardClass} mb-4`}>
-            {peopleResults.contacts.length === 0 && peopleResults.conversations.length === 0 ? (
-              <p className="text-sm text-slate-500 text-center py-4">No people found</p>
-            ) : (
-              <div className="divide-y divide-slate-800/60">
-                {peopleResults.contacts.map((c, i) => (
-                  <button
-                    key={`contact-${i}`}
-                    data-testid="people-search-contact-row"
-                    onClick={() => handleSelectContact(c)}
-                    className="w-full text-left px-3 py-3 rounded-lg hover:bg-slate-800/40 transition-colors flex items-center gap-3"
-                  >
-                    <div className="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center shrink-0">
-                      <span className="text-xs font-medium text-slate-300">
-                        {(c.name || '?').charAt(0).toUpperCase()}
-                      </span>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-white truncate">{c.name}</p>
-                      <p className="text-xs text-slate-400 truncate">
-                        {c.phone_numbers[0] || c.emails[0] || ''}
-                      </p>
-                    </div>
-                    <Icon name="chat_bubble_outline" size={14} className="text-slate-600 shrink-0" />
-                  </button>
-                ))}
-                {peopleResults.conversations.map((c) => (
-                  <button
-                    key={`convo-${c.id}`}
-                    data-testid="people-search-convo-row"
-                    onClick={() => { handleSelectChat(c.id); setPeopleSearch('') }}
-                    className="w-full text-left px-3 py-3 rounded-lg hover:bg-slate-800/40 transition-colors flex items-center gap-3"
-                  >
-                    <div className="w-7 h-7 rounded-full bg-blue-900/40 flex items-center justify-center shrink-0">
-                      <Icon name="chat_bubble" size={14} className="text-blue-400" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-white truncate">
-                        {c.display_name || c.identifier}
-                      </p>
-                      <p className="text-xs text-slate-400 truncate">{c.last_message_preview}</p>
-                    </div>
-                    {c.unread_count > 0 && (
-                      <span className="bg-blue-500/20 text-blue-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0">
-                        {c.unread_count}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Search results */}
+        {/* Search results (message search, not people search) */}
         {searchResults !== null && (
           <div className={`${cardClass} mb-4`}>
             <div className="flex items-center gap-2 mb-3">
@@ -636,6 +609,9 @@ export default function IMessage() {
             <ContactPicker
               value={sendRecipient}
               onChange={setSendRecipient}
+              onSelectConversation={handleSelectChat}
+              contacts={contacts}
+              conversations={conversations}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
             <div className="flex gap-2">
