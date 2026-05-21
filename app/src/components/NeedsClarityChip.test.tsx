@@ -5,25 +5,33 @@ import { NeedsClarityChip, type ReadinessCheck } from './NeedsClarityChip'
 vi.mock('../lib/api', () => ({
   api: {
     patch: vi.fn(),
+    post: vi.fn(),
   },
 }))
 
 import { api } from '../lib/api'
 const mockedApiPatch = vi.mocked(api.patch)
+const mockedApiPost = vi.mocked(api.post)
 
+// Reduced spec checks (Clarity-1: 5 checks for specs)
 const failedChecks: ReadinessCheck[] = [
-  { name: 'plan_path_present', passed: true, detail: 'ok' },
-  { name: 'file_exists', passed: true, detail: 'ok' },
   { name: 'has_ac_checkboxes', passed: false, detail: 'no checkboxes found' },
   { name: 'no_vague_ac', passed: true, detail: 'ok' },
   { name: 'has_file_paths', passed: false, detail: 'no file paths found' },
-  { name: 'ac_count_threshold', passed: false, detail: '1 AC items (need ≥3)' },
-  { name: 'referenced_files_exist', passed: false, detail: 'not evaluated' },
+  { name: 'referenced_files_exist', passed: true, detail: 'ok' },
+  { name: 'in_repo_scope', passed: true, detail: 'ok' },
+]
+
+const allPassedChecks: ReadinessCheck[] = failedChecks.map((c) => ({ ...c, passed: true, detail: 'ok' }))
+
+// Task checks (Clarity-1: 3 checks for tasks)
+const taskChecks: ReadinessCheck[] = [
+  { name: 'outcome_concrete', passed: false, detail: 'title is vague' },
   { name: 'in_repo_scope', passed: true, detail: 'ok' },
   { name: 'is_unblocked', passed: true, detail: 'no blockers' },
 ]
 
-const allPassedChecks: ReadinessCheck[] = failedChecks.map((c) => ({ ...c, passed: true, detail: 'ok' }))
+const allPassedTaskChecks: ReadinessCheck[] = taskChecks.map((c) => ({ ...c, passed: true, detail: 'ok' }))
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -81,10 +89,9 @@ describe('NeedsClarityChip', () => {
     expect(screen.getByTestId('needs-clarity-modal')).toBeDefined()
   })
 
-  it('modal lists all 9 checks with pass/fail icons', () => {
+  it('modal lists failing checks with pass/fail icons', () => {
     render(<NeedsClarityChip checks={failedChecks} specPath="docs/draft/foo.md" />)
     fireEvent.click(screen.getByTestId('needs-clarity-chip'))
-    // Failing check labels should appear
     expect(screen.getByText(/has acceptance criteria/i)).toBeDefined()
     expect(screen.getByText(/references real files/i)).toBeDefined()
   })
@@ -92,11 +99,69 @@ describe('NeedsClarityChip', () => {
   it('modal shows textarea for each failing check', () => {
     render(<NeedsClarityChip checks={failedChecks} specPath="docs/draft/foo.md" />)
     fireEvent.click(screen.getByTestId('needs-clarity-chip'))
-    // has_ac_checkboxes is failing — should have a textarea
     expect(screen.getByTestId('clarity-input-has_ac_checkboxes')).toBeDefined()
   })
 
-  it('saving a clarity fix calls PATCH endpoint and refreshes checks', async () => {
+  it('modal shows AI suggest button for each failing check', () => {
+    render(<NeedsClarityChip checks={failedChecks} specPath="docs/draft/foo.md" />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+    expect(screen.getByTestId('clarity-suggest-has_ac_checkboxes')).toBeDefined()
+  })
+
+  it('Accept button replaces Save button label', () => {
+    render(<NeedsClarityChip checks={failedChecks} specPath="docs/draft/foo.md" />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+    const saveBtn = screen.getByTestId('clarity-save-has_ac_checkboxes')
+    expect(saveBtn.textContent).toMatch(/accept/i)
+    expect(saveBtn.textContent).not.toMatch(/^save$/i)
+  })
+
+  it('AI suggest button calls /clarity/suggest and fills textarea', async () => {
+    mockedApiPost.mockResolvedValueOnce({
+      proposed_fix: 'Add acceptance criteria here',
+      rationale: 'The spec is missing checkboxes',
+    })
+
+    render(<NeedsClarityChip checks={failedChecks} specPath="docs/draft/foo.md" />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+    fireEvent.click(screen.getByTestId('clarity-suggest-has_ac_checkboxes'))
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith(
+        '/api/specs/docs/draft/foo.md/clarity/suggest',
+        { check: 'has_ac_checkboxes' }
+      )
+    })
+
+    await waitFor(() => {
+      const textarea = screen.getByTestId('clarity-input-has_ac_checkboxes') as HTMLTextAreaElement
+      expect(textarea.value).toBe('Add acceptance criteria here')
+    })
+
+    expect(screen.getByTestId('clarity-rationale-has_ac_checkboxes').textContent).toContain(
+      'missing checkboxes'
+    )
+  })
+
+  it('AI suggest button in task mode calls /clarify/suggest', async () => {
+    mockedApiPost.mockResolvedValueOnce({
+      proposed_fix: 'Make the title concrete',
+      rationale: 'Title is too vague',
+    })
+
+    render(<NeedsClarityChip mode="task" checks={taskChecks} taskId="task-abc" />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+    fireEvent.click(screen.getByTestId('clarity-suggest-outcome_concrete'))
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith(
+        '/api/tasks/task-abc/clarify/suggest',
+        { check: 'outcome_concrete' }
+      )
+    })
+  })
+
+  it('saving a clarity fix in spec mode calls PATCH endpoint and refreshes checks', async () => {
     const updatedChecks = failedChecks.map((c) =>
       c.name === 'has_ac_checkboxes' ? { ...c, passed: true, detail: 'fixed' } : c
     )
@@ -106,7 +171,7 @@ describe('NeedsClarityChip', () => {
     fireEvent.click(screen.getByTestId('needs-clarity-chip'))
 
     const textarea = screen.getByTestId('clarity-input-has_ac_checkboxes')
-    fireEvent.change(textarea, { target: { value: '- [ ] add login button\n- [ ] add logout button\n- [ ] handle errors' } })
+    fireEvent.change(textarea, { target: { value: '- [ ] add login button\n- [ ] add logout button' } })
 
     const saveBtn = screen.getByTestId('clarity-save-has_ac_checkboxes')
     fireEvent.click(saveBtn)
@@ -117,6 +182,27 @@ describe('NeedsClarityChip', () => {
         { check: 'has_ac_checkboxes', fix: expect.stringContaining('login button') }
       )
     })
+  })
+
+  it('applying a clarity fix in task mode calls POST /clarify/apply', async () => {
+    const updatedChecks = allPassedTaskChecks
+    mockedApiPost.mockResolvedValueOnce({ checks: updatedChecks, ready: true })
+
+    const onResolved = vi.fn()
+    render(<NeedsClarityChip mode="task" checks={taskChecks} taskId="task-abc" onResolved={onResolved} />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+
+    const textarea = screen.getByTestId('clarity-input-outcome_concrete')
+    fireEvent.change(textarea, { target: { value: 'Fix the login button alignment on mobile' } })
+    fireEvent.click(screen.getByTestId('clarity-save-outcome_concrete'))
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith(
+        '/api/tasks/task-abc/clarify/apply',
+        { check: 'outcome_concrete', fix: 'Fix the login button alignment on mobile' }
+      )
+    })
+    await waitFor(() => expect(onResolved).toHaveBeenCalled())
   })
 
   it('modal closes and onResolved fires when all checks pass after save', async () => {
@@ -134,5 +220,18 @@ describe('NeedsClarityChip', () => {
       expect(onResolved).toHaveBeenCalled()
     })
     expect(screen.queryByTestId('needs-clarity-modal')).toBeNull()
+  })
+
+  it('task mode filters hidden legacy checks from render', () => {
+    const checksWithLegacy: ReadinessCheck[] = [
+      { name: 'plan_path_present', passed: false, detail: 'missing' },
+      { name: 'outcome_concrete', passed: false, detail: 'vague' },
+    ]
+    render(<NeedsClarityChip mode="task" checks={checksWithLegacy} taskId="task-xyz" />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+    // outcome_concrete should appear
+    expect(screen.getByTestId('clarity-input-outcome_concrete')).toBeDefined()
+    // plan_path_present should be filtered out
+    expect(screen.queryByTestId('clarity-input-plan_path_present')).toBeNull()
   })
 })

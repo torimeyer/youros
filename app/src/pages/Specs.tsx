@@ -1202,6 +1202,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                         <ClaimsNote claims={claimsMap[doc.path] ?? []} />
                         {doc.needs_clarity && (
                           <NeedsClarityChip
+                            mode="spec"
                             checks={doc.clear_to_build_checks}
                             specPath={doc.path}
                           />
