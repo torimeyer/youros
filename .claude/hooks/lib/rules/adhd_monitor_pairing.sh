@@ -52,6 +52,30 @@ _adhd_monitor_pairing_arm() {
   return 0
 }
 
+# _adhd_monitor_pairing_disarm: called from PostToolUse when Monitor returns an
+# internal error. Kills the keepalive and removes the sentinel so the next Agent
+# spawn is blocked, forcing pclaude to arm a working Monitor or ScheduleWakeup.
+# Args: $1=tool $2=sentinel_path $3=reason
+_adhd_monitor_pairing_disarm() {
+  local tool="${1:-Monitor}" sentinel="${2:-}" reason="${3:-monitor failed}"
+
+  if [ -z "$sentinel" ]; then
+    log_rule_fire "adhd_monitor_pairing" "$tool" "allow" "disarm: no sentinel path"
+    return 0
+  fi
+
+  local pid_file="${sentinel}.keepalive.pid"
+  if [ -f "$pid_file" ]; then
+    local ka_pid
+    ka_pid=$(cat "$pid_file" 2>/dev/null || true)
+    [ -n "$ka_pid" ] && kill "$ka_pid" 2>/dev/null || true
+    rm -f "$pid_file" 2>/dev/null || true
+  fi
+
+  rm -f "$sentinel" 2>/dev/null || true
+  log_rule_fire "adhd_monitor_pairing" "$tool" "warn" "sentinel disarmed (${reason})"
+}
+
 # _adhd_monitor_pairing_check: called when Agent tool fires.
 # Denies if ADHD mode active and no Monitor was armed recently.
 # Args: $1=tool $2=sentinel_path $3=sentinel_age_seconds (-1 if absent)
