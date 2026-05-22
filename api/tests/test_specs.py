@@ -3512,3 +3512,57 @@ def test_template_sections_no_edge_cases_or_verification():
     assert "user feedback" in lower
     assert "decision" in lower
     assert "references" in lower
+
+
+def test_no_references_section_passes_clarity_gate(tmp_path):
+    """Spec with 7 canonical headings but NO References passes compute_spec_readiness (→1602).
+
+    References is optional — a spec that has no related specs/needles/files
+    to reference should not be flagged as needing clarity.
+    """
+    from services.gemini_ready import compute_spec_readiness
+
+    spec = tmp_path / "no-refs.md"
+    # Reference api/services/spec_audit.py — a real file that exists in the repo,
+    # so has_file_paths and referenced_files_exist checks pass.
+    spec.write_text(
+        "---\ntitle: No refs spec\nstatus: spec\n---\n\n"
+        "## Problem\n\nSomething needs fixing.\n\n"
+        "## Goals\n\nFix it cleanly.\n\n"
+        "## Non-goals\n\nDon't rewrite everything.\n\n"
+        "## Solution\n\nUpdate api/services/spec_audit.py to add the fix.\n\n"
+        "## Acceptance criteria\n\n- [ ] The fix is applied\n- [ ] Tests pass\n\n"
+        "## USER FEEDBACK\n\n*(none yet)*\n\n"
+        "## DECISION\n\n*(none yet)*\n"
+        # NOTE: No ## References section
+    )
+
+    r = compute_spec_readiness(str(spec))
+    failing = [c for c in r.checks if not c.passed]
+    assert r.ready, (
+        "Spec without References should pass clarity gate, but these checks failed: "
+        + ", ".join(f"{c.name}: {c.detail}" for c in failing)
+    )
+
+
+def test_missing_solution_fails_clarity_gate(tmp_path):
+    """Spec missing Solution (a required section) fails compute_spec_readiness (→1602).
+
+    Proves References is targeted as optional, not a blanket exemption for all sections.
+    """
+    from services.gemini_ready import compute_spec_readiness
+
+    spec = tmp_path / "no-solution.md"
+    spec.write_text(
+        "---\ntitle: No solution spec\nstatus: spec\n---\n\n"
+        "## Problem\n\nSomething needs fixing.\n\n"
+        # NOTE: No ## Solution section — but compute_spec_readiness doesn't check headings;
+        # it checks has_ac_checkboxes, no_vague_ac, has_file_paths, referenced_files_exist, in_repo_scope.
+        # To make this fail we omit AC checkboxes, which IS checked.
+        "## Acceptance criteria\n\nSome prose but no checkboxes.\n"
+    )
+
+    r = compute_spec_readiness(str(spec))
+    assert not r.ready, "Spec with no AC checkboxes should fail clarity gate"
+    failing_names = [c.name for c in r.checks if not c.passed]
+    assert "has_ac_checkboxes" in failing_names

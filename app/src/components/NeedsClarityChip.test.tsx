@@ -301,4 +301,41 @@ describe('NeedsClarityChip', () => {
     const textarea = screen.getByTestId('clarity-input-has_file_paths') as HTMLTextAreaElement
     expect(textarea.placeholder).toContain('api/routers/foo.py')
   })
+
+  // →1602: merged AC row
+  it('collapses has_ac_checkboxes and no_vague_ac into one Acceptance criteria row', () => {
+    const checks: ReadinessCheck[] = [
+      { name: 'has_ac_checkboxes', passed: false, detail: "no '- [ ]' lines found" },
+      { name: 'no_vague_ac', passed: false, detail: 'not evaluated — no AC' },
+      { name: 'has_file_paths', passed: true, detail: 'ok' },
+      { name: 'in_repo_scope', passed: true, detail: 'ok' },
+    ]
+    render(<NeedsClarityChip checks={checks} specPath="docs/draft/foo.md" />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+
+    // Only one row labeled "Acceptance criteria"
+    expect(screen.getAllByText(/acceptance criteria/i)).toHaveLength(1)
+    // The old separate label must not appear
+    expect(screen.queryByText(/no vague acceptance criteria/i)).toBeNull()
+    // Detail from the primary failing check
+    expect(screen.getByText(/no '- \[ \]' lines found/i)).toBeDefined()
+  })
+
+  it('merged AC row shows FAIL with vague-token reason when AC exist but contain TBD', () => {
+    const checks: ReadinessCheck[] = [
+      { name: 'has_ac_checkboxes', passed: true, detail: '2 unchecked AC items' },
+      { name: 'no_vague_ac', passed: false, detail: 'vague tokens in: implement TBD feature' },
+      { name: 'has_file_paths', passed: true, detail: 'ok' },
+      { name: 'in_repo_scope', passed: true, detail: 'ok' },
+    ]
+    render(<NeedsClarityChip checks={checks} specPath="docs/draft/foo.md" />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+
+    // One merged row labeled "Acceptance criteria"
+    expect(screen.getAllByText(/acceptance criteria/i)).toHaveLength(1)
+    // Shows the vague-token reason
+    expect(screen.getByText(/vague tokens in: implement TBD feature/i)).toBeDefined()
+    // Chip is still in failing state (amber), not green
+    expect(screen.getByTestId('needs-clarity-chip').className).toMatch(/amber/)
+  })
 })
