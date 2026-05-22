@@ -1918,6 +1918,53 @@ describe('SpecBody', () => {
     render(<SpecBody body={'# Title\nsome text'} />)
     expect(screen.getByRole('heading', { level: 2, name: 'Title' })).toBeInTheDocument()
   })
+
+  it('renders fenced code block inside a <pre> element with monospace and whitespace-pre classes', () => {
+    const body = '## Flow\n```\n┌─────────┐\n│  start  │\n└─────────┘\n```\nafter'
+    const { container } = render(<SpecBody body={body} />)
+    const pre = container.querySelector('pre')
+    expect(pre).not.toBeNull()
+    expect(pre!.className).toContain('font-mono')
+    expect(pre!.className).toContain('whitespace-pre')
+    expect(pre!.className).toContain('overflow-x-auto')
+  })
+
+  it('preserves ASCII art alignment inside fenced code block', () => {
+    const asciiArt = '┌─────────┐\n│  start  │\n│         │\n└─────────┘'
+    const body = '```\n' + asciiArt + '\n```'
+    const { container } = render(<SpecBody body={body} />)
+    const code = container.querySelector('pre code')
+    expect(code).not.toBeNull()
+    expect(code!.textContent).toBe(asciiArt)
+  })
+
+  it('does not render the ``` fence markers as visible text', () => {
+    const body = '```\nsome code\n```'
+    render(<SpecBody body={body} />)
+    expect(screen.queryByText('```')).toBeNull()
+  })
+
+  it('renders content after a code block normally', () => {
+    const body = '```\ncode here\n```\nNormal paragraph'
+    render(<SpecBody body={body} />)
+    expect(screen.getByText('Normal paragraph')).toBeInTheDocument()
+  })
+
+  it('handles fenced code block with language tag (```text)', () => {
+    const body = '```text\nline one\nline two\n```'
+    const { container } = render(<SpecBody body={body} />)
+    const code = container.querySelector('pre code')
+    expect(code).not.toBeNull()
+    expect(code!.textContent).toBe('line one\nline two')
+  })
+
+  it('flushes an unclosed code block at end of document', () => {
+    const body = '```\nunclosed block\nmore lines'
+    const { container } = render(<SpecBody body={body} />)
+    const pre = container.querySelector('pre')
+    expect(pre).not.toBeNull()
+    expect(pre!.textContent).toContain('unclosed block')
+  })
 })
 
 describe('Specs focus from kanban link (→1501)', () => {

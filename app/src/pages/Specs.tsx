@@ -229,12 +229,43 @@ function TaskProgressBar({ summary }: { summary: TaskSummary }) {
 
 export function SpecBody({ body }: { body: string }) {
   // Render markdown body as simple formatted text.
-  // Splits on headings and renders paragraphs, bold, inline code, and lists.
+  // Splits on headings and renders paragraphs, bold, inline code, lists, and fenced code blocks.
   const lines = body.split("\n");
   const elements: React.ReactNode[] = [];
   let key = 0;
+  let inCodeBlock = false;
+  const codeLines: string[] = [];
+
+  const flushCodeBlock = () => {
+    elements.push(
+      <pre
+        key={key++}
+        className="bg-slate-900 border border-slate-700 rounded p-3 my-2 overflow-x-auto font-mono text-xs text-slate-200 whitespace-pre"
+      >
+        <code>{codeLines.join("\n")}</code>
+      </pre>
+    );
+    codeLines.length = 0;
+  };
 
   for (const line of lines) {
+    // Fenced code block boundary (``` with optional language tag)
+    if (line.trimStart().startsWith("```")) {
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+      } else {
+        inCodeBlock = false;
+        flushCodeBlock();
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      // Preserve exact line content — no trimming — so ASCII art stays aligned
+      codeLines.push(line);
+      continue;
+    }
+
     const trimmed = line.trimStart();
     if (trimmed.startsWith("### ")) {
       elements.push(
@@ -272,6 +303,11 @@ export function SpecBody({ body }: { body: string }) {
         </p>
       );
     }
+  }
+
+  // Flush unclosed code block (malformed markdown)
+  if (inCodeBlock && codeLines.length > 0) {
+    flushCodeBlock();
   }
 
   return <div className="space-y-0.5">{elements}</div>;
