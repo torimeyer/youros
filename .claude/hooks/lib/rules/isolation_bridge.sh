@@ -226,7 +226,28 @@ PY
     deny "task-isolation-bridge could not build spawn body."
   fi
 
-  # POST to backend
+  # Fast health probe: 3 retries at 300 ms each — survives a transient connect blip
+  # on a healthy backend without false-blocking the spawn. (→self-heal)
+  local _PROBE_CODE="000"
+  for _probe in 1 2 3; do
+    _PROBE_CODE=$(curl --silent --insecure --connect-timeout 1 -m 2 \
+        -o /dev/null -w '%{http_code}' "${API_BASE}/api/health" 2>/dev/null)
+    [ "$_PROBE_CODE" = "200" ] && break
+    [ "$_probe" -lt 3 ] && sleep 0.3
+  done
+  if [ "$_PROBE_CODE" != "200" ]; then
+    local _CPD="${CLAUDE_PROJECT_DIR:-.}"
+    if [ -d "${_CPD}/.ostk" ]; then
+      log_rule_fire "isolation_bridge" "$tool" "block" "backend health probe failed 3× (has .ostk)"
+      deny "myOS backend unreachable at ${API_BASE}. Native Task would leak subagent commits into the parent checkout because no .ostk/ is created in the worktree without the REST spawn path (→1200). Restart the backend (scripts/dev-backend.sh) and retry."
+    fi
+    echo "task-isolation-bridge: myOS backend unreachable at ${API_BASE} after 3 health probes." >&2
+    echo "Allowing native Task tool. Worktree isolation skipped — sequential edits only." >&2
+    log_rule_fire "isolation_bridge" "$tool" "allow" "backend unreachable after 3 probes, fail-open (no .ostk)"
+    return 0
+  fi
+
+  # POST to backend (probe already confirmed backend is alive)
   local RESP_BODY HTTP_CODE
   RESP_BODY=$(mktemp)
   HTTP_CODE="000"
