@@ -3487,13 +3487,13 @@ describe('ChatPanel', () => {
       expect(screen.queryByTestId('status-check-btn')).toBeNull()
     })
 
-    it('clicking status-check-btn calls api.get for transcript_tail and inserts a system bubble', async () => {
+    it('clicking status-check-btn calls api.get for transcript-tail and inserts a system bubble', async () => {
       const { api } = await import('../lib/api')
       const mockGet = vi.mocked(api.get)
-      // Route by URL: transcript_tail returns content; all others return default tabs shape
+      // Route by URL: transcript-tail returns content; all others return default tabs shape
       mockGet.mockImplementation(async (url: string) => {
-        if (typeof url === 'string' && url.includes('transcript_tail')) {
-          return { lines: ['line 1', 'line 2', 'line 3'], agent: 'my-agent-abc', found: true }
+        if (typeof url === 'string' && url.includes('transcript-tail')) {
+          return { lines: ['line 1', 'line 2', 'line 3'], name: 'my-agent-abc', transcript_path: '/tmp/my-agent-abc.md', lines_returned: 3 }
         }
         return { tabs: [], active_tab_id: '' }
       })
@@ -3510,7 +3510,7 @@ describe('ChatPanel', () => {
       const btn = screen.getByTestId('status-check-btn')
       await act(async () => { fireEvent.click(btn) })
 
-      expect(mockGet).toHaveBeenCalledWith('/api/agents/my-agent-abc/transcript_tail')
+      expect(mockGet).toHaveBeenCalledWith('/api/agents/my-agent-abc/transcript-tail')
 
       await waitFor(() => {
         const bubbles = screen.getAllByTestId(/^bubble-/)

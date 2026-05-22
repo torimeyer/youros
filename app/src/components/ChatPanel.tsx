@@ -2273,8 +2273,8 @@ export function ChatPanel() {
     setInput('')
   }
 
-  // →1454: Ask the active running agent what it's currently doing.
-  // Fetches the last ~80 lines of the agent's transcript and surfaces
+  // →1593: Ask the active running agent what it's currently doing.
+  // Fetches the last ~20 lines of the agent's transcript and surfaces
   // them as a system bubble in the chat so you never have to leave the conversation.
   const handleStatusCheck = async () => {
     const activeAgent = runningAgentsList[0]
@@ -2284,8 +2284,8 @@ export function ChatPanel() {
     const pendingBubble = { id: pendingId, role: 'assistant' as const, content: `Checking in with ${agentName}...`, model: 'myos' }
     setMessages(prev => [...prev, pendingBubble])
     try {
-      const data = await api.get<{ found: boolean; lines: string[]; agent: string }>(`/api/agents/${agentName}/transcript_tail`)
-      if (!data.found || data.lines.length === 0) {
+      const data = await api.get<{ lines: string[]; name: string; transcript_path: string; lines_returned: number }>(`/api/agents/${agentName}/transcript-tail`)
+      if (data.lines.length === 0) {
         setMessages(prev => prev.map(m =>
           m.id === pendingId
             ? { ...m, content: `No activity found for ${agentName} yet.` }
@@ -2299,10 +2299,13 @@ export function ChatPanel() {
             : m
         ))
       }
-    } catch {
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status
       setMessages(prev => prev.map(m =>
         m.id === pendingId
-          ? { ...m, content: `Could not reach ${agentName} right now.`, isError: true }
+          ? status === 404
+            ? { ...m, content: `No activity found for ${agentName} yet.` }
+            : { ...m, content: `Could not reach ${agentName} right now.`, isError: true }
           : m
       ))
     }
