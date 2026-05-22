@@ -112,7 +112,7 @@ _adhd_monitor_pairing_check() {
     fi
   fi
 
-  local reason="ADHD mode is active. Arm a Monitor in the same turn as this Agent spawn (per feedback_adhd_mode_auto_arm_monitor.md). Add a Monitor call BEFORE this Agent call — default 60s heartbeat polling /api/agents. No Monitor detected in the last ${ttl:-120} seconds for this session."
+  local reason="ADHD mode is active. No Monitor detected in the last ${ttl:-120} seconds for this session. Add a Monitor call in the same turn or the previous turn before this Agent spawn (per feedback_adhd_mode_auto_arm_monitor.md). Recommended command: bash scripts/monitor-agent.sh <agent-name> — uses the correct port (https://127.0.0.1:8000) and handles JSON parse errors. Avoid custom poll loops on http://localhost:8765 which use the wrong port."
   log_rule_fire "adhd_monitor_pairing" "$tool" "block" "ADHD mode active, no fresh Monitor sentinel"
   deny "$reason"
 }
