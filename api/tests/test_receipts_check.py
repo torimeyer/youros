@@ -27,46 +27,77 @@ class TestNoTrigger:
 
 
 class TestMissing:
-    """Trigger found, no evidence → 'missing'."""
+    """Trigger found + code-context signal, no evidence → 'missing'."""
 
     def test_done_no_hash(self):
-        assert _check("The feature is done.", []) == "missing"
+        assert _check("The feature is done. See `api/feature.py`.", []) == "missing"
 
     def test_fixed_no_evidence(self):
-        assert _check("I've fixed the bug.", []) == "missing"
+        assert _check("I've fixed the `bug` in chat.py.", []) == "missing"
 
     def test_shipped_no_evidence(self):
-        assert _check("The release is shipped.", []) == "missing"
+        assert _check("The release is shipped. Branch: release/v1.2", []) == "missing"
 
     def test_complete_no_evidence(self):
-        assert _check("Implementation is complete.", []) == "missing"
+        assert _check("Implementation is complete. See `api/services/chat.py`.", []) == "missing"
 
     def test_resolved_no_evidence(self):
-        assert _check("The issue is resolved.", []) == "missing"
+        assert _check("The issue is resolved. See `fix.py`.", []) == "missing"
 
     def test_passing_no_evidence(self):
-        assert _check("All tests are passing.", []) == "missing"
+        assert _check("All tests are passing. See `tests/test_foo.py`.", []) == "missing"
 
     def test_landed_no_evidence(self):
+        # "commit" in the text is itself a code-context signal.
         assert _check("The commit has landed.", []) == "missing"
 
     def test_committed_no_evidence(self):
+        # "committed" starts with the "commit" code-context token.
         assert _check("Changes committed successfully.", []) == "missing"
 
     def test_merged_no_evidence(self):
+        # "PR" is a code-context signal.
         assert _check("The PR has been merged.", []) == "missing"
 
-    def test_uppercase_trigger(self):
-        assert _check("DONE.", []) == "missing"
+    def test_uppercase_trigger_with_code_signal(self):
+        assert _check("DONE. See `api/foo.py`.", []) == "missing"
 
-    def test_mixed_case_trigger(self):
-        assert _check("Fixed the issue.", []) == "missing"
+    def test_mixed_case_trigger_with_code_signal(self):
+        assert _check("Fixed the `issue`.", []) == "missing"
 
     def test_empty_tool_results_does_not_help(self):
-        assert _check("done", []) == "missing"
+        assert _check("commit done", []) == "missing"
 
     def test_irrelevant_tool_results_still_missing(self):
-        assert _check("done", ["some output without hashes or test lines"]) == "missing"
+        assert _check("PR done", ["some output without hashes or test lines"]) == "missing"
+
+
+class TestNoCodeContext:
+    """Trigger found but no code-context signals → 'no_trigger' (→1608 false-positive fix)."""
+
+    def test_shipped_no_code_signals(self):
+        # The failing case: brainstorming reply mentioning "shipped" with no code context.
+        assert _check("Morning kickoff — pulls calendar, needles, agent activity. Shipped this quarter.", []) == "no_trigger"
+
+    def test_shipped_to_version_no_code_signals(self):
+        assert _check("The feature shipped to v1.2.3 last week.", []) == "no_trigger"
+
+    def test_done_no_code_signals(self):
+        assert _check("The feature is done.", []) == "no_trigger"
+
+    def test_fixed_no_code_signals(self):
+        assert _check("I've fixed the bug.", []) == "no_trigger"
+
+    def test_complete_no_code_signals(self):
+        assert _check("Implementation is complete.", []) == "no_trigger"
+
+    def test_uppercase_trigger_no_code_signals(self):
+        assert _check("DONE.", []) == "no_trigger"
+
+    def test_tool_results_dont_supply_code_context(self):
+        # Tool results with file paths (but no file:line evidence) don't make a no-code
+        # brainstorming reply warn — code context is checked on message_text only.
+        assert _check("The feature is done.", ["api/services/chat.py — some output"]) == "no_trigger"
 
 
 class TestPresent:
@@ -105,8 +136,9 @@ class TestPresent:
 
     def test_tool_result_capped_at_500_chars(self):
         # Evidence at position >500 chars should NOT count.
+        # Use "PR done" so the code-context gate passes; only the cap test matters.
         padding = "x" * 501
-        assert _check("done", [padding + "abc1234 commit"]) == "missing"
+        assert _check("PR done", [padding + "abc1234 commit"]) == "missing"
 
     def test_multiple_tool_results_any_evidence_counts(self):
         assert _check("fixed", ["no evidence", "22 passed"]) == "present"
