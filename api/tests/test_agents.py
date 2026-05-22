@@ -12140,6 +12140,14 @@ async def test_spawn_filenotfound_returns_actionable_500_not_opaque_400(
     path. NEVER a bare 400 with ``[Errno 2] No such file or directory``
     and no filename (the original bug)."""
     import routers.agents as agents_mod
+    from services.spawn_throttle import reset_for_testing as _reset_throttle
+
+    # Prevent the burst-rate throttle from blocking this test when prior
+    # spawn tests have consumed the window quota. Without this reset the
+    # throttle can hold the request for up to 26s, keeping
+    # _guard_real_store_writes active long enough for an external process
+    # to modify issues.jsonl — causing the isolation guard to fail (→1590).
+    _reset_throttle()
 
     # Force create_subprocess_exec to raise FileNotFoundError with no
     # filename, exactly matching the production failure mode where the
@@ -12160,21 +12168,25 @@ async def test_spawn_filenotfound_returns_actionable_500_not_opaque_400(
     )
     (tmp_path / "transcripts").mkdir(exist_ok=True)
 
-    with patch("asyncio.create_subprocess_exec", side_effect=_boom):
-        with patch("routers.agents.ostk._run", new_callable=AsyncMock):
-            transport = ASGITransport(app=app)
-            async with AsyncClient(
-                transport=transport, base_url="http://test"
-            ) as client:
-                resp = await client.post(
-                    "/api/agents/spawn",
-                    json={
-                        "name": "enoent-regression-1",
-                        "prompt": "hi",
-                        "model": "haiku",
-                        "budget": 1.0,
-                    },
-                )
+    try:
+        with patch("asyncio.create_subprocess_exec", side_effect=_boom):
+            with patch("routers.agents.ostk._run", new_callable=AsyncMock):
+                transport = ASGITransport(app=app)
+                async with AsyncClient(
+                    transport=transport, base_url="http://test"
+                ) as client:
+                    resp = await client.post(
+                        "/api/agents/spawn",
+                        json={
+                            "name": "enoent-regression-1",
+                            "prompt": "hi",
+                            "model": "haiku",
+                            "budget": 1.0,
+                        },
+                    )
+    finally:
+        agents_mod.agent_metadata.pop("enoent-regression-1", None)
+        agents_mod.active_agents.pop("enoent-regression-1", None)
 
     # Primary regression: NEVER a bare 400 with opaque ENOENT detail.
     assert resp.status_code != 400, (
@@ -12198,6 +12210,11 @@ async def test_spawn_retries_with_fresh_claude_bin_when_cached_path_is_stale(
     future refactor cannot silently drop the retry and force every
     developer to restart uvicorn after a PATH change."""
     import routers.agents as agents_mod
+    from services.spawn_throttle import reset_for_testing as _reset_throttle
+
+    # Clear burst-rate throttle state so this test does not wait for
+    # a slot left over from earlier spawn tests (→1590).
+    _reset_throttle()
 
     # First exec raises ENOENT (stale path), second succeeds.
     call_count = {"n": 0}
