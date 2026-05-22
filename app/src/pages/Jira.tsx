@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { formatDate } from '../lib/time'
 import { useParams, useNavigate } from 'react-router-dom'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
@@ -31,13 +32,7 @@ interface JiraIssueDetail extends JiraIssue {
   comments: { author: string; body_html: string; created: string }[]
 }
 
-function formatDate(dateStr: string): string {
-  if (!dateStr) return ''
-  try {
-    return new Date(dateStr).toLocaleDateString([], { month: 'short', day: 'numeric' })
-  } catch {
-    return dateStr
-  }
+
 }
 
 function StatusPill({ status }: { status: string }) {

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Icon from './Icon';
 import { Card, SkeletonLine } from './ui';
 import { api } from '../lib/api';
+import { formatRelative } from '../lib/time';
 
 interface Spec {
   path: string;
@@ -18,25 +19,7 @@ interface RecentSpecsResponse {
   docs: Spec[];
 }
 
-function formatTimestamp(dateStr: string): string {
-  if (!dateStr) return 'Unknown';
-  try {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} min ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  } catch {
-    return 'Unknown';
-  }
 }
 
 export default function RecentSpecsWidget() {
@@ -103,7 +86,7 @@ export default function RecentSpecsWidget() {
           <div className="space-y-2">
             {specs.map((spec) => {
               const timestamp = spec.created_at || spec.promoted_at || '';
-              const timeLabel = formatTimestamp(timestamp);
+              const timeLabel = formatRelative(timestamp);
               const isPlan = spec.status === 'plan';
 
               return (

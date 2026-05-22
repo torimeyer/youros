@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { formatRelative } from '../lib/time';
 import { useNavigate } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import { EmptyState } from "../components/ui";
@@ -42,15 +43,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   transcripts: "bg-purple-500/20 text-purple-300",
 };
 
-function formatTimeAgo(ts: string | undefined): string {
-  if (!ts) return "";
-  const diff = Date.now() - new Date(ts).getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
+
 
 function CategoryBadge({ category }: { category: string }) {
   const colorClass =
@@ -76,7 +69,7 @@ function ResultItem({ result }: { result: TeamResult }) {
         <CategoryBadge category={category} />
         {ts && (
           <span className="text-[10px] text-slate-500 ml-auto">
-            {formatTimeAgo(ts)}
+            {formatRelative(ts)}
           </span>
         )}
       </div>

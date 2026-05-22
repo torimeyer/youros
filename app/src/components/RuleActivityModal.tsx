@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { formatTimestamp } from '../lib/time';
 import { api } from "../lib/api";
 
 export interface RuleFire {
@@ -18,25 +19,7 @@ export interface RuleActivityModalProps {
 
 type DecisionFilter = "all" | "block" | "allow";
 
-function formatTimestamp(ts: string): string {
-  // Show "May 13, 10:24:09" style — short enough to fit, precise enough
-  // to correlate with what just happened.
-  try {
-    const d = new Date(ts);
-    if (Number.isNaN(d.getTime())) return ts;
-    const month = d.toLocaleString(undefined, { month: "short" });
-    const day = d.getDate();
-    const time = d.toLocaleTimeString(undefined, {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false,
-    });
-    return `${month} ${day}, ${time}`;
-  } catch {
-    return ts;
-  }
-}
+
 
 export default function RuleActivityModal({
   open,

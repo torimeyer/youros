@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { formatSmartDate, formatTime } from '../lib/time'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
@@ -66,25 +67,7 @@ function writeGmailCache(messages: GmailMessage[]) {
   }
 }
 
-function formatDate(dateStr: string): string {
-  if (!dateStr) return ''
-  try {
-    const d = new Date(dateStr)
-    const now = new Date()
-    const isToday = d.toDateString() === now.toDateString()
-    if (isToday) {
-      return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    }
-    const yesterday = new Date(now)
-    yesterday.setDate(now.getDate() - 1)
-    if (d.toDateString() === yesterday.toDateString()) {
-      return 'Yesterday'
-    }
-    return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-  } catch {
-    return dateStr
-  }
-}
+
 
 function gmailUrl(messageId: string): string {
   return `https://mail.google.com/mail/u/0/#inbox/${messageId}`
@@ -511,7 +494,7 @@ export default function Gmail() {
           <div className="flex items-center gap-3">
             {lastSynced && (
               <span className="text-xs text-slate-500">
-                Synced {lastSynced.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                Synced {formatTime(lastSynced)}
               </span>
             )}
             <button
@@ -622,7 +605,7 @@ export default function Gmail() {
                             <p className={`text-sm truncate ${msg.is_unread ? 'font-semibold text-white' : 'text-slate-300'}`}>
                               {msg.from_name || msg.from_email}
                             </p>
-                            <span className="text-xs text-slate-500 shrink-0">{formatDate(msg.date)}</span>
+                            <span className="text-xs text-slate-500 shrink-0">{formatSmartDate(msg.date)}</span>
                           </div>
                           <p className={`text-sm truncate mt-0.5 ${msg.is_unread ? 'text-slate-200' : 'text-slate-400'}`}>
                             {msg.subject}

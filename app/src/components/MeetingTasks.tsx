@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
+import { formatTime } from '../lib/time'
 import { LoadingState, EmptyState } from '../components/ui'
 
 interface MeetingTaskPair {
@@ -26,14 +27,7 @@ function hasEnded(end?: string): boolean {
   return new Date(end) < new Date()
 }
 
-function formatTime(dt?: string): string {
-  if (!dt) return ''
-  try {
-    return new Date(dt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  } catch {
-    return ''
-  }
-}
+
 
 export default function MeetingTasks({ meetings: propMeetings }: Props) {
   const [meetings, setMeetings] = useState<MeetingTaskPair[]>(propMeetings ?? [])

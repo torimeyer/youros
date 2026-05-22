@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import Icon from '../../components/Icon'
 import { api } from '../../lib/api'
 import { useAppStore } from '../../stores/app'
+import { formatDateTime } from '../../lib/time'
 
 interface AuditEvent {
   ts: string
@@ -125,7 +126,7 @@ export default function AdminAuditTrail() {
                       className={labelCls}
                     />
                     <span className={`text-xs font-mono ${labelCls}`}>
-                      {new Date(e.ts).toLocaleString()}
+                      {formatDateTime(e.ts)}
                     </span>
                     <span className={`text-sm font-medium ${valueCls}`}>{e.event}</span>
                     {e.user && (

@@ -1,3 +1,5 @@
+import { formatRelative } from '../lib/time';
+
 export interface Provenance {
   agent_id?: string;
   agent_name?: string;
@@ -7,21 +9,13 @@ export interface Provenance {
   source?: 'agent' | 'upload' | 'drive_import';
 }
 
-function timeAgo(isoStr: string): string {
-  const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
-  return `${Math.floor(diff / 86400)} days ago`;
-}
-
 export default function ProvenanceChip({
   provenance,
 }: {
   provenance: Provenance | null | undefined;
 }) {
   const agentName = provenance?.agent_name ?? provenance?.agent_id;
-  const relTime = provenance?.created_at ? timeAgo(provenance.created_at) : '';
+  const relTime = provenance?.created_at ? formatRelative(provenance.created_at) : '';
   const source = provenance?.source ?? (agentName ? 'agent' : 'upload');
 
   let text: string;

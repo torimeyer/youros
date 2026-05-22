@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api'
+import { formatDate } from '../lib/time'
 
 export interface AttachmentFile {
   id: string
@@ -45,13 +46,7 @@ interface DriveFile {
   size?: number
 }
 
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  } catch {
-    return ''
-  }
-}
+
 
 function FileRow({
   name,
