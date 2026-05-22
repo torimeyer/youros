@@ -73,9 +73,9 @@ export function NeedsClarityChip({
     try {
       let res: { proposed_fix: string; rationale: string }
       if (mode === 'task' && taskId) {
-        res = (await api.post(`/api/tasks/${taskId}/clarify/suggest`, { check: checkName })) as typeof res
+        res = (await api.post(`/tasks/${taskId}/clarify/suggest`, { check: checkName })) as typeof res
       } else if (specPath) {
-        res = (await api.post(`/api/specs/${specPath}/clarity/suggest`, { check: checkName })) as typeof res
+        res = (await api.post(`/specs/${specPath}/clarity/suggest`, { check: checkName })) as typeof res
       } else {
         return
       }
@@ -100,9 +100,9 @@ export function NeedsClarityChip({
     try {
       let res: { checks: ReadinessCheck[]; ready: boolean }
       if (mode === 'task' && taskId) {
-        res = (await api.post(`/api/tasks/${taskId}/clarify/apply`, { check: checkName, fix })) as typeof res
+        res = (await api.post(`/tasks/${taskId}/clarify/apply`, { check: checkName, fix })) as typeof res
       } else if (specPath) {
-        res = (await api.patch(`/api/specs/${specPath}/clarity`, { check: checkName, fix })) as typeof res
+        res = (await api.patch(`/specs/${specPath}/clarity`, { check: checkName, fix })) as typeof res
       } else {
         return
       }
