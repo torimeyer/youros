@@ -183,14 +183,14 @@ def _check_has_file_paths(text: str, plan_path: Optional[str]) -> tuple[bool, st
             return True, f"found: {raw}"
 
     if not all_matches:
-        return False, "no explicit file paths (e.g. foo.py, bar.tsx) found"
+        return False, "no file names mentioned (e.g. foo.py, bar.tsx)"
     non_self = [
         r for r in all_matches
         if not plan_resolved or _resolve_path(r, root).resolve() != plan_resolved
     ]
     if not non_self:
-        return False, "only the spec's own path is referenced — no concrete code paths found"
-    return False, "no referenced file paths resolve to real files in the repo"
+        return False, "only this spec file is mentioned — no other files named"
+    return False, "none of the mentioned file paths can be found in the project"
 
 
 def _check_referenced_files_exist(text: str, plan_path: Optional[str]) -> tuple[bool, str]:
@@ -206,7 +206,7 @@ def _check_referenced_files_exist(text: str, plan_path: Optional[str]) -> tuple[
         non_self.append(raw)
 
     if not non_self:
-        return False, "no non-self-reference file paths to verify"
+        return False, "no file paths listed to check"
 
     found, missing = 0, []
     for raw in non_self:
@@ -217,7 +217,7 @@ def _check_referenced_files_exist(text: str, plan_path: Optional[str]) -> tuple[
 
     pct = found / len(non_self)
     suffix = f"; missing: {', '.join(missing[:3])}" if missing else ""
-    detail = f"{found}/{len(non_self)} paths resolve{suffix}"
+    detail = f"{found} of {len(non_self)} files found{suffix}"
     return pct >= 0.5, detail
 
 
@@ -227,8 +227,8 @@ def _check_in_repo_scope(body: str, title: str) -> tuple[bool, str]:
         return False, f"title starts with upstream marker: {title[:60]}"
     m = _OUT_OF_REPO_RE.search(body)
     if m:
-        return False, f"description mentions out-of-repo work: {m.group(0)}"
-    return True, "task appears scoped to this repo"
+        return False, f"description refers to work outside this project: {m.group(0)}"
+    return True, "task is scoped to this project"
 
 
 def _check_outcome_concrete(title: str, description: str) -> tuple[bool, str]:
@@ -307,8 +307,8 @@ def compute_spec_readiness(spec_path: str) -> Readiness:
     checks.append(ReadinessCheck(
         name="has_ac_checkboxes",
         passed=bool(ac),
-        detail=f"{len(ac)} unchecked AC items" if ac else (
-            "no '- [ ]' lines found" if exists else "not evaluated — file missing"
+        detail=f"{len(ac)} items to check off" if ac else (
+            "no checklist items found — add lines like: - [ ] When X happens, Y is the result" if exists else "not evaluated — file missing"
         ),
     ))
 
@@ -318,8 +318,8 @@ def compute_spec_readiness(spec_path: str) -> Readiness:
     checks.append(ReadinessCheck(
         name="no_vague_ac",
         passed=clean,
-        detail="all AC lines are concrete" if clean else (
-            f"vague tokens in: {vague[0][:60]}" if vague else "not evaluated — no AC"
+        detail="all checklist items are specific" if clean else (
+            f"too vague: {vague[0][:60]}" if vague else "not evaluated — no checklist items"
         ),
     ))
 
