@@ -78,7 +78,7 @@ describe('OnboardingWizard - Tracking step', () => {
     render(<OnboardingWizard />)
     goToTrackingStep()
     const opt = screen.getByTestId('tracking-option-everywhere')
-    expect(opt).toHaveTextContent('myOS is my daily dashboard, track everything.')
+    expect(opt).toHaveTextContent('Track everything — myOS is my main dashboard.')
     expect(opt).toHaveTextContent("Every Claude Code conversation on this computer shows up in myOS, no matter which folder you're in.")
   })
 
@@ -127,11 +127,9 @@ describe('OnboardingWizard - Tracking step', () => {
     fireEvent.click(screen.getByTestId('tracking-option-repo'))
 
     const input = screen.getByTestId('tracking-folder-input')
-    const mockFile = new File([''], 'file.txt')
-    Object.defineProperty(mockFile, 'webkitRelativePath', { value: 'myproject/src/file.txt' })
-    fireEvent.change(input, { target: { files: [mockFile] } })
+    fireEvent.change(input, { target: { value: 'myproject' } })
 
-    expect(screen.getByTestId('tracking-folder-display')).toHaveTextContent('Selected: myproject')
+    expect((input as HTMLInputElement).value).toBe('myproject')
   })
 
   it('calls enable-myos-hooks with scope=everywhere when option 1 is picked and wizard finishes', async () => {
@@ -157,9 +155,7 @@ describe('OnboardingWizard - Tracking step', () => {
     fireEvent.click(screen.getByTestId('tracking-option-repo'))
 
     const input = screen.getByTestId('tracking-folder-input')
-    const mockFile = new File([''], 'index.ts')
-    Object.defineProperty(mockFile, 'webkitRelativePath', { value: 'workproject/src/index.ts' })
-    fireEvent.change(input, { target: { files: [mockFile] } })
+    fireEvent.change(input, { target: { value: 'workproject' } })
 
     clickNext(2) // Tracking -> Connect -> Ready
     fireEvent.click(screen.getByTestId('finish-button'))

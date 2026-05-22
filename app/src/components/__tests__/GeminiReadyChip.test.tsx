@@ -1,4 +1,8 @@
-import { describe, it, expect, vi } from 'vitest'
+// GeminiReadyChip was renamed to NeedsClarityChip (→1515).
+// GeminiReadyChip.tsx re-exports NeedsClarityChip as GeminiReadyChip for compat.
+// Tests updated to match current interface: no `ready`/`onClick` props,
+// testid is now `needs-clarity-chip` for both states.
+import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { GeminiReadyChip } from '../GeminiReadyChip'
@@ -22,40 +26,43 @@ const failingChecks = [
 ]
 
 describe('GeminiReadyChip', () => {
-  it('renders green chip when ready', () => {
-    render(<GeminiReadyChip ready={true} checks={passingChecks} />)
-    expect(screen.getByTestId('gemini-ready-chip')).toBeInTheDocument()
+  it('renders green chip when all checks pass', () => {
+    render(<GeminiReadyChip checks={passingChecks} />)
+    const chip = screen.getByTestId('needs-clarity-chip')
+    expect(chip).toBeInTheDocument()
+    expect(chip.textContent).toContain('Ready')
   })
 
-  it('renders not-ready chip when not ready', () => {
-    render(<GeminiReadyChip ready={false} checks={failingChecks} />)
-    expect(screen.getByTestId('gemini-not-ready-chip')).toBeInTheDocument()
+  it('renders not-ready chip when some checks fail', () => {
+    render(<GeminiReadyChip checks={failingChecks} />)
+    const chip = screen.getByTestId('needs-clarity-chip')
+    expect(chip).toBeInTheDocument()
+    expect(chip.textContent).toContain('Needs clarity')
   })
 
-  it('calls onClick when ready chip is clicked', async () => {
-    const onClick = vi.fn()
-    render(<GeminiReadyChip ready={true} checks={passingChecks} onClick={onClick} />)
-    await userEvent.click(screen.getByTestId('gemini-ready-chip'))
-    expect(onClick).toHaveBeenCalledOnce()
+  it('clicking not-ready chip opens the detail modal', async () => {
+    render(<GeminiReadyChip checks={failingChecks} />)
+    await userEvent.click(screen.getByTestId('needs-clarity-chip'))
+    expect(screen.getByTestId('needs-clarity-modal')).toBeInTheDocument()
   })
 
   it('not-ready chip shows tooltip with failed check names', () => {
-    render(<GeminiReadyChip ready={false} checks={failingChecks} />)
-    const chip = screen.getByTestId('gemini-not-ready-chip')
+    render(<GeminiReadyChip checks={failingChecks} />)
+    const chip = screen.getByTestId('needs-clarity-chip')
     const title = chip.getAttribute('title') ?? ''
     expect(title).toContain('has_ac_checkboxes')
     expect(title).toContain('has_file_paths')
   })
 
-  it('ready chip does not call onClick without handler', async () => {
-    render(<GeminiReadyChip ready={true} checks={passingChecks} />)
+  it('ready chip renders without crashing when clicked', async () => {
+    render(<GeminiReadyChip checks={passingChecks} />)
     await expect(
-      userEvent.click(screen.getByTestId('gemini-ready-chip'))
+      userEvent.click(screen.getByTestId('needs-clarity-chip'))
     ).resolves.not.toThrow()
   })
 
-  it('renders with no checks prop', () => {
-    render(<GeminiReadyChip ready={false} />)
-    expect(screen.getByTestId('gemini-not-ready-chip')).toBeInTheDocument()
+  it('renders nothing when no checks prop is passed', () => {
+    const { container } = render(<GeminiReadyChip />)
+    expect(container.firstChild).toBeNull()
   })
 })
