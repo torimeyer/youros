@@ -36,6 +36,8 @@ _adhd_monitor_pairing_arm() {
   local refresh=$(( (ttl / 2) < 30 ? 30 : (ttl / 2) ))
   local max_iters=480  # 480 × refresh ≈ 8 hours at default 60s
 
+  # Detach FDs so callers (and tests) don't wait for the 8-hour keepalive
+  # to release inherited stdin/stdout/stderr before their own subshell exits.
   (
     i=0
     while [ "$i" -lt "$max_iters" ]; do
@@ -44,7 +46,7 @@ _adhd_monitor_pairing_arm() {
       touch "$sentinel" 2>/dev/null || exit 0
       i=$(( i + 1 ))
     done
-  ) &
+  ) </dev/null >/dev/null 2>&1 &
   disown
   echo $! > "$pid_file" 2>/dev/null || true
 
@@ -112,7 +114,21 @@ _adhd_monitor_pairing_check() {
     fi
   fi
 
-  local reason="ADHD mode is active. No Monitor detected in the last ${ttl:-120} seconds for this session. Add a Monitor call in the same turn or the previous turn before this Agent spawn (per feedback_adhd_mode_auto_arm_monitor.md). Recommended command: bash scripts/monitor-agent.sh <agent-name> — uses the correct port (https://127.0.0.1:8000) and handles JSON parse errors. Avoid custom poll loops on http://localhost:8765 which use the wrong port."
-  log_rule_fire "adhd_monitor_pairing" "$tool" "block" "ADHD mode active, no fresh Monitor sentinel"
-  deny "$reason"
+  # Root-cause fix (→1563): auto-arm the watchdog instead of denying.
+  # The original design required the model to manually call the Monitor tool
+  # before any Agent spawn, but Monitor's PreToolUse hooks take 200-500ms on
+  # macOS — long enough for user typing or sibling-tool deny to interrupt the
+  # pending Monitor call (surfaces as "Tool result missing due to internal
+  # error"). That made every Agent spawn fragile. We now arm the sentinel +
+  # keepalive ourselves; visibility into the agent comes from the existing
+  # /api/agents heartbeat path, not the Monitor tool.
+  if [ -z "$sentinel" ]; then
+    local reason="ADHD mode is active but no sentinel path was supplied to the check. Cannot auto-arm watchdog."
+    log_rule_fire "adhd_monitor_pairing" "$tool" "block" "no sentinel path for auto-arm"
+    deny "$reason"
+  fi
+
+  _adhd_monitor_pairing_arm "$tool" "$sentinel"
+  log_rule_fire "adhd_monitor_pairing" "$tool" "allow" "auto-armed watchdog (sentinel was ${sentinel_age}s old or absent)"
+  return 0
 }

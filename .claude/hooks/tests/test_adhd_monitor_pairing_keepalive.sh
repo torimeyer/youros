@@ -21,6 +21,17 @@ assert_exit() {
   fi
 }
 
+assert_true() {
+  local desc="$1" cond="$2"
+  if [ "$cond" = "1" ]; then
+    echo "PASS: $desc"
+    pass=$(( pass + 1 ))
+  else
+    echo "FAIL: $desc"
+    fail=$(( fail + 1 ))
+  fi
+}
+
 # Helper: source rule functions into a subshell with a temp HOME and
 # call _adhd_monitor_pairing_check. Returns the exit code.
 run_check() {
@@ -75,33 +86,82 @@ result=$(run_check "$T3" "$SENTINEL3" 200)  # 200s old, beyond 120s TTL
 kill "$KA_PID" 2>/dev/null || true
 assert_exit "stale sentinel + live keepalive → allow" 0 "$result"
 
-# ── Test 4: Stale sentinel + dead keepalive → block ─────────────────────────
+# ── Test 4: Stale sentinel + dead keepalive → auto-arm + allow ──────────────
+# Contract change (→1563 root-cause fix): instead of denying, the check
+# auto-arms a fresh keepalive. Removes the chicken-and-egg where the model
+# had to call Monitor (with fragile 200-500ms PreToolUse window) before any
+# Agent spawn.
 T4="$TMPDIR_BASE/t4"
 mkdir -p "$T4/.myos"
 touch "$T4/.myos/.adhd_mode"
 SENTINEL4="$T4/.myos/.adhd-monitor-armed-test"
 touch "$SENTINEL4"
-# Use a PID that is guaranteed not to exist (max PID on macOS is 99998).
 echo "99999999" > "${SENTINEL4}.keepalive.pid"
-result=$(run_check "$T4" "$SENTINEL4" 200)  # 200s old, dead keepalive
-assert_exit "stale sentinel + dead keepalive → block" 2 "$result"
+result=$(run_check "$T4" "$SENTINEL4" 200)
+assert_exit "stale sentinel + dead keepalive → auto-arm + allow" 0 "$result"
+# Verify auto-arm created a fresh keepalive PID file
+if [ -f "${SENTINEL4}.keepalive.pid" ]; then
+  NEW_PID=$(cat "${SENTINEL4}.keepalive.pid")
+  if [ "$NEW_PID" != "99999999" ] && kill -0 "$NEW_PID" 2>/dev/null; then
+    assert_true "  auto-armed: new live keepalive replaced dead one (pid=$NEW_PID)" 1
+    kill "$NEW_PID" 2>/dev/null || true
+  else
+    assert_true "  auto-armed: new live keepalive replaced dead one (pid=$NEW_PID)" 0
+  fi
+else
+  assert_true "  auto-armed: keepalive pid file exists" 0
+fi
 
-# ── Test 5: Stale sentinel + no PID file → block ────────────────────────────
+# ── Test 5: Stale sentinel + no PID file → auto-arm + allow ─────────────────
 T5="$TMPDIR_BASE/t5"
 mkdir -p "$T5/.myos"
 touch "$T5/.myos/.adhd_mode"
 SENTINEL5="$T5/.myos/.adhd-monitor-armed-test"
 touch "$SENTINEL5"
-# No .keepalive.pid file written
-result=$(run_check "$T5" "$SENTINEL5" 200)  # 200s old, no pid file
-assert_exit "stale sentinel + no pid file → block" 2 "$result"
+result=$(run_check "$T5" "$SENTINEL5" 200)
+assert_exit "stale sentinel + no pid file → auto-arm + allow" 0 "$result"
+if [ -f "${SENTINEL5}.keepalive.pid" ]; then
+  NEW_PID=$(cat "${SENTINEL5}.keepalive.pid")
+  if kill -0 "$NEW_PID" 2>/dev/null; then
+    assert_true "  auto-armed: keepalive spawned for previously bare sentinel (pid=$NEW_PID)" 1
+    kill "$NEW_PID" 2>/dev/null || true
+  else
+    assert_true "  auto-armed: keepalive spawned for previously bare sentinel" 0
+  fi
+else
+  assert_true "  auto-armed: keepalive pid file created" 0
+fi
 
-# ── Test 6: ADHD mode active, no sentinel at all → block ────────────────────
+# ── Test 6: ADHD mode active, no sentinel path at all → block ───────────────
+# Degenerate input (no path to arm). Real usage always supplies a path via
+# pre-agent-guard.sh. Keep as block.
 T6="$TMPDIR_BASE/t6"
 mkdir -p "$T6/.myos"
 touch "$T6/.myos/.adhd_mode"
-result=$(run_check "$T6" "" -1)  # no sentinel path
-assert_exit "adhd mode + no sentinel → block" 2 "$result"
+result=$(run_check "$T6" "" -1)
+assert_exit "adhd mode + no sentinel path → block (degenerate input)" 2 "$result"
+
+# ── Test 7: ADHD on + sentinel path given but file missing → auto-arm + allow
+# This is the real-world first-spawn-of-session case: pre-agent-guard.sh
+# constructs the sentinel path, the file doesn't exist yet, age=-1.
+T7="$TMPDIR_BASE/t7"
+mkdir -p "$T7/.myos"
+touch "$T7/.myos/.adhd_mode"
+SENTINEL7="$T7/.myos/.adhd-monitor-armed-test"
+# No sentinel file, no pid file — first Agent spawn of the session.
+result=$(run_check "$T7" "$SENTINEL7" -1)
+assert_exit "adhd on + sentinel path absent → auto-arm + allow" 0 "$result"
+if [ -f "$SENTINEL7" ] && [ -f "${SENTINEL7}.keepalive.pid" ]; then
+  NEW_PID=$(cat "${SENTINEL7}.keepalive.pid")
+  if kill -0 "$NEW_PID" 2>/dev/null; then
+    assert_true "  auto-armed: sentinel + keepalive created from scratch (pid=$NEW_PID)" 1
+    kill "$NEW_PID" 2>/dev/null || true
+  else
+    assert_true "  auto-armed: sentinel + keepalive created from scratch" 0
+  fi
+else
+  assert_true "  auto-armed: sentinel + keepalive both exist" 0
+fi
 
 echo ""
 echo "Results: $pass passed, $fail failed"
