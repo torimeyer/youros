@@ -36,30 +36,25 @@ import ExecUpdateWidget from './ExecUpdateWidget'
 
 const mockedApiGet = vi.mocked(api.get)
 
+// v2 API returns summary fields only — no markdown in list response (→1437)
 const MOCK_DRAFTS = [
   {
     draft_id: 'draft-001',
     audience: 'exec',
-    window_days: 7,
-    markdown: 'This week we shipped three major features. Performance improved by 20%.',
-    source_refs: [],
     created_at: '2026-05-17T10:00:00Z',
+    source_count: 5,
   },
   {
     draft_id: 'draft-002',
     audience: 'team',
-    window_days: 14,
-    markdown: 'Roadmap update: we are on track for the Q2 milestone.',
-    source_refs: [],
     created_at: '2026-05-16T10:00:00Z',
+    source_count: 3,
   },
   {
     draft_id: 'draft-003',
     audience: 'exec',
-    window_days: 7,
-    markdown: 'Last week summary with key decisions.',
-    source_refs: [],
     created_at: '2026-05-15T10:00:00Z',
+    source_count: 8,
   },
 ]
 
@@ -77,10 +72,10 @@ describe('ExecUpdateWidget', () => {
   it('renders at most 3 drafts from the API', async () => {
     render(<ExecUpdateWidget />)
     await waitFor(() => {
-      // Each draft shows audience and first 200 chars of markdown
-      expect(screen.getByText(/three major features/i)).toBeTruthy()
+      // v2 API: list shows audience + source count, not markdown content
+      const draftItems = screen.queryAllByTestId(/draft-item-/)
+      expect(draftItems.length).toBeGreaterThan(0)
     })
-    // Should not render more than 3 draft cards
     const draftItems = screen.queryAllByTestId(/draft-item-/)
     expect(draftItems.length).toBeLessThanOrEqual(3)
   })
