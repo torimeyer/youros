@@ -602,28 +602,21 @@ async def create_draft(body: SpecDraft):
 
     if not ac_written:
         # No API key (subscription auth) or AI call failed.
-        # Write a user-editable placeholder so the draft isn't stuck
-        # showing "Generating acceptance criteria..." forever. The user
-        # edits the placeholder before promoting. We intentionally do NOT
-        # set ac_written = True here so the draft stays in "draft" state
-        # rather than being auto-promoted with unreviewed placeholder text.
+        # Inject the full 8-section canonical template so the user has
+        # a proper scaffold to fill in manually (→1600). The draft stays
+        # in "draft" state — not auto-promoted — until the user reviews it.
         logger.warning(
             "create_draft: AC generation skipped for %r (no API key or error). "
-            "Writing placeholder.",
+            "Injecting canonical template.",
             body.title,
         )
         from pathlib import Path
+        from services.spec_templates import canonical_spec_template_body
         _draft_path = result.strip()
         _docs_root = (Path(ostk.cwd) / "docs").resolve()
         _full_path = (Path(ostk.cwd) / _draft_path).resolve()
         if _full_path.exists() and _full_path.is_relative_to(_docs_root):
-            _placeholder = (
-                "\n## Acceptance criteria\n\n"
-                "- [ ] (replace with your first acceptance criterion)\n"
-                "- [ ] (replace with your second acceptance criterion)\n"
-                "- [ ] (replace with your third acceptance criterion)\n"
-            )
-            _full_path.write_text(_full_path.read_text() + _placeholder)
+            _full_path.write_text(_full_path.read_text() + "\n" + canonical_spec_template_body())
 
     # When the caller requests fallback_ac (e.g. smoke tests that run
     # without a live AI model), write a minimal placeholder checkbox so
@@ -1005,6 +998,37 @@ async def promote_draft(body: SpecPromote):
         raise
     except Exception:
         pass  # if readiness check errors, don't block promotion
+
+    # Append any missing canonical headings before promoting (→1600).
+    _CANONICAL_HEADINGS = [
+        "Problem", "Goals", "Non-goals", "Solution",
+        "Acceptance criteria", "USER FEEDBACK", "DECISION", "References",
+    ]
+    _HEADING_PLACEHOLDER: dict[str, str] = {
+        "Problem": "<!-- What is broken or missing? Who is affected? -->",
+        "Goals": "<!-- What does success look like? -->",
+        "Non-goals": "<!-- What are we explicitly NOT doing? -->",
+        "Solution": "<!-- How will we solve it? -->",
+        "Acceptance criteria": "- [ ] ",
+        "USER FEEDBACK": "*(Reserved for tori's overrides and decisions.)*",
+        "DECISION": "*(Final calls on open questions will be recorded here.)*",
+        "References": "<!-- Related specs, needles (→NNN), or files -->",
+    }
+    try:
+        _promote_path = Path(PROJECT_ROOT) / body.path
+        if _promote_path.exists():
+            _text = _promote_path.read_text(encoding="utf-8", errors="replace")
+            _heading_re = re.compile(r"^#{1,3}\s+(.+)$", re.MULTILINE)
+            _existing = {m.group(1).strip().lower() for m in _heading_re.finditer(_text)}
+            _appended = []
+            for heading in _CANONICAL_HEADINGS:
+                if heading.lower() not in _existing:
+                    placeholder = _HEADING_PLACEHOLDER.get(heading, "")
+                    _appended.append(f"\n## {heading}\n\n{placeholder}\n")
+            if _appended:
+                _promote_path.write_text(_text + "".join(_appended), encoding="utf-8")
+    except Exception:
+        pass  # heading injection is best-effort; don't block promotion
 
     try:
         target_path = await ostk.doc_promote(body.path)
