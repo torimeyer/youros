@@ -2684,7 +2684,7 @@ export function ChatPanel() {
                 key={msg.id}
                 id={`msg-${msg.id}`}
                 data-testid={`bubble-${msg.id}`}
-                className={`group transition-all rounded-xl ${inBroadcastColumn ? 'min-w-0 w-full' : ''} ${msg.role === 'user' ? 'flex flex-col items-end' : ''} ${isThread ? 'ml-2' : ''}`}
+                className={`group transition-all rounded-xl ${inBroadcastColumn ? 'min-w-0 w-full' : ''} ${msg.role === 'user' ? 'w-full flex flex-col items-end' : ''} ${isThread ? 'ml-2' : ''}`}
               >
                 {/* Reply context within a thread */}
                 {msg.replyTo && isThread && (
