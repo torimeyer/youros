@@ -68,12 +68,11 @@ TEMPLATE_SECTIONS = [
     "Goals",
     "Non-goals",
     "Solution",
-    "Edge cases",
     "Success criteria",
     "Acceptance criteria",
-    "Verification",
     "USER FEEDBACK",
     "DECISION",
+    "References",
 ]
 
 # Alternate header patterns that map to canonical section names.

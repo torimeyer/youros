@@ -337,3 +337,30 @@ def get_spec_template(template_id: str) -> Optional[dict[str, Any]]:
         if t["id"] == template_id:
             return t
     return None
+
+
+def canonical_spec_template_body() -> str:
+    """Return the 8-section canonical spec template body (→1600).
+
+    Sections: Problem, Goals, Non-goals, Solution, Acceptance criteria,
+    USER FEEDBACK, DECISION, References. Edge cases and Verification
+    are intentionally excluded.
+    """
+    return (
+        "## Problem\n\n"
+        "<!-- What is broken or missing? Who is affected? -->\n\n"
+        "## Goals\n\n"
+        "<!-- What does success look like? -->\n\n"
+        "## Non-goals\n\n"
+        "<!-- What are we explicitly NOT doing? -->\n\n"
+        "## Solution\n\n"
+        "<!-- How will we solve it? -->\n\n"
+        "## Acceptance criteria\n\n"
+        "- [ ] \n\n"
+        "## USER FEEDBACK\n\n"
+        "*(Reserved for tori's overrides and decisions.)*\n\n"
+        "## DECISION\n\n"
+        "*(Final calls on open questions will be recorded here.)*\n\n"
+        "## References\n\n"
+        "<!-- Related specs, needles (→NNN), or files -->\n"
+    )

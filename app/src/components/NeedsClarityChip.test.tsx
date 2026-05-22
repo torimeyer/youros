@@ -234,4 +234,71 @@ describe('NeedsClarityChip', () => {
     // plan_path_present should be filtered out
     expect(screen.queryByTestId('clarity-input-plan_path_present')).toBeNull()
   })
+
+  // W1: AI suggest error display
+  it('shows error message below AI suggest button when suggest fails', async () => {
+    mockedApiPost.mockRejectedValueOnce(new Error('Service unavailable'))
+
+    render(<NeedsClarityChip checks={failedChecks} specPath="docs/draft/foo.md" />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+    fireEvent.click(screen.getByTestId('clarity-suggest-has_ac_checkboxes'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('clarity-suggest-error-has_ac_checkboxes')).toBeDefined()
+    })
+    expect(screen.getByTestId('clarity-suggest-error-has_ac_checkboxes').textContent).toContain(
+      'Service unavailable'
+    )
+  })
+
+  it('shows Settings link when API key error occurs', async () => {
+    mockedApiPost.mockRejectedValueOnce(new Error('No Anthropic API key configured. Add one in Settings to use AI suggestions.'))
+
+    render(<NeedsClarityChip checks={failedChecks} specPath="docs/draft/foo.md" />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+    fireEvent.click(screen.getByTestId('clarity-suggest-has_ac_checkboxes'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('clarity-suggest-error-has_ac_checkboxes')).toBeDefined()
+    })
+    const errorEl = screen.getByTestId('clarity-suggest-error-has_ac_checkboxes')
+    const link = errorEl.querySelector('a')
+    expect(link).not.toBeNull()
+    expect(link?.getAttribute('href')).toBe('/settings')
+  })
+
+  it('clears suggest error when user types in textarea', async () => {
+    mockedApiPost.mockRejectedValueOnce(new Error('Service unavailable'))
+
+    render(<NeedsClarityChip checks={failedChecks} specPath="docs/draft/foo.md" />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+    fireEvent.click(screen.getByTestId('clarity-suggest-has_ac_checkboxes'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('clarity-suggest-error-has_ac_checkboxes')).toBeDefined()
+    })
+
+    fireEvent.change(screen.getByTestId('clarity-input-has_ac_checkboxes'), {
+      target: { value: '- [ ] some criteria' },
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('clarity-suggest-error-has_ac_checkboxes')).toBeNull()
+    })
+  })
+
+  // W2: per-check placeholder hints
+  it('textarea has check-specific placeholder for has_ac_checkboxes', () => {
+    render(<NeedsClarityChip checks={failedChecks} specPath="docs/draft/foo.md" />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+    const textarea = screen.getByTestId('clarity-input-has_ac_checkboxes') as HTMLTextAreaElement
+    expect(textarea.placeholder).toContain('- [ ] When X, the result is Y')
+  })
+
+  it('textarea has check-specific placeholder for has_file_paths', () => {
+    render(<NeedsClarityChip checks={failedChecks} specPath="docs/draft/foo.md" />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+    const textarea = screen.getByTestId('clarity-input-has_file_paths') as HTMLTextAreaElement
+    expect(textarea.placeholder).toContain('api/routers/foo.py')
+  })
 })

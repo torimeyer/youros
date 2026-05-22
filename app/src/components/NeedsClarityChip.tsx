@@ -29,6 +29,15 @@ const CHECK_LABEL: Record<string, string> = {
   outcome_concrete: 'Clear outcome',
 }
 
+const CHECK_PLACEHOLDER: Record<string, string> = {
+  has_ac_checkboxes: 'Add acceptance criteria — one per line: - [ ] When X, the result is Y',
+  no_vague_ac: 'Rewrite vague lines to be specific and testable. Remove: TBD, ?, TODO, maybe, discuss',
+  has_file_paths: 'List the files this spec will touch: api/routers/foo.py, app/src/components/Bar.tsx',
+  referenced_files_exist: 'Fix broken file paths — check spelling or recent renames',
+  in_repo_scope: 'Clarify how this work lives in the current repo (not upstream or an external system)',
+  outcome_concrete: 'State exactly what will be built or changed — no TBD, no vague qualifiers',
+}
+
 // Checks dropped from the task rubric by Clarity-1; filter from render to be safe
 const TASK_MODE_HIDDEN = new Set(['plan_path_present', 'file_exists', 'has_ac_checkboxes', 'ac_count_threshold'])
 
@@ -44,6 +53,7 @@ export function NeedsClarityChip({
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<string | null>(null)
   const [suggesting, setSuggesting] = useState<string | null>(null)
+  const [suggestErrors, setSuggestErrors] = useState<Record<string, string>>({})
   const [rationales, setRationales] = useState<Record<string, string>>({})
   const [saveError, setSaveError] = useState<string | null>(null)
 
@@ -71,8 +81,12 @@ export function NeedsClarityChip({
       }
       setDrafts((d) => ({ ...d, [checkName]: res.proposed_fix }))
       setRationales((r) => ({ ...r, [checkName]: res.rationale }))
-    } catch {
-      // user can type manually
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : (err as { detail?: string })?.detail ?? String(err)
+      setSuggestErrors((e) => ({ ...e, [checkName]: msg }))
     } finally {
       setSuggesting(null)
     }
@@ -195,16 +209,37 @@ export function NeedsClarityChip({
                             >
                               {suggesting === check.name ? 'Thinking…' : 'AI suggest'}
                             </button>
+                            {suggestErrors[check.name] && (
+                              <p
+                                data-testid={`clarity-suggest-error-${check.name}`}
+                                className="mt-1 text-[10px] text-red-400"
+                              >
+                                {suggestErrors[check.name].includes('No Anthropic API key') ? (
+                                  <>
+                                    No API key configured.{' '}
+                                    <a href="/settings" className="underline">
+                                      Add one in Settings
+                                    </a>{' '}
+                                    to use AI suggestions.
+                                  </>
+                                ) : (
+                                  suggestErrors[check.name]
+                                )}
+                              </p>
+                            )}
                           </div>
                           <textarea
                             data-testid={`clarity-input-${check.name}`}
                             className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 resize-none focus:outline-none focus:border-amber-500/60"
                             rows={3}
-                            placeholder="Provide the missing information…"
+                            placeholder={CHECK_PLACEHOLDER[check.name] ?? 'Provide the missing information…'}
                             value={drafts[check.name] ?? ''}
-                            onChange={(e) =>
+                            onChange={(e) => {
                               setDrafts((d) => ({ ...d, [check.name]: e.target.value }))
-                            }
+                              if (suggestErrors[check.name]) {
+                                setSuggestErrors((e) => ({ ...e, [check.name]: '' }))
+                              }
+                            }}
                           />
                           {rationales[check.name] && (
                             <p

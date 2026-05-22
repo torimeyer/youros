@@ -3396,3 +3396,119 @@ def test_builder_prompt_includes_recheck_instruction():
     assert "/api/agents" in block
     assert "tasks/42" in block
     assert "exit" in block.lower()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 spec unification tests (→1600)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_draft_create_injects_canonical_template(client, tmp_path, monkeypatch):
+    """When AC generation is skipped (no API key), the draft must get the
+    full 8-section canonical template, not just a bare AC placeholder (→1600).
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "draft").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
+
+    draft_file = tmp_path / "docs" / "draft" / "phase3-template-test.md"
+
+    async def fake_run(*args, **kwargs):
+        if args[:2] == ("doc", "draft"):
+            draft_file.write_text(
+                "---\ntitle: Phase3 template test\nstatus: draft\n---\n\n"
+            )
+            return str(draft_file.relative_to(tmp_path))
+        raise AssertionError(f"unexpected ostk call: {args}")
+
+    monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)
+    monkeypatch.setattr(
+        "services.chat_providers._resolve_api_key",
+        AsyncMock(return_value=""),
+    )
+
+    resp = await client.post(
+        "/api/specs/draft", json={"title": "Phase3 template test", "kind": "spec"}
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "draft"
+
+    draft_text = draft_file.read_text()
+    for heading in ["## Problem", "## Goals", "## Non-goals", "## Solution",
+                    "## Acceptance criteria", "## USER FEEDBACK", "## DECISION", "## References"]:
+        assert heading in draft_text, f"Canonical heading missing from draft: {heading!r}"
+    assert "- [ ]" in draft_text
+
+
+@pytest.mark.asyncio
+async def test_promote_appends_missing_headings(client, tmp_path, monkeypatch):
+    """Promoting a draft that's missing canonical headings should append them (→1600)."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "draft").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
+
+    draft_file = tmp_path / "docs" / "draft" / "minimal-spec.md"
+    # Spec has only Problem + Acceptance criteria — missing 6 canonical headings.
+    draft_file.write_text(
+        "---\ntitle: minimal spec\nstatus: draft\n---\n\n"
+        "## Problem\n\nSomething is broken.\n\n"
+        "## Acceptance criteria\n\n- [ ] Fix the thing\n"
+    )
+
+    spec_dest = tmp_path / "docs" / "spec" / "minimal-spec.md"
+
+    async def fake_run(*args, **kwargs):
+        if args[:2] == ("doc", "promote"):
+            # Simulate the file move
+            spec_dest.write_text(draft_file.read_text().replace("status: draft", "status: spec"))
+            draft_file.unlink()
+            return str(spec_dest.relative_to(tmp_path))
+        raise AssertionError(f"unexpected ostk call: {args}")
+
+    monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)
+    # Bypass the readiness gate so we can test heading injection in isolation.
+    monkeypatch.setattr(
+        "services.gemini_ready.compute_spec_readiness",
+        lambda path: type("R", (), {"ready": True, "as_dict": lambda self: {"checks": []}})(),
+    )
+
+    resp = await client.post("/api/specs/promote", json={"path": "docs/draft/minimal-spec.md"})
+    assert resp.status_code == 200, resp.text
+
+    # After promotion the file is at spec_dest. Check it has the missing headings.
+    promoted_text = spec_dest.read_text()
+    for heading in ["## Goals", "## Non-goals", "## Solution",
+                    "## USER FEEDBACK", "## DECISION", "## References"]:
+        assert heading in promoted_text, f"Missing heading after promote: {heading!r}"
+    # Original headings should still be present.
+    assert "## Problem" in promoted_text
+    assert "## Acceptance criteria" in promoted_text
+
+
+def test_template_sections_no_edge_cases_or_verification():
+    """TEMPLATE_SECTIONS must not include Edge cases or Verification (→1600)."""
+    from services.spec_audit import TEMPLATE_SECTIONS
+
+    lower = [s.lower() for s in TEMPLATE_SECTIONS]
+    assert "edge cases" not in lower, "Edge cases must not be in TEMPLATE_SECTIONS"
+    assert "verification" not in lower, "Verification must not be in TEMPLATE_SECTIONS"
+    # Canonical sections that MUST be present:
+    assert "problem" in lower
+    assert "goals" in lower
+    assert "non-goals" in lower
+    assert "solution" in lower
+    assert "acceptance criteria" in lower
+    assert "user feedback" in lower
+    assert "decision" in lower
+    assert "references" in lower
