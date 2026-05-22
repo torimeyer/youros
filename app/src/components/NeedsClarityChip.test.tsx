@@ -128,7 +128,7 @@ describe('NeedsClarityChip', () => {
 
     await waitFor(() => {
       expect(mockedApiPost).toHaveBeenCalledWith(
-        '/api/specs/docs/draft/foo.md/clarity/suggest',
+        '/specs/docs/draft/foo.md/clarity/suggest',
         { check: 'has_ac_checkboxes' }
       )
     })
@@ -155,7 +155,7 @@ describe('NeedsClarityChip', () => {
 
     await waitFor(() => {
       expect(mockedApiPost).toHaveBeenCalledWith(
-        '/api/tasks/task-abc/clarify/suggest',
+        '/tasks/task-abc/clarify/suggest',
         { check: 'outcome_concrete' }
       )
     })
@@ -178,7 +178,7 @@ describe('NeedsClarityChip', () => {
 
     await waitFor(() => {
       expect(mockedApiPatch).toHaveBeenCalledWith(
-        '/api/specs/docs/draft/foo.md/clarity',
+        '/specs/docs/draft/foo.md/clarity',
         { check: 'has_ac_checkboxes', fix: expect.stringContaining('login button') }
       )
     })
@@ -198,7 +198,7 @@ describe('NeedsClarityChip', () => {
 
     await waitFor(() => {
       expect(mockedApiPost).toHaveBeenCalledWith(
-        '/api/tasks/task-abc/clarify/apply',
+        '/tasks/task-abc/clarify/apply',
         { check: 'outcome_concrete', fix: 'Fix the login button alignment on mobile' }
       )
     })
