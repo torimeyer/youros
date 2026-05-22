@@ -2108,6 +2108,22 @@ async def _build_artifact_agent(
     }
 
 
+def build_recheck_preamble(spawn_lock: list) -> str:
+    """Return the conflict-recheck block prepended to every builder prompt.
+
+    Instructs the agent to verify no other agent is holding its paths
+    before making any file edits, so a late-arriving duplicate spawn
+    aborts cleanly instead of clobbering in-progress work.
+    """
+    return (
+        "## Conflict recheck (do this FIRST, before any other step)\n\n"
+        "Call `curl -sSk --connect-timeout 3 -m 5 https://127.0.0.1:8000/api/agents` "
+        "to list active agents. If any agent OTHER THAN YOURSELF holds any path in your "
+        f"spawn locks ({spawn_lock!r}), exit immediately with a message naming the "
+        "conflicting agent. Do NOT proceed with any file edits.\n\n"
+    )
+
+
 @router.post("/specs/{spec_path:path}/build")
 async def build_spec(spec_path: str, model: Optional[str] = None):
     """One-click build: decompose if needed, then spawn a builder per open task.
@@ -2233,8 +2249,13 @@ async def build_spec(spec_path: str, model: Optional[str] = None):
         # that Tori then has to hand-sweep after every demo run. DELETE
         # fires the same progress-bar update and keeps the Tasks page
         # clean of spec-build residue.
+        # Use a task-specific lock so parallel builder spawns for different
+        # tasks never conflict with each other, while preventing the same
+        # task from being spawned twice (same lock key → 409 if still held).
+        spawn_lock = [f"tasks/{task_id}"] if task_id else [f"specs/{spec_path}"]
         prompt_with_close = (
-            prompt
+            build_recheck_preamble(spawn_lock)
+            + prompt
             + "\n\n## When done\n\n"
             + f"Delete task {task_id} via `curl -sSk --connect-timeout 3 -m 5 "
             + f"-X DELETE https://127.0.0.1:8000/api/tasks/{task_id}` so "
@@ -2263,10 +2284,6 @@ async def build_spec(spec_path: str, model: Optional[str] = None):
         # Claude model regardless of chat preference.
         cfg_model = cfg.get("model")
         chosen_model = cfg_model or "sonnet"
-        # Use a task-specific lock so parallel builder spawns for different
-        # tasks never conflict with each other, while preventing the same
-        # task from being spawned twice (same lock key → 409 if still held).
-        spawn_lock = [f"tasks/{task_id}"] if task_id else [f"specs/{spec_path}"]
         body = AgentSpawn(
             name=name,
             prompt=prompt_with_close,

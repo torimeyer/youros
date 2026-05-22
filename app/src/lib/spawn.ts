@@ -30,6 +30,13 @@ export async function buildSpec(
   callbacks?.onOptimisticStart?.()
   try {
     const encodedPath = encodeURIComponent(path)
+    const preflightPaths = encodeURIComponent(`specs/${path}`)
+    const preflight = await api.get<{ conflicts: ConflictItem[] }>(
+      `/agents/spawn-preflight?paths=${preflightPaths}`
+    )
+    if (preflight.conflicts.length > 0) {
+      return { status: 'conflict', conflicts: preflight.conflicts }
+    }
     const modelParam = model ? `?model=${model}` : ''
     const res = await api.post<BuildResponse>(`/specs/${encodedPath}/build${modelParam}`)
     const result: BuildResult = {

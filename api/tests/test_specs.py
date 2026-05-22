@@ -3379,3 +3379,20 @@ async def test_claim_accepts_source_passive(client, tmp_path, monkeypatch):
     recorded = specs_router._spec_claims[spec_path]
     assert len(recorded) == 1
     assert recorded[0]["source"] == "passive"
+
+
+# ── Builder prompt recheck preamble (→1465) ──────────────────────────
+
+
+def test_builder_prompt_includes_recheck_instruction():
+    """build_recheck_preamble includes the conflict-check instruction and spawn lock paths."""
+    from routers.specs import build_recheck_preamble
+
+    spawn_lock = ["tasks/42"]
+    block = build_recheck_preamble(spawn_lock)
+
+    assert block, "preamble must be non-empty"
+    assert "## Conflict recheck" in block
+    assert "/api/agents" in block
+    assert "tasks/42" in block
+    assert "exit" in block.lower()

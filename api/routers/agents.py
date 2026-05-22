@@ -9380,6 +9380,27 @@ async def get_spawn_locks(paths: Optional[str] = Query(default=None)):
     return {"locks": locks}
 
 
+@router.get("/agents/spawn-preflight")
+async def spawn_preflight(paths: Optional[str] = Query(default=None)):
+    """Check whether the given paths can be locked without conflict.
+
+    Query param ``paths`` is a comma-separated list of path globs.
+    Always returns HTTP 200; a non-empty ``conflicts`` list means the
+    spawn would get a 409. Shape matches the lock_conflict 409 body so
+    the frontend can reuse its conflict-display code.
+    """
+    from services.spawn_isolation import compute_path_conflicts
+
+    path_list = [p.strip() for p in paths.split(",")] if paths else []
+    raw_conflicts = compute_path_conflicts(path_list)
+    return {
+        "conflicts": [
+            {"requested": req, "held_by_spawn": holder_id, "held_path": holder_glob}
+            for req, holder_id, holder_glob in raw_conflicts
+        ]
+    }
+
+
 @router.delete("/agents/locks/{lock_name}")
 async def release_lock(lock_name: str):
     """Force release a coordination lock by name."""

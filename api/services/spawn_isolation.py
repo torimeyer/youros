@@ -293,6 +293,30 @@ def validate_locks_for_spawn(
     return True, ""
 
 
+def compute_path_conflicts(
+    paths: Iterable[str],
+) -> List[Tuple[str, str, str]]:
+    """Return conflicts that would occur if ``paths`` were acquired now.
+
+    Read-only: does not modify ``_spawn_lock_holders``.
+    Returns a list of ``(requested_path, holder_spawn_id, holder_raw_glob)`` for
+    each path already held by any spawn.
+    """
+    conflicts: List[Tuple[str, str, str]] = []
+    with _spawn_lock_mutex:
+        for raw in paths:
+            g = str(raw or "").strip()
+            if not g or g == LOCKS_WILDCARD:
+                continue
+            key = _sanitize_glob(g)
+            if not key:
+                continue
+            holder = _spawn_lock_holders.get(key)
+            if holder is not None:
+                conflicts.append((g, holder[0], holder[1]))
+    return conflicts
+
+
 def acquire_spawn_locks(
     *,
     spawn_id: str,

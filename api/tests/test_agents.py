@@ -14065,3 +14065,56 @@ async def test_spawn_brief_receipts_gate_no_warning_with_evidence(
         agent_metadata.pop(agent_name, None)
         active_agents.pop(agent_name, None)
 
+
+# ── Spawn-preflight endpoint (→1465) ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_spawn_preflight_no_conflict():
+    """GET /agents/spawn-preflight returns empty conflicts when no locks are held."""
+    from services.spawn_isolation import _spawn_lock_holders, _spawn_lock_mutex
+
+    with _spawn_lock_mutex:
+        _spawn_lock_holders.pop("specs/some-feature-1465.md", None)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get(
+            "/api/agents/spawn-preflight?paths=specs/some-feature-1465.md"
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["conflicts"] == []
+
+
+@pytest.mark.asyncio
+async def test_spawn_preflight_with_conflict():
+    """GET /agents/spawn-preflight reports a conflict when another agent holds the path."""
+    import time
+    from services.spawn_isolation import _spawn_lock_holders, _spawn_lock_mutex
+
+    raw_glob = "specs/conflict-feature-1465.md"
+    holder_spawn = "agent-already-running-1465-test"
+
+    with _spawn_lock_mutex:
+        _spawn_lock_holders[raw_glob] = (holder_spawn, raw_glob, time.time())
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(
+                f"/api/agents/spawn-preflight?paths={raw_glob}"
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["conflicts"]) == 1
+        conflict = data["conflicts"][0]
+        assert conflict["held_by_spawn"] == holder_spawn
+        assert conflict["held_path"] == raw_glob
+        assert "requested" in conflict
+    finally:
+        with _spawn_lock_mutex:
+            _spawn_lock_holders.pop(raw_glob, None)
+
