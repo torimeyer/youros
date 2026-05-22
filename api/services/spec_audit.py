@@ -75,6 +75,10 @@ TEMPLATE_SECTIONS = [
     "References",
 ]
 
+# Sections that are genuinely optional — a spec without them is not incomplete.
+# Excluded from sections_missing so they don't trigger clarity or audit failures.
+OPTIONAL_SECTIONS: frozenset[str] = frozenset({"References"})
+
 # Alternate header patterns that map to canonical section names.
 # Keys are canonical names; values are extra patterns to match.
 _SECTION_ALIASES: dict[str, list[str]] = {
@@ -140,7 +144,9 @@ def audit_spec_file(path: Path) -> dict[str, Any]:
     headings = _extract_headings(text)
 
     present = [s for s in TEMPLATE_SECTIONS if _section_present(s, headings)]
-    missing = [s for s in TEMPLATE_SECTIONS if s not in present]
+    all_missing = [s for s in TEMPLATE_SECTIONS if s not in present]
+    # Optional sections don't count against the score or clarity gate.
+    missing = [s for s in all_missing if s not in OPTIONAL_SECTIONS]
     score = len(present)
 
     return {

@@ -19,8 +19,7 @@ interface NeedsClarityChipProps {
 const CHECK_LABEL: Record<string, string> = {
   plan_path_present: 'Spec file linked',
   file_exists: 'Spec file exists',
-  has_ac_checkboxes: 'Has acceptance criteria',
-  no_vague_ac: 'No vague acceptance criteria',
+  has_ac_checkboxes: 'Acceptance criteria',
   has_file_paths: 'References real files',
   ac_count_threshold: 'Enough acceptance criteria (≥3)',
   referenced_files_exist: 'Referenced files exist',
@@ -36,6 +35,27 @@ const CHECK_PLACEHOLDER: Record<string, string> = {
   referenced_files_exist: 'Fix broken file paths — check spelling or recent renames',
   in_repo_scope: 'Clarify how this work lives in the current repo (not upstream or an external system)',
   outcome_concrete: 'State exactly what will be built or changed — no TBD, no vague qualifiers',
+}
+
+function mergeAcChecks(checks: ReadinessCheck[]): ReadinessCheck[] {
+  const acIdx = checks.findIndex((c) => c.name === 'has_ac_checkboxes')
+  const vagueIdx = checks.findIndex((c) => c.name === 'no_vague_ac')
+  if (acIdx === -1 || vagueIdx === -1) return checks
+
+  const ac = checks[acIdx]
+  const vague = checks[vagueIdx]
+  const passed = ac.passed && vague.passed
+
+  // Surface the most actionable failing reason; when passed, show AC detail
+  const detail = !ac.passed ? ac.detail : !vague.passed ? vague.detail : ac.detail
+  // Use the primary failing check name so AI suggest targets the right endpoint
+  const name = !ac.passed ? 'has_ac_checkboxes' : !vague.passed ? 'no_vague_ac' : 'has_ac_checkboxes'
+
+  const merged: ReadinessCheck = { name, passed, detail }
+  const result = [...checks]
+  result[acIdx] = merged
+  result.splice(vagueIdx > acIdx ? vagueIdx : vagueIdx, 1)
+  return result
 }
 
 // Checks dropped from the task rubric by Clarity-1; filter from render to be safe
@@ -61,7 +81,9 @@ export function NeedsClarityChip({
   if (allChecks.length === 0) return null
 
   const visibleChecks =
-    mode === 'task' ? allChecks.filter((c) => !TASK_MODE_HIDDEN.has(c.name)) : allChecks
+    mode === 'task'
+      ? allChecks.filter((c) => !TASK_MODE_HIDDEN.has(c.name))
+      : mergeAcChecks(allChecks)
 
   if (visibleChecks.length === 0) return null
 
