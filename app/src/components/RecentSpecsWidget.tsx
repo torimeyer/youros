@@ -19,9 +19,6 @@ interface RecentSpecsResponse {
   docs: Spec[];
 }
 
-
-}
-
 export default function RecentSpecsWidget() {
   const navigate = useNavigate();
   const [specs, setSpecs] = useState<Spec[]>([]);

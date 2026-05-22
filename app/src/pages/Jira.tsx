@@ -32,9 +32,6 @@ interface JiraIssueDetail extends JiraIssue {
   comments: { author: string; body_html: string; created: string }[]
 }
 
-
-}
-
 function StatusPill({ status }: { status: string }) {
   const color =
     status === 'Done' || status === 'Closed' ? 'bg-green-500/20 text-green-400'
