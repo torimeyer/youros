@@ -217,4 +217,21 @@ Prefilling the 10 canonical headings (with placeholder text under each) at creat
 
 ---
 
+## Phase 3 work items (gated on tori approval)
+
+Once tori approves this proposal, the three problems can be fixed in this order (each is independent):
+
+**P1 — Fix AI suggest button** (1 file, ~15 lines):
+- `app/src/components/NeedsClarityChip.tsx`: add `suggestErrors` state, populate it in the catch block, render per-check error below the button.
+
+**P2 — Fix textarea placeholder copy** (1 file, ~10 lines):
+- `app/src/components/NeedsClarityChip.tsx`: add `CHECK_PLACEHOLDER` map (6 entries), wire to `placeholder` prop on the textarea.
+
+**P3 — Template scaffolding at creation time** (2–3 files):
+- Read `api/services/spec_templates.py` first — it already exists and may have template content.
+- `POST /api/specs/draft` and `POST /api/specs/{path}/promote` — inject the 10-section template when body is missing headings.
+- Optional: add a "what does this spec produce?" step to the wizard (from `vp-marketing-first-impression.md` spec).
+
+---
+
 **READY FOR TORI REVIEW**
