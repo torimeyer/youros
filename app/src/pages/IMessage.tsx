@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { formatSmartDate } from '../lib/time'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
 import { ConnectCard, LoadingState, EmptyState, ErrorBanner } from '../components/ui'
@@ -97,25 +98,7 @@ function writeConnectionCache(state: 'connected' | 'not_connected') {
   }
 }
 
-function formatDate(dateStr: string): string {
-  if (!dateStr) return ''
-  try {
-    const d = new Date(dateStr)
-    const now = new Date()
-    const isToday = d.toDateString() === now.toDateString()
-    if (isToday) {
-      return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    }
-    const yesterday = new Date(now)
-    yesterday.setDate(now.getDate() - 1)
-    if (d.toDateString() === yesterday.toDateString()) {
-      return 'Yesterday'
-    }
-    return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-  } catch {
-    return dateStr
-  }
-}
+
 
 function normalizePhoneStr(s: string): string {
   return s.replace(/\D/g, '')
@@ -577,7 +560,7 @@ export default function IMessage() {
                         {r.chat_display_name}
                       </span>
                       <span className="text-xs text-slate-500 shrink-0">
-                        {formatDate(r.date)}
+                        {formatSmartDate(r.date)}
                       </span>
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5 truncate">{r.text}</p>
@@ -677,7 +660,7 @@ export default function IMessage() {
                               {convo.display_name || convo.identifier}
                             </p>
                             <span className="text-xs text-slate-500 shrink-0">
-                              {formatDate(convo.last_message_date)}
+                              {formatSmartDate(convo.last_message_date)}
                             </span>
                           </div>
                           <p className="text-xs text-slate-500 truncate mt-0.5">
@@ -788,7 +771,7 @@ export default function IMessage() {
                                     ))}
                                     {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
                                     <p className={`text-[10px] mt-1 ${msg.is_from_me ? 'text-blue-200' : 'text-slate-500'}`}>
-                                      {formatDate(msg.date)}
+                                      {formatSmartDate(msg.date)}
                                     </p>
                                   </div>
                                 </div>

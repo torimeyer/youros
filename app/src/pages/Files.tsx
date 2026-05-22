@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { formatRelative } from '../lib/time';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import ConfirmModal from '../components/ConfirmModal';
@@ -69,18 +70,6 @@ const typeConfig: Record<string, { icon: string; color: string; label: string }>
   folder: { icon: 'folder', color: 'text-slate-400', label: 'Folder' },
 };
 
-function timeAgo(iso: string | null): string {
-  if (!iso) return '';
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return 'yesterday';
-  return `${days}d ago`;
-}
 
 
 function agentArtifactTitle(name: string): { title: string; timeLabel: string | null } {
@@ -363,7 +352,7 @@ export default function Files() {
                           )}
                         </button>
                         <span className="text-xs text-slate-500">{doc.size_display}</span>
-                        <span className="text-xs text-slate-500 text-right">{timeAgo(doc.last_modified)}</span>
+                        <span className="text-xs text-slate-500 text-right">{formatRelative(doc.last_modified)}</span>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -437,7 +426,7 @@ export default function Files() {
                           </div>
                           <span className="text-xs text-slate-400">{cfg.label}</span>
                           <span className="text-xs text-slate-500">{project.file_count}</span>
-                          <span className="text-xs text-slate-500 text-right">{timeAgo(project.last_modified)}</span>
+                          <span className="text-xs text-slate-500 text-right">{formatRelative(project.last_modified)}</span>
                         </button>
                       );
                     })}
@@ -530,7 +519,7 @@ export default function Files() {
                             )}
                           </div>
                           <span className="text-xs text-slate-500">{entry.size_display}</span>
-                          <span className="text-xs text-slate-500 text-right">{timeAgo(entry.last_modified)}</span>
+                          <span className="text-xs text-slate-500 text-right">{formatRelative(entry.last_modified)}</span>
                         </button>
                       );
                     })}

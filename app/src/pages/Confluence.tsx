@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { formatDate } from '../lib/time'
 import { useParams, useNavigate } from 'react-router-dom'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
@@ -26,14 +27,7 @@ interface ConfluencePageDetail extends ConfluencePage {
   created: string
 }
 
-function formatDate(dateStr: string): string {
-  if (!dateStr) return ''
-  try {
-    return new Date(dateStr).toLocaleDateString([], { month: 'short', day: 'numeric' })
-  } catch {
-    return dateStr
-  }
-}
+
 
 export default function Confluence() {
   const { pageId } = useParams<{ pageId?: string }>()

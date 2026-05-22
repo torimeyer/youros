@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { formatRelative } from '../lib/time';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import { LoadingState, ErrorBanner, EmptyState } from '../components/ui';
@@ -43,22 +44,9 @@ interface SyncResponse {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function timeAgo(iso: string | null): string {
-  if (!iso) return '';
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return 'yesterday';
-  return `${days}d ago`;
-}
-
 function syncTimeLabel(ts: number | null): string {
   if (!ts) return 'Never synced';
-  return `Last synced ${timeAgo(new Date(ts * 1000).toISOString())}`;
+  return `Last synced ${formatRelative(new Date(ts * 1000).toISOString())}`;
 }
 
 const MIME_LABELS: Record<string, string> = {

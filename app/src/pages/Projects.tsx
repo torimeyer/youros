@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { formatRelative } from '../lib/time';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import { Card, EmptyState, ErrorBanner, LoadingState } from '../components/ui';
@@ -26,18 +27,7 @@ const typeConfig: Record<string, { icon: string; color: string; label: string }>
   folder: { icon: 'folder', color: 'bg-slate-500/20 text-slate-400', label: 'Folder' },
 };
 
-function timeAgo(iso: string | null): string {
-  if (!iso) return '';
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return 'yesterday';
-  return `${days}d ago`;
-}
+
 
 export default function Projects() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -160,7 +150,7 @@ export default function Projects() {
 
                     {/* Last modified */}
                     {project.last_modified && (
-                      <span className="ml-auto">{timeAgo(project.last_modified)}</span>
+                      <span className="ml-auto">{formatRelative(project.last_modified)}</span>
                     )}
                   </div>
                 </Card>

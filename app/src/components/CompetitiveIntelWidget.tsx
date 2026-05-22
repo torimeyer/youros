@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import Icon from './Icon'
 import { Card, SkeletonLine } from './ui'
 import { api } from '../lib/api'
+import { formatDate } from '../lib/time'
 import IntelCaptureModal from './IntelCaptureModal'
 
 interface IntelCapture {
@@ -17,12 +18,7 @@ interface FeedResponse {
   captures: IntelCapture[]
 }
 
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  } catch {
-    return iso
-  }
+
 }
 
 function truncate(s: string, n = 60): string {

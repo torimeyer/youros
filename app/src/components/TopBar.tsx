@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { formatRelative } from '../lib/time'
 import { useNavigate } from 'react-router-dom'
 import Icon from './Icon'
 import { useAppStore } from '../stores/app'
@@ -63,17 +64,7 @@ function statusMessage(status: string): string {
   }
 }
 
-function formatTimeAgo(isoStr: string | undefined): string {
-  if (!isoStr) return ''
-  const diff = Date.now() - new Date(isoStr).getTime()
-  const seconds = Math.floor(diff / 1000)
-  if (seconds < 60) return 'just now'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
-}
+
 
 function NotificationItem({ n }: { n: AppNotification }) {
   const { icon, color } = statusIcon(n.status)
@@ -84,7 +75,7 @@ function NotificationItem({ n }: { n: AppNotification }) {
         <p className="text-sm text-white font-medium truncate">{n.agentName}</p>
         <p className="text-xs text-slate-400">Agent {statusMessage(n.status)}</p>
       </div>
-      <span className="text-[10px] text-slate-600 shrink-0 mt-0.5">{formatTimeAgo(n.timestamp)}</span>
+      <span className="text-[10px] text-slate-600 shrink-0 mt-0.5">{formatRelative(n.timestamp)}</span>
     </div>
   )
 }
@@ -130,7 +121,7 @@ function PersistentNotificationItem({
         )}
       </div>
       <span className="text-[10px] text-slate-600 shrink-0 mt-0.5">
-        {formatTimeAgo(n.created_at)}
+        {formatRelative(n.created_at)}
       </span>
     </div>
   )

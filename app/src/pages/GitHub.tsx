@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { formatDate } from '../lib/time'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
 import { ConnectCard, LoadingState, EmptyState, ErrorBanner } from '../components/ui'
@@ -53,15 +54,7 @@ function writeIssueCache(issues: GitHubIssue[]) {
   }
 }
 
-function formatDate(dateStr: string): string {
-  if (!dateStr) return ''
-  try {
-    const d = new Date(dateStr)
-    return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-  } catch {
-    return dateStr
-  }
-}
+
 
 export default function GitHub() {
   const [status, setStatus] = useState<GitHubStatus | null>(null)

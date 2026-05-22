@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { formatDateTime } from '../lib/time';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import { api } from '../lib/api';
@@ -195,7 +196,7 @@ function AuditDetailModal({ event, onClose }: { event: AuditEvent; onClose: () =
               </h2>
               {ts && (
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  {new Date(ts as string).toLocaleString()}
+                  {formatDateTime(ts as string)}
                 </p>
               )}
             </div>
@@ -221,7 +222,7 @@ function AuditDetailModal({ event, onClose }: { event: AuditEvent; onClose: () =
             {ts && (
               <div>
                 <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-0.5">Time</p>
-                <p className="text-sm text-slate-200 font-mono">{new Date(ts as string).toLocaleString()}</p>
+                <p className="text-sm text-slate-200 font-mono">{formatDateTime(ts as string)}</p>
               </div>
             )}
             {event.tool && (
