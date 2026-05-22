@@ -117,6 +117,7 @@ STANDING RULES (non-negotiable this turn):
 3. If ostk MCP drops, tell the user immediately. Reload via ToolSearch, do not silently fall back.
 4. If iterating over N things is slow, ask why there are N first. Reduce N before optimizing the loop.
 5. Commit verified wins incrementally. Five or more uncommitted files is a slow-down signal.
+6. Use mcp__ostk__spawn (+ interact) for any bash command expected to take >10s (tests, builds, full pytest, vitest). mcp__ostk__bash is for fast commands only. The harness cancels pending tools when a user message arrives — slow bash gets killed mid-run. See docs/draft/_review/2026-05-21-tool-cancellation-pattern.md.
 EOF
 
 # ---- RECEIPTS CHECK (gated on standing_rules_blocks.receipts_check) ----
