@@ -92,7 +92,7 @@ export default function ExecUpdateWidget() {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Icon name="edit_note" size={18} className="text-blue-400" />
-            <h3 className="text-sm font-semibold text-white">Exec Update</h3>
+            <h2 className="text-lg font-semibold text-white">Exec Update</h2>
           </div>
           <button
             type="button"
@@ -114,14 +114,14 @@ export default function ExecUpdateWidget() {
         )}
 
         {!loading && error && (
-          <p data-testid="exec-update-error" className="text-xs text-red-400">
+          <p data-testid="exec-update-error" className="text-sm text-red-400">
             {error}
           </p>
         )}
 
         {!loading && !error && drafts.length === 0 && (
           <div data-testid="exec-update-empty" className="text-center py-4">
-            <p className="text-xs text-slate-400">No drafts yet.</p>
+            <p className="text-sm text-slate-400">No drafts yet.</p>
             <p className="text-xs text-slate-500 mt-1">
               Click "New update" to generate your first exec update.
             </p>
