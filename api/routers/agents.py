@@ -9658,38 +9658,6 @@ async def agent_notes_get(name: str):
     return {"notes": notes}
 
 
-# →1454 transcript_tail endpoint — added at bottom to avoid merge conflicts
-@router.get("/agents/{name}/transcript_tail")
-async def agent_transcript_tail(name: str, lines: int = 80):
-    """Return the last N lines of the agent's transcript file.
-
-    Useful for quickly surfacing what a running agent is currently doing
-    without reading the full transcript. File I/O runs in a thread so the
-    event loop is never blocked (even on cold, large transcript files).
-
-    Returns:
-        {"agent": name, "found": bool, "lines": list[str]}
-    """
-    if "/" in name or ".." in name:
-        raise HTTPException(status_code=400, detail="Invalid agent name")
-
-    source = await asyncio.to_thread(_resolve_transcript_source, name)
-    if source is None:
-        return {"agent": name, "found": False, "lines": []}
-
-    def _read_tail() -> list:
-        try:
-            with open(source, "rb") as fh:
-                content = fh.read().decode("utf-8", errors="replace")
-            all_lines = content.splitlines()
-            return all_lines[-lines:] if len(all_lines) > lines else all_lines
-        except OSError:
-            return []
-
-    tail = await asyncio.to_thread(_read_tail)
-    return {"agent": name, "found": True, "lines": tail}
-
-
 # →1500 transcript-tail endpoint (hyphen path, stricter contract than →1454 underscore variant)
 @router.get("/agents/{name}/transcript-tail")
 async def agent_transcript_tail_v2(name: str, lines: int = 20):
