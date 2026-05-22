@@ -23,6 +23,7 @@ import { useDashboardStore } from '../stores/dashboardStore';
 import { useDashboardFeed } from '../hooks/useDashboardFeed';
 import { ADVENTURE_DISMISSED_KEY, type AdventureTemplate } from '../lib/adventures';
 import { ClampedDescription } from '../components/ClampedDescription';
+import CalendarGridWidget from '../components/CalendarGridWidget';
 
 interface ActionItem {
   type: 'reply_email' | 'close_task' | 'prep_meeting' | 'review_agent';
@@ -121,21 +122,6 @@ interface CalendarEvent {
   colorId?: string
 }
 
-const GCAL_COLOR_MAP: Record<string, string> = {
-  '1': '#7986CB',
-  '2': '#33B679',
-  '3': '#8E24AA',
-  '4': '#E67C73',
-  '5': '#F6BF26',
-  '6': '#F4511E',
-  '7': '#039BE5',
-  '8': '#616161',
-  '9': '#3F51B5',
-  '10': '#0B8043',
-  '11': '#D50000',
-};
-const GCAL_DEFAULT_COLOR = '#4285F4';
-
 interface SessionDiff {
   files_changed: string[];
   needles_filed: { id: string; priority: string; title: string }[];
@@ -177,17 +163,6 @@ const CALENDAR_RANGE_LABEL: Record<CalendarRange, string> = {
   week: 'Week',
   month: 'Month',
 };
-
-// Empty-state copy per range. Plain language, no jargon.
-const CALENDAR_RANGE_EMPTY: Record<CalendarRange, string> = {
-  day: 'Nothing on your calendar today.',
-  week: 'Nothing on your calendar this week.',
-  month: 'Nothing on your calendar this month.',
-};
-
-// Maximum events shown in the widget so the dashboard card stays
-// compact. The full list is on the Calendar page.
-const CALENDAR_WIDGET_MAX_EVENTS = 5;
 
 function readCalendarRange(): CalendarRange {
   if (typeof window === 'undefined') return 'week';
@@ -288,11 +263,13 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // Calendar widget fetch. Re-runs whenever the user changes the
-  // range selector. Also re-runs every 60s so the list stays fresh
-  // without needing a manual refresh. We pass ?days= only when the
-  // range is not the default Week, so the existing 7-day cache hit
-  // path stays warm and the path-equality test mocks keep matching.
+  // Calendar widget fetch. Re-runs whenever the user changes the range
+  // selector. Also re-runs every 60s to stay fresh.
+  // We pass ?days= only when the range is not the default Week, so the
+  // existing 7-day cache hit path stays warm.
+  // Events are filtered to the current period window (start of
+  // day/week/month through end of the window). No hard cap — the
+  // grid views manage their own display limits.
   const fetchCalendarEvents = useCallback(async (range: CalendarRange) => {
     const days = CALENDAR_RANGE_DAYS[range];
     const path = days === 7 ? '/calendar/events' : `/calendar/events?days=${days}`;
@@ -306,16 +283,25 @@ export default function Dashboard() {
       setCalendarEvents([]);
       return;
     }
-    const now = Date.now();
-    const cutoff = now + days * 24 * 60 * 60 * 1000;
-    const filtered = (res.events || [])
-      .filter((ev) => {
-        const startStr = ev.start?.dateTime || ev.start?.date;
-        if (!startStr) return false;
-        const t = new Date(startStr).getTime();
-        return t > now && t <= cutoff;
-      })
-      .slice(0, CALENDAR_WIDGET_MAX_EVENTS);
+    const now = new Date();
+    let periodStart: Date;
+    if (range === 'day') {
+      periodStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    } else if (range === 'week') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - d.getDay());
+      d.setHours(0, 0, 0, 0);
+      periodStart = d;
+    } else {
+      periodStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    }
+    const cutoff = periodStart.getTime() + days * 24 * 60 * 60 * 1000;
+    const filtered = (res.events || []).filter((ev) => {
+      const startStr = ev.start?.dateTime || ev.start?.date;
+      if (!startStr) return false;
+      const t = new Date(startStr).getTime();
+      return t >= periodStart.getTime() && t <= cutoff;
+    });
     setCalendarEvents(filtered);
   }, []);
 
@@ -818,7 +804,6 @@ export default function Dashboard() {
 
   const renderNextMeeting = () => {
     const events = calendarEvents ?? [];
-    const hasEvents = events.length > 0;
     const handleRangeClick = (range: CalendarRange) => (e: MouseEvent) => {
       // Stop propagation so clicking the selector does not also
       // navigate the user to the Calendar page (the wrapping Card
@@ -869,80 +854,15 @@ export default function Dashboard() {
       </div>
     );
 
-    if (!hasEvents) {
-      return (
-        <div key="next_meeting" data-testid="widget-next-meeting" className="lg:col-span-2">
-          <Card hover padding="sm" className="sm:p-6" onClick={() => navigate('/calendar')}>
-            {header}
-            <p className="text-sm text-slate-400">{CALENDAR_RANGE_EMPTY[calendarRange]}</p>
-          </Card>
-        </div>
-      );
-    }
-
     return (
       <div key="next_meeting" data-testid="widget-next-meeting" className="lg:col-span-2">
         <Card hover padding="sm" className="sm:p-6" onClick={() => navigate('/calendar')}>
           {header}
-          <ul className="space-y-3" data-testid="calendar-event-list">
-            {events.map((ev) => {
-              const startStr = ev.start?.dateTime || ev.start?.date;
-              let dayStr = '';
-              let timeStr = '';
-              if (startStr) {
-                try {
-                  const d = new Date(startStr);
-                  timeStr = ev.start?.dateTime
-                    ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-                    : 'All day';
-                  const today = new Date();
-                  const isToday = d.toDateString() === today.toDateString();
-                  const tomorrow = new Date(today);
-                  tomorrow.setDate(today.getDate() + 1);
-                  const isTomorrow = d.toDateString() === tomorrow.toDateString();
-                  dayStr = isToday
-                    ? 'Today'
-                    : isTomorrow
-                      ? 'Tomorrow'
-                      : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-                } catch {
-                  // ignore unparseable dates; row will just have no time/day
-                }
-              }
-              const dotColor = ev.colorId ? (GCAL_COLOR_MAP[ev.colorId] ?? GCAL_DEFAULT_COLOR) : GCAL_DEFAULT_COLOR;
-              return (
-                <li key={ev.id} className="flex items-center gap-3 py-1">
-                  <span
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: dotColor }}
-                    aria-hidden="true"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{ev.summary || 'Untitled'}</p>
-                    {(dayStr || timeStr) && (
-                      <p className="text-xs text-slate-400">
-                        {dayStr}
-                        {dayStr && timeStr ? ' at ' : ''}
-                        {timeStr}
-                      </p>
-                    )}
-                  </div>
-                  {ev.hangoutLink && (
-                    <a
-                      href={ev.hangoutLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="shrink-0 flex items-center gap-1 px-2.5 py-1 bg-green-500/20 text-green-400 rounded-md text-xs hover:bg-green-500/30 transition-colors"
-                    >
-                      <Icon name="video_call" size={14} />
-                      Join
-                    </a>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+          <CalendarGridWidget
+            events={events}
+            range={calendarRange}
+            loading={calendarEvents === undefined}
+          />
         </Card>
       </div>
     );
