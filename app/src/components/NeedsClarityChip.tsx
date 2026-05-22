@@ -19,23 +19,23 @@ interface NeedsClarityChipProps {
 const CHECK_LABEL: Record<string, string> = {
   plan_path_present: 'Spec file linked',
   file_exists: 'Spec file exists',
-  has_ac_checkboxes: 'Acceptance criteria',
-  no_vague_ac: 'Acceptance criteria',
-  has_file_paths: 'References real files',
-  ac_count_threshold: 'Enough acceptance criteria (≥3)',
-  referenced_files_exist: 'Referenced files exist',
-  in_repo_scope: 'In-repo scope',
+  has_ac_checkboxes: 'Steps to verify it\'s done',
+  no_vague_ac: 'Steps to verify it\'s done',
+  has_file_paths: 'Names the files it touches',
+  ac_count_threshold: 'At least 3 steps to verify',
+  referenced_files_exist: 'All mentioned files can be found',
+  in_repo_scope: 'Work lives in this project',
   is_unblocked: 'No blockers',
   outcome_concrete: 'Clear outcome',
 }
 
 const CHECK_PLACEHOLDER: Record<string, string> = {
-  has_ac_checkboxes: 'Add acceptance criteria — one per line: - [ ] When X, the result is Y',
-  no_vague_ac: 'Rewrite vague lines to be specific and testable. Remove: TBD, ?, TODO, maybe, discuss',
-  has_file_paths: 'List the files this spec will touch: api/routers/foo.py, app/src/components/Bar.tsx',
-  referenced_files_exist: 'Fix broken file paths — check spelling or recent renames',
-  in_repo_scope: 'Clarify how this work lives in the current repo (not upstream or an external system)',
-  outcome_concrete: 'State exactly what will be built or changed — no TBD, no vague qualifiers',
+  has_ac_checkboxes: 'Add steps that prove the work is done — one per line: - [ ] When X happens, the result is Y',
+  no_vague_ac: 'Rewrite vague steps to be specific and testable. Remove words like: TBD, ?, TODO, maybe, discuss',
+  has_file_paths: 'List the files this work will change: api/routers/foo.py, app/src/components/Bar.tsx',
+  referenced_files_exist: 'Some file paths listed here can\'t be found. Check for typos or update paths if files moved.',
+  in_repo_scope: 'Describe how this work lives inside the current project, not in another tool or outside system.',
+  outcome_concrete: 'Describe exactly what will be built or changed. Avoid "TBD" or vague qualifiers.',
 }
 
 function mergeAcChecks(checks: ReadinessCheck[]): ReadinessCheck[] {
@@ -77,6 +77,9 @@ export function NeedsClarityChip({
   const [suggestErrors, setSuggestErrors] = useState<Record<string, string>>({})
   const [rationales, setRationales] = useState<Record<string, string>>({})
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [fillingAll, setFillingAll] = useState(false)
+  const [fillAllProgress, setFillAllProgress] = useState<{ done: number; total: number } | null>(null)
+  const [showApplyAllConfirm, setShowApplyAllConfirm] = useState(false)
 
   const allChecks = liveChecks.length > 0 ? liveChecks : (checks ?? [])
   if (allChecks.length === 0) return null
@@ -90,6 +93,33 @@ export function NeedsClarityChip({
 
   const allPassed = visibleChecks.every((c) => c.passed)
   const checkLines = visibleChecks.map((c) => `${c.passed ? '✓' : '✗'} ${CHECK_LABEL[c.name] ?? c.name}: ${c.detail}`)
+
+  const failingChecks = visibleChecks.filter((c) => !c.passed)
+
+  async function handleFillAll() {
+    if (fillingAll) return
+    const targets = failingChecks
+    setFillingAll(true)
+    setFillAllProgress({ done: 0, total: targets.length })
+    await Promise.all(
+      targets.map(async (check) => {
+        await handleSuggest(check.name)
+        setFillAllProgress((prev) => prev ? { done: prev.done + 1, total: prev.total } : null)
+      })
+    )
+    setFillingAll(false)
+    setFillAllProgress(null)
+    setShowApplyAllConfirm(true)
+  }
+
+  async function handleApplyAll() {
+    setShowApplyAllConfirm(false)
+    for (const check of failingChecks) {
+      if (drafts[check.name]?.trim()) {
+        await handleSave(check.name)
+      }
+    }
+  }
 
   async function handleSuggest(checkName: string) {
     setSuggesting(checkName)
@@ -192,6 +222,42 @@ export function NeedsClarityChip({
                 <Icon name="close" />
               </button>
             </div>
+
+            {failingChecks.length >= 2 && (specPath || taskId) && (
+              <div className="mb-4" data-testid="fill-all-gaps-container">
+                <button
+                  type="button"
+                  data-testid="fill-all-gaps-btn"
+                  disabled={fillingAll}
+                  onClick={handleFillAll}
+                  className="w-full py-2 px-4 rounded-lg text-sm font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {fillingAll && fillAllProgress
+                    ? `Filling ${fillAllProgress.done} of ${fillAllProgress.total}…`
+                    : 'Fill all gaps with AI'}
+                </button>
+                {showApplyAllConfirm && (
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      data-testid="apply-all-btn"
+                      onClick={handleApplyAll}
+                      className="flex-1 py-1 px-3 rounded text-xs font-medium bg-amber-500/30 text-amber-300 border border-amber-500/40 hover:bg-amber-500/40"
+                    >
+                      Apply all suggestions
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="review-first-btn"
+                      onClick={() => setShowApplyAllConfirm(false)}
+                      className="py-1 px-3 rounded text-xs font-medium bg-slate-700 text-slate-300 border border-slate-600 hover:bg-slate-600"
+                    >
+                      Review first
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-3">
               {visibleChecks.map((check) => (
