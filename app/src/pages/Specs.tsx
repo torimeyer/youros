@@ -1334,22 +1334,22 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                       {/* Guided next step + action buttons */}
                       <div className="mt-4 space-y-3">
                         {/* Step guidance */}
-                        {doc.status === "draft" && (doc.acceptance_criteria?.length ?? 0) > 0 && (
+                        {doc.status === "draft" && ((doc.acceptance_criteria?.length ?? 0) > 0 || criteria.length > 0) && (
                           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/20">
                             <Icon name="arrow_forward" size={16} className="text-green-400" />
                             <p className="text-xs text-green-300">
-                              <span className="font-bold">Next step:</span> {doc.acceptance_criteria!.length} acceptance criteria defined. Promote this draft to lock it in as a spec.
+                              <span className="font-bold">Next step:</span> {(doc.acceptance_criteria?.length ?? 0) > 0 ? doc.acceptance_criteria!.length : criteria.length} acceptance criteria defined. Promote this draft to lock it in as a spec.
                             </p>
                           </div>
                         )}
-                        {doc.status === "draft" && !(doc.acceptance_criteria?.length) && (
+                        {doc.status === "draft" && (doc.acceptance_criteria?.length ?? 0) === 0 && criteria.length === 0 && (
                           <div
                             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/40 border border-slate-700/50"
-                            data-testid="generating-criteria-indicator"
+                            data-testid="no-criteria-indicator"
                           >
-                            <span className="block w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-                            <p className="text-xs text-slate-300">
-                              Generating acceptance criteria...
+                            <Icon name="edit_note" size={14} className="text-slate-400 flex-shrink-0" />
+                            <p className="text-xs text-slate-400">
+                              No acceptance criteria yet. Add checklist items (<code className="text-slate-300">- [ ] ...</code>) to this draft to unlock promoting.
                             </p>
                           </div>
                         )}
