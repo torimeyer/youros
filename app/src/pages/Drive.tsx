@@ -1084,7 +1084,7 @@ export default function Drive() {
                         <span />
                       )}
                       <span className="text-xs text-slate-500 text-right">
-                        {timeAgo(file.modifiedTime)}
+                        {formatRelative(file.modifiedTime)}
                       </span>
                       <button
                         onClick={(e) => {
