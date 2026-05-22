@@ -469,6 +469,46 @@ describe('Specs page', () => {
     expect(promoteBtn).not.toBeDisabled()
   })
 
+  // Regression(→1598): a draft with no AC must show a plain "No acceptance
+  // criteria yet" message, NOT a spinning "Generating..." indicator.
+  // The old spinner was a static conditional with no backing fetch — it lied
+  // to the user and never resolved.
+  it('shows no-criteria message (not a spinner) for a draft with no acceptance criteria', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') {
+        return Promise.resolve({
+          docs: [
+            {
+              path: 'docs/draft/empty-draft.md',
+              filename: 'empty-draft.md',
+              title: 'empty draft',
+              status: 'draft',
+              created_at: '2026-04-01T00:00:00Z',
+              promoted_at: '',
+              body: '',
+            },
+          ],
+        })
+      }
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
+    await waitFor(() => expect(screen.getByText('empty draft')).toBeInTheDocument())
+
+    const cards = screen.getAllByTestId('spec-card')
+    const draftCard = cards.find(c => c.textContent?.includes('empty draft'))!
+    fireEvent.click(draftCard)
+
+    await waitFor(() => expect(screen.getByTestId('no-criteria-indicator')).toBeInTheDocument())
+    expect(screen.queryByText(/Generating acceptance criteria/i)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('generating-criteria-indicator')).not.toBeInTheDocument()
+  })
+
   // Obsolete: the Verify button was removed. Previously this test checked
   // that Verify was disabled on a ready spec with zero linked tasks.
 
