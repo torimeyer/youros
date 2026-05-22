@@ -35,6 +35,9 @@ import ExecUpdateWidget from '../ExecUpdateWidget'
 import ActiveAgentsWidget from '../ActiveAgentsWidget'
 import NeedlesCountWidget from '../NeedlesCountWidget'
 import BlockersWidget from '../BlockersWidget'
+import RecentSpecsWidget from '../RecentSpecsWidget'
+import CompetitiveIntelWidget from '../CompetitiveIntelWidget'
+import JiraWidget from '../JiraWidget'
 
 const mockedGet = vi.mocked(api.get)
 
@@ -118,6 +121,52 @@ describe('widget typography — canonical scale', () => {
     it('title is an h2 with text-lg font-semibold', async () => {
       mockedGet.mockResolvedValue({ blockers: [] })
       const { container } = render(<BlockersWidget />)
+      await waitFor(() => {
+        const heading = container.querySelector('h2')
+        expect(heading).not.toBeNull()
+        expect(heading!.classList.contains('text-lg')).toBe(true)
+        expect(heading!.classList.contains('font-semibold')).toBe(true)
+      })
+    })
+  })
+
+  // ── RecentSpecsWidget ─────────────────────────────────────────────────────
+  describe('RecentSpecsWidget', () => {
+    it('title is an h2 with text-lg font-semibold', async () => {
+      mockedGet.mockResolvedValue({ docs: [] })
+      const { container } = render(
+        <MemoryRouter><RecentSpecsWidget /></MemoryRouter>
+      )
+      await waitFor(() => {
+        const heading = container.querySelector('h2')
+        expect(heading).not.toBeNull()
+        expect(heading!.classList.contains('text-lg')).toBe(true)
+        expect(heading!.classList.contains('font-semibold')).toBe(true)
+      })
+    })
+  })
+
+  // ── CompetitiveIntelWidget ────────────────────────────────────────────────
+  describe('CompetitiveIntelWidget', () => {
+    it('title is an h2 with text-lg font-semibold', async () => {
+      mockedGet.mockResolvedValue({ captures: [] })
+      const { container } = render(<CompetitiveIntelWidget />)
+      await waitFor(() => {
+        const heading = container.querySelector('h2')
+        expect(heading).not.toBeNull()
+        expect(heading!.classList.contains('text-lg')).toBe(true)
+        expect(heading!.classList.contains('font-semibold')).toBe(true)
+      })
+    })
+  })
+
+  // ── JiraWidget ────────────────────────────────────────────────────────────
+  describe('JiraWidget', () => {
+    it('title is an h2 with text-lg font-semibold', async () => {
+      mockedGet.mockResolvedValue({ issues: [] })
+      const { container } = render(
+        <MemoryRouter><JiraWidget /></MemoryRouter>
+      )
       await waitFor(() => {
         const heading = container.querySelector('h2')
         expect(heading).not.toBeNull()
