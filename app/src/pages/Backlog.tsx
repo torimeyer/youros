@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { buildSpec } from '../lib/spawn'
 import type { ConflictItem } from '../lib/spawn'
 import ConflictDialog from '../components/ConflictDialog'
+import { ClampedDescription } from '../components/ClampedDescription'
 
 interface Spec {
   id: string
@@ -54,7 +55,6 @@ function taskDisplayStatus(s: string): string {
 
 function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void }) {
   const ds = displayStatus(spec.status)
-  const [expanded, setExpanded] = useState(false)
   const specSlug = spec.path?.split('/').pop()?.replace('.md', '') ?? spec.id
   return (
     <div
@@ -95,20 +95,7 @@ function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void })
           </span>
         ))}
       </div>
-      {spec.description && (
-        <div className="flex flex-col gap-1">
-          <div className={`text-xs text-slate-400 whitespace-pre-wrap break-words ${expanded ? '' : 'line-clamp-3'}`}>
-            {spec.description}
-          </div>
-          <button
-            data-testid="card-expand"
-            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
-            className="text-xs text-slate-500 hover:text-slate-300 self-start"
-          >
-            {expanded ? 'Show less' : 'Show more'}
-          </button>
-        </div>
-      )}
+      {spec.description && <ClampedDescription text={spec.description} lines={3} />}
       {ds === 'Ready' && (
         <button
           data-testid="card-build-button"
@@ -124,7 +111,6 @@ function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void })
 }
 
 function TaskCard({ task }: { task: Task }) {
-  const [expanded, setExpanded] = useState(false)
   return (
     <div
       data-testid={`kanban-card-${task.id}`}
@@ -160,20 +146,7 @@ function TaskCard({ task }: { task: Task }) {
           </span>
         )}
       </div>
-      {task.description && (
-        <div className="flex flex-col gap-1">
-          <div className={`text-xs text-slate-400 whitespace-pre-wrap break-words ${expanded ? '' : 'line-clamp-3'}`}>
-            {task.description}
-          </div>
-          <button
-            data-testid="card-expand"
-            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
-            className="text-xs text-slate-500 hover:text-slate-300 self-start"
-          >
-            {expanded ? 'Show less' : 'Show more'}
-          </button>
-        </div>
-      )}
+      {task.description && <ClampedDescription text={task.description} lines={3} />}
       </Link>
     </div>
   )
