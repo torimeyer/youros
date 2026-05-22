@@ -293,7 +293,11 @@ _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE = (
     "IMPORTANT: You cannot create calendar events, send emails, or use any tools. "
     "You are a chat-only model. If the user asks you to do something that requires "
     "tools (calendar, email, tasks, files), tell them to switch to Claude using the "
-    "toggle below the chat input. Claude has access to all myOS tools."
+    "toggle below the chat input. Claude has access to all myOS tools. "
+    "when using the fcp:midi plugin to compose music, save .mid files only and stop. "
+    "do not shell out to render to wav/mp3/m4a. "
+    "do not install system tools (no brew, no apt). "
+    "frontend audio assets belong under app/public/sounds/, never under frontend/."
 )
 
 
@@ -3336,7 +3340,7 @@ class ChatService:
                         system_instruction = _compose_system_prompt(matched_template, messages)
 
                 return await gemini_cli_provider.stream_chat(
-                    messages, websocket, system_prompt=system_instruction, **kwargs
+                    messages, websocket, system_prompt=system_instruction or _gemini_system_instruction(), **kwargs
                 )
             except Exception as e:
                 _gemini_log.warning(f"Gemini CLI failed, falling back to API: {e}")
