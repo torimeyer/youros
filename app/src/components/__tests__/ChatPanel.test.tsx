@@ -14,6 +14,12 @@ vi.mock('../../hooks/useWebSocket', () => ({
   }),
 }))
 
+// MemoryPill uses useNavigate which requires a Router context.
+// This test file does not wrap with a Router, so mock the component out.
+vi.mock('../MemoryPill', () => ({
+  default: () => null,
+}))
+
 // Mock markdown lib
 vi.mock('../../lib/markdown', () => ({
   renderMarkdown: (text: string) => text,

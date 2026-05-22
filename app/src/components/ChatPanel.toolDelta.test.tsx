@@ -32,6 +32,11 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+// MemoryPill uses useNavigate which requires a Router context not present in unit tests.
+vi.mock('./MemoryPill', () => ({
+  default: () => null,
+}))
+
 // scrollIntoView is not implemented in jsdom.
 Element.prototype.scrollIntoView = vi.fn()
 
