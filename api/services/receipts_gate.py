@@ -41,6 +41,15 @@ _TEST_OUTPUT_RE = re.compile(
 # data-testid or aria-label markers (indicates DOM verification).
 _TESTID_RE = re.compile(r'data-testid=|testid|aria-label=', re.IGNORECASE)
 
+# Code-context signals — at least one must be present before the gate fires (→1608).
+# A reply with no code signals used a completion word in a non-code context.
+_CODE_CONTEXT_RE = re.compile(
+    r"`|"                                                    # backtick = code formatting
+    r"[a-zA-Z0-9_-]+/[a-zA-Z0-9_./-]+\.[a-zA-Z]{2,6}|"   # path/to/file.ext pattern
+    r"\bcommit|\bPR\b|\bbranch\b|\bdiff\b|\bpatch\b",      # git vocabulary
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class ReceiptsWarning:
@@ -60,6 +69,11 @@ def check_receipts(reply_text: str) -> Optional[ReceiptsWarning]:
         or _TEST_OUTPUT_RE.search(reply_text)
         or _TESTID_RE.search(reply_text)
     ):
+        return None
+
+    # Only warn if the reply also has code-context signals — completion words in
+    # brainstorming/conversational replies must not fire the gate (→1608).
+    if not _CODE_CONTEXT_RE.search(reply_text):
         return None
 
     trigger_word = m.group(1).lower()
