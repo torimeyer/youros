@@ -34,6 +34,10 @@ vi.mock('../hooks/useWebSocket', () => ({
   }),
 }))
 
+vi.mock('./MemoryPill', () => ({
+  default: () => null,
+}))
+
 let uuidCounter = 0
 vi.stubGlobal('crypto', {
   randomUUID: () => `test-uuid-${++uuidCounter}`,
