@@ -263,6 +263,69 @@ describe("Today's Focus deep-link", () => {
   })
 })
 
+describe("Today's Focus line-clamp", () => {
+  const longTitle =
+    'Plan Waves backend pieces: /api/agents/spawn-preflight endpoint + builder-prompt agent-side conflict re-check. ' +
+    'Frontend rebuild landed in commit bd04785. PlanWavesPanel + Specs.tsx already call lib/spawn.buildSpec which ' +
+    'handles 409 lock_conflict via ConflictDialog. The kernel returns 409 only when the actual spawn collides. ' +
+    'The original plan added two more layers: NEW endpoint GET /api/agents/spawn-preflight?paths=... Always 200. ' +
+    'Update the builder-spawn prompt to prepend a mandatory first step before reading or editing anything.'
+
+  const mockDashboardDataLong = {
+    ...mockDashboardData,
+    focus: [{ title: longTitle, id: '→1465', priority: 'P2' }],
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNavigate.mockClear()
+    useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false })
+    localStorage.setItem('myos-tour-complete', 'true')
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardDataLong)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+  })
+
+  it('renders long task title with line-clamp class', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText(longTitle)).toBeInTheDocument()
+    })
+    const titleEl = screen.getByText(longTitle)
+    expect(titleEl.className).toMatch(/line-clamp-2/)
+  })
+
+  it('shows a "Show more" button for a long task title', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('focus-task-expand')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('focus-task-expand')).toHaveTextContent('Show more')
+  })
+
+  it('removes line-clamp after clicking "Show more"', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('focus-task-expand')).toBeInTheDocument()
+    })
+
+    const titleEl = screen.getByText(longTitle)
+    expect(titleEl.className).toMatch(/line-clamp-2/)
+
+    fireEvent.click(screen.getByTestId('focus-task-expand'))
+
+    expect(titleEl.className).not.toMatch(/line-clamp-2/)
+    expect(screen.getByTestId('focus-task-expand')).toHaveTextContent('Show less')
+  })
+})
+
 describe('Quick Launch inline modals', () => {
   beforeEach(() => {
     vi.clearAllMocks()

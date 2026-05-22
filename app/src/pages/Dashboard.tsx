@@ -22,6 +22,7 @@ import { useAppStore } from '../stores/app';
 import { useDashboardStore } from '../stores/dashboardStore';
 import { useDashboardFeed } from '../hooks/useDashboardFeed';
 import { ADVENTURE_DISMISSED_KEY, type AdventureTemplate } from '../lib/adventures';
+import { ClampedDescription } from '../components/ClampedDescription';
 
 interface ActionItem {
   type: 'reply_email' | 'close_task' | 'prep_meeting' | 'review_agent';
@@ -777,8 +778,13 @@ export default function Dashboard() {
               <div className={`w-10 h-10 rounded-full flex items-center justify-center ${task.color}`}>
                 <Icon name={task.icon} size={20} />
               </div>
-              <div className="flex-1">
-                <p className="font-medium">{task.title}</p>
+              <div className="flex-1 min-w-0">
+                <ClampedDescription
+                  text={task.title}
+                  lines={2}
+                  textClassName="font-medium"
+                  testId="focus-task-expand"
+                />
                 <p className="text-sm text-slate-400">{task.subtitle}</p>
               </div>
               <Icon name="open_in_new" className="text-slate-500" size={18} />
