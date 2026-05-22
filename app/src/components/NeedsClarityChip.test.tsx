@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { NeedsClarityChip, type ReadinessCheck } from './NeedsClarityChip'
 
 vi.mock('../lib/api', () => ({
@@ -56,8 +56,8 @@ describe('NeedsClarityChip', () => {
     render(<NeedsClarityChip checks={failedChecks} />)
     const chip = screen.getByTestId('needs-clarity-chip')
     const title = chip.getAttribute('title') || ''
-    expect(title).toContain('has_ac_checkboxes')
-    expect(title).toContain('has_file_paths')
+    expect(title).toContain('Acceptance criteria')
+    expect(title).toContain('References real files')
   })
 
   it('tooltip marks failed checks with ✗', () => {
@@ -92,8 +92,9 @@ describe('NeedsClarityChip', () => {
   it('modal lists failing checks with pass/fail icons', () => {
     render(<NeedsClarityChip checks={failedChecks} specPath="docs/draft/foo.md" />)
     fireEvent.click(screen.getByTestId('needs-clarity-chip'))
-    expect(screen.getByText(/has acceptance criteria/i)).toBeDefined()
-    expect(screen.getByText(/references real files/i)).toBeDefined()
+    const modal = within(screen.getByTestId('needs-clarity-modal'))
+    expect(modal.getByText(/acceptance criteria/i)).toBeDefined()
+    expect(modal.getByText(/references real files/i)).toBeDefined()
   })
 
   it('modal shows textarea for each failing check', () => {
@@ -312,13 +313,14 @@ describe('NeedsClarityChip', () => {
     ]
     render(<NeedsClarityChip checks={checks} specPath="docs/draft/foo.md" />)
     fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+    const modal = within(screen.getByTestId('needs-clarity-modal'))
 
-    // Only one row labeled "Acceptance criteria"
-    expect(screen.getAllByText(/acceptance criteria/i)).toHaveLength(1)
+    // Only one row labeled "Acceptance criteria" inside the modal
+    expect(modal.getAllByText(/acceptance criteria/i)).toHaveLength(1)
     // The old separate label must not appear
-    expect(screen.queryByText(/no vague acceptance criteria/i)).toBeNull()
+    expect(modal.queryByText(/no vague acceptance criteria/i)).toBeNull()
     // Detail from the primary failing check
-    expect(screen.getByText(/no '- \[ \]' lines found/i)).toBeDefined()
+    expect(modal.getByText(/no '- \[ \]' lines found/i)).toBeDefined()
   })
 
   it('merged AC row shows FAIL with vague-token reason when AC exist but contain TBD', () => {
@@ -330,11 +332,12 @@ describe('NeedsClarityChip', () => {
     ]
     render(<NeedsClarityChip checks={checks} specPath="docs/draft/foo.md" />)
     fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+    const modal = within(screen.getByTestId('needs-clarity-modal'))
 
-    // One merged row labeled "Acceptance criteria"
-    expect(screen.getAllByText(/acceptance criteria/i)).toHaveLength(1)
+    // One merged row labeled "Acceptance criteria" inside the modal
+    expect(modal.getAllByText(/acceptance criteria/i)).toHaveLength(1)
     // Shows the vague-token reason
-    expect(screen.getByText(/vague tokens in: implement TBD feature/i)).toBeDefined()
+    expect(modal.getByText(/vague tokens in: implement TBD feature/i)).toBeDefined()
     // Chip is still in failing state (amber), not green
     expect(screen.getByTestId('needs-clarity-chip').className).toMatch(/amber/)
   })

@@ -20,6 +20,7 @@ const CHECK_LABEL: Record<string, string> = {
   plan_path_present: 'Spec file linked',
   file_exists: 'Spec file exists',
   has_ac_checkboxes: 'Acceptance criteria',
+  no_vague_ac: 'Acceptance criteria',
   has_file_paths: 'References real files',
   ac_count_threshold: 'Enough acceptance criteria (≥3)',
   referenced_files_exist: 'Referenced files exist',
@@ -88,7 +89,7 @@ export function NeedsClarityChip({
   if (visibleChecks.length === 0) return null
 
   const allPassed = visibleChecks.every((c) => c.passed)
-  const checkLines = visibleChecks.map((c) => `${c.passed ? '✓' : '✗'} ${c.name}: ${c.detail}`)
+  const checkLines = visibleChecks.map((c) => `${c.passed ? '✓' : '✗'} ${CHECK_LABEL[c.name] ?? c.name}: ${c.detail}`)
 
   async function handleSuggest(checkName: string) {
     setSuggesting(checkName)
