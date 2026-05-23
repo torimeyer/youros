@@ -520,12 +520,16 @@ def test_compute_stage_draft_from_status():
     assert result == "draft"
 
 
-def test_compute_stage_in_progress():
+def test_compute_stage_spec_status_with_open_needle_body_refs_is_ready():
+    """status='spec' + open body needle refs → 'ready' (body refs are not a building signal).
+
+    Renamed from test_compute_stage_in_progress — that test asserted the →1617 bug.
+    """
     from services.spec_audit import ShippedResult, HuskResult
     spec = {"path": "~/.myos/specs/foo.md", "status": "spec"}
     shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=["1234"])
     husk = HuskResult(is_husk=False, reason="")
-    assert compute_stage(spec, husk=husk, shipped=shipped) == "in_progress"
+    assert compute_stage(spec, husk=husk, shipped=shipped) == "ready"
 
 
 def test_compute_stage_ready():
@@ -542,6 +546,42 @@ def test_compute_stage_husk_is_draft():
     shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
     husk = HuskResult(is_husk=True, reason="no content")
     assert compute_stage(spec, husk=husk, shipped=shipped) == "draft"
+
+
+# ---------------------------------------------------------------------------
+# compute_stage — bug fix →1617: open needle body refs don't signal in_progress
+# ---------------------------------------------------------------------------
+
+
+def test_compute_stage_ready_spec_with_open_needle_body_refs():
+    """Bug →1617: status='spec' + open body needle refs → 'ready', NOT 'in_progress'.
+
+    Open needle mentions in the body are future-work descriptions present in
+    every healthy ready spec. They are NOT a building signal.
+    """
+    from services.spec_audit import ShippedResult, HuskResult
+    spec = {"path": "~/.myos/specs/foo.md", "status": "spec", "task_ids": []}
+    shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=["1234"])
+    husk = HuskResult(is_husk=False, reason="")
+    assert compute_stage(spec, husk=husk, shipped=shipped) == "ready"
+
+
+def test_compute_stage_in_progress_from_frontmatter_status():
+    """Bug →1617: status='in-progress' in frontmatter → 'in_progress', not needle body refs."""
+    from services.spec_audit import ShippedResult, HuskResult
+    spec = {"path": "~/.myos/specs/foo.md", "status": "in-progress"}
+    shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
+    husk = HuskResult(is_husk=False, reason="")
+    assert compute_stage(spec, husk=husk, shipped=shipped) == "in_progress"
+
+
+def test_compute_stage_building_from_frontmatter_status():
+    """Bug →1617: status='building' in frontmatter → 'in_progress'."""
+    from services.spec_audit import ShippedResult, HuskResult
+    spec = {"path": "~/.myos/specs/foo.md", "status": "building"}
+    shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
+    husk = HuskResult(is_husk=False, reason="")
+    assert compute_stage(spec, husk=husk, shipped=shipped) == "in_progress"
 
 
 def test_silent_auto_archive_on_completion(tmp_path):
