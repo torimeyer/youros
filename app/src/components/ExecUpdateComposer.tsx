@@ -43,7 +43,7 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
   return (
     <div
       role="dialog"
-      aria-label="New exec update"
+      aria-label="New progress update"
       onClick={handleBackdropClick}
       data-testid="exec-update-composer"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
@@ -53,7 +53,7 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
         <div className="flex items-start justify-between mb-5">
           <div className="flex items-center gap-2">
             <Icon name="edit_note" className="text-blue-400" size={20} />
-            <h2 className="text-white font-semibold text-lg">New exec update</h2>
+            <h2 className="text-white font-semibold text-lg">New progress update</h2>
           </div>
           <button
             onClick={onCancel}

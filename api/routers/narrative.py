@@ -129,7 +129,7 @@ async def _build_markdown_async(audience: str, window_days: int, sources: list[d
         return "<no sources in window>"
 
     header = [
-        f"# Exec Update — {audience.title()} ({window_days}-day window)",
+        f"# Progress Update — {audience.title()} ({window_days}-day window)",
         f"_Generated {_now_iso()}_",
         "",
         "## Sources used",
@@ -299,7 +299,7 @@ async def promote_narrative_draft(draft_id: str):
     spec_path = specs_dir / spec_filename
     now = _now_iso()
     audience = draft_data.get("audience", "exec")
-    title = f"Exec Update — {audience.title()}"
+    title = f"Progress Update — {audience.title()}"
 
     frontmatter = (
         f"---\n"
@@ -317,7 +317,7 @@ async def promote_narrative_draft(draft_id: str):
         from models.schemas import TaskCreate
         from routers.tasks import create_task
 
-        task_title = f"[Exec Update] {title}"
+        task_title = f"[Progress Update] {title}"
         if len(task_title) > 60:
             task_title = task_title[:57] + "..."
 

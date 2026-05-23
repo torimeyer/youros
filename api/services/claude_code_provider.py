@@ -493,7 +493,7 @@ async def complete(
     """
     claude_path = _find_claude_binary()
     if not claude_path:
-        logger.debug("claude_complete: claude binary not found")
+        _claude_log.debug("claude_complete: claude binary not found")
         return None
 
     prompt = _messages_to_prompt(messages, system)
@@ -523,18 +523,18 @@ async def complete(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
-            cwd=str(PROJECT_ROOT),
+            cwd=str(_REPO_ROOT),
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
         if proc.returncode != 0:
-            logger.warning("claude_complete: CLI exited %d", proc.returncode)
+            _claude_log.warning("claude_complete: CLI exited %d", proc.returncode)
             return None
         return stdout.decode("utf-8", errors="replace").strip()
     except asyncio.TimeoutError:
-        logger.warning("claude_complete: timed out after 30s")
+        _claude_log.warning("claude_complete: timed out after 30s")
         return None
     except Exception as exc:
-        logger.warning("claude_complete: unexpected error: %s", exc)
+        _claude_log.warning("claude_complete: unexpected error: %s", exc)
         return None
 
 
