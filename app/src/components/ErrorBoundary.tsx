@@ -6,6 +6,7 @@ interface Props {
 
 interface State {
   hasError: boolean
+  error?: Error
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -14,8 +15,15 @@ export class ErrorBoundary extends Component<Props, State> {
     this.state = { hasError: false }
   }
 
-  static getDerivedStateFromError(): State {
-    return { hasError: true }
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error }
+  }
+
+  componentDidCatch(error: Error, info: { componentStack: string }) {
+    // Always log so errors surface in the browser console even when the
+    // fallback UI has no text-expansion button. In production this is the
+    // only trace available; in development it pairs with the overlay.
+    console.error('[ErrorBoundary] render error:', error, info.componentStack)
   }
 
   render() {
@@ -38,6 +46,24 @@ export class ErrorBoundary extends Component<Props, State> {
           }}
         >
           <p style={{ margin: 0, color: '#e5e7eb' }}>Something went wrong.</p>
+          {import.meta.env.DEV && this.state.error && (
+            <pre
+              style={{
+                margin: 0,
+                fontSize: 11,
+                color: '#f87171',
+                maxWidth: '80vw',
+                maxHeight: '40vh',
+                overflow: 'auto',
+                textAlign: 'left',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {this.state.error.message}
+              {this.state.error.stack ? `\n\n${this.state.error.stack}` : ''}
+            </pre>
+          )}
           <button
             onClick={() => window.location.reload()}
             style={{

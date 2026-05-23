@@ -117,7 +117,34 @@ export default defineConfig({
           })
         },
       },
-      '/ws': { target: 'https://127.0.0.1:8000', ws: true, secure: false },
+      // →1631: apply the same backendAgent + changeOrigin + error-handler
+      // that was added to /api in →1431. Without agent: backendAgent, each
+      // of the three simultaneous WS upgrade handshakes (dashboard/data,
+      // notifications, calendar/events) makes a fresh TLS negotiation to the
+      // backend. Under HTTP/2 multiplexing that saturates Node's event loop
+      // and all three WS connections fail. changeOrigin fixes the Host header
+      // sent to uvicorn (was localhost:3010, must be localhost:8000).
+      '/ws': {
+        target: 'https://127.0.0.1:8000',
+        ws: true,
+        secure: false,
+        changeOrigin: true,
+        agent: backendAgent,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, res) => {
+            // eslint-disable-next-line no-console
+            console.error('[vite proxy /ws] error:', err?.message || err)
+            try {
+              if (res && 'writeHead' in res && !res.headersSent) {
+                res.writeHead(502, { 'Content-Type': 'text/plain' })
+                res.end('Upstream unavailable')
+              }
+            } catch {
+              // response already torn down
+            }
+          })
+        },
+      },
     },
   },
 })
