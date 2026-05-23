@@ -64,9 +64,9 @@ describe('ExecUpdateWidget', () => {
     mockedApiGet.mockResolvedValue({ drafts: MOCK_DRAFTS })
   })
 
-  it('renders the widget heading', async () => {
+  it('renders the widget heading as "Progress Updates"', async () => {
     render(<ExecUpdateWidget />)
-    expect(screen.getByText(/exec update/i)).toBeTruthy()
+    expect(screen.getByText(/progress updates/i)).toBeTruthy()
   })
 
   it('renders at most 3 drafts from the API', async () => {
@@ -104,7 +104,7 @@ describe('ExecUpdateWidget', () => {
     })
     await waitFor(() => {
       // Composer modal should be visible
-      expect(screen.getByRole('dialog', { name: /new exec update/i })).toBeTruthy()
+      expect(screen.getByRole('dialog', { name: /new progress update/i })).toBeTruthy()
     })
   })
 

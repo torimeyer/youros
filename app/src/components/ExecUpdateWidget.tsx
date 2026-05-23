@@ -51,7 +51,7 @@ export default function ExecUpdateWidget() {
       const res = await api.get<DraftsResponse>('/narrative/drafts?limit=3');
       setDrafts((res.drafts || []).slice(0, 3));
     } catch {
-      setError('Could not load exec updates');
+      setError('Could not load progress updates');
     } finally {
       setLoading(false);
     }
@@ -92,7 +92,10 @@ export default function ExecUpdateWidget() {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Icon name="edit_note" size={18} className="text-blue-400" />
-            <h2 className="text-lg font-semibold text-white">Exec Update</h2>
+            <div>
+              <h2 className="text-lg font-semibold text-white">Progress Updates</h2>
+              <p className="text-xs text-slate-400">Short write-ups of your recent work to share with others.</p>
+            </div>
           </div>
           <button
             type="button"
@@ -123,7 +126,7 @@ export default function ExecUpdateWidget() {
           <div data-testid="exec-update-empty" className="text-center py-4">
             <p className="text-sm text-slate-400">No drafts yet.</p>
             <p className="text-xs text-slate-500 mt-1">
-              Click "New update" to generate your first exec update.
+              Click "New update" to generate your first progress update.
             </p>
           </div>
         )}
