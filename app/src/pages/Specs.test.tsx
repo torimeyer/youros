@@ -199,20 +199,10 @@ describe('Specs page', () => {
     expect(screen.getByTestId('spec-wizard')).toBeInTheDocument()
   })
 
-  it('shows status badges on spec cards', async () => {
+  it('spec row does not render a status-badge chip (Bug B fix →1620)', async () => {
     renderSpecs()
-    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
-    fireEvent.click(screen.getByTestId('stage-filter-all'))
-    await waitFor(() => {
-      expect(screen.getByText('onboarding flow')).toBeInTheDocument()
-    })
-
-    const badges = screen.getAllByTestId('status-badge')
-    expect(badges.length).toBe(4)
-    expect(badges.map(b => b.textContent)).toContain('Draft')
-    expect(badges.map(b => b.textContent)).toContain('Ready')
-    expect(badges.map(b => b.textContent)).toContain('Building')
-    expect(badges.map(b => b.textContent)).toContain('Done')
+    await waitFor(() => expect(screen.getByText('onboarding flow')).toBeInTheDocument())
+    expect(screen.queryAllByTestId('status-badge')).toHaveLength(0)
   })
 
   it('shows task progress bar for specs with task summary', async () => {
@@ -617,11 +607,6 @@ describe('Specs page', () => {
     // Build fired exactly one new POST on top of the baseline.
     expect(mockedApiPost.mock.calls.length).toBe(postCallsBefore + 1)
 
-    // After the Build resolves the UI should reflect the new state.
-    await waitFor(() => {
-      const badges = screen.getAllByTestId('status-badge')
-      expect(badges.map((b) => b.textContent)).toContain('Building')
-    })
   })
 
   it('Wave 2: Unlock and edit calls POST /specs/{encodedPath}/unlock', async () => {
@@ -953,23 +938,6 @@ describe('Specs page', () => {
     }
   })
 
-  it('normalizes legacy "spec" status to "ready"', async () => {
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(screen.getByText('auth system')).toBeInTheDocument()
-    })
-
-    // The badge should say "Ready" not "Spec"
-    const badges = screen.getAllByTestId('status-badge')
-    const authBadge = badges.find(b => {
-      // Find the badge in the same card as "auth system"
-      const card = b.closest('[data-testid="spec-card"]') || b.closest('.bg-slate-900\\/40')
-      return card?.textContent?.includes('auth system')
-    })
-    expect(authBadge?.textContent).toBe('Ready')
-  })
-
   it('empty state uses EmptyState primitive when no specs exist', async () => {
     mockedApiGet.mockResolvedValue({ docs: [] })
 
@@ -1290,8 +1258,6 @@ describe('Specs page', () => {
       // Expect at least two matches: the template card and the new plan row.
       expect(matches.length).toBeGreaterThanOrEqual(2)
     })
-    const badges = screen.getAllByTestId('status-badge')
-    expect(badges.map((b) => b.textContent)).toContain('Ready')
   })
 
   // Wave 4 W6: acceptance criteria are status pills, not checkboxes.
@@ -1599,45 +1565,6 @@ describe('claims: Building badge + inline note', () => {
     mockedApiPost.mockResolvedValue({ result: 'ok', task_ids: [] })
   })
 
-  it('shows Building badge when tasks payload has terminal-source claims (overrides Ready)', async () => {
-    const startedAt = new Date(Date.now() - 5 * 60 * 1000).toISOString()
-
-    mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/specs') return Promise.resolve(mockDocsResponse)
-      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
-      if (path.includes('auth-system') && path.includes('/tasks')) {
-        return Promise.resolve({
-          tasks: [],
-          claims: [{ agent: 'myOS', source: 'wrapper', started_at: startedAt, task_ids: [] }],
-        })
-      }
-      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
-      return Promise.resolve({})
-    })
-
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(screen.getByText('auth system')).toBeInTheDocument()
-    })
-
-    // Expand the auth system card to trigger fetchLinkedTasks (which fetches claims)
-    const cards = screen.getAllByTestId('spec-card')
-    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
-    fireEvent.click(authCard)
-
-    // Badge should flip to Building (overriding Ready) once claims are loaded
-    await waitFor(() => {
-      const badges = screen.getAllByTestId('status-badge')
-      const authBadge = badges.find(b => {
-        const card = b.closest('[data-testid="spec-card"]')?.closest('.bg-slate-900\\/40') ??
-          b.closest('.bg-slate-900\\/40')
-        return card?.textContent?.includes('auth system')
-      })
-      expect(authBadge?.textContent).toBe('Building')
-    })
-  })
-
   it('shows inline note with "in terminal" next to the badge for terminal-source claims', async () => {
     const startedAt = new Date(Date.now() - 5 * 60 * 1000).toISOString()
 
@@ -1670,42 +1597,6 @@ describe('claims: Building badge + inline note', () => {
 
     expect(screen.getByTestId('claims-note').textContent).toContain('in terminal')
     expect(screen.getByTestId('claims-note').textContent).toContain('myOS')
-  })
-
-  it('badge tooltip lists active claims for debugging', async () => {
-    const startedAt = new Date(Date.now() - 5 * 60 * 1000).toISOString()
-
-    mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/specs') return Promise.resolve(mockDocsResponse)
-      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
-      if (path.includes('auth-system') && path.includes('/tasks')) {
-        return Promise.resolve({
-          tasks: [],
-          claims: [{ agent: 'myOS', source: 'wrapper', started_at: startedAt, task_ids: [] }],
-        })
-      }
-      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
-      return Promise.resolve({})
-    })
-
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(screen.getByText('auth system')).toBeInTheDocument()
-    })
-
-    const cards = screen.getAllByTestId('spec-card')
-    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
-    fireEvent.click(authCard)
-
-    await waitFor(() => {
-      const badges = screen.getAllByTestId('status-badge')
-      const authBadge = badges.find(b => {
-        const card = b.closest('.bg-slate-900\\/40')
-        return card?.textContent?.includes('auth system')
-      })
-      expect(authBadge?.getAttribute('title')).toContain('myOS')
-    })
   })
 
   it('does not show claims-note when claims is empty', async () => {
