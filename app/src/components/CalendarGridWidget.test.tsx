@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import CalendarGridWidget, { type CalGridEvent } from './CalendarGridWidget'
 
 // Freeze time: 2026-05-22 (Friday), 10:00 AM local
@@ -144,5 +144,61 @@ describe('CalendarGridWidget — Month view', () => {
     render(<CalendarGridWidget events={[]} range="month" />)
     // Month grid still renders even with no events
     expect(screen.getByTestId('cal-grid-month')).toBeInTheDocument()
+  })
+})
+
+// ─── Week navigation (→1657) ──────────────────────────────────────────────────
+
+describe('CalendarGridWidget — Week navigation', () => {
+  it('renders prev and next week buttons in week view', () => {
+    render(<CalendarGridWidget events={[]} range="week" />)
+    expect(screen.getByTestId('cal-week-prev')).toBeInTheDocument()
+    expect(screen.getByTestId('cal-week-next')).toBeInTheDocument()
+  })
+
+  it('does not render nav arrows in month or day view', () => {
+    const { rerender } = render(<CalendarGridWidget events={[]} range="month" />)
+    expect(screen.queryByTestId('cal-week-prev')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('cal-week-next')).not.toBeInTheDocument()
+    rerender(<CalendarGridWidget events={[]} range="day" />)
+    expect(screen.queryByTestId('cal-week-prev')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('cal-week-next')).not.toBeInTheDocument()
+  })
+
+  it('clicking next week advances the displayed week by 7 days', () => {
+    render(<CalendarGridWidget events={[]} range="week" />)
+    // FROZEN: 2026-05-22 (Friday). Sun-based current week: May 17 (Sun) – May 23 (Sat).
+    expect(screen.getByTestId('cal-week-col-0')).toHaveTextContent('17')
+    fireEvent.click(screen.getByTestId('cal-week-next'))
+    // Next Sunday should be May 24.
+    expect(screen.getByTestId('cal-week-col-0')).toHaveTextContent('24')
+  })
+
+  it('clicking prev week retreats the displayed week by 7 days', () => {
+    render(<CalendarGridWidget events={[]} range="week" />)
+    // FROZEN: 2026-05-22. Current Sunday = May 17.
+    fireEvent.click(screen.getByTestId('cal-week-prev'))
+    // Previous Sunday = May 10.
+    expect(screen.getByTestId('cal-week-col-0')).toHaveTextContent('10')
+  })
+
+  it('week offset resets to current week when range changes away and back', () => {
+    const { rerender } = render(<CalendarGridWidget events={[]} range="week" />)
+    fireEvent.click(screen.getByTestId('cal-week-next'))
+    expect(screen.getByTestId('cal-week-col-0')).toHaveTextContent('24')
+    // Switch to month view then back to week view — offset should reset
+    rerender(<CalendarGridWidget events={[]} range="month" />)
+    rerender(<CalendarGridWidget events={[]} range="week" />)
+    expect(screen.getByTestId('cal-week-col-0')).toHaveTextContent('17')
+  })
+
+  it('today cell remains highlighted after navigating away from current week', () => {
+    render(<CalendarGridWidget events={[]} range="week" />)
+    // Navigate forward — today (May 22, Friday = col 5) should no longer be visible in col 5
+    fireEvent.click(screen.getByTestId('cal-week-next'))
+    // The next-week Friday cell (May 29) should NOT carry the today highlight
+    // because today is May 22, not May 29. Verify no ring on col 5 for the next week.
+    const fridayCol = screen.getByTestId('cal-week-col-5')
+    expect(fridayCol).not.toHaveClass('ring-1')
   })
 })

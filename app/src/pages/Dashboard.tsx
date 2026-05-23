@@ -166,14 +166,14 @@ const CALENDAR_RANGE_LABEL: Record<CalendarRange, string> = {
 };
 
 function readCalendarRange(): CalendarRange {
-  if (typeof window === 'undefined') return 'week';
+  if (typeof window === 'undefined') return 'month';
   try {
     const raw = localStorage.getItem(CALENDAR_RANGE_KEY);
     if (raw === 'day' || raw === 'week' || raw === 'month') return raw;
   } catch {
     // localStorage may throw in private windows. Fall back to default.
   }
-  return 'week';
+  return 'month';
 }
 
 export default function Dashboard() {
