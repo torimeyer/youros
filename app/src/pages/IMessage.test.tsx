@@ -163,3 +163,60 @@ describe('People page — unified contact picker', () => {
     expect(screen.queryByTestId('people-search-input')).toBeNull()
   })
 })
+
+describe('message thread — bubbles (→1632)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+
+  function setupWithMessages(msgs: Array<{
+    id: number; text: string; date: string
+    is_from_me: boolean; is_read: boolean; sender: string; attachments: unknown[]
+  }>) {
+    mockApi.get.mockImplementation((path: string) => {
+      if (path === '/imessage/status') return Promise.resolve({ available: true, reason: null })
+      if (path === '/imessage/conversations') return Promise.resolve({ conversations: mockConversations })
+      if (path === '/contacts') return Promise.resolve({ contacts: mockContacts })
+      if (/\/imessage\/conversations\/\d+\/messages/.test(path)) return Promise.resolve({ messages: msgs })
+      return Promise.resolve({})
+    })
+    return render(
+      <MemoryRouter>
+        <IMessage />
+      </MemoryRouter>
+    )
+  }
+
+  it('renders message body text in the bubble (Bug A)', async () => {
+    setupWithMessages([
+      { id: 1, text: 'Hello there', date: new Date().toISOString(), is_from_me: false, is_read: true, sender: '+14155550101', attachments: [] },
+    ])
+    await waitFor(() => screen.getByText('Jen Wilson'))
+    fireEvent.click(screen.getByText('Jen Wilson'))
+    await waitFor(() => expect(screen.getByText('Hello there')).toBeTruthy())
+  })
+
+  it('does not render a text bubble for attachment-only ￼ messages (Bug A)', async () => {
+    setupWithMessages([
+      { id: 1, text: '￼', date: new Date().toISOString(), is_from_me: false, is_read: true, sender: '+14155550101', attachments: [] },
+      { id: 2, text: 'Marker', date: new Date().toISOString(), is_from_me: true, is_read: true, sender: 'me', attachments: [] },
+    ])
+    await waitFor(() => screen.getByText('Jen Wilson'))
+    fireEvent.click(screen.getByText('Jen Wilson'))
+    await waitFor(() => screen.getByText('Marker'))
+    expect(screen.queryByText('￼')).toBeNull()
+  })
+
+  it('formats message timestamps using browser local timezone, not UTC (Bug B)', async () => {
+    const msgDate = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+    setupWithMessages([
+      { id: 1, text: 'Time check', date: msgDate, is_from_me: false, is_read: true, sender: '+14155550101', attachments: [] },
+    ])
+    await waitFor(() => screen.getByText('Jen Wilson'))
+    fireEvent.click(screen.getByText('Jen Wilson'))
+    await waitFor(() => screen.getByText('Time check'))
+    const expectedTime = new Date(msgDate).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    expect(screen.getByText(expectedTime)).toBeTruthy()
+  })
+})

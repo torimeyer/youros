@@ -769,7 +769,9 @@ export default function IMessage() {
                                         loading="lazy"
                                       />
                                     ))}
-                                    {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
+                                    {msg.text?.replace(/￼/g, '').trim() ? (
+                                      <p className="whitespace-pre-wrap">{msg.text.replace(/￼/g, '').trim()}</p>
+                                    ) : null}
                                     <p className={`text-[10px] mt-1 ${msg.is_from_me ? 'text-blue-200' : 'text-slate-500'}`}>
                                       {formatSmartDate(msg.date)}
                                     </p>
