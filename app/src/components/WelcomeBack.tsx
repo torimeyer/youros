@@ -81,7 +81,7 @@ export default function WelcomeBack({ context, onDismiss }: Props) {
                 >
                   <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
                   <span className="text-slate-300 truncate">
-                    {agent.name.split("/").pop()}
+                    {agent.task || agent.name.split("/").pop()}
                   </span>
                   {agent.current_step && (
                     <span className="text-slate-500 truncate">

@@ -53,12 +53,10 @@ export default function AdhdCheckin({ running_count, agents, intervalSeconds }: 
           {agents.slice(0, 3).map((agent) => (
             <div key={agent.name} className="text-xs text-slate-400">
               <span className="text-slate-300 font-medium">
-                {agent.name.split("/").pop()}
+                {agent.task || agent.name.split("/").pop()}
               </span>
-              {agent.current_step ? (
+              {agent.current_step && (
                 <span> — {agent.current_step.slice(0, 60)}</span>
-              ) : (
-                <span> — {agent.task.slice(0, 60)}</span>
               )}
             </div>
           ))}
