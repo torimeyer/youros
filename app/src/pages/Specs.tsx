@@ -6,6 +6,7 @@ import SpecTemplateDetailsModal, {
   type SpecTemplateDetailsValues,
 } from "../components/SpecTemplateDetailsModal";
 import { api } from "../lib/api";
+import { formatRelative } from "../lib/time";
 import { buildSpec } from "../lib/spawn";
 import { NeedsClarityChip, type ReadinessCheck } from "../components/NeedsClarityChip";
 import { ClaimSourceChip } from "../components/ClaimSourceChip";
@@ -137,12 +138,13 @@ const STAGE_CHIP_STYLES: Record<string, { bg: string; text: string; label: strin
   in_progress: { bg: "bg-yellow-500/20", text: "text-yellow-400", label: "In Progress" },
 };
 
-function StageChip({ stage }: { stage: string }) {
+function StageChip({ stage, title }: { stage: string; title?: string }) {
   const style = STAGE_CHIP_STYLES[stage] ?? STAGE_CHIP_STYLES.draft;
   return (
     <span
       className={`px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text}`}
       data-testid="stage-chip"
+      title={title}
     >
       {style.label}
     </span>
@@ -1221,7 +1223,16 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                         <p className="text-white text-lg font-medium truncate">
                           {doc.title}
                         </p>
-                        <StageChip stage={getDocStage(doc)} />
+                        <StageChip
+                          stage={getDocStage(doc)}
+                          title={(() => {
+                            const active = (claimsMap[doc.path] ?? []).filter(c => c.source !== 'build');
+                            if (active.length === 0) return undefined;
+                            const header = active.length === 1 ? '1 active claim:' : `${active.length} active claims:`;
+                            const lines = active.map(c => `• ${c.agent} in ${c.source} · ${formatRelative(c.started_at)}`);
+                            return [header, ...lines].join('\n');
+                          })()}
+                        />
                         {(claimsMap[doc.path] ?? [])
                           .filter((c) => c.source !== "build")
                           .map((c, i) => (

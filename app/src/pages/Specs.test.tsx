@@ -2067,3 +2067,74 @@ describe('ClaimSourceChip attribution chips on spec rows', () => {
     expect(chips[1].textContent).toContain('claude-termin')
   })
 })
+
+describe('stage chip tooltip for active claims (FR-014)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApiPost.mockResolvedValue({ result: 'ok', task_ids: [] })
+  })
+
+  it('stage chip has a title attribute containing claim count and agent name when claims are present', async () => {
+    const startedAt = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('auth-system') && path.includes('/tasks')) {
+        return Promise.resolve({
+          tasks: [],
+          claims: [{ agent: 'jen-1234', source: 'slash', started_at: startedAt, task_ids: [] }],
+        })
+      }
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('claim-source-chip')).toBeInTheDocument()
+    })
+
+    const stageChip = authCard.querySelector('[data-testid="stage-chip"]') as HTMLElement
+    expect(stageChip).not.toBeNull()
+    expect(stageChip.title).toContain('1 active claim')
+    expect(stageChip.title).toContain('jen-1234')
+    expect(stageChip.title).toContain('in slash')
+  })
+
+  it('stage chip has no title when there are no active claims', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+
+    const stageChip = authCard.querySelector('[data-testid="stage-chip"]') as HTMLElement
+    expect(stageChip).not.toBeNull()
+    expect(stageChip.title).toBeFalsy()
+  })
+})
