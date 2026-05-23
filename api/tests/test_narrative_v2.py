@@ -275,6 +275,197 @@ async def test_bdd_promote_then_spec_exists_and_task_created(client, tmp_path):
 # →1658: Draft body must be a real summary, not a placeholder
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# →1659: Generator must feed real content (spec bodies, closed needles, git log)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gather_sources_enriches_spec_with_body_excerpt(tmp_path):
+    """_gather_sources must include body_excerpt in spec meta (RED → GREEN in →1659).
+
+    Currently the generator only passes the file path — the model never sees
+    the spec content and cannot write a grounded update. After the fix,
+    meta['body_excerpt'] must be a non-empty slice of the file body.
+    """
+    from routers.narrative import _gather_sources
+
+    spec_dir = tmp_path / "specs"
+    spec_dir.mkdir()
+    spec_file = spec_dir / "my-feature.md"
+    spec_file.write_text(
+        "# My Feature\n\n"
+        "This spec covers the real implementation of the calendar default month feature. "
+        "The goal is to show the current month by default when the user opens the calendar widget."
+    )
+
+    with (
+        patch("services.atlassian.is_connected", return_value=False),
+        patch("services.ostk.USER_SPECS_DIR", spec_dir),
+    ):
+        sources = await _gather_sources(window_days=7)
+
+    spec_sources = [s for s in sources if s["kind"] == "spec"]
+    assert spec_sources, "Expected at least one spec source"
+    spec = spec_sources[0]
+    assert "body_excerpt" in spec["meta"], (
+        "Spec meta must include 'body_excerpt' — currently it only has 'path'. "
+        "Fix: read spec file in _gather_sources and add body_excerpt to meta."
+    )
+    excerpt = spec["meta"]["body_excerpt"]
+    assert len(excerpt) > 20, "body_excerpt must be non-empty"
+    assert any(
+        kw in excerpt for kw in ("My Feature", "calendar", "real implementation")
+    ), f"body_excerpt must contain real spec content. Got: {excerpt!r}"
+
+
+@pytest.mark.asyncio
+async def test_gather_sources_includes_closed_needles(tmp_path):
+    """_gather_sources must include recently closed needles as sources (RED → GREEN in →1659).
+
+    The model needs concrete shipped work to write 'key progress' — closed
+    needles are the ground truth. Currently none are fetched.
+    """
+    from routers.narrative import _gather_sources
+    from unittest.mock import AsyncMock
+
+    mock_closed_tasks = [
+        {
+            "id": "1001",
+            "title": "Ship calendar default month feature",
+            "status": "closed",
+            "closed_at": "2026-05-22T10:00:00Z",
+            "priority": "P1",
+        },
+    ]
+
+    with (
+        patch("services.atlassian.is_connected", return_value=False),
+        patch("services.ostk.ostk.list_tasks", new=AsyncMock(return_value=mock_closed_tasks)),
+    ):
+        sources = await _gather_sources(window_days=7)
+
+    needle_sources = [s for s in sources if s["kind"] == "closed_needle"]
+    assert needle_sources, (
+        "Expected closed_needle sources — currently _gather_sources never calls "
+        "ostk.list_tasks(status='closed'). Fix: add that call in _gather_sources."
+    )
+    assert needle_sources[0]["title"] == "Ship calendar default month feature"
+
+
+@pytest.mark.asyncio
+async def test_gather_sources_includes_recent_git_commits():
+    """_gather_sources must include recent git commits as sources (RED → GREEN in →1659).
+
+    Commit messages are the most reliable signal of what shipped. The generator
+    currently ignores git history entirely.
+    """
+    from routers.narrative import _gather_sources
+
+    with patch("services.atlassian.is_connected", return_value=False):
+        sources = await _gather_sources(window_days=30)
+
+    commit_sources = [s for s in sources if s["kind"] == "git_commit"]
+    assert commit_sources, (
+        "Expected git_commit sources — currently _gather_sources never calls git log. "
+        "Fix: add subprocess call to git log --since=N days ago --oneline."
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_markdown_prompt_includes_spec_excerpt():
+    """_build_markdown_async must pass spec body excerpts in the model prompt (RED → GREEN in →1659).
+
+    Currently the prompt only lists titles. After the fix, the model must see
+    actual spec content so it can reference real work.
+    """
+    from routers.narrative import _build_markdown_async
+
+    captured: list[dict] = []
+
+    class _MockBlock:
+        text = "Progress update with real content."
+
+    class _MockResponse:
+        content = [_MockBlock()]
+
+    class _MockMessages:
+        async def create(self, *, model, max_tokens, messages, system=None, **kwargs):
+            if system:
+                captured.append({"role": "system", "content": system})
+            captured.extend(messages)
+            return _MockResponse()
+
+    class _MockClient:
+        messages = _MockMessages()
+
+    sources = [
+        {
+            "kind": "spec",
+            "id": "myspec.md",
+            "title": "Calendar Default Month",
+            "meta": {
+                "path": "/fake/spec.md",
+                "body_excerpt": "This spec covers the calendar widget defaulting to the current month on open.",
+            },
+        }
+    ]
+
+    with patch("routers.narrative.get_ai_client", new=AsyncMock(return_value=_MockClient())):
+        await _build_markdown_async("exec", 7, sources)
+
+    assert captured, "Model must be called"
+    all_text = " ".join(
+        str(m.get("content", "")) for m in captured
+        if isinstance(m.get("content"), str)
+    )
+    assert "calendar widget defaulting" in all_text or "body_excerpt" in all_text.lower(), (
+        f"Spec body excerpt must appear in the model prompt. "
+        f"Currently only titles are passed. Got prompt:\n{all_text[:500]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_markdown_prompt_explicitly_forbids_brackets():
+    """The prompt sent to the model must explicitly forbid [bracket] placeholders (RED → GREEN in →1659).
+
+    Without explicit instruction the model hedges with '[X data unavailable]' etc.
+    """
+    from routers.narrative import _build_markdown_async
+
+    captured: list[dict] = []
+
+    class _MockBlock:
+        text = "Clean update."
+
+    class _MockResponse:
+        content = [_MockBlock()]
+
+    class _MockMessages:
+        async def create(self, *, model, max_tokens, messages, system=None, **kwargs):
+            if system:
+                captured.append({"role": "system", "content": system if isinstance(system, str) else str(system)})
+            captured.extend(messages)
+            return _MockResponse()
+
+    class _MockClient:
+        messages = _MockMessages()
+
+    sources = [{"kind": "spec", "id": "s.md", "title": "Spec One", "meta": {}}]
+
+    with patch("routers.narrative.get_ai_client", new=AsyncMock(return_value=_MockClient())):
+        await _build_markdown_async("exec", 7, sources)
+
+    assert captured, "Model must be called"
+    full_prompt = " ".join(
+        str(m.get("content", "")) for m in captured
+        if isinstance(m.get("content"), str)
+    ).lower()
+    assert "bracket" in full_prompt or "placeholder" in full_prompt or "no [" in full_prompt, (
+        f"Prompt must explicitly forbid bracket placeholders. "
+        f"Currently the prompt has no such instruction. Prompt text:\n{full_prompt[:600]}"
+    )
+
 @pytest.mark.asyncio
 async def test_draft_body_is_non_trivial_when_sources_exist(client, tmp_path):
     """POST /narrative/draft returns markdown whose summary is non-trivial.
