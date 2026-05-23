@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
+import Icon from './Icon'
 
 export interface CalGridEvent {
   id: string
@@ -196,16 +197,20 @@ function WeekView({
   events,
   gcalColorMap,
   gcalDefaultColor,
-  today,
+  anchorDate,
+  onPrev,
+  onNext,
 }: {
   events: CalGridEvent[]
   gcalColorMap: Record<string, string>
   gcalDefaultColor: string
-  today: Date
+  anchorDate: Date
+  onPrev: () => void
+  onNext: () => void
 }) {
-  const todayKey = toLocalDateKey(today)
-  const weekStart = new Date(today)
-  weekStart.setDate(today.getDate() - today.getDay())
+  const todayKey = toLocalDateKey(new Date())
+  const weekStart = new Date(anchorDate)
+  weekStart.setDate(anchorDate.getDate() - anchorDate.getDay())
   weekStart.setHours(0, 0, 0, 0)
 
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -223,8 +228,37 @@ function WeekView({
     }
   }
 
+  const weekLabel = (() => {
+    const end = new Date(weekStart)
+    end.setDate(weekStart.getDate() + 6)
+    const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    return `${fmt(weekStart)} – ${fmt(end)}`
+  })()
+
   return (
-    <div className="grid grid-cols-7 gap-px" data-testid="cal-grid-week">
+    <div data-testid="cal-grid-week">
+      <div className="flex items-center justify-between mb-2">
+        <button
+          type="button"
+          onClick={onPrev}
+          data-testid="cal-week-prev"
+          aria-label="Previous week"
+          className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+        >
+          <Icon name="chevron_left" size={16} />
+        </button>
+        <span className="text-[10px] text-slate-400">{weekLabel}</span>
+        <button
+          type="button"
+          onClick={onNext}
+          data-testid="cal-week-next"
+          aria-label="Next week"
+          className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+        >
+          <Icon name="chevron_right" size={16} />
+        </button>
+      </div>
+    <div className="grid grid-cols-7 gap-px">
       {days.map((d, i) => {
         const key = toLocalDateKey(d)
         const dayEvs = byDay[key] ?? []
@@ -274,6 +308,7 @@ function WeekView({
           </div>
         )
       })}
+    </div>
     </div>
   )
 }
@@ -389,6 +424,17 @@ export default function CalendarGridWidget({
   loading,
 }: Props) {
   const today = useMemo(() => new Date(), [])
+  const [weekOffset, setWeekOffset] = useState(0)
+
+  useEffect(() => {
+    if (range !== 'week') setWeekOffset(0)
+  }, [range])
+
+  const anchorDate = useMemo(() => {
+    const d = new Date(today)
+    d.setDate(d.getDate() + weekOffset * 7)
+    return d
+  }, [today, weekOffset])
 
   if (loading && events.length === 0) {
     return <p className="text-sm text-slate-400">Loading events...</p>
@@ -409,7 +455,9 @@ export default function CalendarGridWidget({
         events={events}
         gcalColorMap={gcalColorMap}
         gcalDefaultColor={gcalDefaultColor}
-        today={today}
+        anchorDate={anchorDate}
+        onPrev={() => setWeekOffset(o => o - 1)}
+        onNext={() => setWeekOffset(o => o + 1)}
       />
     )
   }
