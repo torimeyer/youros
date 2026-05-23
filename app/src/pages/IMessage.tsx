@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react'
 import { formatSmartDate } from '../lib/time'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
@@ -61,6 +61,31 @@ interface Contact {
   phone_numbers: string[]
   emails: string[]
 }
+
+const AttachmentImage = memo(function AttachmentImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) {
+    return (
+      <div
+        data-testid="attachment-placeholder"
+        className="bg-slate-700/60 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-400 flex items-center gap-2 mb-1"
+      >
+        <Icon name="image" size={14} />
+        <span className="truncate">{alt}</span>
+      </div>
+    )
+  }
+  return (
+    <img
+      data-testid="attachment-image"
+      src={src}
+      alt={alt}
+      className="max-w-xs max-h-64 rounded-lg mb-1 block"
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  )
+})
 
 // Seed from localStorage so the page paints immediately
 const IMESSAGE_CACHE_KEY = 'myos.imessageCache.v1'
@@ -761,12 +786,10 @@ export default function IMessage() {
                                     }`}
                                   >
                                     {msg.attachments?.filter(a => a.mime_type?.startsWith('image/')).map((att, i) => (
-                                      <img
+                                      <AttachmentImage
                                         key={i}
                                         src={`/api/imessage/attachment?path=${encodeURIComponent(att.filename)}`}
-                                        alt={att.transfer_name || 'image'}
-                                        className="max-w-full rounded-lg mb-1"
-                                        loading="lazy"
+                                        alt={att.transfer_name || att.filename.split('/').pop() || 'image'}
                                       />
                                     ))}
                                     {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}

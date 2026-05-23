@@ -163,3 +163,80 @@ describe('People page — unified contact picker', () => {
     expect(screen.queryByTestId('people-search-input')).toBeNull()
   })
 })
+
+describe('attachment rendering (→1633)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+
+  const mockMessagesWithImage = [
+    {
+      id: 10,
+      text: '',
+      date: '2026-01-01T10:00:00Z',
+      is_from_me: false,
+      is_read: true,
+      sender: '+14155550101',
+      attachments: [
+        {
+          filename: '/Users/test/Library/Messages/Attachments/00/IMG_2328.HEIC',
+          mime_type: 'image/heic',
+          transfer_name: 'IMG_2328.HEIC',
+        },
+      ],
+    },
+  ]
+
+  function setupWithMessages() {
+    mockApi.get.mockImplementation((path: string) => {
+      if (path === '/imessage/status') return Promise.resolve({ available: true, reason: null })
+      if (path === '/imessage/conversations') return Promise.resolve({ conversations: mockConversations })
+      if (path === '/contacts') return Promise.resolve({ contacts: [] })
+      if (path.startsWith('/imessage/conversations/1/messages'))
+        return Promise.resolve({ messages: mockMessagesWithImage })
+      return Promise.resolve({})
+    })
+    return render(
+      <MemoryRouter>
+        <IMessage />
+      </MemoryRouter>
+    )
+  }
+
+  it('renders an img tag for image attachments', async () => {
+    setupWithMessages()
+    await waitFor(() => screen.getByText('Jen Wilson'))
+    fireEvent.click(screen.getByText('Jen Wilson'))
+    await waitFor(() => {
+      const img = screen.queryByTestId('attachment-image')
+      expect(img).not.toBeNull()
+    })
+  })
+
+  it('img src points to the attachment endpoint', async () => {
+    setupWithMessages()
+    await waitFor(() => screen.getByText('Jen Wilson'))
+    fireEvent.click(screen.getByText('Jen Wilson'))
+    await waitFor(() => {
+      const img = screen.getByTestId('attachment-image') as HTMLImageElement
+      expect(img.src).toContain('/api/imessage/attachment?path=')
+      expect(img.src).toContain('IMG_2328.HEIC')
+    })
+  })
+
+  it('shows placeholder when image fails to load', async () => {
+    setupWithMessages()
+    await waitFor(() => screen.getByText('Jen Wilson'))
+    fireEvent.click(screen.getByText('Jen Wilson'))
+    await waitFor(() => screen.getByTestId('attachment-image'))
+    const img = screen.getByTestId('attachment-image')
+    fireEvent.error(img)
+    await waitFor(() => {
+      expect(screen.queryByTestId('attachment-image')).toBeNull()
+      const placeholder = screen.getByTestId('attachment-placeholder')
+      expect(placeholder).toBeTruthy()
+      expect(placeholder.textContent).toContain('IMG_2328.HEIC')
+    })
+  })
+})
