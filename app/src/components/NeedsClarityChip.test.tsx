@@ -41,6 +41,38 @@ const allPassingChecks: ReadinessCheck[] = [
 ]
 
 // ---------------------------------------------------------------------------
+// Chip wording and stage=ready behavior
+// ---------------------------------------------------------------------------
+
+describe('Chip wording and stage', () => {
+  it('shows "Add detail?" not "Needs clarity"', () => {
+    render(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" />)
+    const chip = screen.getByTestId('needs-clarity-chip')
+    expect(chip).toHaveTextContent('Add detail?')
+    expect(screen.queryByText('Needs clarity')).not.toBeInTheDocument()
+  })
+
+  it('when stage=ready shows icon-only chip with no "Add detail?" text', () => {
+    render(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" stage="ready" />)
+    const chip = screen.getByTestId('needs-clarity-chip')
+    expect(chip).toBeInTheDocument()
+    expect(screen.queryByText('Add detail?')).not.toBeInTheDocument()
+  })
+
+  it('when stage=ready chip is still clickable and opens the modal', async () => {
+    render(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" stage="ready" />)
+    const chip = screen.getByTestId('needs-clarity-chip')
+    fireEvent.click(chip)
+    expect(screen.getByTestId('needs-clarity-modal')).toBeInTheDocument()
+  })
+
+  it('when no stage (default) chip shows "Add detail?" text', () => {
+    render(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" />)
+    expect(screen.getByTestId('needs-clarity-chip')).toHaveTextContent('Add detail?')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Plain language label assertions
 // ---------------------------------------------------------------------------
 
