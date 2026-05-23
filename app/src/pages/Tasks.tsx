@@ -24,6 +24,7 @@ import LabelsView from "../components/LabelsView";
 import HealthCheckView from "../components/HealthCheckView";
 import type { Label } from "../components/LabelsView";
 import { api } from "../lib/api";
+import { reportError } from '../lib/reportError';
 import { onTasksChange } from "../lib/sidebarBus";
 import SharePopover from "../components/SharePopover";
 import ExportButton from "../components/ExportButton";
@@ -402,7 +403,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       writeTasksCache(visible);
       setFetchError(null);
     } catch (e) {
-      console.error("Failed to fetch tasks:", e);
+      reportError('Failed to fetch tasks', e);
       setFetchError("Could not load tasks. Check your connection and try again.");
     } finally {
       setLoading(false);
@@ -414,7 +415,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       const res = await api.get<LabelsResponse>("/labels");
       setLabels(res.labels ?? []);
     } catch (e) {
-      console.error("Failed to fetch labels:", e);
+      reportError('Failed to fetch labels', e);
     }
   }, []);
 
@@ -426,7 +427,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       const res = await api.get<BriefingResponse>(`/tasks/${taskId}/briefing`);
       setBriefing(res.briefing ?? null);
     } catch (e) {
-      console.error("Failed to fetch briefing:", e);
+      reportError('Failed to fetch briefing', e);
     } finally {
       setBriefingLoading(false);
     }
@@ -439,7 +440,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       const res = await api.get<TraceResponse>(`/tasks/${taskId}/trace`);
       setTrace(res.trace ?? null);
     } catch (e) {
-      console.error("Failed to fetch trace:", e);
+      reportError('Failed to fetch trace', e);
     } finally {
       setTraceLoading(false);
     }
@@ -756,7 +757,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       setNewTaskTitle("");
       await fetchTasks();
     } catch (e) {
-      console.error("Failed to add task:", e);
+      reportError('Failed to add task', e);
     }
   };
 
@@ -765,7 +766,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       await api.post(`/tasks/${id}/close?source=user`);
       await fetchTasks();
     } catch (e: unknown) {
-      console.error("Failed to close task:", e);
+      reportError('Failed to close task', e);
       const msg =
         (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
         "Couldn't close the task. Please try again.";
@@ -779,7 +780,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       await api.post(`/tasks/${id}/reopen`);
       await fetchTasks();
     } catch (e) {
-      console.error("Failed to reopen task:", e);
+      reportError('Failed to reopen task', e);
     }
   };
 
@@ -792,7 +793,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       await api.post(`/tasks/${id}/shelve`);
       await fetchTasks();
     } catch (e) {
-      console.error("Failed to pause task:", e);
+      reportError('Failed to pause task', e);
       await fetchTasks();
     }
   };
@@ -806,7 +807,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       await api.post(`/tasks/${id}/unshelve`);
       await fetchTasks();
     } catch (e) {
-      console.error("Failed to resume task:", e);
+      reportError('Failed to resume task', e);
       await fetchTasks();
     }
   };
@@ -834,7 +835,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     // Start a 5-second timer before actually deleting
     const timer = setTimeout(() => {
       api.delete(`/tasks/${id}`)
-        .catch((e) => console.error("Failed to delete task:", e))
+        .catch((e) => reportError('Failed to delete task', e))
         .finally(() => {
           pendingDeleteIdsRef.current.delete(id);
         });
@@ -872,7 +873,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       );
       await api.patch(`/tasks/${taskId}`, { priority, reason });
     } catch (e) {
-      console.error("Failed to update priority:", e);
+      reportError('Failed to update priority', e);
       await fetchTasks();
     }
   };
@@ -891,7 +892,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     try {
       await api.patch(`/tasks/${taskId}`, { title: trimmed });
     } catch (e) {
-      console.error("Failed to update title:", e);
+      reportError('Failed to update title', e);
       setTasks((ts) => ts.map((t) => (t.id === taskId ? { ...t, title: prev } : t)));
       setBanner("Couldn't save the title. Try again.");
       setTimeout(() => setBanner(null), 4000);
@@ -912,7 +913,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       setOpenLabelDropdown(null);
       fetchLabels(); // Refresh label counts
     } catch (e) {
-      console.error("Failed to assign label:", e);
+      reportError('Failed to assign label', e);
     }
   };
 
@@ -929,7 +930,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       );
       fetchLabels(); // Refresh label counts
     } catch (e) {
-      console.error("Failed to remove label:", e);
+      reportError('Failed to remove label', e);
     }
   };
 
@@ -948,7 +949,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       }
     } catch (e) {
       setCommitResult("Something went wrong. Please try again.");
-      console.error("Failed to commit:", e);
+      reportError('Failed to commit', e);
     } finally {
       setCommitLoading(false);
     }
@@ -962,7 +963,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       setLinkTarget("");
       await fetchTasks();
     } catch (e) {
-      console.error("Failed to link tasks:", e);
+      reportError('Failed to link tasks', e);
     }
   };
 
@@ -971,7 +972,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       await api.delete(`/tasks/${sourceId}/link?target=${targetId}&relation=${relation}`);
       await fetchTasks();
     } catch (e) {
-      console.error("Failed to unlink tasks:", e);
+      reportError('Failed to unlink tasks', e);
     }
   };
 
@@ -1084,7 +1085,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       setBanner(`${bannerLabel} started for "${task.title}".`);
       setTimeout(() => setBanner(null), 4000);
     } catch (e) {
-      console.error(`Failed to spawn ${mode} agent:`, e);
+      reportError(`Failed to spawn ${mode} agent`, e);
       const label = mode === "plan" ? "plan" : mode === "comprehensive" ? "Comprehensive build" : "Quick build";
       const detail =
         e != null &&
@@ -1160,7 +1161,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     try {
       await api.post("/tasks/reorder", { task_id: taskId, new_priority: newPriority, position });
     } catch (e) {
-      console.error("Failed to save task order:", e);
+      reportError('Failed to save task order', e);
       // Revert optimistic update on error
       await fetchTasks();
     }
@@ -1240,7 +1241,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     const text = filteredTasks
       .map((t) => `[${t.priority}] ${t.title} (${t.status})`)
       .join("\n");
-    navigator.clipboard.writeText(text).catch(console.error);
+    navigator.clipboard.writeText(text).catch((e) => reportError('clipboard write', e));
   };
 
   const executeDeleteAll = async () => {
@@ -1271,7 +1272,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     try {
       await api.post("/tasks/delete-all", body);
     } catch (e) {
-      console.error("Failed to delete all tasks:", e);
+      reportError('Failed to delete all tasks', e);
     } finally {
       setDeleteAllLoading(false);
       // Refetch to reconcile any divergence.

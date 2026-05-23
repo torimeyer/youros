@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Icon from './Icon';
 import { Card, SkeletonLine } from './ui';
 import { api } from '../lib/api';
+import { reportError } from '../lib/reportError';
 import { formatRelative } from '../lib/time';
 
 interface Spec {
@@ -33,7 +34,7 @@ export default function RecentSpecsWidget() {
         const res = await api.get<RecentSpecsResponse>('/specs/recent');
         setSpecs(res.docs || []);
       } catch (err) {
-        console.error('Failed to fetch recent specs:', err);
+        reportError('Failed to fetch recent specs', err);
         setError('Failed to load specs');
       } finally {
         setLoading(false);

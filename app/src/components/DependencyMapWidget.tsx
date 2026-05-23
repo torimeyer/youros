@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Icon from './Icon';
 import { Card, SkeletonLine } from './ui';
 import { api } from '../lib/api';
+import { reportError } from '../lib/reportError';
 
 interface DepNode {
   key: string;
@@ -41,7 +42,7 @@ export default function DependencyMapWidget({ epicKey }: Props) {
         const res = await api.get<DepGraph>(`/coordination/dependencies/${epicKey}`);
         setGraph(res);
       } catch (err) {
-        console.error('Failed to fetch dependencies:', err);
+        reportError('Failed to fetch dependencies', err);
         setError('Could not load dependencies');
       } finally {
         setLoading(false);

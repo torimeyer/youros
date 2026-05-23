@@ -4,6 +4,7 @@ import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import { Card, EmptyState, ErrorBanner, LoadingState } from '../components/ui';
 import { api } from '../lib/api';
+import { reportError } from '../lib/reportError';
 
 interface Project {
   name: string;
@@ -41,7 +42,7 @@ export default function Projects() {
       const res = await api.get<ProjectsResponse>('/projects');
       setProjects(res.projects);
     } catch (e) {
-      console.error('Failed to fetch projects:', e);
+      reportError('Failed to fetch projects', e);
       setError('Could not load your projects. Check that myOS is running and try again.');
     } finally {
       setLoading(false);

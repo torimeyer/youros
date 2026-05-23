@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import Icon from './Icon'
 import { api } from '../lib/api'
+import { reportError } from '../lib/reportError'
 
 interface DriveAuthStatus {
   authenticated: boolean
@@ -80,7 +81,7 @@ export function GoogleWorkspaceSetupCard({
             if (stepIndex !== undefined) api.patch('/settings', { onboarding_step: stepIndex }).catch(() => {})
             api.get<{ url: string }>('/drive/auth/url?return_to=%2F')
               .then((res) => { window.location.href = res.url })
-              .catch((e) => console.error('Google Workspace OAuth failed to start:', e))
+              .catch((e) => reportError('Google Workspace OAuth failed to start', e))
           }}
           className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors ${
             darkMode

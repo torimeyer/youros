@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Icon from './Icon'
 import { api } from '../lib/api'
+import { reportError } from '../lib/reportError'
 
 // Shape of a single review row returned by the backend. Fields mirror
 // services/task_audit.py so no ad-hoc translation layer is needed.
@@ -93,7 +94,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
       setStatus(next)
       return next
     } catch (err) {
-      console.error('Audit status poll failed:', err)
+      reportError('Audit status poll failed', err)
       return null
     }
   }, [])
@@ -117,7 +118,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
         // blank "Checked 0 of 0" flash.
         await pollStatus(res.job_id)
       } catch (err) {
-        console.error('Audit start failed:', err)
+        reportError('Audit start failed', err)
         setStartError('Could not start the audit. Please try again.')
       }
     })()
@@ -164,7 +165,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
       })
       await pollStatus(jobId)
     } catch (err) {
-      console.error('Approve failed:', err)
+      reportError('Approve failed', err)
     } finally {
       setApprovingId(null)
     }
@@ -179,7 +180,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
       })
       await pollStatus(jobId)
     } catch (err) {
-      console.error('Reject failed:', err)
+      reportError('Reject failed', err)
     } finally {
       setApprovingId(null)
     }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Icon from "./Icon";
 import { api } from "../lib/api";
+import { reportError } from '../lib/reportError';
 
 interface Task {
   id: string;
@@ -58,7 +59,7 @@ export default function GoalsView() {
       const res = await api.get<GoalsResponse>("/goals");
       setGoals(res.goals ?? []);
     } catch (e) {
-      console.error("Failed to fetch goals:", e);
+      reportError('Failed to fetch goals', e);
     } finally {
       setLoading(false);
     }

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import Icon from "../components/Icon";
 import TopBar from "../components/TopBar";
 import { api } from "../lib/api";
+import { reportError } from '../lib/reportError';
 import { LoadingState, EmptyState } from "../components/ui";
 import {
   buildStream,
@@ -274,7 +275,7 @@ export default function Activity() {
       const res = await api.get<ActivityResponse>(`/activity?last=${eventCount}`);
       setRawEvents(res.events ?? []);
     } catch (e) {
-      console.error("Failed to fetch activity:", e);
+      reportError('Failed to fetch activity', e);
     } finally {
       if (!silent) setLoading(false);
     }
