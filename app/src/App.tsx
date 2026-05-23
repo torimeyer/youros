@@ -38,6 +38,7 @@ import { useSessionsFeed } from './hooks/useSessionsFeed'
 import { useDashboardFeed } from './hooks/useDashboardFeed'
 import { useNotificationsFeed } from './hooks/useNotificationsFeed'
 import { useCalendarFeed } from './hooks/useCalendarFeed'
+import { useVictoryFanfare } from './hooks/useVictoryFanfare'
 import ShareView from './pages/ShareView'
 import AdminLayout from './components/AdminLayout'
 import AdminOverview from './pages/admin/Overview'
@@ -60,6 +61,7 @@ export default function App() {
   useDashboardFeed()
   useNotificationsFeed()
   useCalendarFeed()
+  useVictoryFanfare()
   const hydrated = useAppStore((s) => s.hydrated)
   const onboarded = useAppStore((s) => s.onboarded)
   const hydrateFromServer = useAppStore((s) => s.hydrateFromServer)
