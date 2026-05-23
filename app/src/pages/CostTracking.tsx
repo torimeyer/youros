@@ -4,6 +4,7 @@ import TopBar from '../components/TopBar'
 import Icon from '../components/Icon'
 import TimeFilter, { type TimePeriod as Period } from '../components/TimeFilter'
 import { api } from '../lib/api'
+import { reportError } from '../lib/reportError'
 import { useAppStore } from '../stores/app'
 
 /** Contextual suggestions based on current numbers, ordered by severity. */
@@ -954,7 +955,7 @@ export default function CostTracking() {
       saveCostDataToCache(res, period)
     } catch (e) {
       if (fetchIdRef.current !== myId) return
-      console.error('Failed to fetch cost data:', e)
+      reportError('Failed to fetch cost data', e)
     } finally {
       if (fetchIdRef.current === myId) {
         setLoading(false)
@@ -995,7 +996,7 @@ export default function CostTracking() {
           saveSavingsDataToCache(res, period)
         }
       } catch (e) {
-        console.error('Failed to fetch savings data:', e)
+        reportError('Failed to fetch savings data', e)
         if (!cancelled && savingsIdRef.current === myId) setSavings(prev => prev ?? { available: false })
       }
     }

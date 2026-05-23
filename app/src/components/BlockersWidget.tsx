@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Icon from './Icon';
 import { Card, SkeletonLine } from './ui';
 import { api } from '../lib/api';
+import { reportError } from '../lib/reportError';
 
 interface Blocker {
   key: string;
@@ -42,7 +43,7 @@ export default function BlockersWidget() {
         const res = await api.get<BlockersResponse>('/coordination/blockers');
         setBlockers(res.blockers || []);
       } catch (err) {
-        console.error('Failed to fetch blockers:', err);
+        reportError('Failed to fetch blockers', err);
         setError('Not connected or failed to load');
       } finally {
         setLoading(false);

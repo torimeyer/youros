@@ -5,6 +5,7 @@ import TopBar from '../components/TopBar'
 import GoogleSetupGuideModal from '../components/GoogleSetupGuideModal'
 import { ConnectCard, LoadingState, EmptyState } from '../components/ui'
 import { api } from '../lib/api'
+import { reportError } from '../lib/reportError'
 import { onCalendarChange } from '../lib/sidebarBus'
 
 export interface CalendarEvent {
@@ -353,7 +354,7 @@ export default function Calendar() {
       pendingDeletedIdsRef.current.add(pendingId)
       api.delete(`/calendar/events/${encodeURIComponent(pendingId)}`)
         .then(() => purgeCachedEvent(pendingId))
-        .catch((e) => console.error('Failed to delete calendar event:', e))
+        .catch((e) => reportError('Failed to delete calendar event', e))
         .finally(() => {
           pendingDeletedIdsRef.current.delete(pendingId)
         })
@@ -370,7 +371,7 @@ export default function Calendar() {
         await api.delete(`/calendar/events/${encodeURIComponent(ev.id)}`)
         purgeCachedEvent(ev.id)
       } catch (e) {
-        console.error('Failed to delete calendar event:', e)
+        reportError('Failed to delete calendar event', e)
         // The delete truly failed server-side. Clear the pending mark
         // so the next refetch restores the event, and fetch now so the
         // user sees the correct state instead of a ghosted row.

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Icon from './Icon';
 import { Card, SkeletonLine } from './ui';
 import { api } from '../lib/api';
+import { reportError } from '../lib/reportError';
 
 interface ConfluencePage {
   id: string;
@@ -40,7 +41,7 @@ export default function ConfluenceWidget() {
         const res = await api.get<ConfluencePagesResponse>(url);
         setPages((res.pages || []).slice(0, 5));
       } catch (err) {
-        console.error('Failed to fetch confluence pages:', err);
+        reportError('Failed to fetch confluence pages', err);
         setError('Not connected or failed to load');
       } finally {
         setLoading(false);

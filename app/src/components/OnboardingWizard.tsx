@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useAppStore, TEAM_MODE_VISIBLE } from '../stores/app'
 import Icon from './Icon'
 import { api } from '../lib/api'
+import { reportError } from '../lib/reportError'
 import { AGENT_MARKETPLACE, PERSONA_ICONS, type MarketplaceCategory } from '../data/agentMarketplace'
 import { GoogleWorkspaceSetupCard } from './GoogleWorkspaceSetupCard'
 import {
@@ -83,7 +84,7 @@ export default function OnboardingWizard() {
         else if (data.vertex_ai) setDetectedProvider('Vertex AI')
         else if (data.bedrock) setDetectedProvider('AWS Bedrock')
       })
-      .catch((e) => console.error('provider detection failed:', e))
+      .catch((e) => reportError('provider detection failed', e))
   }, [])
 
   // Restore step after any OAuth redirect
@@ -187,7 +188,7 @@ export default function OnboardingWizard() {
 
   const handleProfileNext = () => {
     if (selectedPersonaId) {
-      api.post('/agents/pm-templates/install-persona', { persona_id: selectedPersonaId }).catch((e) => console.error('persona install failed:', e))
+      api.post('/agents/pm-templates/install-persona', { persona_id: selectedPersonaId }).catch((e) => reportError('persona install failed', e))
     }
     next()
   }
@@ -232,7 +233,7 @@ export default function OnboardingWizard() {
       }
       // Sync the store with what the user picked in the wizard
       if (pickedDarkRef.current !== darkMode) toggleDarkMode()
-      api.patch('/settings', settings).catch((e) => console.error('settings patch failed:', e))
+      api.patch('/settings', settings).catch((e) => reportError('settings patch failed', e))
       // Reset the "Finished" baseline so agents from before onboarding
       // do not immediately show a stale count in the sidebar.
       setAgentsLastViewed(new Date().toISOString())
@@ -257,14 +258,14 @@ export default function OnboardingWizard() {
     if (profileStyle) settings.communication_style = profileStyle
     // Sync the store with what the user picked in the wizard
     if (pickedDarkRef.current !== darkMode) toggleDarkMode()
-    api.patch('/settings', settings).catch((e) => console.error('settings patch failed:', e))
+    api.patch('/settings', settings).catch((e) => reportError('settings patch failed', e))
     // Reset the "Finished" baseline so agents from before onboarding
     // do not immediately show a stale count in the sidebar.
     setAgentsLastViewed(new Date().toISOString())
     if (trackingOption) {
       const trackBody: Record<string, unknown> = { scope: trackingOption }
       if (trackingOption === 'repo' && trackingRepoPath) trackBody.path = trackingRepoPath
-      await api.post('/onboarding/enable-myos-hooks', trackBody).catch((e) => console.error('tracking setup failed:', e))
+      await api.post('/onboarding/enable-myos-hooks', trackBody).catch((e) => reportError('tracking setup failed', e))
     }
     // Navigate home BEFORE flipping onboarded (see goHome comment above).
     localStorage.removeItem('myos.onboarding.state')
@@ -274,7 +275,7 @@ export default function OnboardingWizard() {
 
   const handleFilesLocationNext = () => {
     api.put('/settings', { files_dir: filesDir || null }).catch(
-      (e) => console.error('Failed to save files_dir during onboarding:', e)
+      (e) => reportError('Failed to save files_dir during onboarding', e)
     )
     next()
   }
@@ -292,7 +293,7 @@ export default function OnboardingWizard() {
     if (secretName && apiKey) {
       api.post('/secrets', { key: secretName, value: apiKey })
         .then(() => setKeySaved(true))
-        .catch((e) => console.error('save key failed:', e))
+        .catch((e) => reportError('save key failed', e))
     }
   }
 
@@ -1204,7 +1205,7 @@ function ConnectStep({
   useEffect(() => {
     api.get<{ google_oauth_available?: boolean }>('/secrets/key-status')
       .then((data) => setGoogleOAuthAvailable(data.google_oauth_available ?? false))
-      .catch((e) => console.error('key status check failed:', e))
+      .catch((e) => reportError('key status check failed', e))
   }, [])
 
   const providers = [
@@ -1465,7 +1466,7 @@ export function AtlassianSetupCard({
         if (data.site) setSite(data.site)
         if (data.oauth_available) setOauthAvailable(true)
       })
-      .catch((e) => console.error('load atlassian defaults failed:', e))
+      .catch((e) => reportError('load atlassian defaults failed', e))
   }
 
   const handleConnect = () => {

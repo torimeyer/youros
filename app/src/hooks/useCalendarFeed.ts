@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useCalendarStore } from '../stores/calendarStore'
+import { reportError } from '../lib/reportError'
 
 const POLL_MS = 5000
 
@@ -36,7 +37,7 @@ export function useCalendarFeed() {
         backoff = 0
       } catch (e: unknown) {
         if (e instanceof Error && e.name === 'AbortError') return
-        console.error('Calendar poll error:', e)
+        reportError('Calendar poll error', e)
         backoff = backoff === 0 ? 1000 : Math.min(backoff * 2, 60_000)
       }
       if (!cancelled) {
@@ -71,7 +72,7 @@ export function useCalendarFeed() {
             // Keepalive received
           }
         } catch (e) {
-          console.error('Calendar WS message parse error:', e)
+          reportError('Calendar WS message parse error', e)
         }
       }
 

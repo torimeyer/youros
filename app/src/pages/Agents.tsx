@@ -7,6 +7,7 @@ import { AgentChatThread } from "../components/AgentChatThread";
 import ConfirmModal from "../components/ConfirmModal";
 import { useConfirm } from "../hooks/useConfirm";
 import { api, ApiError, ApiTimeoutError } from "../lib/api";
+import { reportError } from '../lib/reportError';
 import { onAgentsChange, addDismissed, isDismissed, clearDismissed } from "../lib/sidebarBus";
 import { useRunningAgentsStore } from "../stores/runningAgents";
 import { useGrantsStore } from "../stores/grantsStore";
@@ -232,7 +233,7 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
       await api.post(`/agentfiles/${encodeURIComponent(name)}/run`, {});
       onLaunch();
     } catch (e) {
-      console.error("Failed to launch Agentfile:", e);
+      reportError('Failed to launch Agentfile', e);
     } finally {
       setLaunching(null);
     }
@@ -254,7 +255,7 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
       setCreateForm({ name: "", prompt: "", model: "auto", description: "" });
       await fetchAgentfiles();
     } catch (e) {
-      console.error("Failed to create Agentfile:", e);
+      reportError('Failed to create Agentfile', e);
     } finally {
       setCreating(false);
     }

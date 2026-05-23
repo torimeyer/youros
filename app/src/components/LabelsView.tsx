@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import SharePopover from "./SharePopover";
 import Icon from "./Icon";
 import { api } from "../lib/api";
+import { reportError } from '../lib/reportError';
 
 export interface Label {
   id: string;
@@ -48,7 +49,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
       const res = await api.get<LabelsResponse>("/labels");
       setLabels(res.labels ?? []);
     } catch (e) {
-      console.error("Failed to fetch labels:", e);
+      reportError('Failed to fetch labels', e);
     } finally {
       setLoading(false);
     }
@@ -59,7 +60,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
       const res = await api.get<ColorsResponse>("/labels/colors");
       setColors(res.colors ?? []);
     } catch (e) {
-      console.error("Failed to fetch colors:", e);
+      reportError('Failed to fetch colors', e);
     }
   }, []);
 
@@ -97,7 +98,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
       }
       onLabelsChanged?.();
     } catch (e) {
-      console.error("Failed to delete label:", e);
+      reportError('Failed to delete label', e);
     }
   };
 

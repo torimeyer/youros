@@ -17,6 +17,7 @@ import DependencyMapWidget from '../components/DependencyMapWidget';
 import ExecUpdateWidget from '../components/ExecUpdateWidget';
 import { Card, SkeletonLine } from '../components/ui';
 import { api } from '../lib/api';
+import { reportError } from '../lib/reportError';
 import { renderMarkdown } from '../lib/markdown';
 import { useAppStore } from '../stores/app';
 import { useDashboardStore } from '../stores/dashboardStore';
@@ -231,7 +232,7 @@ export default function Dashboard() {
       const res = await api.get<{ bullets: string[] }>('/dashboard/summary');
       setSummaryBullets(res.bullets);
     } catch (e) {
-      console.error('Failed to fetch summary:', e);
+      reportError('Failed to fetch summary', e);
     } finally {
       setSummaryLoading(false);
     }
@@ -249,7 +250,7 @@ export default function Dashboard() {
       if (compoundsRes) setCompounds(compoundsRes);
       if (diffRes) setSessionDiff(diffRes);
     } catch (e) {
-      console.error('Failed to fetch dashboard:', e);
+      reportError('Failed to fetch dashboard', e);
     } finally {
       setLoading(false);
     }

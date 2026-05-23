@@ -7,6 +7,7 @@ import { PageHeader } from '../components/ui';
 import ConfirmModal from '../components/ConfirmModal';
 import { useConfirm } from '../hooks/useConfirm';
 import { api } from '../lib/api';
+import { reportError } from '../lib/reportError';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 import SlackConnect from '../components/SlackConnect';
 import { AtlassianSetupCard, GithubSetupCard } from '../components/OnboardingWizard';
@@ -1563,7 +1564,7 @@ export default function Settings() {
                             Drive: { loading: false, connected: false, label: '' }
                           }));
                         } catch (err) {
-                          console.error('Failed to disconnect Google:', err);
+                          reportError('Failed to disconnect Google', err);
                         }
                       }}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-400 hover:text-slate-200 transition-colors"
@@ -1579,7 +1580,7 @@ export default function Settings() {
                         const res = await api.get<{ url: string }>('/drive/auth/url');
                         window.location.href = res.url;
                       } catch (err) {
-                        console.error('Google sign-in failed to start:', err);
+                        reportError('Google sign-in failed to start', err);
                       }
                     }}
                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"

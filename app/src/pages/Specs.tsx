@@ -6,6 +6,7 @@ import SpecTemplateDetailsModal, {
   type SpecTemplateDetailsValues,
 } from "../components/SpecTemplateDetailsModal";
 import { api } from "../lib/api";
+import { reportError } from '../lib/reportError';
 import { buildSpec } from "../lib/spawn";
 import { NeedsClarityChip, type ReadinessCheck } from "../components/NeedsClarityChip";
 import { ClaimSourceChip } from "../components/ClaimSourceChip";
@@ -593,7 +594,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
     const timer = setTimeout(() => {
       api
         .delete(`/specs/${encodeDocPath(spec.path)}`)
-        .catch((e) => console.error("Failed to delete spec:", e))
+        .catch((e) => reportError('Failed to delete spec', e))
         .finally(() => {
           if (pendingDeleteSpecPathsRef.current.delete(spec.path)) {
             // Cancel the -1 now that the server has caught up. The

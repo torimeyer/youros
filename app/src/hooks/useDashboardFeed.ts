@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useDashboardStore } from '../stores/dashboardStore'
+import { reportError } from '../lib/reportError'
 
 const POLL_MS = 5000
 
@@ -37,7 +38,7 @@ export function useDashboardFeed() {
         backoff = 0
       } catch (e: unknown) {
         if (e instanceof Error && e.name === 'AbortError') return
-        console.error('Dashboard poll error:', e)
+        reportError('Dashboard poll error', e)
         backoff = backoff === 0 ? 1000 : Math.min(backoff * 2, 60_000)
       }
       if (!cancelled) {
@@ -74,7 +75,7 @@ export function useDashboardFeed() {
             // Keepalive received
           }
         } catch (e) {
-          console.error('Dashboard WS message parse error:', e)
+          reportError('Dashboard WS message parse error', e)
         }
       }
 

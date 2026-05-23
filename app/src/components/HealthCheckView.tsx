@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import Icon from "./Icon";
 import { api } from "../lib/api";
+import { reportError } from '../lib/reportError';
 
 interface HealthIssue {
   type: string;
@@ -132,7 +133,7 @@ export default function HealthCheckView() {
       setDuplicates(duplicatesRes.duplicates ?? []);
     } catch (e) {
       setError("Could not run the health check. Try again in a moment.");
-      console.error("Health check failed:", e);
+      reportError('Health check failed', e);
     } finally {
       setLoading(false);
     }
@@ -157,7 +158,7 @@ export default function HealthCheckView() {
       const msg =
         e instanceof Error ? e.message : "Could not resolve this pair. Try again.";
       setResolveMessage({ text: msg, ok: false });
-      console.error("Resolve duplicate failed:", e);
+      reportError('Resolve duplicate failed', e);
     } finally {
       setResolvingPair(null);
     }
@@ -177,7 +178,7 @@ export default function HealthCheckView() {
       const msg =
         e instanceof Error ? e.message : "Could not resolve all duplicates. Try again.";
       setResolveMessage({ text: msg, ok: false });
-      console.error("Resolve all duplicates failed:", e);
+      reportError('Resolve all duplicates failed', e);
     } finally {
       setResolvingAll(false);
     }

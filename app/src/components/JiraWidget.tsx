@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Icon from './Icon';
 import { Card, SkeletonLine } from './ui';
 import { api } from '../lib/api';
+import { reportError } from '../lib/reportError';
 
 interface JiraIssue {
   key: string;
@@ -32,7 +33,7 @@ export default function JiraWidget() {
         const res = await api.get<JiraIssuesResponse>('/atlassian/jira/issues');
         setIssues((res.issues || []).slice(0, 5));
       } catch (err) {
-        console.error('Failed to fetch jira issues:', err);
+        reportError('Failed to fetch jira issues', err);
         setError('Not connected or failed to load');
       } finally {
         setLoading(false);

@@ -3,6 +3,7 @@ import Icon from "../components/Icon";
 import TopBar from "../components/TopBar";
 import ExportButton from "../components/ExportButton";
 import { api } from "../lib/api";
+import { reportError } from '../lib/reportError';
 import { EmptyState } from "../components/ui";
 
 interface Task {
@@ -52,7 +53,7 @@ export default function Timeline() {
       const res = await api.get<TasksResponse>("/tasks");
       setTasks(res.tasks ?? []);
     } catch (e) {
-      console.error("Failed to fetch tasks:", e);
+      reportError('Failed to fetch tasks', e);
     }
   }, []);
 

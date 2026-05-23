@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Icon from './Icon'
 import { useAppStore } from '../stores/app'
 import { api } from '../lib/api'
+import { reportError } from '../lib/reportError'
 
 interface TaskResult {
   id: string
@@ -181,7 +182,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       if (tr.status === 'fulfilled') {
         setTasksResults(tr.value?.tasks ?? [])
       } else {
-        console.error('Tasks search failed:', tr.reason)
+        reportError('Tasks search failed', tr.reason)
         setTasksResults([])
       }
       setTasksLoading(false)
@@ -189,7 +190,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       if (dr.status === 'fulfilled') {
         setDeepResults(flattenResponse(dr.value))
       } else {
-        console.error('Deep search failed:', dr.reason)
+        reportError('Deep search failed', dr.reason)
         setDeepResults([])
       }
       setDeepLoading(false)
@@ -197,7 +198,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       if (rr.status === 'fulfilled') {
         setRecallResults(flattenResponse(rr.value))
       } else {
-        console.error('Recall search failed:', rr.reason)
+        reportError('Recall search failed', rr.reason)
         setRecallResults([])
       }
       setRecallLoading(false)
