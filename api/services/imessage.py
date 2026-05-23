@@ -549,6 +549,53 @@ async def get_conversations(limit: int = 50) -> list[dict]:
     return conversations
 
 
+def _decode_attributed_body(blob: bytes | None) -> str | None:
+    """Decode an NSAttributedString binary blob from macOS chat.db.
+
+    macOS stores recent message bodies in the attributedBody BLOB column using
+    StreamTypedCoder encoding. The text column is NULL for these messages.
+    Format: find the NSString marker, skip 5 metadata bytes, read the length,
+    then decode the UTF-8 content.
+    """
+    if not blob:
+        return None
+    try:
+        data = bytes(blob)
+        idx = data.find(b"NSString")
+        if idx == -1:
+            return None
+        after = data[idx + 8:]
+        if len(after) < 7:
+            return None
+        # Skip 5 metadata bytes (class type tag + version + value header).
+        # The 6th byte encodes the string length.
+        length_byte = after[5]
+        if length_byte <= 0x7F:
+            n = length_byte
+            text_bytes = after[6:6 + n]
+        elif length_byte == 0x81:
+            if len(after) < 8:
+                return None
+            n = after[6]
+            text_bytes = after[7:7 + n]
+        elif length_byte == 0x82:
+            if len(after) < 9:
+                return None
+            n = (after[6] << 8) | after[7]
+            text_bytes = after[8:8 + n]
+        else:
+            return None
+        text = text_bytes.decode("utf-8", errors="replace")
+        # Strip leading StreamTypedCoder marker bytes (control chars < 0x20).
+        i = 0
+        while i < len(text) and ord(text[i]) < 32:
+            i += 1
+        text = text[i:]
+        return text if text else None
+    except Exception:
+        return None
+
+
 def get_messages_sync(chat_id: int, limit: int = 100) -> list[dict]:
     """Fetch messages for a specific conversation from chat.db.
 
@@ -560,6 +607,7 @@ def get_messages_sync(chat_id: int, limit: int = 100) -> list[dict]:
             SELECT
                 m.ROWID as message_id,
                 m.text,
+                m.attributedBody,
                 m.date as message_date,
                 m.is_from_me,
                 m.is_read,
@@ -605,7 +653,7 @@ def get_messages_sync(chat_id: int, limit: int = 100) -> list[dict]:
         messages = []
         for row in rows:
             msg_date = _apple_epoch_to_unix(row["message_date"])
-            text = row["text"] or ""
+            text = row["text"] or _decode_attributed_body(row["attributedBody"]) or ""
             sender = ""
             if row["is_from_me"]:
                 sender = "me"

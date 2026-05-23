@@ -208,6 +208,15 @@ describe('message thread — bubbles (→1632)', () => {
     expect(screen.queryByText('￼')).toBeNull()
   })
 
+  it('renders outgoing message body text in the bubble (→1648)', async () => {
+    setupWithMessages([
+      { id: 1, text: 'Hello there', date: new Date().toISOString(), is_from_me: true, is_read: true, sender: 'me', attachments: [] },
+    ])
+    await waitFor(() => screen.getByText('Jen Wilson'))
+    fireEvent.click(screen.getByText('Jen Wilson'))
+    await waitFor(() => expect(screen.getByText('Hello there')).toBeTruthy())
+  })
+
   it('formats message timestamps using browser local timezone, not UTC (Bug B)', async () => {
     const msgDate = new Date(Date.now() - 30 * 60 * 1000).toISOString()
     setupWithMessages([
