@@ -108,6 +108,8 @@ describe('Specs page', () => {
       if (path === '/specs/templates') return Promise.resolve({ templates: [] })
       // Return empty tasks for linked tasks endpoint
       if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      // Preflight check inside buildSpec — return empty conflicts so the build POST fires
+      if (path.includes('spawn-preflight')) return Promise.resolve({ conflicts: [] })
       return Promise.resolve({})
     })
     mockedApiPost.mockResolvedValue({ result: 'ok', task_ids: [] })
@@ -569,6 +571,7 @@ describe('Specs page', () => {
         })
       }
       if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      if (path.includes('spawn-preflight')) return Promise.resolve({ conflicts: [] })
       return Promise.resolve({})
     })
 
@@ -675,6 +678,7 @@ describe('Specs page', () => {
       }
       if (path === '/specs/templates') return Promise.resolve({ templates: [] })
       if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      if (path.includes('spawn-preflight')) return Promise.resolve({ conflicts: [] })
       return Promise.resolve({})
     })
 
@@ -1029,6 +1033,7 @@ describe('Specs page', () => {
           ],
         })
       }
+      if (path.includes('spawn-preflight')) return Promise.resolve({ conflicts: [] })
       return Promise.resolve({})
     })
 
@@ -1091,6 +1096,7 @@ describe('Specs page', () => {
           ],
         })
       }
+      if (path.includes('spawn-preflight')) return Promise.resolve({ conflicts: [] })
       return Promise.resolve({})
     })
 
@@ -1162,6 +1168,7 @@ describe('Specs page', () => {
           ],
         })
       }
+      if (path.includes('spawn-preflight')) return Promise.resolve({ conflicts: [] })
       return Promise.resolve({})
     })
 
