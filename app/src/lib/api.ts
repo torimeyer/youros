@@ -9,6 +9,14 @@ const BASE = '/api'
 // or override the module entirely.
 export const REQUEST_TIMEOUT_MS = 30000
 
+// Options for api.get (and other verbs). Pass retryOn502 > 0 to silently
+// retry on 502 responses and network errors (e.g. during backend warmup).
+// retryDelayMs controls the wait between attempts.
+export interface RequestOptions {
+  retryOn502?: number
+  retryDelayMs?: number
+}
+
 // Custom error that preserves the parsed JSON detail from FastAPI responses
 // so UI code can check things like err.response.data.detail.api_not_enabled.
 export class ApiError extends Error {
@@ -81,7 +89,7 @@ function notifySidebarOnWrite(method: string, path: string): void {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function requestOnce<T>(method: string, path: string, body?: unknown): Promise<T> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
@@ -116,8 +124,28 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
 }
 
+async function request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
+  const { retryOn502 = 0, retryDelayMs = 500 } = options
+  let lastErr: unknown
+  for (let attempt = 0; attempt <= retryOn502; attempt++) {
+    if (attempt > 0) await new Promise<void>((r) => setTimeout(r, retryDelayMs))
+    try {
+      return await requestOnce<T>(method, path, body)
+    } catch (err) {
+      lastErr = err
+      // Only retry transient gateway failures and raw network errors.
+      // Intentional HTTP errors (401, 403, 404, etc.) should throw immediately.
+      const isRetryable =
+        (err instanceof ApiError && err.status === 502) ||
+        (err instanceof TypeError)
+      if (!isRetryable || attempt >= retryOn502) throw err
+    }
+  }
+  throw lastErr
+}
+
 export const api = {
-  get: <T>(path: string) => request<T>('GET', path),
+  get: <T>(path: string, options?: RequestOptions) => request<T>('GET', path, undefined, options),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
   put: <T>(path: string, body: unknown) => request<T>('PUT', path, body),
   patch: <T>(path: string, body: unknown) => request<T>('PATCH', path, body),
