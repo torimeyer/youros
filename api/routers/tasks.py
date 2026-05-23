@@ -26,6 +26,7 @@ from services.task_labeling import (
     schedule_auto_labels,
 )
 from services import session_task_map
+from services.notifications_events import bus as _notifications_events_bus
 from services import recent_deletes
 from services.task_visibility import is_session_task
 from services.tracing import trace_event
@@ -1734,6 +1735,7 @@ async def close_task(
         )
 
     trace_event("task_closed", task_id=task_id, reason=structured_reason)
+    await _notifications_events_bus.publish("needle_closed", {"task_id": normalised_id})
     return {"result": result}
 
 
