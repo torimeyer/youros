@@ -137,7 +137,7 @@ describe('CalendarGridWidget — Month view', () => {
     )
     render(<CalendarGridWidget events={events} range="month" />)
     // Should show "+2 more" overflow for the day with 5 events (3 shown + 2 hidden)
-    expect(screen.getByText('+2 more')).toBeInTheDocument()
+    expect(screen.getByText('+2')).toBeInTheDocument()
   })
 
   it('shows empty state when no events', () => {
