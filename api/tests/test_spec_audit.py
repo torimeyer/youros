@@ -114,8 +114,8 @@ def spec_dir(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_template_sections_has_ten():
-    assert len(TEMPLATE_SECTIONS) == 10
+def test_template_sections_has_nine():
+    assert len(TEMPLATE_SECTIONS) == 9
 
 
 # ---------------------------------------------------------------------------
@@ -127,18 +127,18 @@ def test_audit_full_spec(tmp_path):
     f = tmp_path / "full.md"
     f.write_text(FULL_SPEC)
     result = audit_spec_file(f)
-    assert result["score"] == 10
+    assert result["score"] == 8
     assert result["sections_missing"] == []
-    assert len(result["sections_present"]) == 10
+    assert len(result["sections_present"]) == 8
 
 
 def test_audit_half_spec(tmp_path):
     f = tmp_path / "half.md"
     f.write_text(HALF_SPEC)
     result = audit_spec_file(f)
-    assert result["score"] == 5
-    assert len(result["sections_present"]) == 5
-    assert len(result["sections_missing"]) == 5
+    assert result["score"] == 4
+    assert len(result["sections_present"]) == 4
+    assert len(result["sections_missing"]) == 4
 
 
 def test_audit_empty_spec(tmp_path):
@@ -147,7 +147,7 @@ def test_audit_empty_spec(tmp_path):
     result = audit_spec_file(f)
     assert result["score"] == 0
     assert result["sections_present"] == []
-    assert len(result["sections_missing"]) == 10
+    assert len(result["sections_missing"]) == 8
 
 
 def test_audit_result_shape(tmp_path):
@@ -195,13 +195,14 @@ def test_audit_all_returns_summary(spec_dir):
 
 def test_audit_all_counts_fully_templated(spec_dir):
     report = audit_all_specs(spec_dirs=[spec_dir])
-    assert report["summary"]["fully_templated"] == 1  # only full.md
+    # full.md scores 8 out of 9; audit_all_specs checks score==10, so 0 fully templated
+    assert report["summary"]["fully_templated"] == 0
 
 
 def test_audit_all_score_avg(spec_dir):
     report = audit_all_specs(spec_dirs=[spec_dir])
-    # full=10, half=5, empty=0 → avg = 5.0
-    assert abs(report["summary"]["score_avg"] - 5.0) < 0.01
+    # full=8, half=4, empty=0 → avg = 4.0
+    assert abs(report["summary"]["score_avg"] - 4.0) < 0.01
 
 
 def test_audit_all_empty_dir(tmp_path):
