@@ -13,6 +13,7 @@ interface NeedsClarityChipProps {
   specPath?: string
   taskId?: string
   mode?: 'task' | 'spec'
+  stage?: string
   onResolved?: () => void
 }
 
@@ -67,6 +68,7 @@ export function NeedsClarityChip({
   specPath,
   taskId,
   mode = 'spec',
+  stage,
   onResolved,
 }: NeedsClarityChipProps) {
   const [open, setOpen] = useState(false)
@@ -185,22 +187,38 @@ export function NeedsClarityChip({
 
   return (
     <>
-      <button
-        type="button"
-        data-testid="needs-clarity-chip"
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30 cursor-pointer hover:bg-amber-500/25 transition-colors"
-        title={checkLines.join('\n')}
-        onClick={(e) => {
-          e.stopPropagation()
-          setOpen(true)
-        }}
-      >
-        <Icon name="warning" className="text-[10px]" />
-        Needs clarity
-        <span data-testid="needs-clarity-tooltip" className="sr-only">
-          {checkLines.join('; ')}
-        </span>
-      </button>
+      {stage === 'ready' ? (
+        <button
+          type="button"
+          data-testid="needs-clarity-chip"
+          className="inline-flex items-center p-0.5 rounded text-amber-300/40 cursor-pointer hover:text-amber-300/60 transition-colors"
+          title="Optional clarity tips available"
+          onClick={(e) => {
+            e.stopPropagation()
+            setOpen(true)
+          }}
+        >
+          <Icon name="lightbulb" className="text-[10px]" />
+          <span className="sr-only">Optional clarity tips</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          data-testid="needs-clarity-chip"
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-amber-500/8 text-amber-300/70 border border-amber-500/15 cursor-pointer hover:bg-amber-500/15 transition-colors"
+          title={checkLines.join('\n')}
+          onClick={(e) => {
+            e.stopPropagation()
+            setOpen(true)
+          }}
+        >
+          <Icon name="info" className="text-[9px]" />
+          Add detail?
+          <span data-testid="needs-clarity-tooltip" className="sr-only">
+            {checkLines.join('; ')}
+          </span>
+        </button>
+      )}
 
       {open && (
         <div

@@ -1251,6 +1251,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                             mode="spec"
                             checks={doc.clear_to_build_checks}
                             specPath={doc.path}
+                            stage={getDocStage(doc)}
                           />
                         )}
                         {doc.husk && (
