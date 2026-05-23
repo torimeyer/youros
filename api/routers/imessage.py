@@ -8,13 +8,42 @@ via AppleScript.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import platform as _platform
+import subprocess
 
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
+_HEIC_EXTS = frozenset({".heic", ".heif"})
+_THUMB_CACHE_DIR = Path.home() / ".myos" / "cache" / "messages-thumbs"
+
+
+def _jpeg_cache_path(source: Path) -> Path:
+    key = hashlib.sha256(str(source).encode()).hexdigest()[:24]
+    return _THUMB_CACHE_DIR / f"{key}.jpg"
+
+
+def _transcode_heic_to_jpeg(source: Path) -> Path | None:
+    """Convert HEIC/HEIF to JPEG via sips. Returns cached JPEG path or None."""
+    cache_path = _jpeg_cache_path(source)
+    if cache_path.exists():
+        return cache_path
+    _THUMB_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        result = subprocess.run(
+            ["/usr/bin/sips", "-s", "format", "jpeg", str(source), "--out", str(cache_path)],
+            capture_output=True,
+            timeout=15,
+        )
+        if result.returncode == 0 and cache_path.exists():
+            return cache_path
+    except Exception:
+        pass
+    return None
 
 from services import imessage as imessage_service
 from services import imessage_contacts as contacts_service
@@ -110,20 +139,34 @@ async def imessage_messages(chat_id: int, limit: int = Query(100, ge=1, le=500))
     return {"messages": messages}
 
 
+def _allowed_attachments_dir() -> Path:
+    return Path.home() / "Library" / "Messages" / "Attachments"
+
+
 @router.get("/imessage/attachment")
 async def imessage_attachment(path: str = Query(...)):
     """Serve an iMessage attachment file by its local path.
 
     Only serves files from the ~/Library/Messages/Attachments directory
     to prevent path traversal outside the iMessage store.
+
+    HEIC/HEIF files are transcoded to JPEG via sips so browsers can display
+    them. Converted images are cached in ~/.myos/cache/messages-thumbs/.
     """
     _require_macos()
     resolved = Path(path).resolve()
-    allowed = Path.home() / "Library" / "Messages" / "Attachments"
+    allowed = _allowed_attachments_dir()
     if not str(resolved).startswith(str(allowed)):
         raise HTTPException(status_code=403, detail="Access denied.")
     if not resolved.exists():
         raise HTTPException(status_code=404, detail="Attachment not found.")
+    if resolved.suffix.lower() in _HEIC_EXTS:
+        jpeg_path = await asyncio.get_event_loop().run_in_executor(
+            None, _transcode_heic_to_jpeg, resolved
+        )
+        if jpeg_path:
+            return FileResponse(str(jpeg_path), media_type="image/jpeg")
+        raise HTTPException(status_code=502, detail="Could not convert image for display.")
     return FileResponse(str(resolved))
 
 
