@@ -8,6 +8,7 @@ import SpecTemplateDetailsModal, {
 import { api } from "../lib/api";
 import { buildSpec } from "../lib/spawn";
 import { NeedsClarityChip, type ReadinessCheck } from "../components/NeedsClarityChip";
+import { ClaimSourceChip } from "../components/ClaimSourceChip";
 import { SpawnGeminiModal } from "../components/SpawnGeminiModal";
 import { onSpecsChange, bumpAgents, bumpTasks } from "../lib/sidebarBus";
 import { useAppStore } from "../stores/app";
@@ -88,14 +89,6 @@ interface SpecTasksResponse {
   claims?: SpecClaim[];
 }
 
-// Format an ISO timestamp as a short relative string ("3m ago", "2h ago", etc.)
-function minutesAgo(isoStr: string): string {
-  const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
 
 // Note: the response shape from /specs/{path}/build is now typed inside
 // lib/spawn (BuildResult). Specs.tsx receives the BuildResult via
@@ -156,22 +149,6 @@ function StageChip({ stage }: { stage: string }) {
   );
 }
 
-// Shown next to the status badge when terminal-source claims are active.
-// "in terminal" = source in {wrapper, agent, slash, passive}. "in app" (build) is
-// already covered by per-task spinners, so we skip it here.
-function ClaimsNote({ claims }: { claims: SpecClaim[] }) {
-  const terminalClaims = claims.filter((c) => c.source !== "build");
-  if (terminalClaims.length === 0) return null;
-  const first = terminalClaims[0];
-  return (
-    <span
-      className="text-xs text-purple-400 flex items-center gap-1 whitespace-nowrap"
-      data-testid="claims-note"
-    >
-      🟣 {first.agent} in terminal ({first.source}) · started {minutesAgo(first.started_at)}
-    </span>
-  );
-}
 
 // --- Task progress bar component ---
 
@@ -1245,7 +1222,11 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                           {doc.title}
                         </p>
                         <StageChip stage={getDocStage(doc)} />
-                        <ClaimsNote claims={claimsMap[doc.path] ?? []} />
+                        {(claimsMap[doc.path] ?? [])
+                          .filter((c) => c.source !== "build")
+                          .map((c, i) => (
+                            <ClaimSourceChip key={i} agent={c.agent} source={c.source} started_at={c.started_at} />
+                          ))}
                         {doc.needs_clarity && (
                           <NeedsClarityChip
                             mode="spec"

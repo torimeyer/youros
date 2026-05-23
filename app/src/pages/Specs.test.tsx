@@ -1592,11 +1592,11 @@ describe('claims: Building badge + inline note', () => {
     fireEvent.click(authCard)
 
     await waitFor(() => {
-      expect(screen.getByTestId('claims-note')).toBeInTheDocument()
+      expect(screen.getByTestId('claim-source-chip')).toBeInTheDocument()
     })
 
-    expect(screen.getByTestId('claims-note').textContent).toContain('in terminal')
-    expect(screen.getByTestId('claims-note').textContent).toContain('myOS')
+    expect(screen.getByTestId('claim-source-chip').textContent).toContain('in wrapper')
+    expect(screen.getByTestId('claim-source-chip').textContent).toContain('myOS')
   })
 
   it('does not show claims-note when claims is empty', async () => {
@@ -1621,7 +1621,7 @@ describe('claims: Building badge + inline note', () => {
       expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
     })
 
-    expect(screen.queryByTestId('claims-note')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('claim-source-chip')).not.toBeInTheDocument()
   })
 })
 
@@ -1960,5 +1960,110 @@ describe('inline spec body editing', () => {
     fireEvent.click(screen.getByTestId('cancel-spec-body-button'))
     expect(screen.queryByTestId('spec-body-textarea')).not.toBeInTheDocument()
     expect(mockedApiPatch).not.toHaveBeenCalled()
+  })
+})
+
+describe('ClaimSourceChip attribution chips on spec rows', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApiPost.mockResolvedValue({ result: 'ok', task_ids: [] })
+  })
+
+  it('renders no chip when claims array is empty', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId('claim-source-chip')).not.toBeInTheDocument()
+  })
+
+  it('renders one chip with agent name and source for a single claim', async () => {
+    const startedAt = new Date(Date.now() - 3 * 60 * 1000).toISOString()
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('auth-system') && path.includes('/tasks')) {
+        return Promise.resolve({
+          tasks: [],
+          claims: [{ agent: 'gemini-cli', source: 'agent', started_at: startedAt, task_ids: [] }],
+        })
+      }
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('claim-source-chip')).toBeInTheDocument()
+    })
+
+    const chip = screen.getByTestId('claim-source-chip')
+    expect(chip.textContent).toContain('gemini-cli')
+    expect(chip.textContent).toContain('in agent')
+  })
+
+  it('renders two chips when two claims are present', async () => {
+    const startedAt = new Date(Date.now() - 2 * 60 * 1000).toISOString()
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('auth-system') && path.includes('/tasks')) {
+        return Promise.resolve({
+          tasks: [],
+          claims: [
+            { agent: 'gemini-cli', source: 'agent', started_at: startedAt, task_ids: [] },
+            { agent: 'claude-terminal', source: 'slash', started_at: startedAt, task_ids: [] },
+          ],
+        })
+      }
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('claim-source-chip')).toHaveLength(2)
+    })
+
+    const chips = screen.getAllByTestId('claim-source-chip')
+    expect(chips[0].textContent).toContain('gemini-cli')
+    expect(chips[1].textContent).toContain('claude-termin')
   })
 })
