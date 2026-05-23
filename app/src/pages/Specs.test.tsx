@@ -2000,3 +2000,73 @@ describe('Specs focus from kanban link (→1501)', () => {
     })
   })
 })
+
+describe('inline spec body editing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve({ docs: [mockDocsResponse.docs[0]] })
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      if (path.includes('spawn-preflight')) return Promise.resolve({ conflicts: [] })
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ result: 'ok', task_ids: [] })
+  })
+
+  it('Edit button appears in expanded detail and opens textarea with existing body', async () => {
+    renderSpecs()
+    await waitFor(() => expect(screen.getByText('onboarding flow')).toBeInTheDocument())
+    const cards = screen.getAllByTestId('spec-card')
+    const card = cards.find(c => c.textContent?.includes('onboarding flow'))!
+    fireEvent.click(card)
+    await waitFor(() => expect(screen.getByTestId('spec-detail')).toBeInTheDocument())
+    const editBtn = screen.getByTestId('edit-spec-body-button')
+    expect(editBtn).toBeInTheDocument()
+    expect(screen.queryByTestId('spec-body-textarea')).not.toBeInTheDocument()
+    fireEvent.click(editBtn)
+    const textarea = screen.getByTestId('spec-body-textarea')
+    expect(textarea).toBeInTheDocument()
+    expect((textarea as HTMLTextAreaElement).value).toContain('Plan the onboarding experience')
+  })
+
+  it('Save calls api.patch with new body and returns to read mode', async () => {
+    const mockedApiPatch = vi.mocked(api.patch)
+    mockedApiPatch.mockResolvedValue({ ok: true })
+    renderSpecs()
+    await waitFor(() => expect(screen.getByText('onboarding flow')).toBeInTheDocument())
+    const cards = screen.getAllByTestId('spec-card')
+    const card = cards.find(c => c.textContent?.includes('onboarding flow'))!
+    fireEvent.click(card)
+    await waitFor(() => expect(screen.getByTestId('spec-detail')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('edit-spec-body-button'))
+    const textarea = screen.getByTestId('spec-body-textarea')
+    fireEvent.change(textarea, { target: { value: 'Updated body text' } })
+    fireEvent.click(screen.getByTestId('save-spec-body-button'))
+    await waitFor(() => {
+      expect(mockedApiPatch).toHaveBeenCalledWith(
+        '/specs/docs/draft/onboarding-flow.md/body',
+        { body: 'Updated body text' }
+      )
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('spec-body-textarea')).not.toBeInTheDocument()
+      expect(screen.getByTestId('edit-spec-body-button')).toBeInTheDocument()
+    })
+  })
+
+  it('Cancel returns to read mode without saving', async () => {
+    const mockedApiPatch = vi.mocked(api.patch)
+    renderSpecs()
+    await waitFor(() => expect(screen.getByText('onboarding flow')).toBeInTheDocument())
+    const cards = screen.getAllByTestId('spec-card')
+    const card = cards.find(c => c.textContent?.includes('onboarding flow'))!
+    fireEvent.click(card)
+    await waitFor(() => expect(screen.getByTestId('spec-detail')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('edit-spec-body-button'))
+    fireEvent.change(screen.getByTestId('spec-body-textarea'), { target: { value: 'discarded' } })
+    fireEvent.click(screen.getByTestId('cancel-spec-body-button'))
+    expect(screen.queryByTestId('spec-body-textarea')).not.toBeInTheDocument()
+    expect(mockedApiPatch).not.toHaveBeenCalled()
+  })
+})

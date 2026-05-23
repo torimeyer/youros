@@ -580,6 +580,9 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const pendingDeleteSpecPathsRef = useRef<Set<string>>(new Set());
   const [openMenuPath, setOpenMenuPath] = useState<string | null>(null);
   const [showWizard, setShowWizard] = useState(false);
+  const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [editBody, setEditBody] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   // Release-notes modal moved to a global watcher in Layout
   // (ReleaseNotesWatcher). Keeping the detection in this page meant
@@ -593,6 +596,25 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   // Encode each segment so special characters are safe but slashes stay.
   const encodeDocPath = (path: string) =>
     path.split("/").map(encodeURIComponent).join("/");
+
+  const handleSaveBody = async (doc: Spec) => {
+    setEditSaving(true);
+    try {
+      await api.patch(`/specs/${encodeDocPath(doc.path)}/body`, { body: editBody });
+      setDocs((prev) =>
+        prev.map((d) => (d.path === doc.path ? { ...d, body: editBody } : d))
+      );
+      setEditingPath(null);
+      setMessage("Saved");
+      setMessageType("success");
+      setTimeout(() => setMessage(""), 2000);
+    } catch {
+      setMessage("Save failed");
+      setMessageType("error");
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
   const deleteSpec = (spec: Spec) => {
     // Commit any previous pending delete immediately so the new one
@@ -1340,12 +1362,56 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                   {/* Expanded detail view */}
                   {isExpanded && (
                     <div className="border-t border-slate-800 px-5 pb-5" data-testid="spec-detail">
-                      {/* Spec body */}
-                      {doc.body && (
-                        <div className="mt-4">
-                          <SpecBody body={doc.body} />
-                        </div>
-                      )}
+                      {/* Spec body — read mode or inline editor */}
+                      <div className="mt-4">
+                        {editingPath === doc.path ? (
+                          <div className="space-y-2">
+                            <textarea
+                              data-testid="spec-body-textarea"
+                              className="w-full h-64 bg-slate-800 border border-slate-600 rounded-lg p-3 text-sm text-slate-200 font-mono resize-y focus:outline-none focus:border-blue-500"
+                              value={editBody}
+                              onChange={(e) => setEditBody(e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                data-testid="save-spec-body-button"
+                                onClick={(e) => { e.stopPropagation(); handleSaveBody(doc); }}
+                                disabled={editSaving}
+                                className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1"
+                              >
+                                {editSaving ? "Saving..." : "Save"}
+                              </button>
+                              <button
+                                type="button"
+                                data-testid="cancel-spec-body-button"
+                                onClick={(e) => { e.stopPropagation(); setEditingPath(null); }}
+                                className="border border-slate-600 text-slate-400 hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            {doc.body && <SpecBody body={doc.body} />}
+                            <button
+                              type="button"
+                              data-testid="edit-spec-body-button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditBody(doc.body || "");
+                                setEditingPath(doc.path);
+                              }}
+                              className="mt-2 flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                            >
+                              <Icon name="edit" size={14} />
+                              Edit
+                            </button>
+                          </div>
+                        )}
+                      </div>
 
                       {/* Acceptance criteria */}
                       {criteria.length > 0 && (
