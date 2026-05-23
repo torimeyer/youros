@@ -1396,6 +1396,7 @@ describe('Specs page real-time bus', () => {
       if (path === '/specs') return Promise.resolve(mockDocsResponse)
       if (path === '/specs/templates') return Promise.resolve({ templates: [] })
       if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      if (path.includes('spawn-preflight')) return Promise.resolve({ conflicts: [] })
       return Promise.resolve({})
     })
   })
