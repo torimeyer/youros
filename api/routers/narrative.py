@@ -24,6 +24,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import services.atlassian as atlassian_service
+from services.ai_backend import get_ai_client
 
 # ---------------------------------------------------------------------------
 # Storage paths (patchable in tests via MYOS_DIR env var)
@@ -139,12 +140,8 @@ async def _build_markdown_async(audience: str, window_days: int, sources: list[d
 
     summary = ""
     try:
-        import anthropic
-        from services.chat_providers import _resolve_api_key
-
-        api_key = await _resolve_api_key("anthropic_api_key")
-        if api_key:
-            ac = anthropic.AsyncAnthropic(api_key=api_key)
+        client = await get_ai_client()
+        if client is not None:
             source_list = "\n".join(
                 f"- [{s['kind']}] {s['title']}" for s in sources[:10]
             )
@@ -154,7 +151,7 @@ async def _build_markdown_async(audience: str, window_days: int, sources: list[d
                 "Write a concise 3-5 sentence update covering key progress, blockers, and next steps. "
                 "Plain language, no jargon."
             )
-            resp = await ac.messages.create(
+            resp = await client.messages.create(
                 model="claude-haiku-4-5",
                 max_tokens=300,
                 messages=[{"role": "user", "content": prompt}],

@@ -558,12 +558,10 @@ async def create_draft(body: SpecDraft):
     # drafts that actually have a checklist.
     ac_written = False
     try:
-        from services.chat_providers import _resolve_api_key
-        import anthropic
+        from services.ai_backend import get_ai_client
 
-        api_key = await _resolve_api_key("anthropic_api_key")
-        if api_key:
-            client = anthropic.AsyncAnthropic(api_key=api_key)
+        client = await get_ai_client()
+        if client is not None:
             response = await client.messages.create(
                 model=AC_DRAFT_MODEL,
                 max_tokens=250,
@@ -1296,12 +1294,10 @@ async def create_spec_from_task(body: SpecFromTask):
 
         # Auto-generate acceptance criteria
         try:
-            from services.chat_providers import _resolve_api_key
-            import anthropic
+            from services.ai_backend import get_ai_client
 
-            api_key = await _resolve_api_key("anthropic_api_key")
-            if api_key:
-                client = anthropic.AsyncAnthropic(api_key=api_key)
+            client = await get_ai_client()
+            if client is not None:
                 prompt_text = f"Write a short spec and acceptance criteria for this feature: \"{title}\""
                 if description:
                     prompt_text += f"\n\nContext: {description}"
@@ -1432,29 +1428,11 @@ async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
         if not header_written:
             return
         try:
-            from services.chat_providers import _resolve_api_key
-            import anthropic
+            from services.ai_backend import get_ai_client
 
-            api_key = await _resolve_api_key("anthropic_api_key")
-            if not api_key:
-                logger.warning(
-                    "from_roadmap_line: no API key for %r, writing placeholder AC",
-                    draft_path,
-                )
-                _placeholder = (
-                    "\n## Acceptance criteria\n\n"
-                    "- [ ] (replace with your first acceptance criterion)\n"
-                    "- [ ] (replace with your second acceptance criterion)\n"
-                    "- [ ] (replace with your third acceptance criterion)\n"
-                )
-                _content = full_path.read_text()
-                full_path.write_text(_content.rstrip() + _placeholder)
-                try:
-                    await ostk.doc_promote(draft_path)
-                except OstkError:
-                    pass
+            client = await get_ai_client()
+            if client is None:
                 return
-            client = anthropic.AsyncAnthropic(api_key=api_key)
             response = await client.messages.create(
                 model=AC_DRAFT_MODEL,
                 max_tokens=250,
@@ -2668,14 +2646,12 @@ async def wizard_suggest(body: WizardSuggestRequest):
         scope_hint = "\nIn scope: " + "; ".join(body.in_scope)
 
     try:
-        from services.chat_providers import _resolve_api_key
-        import anthropic
+        from services.ai_backend import get_ai_client
 
-        api_key = await _resolve_api_key("anthropic_api_key")
-        if not api_key:
+        client = await get_ai_client()
+        if client is None:
             return {"criteria": [], "non_goals": [], "after_statement": ""}
 
-        client = anthropic.AsyncAnthropic(api_key=api_key)
         response = await client.messages.create(
             model=AC_DRAFT_MODEL,
             max_tokens=400,

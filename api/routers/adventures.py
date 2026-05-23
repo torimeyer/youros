@@ -15,7 +15,7 @@ import anthropic
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.chat_providers import _resolve_api_key
+from services.ai_backend import get_ai_client
 from services.ostk import ostk, OstkError
 from services.task_labeling import extract_task_id, schedule_auto_labels
 
@@ -240,12 +240,10 @@ def _fallback_plan(adventure: AdventureTemplate, description: str) -> AdventureP
 
 async def _call_llm(adventure: AdventureTemplate, description: str) -> AdventurePlan:
     """Ask the LLM to turn a user's goal into a structured plan."""
-    api_key = await _resolve_api_key("anthropic_api_key")
-    if not api_key:
-        logger.warning("No Anthropic API key available, using fallback plan for %s", adventure.id)
+    client = await get_ai_client()
+    if client is None:
+        logger.warning("No AI backend available, using fallback plan for %s", adventure.id)
         return _fallback_plan(adventure, description)
-
-    client = anthropic.AsyncAnthropic(api_key=api_key)
 
     try:
         response = await client.messages.create(

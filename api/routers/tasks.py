@@ -1539,12 +1539,9 @@ async def delete_all_tasks(body: TaskDeleteAll = TaskDeleteAll()):
 
 
 async def _has_labeling_auth() -> bool:
-    from services.chat_providers import _resolve_api_key
-    from services.claude_code_provider import is_claude_code_available
-    api_key = await _resolve_api_key("anthropic_api_key")
-    if api_key:
-        return True
-    return await is_claude_code_available()
+    from services.ai_backend import get_ai_client
+    client = await get_ai_client()
+    return client is not None
 
 
 @router.post("/tasks/backfill-labels")

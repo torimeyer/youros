@@ -1354,9 +1354,9 @@ export default function Settings() {
 
           <div className={activeSection !== 'section-connections' ? 'hidden' : 'space-y-6'}>
           <div className={cardClass} data-testid="chat-backend-section">
-          <h2 className="text-lg font-semibold mb-1">Chat backend</h2>
+          <h2 className="text-lg font-semibold mb-1">AI backend</h2>
           <p className="text-sm text-slate-400 mb-4">
-            Pick which sign-in powers your chat. Your Claude subscription costs nothing extra if you already pay for Pro or Max. Using your Anthropic key charges per message.
+            Pick which sign-in powers every AI feature in myOS — chat, tasks, specs, and more. Your Claude subscription costs nothing extra if you already pay for Pro or Max. Using your Anthropic key charges per message.
           </p>
           <div className="space-y-2" data-testid="chat-backend-radios">
             {[
