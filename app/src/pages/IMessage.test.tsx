@@ -168,6 +168,11 @@ describe('message thread — bubbles (→1632)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-15T15:00:00Z'))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   function setupWithMessages(msgs: Array<{
