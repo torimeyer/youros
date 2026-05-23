@@ -647,8 +647,8 @@ describe('Dashboard widget customization', () => {
     await waitFor(() => {
       expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument()
     })
-    // Empty state copy should appear when there are no upcoming meetings.
-    expect(screen.getByText(/Nothing on your calendar/i)).toBeInTheDocument()
+    // Widget renders the week grid even with no events.
+    expect(screen.getByTestId('cal-grid-week')).toBeInTheDocument()
   })
 
   it('toggling on Focus on this first shows an empty-state card when there are no blocking tasks', async () => {
@@ -1336,9 +1336,9 @@ describe('calendar widget range selector', () => {
     })
 
     renderDashboard()
-    await waitFor(() => expect(screen.getByTestId('calendar-event-list')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('cal-grid-event-colored-1')).toBeInTheDocument())
 
-    const list = screen.getByTestId('calendar-event-list')
+    const list = screen.getByTestId('cal-grid-event-colored-1')
     const dot = list.querySelector('span[aria-hidden="true"]')
     expect(dot).toBeInTheDocument()
     expect(dot).toHaveStyle({ backgroundColor: '#039BE5' })
@@ -1346,9 +1346,9 @@ describe('calendar widget range selector', () => {
 
   it('falls back to default blue dot when colorId is absent', async () => {
     renderDashboard()
-    await waitFor(() => expect(screen.getByTestId('calendar-event-list')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('cal-grid-event-A')).toBeInTheDocument())
 
-    const list = screen.getByTestId('calendar-event-list')
+    const list = screen.getByTestId('cal-grid-event-A')
     const dot = list.querySelector('span[aria-hidden="true"]')
     expect(dot).toBeInTheDocument()
     expect(dot).toHaveStyle({ backgroundColor: '#4285F4' })

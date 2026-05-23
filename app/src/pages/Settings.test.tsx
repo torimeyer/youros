@@ -761,7 +761,7 @@ describe('Settings', () => {
     it('renders a separate Chat backend section with its own heading', () => {
       renderSettings()
       expect(screen.getByTestId('chat-backend-section')).toBeInTheDocument()
-      expect(screen.getByText('Chat backend')).toBeInTheDocument()
+      expect(screen.getByText('AI backend')).toBeInTheDocument()
     })
 
     it('AI Provider section has its own heading separate from Chat backend', () => {

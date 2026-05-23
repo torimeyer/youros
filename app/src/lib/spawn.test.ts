@@ -12,7 +12,7 @@ vi.mock('./api', () => {
     }
   }
   return {
-    api: { post: vi.fn() },
+    api: { get: vi.fn(), post: vi.fn() },
     ApiError,
   }
 })
@@ -20,10 +20,12 @@ vi.mock('./api', () => {
 import { buildSpec, type ConflictItem } from './spawn'
 import { api, ApiError } from './api'
 
+const mockedGet = vi.mocked(api.get)
 const mockedPost = vi.mocked(api.post)
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockedGet.mockResolvedValue({ conflicts: [] })
 })
 
 describe('buildSpec — success path', () => {
@@ -56,6 +58,7 @@ describe('buildSpec — success path', () => {
     )
     const promise = buildSpec('docs/spec/my-feature.md', { onOptimisticStart })
     expect(onOptimisticStart).toHaveBeenCalledTimes(1)
+    await Promise.resolve() // flush preflight api.get microtask so api.post is called
     resolvePost({ agents: [], message: '' })
     await promise
   })

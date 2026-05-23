@@ -37,7 +37,7 @@ describe('GeminiReadyChip', () => {
     render(<GeminiReadyChip checks={failingChecks} />)
     const chip = screen.getByTestId('needs-clarity-chip')
     expect(chip).toBeInTheDocument()
-    expect(chip.textContent).toContain('Needs clarity')
+    expect(chip.textContent).toContain('Add detail?')
   })
 
   it('clicking not-ready chip opens the detail modal', async () => {
@@ -50,8 +50,8 @@ describe('GeminiReadyChip', () => {
     render(<GeminiReadyChip checks={failingChecks} />)
     const chip = screen.getByTestId('needs-clarity-chip')
     const title = chip.getAttribute('title') ?? ''
-    expect(title).toContain('has_ac_checkboxes')
-    expect(title).toContain('has_file_paths')
+    expect(title).toContain("Steps to verify it's done")
+    expect(title).toContain('Names the files it touches')
   })
 
   it('ready chip renders without crashing when clicked', async () => {
