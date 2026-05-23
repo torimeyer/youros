@@ -1,7 +1,9 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -231,12 +233,19 @@ def clear_costs_caches():
         costs_router._agg_cache.clear()
         costs_router._savings_cache.clear()
         invalidate_savings_cache()
-        try:
-            if tmp_snapshot.exists():
-                tmp_snapshot.unlink()
-            tmp_snapshot.parent.rmdir()
-        except OSError:
-            pass
+        # Clean up per-test tmpdir. shutil.rmtree handles the case where a
+        # background _refresh_savings_async thread raced teardown and wrote
+        # additional files into the directory. The daemon thread + join(3)
+        # ensures a stuck OS-level stat/rmdir syscall (seen in pytest-timeout
+        # tracebacks as pathlib.exists→os.stat blocking) cannot stall the
+        # entire test suite — the main thread moves on after 3 seconds and
+        # the daemon thread is killed at process exit.
+        def _cleanup_tmpdir() -> None:
+            shutil.rmtree(str(tmp_snapshot.parent), ignore_errors=True)
+
+        t = threading.Thread(target=_cleanup_tmpdir, daemon=True)
+        t.start()
+        t.join(timeout=3.0)
 
 
 @pytest.fixture(autouse=True)
