@@ -264,8 +264,13 @@ def compute_stage(
 
     Stage priority (highest to lowest):
       draft       — status is draft, OR husk detected
-      in_progress — has open needles
+      in_progress — frontmatter status is "in-progress" or "building"
       ready       — has content, no issues
+
+    Open needle refs in the spec body do NOT drive in_progress (→1617).
+    Body mentions of →NNN are future-work descriptions present in every
+    healthy ready spec, not building signals. Only the frontmatter status
+    field drives in_progress.
 
     Specs that meet the shipped condition (all needles closed + all files
     exist) are auto-archived before reaching this function and will not
@@ -281,8 +286,8 @@ def compute_stage(
     if status == "draft":
         return "draft"
 
-    # In progress (open needles)
-    if shipped is not None and shipped.open_needles:
+    # In progress — only when frontmatter signals active building
+    if status in ("in-progress", "building"):
         return "in_progress"
 
     return "ready"
