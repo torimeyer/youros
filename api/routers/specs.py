@@ -1087,6 +1087,43 @@ async def patch_spec_clarity(spec_path: str, body: SpecClarityFix):
     return {"checks": r.as_dict()["checks"], "ready": r.ready}
 
 
+class SpecBodyUpdate(BaseModel):
+    body: str
+
+
+@router.patch("/specs/{spec_path:path}/body")
+async def patch_spec_body(spec_path: str, body: SpecBodyUpdate):
+    """Replace the markdown body of a spec without touching its frontmatter."""
+    _validate_doc_path(spec_path)
+
+    abs_path = (
+        spec_path
+        if spec_path.startswith("/") or spec_path.startswith("~")
+        else str(Path(PROJECT_ROOT) / spec_path)
+    )
+    abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
+
+    if not Path(abs_path).exists():
+        raise HTTPException(status_code=404, detail="Spec file not found")
+
+    text = Path(abs_path).read_text(encoding="utf-8")
+
+    # Preserve YAML frontmatter (between the opening and closing ---) and
+    # replace only the markdown content that follows it.
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end != -1:
+            frontmatter = text[: end + 5]  # include closing ---\n
+            new_text = frontmatter + body.body
+        else:
+            new_text = body.body
+    else:
+        new_text = body.body
+
+    Path(abs_path).write_text(new_text, encoding="utf-8")
+    return {"ok": True}
+
+
 class SpecClarifySuggestBody(BaseModel):
     check: str
 
