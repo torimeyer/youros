@@ -1,9 +1,12 @@
+import json
 import logging
 import subprocess
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import APIRouter
+import anthropic
+
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from services.ai_backend import get_ai_client
@@ -159,6 +162,26 @@ class FirstRunsItem(BaseModel):
 
 class FirstRunsResponse(BaseModel):
     hints: list[FirstRunsItem]
+
+
+class TaskItem(BaseModel):
+    title: str
+    priority: str
+
+
+class GoalItem(BaseModel):
+    title: str
+    description: str
+
+
+class DreamResponse(BaseModel):
+    goal: GoalItem
+    tasks: list[TaskItem]
+
+
+class DreamRequest(BaseModel):
+    dreading: str
+    done_looks_like: Optional[str] = None
 
 
 # --- LLM prompt ---
