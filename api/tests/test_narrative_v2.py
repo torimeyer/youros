@@ -1,13 +1,10 @@
 """Tests for narrative router v2 — promote + list (summary) + single draft (→1451).
 
-RED tests for →1658 added below (draft body must be non-trivial, heading must say Progress Updates).
-"""
-# ruff: noqa: E402  (imports after sys.path manipulation)
-
 AC SC-007: POST /api/narrative/draft/{id}/promote
 AC SC-008: GET /api/narrative/drafts (summary fields), GET /api/narrative/draft/{id}
 
 Tests use tmp_path via MYOS_DIR env var — never touch real ~/.myos/.
+RED tests for →1658 added below (draft body must be non-trivial, heading must say Progress Updates).
 """
 
 from __future__ import annotations
