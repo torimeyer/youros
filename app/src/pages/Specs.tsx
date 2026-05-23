@@ -156,37 +156,6 @@ function StageChip({ stage }: { stage: string }) {
   );
 }
 
-// --- Status badge component ---
-
-const STATUS_STYLES: Record<Spec["status"], { bg: string; text: string }> = {
-  draft: { bg: "bg-slate-500/20", text: "text-slate-400" },
-  ready: { bg: "bg-blue-500/20", text: "text-blue-400" },
-  "in-progress": { bg: "bg-yellow-500/20", text: "text-yellow-400" },
-  complete: { bg: "bg-green-500/20", text: "text-green-400" },
-};
-
-function StatusBadge({ status, claims }: { status: Spec["status"]; claims?: SpecClaim[] }) {
-  // Terminal-source claims (wrapper/agent/slash/passive) override the badge to "Building"
-  const terminalClaims = (claims ?? []).filter((c) => c.source !== "build");
-  const effectiveStatus: Spec["status"] = terminalClaims.length > 0 ? "in-progress" : status;
-  const style = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.draft;
-
-  // Tooltip: list all active claims so the user can debug who's working on this spec
-  const tooltipText = (claims ?? []).length > 0
-    ? (claims ?? []).map((c) => `${c.agent} · ${c.source} · started ${minutesAgo(c.started_at)}`).join("\n")
-    : undefined;
-
-  return (
-    <span
-      className={`px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text}`}
-      data-testid="status-badge"
-      title={tooltipText}
-    >
-      {displayStatus(effectiveStatus)}
-    </span>
-  );
-}
-
 // Shown next to the status badge when terminal-source claims are active.
 // "in terminal" = source in {wrapper, agent, slash, passive}. "in app" (build) is
 // already covered by per-task spinners, so we skip it here.
@@ -1276,7 +1245,6 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                           {doc.title}
                         </p>
                         <StageChip stage={getDocStage(doc)} />
-                        <StatusBadge status={doc.status} claims={claimsMap[doc.path] ?? []} />
                         <ClaimsNote claims={claimsMap[doc.path] ?? []} />
                         {doc.needs_clarity && (
                           <NeedsClarityChip
