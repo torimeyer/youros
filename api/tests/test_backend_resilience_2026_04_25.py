@@ -523,23 +523,28 @@ def test_backend_alive_across_five_commits():
 
     Skips if the backend is not reachable (CI without a live server).
     """
-    import ssl
-    import urllib.request
+    import httpx
 
     url = "https://127.0.0.1:8000/api/agents?limit=1"
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
 
     def http_status() -> Optional[int]:
         # Retry up to 4 times so a brief uvicorn reload (typically 3-10 s)
         # triggered by background agents editing api/ files does not count as
-        # "backend died".  Total tolerance ~36 s; genuine crashes stay down
+        # "backend died".  Total tolerance ~60 s; genuine crashes stay down
         # until the watchdog fires (30+ s), so the assertion still catches them.
+        #
+        # urllib.request is intentionally replaced with httpx: on macOS,
+        # sock.connect(sa) inside urllib blocks at the libsystem level and
+        # ignores socket.settimeout(), causing pytest-timeout to kill the suite.
+        # httpx separates connect/read timeouts and respects them on all platforms.
         for _attempt in range(4):
             try:
-                with urllib.request.urlopen(url, context=ctx, timeout=5) as r:
-                    return r.status
+                with httpx.Client(
+                    verify=False,
+                    timeout=httpx.Timeout(10.0, connect=5.0),
+                ) as client:
+                    r = client.get(url)
+                    return r.status_code
             except Exception:
                 if _attempt < 3:
                     time.sleep(4)
