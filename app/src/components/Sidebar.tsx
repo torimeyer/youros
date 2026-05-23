@@ -341,7 +341,7 @@ export function Sidebar() {
   const [unfinishedSpecs, setUnfinishedSpecs] = useState(0)
   const [gmailUnread, setGmailUnread] = useState(0)
   const [version, setVersion] = useState('')
-  const [healthState, setHealthState] = useState<'healthy' | 'checking' | 'down' | null>(null)
+  const [healthState, setHealthState] = useState<'healthy' | 'checking' | 'down' | 'starting' | null>(null)
   const [lastHealthyAt, setLastHealthyAt] = useState<number | null>(null)
   const [ostkKernel, setOstkKernel] = useState('')
   const [, setSessionCount] = useState(0)
@@ -497,6 +497,7 @@ export function Sidebar() {
     let timer: ReturnType<typeof setTimeout> | null = null
     let cancelled = false
     let consecutiveFailures = 0
+    let hasEverBeenHealthy = false
     const SUCCESS_INTERVAL = 15_000
     const FAILURE_INTERVAL = 2_000
     const AMBER_THRESHOLD = 2
@@ -511,9 +512,10 @@ export function Sidebar() {
 
     const checkHealth = async () => {
       try {
-        const res = await api.get<{ kernel: string }>('/status/clock')
+        const res = await api.get<{ kernel: string }>('/status/clock', { retryOn502: 2, retryDelayMs: 300 })
         if (cancelled) return
         consecutiveFailures = 0
+        hasEverBeenHealthy = true
         setHealthState('healthy')
         setLastHealthyAt(Date.now())
         const k = res.kernel || ''
@@ -525,7 +527,9 @@ export function Sidebar() {
         if (consecutiveFailures >= RED_THRESHOLD) {
           setHealthState('down')
         } else if (consecutiveFailures >= AMBER_THRESHOLD) {
-          setHealthState('checking')
+          // 'starting' = never connected yet (backend warming up after restart).
+          // 'checking' = was healthy before, now failing (genuine problem).
+          setHealthState(hasEverBeenHealthy ? 'checking' : 'starting')
         }
         scheduleNext(FAILURE_INTERVAL)
       }
@@ -541,6 +545,9 @@ export function Sidebar() {
     if (healthState === null) return 'Connecting...'
     if (healthState === 'healthy') {
       return `Backend healthy${ostkKernel ? ` (${ostkKernel})` : ''}. Last checked just now.`
+    }
+    if (healthState === 'starting') {
+      return 'Backend starting up...'
     }
     if (healthState === 'checking') {
       return `Backend slow to respond. Checking...${ostkKernel ? ` (${ostkKernel})` : ''}`
@@ -809,12 +816,14 @@ export function Sidebar() {
                 ? 'bg-slate-700 text-slate-400'
                 : healthState === 'healthy'
                 ? 'bg-green-500/20 text-green-400'
+                : healthState === 'starting'
+                ? 'bg-slate-700 text-slate-400 animate-pulse'
                 : healthState === 'checking'
                 ? 'bg-amber-500/20 text-amber-400'
                 : 'bg-red-500/20 text-red-400'
             }`}
           >
-            Backend {healthState === null ? '' : healthState === 'healthy' ? 'up' : healthState === 'checking' ? 'checking' : 'down'}
+            Backend {healthState === null ? '' : healthState === 'healthy' ? 'up' : healthState === 'starting' ? 'starting up' : healthState === 'checking' ? 'checking' : 'down'}
           </span>
         ) : (
           <div className="flex items-center gap-2">
@@ -826,6 +835,8 @@ export function Sidebar() {
                   ? 'bg-slate-600'
                   : healthState === 'healthy'
                   ? 'bg-green-400'
+                  : healthState === 'starting'
+                  ? 'bg-slate-400 animate-pulse'
                   : healthState === 'checking'
                   ? 'bg-amber-400'
                   : 'bg-red-400'

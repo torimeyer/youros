@@ -1036,7 +1036,7 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
     vi.useRealTimers()
   })
 
-  it('flips amber after ~4 seconds then red after ~14 seconds when backend is genuinely down', async () => {
+  it('shows starting state then red when backend never responds (no prior healthy connection)', async () => {
     vi.useFakeTimers()
     mockedApiGet.mockImplementation(async (url: string) => {
       if (url === '/status/clock') {
@@ -1054,12 +1054,14 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
     await vi.advanceTimersByTimeAsync(1)
     expect(isRed(backendDot())).toBe(false)
 
-    // After 2 consecutive failures (~4s): amber, not red
+    // After 2 consecutive failures (~4s): 'starting' (calm slate), not red or amber.
+    // Never connected = backend warming up, not a genuine outage.
     await vi.advanceTimersByTimeAsync(4_000)
-    expect(isAmber(backendDot())).toBe(true)
+    expect(backendDot().className).toContain('bg-slate-400')
+    expect(isAmber(backendDot())).toBe(false)
     expect(isRed(backendDot())).toBe(false)
 
-    // After 7 consecutive failures (~14s): red
+    // After 7 consecutive failures (~14s): red regardless
     await vi.advanceTimersByTimeAsync(10_000)
     expect(isRed(backendDot())).toBe(true)
 
@@ -1131,7 +1133,7 @@ describe('Sidebar backend status dot (→1229)', () => {
     vi.useRealTimers()
   })
 
-  it('dot becomes amber (not red) after 2 consecutive failures (~4s)', async () => {
+  it('dot shows starting state (calm gray pulse, not amber) when never connected after 2 failures', async () => {
     vi.useFakeTimers()
     mockedApiGet.mockImplementation(async (url: string) => {
       if (url === '/status/clock') throw new Error('ECONNREFUSED')
@@ -1142,6 +1144,42 @@ describe('Sidebar backend status dot (→1229)', () => {
     render(<MemoryRouter><Sidebar /></MemoryRouter>)
     await vi.advanceTimersByTimeAsync(1)
     await vi.advanceTimersByTimeAsync(4_000)
+    const dot = screen.getByTestId('backend-status-dot')
+    // 'starting' uses calm slate pulse, NOT alarming amber
+    expect(dot.className).toContain('bg-slate-400')
+    expect(dot.className).toContain('animate-pulse')
+    expect(dot.className).not.toContain('bg-amber-400')
+    expect(dot.className).not.toContain('bg-red-400')
+    vi.useRealTimers()
+  })
+
+  it('dot becomes amber after 2 failures when previously healthy (genuine problem)', async () => {
+    vi.useFakeTimers()
+    let healthy = true
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/status/clock') {
+        if (healthy) return { kernel: 'v2.5.0' }
+        throw new Error('ECONNREFUSED')
+      }
+      if (url.startsWith('/agents')) return { active: [], agents: [] }
+      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      return {}
+    })
+    render(<MemoryRouter><Sidebar /></MemoryRouter>)
+    // Let first successful poll fire so hasEverBeenHealthy becomes true
+    // Two advances needed: first triggers useEffect/checkHealth, second flushes the async continuation
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(screen.getByTestId('backend-status-dot').className).toContain('bg-green-400')
+    // Now start failing — next poll is at SUCCESS_INTERVAL (15s), then FAILURE_INTERVAL (2s) each
+    // Need 2 failures to hit AMBER_THRESHOLD: 15_000ms for first + 2_000ms for second
+    healthy = false
+    // First failure poll at t=15s, then second at t=17s. Split the advance and
+    // flush microtasks between so the rejected-promise continuation runs.
+    await vi.advanceTimersByTimeAsync(15_100)
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(2_100)
+    await vi.advanceTimersByTimeAsync(1)
     const dot = screen.getByTestId('backend-status-dot')
     expect(dot.className).toContain('bg-amber-400')
     expect(dot.className).not.toContain('bg-red-400')

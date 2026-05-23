@@ -198,6 +198,88 @@ describe('api client', () => {
     })
   })
 
+  describe('retryOn502 behavior', () => {
+    it('retries once on 502 and returns the second response', async () => {
+      let calls = 0
+      global.fetch = vi.fn().mockImplementation(() => {
+        calls++
+        if (calls === 1) {
+          return Promise.resolve({
+            ok: false,
+            status: 502,
+            text: () => Promise.resolve('Bad Gateway'),
+          })
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ ok: true }),
+        })
+      }) as unknown as typeof fetch
+
+      const result = await api.get('/status/clock', { retryOn502: 1, retryDelayMs: 0 })
+      expect(result).toEqual({ ok: true })
+      expect(calls).toBe(2)
+    })
+
+    it('throws after exhausting all retries on persistent 502', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 502,
+        text: () => Promise.resolve('Bad Gateway'),
+      }) as unknown as typeof fetch
+
+      await expect(api.get('/status/clock', { retryOn502: 2, retryDelayMs: 0 })).rejects.toThrow()
+    })
+
+    it('retries on network error (TypeError) and succeeds on retry', async () => {
+      let calls = 0
+      global.fetch = vi.fn().mockImplementation(() => {
+        calls++
+        if (calls === 1) return Promise.reject(new TypeError('Failed to fetch'))
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ up: true }),
+        })
+      }) as unknown as typeof fetch
+
+      const result = await api.get('/status/clock', { retryOn502: 1, retryDelayMs: 0 })
+      expect(result).toEqual({ up: true })
+      expect(calls).toBe(2)
+    })
+
+    it('does NOT retry on 401 — intentional auth failures throw immediately', async () => {
+      let calls = 0
+      global.fetch = vi.fn().mockImplementation(() => {
+        calls++
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          text: () => Promise.resolve('Unauthorized'),
+        })
+      }) as unknown as typeof fetch
+
+      await expect(api.get('/secret', { retryOn502: 2, retryDelayMs: 0 })).rejects.toThrow('Unauthorized')
+      expect(calls).toBe(1)
+    })
+
+    it('does NOT retry on 404 — resource not found throws immediately', async () => {
+      let calls = 0
+      global.fetch = vi.fn().mockImplementation(() => {
+        calls++
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          text: () => Promise.resolve('Not Found'),
+        })
+      }) as unknown as typeof fetch
+
+      await expect(api.get('/missing', { retryOn502: 1, retryDelayMs: 0 })).rejects.toThrow('Not Found')
+      expect(calls).toBe(1)
+    })
+  })
+
   describe('abort and timeout behavior', () => {
     afterEach(() => {
       vi.useRealTimers()
