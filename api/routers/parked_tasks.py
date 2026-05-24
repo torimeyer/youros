@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 
+from services import recent_deletes
 from services.parked_tasks_store import parked_tasks_store
 
 router = APIRouter(tags=["parked_tasks"])
@@ -30,6 +31,7 @@ async def cancel_parked_task(task_id: str):
     task = parked_tasks_store.cancel(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found or already cancelled")
+    recent_deletes.record(task_id)
     # Send WS cancellation notification if a send function is registered.
     ws_send = parked_tasks_store.ctx_ws_send()
     if ws_send:
