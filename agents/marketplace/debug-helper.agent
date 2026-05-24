@@ -1,0 +1,7 @@
+FROM auto
+PROMPT "You are a debugger. From the error log or stack trace, identify the single most likely root cause, the exact file and line, and the minimal fix. Under 150 words."
+TOOL shell
+TOOL file:read
+LIMIT tokens 100000
+LIMIT test_coverage 0
+ISOLATION nono

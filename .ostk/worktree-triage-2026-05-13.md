@@ -1,0 +1,248 @@
+# Worktree triage 2026-05-13
+
+Total worktrees classified: 111 (excludes main repo and this agent's own worktree)
+
+## ABSORBED (9 worktrees, safe to remove)
+
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-build-agent-completion-push-hook-651d67` [branch `worktree-agent-build-agent-completion-push-hook-651d67`] — 0 unique commits
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-dedup-port-8000-liste-57475911` [branch `worktree-agent-dedup-port-8000-liste-57475911`] — 0 unique commits
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-agents-test-cancel-all-f99075` [branch `worktree-agent-diagnose-agents-test-cancel-all-f99075`] — 0 unique commits
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-store-drift-52cb2a2e` [branch `worktree-agent-diagnose-store-drift-52cb2a2e`] — 0 unique commits
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-vite-wedge-in-both-repo-d45f8a` [branch `worktree-agent-diagnose-vite-wedge-in-both-repo-d45f8a`] — 0 unique commits
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-remove-prune-v2-eb1a1b` [branch `worktree-agent-remove-prune-v2-eb1a1b`] — 0 unique commits
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-ws-feed-for-agents-locks-1130-481eac` [branch `worktree-agent-ws-feed-for-agents-locks-1130-481eac`] — 0 unique commits
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-ws-feed-for-agents-pending-grant-79e4b3` [branch `worktree-agent-ws-feed-for-agents-pending-grant-79e4b3`] — 0 unique commits
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-ws-feed-for-sessions-page-1127-67093b` [branch `worktree-agent-ws-feed-for-sessions-page-1127-67093b`] — 0 unique commits
+
+## UNIQUE (43 worktrees, has un-merged work)
+
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-1176-tier-1-1b-delete-reaper-b0ab38` [branch `worktree-agent-1176-tier-1-1b-delete-reaper-b0ab38`] — 1 commit(s) ahead of main:
+  - `8fee666` feat(cleanup): delete homegrown reaper in favour of kernel-fleet source (→1176, Tier 1.1B)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-cache-status-clock-to-4fd6e3ce` [branch `worktree-agent-cache-status-clock-to-4fd6e3ce`] — 2 commit(s) ahead of main:
+  - `b6eba6a` fix(status): cache /status/clock response to skip subprocess on every probe
+  - `57d6b7a` scaffold: cache /status/clock to dodge subprocess on health probe (→1233)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-chat-right-click-needle-1056-7a9389` [branch `worktree-agent-chat-right-click-needle-1056-7a9389`] — 1 commit(s) ahead of main:
+  - `2da11b0` feat(chat): add right-click context menu to chat messages
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-close-1100-nr-audit-324006` [branch `worktree-agent-close-1100-nr-audit-324006`] — 1 commit(s) ahead of main:
+  - `df2fdb1` chore(housekeeping): close →1100 + NR audit on v3.13.0..HEAD
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-1167-spawn-test-flake-f97436` [branch `worktree-agent-diagnose-1167-spawn-test-flake-f97436`] — 1 commit(s) ahead of main:
+  - `85ed379` fix(tests): resolve spawn-worktree concurrency flake and quality-gate failures (→1167)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-1192-backend-wedge-take-d52b56` [branch `worktree-agent-diagnose-1192-backend-wedge-take-d52b56`] — 1 commit(s) ahead of main:
+  - `d178151` fix(→1192): fix _candidates_cache unbounded growth causing 6 GB RSS / TCP wedge
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-backend-api-wedge-1178-c5ad0c` [branch `worktree-agent-diagnose-backend-api-wedge-1178-c5ad0c`] — 3 commit(s) ahead of main:
+  - `792563a` fix(agentfile): add ALIASES elit to explain-plain.agent
+  - `86f0551` fix(→1178): _fetch_agents_list tries https:// first to handle SSL backend
+  - `969fbd2` chore(→1178): scaffold backend wedge diagnose
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-fix-api-agents-wedge-11-c0b856` [branch `worktree-agent-diagnose-fix-api-agents-wedge-11-c0b856`] — 2 commit(s) ahead of main:
+  - `97bbabe` fix(→1192): offload agent_reaper sweep to thread to unblock event loop
+  - `64662dd` docs(→1192): scaffold diagnosis — /api/agents thundering herd at 30s boundary
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-mcp-missing-in-subagent-8b9de6` [branch `worktree-agent-diagnose-mcp-missing-in-subagent-8b9de6`] — 1 commit(s) ahead of main:
+  - `7a2561b` fix(spawn): set OSTK_STATE_DIR to short /tmp path for long-name agents (→1185)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-stale-specs-in-list-doc-8e1bfb` [branch `worktree-agent-diagnose-stale-specs-in-list-doc-8e1bfb`] — 1 commit(s) ahead of main:
+  - `4ddd9c0` fix(docs): catch remaining stale agent-plan shapes in list_docs filter
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-status-stuck-running-bu-580af8` [branch `worktree-agent-diagnose-status-stuck-running-bu-580af8`] — 1 commit(s) ahead of main:
+  - `01250bd` fix(→1182): agent status transitions atomically with completed_at
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-subagent-bail-pattern-1-9d48a0` [branch `worktree-agent-diagnose-subagent-bail-pattern-1-9d48a0`] — 1 commit(s) ahead of main:
+  - `c5040c1` fix(agents): subagents no longer bail at $5 budget cap despite →1114 fix (→1136)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-verbose-brie-6ac9a90c` [branch `worktree-agent-diagnose-verbose-brie-6ac9a90c`] — 1 commit(s) ahead of main:
+  - `2cdc16a` diagnose(brief): verbose-brief stall is deliberation-overhead from 5+ DO NOT rules (→1239)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-verbose-brie-e311c0e6` [branch `worktree-agent-diagnose-verbose-brie-e311c0e6`] — 1 commit(s) ahead of main:
+  - `9db5257` diagnose(brief): verbose-brief stall root cause is extended thinking (→1245)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-false-alarm-pattern-d-fe22857a` [branch `worktree-agent-false-alarm-pattern-d-fe22857a`] — 2 commit(s) ahead of main:
+  - `4d9ffce` docs(memory): file false-alarm meta-pattern from 2026-05-12 retro (→1230)
+  - `607e7cd` scaffold: false-alarm meta-pattern diagnose (→1230)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-1188-export-label-afe578` [branch `worktree-agent-fix-1188-export-label-afe578`] — 1 commit(s) ahead of main:
+  - `5a0622b` feat(tasks): add Download label to Export button (→1188)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-1191-plan-waves-wall-of-text-3440a9` [branch `worktree-agent-fix-1191-plan-waves-wall-of-text-3440a9`] — 1 commit(s) ahead of main:
+  - `69421a2` fix(→1191): clamp needle descriptions to 2 lines in Plan waves panel
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-budget-5-injection-in-spawn-4047d0` [branch `worktree-agent-fix-budget-5-injection-in-spawn-4047d0`] — 1 commit(s) ahead of main:
+  - `3154e09` fix(spawn): remove budget=5 default from bridge spawn POST body (→1136)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-fleet-active-gate-counts-sta-0701fa` [branch `worktree-agent-fix-fleet-active-gate-counts-sta-0701fa`] — 1 commit(s) ahead of main:
+  - `e62b55e` fix(kernel): fleet-active gate must filter agents.jsonl by state/last_seen (→1153)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-loadavg-needle-count-46639c` [branch `worktree-agent-fix-loadavg-needle-count-46639c`] — 1 commit(s) ahead of main:
+  - `1028114` fix(boot): repair [loadavg] and [ctx] needle counters to match ostk work list
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-silent-kill-taking-down-uvic-fe2897` [branch `worktree-agent-fix-silent-kill-taking-down-uvic-fe2897`] — 2 commit(s) ahead of main:
+  - `946b059` fix(tests): freeze setInterval in cancel-all tests to prevent 5s timeout flake (→1116)
+  - `9f0ec96` fix(spawn): isolate agent process group so silent_kill cannot kill uvicorn
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-subagent-ostk-mcp-not-loaded-411a0e` [branch `worktree-agent-fix-subagent-ostk-mcp-not-loaded-411a0e`] — 1 commit(s) ahead of main:
+  - `5b720a8` fix(spawn): ensure ostk MCP server reaches subagents so they don't fall back to native tools (→1148)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-tasks-test-failures-1160-5c7f60` [branch `worktree-agent-fix-tasks-test-failures-1160-5c7f60`] — 1 commit(s) ahead of main:
+  - `608423c` fix(tests): use offset timestamps in mockTasks for deterministic sort order (→1160)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fs-ops-worktree-leak-bdfff617` [branch `worktree-agent-fs-ops-worktree-leak-bdfff617`] — 1 commit(s) ahead of main:
+  - `92d822f` scaffold: diagnose fs_ops worktree leak (→1225)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-gemini-phase-a-frontend-1162-d24194` [branch `worktree-agent-gemini-phase-a-frontend-1162-d24194`] — 2 commit(s) ahead of main:
+  - `2316ea5` fix(gems): green vitest for MyGems + GemImportModal (→1162)
+  - `104ed85` feat(gems): scaffold MyGems page + GemImportModal (→1162)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-investigate-bulk-cancel-reaper-3a95aa` [branch `worktree-agent-investigate-bulk-cancel-reaper-3a95aa`] — 1 commit(s) ahead of main:
+  - `733d0d3` chore: investigation scaffold for bulk-cancel reaper (→1189)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-phase-b-extension-gem-67ae2cd8` [branch `worktree-agent-phase-b-extension-gem-67ae2cd8`] — 4 commit(s) ahead of main:
+  - `f4d3e9f` feat(gems): show captured gemini.google.com conversations on MyGems page (→1235)
+  - `1c74673` feat(extension): Chrome MV3 capture extension (→1235)
+  - `5d46f7e` feat(gemini-capture): backend capture endpoint + store (→1235)
+  - `3da0ab8` scaffold: Phase B extension + capture backend (→1235)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-py-spy-stack-dump-cap-bfa13000` [branch `worktree-agent-py-spy-stack-dump-cap-bfa13000`] — 1 commit(s) ahead of main:
+  - `aa92e1e` scaffold: py-spy stack capture before SIGKILL (→1232)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-rag-for-gem-knowledge-899eb669` [branch `worktree-agent-rag-for-gem-knowledge-899eb669`] — 2 commit(s) ahead of main:
+  - `9bd48f3` feat(gems): knowledge-file RAG with text-embedding-004 (→1228)
+  - `6c13a7a` scaffold: knowledge-file RAG for Gems (→1228)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-rebuild-gemini-frontend-1165-0650cd` [branch `worktree-agent-rebuild-gemini-frontend-1165-0650cd`] — 1 commit(s) ahead of main:
+  - `a0686f2` feat(gems): scaffold MyGems page + GemImportModal (→1165)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-retry-chat-right-click-needle-10-2bc2e2` [branch `worktree-agent-retry-chat-right-click-needle-10-2bc2e2`] — 1 commit(s) ahead of main:
+  - `4eabffe` feat(chat): right-click context menu on messages — Turn into needle (→1056)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-sidebar-spec-counts-ws-1125-e3e829` [branch `worktree-agent-sidebar-spec-counts-ws-1125-e3e829`] — 1 commit(s) ahead of main:
+  - `5ea91c4` feat(sidebar): show spec counts in real time via WS (→1125)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-sidebar-task-counts-ws-1124-7e2f02` [branch `worktree-agent-sidebar-task-counts-ws-1124-7e2f02`] — 1 commit(s) ahead of main:
+  - `80714b9` feat(sidebar): show task counts in real time via WS (→1124)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-status-lie-diagnose-1-767424ba` [branch `worktree-agent-status-lie-diagnose-1-767424ba`] — 2 commit(s) ahead of main:
+  - `eacae06` fix(agents): state field tracks subprocess lifecycle, not hook returns (→1227)
+  - `e34fd68` scaffold: diagnose /api/agents premature-complete (→1227)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-streaming-chat-newlines-1121-547eb8` [branch `worktree-agent-streaming-chat-newlines-1121-547eb8`] — 1 commit(s) ahead of main:
+  - `22743ab` fix(chat): preserve paragraph breaks in streaming chat messages (→1121)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-subagent-ostk-mcp-retry-1148-ee81bc` [branch `worktree-agent-subagent-ostk-mcp-retry-1148-ee81bc`] — 2 commit(s) ahead of main:
+  - `457b4bb` test(spawn): assert OSTK_PROJECT_ROOT/ROOT use short cwd for socket bind (→1148)
+  - `2d445ef` fix(spawn): align OSTK_PROJECT_ROOT/ROOT with short cwd to fix daemon socket bind (→1148)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-tier-1-1a-retry-kernel-jsonl-fle-d870ca` [branch `worktree-agent-tier-1-1a-retry-kernel-jsonl-fle-d870ca`] — 1 commit(s) ahead of main:
+  - `1867af7` feat(fleet): add kernel fleet source as primary for /api/agents GET (Tier 1.1a)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-track-1-sidebar-statu-d2adf2cf` [branch `worktree-agent-track-1-sidebar-statu-d2adf2cf`] — 2 commit(s) ahead of main:
+  - `e79c724` fix(sidebar): tolerate brief blips, single status dot, tooltip with state
+  - `56d872d` scaffold: jumpy sidebar status dot fix (→1229)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-verify-pclaude-s-i-wa-6c04a88f` [branch `worktree-agent-verify-pclaude-s-i-wa-6c04a88f`] — 1 commit(s) ahead of main:
+  - `e40c0b7` verify: pclaude retraction confirmed accurate — all 5 claims pass
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-wave-3a-agent-1131-dashboard-dat-85468f` [branch `worktree-agent-wave-3a-agent-1131-dashboard-dat-85468f`] — 1 commit(s) ahead of main:
+  - `d1e5820` feat(dashboard): real-time data feed via WebSocket (→1131)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-wave-3a-agent-1132-topbar-notifi-3d79d3` [branch `worktree-agent-wave-3a-agent-1132-topbar-notifi-3d79d3`] — 1 commit(s) ahead of main:
+  - `2292559` feat(notifications): real-time notifications via WebSocket (→1132)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-ws-connection-dropped-diagnose-1-e1767a` [branch `worktree-agent-ws-connection-dropped-diagnose-1-e1767a`] — 1 commit(s) ahead of main:
+  - `7c0344f` fix(chat): keep WS connection alive through long streaming responses (→1122)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-ws-feed-for-sidebar-sessions-112-46b653` [branch `worktree-agent-ws-feed-for-sidebar-sessions-112-46b653`] — 1 commit(s) ahead of main:
+  - `fd8ace3` feat(sidebar): show sessions in real time via WS (→1128)
+
+## DUPLICATE (59 worktrees, same work landed elsewhere)
+
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-1202-slow-call-asgi-m-8c326ac5` [branch `worktree-agent-1202-slow-call-asgi-m-8c326ac5`] — 1 commit(s), all matched on main:
+  - `5de55d1` feat(→1202): slow-call ASGI middleware + /api/internal/slow-calls ring
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-1214-gate-self-filter-b5d38d` [branch `worktree-agent-1214-gate-self-filter-b5d38d`] — 1 commit(s), all matched on main:
+  - `104d0c2` docs(→1214): findings for fleet-active gate self-filter
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-1215-mcp-env-parser-9a7724` [branch `worktree-agent-1215-mcp-env-parser-9a7724`] — 1 commit(s), all matched on main:
+  - `02b624f` docs(→1215): findings for OSTK_SKIP_GIT_GUARD + gate parser
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-1216-locate-v6-0-0-so-4eb8e94b` [branch `worktree-agent-1216-locate-v6-0-0-so-4eb8e94b`] — 1 commit(s), all matched on main:
+  - `d9c2127` docs(→1216): document upstream v6.0.0 haystack source location
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-1217-mcp-transport-re-1a5708d7` [branch `worktree-agent-1217-mcp-transport-re-1a5708d7`] — 2 commit(s), all matched on main:
+  - `c00e7d1` docs(→1217-diagnose): root cause for silent-fail on first attempt
+  - `9ea72e2` docs(→1217): repro and workaround for MCP drop on large grep
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-1219-backend-snapshot-beb78562` [branch `worktree-agent-1219-backend-snapshot-beb78562`] — 2 commit(s), all matched on main:
+  - `eea5214` feat(→1219): cache /api/agents snapshot every 500ms + fire WS delta on every status transition
+  - `73d36e2` feat(→1219): scaffold test file for agents snapshotter
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-1221-diagnose-session-22a3af94` [branch `worktree-agent-1221-diagnose-session-22a3af94`] — 1 commit(s), all matched on main:
+  - `2692752` docs(→1221): diagnose peer-session misframe and scaffold-commit close failures
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-add-current-model-to-write-kerne-28562d` [branch `worktree-agent-add-current-model-to-write-kerne-28562d`] — 1 commit(s), all matched on main:
+  - `fa8f121` fix(policy): allow MCP writes to .ostk/current_model under write-kernel
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-build-1120-plans-in-recent-docs-50fdbb` [branch `worktree-agent-build-1120-plans-in-recent-docs-50fdbb`] — 1 commit(s), all matched on main:
+  - `240fb08` feat(plans): plans for needles surface in recent documents and attach to the needle (→1120)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-build-1134-chat-panel-21b1e90b` [branch `worktree-agent-build-1134-chat-panel-21b1e90b`] — 1 commit(s), all matched on main:
+  - `365b057` feat(→1134): replace ChatPanel HTTP poll with WS subscription
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-build-1165-gems-ui-686c28` [branch `worktree-agent-build-1165-gems-ui-686c28`] — 1 commit(s), all matched on main:
+  - `4e611e6` feat(→1165): My Gems page + GemImportModal (Phase A frontend)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-cherry-pick-1188-onto-main-2650e1` [branch `worktree-agent-cherry-pick-1188-onto-main-2650e1`] — 1 commit(s), all matched on main:
+  - `5f93a53` feat(→1188): add Download label to ExportButton so it matches Import/Share row pattern
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-clamp-1191-wave-text-395406` [branch `worktree-agent-clamp-1191-wave-text-395406`] — 1 commit(s), all matched on main:
+  - `9e90686` feat(→1191): clamp plan waves description to 2 lines + strip ⊕
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-close-orphan-spec-drafts-1147-d287d8` [branch `worktree-agent-close-orphan-spec-drafts-1147-d287d8`] — 1 commit(s), all matched on main:
+  - `ad084c4` fix(docs): auto-close draft specs orphaned by agent cancel/no-plan/no-work (→1147)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-agents-recen-269dcb7a` [branch `worktree-agent-diagnose-agents-recen-269dcb7a`] — 1 commit(s), all matched on main:
+  - `e096b97` fix(→1212): show all non-cancelled recent agents on Agents page
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-backend-http-500-on-api-cfa194` [branch `worktree-agent-diagnose-backend-http-500-on-api-cfa194`] — 1 commit(s), all matched on main:
+  - `26f2d96` fix(spawn): serialize concurrent git worktree ops with asyncio.Lock to fix HTTP 500
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-backend-wedge-1192-9ba9c3` [branch `worktree-agent-diagnose-backend-wedge-1192-9ba9c3`] — 2 commit(s), all matched on main:
+  - `3ff4a55` fix(→1192): O(1) name-index in _load_candidates eliminates GIL stall
+  - `15f045b` docs(→1192): diagnosis writeup — O(N×M) GIL stall in _find_freshest_matching_jsonl
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-close-task-b-5d6ca994` [branch `worktree-agent-diagnose-close-task-b-5d6ca994`] — 1 commit(s), all matched on main:
+  - `18787dd` fix(→1208): allow user-initiated task close regardless of fleet state
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-connection-dropped-inli-f615eb` [branch `worktree-agent-diagnose-connection-dropped-inli-f615eb`] — 1 commit(s), all matched on main:
+  - `112294b` fix(chat): eliminate 'Connection dropped before response finished' on stream close (→1122)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-dual-state-p-bf096bd7` [branch `worktree-agent-diagnose-dual-state-p-bf096bd7`] — 1 commit(s), all matched on main:
+  - `f7d3682` fix(→1207): clear In progress pill when needle closes
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-loadavg-need-3bf889a2` [branch `worktree-agent-diagnose-loadavg-need-3bf889a2`] — 1 commit(s), all matched on main:
+  - `d6560a9` fix(→1199): generate_loadavg_line reads live from disk
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-missing-builder-spawn-00385b` [branch `worktree-agent-diagnose-missing-builder-spawn-00385b`] — 1 commit(s), all matched on main:
+  - `bab2f5b` fix(spawn): builder agents now register in /api/agents
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-my-gems-load-69642bc4` [branch `worktree-agent-diagnose-my-gems-load-69642bc4`] — 1 commit(s), all matched on main:
+  - `7d13126` fix(→1201): add timestamps to gems, retry button, and Gems feature toggle
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-diagnose-oauth-redirect-to-8000-b1e274` [branch `worktree-agent-diagnose-oauth-redirect-to-8000-b1e274`] — 1 commit(s), all matched on main:
+  - `05df835` fix(oauth): default frontend URL to https://localhost:3010 instead of request.base_url (→1141)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-expose-mcp-tools-in-worktree-ses-27e998` [branch `worktree-agent-expose-mcp-tools-in-worktree-ses-27e998`] — 1 commit(s), all matched on main:
+  - `a8263a4` fix(serve): register kernel MCP tools in worktree sessions (→1152)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-1190-dl-icon-align-3681a2` [branch `worktree-agent-fix-1190-dl-icon-align-3681a2`] — 1 commit(s), all matched on main:
+  - `6e8228a` fix(→1190): align Download icon with Import/Share rows in Tasks dropdown
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-1242-gem-test-leak-900563` [branch `worktree-agent-fix-1242-gem-test-leak-900563`] — 1 commit(s), all matched on main:
+  - `2eb15a8` fix(→1242): test_gem_knowledge isolates gem knowledge store via autouse STORE_ROOT patch
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-cost-period-type-8b8957` [branch `worktree-agent-fix-cost-period-type-8b8957`] — 1 commit(s), all matched on main:
+  - `7ef8a43` fix(→1196): widen CostTracking Period to match TimeFilter TimePeriod
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-gemini-api-reachable-lie-b885b3` [branch `worktree-agent-fix-gemini-api-reachable-lie-b885b3`] — 6 commit(s), all matched on main:
+  - `dffb7e3` fix(gemini): surface real api_reachable + permission errors in status detection
+  - `f39c9cb` feat(gmail): add source/source_ref + permalink when promoting emails to tasks (wave 1c)
+  - `46f14ce` feat(agents): add debugger and test-engineer marketplace .agent files
+  - `4a2ea7b` feat(jira): add 'track this in myOS' button to triage tickets into tasks (wave 1b)
+  - `0cdb687` feat(slack): add 'make a needle' button to triage messages into tasks (wave 1a)
+  - `aa999fb` scaffold(slack→needle): wave 1a wip — placeholder test
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-google-workspace-oauth-1186-9a0dea` [branch `worktree-agent-fix-google-workspace-oauth-1186-9a0dea`] — 1 commit(s), all matched on main:
+  - `db712d9` fix(auth): add GOOGLE_REDIRECT_URI override for workspace OAuth mismatch
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-needles-must-show-in-ui-e7250d` [branch `worktree-agent-fix-needles-must-show-in-ui-e7250d`] — 1 commit(s), all matched on main:
+  - `8ff1bb9` fix(worktree): symlink .ostk/needles/ into worktrees so needles appear in UI (→1143)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-preexisting-test-8e46df8d` [branch `worktree-agent-fix-preexisting-test-8e46df8d`] — 1 commit(s), all matched on main:
+  - `04b1373` fix(tests): restore test_agents.py to green (lock rename + state isolation)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-silent-on-backgro-23ed35ab` [branch `worktree-agent-fix-silent-on-backgro-23ed35ab`] — 1 commit(s), all matched on main:
+  - `87c3eec` feat(hook): surface background bash completion in standing rules
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-subagent-ostk-mcp-propagatio-7ba164` [branch `worktree-agent-fix-subagent-ostk-mcp-propagatio-7ba164`] — 1 commit(s), all matched on main:
+  - `c2680bb` fix(spawn): cap subagent cwd so .ostk/ostk.sock fits sun_path
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-fix-vite-wedge-tight-scope-retry-549cbe` [branch `worktree-agent-fix-vite-wedge-tight-scope-retry-549cbe`] — 1 commit(s), all matched on main:
+  - `601be6e` fix(vite): force IPv4 binding to prevent dev server wedge (→1138/→1142)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-gemini-phase-a-backend-1161-fc5984` [branch `worktree-agent-gemini-phase-a-backend-1161-fc5984`] — 1 commit(s), all matched on main:
+  - `3e27ac2` feat(gems): add /gems router + provider/gem_metadata fields to agent templates (→1161)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-guided-tour-opt-in-1183-1184-bfc051` [branch `worktree-agent-guided-tour-opt-in-1183-1184-bfc051`] — 2 commit(s), all matched on main:
+  - `3012bfc` test(→1183 →1184): cover tour opt-in behavior
+  - `fd497e7` feat(→1183 →1184): guided tour opt-in via Start tour button
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-implement-inline-task-cfd5a6a0` [branch `worktree-agent-implement-inline-task-cfd5a6a0`] — 1 commit(s), all matched on main:
+  - `1bfb7ed` feat(→1195): inline edit task titles on Tasks page
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-implement-spawn-auto-cc06994b` [branch `worktree-agent-implement-spawn-auto-cc06994b`] — 1 commit(s), all matched on main:
+  - `dc991cf` feat(→1204): auto-claim needles from spawn task description
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-move-files-location-picker-to-on-622471` [branch `worktree-agent-move-files-location-picker-to-on-622471`] — 1 commit(s), all matched on main:
+  - `a33e663` feat(onboarding): move Files location picker into onboarding (→1111)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-mygems-subtitle-paddi-665fdbee` [branch `worktree-agent-mygems-subtitle-paddi-665fdbee`] — 1 commit(s), all matched on main:
+  - `ba418c8` fix(gems): clearer MyGems subtitle + padding (→1231)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-p99-latency-test-for-74468c9b` [branch `worktree-agent-p99-latency-test-for-74468c9b`] — 1 commit(s), all matched on main:
+  - `cf7d087` scaffold: load test for /status/clock p99 under concurrent load (→1236)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-re-diagnose-vite-wedge-with-stat-1d1c60` [branch `worktree-agent-re-diagnose-vite-wedge-with-stat-1d1c60`] — 1 commit(s), all matched on main:
+  - `09600e9` fix(vite): set holdUntilCrawlEnd:false to prevent dep-optimizer wedge (→1145)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-real-time-in-progress-badge-1118-f73956` [branch `worktree-agent-real-time-in-progress-badge-1118-f73956`] — 1 commit(s), all matched on main:
+  - `1a15fa0` feat(tasks): show 'In progress' pill in real time via running agents store (→1118)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-remove-budget-5-subagent-cap-111-7c6968` [branch `worktree-agent-remove-budget-5-subagent-cap-111-7c6968`] — 1 commit(s), all matched on main:
+  - `8b5993a` fix(agents): remove default budget=5.0 cap on subagent spawn (→1114)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-remove-duplicate-crea-7cd87578` [branch `worktree-agent-remove-duplicate-crea-7cd87578`] — 1 commit(s), all matched on main:
+  - `73f5b4a` fix(→1209): remove duplicate Create Gem button from empty state
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-respawn-tasks-test-fix-1160-b78575` [branch `worktree-agent-respawn-tasks-test-fix-1160-b78575`] — 1 commit(s), all matched on main:
+  - `c64fa30` fix(tests): stabilise mockTasks timestamps so task 1 sorts first
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-retry-1153-fleet-active-gate-3e23c3` [branch `worktree-agent-retry-1153-fleet-active-gate-3e23c3`] — 1 commit(s), all matched on main:
+  - `dfd5be7` fix(scripts): add trim-stale-agents.sh to clear fleet-active gate (→1153)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-retry-status-lie-leak-09d12873` [branch `worktree-agent-retry-status-lie-leak-09d12873`] — 1 commit(s), all matched on main:
+  - `6133f61` diagnose(infra): status-lie + fs_ops leak root causes (→1234, closes →1225, →1227 partial)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-surface-chat-error-ro-b907d5cd` [branch `worktree-agent-surface-chat-error-ro-b907d5cd`] — 1 commit(s), all matched on main:
+  - `0bb7e8d` feat(→1211): surface chat error root cause (auth/quota/upstream/network)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-swap-chatpanel-to-ws-0a9db691` [branch `worktree-agent-swap-chatpanel-to-ws-0a9db691`] — 1 commit(s), all matched on main:
+  - `61dd7fc` feat(→1134): replace ChatPanel HTTP poll with WS subscription
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-swap-topbar-to-ws-feed-706762` [branch `worktree-agent-swap-topbar-to-ws-feed-706762`] — 1 commit(s), all matched on main:
+  - `320f3d6` feat(→1133): replace TopBar notifications poll with WS feed
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-tier-2-3-ostk-hook-opt-in-instal-f6de82` [branch `worktree-agent-tier-2-3-ostk-hook-opt-in-instal-f6de82`] — 1 commit(s), all matched on main:
+  - `c6a6209` feat(hooks): add opt-in installer for ostk lifecycle hooks (Tier 2.3 →1164)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-tier-2-4-ostk-doc-decompose-wrap-36ff86` [branch `worktree-agent-tier-2-4-ostk-doc-decompose-wrap-36ff86`] — 1 commit(s), all matched on main:
+  - `e162943` feat(specs): wrap ostk doc decompose with auto param + /decompose-kernel endpoint (→Tier2.4)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-tighten-chat-agent-prompt-no-ste-d2f8a0` [branch `worktree-agent-tighten-chat-agent-prompt-no-ste-d2f8a0`] — 1 commit(s), all matched on main:
+  - `39747c6` chore(chat): tighten system prompt to discourage cascading exploration (→1146)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-trim-stale-agents-jsonl-rows-in-e23a8d` [branch `worktree-agent-trim-stale-agents-jsonl-rows-in-e23a8d`] — 1 commit(s), all matched on main:
+  - `edcba8f` fix(agents): filter stale rows from /api/agents response (→1151)
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-verify-1163-mcp-drop-4b30d6` [branch `worktree-agent-verify-1163-mcp-drop-4b30d6`] — 1 commit(s), all matched on main:
+  - `2fed728` docs(→1163): verification — effectively closed by structural fixes →1193+→1194
+- `/Users/torimeyer/claude/torios/.claude/worktrees/agent-wire-gem-chat-to-gemi-30aba00c` [branch `worktree-agent-wire-gem-chat-to-gemi-30aba00c`] — 1 commit(s), all matched on main:
+  - `7eaf65e` feat(gems): wire chat_with_gem to stream_gemini via SSE (→1218)
+- `/private/tmp/topbar-ws-1133` [branch `worktree-agent-build-1133-topbar-ws`] — 1 commit(s), all matched on main:
+  - `6a7c4d3` feat(→1133): replace TopBar notifications poll with WS feed

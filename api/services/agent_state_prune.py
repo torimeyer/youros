@@ -1,0 +1,204 @@
+"""Startup-time pruning of stale rows from agent_state.json.
+
+Keeps the cold-cache enrich pass fast by dropping terminal agent rows
+older than ``retention_days``. Only rows that are both terminal AND
+expired are removed; running/recent rows are always kept.
+
+Boundary vs. services.kernel_fleet
+------------------------------------
+This module and ``kernel_fleet`` both deal with agent data but operate on
+completely different sources and serve different purposes:
+
+* **agent_state_prune** (this file):
+  - Source: ``<OSTK_DIR>/agent_state.json`` — myOS's own FastAPI registry.
+    The myOS API server writes this file when agents register, heartbeat,
+    complete, or are cancelled via the /api/agents endpoints.
+  - Purpose: housekeeping. Drops old terminal rows at server startup so the
+    cold-cache enrich pass iterates a small dict rather than hundreds of
+    stale entries. Pure function — no live I/O during the prune itself.
+  - Called once per server startup from ``api/main.py::prune_stale_agent_state``.
+
+* **kernel_fleet** (services/kernel_fleet.py):
+  - Source: ``~/.ostk/journal.jsonl`` and ``<OSTK_DIR>/agents.jsonl`` —
+    the ostk daemon's own append-only JSONL files.
+    These record agents spawned via ``ostk run`` (not via myOS FastAPI).
+  - Purpose: surfacing kernel-authoritative agent data so GET /api/agents
+    can include agents that myOS never registered directly (peer-session
+    agents, worktree agents, etc.).
+  - Called on every GET /api/agents; reads are file-size/mtime-cached.
+
+Do NOT delete this module thinking kernel_fleet is its replacement — they
+are complementary. Removing prune would let agent_state.json grow unbounded
+and slow down every server startup's enrich pass.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import shutil
+import subprocess
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+# Union of every terminal status string used across the agents router.
+_TERMINAL_STATUSES: frozenset[str] = frozenset({
+    "completed",
+    "failed",
+    "cancelled",
+    "terminated_stale",
+    "completed_timeout",
+    "killed",
+    "stopped",
+    "abandoned",
+    "timeout",
+})
+
+
+def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
+def prune_agent_state(
+    agent_metadata: dict,
+    *,
+    retention_days: int = 30,
+    now: Optional[datetime] = None,
+) -> tuple[dict, int]:
+    """Return (pruned_dict, removed_count).
+
+    Drops rows that satisfy BOTH conditions:
+      1. status is in _TERMINAL_STATUSES
+      2. the row's reference timestamp is older than retention_days
+
+    Reference timestamp = completed_at if present, else spawned_at.
+    Rows with neither timestamp are kept (we cannot safely infer age).
+    Running rows are always kept regardless of age.
+
+    Pure function: no I/O, no side effects. Takes ``now`` for testability.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=retention_days)
+
+    kept: dict = {}
+    removed = 0
+
+    for name, meta in agent_metadata.items():
+        status = meta.get("status", "")
+        if status not in _TERMINAL_STATUSES:
+            kept[name] = meta
+            continue
+
+        ref_ts = meta.get("completed_at") or meta.get("spawned_at")
+        ref_dt = _parse_iso(ref_ts)
+        if ref_dt is None:
+            kept[name] = meta
+            continue
+
+        if ref_dt < cutoff:
+            removed += 1
+        else:
+            kept[name] = meta
+
+    return kept, removed
+
+
+def _run_ostk_recovery_prune() -> tuple[int, int]:
+    """Delegate fleet cleanup to `ostk recovery rescue`.
+
+    Called when MYOS_REAPER_USE_OSTK_RECOVERY=1 is set. Returns (0, 0)
+    because kept/removed counts are not available from the ostk command.
+    """
+    try:
+        result = subprocess.run(
+            ["ostk", "recovery", "rescue"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            logger.info("ostk recovery rescue succeeded: %s", result.stdout.strip())
+        else:
+            logger.warning(
+                "ostk recovery rescue exited %d: %s",
+                result.returncode,
+                result.stderr.strip(),
+            )
+    except Exception as exc:
+        logger.warning("ostk recovery rescue failed: %s", exc)
+    return 0, 0  # counts not available when delegating to ostk recovery
+
+
+def run_startup_prune(
+    agent_state_path: Path,
+    agent_metadata: dict,
+    retention_days: int = 30,
+) -> tuple[int, int]:
+    """Backup agent_state.json, prune stale rows, persist the result.
+
+    Called once at server startup (inside asyncio.to_thread so the event
+    loop stays unblocked). Returns (kept_count, removed_count).
+
+    The backup is written BEFORE any mutation so a crash mid-write cannot
+    lose data. Backup path: <original>.bak-prune-<YYYYmmddHHMMSS>.
+
+    When MYOS_REAPER_USE_OSTK_RECOVERY=1 is set, delegates to
+    `ostk recovery rescue` instead of running the Python prune logic.
+    """
+    if os.getenv("MYOS_REAPER_USE_OSTK_RECOVERY"):
+        return _run_ostk_recovery_prune()
+
+    now = datetime.now(timezone.utc)
+    ts_str = now.strftime("%Y%m%d%H%M%S")
+
+    # Compute pruned set first — only backup+write when rows will be removed.
+    pruned, removed = prune_agent_state(
+        agent_metadata, retention_days=retention_days, now=now
+    )
+    kept = len(pruned)
+
+    if removed == 0:
+        logger.info(
+            "agent_state prune: kept %d, dropped 0 (nothing to prune, retention=%dd)",
+            kept,
+            retention_days,
+        )
+        return kept, 0
+
+    # Backup before overwriting so a mid-write crash cannot corrupt the file.
+    if agent_state_path.exists():
+        backup_path = agent_state_path.with_name(
+            f"{agent_state_path.stem}.bak-prune-{ts_str}"
+        )
+        try:
+            shutil.copy2(agent_state_path, backup_path)
+        except OSError as exc:
+            logger.warning("agent_state prune: backup failed (%s), skipping prune", exc)
+            return len(agent_metadata), 0
+
+    try:
+        from services.atomic_io import atomic_write_json
+        atomic_write_json(agent_state_path, pruned)
+    except Exception as exc:
+        logger.warning("agent_state prune: write failed (%s), prune not applied", exc)
+        return len(agent_metadata), 0
+
+    logger.info(
+        "agent_state prune: kept %d, dropped %d (retention=%dd)",
+        kept,
+        removed,
+        retention_days,
+    )
+    return kept, removed

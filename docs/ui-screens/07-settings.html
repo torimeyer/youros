@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ToriOS Settings</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        primary: "#3b82f6",
+                        pink: "#ec4899",
+                        orange: "#f97316",
+                        purple: "#8b5cf6",
+                        cyan: "#06b6d4"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Inter", "sans-serif"],
+                        "body": ["Inter", "sans-serif"],
+                        "label": ["Inter", "sans-serif"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            background-color: #020617; /* slate-950 fallback */
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="font-body text-slate-200 antialiased">
+<!-- SideNavBar (JSON Component) -->
+<aside class="h-screen w-64 fixed left-0 top-0 border-r border-slate-800 bg-slate-950 flex flex-col py-6 justify-between font-sans text-sm tracking-tight shadow-none z-50">
+<div>
+<!-- Brand -->
+<div class="px-6 mb-10">
+<div class="text-lg font-black text-pink-500 dark:text-pink-400 uppercase tracking-widest">ToriOS</div>
+<div class="text-slate-500 text-[10px] mt-1 uppercase tracking-[0.2em]">Personal OS</div>
+</div>
+<!-- Main Nav -->
+<nav class="space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-200 hover:bg-slate-900/50 transition-all duration-200 active:scale-95 cursor-pointer" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span>Home</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-200 hover:bg-slate-900/50 transition-all duration-200 active:scale-95 cursor-pointer" href="#">
+<span class="material-symbols-outlined" data-icon="folder">folder</span>
+<span>Storage</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-200 hover:bg-slate-900/50 transition-all duration-200 active:scale-95 cursor-pointer" href="#">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+<span>Terminal</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-200 hover:bg-slate-900/50 transition-all duration-200 active:scale-95 cursor-pointer" href="#">
+<span class="material-symbols-outlined" data-icon="smart_toy">smart_toy</span>
+<span>AI Assistant</span>
+</a>
+</nav>
+</div>
+<!-- Footer Nav (Settings Active) -->
+<div class="space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 bg-blue-500/10 text-blue-400 border-r-2 border-pink-500 font-semibold hover:bg-slate-900/50 transition-all duration-200 active:scale-95 cursor-pointer" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<div class="mt-4 px-4 flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="System User profile avatar with a clean geometric abstract background in shades of blue and slate" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC-kCLXmh4C9lNS0nulaw38iny0F1DFxT1w6yoQWN5ZBGF0W2oEXQsy4NTUJgnGvsI0PBRGYGmCbvURbORUHpCtGuBB8EEaMVZtPSgGKk24CluI7598lc8GJiGJk3MujqbFywaoEJWT50Wx1QqFjbN_sJaNbaiD09FJodonpb4Qxs0nFarQRaamVypr05vEMdDw8Y5OAHiT_ohXaR63nihGPrkux6ePvEP5pLTMV0IGlCSvW-DsJVUthkNwJoeyTtanU7NAMqlT6pM"/>
+</div>
+<div class="flex flex-col">
+<span class="text-xs font-bold text-slate-200">System User</span>
+<span class="text-[10px] text-slate-500">v1.2.0-stable</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- TopNavBar (JSON Component) -->
+<header class="fixed top-0 right-0 left-64 h-16 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md z-40 flex items-center justify-between px-8 shadow-sm">
+<div class="flex items-center gap-4">
+<h1 class="text-xl font-bold text-slate-100 font-sans tracking-tight">Settings</h1>
+</div>
+<div class="flex items-center gap-6">
+<div class="relative group">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-slate-200 absolute left-3 top-1/2 -translate-y-1/2 text-sm" data-icon="search">search</span>
+<input class="bg-slate-900 border-slate-800 rounded-lg pl-10 pr-4 py-1.5 text-sm focus:ring-1 focus:ring-blue-500 border-none transition-all w-64 focus:w-80" placeholder="Search settings..." type="text"/>
+</div>
+<div class="flex items-center gap-2">
+<button class="text-slate-400 hover:bg-slate-900 p-2 rounded-lg transition-colors active:opacity-80">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="text-slate-400 hover:bg-slate-900 p-2 rounded-lg transition-colors active:opacity-80">
+<span class="material-symbols-outlined" data-icon="power_settings_new">power_settings_new</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="pl-64 pt-16 min-h-screen">
+<div class="max-w-5xl mx-auto p-12">
+<!-- Bento Grid Content Section -->
+<div class="grid grid-cols-12 gap-6">
+<!-- (1) Appearance Section -->
+<section class="col-span-12 md:col-span-8 bg-slate-900/40 border border-slate-800/60 rounded-xl p-8 backdrop-blur-sm">
+<div class="flex items-center gap-3 mb-8">
+<div class="p-2 bg-pink-500/10 text-pink-400 rounded-lg">
+<span class="material-symbols-outlined" data-icon="palette">palette</span>
+</div>
+<h2 class="text-lg font-bold text-slate-100">Appearance</h2>
+</div>
+<div class="space-y-10">
+<div class="flex items-center justify-between">
+<div>
+<div class="font-medium">Color Mode</div>
+<div class="text-sm text-slate-500 mt-1">Switch between dark and light themes</div>
+</div>
+<div class="flex items-center gap-2 bg-slate-950 p-1 rounded-full border border-slate-800">
+<button class="px-4 py-1 rounded-full text-sm font-medium text-slate-500">Light</button>
+<button class="px-4 py-1 rounded-full text-sm font-medium bg-blue-500 text-white shadow-lg shadow-blue-500/20">Dark</button>
+</div>
+</div>
+<div class="flex items-center justify-between">
+<div>
+<div class="font-medium">Accent Color</div>
+<div class="text-sm text-slate-500 mt-1">Choose the primary highlight color</div>
+</div>
+<div class="flex items-center gap-3">
+<button class="w-8 h-8 rounded-full bg-blue-500 ring-4 ring-blue-500/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-white text-base" data-icon="check" style="font-variation-settings: 'wght' 700;">check</span>
+</button>
+<button class="w-8 h-8 rounded-full bg-pink-500 hover:scale-110 transition-transform"></button>
+<button class="w-8 h-8 rounded-full bg-purple-500 hover:scale-110 transition-transform"></button>
+<button class="w-8 h-8 rounded-full bg-cyan-500 hover:scale-110 transition-transform"></button>
+<button class="w-8 h-8 rounded-full bg-orange-500 hover:scale-110 transition-transform"></button>
+</div>
+</div>
+<div class="flex items-center justify-between">
+<div>
+<div class="font-medium">OS Identifier</div>
+<div class="text-sm text-slate-500 mt-1">Personalize your system name</div>
+</div>
+<div class="flex items-center gap-3 bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 min-w-[200px]">
+<span class="text-slate-100 font-bold tracking-widest text-sm">ToriOS</span>
+<button class="text-slate-500 hover:text-pink-400 ml-auto">
+<span class="material-symbols-outlined text-sm" data-icon="edit">edit</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- (5) Keyboard Shortcuts -->
+<section class="col-span-12 md:col-span-4 bg-slate-900/40 border border-slate-800/60 rounded-xl p-8">
+<div class="flex items-center gap-3 mb-8">
+<div class="p-2 bg-blue-500/10 text-blue-400 rounded-lg">
+<span class="material-symbols-outlined" data-icon="keyboard">keyboard</span>
+</div>
+<h2 class="text-lg font-bold text-slate-100">Shortcuts</h2>
+</div>
+<div class="space-y-6">
+<div class="flex items-center justify-between">
+<span class="text-xs text-slate-400 uppercase tracking-widest">Command Palette</span>
+<kbd class="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[10px] text-slate-300 font-bold">⌘ K</kbd>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-xs text-slate-400 uppercase tracking-widest">Toggle Chat</span>
+<kbd class="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[10px] text-slate-300 font-bold">⌘ L</kbd>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-xs text-slate-400 uppercase tracking-widest">New Task</span>
+<kbd class="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[10px] text-slate-300 font-bold">⌘ N</kbd>
+</div>
+</div>
+<div class="mt-10 pt-6 border-t border-slate-800">
+<button class="w-full py-2 text-xs font-bold text-slate-500 hover:text-blue-400 transition-colors uppercase tracking-widest">View All Keys</button>
+</div>
+</section>
+<!-- (2) Features Section -->
+<section class="col-span-12 bg-slate-900/20 border border-slate-800/40 rounded-xl p-8">
+<div class="flex items-center gap-3 mb-8">
+<div class="p-2 bg-purple-500/10 text-purple-400 rounded-lg">
+<span class="material-symbols-outlined" data-icon="extension">extension</span>
+</div>
+<h2 class="text-lg font-bold text-slate-100">System Features</h2>
+</div>
+<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+<!-- Chat -->
+<div class="flex flex-col items-center gap-4 p-4 bg-slate-950 border border-slate-800 rounded-xl transition-all hover:border-purple-500/40 group">
+<div class="w-10 h-10 rounded-lg bg-slate-900 flex items-center justify-center text-slate-400 group-hover:text-purple-400">
+<span class="material-symbols-outlined" data-icon="forum">forum</span>
+</div>
+<span class="text-xs font-bold uppercase tracking-wider">Chat</span>
+<div class="w-8 h-4 bg-purple-500 rounded-full relative">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+<!-- Tasks -->
+<div class="flex flex-col items-center gap-4 p-4 bg-slate-950 border border-slate-800 rounded-xl">
+<div class="w-10 h-10 rounded-lg bg-slate-900 flex items-center justify-center text-slate-400">
+<span class="material-symbols-outlined" data-icon="check_circle">check_circle</span>
+</div>
+<span class="text-xs font-bold uppercase tracking-wider">Tasks</span>
+<div class="w-8 h-4 bg-purple-500 rounded-full relative">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+<!-- Hay -->
+<div class="flex flex-col items-center gap-4 p-4 bg-slate-950 border border-slate-800 rounded-xl">
+<div class="w-10 h-10 rounded-lg bg-slate-900 flex items-center justify-center text-slate-400">
+<span class="material-symbols-outlined" data-icon="lightbulb">lightbulb</span>
+</div>
+<span class="text-xs font-bold uppercase tracking-wider">Hay/Ideas</span>
+<div class="w-8 h-4 bg-purple-500 rounded-full relative">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+<!-- Agents -->
+<div class="flex flex-col items-center gap-4 p-4 bg-slate-950 border border-slate-800 rounded-xl">
+<div class="w-10 h-10 rounded-lg bg-slate-900 flex items-center justify-center text-slate-400">
+<span class="material-symbols-outlined" data-icon="smart_toy">smart_toy</span>
+</div>
+<span class="text-xs font-bold uppercase tracking-wider">Agents</span>
+<div class="w-8 h-4 bg-purple-500 rounded-full relative">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+<!-- Projects -->
+<div class="flex flex-col items-center gap-4 p-4 bg-slate-950 border border-slate-800 rounded-xl">
+<div class="w-10 h-10 rounded-lg bg-slate-900 flex items-center justify-center text-slate-400">
+<span class="material-symbols-outlined" data-icon="folder_managed">folder_managed</span>
+</div>
+<span class="text-xs font-bold uppercase tracking-wider">Projects</span>
+<div class="w-8 h-4 bg-purple-500 rounded-full relative">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+<!-- Docs -->
+<div class="flex flex-col items-center gap-4 p-4 bg-slate-950 border border-slate-800 rounded-xl">
+<div class="w-10 h-10 rounded-lg bg-slate-900 flex items-center justify-center text-slate-400">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+</div>
+<span class="text-xs font-bold uppercase tracking-wider">Docs</span>
+<div class="w-8 h-4 bg-purple-500 rounded-full relative">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+<!-- Transcripts -->
+<div class="flex flex-col items-center gap-4 p-4 bg-slate-950 border border-slate-800 rounded-xl opacity-60">
+<div class="w-10 h-10 rounded-lg bg-slate-900 flex items-center justify-center text-slate-400">
+<span class="material-symbols-outlined" data-icon="transcribe">transcribe</span>
+</div>
+<span class="text-xs font-bold uppercase tracking-wider">Transcripts</span>
+<div class="w-8 h-4 bg-slate-800 rounded-full relative">
+<div class="absolute left-0.5 top-0.5 w-3 h-3 bg-slate-600 rounded-full"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- (3) AI Provider Section -->
+<section class="col-span-12 md:col-span-7 bg-slate-900/40 border border-slate-800/60 rounded-xl p-8">
+<div class="flex items-center gap-3 mb-8">
+<div class="p-2 bg-cyan-500/10 text-cyan-400 rounded-lg">
+<span class="material-symbols-outlined" data-icon="neurology">neurology</span>
+</div>
+<h2 class="text-lg font-bold text-slate-100">AI Provider</h2>
+</div>
+<div class="grid grid-cols-3 gap-4 mb-8">
+<button class="flex flex-col items-center gap-3 p-4 bg-slate-950 border-2 border-cyan-500/50 rounded-xl relative group">
+<div class="absolute top-2 right-2 text-green-400">
+<span class="material-symbols-outlined text-sm" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<img class="w-10 h-10 object-contain invert opacity-80 group-hover:opacity-100 transition-opacity" data-alt="Anthropic logo placeholder for AI settings interface" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCXtktgJ11DjC_r_dNJRM_iOTvNLaf55Jn0sNDePdG-pmldJHXekIq2JfK6SPbjmDLCsc_tYTVIP7QtzrmRI0EOCx4old0bflSoJbfSvmubFnlyADx4ns84dAhy6OoyEuKMFfJEqrxvwLA5EImFuC4Lw3lsnSGeMexaImm4OK3KUnrPXKoAn-nRWuneAvdk4ONp0FI7xQAlu77glNBVKTkcfVZzjpEbO0O8WEKkMLQ2ZrLRKhgvPorsOYnoGsNpL8FLfnkbfLSR4Y0"/>
+<span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">Anthropic</span>
+</button>
+<button class="flex flex-col items-center gap-3 p-4 bg-slate-950 border border-slate-800 rounded-xl group hover:border-slate-700 transition-colors">
+<img class="w-10 h-10 object-contain opacity-40 group-hover:opacity-100 transition-opacity" data-alt="Google Gemini logo for AI model selection" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCGMiDbrCN-Wp5qp6ekCvTAYPsywAyP9k5itqoooqLASYeCY4N0826G09CV14AOn97kIo0yAygQSeaScuDJwCTmxKUb2HYoZrTY5tMCuVbD7uHdIMeVD6rcKRDVsiBZ01RDppZw4NJaIkoz6sYcR1bBEyfUePZgle0-fzOHa-LnvVIbuHY7JkKKdolBfoDKuYvrsV8AalY0NJbCs8-C0_mqunxAYzYs3W8WKov3AZ8g2RYci-ft0mVUtXtzfbaOH3JeUMclbymshYg"/>
+<span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">Gemini</span>
+</button>
+<button class="flex flex-col items-center gap-3 p-4 bg-slate-950 border border-slate-800 rounded-xl group hover:border-slate-700 transition-colors">
+<img class="w-10 h-10 object-contain invert opacity-40 group-hover:opacity-100 transition-opacity" data-alt="OpenAI logo for GPT-4 model selection" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB5_T3ln33W4KYvcv2UwDeTg-Oq3zRwAAnoDxga0eYe6s9tWXNykCSny6GK26xtrkYLf9HX_6aQmxSRla6qdo5_UT_EpJ3spLHVzFjO5KBc61uEU78iA_Dd8vuSAzl6k3acNOfhdXgbVQA6IsGHJ0JG4pTWfg794Y1oKh1G8OlVdM4SivUFsG9kvefwhnk7MNLG36tWNSnPt9D-g99U6I7jY9w93OsVHHLQ4jC70c-XaufqOSWYGANz6aDQRMCDJQPIwMAeXc6TZ7g"/>
+<span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">OpenAI</span>
+</button>
+</div>
+<div class="space-y-6">
+<div>
+<label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">API Key</label>
+<div class="relative">
+<input class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-sm focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500" type="password" value="••••••••••••••••••••••••"/>
+<button class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-cyan-400">
+<span class="material-symbols-outlined text-sm" data-icon="visibility">visibility</span>
+</button>
+</div>
+</div>
+<div>
+<label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Model Selector</label>
+<div class="relative">
+<select class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-sm appearance-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500">
+<option>claude-opus-4-20250514</option>
+<option>claude-sonnet-3.5</option>
+<option>claude-haiku-3</option>
+</select>
+<div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+<span class="material-symbols-outlined text-sm" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- (4) Notifications Section -->
+<section class="col-span-12 md:col-span-5 bg-slate-900/40 border border-slate-800/60 rounded-xl p-8">
+<div class="flex items-center gap-3 mb-8">
+<div class="p-2 bg-orange-500/10 text-orange-400 rounded-lg">
+<span class="material-symbols-outlined" data-icon="notifications_active">notifications_active</span>
+</div>
+<h2 class="text-lg font-bold text-slate-100">Notifications</h2>
+</div>
+<div class="space-y-4">
+<div class="flex items-center justify-between p-3 bg-slate-950/50 rounded-lg border border-slate-800/50">
+<span class="text-sm font-medium">Agent Complete</span>
+<div class="w-8 h-4 bg-orange-500 rounded-full relative">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+<div class="flex items-center justify-between p-3 bg-slate-950/50 rounded-lg border border-slate-800/50">
+<span class="text-sm font-medium">Agent Needs Input</span>
+<div class="w-8 h-4 bg-orange-500 rounded-full relative">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+<div class="flex items-center justify-between p-3 bg-slate-950/50 rounded-lg border border-slate-800/50">
+<span class="text-sm font-medium">Agent Failed</span>
+<div class="w-8 h-4 bg-orange-500 rounded-full relative">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+<div class="flex items-center justify-between p-3 bg-slate-950/50 rounded-lg border border-slate-800/50">
+<span class="text-sm font-medium">Approval Needed</span>
+<div class="w-8 h-4 bg-orange-500 rounded-full relative">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+<div class="pt-4 mt-4 border-t border-slate-800">
+<div class="flex items-center justify-between">
+<div>
+<div class="text-sm font-medium">Quiet Hours</div>
+<div class="text-[10px] text-slate-500 uppercase tracking-widest mt-1">10pm to 7am</div>
+</div>
+<div class="w-8 h-4 bg-orange-500 rounded-full relative">
+<div class="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- (6) Data Section -->
+<section class="col-span-12 flex items-center justify-between p-8 bg-gradient-to-r from-slate-900 to-slate-950 border border-slate-800 rounded-xl">
+<div class="flex items-center gap-6">
+<div class="p-3 bg-slate-800 text-slate-300 rounded-xl">
+<span class="material-symbols-outlined" data-icon="database">database</span>
+</div>
+<div>
+<h3 class="text-lg font-bold text-slate-100">Data Management</h3>
+<p class="text-sm text-slate-500">Manage your system configurations and backup data.</p>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="px-6 py-2.5 rounded-lg border border-slate-700 text-sm font-bold text-slate-300 hover:bg-slate-800 transition-colors">Import Config</button>
+<button class="px-6 py-2.5 rounded-lg bg-pink-500 text-white text-sm font-bold hover:bg-pink-600 transition-colors shadow-lg shadow-pink-500/20">Export Config</button>
+</div>
+</section>
+</div>
+</div>
+</main>
+</body></html>

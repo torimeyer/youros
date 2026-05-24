@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>myOS Architecture</title>
+<style>
+  body { margin: 0; padding: 40px; background: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #e2e8f0; }
+  h1 { text-align: center; font-size: 28px; margin-bottom: 8px; }
+  .subtitle { text-align: center; color: #64748b; font-size: 14px; margin-bottom: 40px; }
+  svg { display: block; margin: 0 auto; }
+  .box { rx: 8; ry: 8; }
+  .label { font-size: 13px; font-weight: 600; fill: #f1f5f9; font-family: -apple-system, sans-serif; }
+  .sublabel { font-size: 10px; fill: #94a3b8; font-family: -apple-system, sans-serif; }
+  .arrow { stroke: #475569; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+  .arrow-tool { stroke: #f59e0b; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead-tool); stroke-dasharray: 4,3; }
+  .section-label { font-size: 11px; fill: #64748b; font-family: -apple-system, sans-serif; font-weight: 700; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+<h1>myOS Architecture</h1>
+<p class="subtitle">How chat connects to tools, providers, and ostk</p>
+
+<svg width="900" height="700" viewBox="0 0 900 700">
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#475569"/>
+    </marker>
+    <marker id="arrowhead-tool" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#f59e0b"/>
+    </marker>
+  </defs>
+
+  <!-- Section: Browser -->
+  <text x="80" y="30" class="section-label">BROWSER (localhost:3010)</text>
+  <rect x="60" y="40" width="780" height="100" rx="12" fill="none" stroke="#334155" stroke-width="1" stroke-dasharray="6,4"/>
+
+  <!-- React App -->
+  <rect x="90" y="55" width="130" height="60" class="box" fill="#1e3a5f"/>
+  <text x="155" y="82" class="label" text-anchor="middle">React App</text>
+  <text x="155" y="97" class="sublabel" text-anchor="middle">Dashboard, Tasks, etc.</text>
+
+  <!-- Chat Panel -->
+  <rect x="260" y="55" width="130" height="60" class="box" fill="#1e3a5f"/>
+  <text x="325" y="82" class="label" text-anchor="middle">Chat Panel</text>
+  <text x="325" y="97" class="sublabel" text-anchor="middle">Tabs, WebSocket</text>
+
+  <!-- Command Palette -->
+  <rect x="430" y="55" width="130" height="60" class="box" fill="#1e3a5f"/>
+  <text x="495" y="82" class="label" text-anchor="middle">Cmd+K Search</text>
+  <text x="495" y="97" class="sublabel" text-anchor="middle">Concept search</text>
+
+  <!-- Settings -->
+  <rect x="600" y="55" width="130" height="60" class="box" fill="#1e3a5f"/>
+  <text x="665" y="82" class="label" text-anchor="middle">Settings</text>
+  <text x="665" y="97" class="sublabel" text-anchor="middle">Keys, OAuth, MCP</text>
+
+  <!-- Arrow: Chat to Backend -->
+  <path d="M325,115 L325,175" class="arrow"/>
+  <text x="335" y="150" class="sublabel">WebSocket</text>
+
+  <!-- Arrow: App to Backend -->
+  <path d="M155,115 L155,175" class="arrow"/>
+  <text x="165" y="150" class="sublabel">REST API</text>
+
+  <!-- Section: Backend -->
+  <text x="80" y="185" class="section-label">FASTAPI BACKEND (localhost:8000)</text>
+  <rect x="60" y="195" width="780" height="220" rx="12" fill="none" stroke="#334155" stroke-width="1" stroke-dasharray="6,4"/>
+
+  <!-- Chat Router -->
+  <rect x="260" y="210" width="130" height="55" class="box" fill="#1a3341"/>
+  <text x="325" y="234" class="label" text-anchor="middle">Chat Router</text>
+  <text x="325" y="249" class="sublabel" text-anchor="middle">WebSocket handler</text>
+
+  <!-- API Routers -->
+  <rect x="90" y="210" width="130" height="55" class="box" fill="#1a3341"/>
+  <text x="155" y="234" class="label" text-anchor="middle">API Routers</text>
+  <text x="155" y="249" class="sublabel" text-anchor="middle">tasks, agents, ideas...</text>
+
+  <!-- Chat Providers -->
+  <rect x="260" y="290" width="130" height="55" class="box" fill="#2d1f3d"/>
+  <text x="325" y="314" class="label" text-anchor="middle">Chat Providers</text>
+  <text x="325" y="329" class="sublabel" text-anchor="middle">Claude, Gemini</text>
+
+  <!-- Tool Executor -->
+  <rect x="440" y="210" width="130" height="55" class="box" fill="#3d2d1a"/>
+  <text x="505" y="234" class="label" text-anchor="middle">Tool Executor</text>
+  <text x="505" y="249" class="sublabel" text-anchor="middle">file, shell, ostk tools</text>
+
+  <!-- ostk Service -->
+  <rect x="90" y="340" width="130" height="55" class="box" fill="#1a3326"/>
+  <text x="155" y="364" class="label" text-anchor="middle">ostk Service</text>
+  <text x="155" y="379" class="sublabel" text-anchor="middle">CLI wrapper (58 cmds)</text>
+
+  <!-- Secrets -->
+  <rect x="440" y="340" width="130" height="55" class="box" fill="#1a3326"/>
+  <text x="505" y="364" class="label" text-anchor="middle">Secrets</text>
+  <text x="505" y="379" class="sublabel" text-anchor="middle">Keychain via ostk</text>
+
+  <!-- Settings Store -->
+  <rect x="620" y="210" width="130" height="55" class="box" fill="#1a3341"/>
+  <text x="685" y="234" class="label" text-anchor="middle">Settings Store</text>
+  <text x="685" y="249" class="sublabel" text-anchor="middle">~/.myos/settings.json</text>
+
+  <!-- Auth Router -->
+  <rect x="620" y="340" width="130" height="55" class="box" fill="#1a3341"/>
+  <text x="685" y="364" class="label" text-anchor="middle">Google OAuth</text>
+  <text x="685" y="379" class="sublabel" text-anchor="middle">Token exchange</text>
+
+  <!-- Arrow: Chat Router to Providers -->
+  <path d="M325,265 L325,290" class="arrow"/>
+
+  <!-- Arrow: Chat Router to Tool Executor -->
+  <path d="M390,237 L440,237" class="arrow-tool"/>
+  <text x="405" y="230" class="sublabel" style="fill:#f59e0b">tool calls</text>
+
+  <!-- Arrow: Tool Executor to ostk -->
+  <path d="M440,250 L220,365" class="arrow-tool"/>
+
+  <!-- Arrow: API Routers to ostk -->
+  <path d="M155,265 L155,340" class="arrow"/>
+
+  <!-- Section: External -->
+  <text x="80" y="445" class="section-label">EXTERNAL SERVICES</text>
+  <rect x="60" y="455" width="780" height="80" rx="12" fill="none" stroke="#334155" stroke-width="1" stroke-dasharray="6,4"/>
+
+  <!-- Anthropic API -->
+  <rect x="90" y="470" width="140" height="50" class="box" fill="#3d1a2d"/>
+  <text x="160" y="494" class="label" text-anchor="middle">Anthropic API</text>
+  <text x="160" y="509" class="sublabel" text-anchor="middle">Claude models</text>
+
+  <!-- Google AI -->
+  <rect x="270" y="470" width="140" height="50" class="box" fill="#3d1a2d"/>
+  <text x="340" y="494" class="label" text-anchor="middle">Google AI</text>
+  <text x="340" y="509" class="sublabel" text-anchor="middle">Gemini (OAuth or key)</text>
+
+  <!-- Google OAuth -->
+  <rect x="450" y="470" width="140" height="50" class="box" fill="#3d1a2d"/>
+  <text x="520" y="494" class="label" text-anchor="middle">Google OAuth</text>
+  <text x="520" y="509" class="sublabel" text-anchor="middle">accounts.google.com</text>
+
+  <!-- Giphy -->
+  <rect x="630" y="470" width="140" height="50" class="box" fill="#3d1a2d"/>
+  <text x="700" y="494" class="label" text-anchor="middle">Giphy API</text>
+  <text x="700" y="509" class="sublabel" text-anchor="middle">GIF search</text>
+
+  <!-- Arrow: Providers to Anthropic -->
+  <path d="M290,345 L160,470" class="arrow"/>
+
+  <!-- Arrow: Providers to Google -->
+  <path d="M325,345 L340,470" class="arrow"/>
+
+  <!-- Arrow: Auth to Google OAuth -->
+  <path d="M685,395 L520,470" class="arrow"/>
+
+  <!-- Section: Local -->
+  <text x="80" y="570" class="section-label">LOCAL SYSTEM</text>
+  <rect x="60" y="580" width="780" height="80" rx="12" fill="none" stroke="#334155" stroke-width="1" stroke-dasharray="6,4"/>
+
+  <!-- ostk CLI -->
+  <rect x="90" y="595" width="130" height="50" class="box" fill="#1a3326"/>
+  <text x="155" y="619" class="label" text-anchor="middle">ostk CLI</text>
+  <text x="155" y="634" class="sublabel" text-anchor="middle">v2.2.9 binary</text>
+
+  <!-- .ostk directory -->
+  <rect x="260" y="595" width="130" height="50" class="box" fill="#1a3326"/>
+  <text x="325" y="619" class="label" text-anchor="middle">.ostk/</text>
+  <text x="325" y="634" class="sublabel" text-anchor="middle">needles, audit, pins</text>
+
+  <!-- macOS Keychain -->
+  <rect x="440" y="595" width="130" height="50" class="box" fill="#1a3326"/>
+  <text x="505" y="619" class="label" text-anchor="middle">macOS Keychain</text>
+  <text x="505" y="634" class="sublabel" text-anchor="middle">API keys, secrets</text>
+
+  <!-- Filesystem -->
+  <rect x="620" y="595" width="130" height="50" class="box" fill="#1a3326"/>
+  <text x="685" y="619" class="label" text-anchor="middle">Filesystem</text>
+  <text x="685" y="634" class="sublabel" text-anchor="middle">~/myos, projects</text>
+
+  <!-- Arrow: ostk service to CLI -->
+  <path d="M155,395 L155,595" class="arrow"/>
+
+  <!-- Arrow: ostk CLI to .ostk -->
+  <path d="M220,620 L260,620" class="arrow"/>
+
+  <!-- Arrow: Secrets to Keychain -->
+  <path d="M505,395 L505,595" class="arrow"/>
+
+  <!-- Chat flow annotation -->
+  <rect x="90" y="665" width="720" height="25" rx="4" fill="#1e293b"/>
+  <text x="450" y="682" class="sublabel" text-anchor="middle" style="fill:#f59e0b">
+    Chat flow: User message -> WebSocket -> Chat Router -> Provider (Claude/Gemini) -> streaming response. Tool calls: Provider -> Tool Executor -> ostk/shell/files -> result back to Provider.
+  </text>
+</svg>
+</body>
+</html>

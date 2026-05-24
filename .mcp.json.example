@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "ostk": {
+      "command": "scripts/mcp-quiet.sh",
+      "args": ["ostk", "kernel", "serve"],
+      "env": {
+        "OSTK_TRUST_TIER": "T1"
+      }
+    },
+    "stitch": {
+      "command": "scripts/mcp-quiet.sh",
+      "args": ["npx", "@_davideast/stitch-mcp", "proxy"],
+      "env": {
+        "STITCH_API_KEY": "REPLACE_WITH_YOUR_STITCH_KEY"
+      }
+    }
+  }
+}

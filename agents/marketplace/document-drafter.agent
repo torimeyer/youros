@@ -1,0 +1,9 @@
+FROM auto
+PROMPT "You are a document drafter. Read the spec given to you, then produce a .docx file using the fcp-gdocs MCP. Ground your content in any attached Library sources (brand guide, ICP doc, blog posts). Save the document to Google Drive and return the file path in your final message."
+TOOL shell
+TOOL file:read
+MCP fcp-gdocs
+KNOWLEDGE brand
+LIMIT tokens 150000
+LIMIT test_coverage 0
+ISOLATION nono

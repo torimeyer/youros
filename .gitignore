@@ -1,0 +1,48 @@
+.ostk/
+.ostk.pre-*/
+.venv/
+node_modules/
+dist/
+.vite/
+.DS_Store
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+.claude/*
+!.claude/hooks/
+!.claude/settings.json
+!.claude/skills/
+.claude/hooks/*.log
+.claude/hooks/*.log.old
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+# .mcp.json is gitignored because it contains a per-user Stitch API key.
+# The tracked template is .mcp.json.example. install.sh copies it into
+# place on first install so every user gets a working config skeleton
+# with their own key pasted in. Never commit .mcp.json itself.
+.mcp.json
+lego-app/
+taxes/
+transcripts/
+workspaces/
+.coverage
+coverage/
+e2e-screenshots/*.png
+
+# User-local specs live in ~/.myos/specs/, not in the repo (→1377)
+# Use `ostk doc promote` to write there; never commit docs/spec/ contents.
+docs/spec/
+
+# NR-internal strategy content should live outside the repo (~/.myos/) — never commit
+nr-workspaces-saved/
+frontend/test-results/
+
+# ostk-cache local telemetry — never committed
+.ostk/memory/ledger.jsonl
+.ostk/rewrite-events.jsonl
+.ostk/file_cache.jsonl
+.l1.5/
+
+docs/spec/

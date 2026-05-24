@@ -1,0 +1,118 @@
+"""Gemini Enterprise provider detection and status."""
+import asyncio
+import logging
+import time
+from typing import Optional
+
+from fastapi import APIRouter
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+_gemini_status_cache: Optional[dict] = None
+_gemini_cache_ts: float = 0.0
+_CACHE_TTL = 600.0
+_DETECT_TIMEOUT = 5.0
+
+
+def _detect_gemini_sync() -> dict:
+    """Synchronous credential check — called via asyncio.to_thread to avoid blocking the event loop."""
+    try:
+        import google.auth
+        import google.auth.transport.requests
+
+        credentials, _project = google.auth.default(
+            scopes=[
+                "https://www.googleapis.com/auth/cloud-platform",
+                "https://www.googleapis.com/auth/generative-language",
+            ]
+        )
+        request = google.auth.transport.requests.Request()
+        credentials.refresh(request)
+
+        email = getattr(credentials, "service_account_email", None)
+        if not email:
+            token_info = getattr(credentials, "id_token", None)
+            if token_info and isinstance(token_info, str):
+                import base64
+                import json as _json
+
+                parts = token_info.split(".")
+                if len(parts) >= 2:
+                    padded = parts[1] + "=="
+                    try:
+                        claims = _json.loads(base64.urlsafe_b64decode(padded))
+                        email = claims.get("email")
+                    except Exception:
+                        pass
+
+        api_reachable = False
+        api_error = None
+        try:
+            import google.generativeai as genai
+
+            genai.configure(credentials=credentials)
+            list(genai.list_models())
+            api_reachable = True
+        except Exception as api_exc:
+            api_error = str(api_exc)[:300]
+
+        return {
+            "available": True,
+            "authenticated": True,
+            "email": email,
+            "workspace_connected": True,
+            "api_reachable": api_reachable,
+            "api_error": api_error,
+        }
+    except Exception as exc:
+        logger.debug("gemini.detect: not available: %s", exc)
+        return {
+            "available": False,
+            "authenticated": False,
+            "email": None,
+            "workspace_connected": False,
+            "api_reachable": False,
+            "api_error": None,
+        }
+
+
+async def _detect_gemini() -> dict:
+    """Run credential check in a thread pool so the event loop stays free."""
+    _unavailable = {
+        "available": False,
+        "authenticated": False,
+        "email": None,
+        "workspace_connected": False,
+        "api_reachable": False,
+        "api_error": None,
+    }
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_detect_gemini_sync),
+            timeout=_DETECT_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.debug("gemini.detect: timed out after %ss", _DETECT_TIMEOUT)
+        return _unavailable
+    except Exception as exc:
+        logger.debug("gemini.detect: error: %s", exc)
+        return _unavailable
+
+
+@router.get("/gemini/status")
+async def gemini_status() -> dict:
+    global _gemini_status_cache, _gemini_cache_ts
+    now = time.monotonic()
+    if _gemini_status_cache is not None and (now - _gemini_cache_ts) < _CACHE_TTL:
+        return _gemini_status_cache
+    result = await _detect_gemini()
+    _gemini_status_cache = result
+    _gemini_cache_ts = now
+    return result
+
+
+async def is_gemini_available() -> bool:
+    status = await gemini_status()
+    return status.get("available", False)

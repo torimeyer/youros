@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dog Walking - Trusted Care</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      max-width: 1000px;
+      width: 100%;
+    }
+    .header {
+      text-align: center;
+      color: white;
+      margin-bottom: 60px;
+    }
+    h1 {
+      font-size: 48px;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      font-size: 20px;
+      opacity: 0.9;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 30px;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 40px 30px;
+      text-align: center;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+      transition: transform 0.3s ease;
+    }
+    .card:hover {
+      transform: translateY(-5px);
+    }
+    .card-icon {
+      font-size: 48px;
+      margin-bottom: 20px;
+    }
+    .card h2 {
+      color: #333;
+      font-size: 24px;
+      margin-bottom: 15px;
+    }
+    .card p {
+      color: #666;
+      line-height: 1.6;
+      font-size: 16px;
+    }
+    .review .card-icon { color: #667eea; }
+    .comment .card-icon { color: #f093fb; }
+    .approve .card-icon { color: #4facfe; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Trusted Dog Walking</h1>
+      <p class="subtitle">Professional care for your furry friend</p>
+    </div>
+    <div class="cards">
+      <div class="card review">
+        <div class="card-icon">⭐</div>
+        <h2>Review</h2>
+        <p>Read honest feedback from other pet owners about our walkers and service quality.</p>
+      </div>
+      <div class="card comment">
+        <div class="card-icon">💬</div>
+        <h2>Comment</h2>
+        <p>Share your experience and let us know how we can improve your dog's walks.</p>
+      </div>
+      <div class="card approve">
+        <div class="card-icon">✅</div>
+        <h2>Approve</h2>
+        <p>Book a trusted walker and confirm your dog's perfect match today.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

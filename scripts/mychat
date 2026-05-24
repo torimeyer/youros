@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""mychat — launch a terminal chat session scoped to a spec.
+
+Usage:
+    myos chat --spec <slug> [--with gemini|claude]
+    scripts/mychat --spec <slug> [--with gemini|claude]
+
+What it does:
+  1. Resolves <slug> to a spec file (~/.myos/specs/<slug>.md, then
+     docs/draft/<slug>.md as a fallback).
+  2. POSTs /api/specs/<slug>/claim with source=wrapper so the Specs
+     page flips to "Building" immediately (Phase 2a of spec-auto-status).
+  3. exec's the chosen terminal CLI (claude by default, or gemini if
+     --with gemini) with --dangerously-skip-permissions.
+
+Environment overrides (for testing):
+  MYCHAT_DRY_RUN=1      Parse and resolve, then print what would happen;
+                         skip the network POST and exec.
+  MYCHAT_SPECS_DIR=<path>  Override the user-local specs directory
+                            (default: ~/.myos/specs).
+  MYCHAT_API_BASE=<url>  Override the API base URL
+                         (default: https://127.0.0.1:8000).
+"""
+
+import argparse
+import json
+import os
+import sys
+import urllib.request
+import urllib.error
+from pathlib import Path
+
+_API_BASE = os.environ.get("MYCHAT_API_BASE", "https://127.0.0.1:8000")
+_DRY_RUN = os.environ.get("MYCHAT_DRY_RUN") == "1"
+
+
+def _resolve_spec(slug: str, specs_dir: Path, project_root: Path) -> Path | None:
+    """Return the spec file for <slug>, or None if not found.
+
+    Search order:
+      1. <specs_dir>/<slug>.md
+      2. <project_root>/docs/draft/<slug>.md
+    """
+    for candidate in [
+        specs_dir / f"{slug}.md",
+        project_root / "docs" / "draft" / f"{slug}.md",
+    ]:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _post_claim(slug: str, agent_name: str) -> None:
+    """POST /api/specs/<slug>/claim with source=wrapper.
+
+    Best-effort: a network error is printed as a warning but does not
+    abort the launch. The spec status flip is a UX nicety, not a gate.
+    """
+    url = f"{_API_BASE}/api/specs/{slug}/claim"
+    payload = json.dumps({"agent": agent_name, "source": "wrapper"}).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    # Use an SSL context that accepts self-signed certs (localhost dev cert).
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
+            body = json.loads(resp.read())
+            task_ids = body.get("task_ids", [])
+            if task_ids:
+                print(f"Claimed spec '{slug}' — {len(task_ids)} task(s) ready.")
+            else:
+                print(f"Claimed spec '{slug}'.")
+    except Exception as exc:
+        print(f"Warning: could not claim spec '{slug}': {exc}", file=sys.stderr)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="myos chat",
+        description="Launch a terminal chat session scoped to a spec.",
+    )
+    p.add_argument(
+        "--spec",
+        required=True,
+        metavar="SLUG",
+        help="Spec slug (file name without .md extension).",
+    )
+    p.add_argument(
+        "--with",
+        dest="cli",
+        choices=["claude", "gemini"],
+        default="claude",
+        help="Terminal CLI to launch (default: claude).",
+    )
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    slug: str = args.spec
+    cli_choice: str = args.cli
+
+    # Resolve spec path.
+    specs_dir_env = os.environ.get("MYCHAT_SPECS_DIR")
+    specs_dir = Path(specs_dir_env) if specs_dir_env else Path.home() / ".myos" / "specs"
+    project_root = Path(__file__).resolve().parent.parent
+
+    spec_path = _resolve_spec(slug, specs_dir, project_root)
+    if spec_path is None:
+        checked = [
+            str(specs_dir / f"{slug}.md"),
+            str(project_root / "docs" / "draft" / f"{slug}.md"),
+        ]
+        print(
+            f"Error: spec '{slug}' not found. Checked:\n"
+            + "\n".join(f"  {p}" for p in checked),
+            file=sys.stderr,
+        )
+        return 1
+
+    # Derive the working directory from the spec's location.
+    work_dir = spec_path.parent.parent  # e.g. ~/.myos (parent of specs/)
+
+    agent_name = f"wrapper-pid-{os.getpid()}"
+
+    if _DRY_RUN:
+        print(f"spec: {slug}")
+        print(f"spec_path: {spec_path}")
+        print(f"work_dir: {work_dir}")
+        print(f"cli: {cli_choice}")
+        print(f"agent: {agent_name}")
+        print(f"api_base: {_API_BASE}")
+        return 0
+
+    # POST claim (best-effort).
+    _post_claim(slug, agent_name)
+
+    # Exec the chosen CLI in the spec's working directory.
+    os.chdir(work_dir)
+    if cli_choice == "gemini":
+        os.execvp("gemini", ["gemini"])
+    else:
+        os.execvp("claude", ["claude", "--dangerously-skip-permissions"])
+
+    # execvp does not return on success.
+    return 0  # pragma: no cover
+
+
+if __name__ == "__main__":
+    sys.exit(main())
