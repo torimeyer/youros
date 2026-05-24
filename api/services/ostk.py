@@ -2390,6 +2390,25 @@ class OstkService:
                 doc.setdefault("missing_files", [])
                 doc.setdefault("open_linked_needles", [])
 
+        # Deduplicate: hide empty husk drafts in docs/draft/ when a promoted
+        # version already exists in ~/.myos/specs/ for the same slug. This
+        # prevents phantom "Empty draft" entries when a new draft is created
+        # for a title whose spec was already promoted (→1673).
+        promoted_slugs: set[str] = {
+            Path(d["path"]).stem
+            for d in results
+            if d.get("is_user_local")
+        }
+        if promoted_slugs:
+            results = [
+                d for d in results
+                if not (
+                    d.get("path", "").startswith("docs/draft/")
+                    and d.get("husk")
+                    and Path(d["path"]).stem in promoted_slugs
+                )
+            ]
+
         return results
 
     @staticmethod

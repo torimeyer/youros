@@ -620,3 +620,65 @@ References: →9001
     husk = HuskResult(is_husk=False, reason="")
     stage = compute_stage({"status": "spec"}, husk=husk, shipped=result)
     assert stage == "ready"
+
+
+# ---------------------------------------------------------------------------
+# →1673: list_docs deduplication — husk drafts shadowed promoted specs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_docs_hides_husk_draft_when_promoted_spec_exists(tmp_path, monkeypatch):
+    """list_docs must NOT surface a docs/draft/ husk when ~/.myos/specs/
+    already holds a promoted spec with the same slug.
+
+    Regression for →1673: empty frontmatter-only files were appearing as
+    duplicate 'Empty draft' entries on the Specs page alongside the real
+    promoted spec.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from services import ostk as ostk_module
+
+    draft_dir = tmp_path / "docs" / "draft"
+    spec_dir = tmp_path / "docs" / "spec"
+    user_specs_dir = tmp_path / "myos_specs"
+    draft_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True)
+    user_specs_dir.mkdir(parents=True)
+
+    # Real promoted spec: has body content and acceptance criteria.
+    promoted = user_specs_dir / "pattern-watcher-v2.md"
+    promoted.write_text(
+        "---\nstatus: spec\ntitle: Pattern watcher v2\n"
+        "promoted_at: 2026-05-01T00:00:00Z\n---\n\n"
+        "## Problem\n\nDetects file changes.\n\n"
+        "## Acceptance criteria\n\n- [ ] Watcher fires on edit\n"
+    )
+
+    # Orphan husk: frontmatter only, no body — same slug as the promoted spec.
+    husk = draft_dir / "pattern-watcher-v2.md"
+    husk.write_text(
+        "---\nstatus: draft\ntitle: Pattern watcher v2\n"
+        "created_at: 2026-05-24T03:07:00Z\n---\n"
+    )
+
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", user_specs_dir)
+
+    async def fake_list_tasks():
+        return []
+
+    monkeypatch.setattr(ostk_module.ostk, "list_tasks", fake_list_tasks)
+
+    docs = await ostk_module.ostk.list_docs()
+
+    slugs = [Path(d["path"]).stem for d in docs]
+    assert slugs.count("pattern-watcher-v2") == 1, (
+        f"Expected one entry for slug, got {slugs.count('pattern-watcher-v2')}: {slugs}"
+    )
+
+    surviving = [d for d in docs if Path(d["path"]).stem == "pattern-watcher-v2"]
+    assert surviving[0].get("is_user_local") is True, (
+        "Surviving entry must be the promoted user-local spec, not the husk draft"
+    )
