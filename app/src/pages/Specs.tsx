@@ -486,6 +486,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const [searchParams] = useSearchParams();
   const focusParam = searchParams.get("focus");
   const specRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const hasScrolledForFocusRef = useRef<string | null>(null);
   const [stageFilter, setStageFilter] = useState<StageFilter>("all");
   const [spawnGeminiSpec, setSpawnGeminiSpec] = useState<{ path: string; title: string; checks?: ReadinessCheck[] } | null>(null);
   const [docs, setDocs] = useState<Spec[]>(() => readSpecsCache());
@@ -663,6 +664,11 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
     const path = decodeURIComponent(focusParam);
     const el = specRowRefs.current[path];
     if (!el) return;
+    // Guard: scroll at most once per focus target so real-time doc refreshes
+    // (onSpecsChange -> fetchDocs -> setDocs) do not re-fire this effect and
+    // fight the user's own scroll position. (→1664)
+    if (hasScrolledForFocusRef.current === path) return;
+    hasScrolledForFocusRef.current = path;
     setTimeout(() => {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
       el.classList.add("ring-2", "ring-emerald-400");

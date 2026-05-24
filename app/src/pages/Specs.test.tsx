@@ -1891,6 +1891,42 @@ describe('Specs focus from kanban link (→1501)', () => {
       expect(scrollIntoViewMock).toHaveBeenCalled()
     })
   })
+
+  it('does NOT re-scroll when docs refresh after initial scroll (→1664)', async () => {
+    const scrollIntoViewMock = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoViewMock
+    const { bumpSpecs, _resetSidebarBus } = await import('../lib/sidebarBus')
+    _resetSidebarBus()
+
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/specs') return Promise.resolve({ docs: [mockDocsResponse.docs[0]] })
+      if (url.startsWith('/specs/') && url.endsWith('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/specs?focus=docs%2Fdraft%2Fonboarding-flow.md']}>
+        <Specs />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('onboarding flow')).toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(scrollIntoViewMock).toHaveBeenCalledTimes(1)
+    })
+
+    // Simulate a real-time spec update (what onSpecsChange triggers in production)
+    bumpSpecs()
+
+    // Give React time to re-render and the effect to potentially re-fire
+    await new Promise((r) => setTimeout(r, 200))
+
+    // Scroll must NOT have fired again
+    expect(scrollIntoViewMock).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('inline spec body editing', () => {
