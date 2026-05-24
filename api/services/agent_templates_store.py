@@ -526,7 +526,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         # agentfile so re-seeding produces the same text.
         "prompt_template": (
             "You are a senior PM. Produce a roadmap as a JSON array of "
-            "quarters based on the user's timeframe. Each quarter is an "
+            "quarters that cover the timeframe the user specifies, using "
+            "about 4 quarters per year (so '1 year' is about 4 quarters, "
+            "'2 years' about 8, '3 years' about 12); match the number of "
+            "quarters to the chosen timeframe. Each quarter is an "
             "object with these exact keys: quarter (string like 'Q1 2026'), "
             "theme (one short sentence), initiatives (array of 3 to 5 short "
             "strings). Plain language, no jargon. Reply with ONLY the JSON "

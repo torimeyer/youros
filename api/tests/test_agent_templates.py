@@ -1402,9 +1402,9 @@ def test_roadmap_template_uses_quick_mode():
 def test_roadmap_prompt_asks_for_single_shot_json():
     """The Roadmap prompt tells the model to emit JSON in one shot.
 
-    Multi-turn reasoning on a 3-year roadmap burns through the few-
-    seconds budget. The prompt must name the output shape (12-quarter
-    JSON array) and forbid preamble so the model answers in one pass.
+    Multi-turn reasoning on a long roadmap burns through the few-
+    seconds budget. The prompt must name the output shape (a JSON
+    array of quarters) and forbid preamble so the model answers in one pass.
     """
     from services.agent_templates_store import BUILTIN_AGENT_TEMPLATES
 
@@ -1425,6 +1425,38 @@ def test_roadmap_prompt_asks_for_single_shot_json():
         "prompt must forbid preamble so the reply is one shot, not a "
         "multi-turn conversation"
     )
+
+
+def test_roadmap_prompt_honors_timeframe_not_hardcoded_3yr():
+    """The Roadmap prompt must scale quarters to the chosen timeframe.
+
+    Earlier the prompt hardcoded "a 3-year roadmap of 12 quarters", which
+    ignored the timeframe chip (1/2/3/5 years). The prompt must instead
+    tell the model to cover the user's timeframe at ~4 quarters per year,
+    in BOTH the store template and the marketplace agentfile (the agentfile
+    is the runtime source; the two must stay in sync).
+    """
+    from pathlib import Path
+    from services.agent_templates_store import BUILTIN_AGENT_TEMPLATES
+
+    tpl = next(
+        t for t in BUILTIN_AGENT_TEMPLATES if t["id"] == "builtin-pm-roadmap"
+    )
+    store_prompt = tpl["prompt_template"].lower()
+
+    agentfile = (
+        Path(__file__).resolve().parents[2]
+        / "agents" / "marketplace" / "roadmap.agent"
+    )
+    agent_prompt = agentfile.read_text().lower()
+
+    for label, text in (("store", store_prompt), ("agentfile", agent_prompt)):
+        assert "3-year" not in text and "12 quarter" not in text, (
+            f"{label} prompt still hardcodes a 3-year / 12-quarter roadmap"
+        )
+        assert "4 quarter" in text and "timeframe" in text, (
+            f"{label} prompt must honor the timeframe at ~4 quarters per year"
+        )
 
 
 def test_roadmap_completes_under_30_seconds(monkeypatch):
