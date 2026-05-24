@@ -2102,6 +2102,41 @@ describe('ClaimSourceChip attribution chips on spec rows', () => {
     expect(chips[0].textContent).toContain('gemini-cli')
     expect(chips[1].textContent).toContain('claude-termin')
   })
+
+  it('renders chip for source=passive (git-commit watcher detection)', async () => {
+    const startedAt = new Date(Date.now() - 7 * 60 * 1000).toISOString()
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('auth-system') && path.includes('/tasks')) {
+        return Promise.resolve({
+          tasks: [],
+          claims: [{ agent: 'tori', source: 'passive', started_at: startedAt, task_ids: [] }],
+        })
+      }
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('claim-source-chip')).toBeInTheDocument()
+    })
+
+    const chip = screen.getByTestId('claim-source-chip')
+    expect(chip.textContent).toContain('tori')
+    expect(chip.textContent).toContain('in passive')
+  })
 })
 
 describe('stage chip tooltip for active claims (FR-014)', () => {
