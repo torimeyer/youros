@@ -74,8 +74,11 @@ trap 'rm -rf "$_tmpdir"; jobs -p | xargs kill 2>/dev/null || true' EXIT
 
 _wd_pidfile="$_tmpdir/watchdog.pid"
 _wd_logfile="$_tmpdir/watchdog.log"
-_be_pidfile="$_tmpdir/backend.pid"
 _be_port=19876   # unused port — health probes will always fail (ECONNREFUSED)
+# The watchdog computes BACKEND_PIDFILE="/tmp/myos-backend-${BACKEND_PORT}.pid".
+# The fake PID must go there, not into _tmpdir, or backend_pid_alive() returns
+# false and the deadlock-threshold SIGKILL path is never reached.
+_be_pidfile="/tmp/myos-backend-${_be_port}.pid"
 
 # Fake backend: a long-running sleep.
 sleep 3600 &
@@ -89,7 +92,10 @@ echo "$_fake_pid" > "$_be_pidfile"
 #   RESTART_WAIT=1 (so restart path is quick if it somehow fires)
 #   PYSPY_TIMEOUT=1
 _threshold_under_test=4
-_run_for=$((_threshold_under_test))   # run for threshold cycles, should NOT kill
+# Each watchdog cycle takes ~21s (INTERVAL=1 + 3×sleep5 + sleep5-at-end) with
+# PROBE_RETRY_SLEEP=0. Budget (threshold-1) full cycles plus margin, staying
+# strictly below threshold cycles so SIGKILL cannot fire before we check.
+_run_for=$(((_threshold_under_test - 1) * 25 + 5))
 MYOS_WATCHDOG_PIDFILE="$_wd_pidfile" \
 MYOS_WATCHDOG_LOGFILE="$_wd_logfile" \
 MYOS_WATCHDOG_BACKEND_PORT="$_be_port" \
@@ -98,12 +104,13 @@ MYOS_WATCHDOG_DEADLOCK_THRESHOLD="$_threshold_under_test" \
 MYOS_WATCHDOG_HEALTH_URL="https://127.0.0.1:${_be_port}/api/health" \
 MYOS_WATCHDOG_RESTART_WAIT=1 \
 MYOS_WATCHDOG_PYSPY_TIMEOUT=1 \
+MYOS_WATCHDOG_PROBE_RETRY_SLEEP=0 \
 bash "$WATCHDOG" &
 _wd_pid=$!
 
 # Let it run for (threshold - 1) probe cycles. Each probe waits up to 15s
 # (3 retries × 5s sleep), so we budget generously.
-sleep $((_run_for * 3))
+sleep "$_run_for"
 
 # The fake backend process should still be alive — watchdog should not have
 # killed it before reaching the threshold.
@@ -125,6 +132,7 @@ kill "$_wd_pid" 2>/dev/null || true
 kill "$_fake_pid" 2>/dev/null || true
 wait "$_wd_pid" 2>/dev/null || true
 wait "$_fake_pid" 2>/dev/null || true
+rm -f "$_be_pidfile" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # Test 4: Watchdog fires SIGKILL once threshold IS reached
@@ -134,7 +142,8 @@ wait "$_fake_pid" 2>/dev/null || true
 _tmpdir2=$(mktemp -d)
 _wd_pidfile2="$_tmpdir2/watchdog.pid"
 _wd_logfile2="$_tmpdir2/watchdog.log"
-_be_pidfile2="$_tmpdir2/backend.pid"
+# Must write to the path the watchdog reads: /tmp/myos-backend-${BACKEND_PORT}.pid
+_be_pidfile2="/tmp/myos-backend-${_be_port}.pid"
 
 sleep 3600 &
 _fake_pid2=$!
@@ -142,8 +151,10 @@ echo "$_fake_pid2" > "$_be_pidfile2"
 
 _threshold2=3
 # Enough time for threshold2 full probe cycles to complete.
-# Each probe: 3 retries × 5s each = 15s, plus INTERVAL=1. Budget 18s × threshold2.
-_run_for2=$((_threshold2 * 18 + 5))
+# PROBE_RETRY_SLEEP=0 makes inner retries instant; each outer cycle is:
+#   INTERVAL(1s) + 4×probe_once(~0s) + 3×outer-sleep(5s) + 5s = ~21s.
+# Budget 25s per cycle plus margin.
+_run_for2=$((_threshold2 * 25 + 5))
 
 MYOS_WATCHDOG_PIDFILE="$_wd_pidfile2" \
 MYOS_WATCHDOG_LOGFILE="$_wd_logfile2" \
@@ -153,13 +164,14 @@ MYOS_WATCHDOG_DEADLOCK_THRESHOLD="$_threshold2" \
 MYOS_WATCHDOG_HEALTH_URL="https://127.0.0.1:${_be_port}/api/health" \
 MYOS_WATCHDOG_RESTART_WAIT=1 \
 MYOS_WATCHDOG_PYSPY_TIMEOUT=1 \
+MYOS_WATCHDOG_PROBE_RETRY_SLEEP=0 \
 bash "$WATCHDOG" &
 _wd_pid2=$!
 
 sleep "$_run_for2"
 
 if [ -f "$_wd_logfile2" ] && grep -q "SIGKILL" "$_wd_logfile2"; then
-    pass "Watchdog fired SIGKILL after threshold ($__threshold2) was reached"
+    pass "Watchdog fired SIGKILL after threshold ($_threshold2) was reached"
 else
     fail "Watchdog did NOT fire SIGKILL after threshold ($_threshold2) cycles"
 fi
@@ -168,7 +180,67 @@ kill "$_wd_pid2" 2>/dev/null || true
 kill "$_fake_pid2" 2>/dev/null || true
 wait "$_wd_pid2" 2>/dev/null || true
 wait "$_fake_pid2" 2>/dev/null || true
+rm -f "$_be_pidfile2" 2>/dev/null || true
 rm -rf "$_tmpdir2"
+
+# ---------------------------------------------------------------------------
+# Test 5: probe_once retries when curl fails (regression for || echo "000" bug)
+#
+# Root cause: curl -w "%{http_code}" writes "000" to stdout when no HTTP
+# response is received. The old code also ran `|| echo "000"`, appending a
+# second "000" and producing "000000" (6 chars). Since "000000" != "000",
+# the retry-loop break condition fired immediately — zero retries. The fix
+# replaces `|| echo "000"` with `|| true`, leaving code="000" (3 chars) so
+# the loop correctly retries.
+#
+# Strategy: install a mock curl that fails for the first 2 calls then
+# succeeds on the 3rd. Run probe_once (sourced from the watchdog) with
+# PROBE_RETRY_SLEEP=0. Verify it returns 0 (success reached via retry) and
+# that curl was called exactly 3 times (not 1).
+# ---------------------------------------------------------------------------
+_p5_dir=$(mktemp -d)
+_p5_calls="$_p5_dir/calls"
+printf '0' > "$_p5_calls"
+
+# Mock curl: outputs "000"+exits 7 for first 2 calls; outputs "200"+exits 0
+# on the 3rd. Uses CURL_CALLS_FILE env var (set in the subshell below) so the
+# path doesn't need to be baked into the script text.
+cat > "$_p5_dir/curl" << 'MOCK_CURL_EOF'
+#!/usr/bin/env bash
+n=$(( $(cat "$CURL_CALLS_FILE") + 1 ))
+printf '%s' "$n" > "$CURL_CALLS_FILE"
+if [ "$n" -le 2 ]; then printf "000"; exit 7; else printf "200"; exit 0; fi
+MOCK_CURL_EOF
+chmod +x "$_p5_dir/curl"
+
+# Extract and run probe_once from the real watchdog in an isolated subshell.
+# We set PROBE_RETRY_SLEEP=0 to make sleeps instant, and override PATH so
+# our mock curl is found first.
+_p5_result=0
+HEALTH_URL="https://127.0.0.1:19999/api/health" \
+PROBE_RETRY_SLEEP=0 \
+CURL_CALLS_FILE="$_p5_calls" \
+PATH="$_p5_dir:$PATH" \
+bash -c "
+$(sed -n '/^probe_once()/,/^}/p' "$WATCHDOG")
+probe_once
+" || _p5_result=$?
+
+_p5_calls_actual=$(cat "$_p5_calls")
+
+if [ "$_p5_result" -eq 0 ]; then
+    pass "probe_once returns 0 when 3rd retry succeeds"
+else
+    fail "probe_once returned $_p5_result — retry loop broken (expected 0)"
+fi
+
+if [ "$_p5_calls_actual" -eq 3 ]; then
+    pass "probe_once calls curl 3 times (inner retries execute on failure)"
+else
+    fail "probe_once called curl $_p5_calls_actual times (expected 3 — retry loop broke early due to || echo '000' bug)"
+fi
+
+rm -rf "$_p5_dir"
 
 # ---------------------------------------------------------------------------
 # Summary

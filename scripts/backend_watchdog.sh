@@ -52,6 +52,9 @@ LOGFILE="${MYOS_WATCHDOG_LOGFILE:-/tmp/myos-backend-watchdog.log}"
 INTERVAL="${MYOS_WATCHDOG_INTERVAL:-30}"
 HEALTH_URL="${MYOS_WATCHDOG_HEALTH_URL:-https://127.0.0.1:8000/api/health}"
 MAX_RESTARTS="${MYOS_WATCHDOG_MAX_RESTARTS:-50}"
+# Seconds to sleep between retries inside probe_once (default 5; tests set to 0
+# so the inner retry loop completes in milliseconds instead of 10 seconds).
+PROBE_RETRY_SLEEP="${MYOS_WATCHDOG_PROBE_RETRY_SLEEP:-5}"
 
 # Port the backend listens on. The watchdog reads the matching pidfile
 # (/tmp/myos-backend-<port>.pid) to verify whether a backend process is
@@ -153,13 +156,28 @@ log() { echo "[$(ts)] watchdog: $*" >> "$LOGFILE"; }
 
 probe_once() {
     # Returns 0 if /api/health returns 200 within 5 seconds, else nonzero.
-    # Retries 3x with 5s sleep to survive TLS handshake warm-up after restart.
+    # Retries 3x with PROBE_RETRY_SLEEP between attempts to survive TLS
+    # handshake warm-up after restart.
+    #
+    # WHY || true instead of || echo "000":
+    # curl -w "%{http_code}" always writes "000" to stdout when no HTTP
+    # response is received (connection refused, timeout, TLS error). If we
+    # also append `|| echo "000"`, the captured value becomes "000000"
+    # (6 chars), which != "000", so the retry loop breaks immediately on the
+    # first failure — zero retries. With || true the exit status is suppressed
+    # without touching stdout, keeping code="000" so the loop retries.
+    #
+    # WHY --tls-max 1.2 is removed:
+    # The backend negotiates TLS 1.3 by default. Capping at TLS 1.2 forces an
+    # extra round-trip handshake; on a loaded system this can push the total
+    # transfer time over the 5 s -m limit. A direct probe without --tls-max 1.2
+    # reliably returns 200 in <1 s. Matching that flag set removes the skew.
     local code
     code="000"
     for _retry in 1 2 3; do
-        code=$(curl --silent --insecure --tlsv1.2 --tls-max 1.2 --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "$HEALTH_URL" 2>/dev/null || echo "000")
+        code=$(curl --silent --insecure --tlsv1.2 --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "$HEALTH_URL" 2>/dev/null) || true
         [ "$code" != "000" ] && break
-        [ "$_retry" -lt 3 ] && sleep 5
+        [ "$_retry" -lt 3 ] && sleep "$PROBE_RETRY_SLEEP"
     done
     [ "$code" = "200" ]
 }
