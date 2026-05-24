@@ -2122,6 +2122,20 @@ def _recover_stale_agents():
                 changed = True
                 continue
 
+        # Case 2c (→1678): universal PID-liveness guard for ALL sources.
+        # The Case 2b multi-signal check above only runs for source=="claude-code",
+        # so backend-managed spawns (ui/api/chat) fell straight through to Case 3
+        # and got marked abandoned even when their PID was still alive and working.
+        # That false-abandon is what triggers the respawn cascade: the auto-
+        # respawner re-launches "abandoned" agents, multiplying processes until
+        # the 500ms snapshot loop starves and the event loop wedges. If the PID
+        # is alive (even orphaned/reparented), keep the agent running and only
+        # flag a stale heartbeat — never abandon a live process.
+        if pid and _is_pid_alive(pid):
+            meta["stale_heartbeat"] = True
+            changed = True
+            continue
+
         # Case 3: backend-managed spawn (ui/api/chat) or stale claude-code
         # session with no liveness signals. Worker is dead. Mark abandoned so
         # the Active Sessions list does not show phantoms.
@@ -7998,6 +8012,20 @@ async def reconcile_agents():
             if age_seconds <= STALE_AGENT_AUTOCOMPLETE_SECONDS:
                 still_running += 1
                 continue
+
+        # →1678: raw PID-liveness guard. The in-memory proc handle can be lost
+        # after a backend restart even though the worker process is alive and
+        # working (reparented/orphaned). Same rationale as _recover_stale_agents
+        # Case 2c — never stop a live process on a lapsed handle/heartbeat.
+        _pid = meta.get("pid")
+        if _pid:
+            try:
+                if _is_pid_alive(int(_pid)):
+                    meta["stale_heartbeat"] = True
+                    still_running += 1
+                    continue
+            except (TypeError, ValueError):
+                pass
 
         # No live process, no recent heartbeat, no transcript activity.
         # Mark as stopped.
