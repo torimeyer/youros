@@ -222,6 +222,44 @@ def test_recovery_spares_agents_with_live_pid(tmp_path):
         "Agent with a live PID must stay running after recovery"
 
 
+def test_recovery_spares_api_agent_with_live_pid(tmp_path):
+    """→1678 regression: a backend-managed (source=api/ui/chat) agent with a
+    LIVE PID must NOT be marked abandoned, even when it is not a child of this
+    process (reparented/orphaned after a restart).
+
+    Before the fix, the PID-liveness / multi-signal check was gated behind
+    source=='claude-code', so api-source agents fell straight to 'abandoned'
+    despite a live PID. That false-abandon triggered the auto-respawn cascade
+    that wedged the backend (80+ procs, snapshot loop starved).
+    """
+    import routers.agents as agents_mod
+
+    now = datetime.now(timezone.utc).isoformat()
+    state_path = _make_state_path(tmp_path)
+
+    meta = {
+        "api-live-agent": {
+            "spawned_at": now,
+            "budget": "1.0",
+            "model": "claude-sonnet-4-6",
+            "source": "api",          # backend-managed spawn, NOT claude-code
+            "status": "running",
+            "pid": 99999,
+        }
+    }
+
+    with patch.object(agents_mod, "agent_metadata", meta), \
+         patch.object(agents_mod, "AGENT_STATE_PATH", state_path), \
+         patch.object(agents_mod, "_is_pid_alive", return_value=True), \
+         patch.object(agents_mod, "_is_pid_my_child", return_value=False):
+        agents_mod._recover_stale_agents()
+
+    assert meta["api-live-agent"]["status"] == "running", \
+        "api-source agent with a live PID must stay running (not abandoned)"
+    assert meta["api-live-agent"].get("stale_heartbeat") is True, \
+        "a kept-but-orphaned live agent should be flagged stale_heartbeat"
+
+
 # ---------------------------------------------------------------------------
 # Test: list endpoint shows abandoned agent as abandoned, not running
 # ---------------------------------------------------------------------------
