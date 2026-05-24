@@ -238,6 +238,21 @@ async def test_spawn_returns_queued_at_limit(monkeypatch):
 
     # Stub out subprocess exec so no real claude process starts.
     from routers import agents as agents_mod
+    import services.spawn_throttle as _spawn_throttle_mod
+
+    # Bypass the burst throttle: with burst_limit=3 and 5 concurrent spawns,
+    # spawns 4-5 would sleep ~30 s waiting for a slot.
+    async def _noop_throttle(agent_name=""):
+        return 0.0
+
+    monkeypatch.setattr(_spawn_throttle_mod, "acquire_spawn_slot", _noop_throttle)
+
+    # Stub _run_json so any list_tasks/list_docs path that reaches it returns
+    # an empty list instead of running a real subprocess or raising OstkError.
+    async def _noop_run_json(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(agents_mod.ostk, "_run_json", _noop_run_json)
 
     async def _noop_exec(*args, **kwargs):
         class _FakeStdin:
