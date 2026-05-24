@@ -97,6 +97,53 @@ describe('isUserSpawnedAgent (shared sidebar + Agents page filter)', () => {
     expect(isUserSpawnedAgent(agent)).toBe(false)
   })
 
+  it('excludes inferred-name agent with no task and no description (→1674/→1675)', () => {
+    // Pre-registration or leaked main-session row: inferred claude-code-XXXX name,
+    // no task, no description. The backend is_main_session already excludes these
+    // from running_count. The frontend must match or the badge shows 0 while Active
+    // Sessions shows 1 with a generic "Claude · Chat · time" label.
+    expect(
+      isUserSpawnedAgent({
+        name: 'claude-code-abcdef12',
+        source: 'claude-code',
+        model: 'sonnet',
+      }),
+    ).toBe(false)
+  })
+
+  it('includes inferred-name agent once it has a task (registered subagent)', () => {
+    // The same inferred-name agent becomes visible as soon as it registers with
+    // a human-readable task. This was the intent of d44dba6.
+    expect(
+      isUserSpawnedAgent({
+        name: 'claude-code-abcdef12',
+        source: 'claude-code',
+        model: 'sonnet',
+        task: 'Fix delete-all 403',
+      }),
+    ).toBe(true)
+  })
+
+  it('badge count matches Active Sessions count when inferred-name no-task agent exists (→1675)', () => {
+    // Integration guard: badge (running_count from backend WS) must equal
+    // Active Sessions visible count. Both now apply the same isMainSession fallback.
+    const agents = [
+      { name: 'real-1', status: 'running', source: 'claude-code', model: 'sonnet', task: 'Fix bug' },
+      // Pre-registration inferred agent — backend excludes it, frontend must too:
+      { name: 'claude-code-abcdef12', status: 'running', source: 'claude-code', model: 'sonnet' },
+    ]
+    const badgeCount = agents.filter(
+      (a) =>
+        (a.status === 'running' || a.status === 'spawned') &&
+        isUserSpawnedAgent(a),
+    ).length
+    const pageCount = agents
+      .filter(isUserSpawnedAgent)
+      .filter((a) => a.status === 'running' || a.status === 'spawned').length
+    expect(badgeCount).toBe(pageCount)
+    expect(badgeCount).toBe(1) // only real-1; claude-code-abcdef12 has no task
+  })
+
   it('integration: badge count equals user-spawned running count', () => {
     // Simulates the exact set the sidebar iterates over in Sidebar.tsx
     // (status === running|spawned && isUserSpawnedAgent). The badge count
@@ -189,5 +236,63 @@ describe('isAgentActive (Active tab visibility)', () => {
 
   it('hides terminated_stale with no heartbeat at all', () => {
     expect(isAgentActive({ status: 'terminated_stale' }, NOW)).toBe(false)
+  })
+})
+
+describe('isMainSession (frontend/backend parity, →1674/→1675)', () => {
+  it('identifies the main session by description prefix', () => {
+    expect(
+      isMainSession({
+        name: 'claude-code-abcdef12',
+        description: 'Claude Code session (cwd: /tmp)',
+      }),
+    ).toBe(true)
+  })
+
+  it('identifies Gemini sessions by description prefix', () => {
+    expect(
+      isMainSession({
+        name: 'gemini-cli-mcp-client-abcdef12',
+        description: 'Gemini session (cwd: /tmp)',
+      }),
+    ).toBe(true)
+  })
+
+  it('excludes named (non-inferred) agents regardless of description', () => {
+    expect(
+      isMainSession({
+        name: 'my-custom-agent',
+        description: 'Claude Code session (cwd: /tmp)',
+      }),
+    ).toBe(false)
+  })
+
+  it('treats inferred-name agent with no task and no description as main session (→1674/→1675)', () => {
+    // Backend is_main_session has the same fallback. Keeping them in sync prevents
+    // badge=0 while Active Sessions shows 1 with a generic "Claude · Chat · time" label.
+    expect(
+      isMainSession({
+        name: 'claude-code-abcdef12',
+      }),
+    ).toBe(true)
+  })
+
+  it('does NOT treat inferred-name agent with a task as main session', () => {
+    // Once the subagent registers a task, it is a real user-spawned agent.
+    expect(
+      isMainSession({
+        name: 'claude-code-abcdef12',
+        task: 'Fix delete-all 403',
+      }),
+    ).toBe(false)
+  })
+
+  it('does NOT treat inferred-name agent with a description as main session (unless prefix matches)', () => {
+    expect(
+      isMainSession({
+        name: 'claude-code-abcdef12',
+        description: 'Some custom description',
+      }),
+    ).toBe(false)
   })
 })

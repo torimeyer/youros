@@ -41,7 +41,14 @@ export function isMainSession(agent: { name: string; description?: string; sourc
   // The audit-log watcher or session hook stamps every main process with this prefix
   const desc = agent.description || ""
   const hasMainDesc = desc.startsWith("Claude Code session") || desc.startsWith("Gemini session")
-  return hasMainDesc
+  if (hasMainDesc) return true
+  // If it matches the inferred pattern but has NO task and NO user-friendly description,
+  // it is either the main session or a pre-registration subagent row that hasn't called
+  // /register yet. Exclude from user-spawned list until it registers with a human title.
+  // Mirrors the same fallback in services/agent_filters.py is_main_session so the badge
+  // count (backend running_count) and Active Sessions list (frontend filter) stay in sync.
+  if (!agent.task && !agent.description) return true
+  return false
 }
 
 export interface AgentInfo {
