@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 _DEFAULT_DATA_DIR = Path.home() / ".myos"
+DATA_DIR = _DEFAULT_DATA_DIR
 
 # Patterns for writers that indicate a model wrote the file during a chat turn.
 # The ostk kernel tags writes with "claude-code-NNNN" or "myos-api-NNNN".

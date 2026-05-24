@@ -67,6 +67,8 @@ class TestToolDefinitions:
             "create_tasks_from_spec",
             "build_tasks_from_file",
             "build_from_recent_tasks",
+            "chat_schedule_wakeup",
+            "chat_monitor",
         }
         assert expected == names
 

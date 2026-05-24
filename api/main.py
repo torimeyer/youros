@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 # GOOGLE_CLIENT_ID) are available when modules read them at import time.
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

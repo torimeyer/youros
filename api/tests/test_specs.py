@@ -76,12 +76,9 @@ async def test_create_draft_auto_promotes_when_ac_generation_succeeds(
             self.messages = FakeMessages()
 
     monkeypatch.setattr(
-        "services.chat_providers._resolve_api_key",
-        AsyncMock(return_value="fake-key"),
+        "services.ai_backend.get_ai_client",
+        AsyncMock(return_value=FakeClient()),
     )
-    import anthropic
-
-    monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeClient)
 
     resp = await client.post(
         "/api/specs/draft", json={"title": "wave2 autopromote", "kind": "spec"}
@@ -129,7 +126,7 @@ async def test_create_draft_leaves_as_draft_when_ac_generation_fails(
 
     # No API key -> the route skips the AI branch entirely.
     monkeypatch.setattr(
-        "services.chat_providers._resolve_api_key",
+        "services.ai_backend.get_ai_client",
         AsyncMock(return_value=None),
     )
 
@@ -181,10 +178,10 @@ async def test_create_draft_no_api_key_writes_placeholder_not_stuck(
 
     monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)
 
-    # Subscription auth: _resolve_api_key returns empty string (not None).
+    # Subscription auth: get_ai_client returns None (no API key available).
     monkeypatch.setattr(
-        "services.chat_providers._resolve_api_key",
-        AsyncMock(return_value=""),
+        "services.ai_backend.get_ai_client",
+        AsyncMock(return_value=None),
     )
 
     resp = await client.post(
@@ -621,12 +618,9 @@ async def test_from_roadmap_line_creates_ready_plan(
             self.messages = FakeMessages()
 
     monkeypatch.setattr(
-        "services.chat_providers._resolve_api_key",
-        AsyncMock(return_value="fake-key"),
+        "services.ai_backend.get_ai_client",
+        AsyncMock(return_value=FakeClient()),
     )
-    import anthropic
-
-    monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeClient)
 
     resp = await client.post(
         "/api/specs/from-roadmap-line",
@@ -1366,12 +1360,9 @@ async def test_from_roadmap_line_p95_under_demo_budget(
             self.messages = FakeMessages()
 
     monkeypatch.setattr(
-        "services.chat_providers._resolve_api_key",
-        AsyncMock(return_value="fake-key"),
+        "services.ai_backend.get_ai_client",
+        AsyncMock(return_value=FakeClient()),
     )
-    import anthropic
-
-    monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeClient)
 
     subjects = [
         "Improve direct LLM integration with myOS",
@@ -3428,8 +3419,8 @@ async def test_draft_create_injects_canonical_template(client, tmp_path, monkeyp
 
     monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)
     monkeypatch.setattr(
-        "services.chat_providers._resolve_api_key",
-        AsyncMock(return_value=""),
+        "services.ai_backend.get_ai_client",
+        AsyncMock(return_value=None),
     )
 
     resp = await client.post(

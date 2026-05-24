@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 _PARKED_FILE = Path.home() / ".myos" / "parked_tasks.json"
+PARKED_TASKS_PATH = _PARKED_FILE
 
 # Context vars set by agent_anthropic before each tool-execution batch.
 # asyncio.gather inherits these from the task that called gather, so all

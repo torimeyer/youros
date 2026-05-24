@@ -12,7 +12,7 @@ client = TestClient(app)
 # --------------- wizard/suggest ---------------
 
 def test_suggest_returns_shape():
-    with patch("services.chat_providers._resolve_api_key", new_callable=AsyncMock, return_value=None):
+    with patch("services.ai_backend.get_ai_client", new_callable=AsyncMock, return_value=None):
         resp = client.post("/api/specs/wizard/suggest", json={
             "problem": "Users can't find their tasks after meetings"
         })
@@ -47,8 +47,7 @@ def test_suggest_with_ai():
     mock_client = AsyncMock()
     mock_client.messages.create = AsyncMock(return_value=mock_response)
 
-    with patch("services.chat_providers._resolve_api_key", new_callable=AsyncMock, return_value="sk-test"), \
-         patch("anthropic.AsyncAnthropic", return_value=mock_client):
+    with patch("services.ai_backend.get_ai_client", new_callable=AsyncMock, return_value=mock_client):
         resp = client.post("/api/specs/wizard/suggest", json={
             "problem": "Users forget which tasks relate to their upcoming meetings",
             "in_scope": ["Calendar page", "Task matching"],
@@ -61,7 +60,7 @@ def test_suggest_with_ai():
 
 
 def test_suggest_ai_failure_returns_empty():
-    with patch("services.chat_providers._resolve_api_key", new_callable=AsyncMock, side_effect=Exception("boom")):
+    with patch("services.ai_backend.get_ai_client", new_callable=AsyncMock, side_effect=Exception("boom")):
         resp = client.post("/api/specs/wizard/suggest", json={
             "problem": "Something breaks"
         })
@@ -72,7 +71,7 @@ def test_suggest_ai_failure_returns_empty():
 
 
 def test_suggest_with_scope_hint():
-    with patch("services.chat_providers._resolve_api_key", new_callable=AsyncMock, return_value=None):
+    with patch("services.ai_backend.get_ai_client", new_callable=AsyncMock, return_value=None):
         resp = client.post("/api/specs/wizard/suggest", json={
             "problem": "Need better search",
             "in_scope": ["Full-text search", "Fuzzy matching"],
@@ -238,7 +237,7 @@ def test_draft_needle_default():
 def test_draft_spec_opt_in():
     """POST /specs/draft with kind='spec' still follows the old spec pipeline."""
     with patch("services.ostk.ostk.doc_draft", new_callable=AsyncMock, return_value="docs/draft/opt-in.md"), \
-         patch("services.chat_providers._resolve_api_key", new_callable=AsyncMock, return_value=None), \
+         patch("services.ai_backend.get_ai_client", new_callable=AsyncMock, return_value=None), \
          patch("pathlib.Path.exists", return_value=True), \
          patch("pathlib.Path.is_relative_to", return_value=True), \
          patch("pathlib.Path.read_text", return_value="---\ntitle: opt-in\n---\n"), \
