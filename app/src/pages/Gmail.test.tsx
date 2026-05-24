@@ -277,6 +277,50 @@ describe('Gmail page inbox rendering', () => {
     // The badge is a sibling span with the unread count.
     expect(header!.textContent).toContain('2')
   })
+
+  it('defaults to unread-first: an unread message sorts above a newer read one (→1387/→1672)', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/gmail/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/gmail/messages')) {
+        return Promise.resolve({
+          messages: [
+            {
+              id: 'rNew', thread_id: 't1', subject: 'Read newest',
+              from_name: 'R', from_email: 'r@example.com', snippet: 's',
+              date: '2026-04-10T10:00:00+00:00', is_unread: false,
+            },
+            {
+              id: 'uOld', thread_id: 't2', subject: 'Unread older',
+              from_name: 'U', from_email: 'u@example.com', snippet: 's',
+              date: '2026-04-08T10:00:00+00:00', is_unread: true,
+            },
+          ],
+        })
+      }
+      if (path.includes('/gmail/send_capability')) {
+        return Promise.resolve({ has_send_scope: true, reauth_url: null })
+      }
+      return Promise.resolve({})
+    })
+
+    renderGmail()
+
+    await waitFor(() => {
+      expect(screen.getByText('Unread older')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Read newest')).toBeInTheDocument()
+
+    // By default (unread-at-top ON), the unread message must render BEFORE the
+    // newer read one — proving the toggle is on by default AND the sort is
+    // applied to the rendered list, not just computed. This is the →1672
+    // report ("toggle does nothing / should default on"): the feature shipped
+    // under →1387 and this guards it.
+    const unread = screen.getByText('Unread older')
+    const read = screen.getByText('Read newest')
+    expect(
+      unread.compareDocumentPosition(read) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
 })
 
 
