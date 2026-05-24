@@ -93,9 +93,11 @@ echo "$_fake_pid" > "$_be_pidfile"
 #   PYSPY_TIMEOUT=1
 _threshold_under_test=4
 # Each watchdog cycle takes ~21s (INTERVAL=1 + 3×sleep5 + sleep5-at-end) with
-# PROBE_RETRY_SLEEP=0. Budget (threshold-1) full cycles plus margin, staying
-# strictly below threshold cycles so SIGKILL cannot fire before we check.
-_run_for=$(((_threshold_under_test - 1) * 25 + 5))
+# PROBE_RETRY_SLEEP=0. SIGKILL fires at the END of cycle threshold, which is
+# at (threshold-1)*21 + 16 = 79s for threshold=4. Budget must land in
+# [(threshold-1)*21, (threshold-1)*21+16) = [63s, 79s).
+# Using (threshold-1)*21 + 8 = 71s gives a safe 8s margin on both sides.
+_run_for=$(((_threshold_under_test - 1) * 21 + 8))
 MYOS_WATCHDOG_PIDFILE="$_wd_pidfile" \
 MYOS_WATCHDOG_LOGFILE="$_wd_logfile" \
 MYOS_WATCHDOG_BACKEND_PORT="$_be_port" \
