@@ -118,10 +118,12 @@ def _make_agentfile_text(template: dict) -> str:
 
 
 def _seed_marketplace_agentfiles() -> None:
-    """Write an agentfile for each marketplace template if not already present.
+    """Write or reconcile an agentfile for each marketplace template.
 
-    Called once at module import. Idempotent: skips any file that already exists
-    so hand-edited files are never overwritten.
+    Called once at module import. Skips files whose content already matches
+    what the store would generate (→1681). Overwrites when the store's
+    prompt_template has changed so code updates propagate without requiring
+    a fresh install or manual file deletion.
     """
     MARKETPLACE_AGENTS_DIR.mkdir(parents=True, exist_ok=True)
     for t in BUILTIN_AGENT_TEMPLATES:
@@ -129,11 +131,17 @@ def _seed_marketplace_agentfiles() -> None:
             continue
         stem = _name_to_stem(t["name"])
         path = MARKETPLACE_AGENTS_DIR / f"{stem}.agent"
-        if not path.exists():
+        new_text = _make_agentfile_text(t)
+        if path.exists():
             try:
-                path.write_text(_make_agentfile_text(t))
+                if path.read_text() == new_text:
+                    continue  # Already in sync
             except OSError:
-                pass  # Non-fatal: capabilities will be None for this template
+                pass  # Unreadable — fall through to overwrite
+        try:
+            path.write_text(new_text)
+        except OSError:
+            pass  # Non-fatal: capabilities will be None for this template
 
 
 def _load_agentfile_capabilities(source: str, name: str) -> Optional[dict]:
