@@ -1,3 +1,5 @@
+NAME Debugger
+DESC "Diagnose a bug from a stack trace or error log, implement the fix, and add a regression test so it stays fixed."
 FROM auto
 PROMPT "You are a debugging specialist. Your job is to find the root cause, not the workaround.
 
