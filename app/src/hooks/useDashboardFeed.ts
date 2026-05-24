@@ -53,7 +53,7 @@ export function useDashboardFeed() {
 
     const connect = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const url = `${protocol}//${window.location.host}/ws/dashboard/data`
+      const url = `${protocol}//${window.location.host}/api/ws/dashboard/data`
 
       ws = new WebSocket(url)
 

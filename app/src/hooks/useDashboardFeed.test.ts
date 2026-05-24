@@ -48,6 +48,12 @@ describe('useDashboardFeed polling', () => {
     vi.restoreAllMocks()
   })
 
+  it('connects to the /api-prefixed websocket path', () => {
+    renderHook(() => useDashboardFeed())
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    expect(ws.url).toContain('/api/ws/dashboard/data')
+  })
+
   it('does not poll while WebSocket is open', async () => {
     const { unmount } = renderHook(() => useDashboardFeed())
     const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]

@@ -35,7 +35,7 @@ describe('useVictoryFanfare', () => {
     const { useVictoryFanfare } = await import('./useVictoryFanfare')
     renderHook(() => useVictoryFanfare(mockPlay))
     const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
-    expect(ws.url).toContain('/ws/notifications')
+    expect(ws.url).toContain('/api/ws/notifications')
 
     await act(async () => {
       ws.triggerMessage({ type: 'needle_closed', task_id: '→1234' })

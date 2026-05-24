@@ -52,7 +52,7 @@ export function useCalendarFeed() {
 
     const connect = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const url = `${protocol}//${window.location.host}/ws/calendar/events`
+      const url = `${protocol}//${window.location.host}/api/ws/calendar/events`
 
       ws = new WebSocket(url)
 

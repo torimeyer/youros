@@ -34,7 +34,7 @@ export function playFanfare(): void {
 export function useVictoryFanfare(play = playFanfare): void {
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${protocol}//${window.location.host}/ws/notifications`
+    const url = `${protocol}//${window.location.host}/api/ws/notifications`
     let ws: WebSocket | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let cancelled = false

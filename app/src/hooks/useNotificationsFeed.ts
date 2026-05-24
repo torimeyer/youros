@@ -55,7 +55,7 @@ export function useNotificationsFeed() {
 
     const connect = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const url = `${protocol}//${window.location.host}/ws/notifications`
+      const url = `${protocol}//${window.location.host}/api/ws/notifications`
 
       ws = new WebSocket(url)
 
