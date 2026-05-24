@@ -617,7 +617,8 @@ async def test_promote_endpoint(client):
     draft_path = draft_dir / "test-promote-endpoint-tmp.md"
     spec_path = USER_SPECS_DIR / "test-promote-endpoint-tmp.md"
     draft_path.write_text(
-        "---\ntitle: Promote Test\nstatus: draft\n---\n# Promote Test\n\n- [ ] AC item\n"
+        "---\ntitle: Promote Test\nstatus: draft\n---\n# Promote Test\n\n"
+        "See api/services/receipts_gate.py for implementation.\n\n- [ ] AC item\n"
     )
     try:
         resp = await client.post(
@@ -653,8 +654,8 @@ async def test_promote_error_no_criteria(client):
             "/api/specs/promote",
             json={"path": "docs/draft/test-promote-no-ac-tmp.md"},
         )
-        assert resp.status_code == 400
-        assert "checkbox" in resp.json()["detail"]
+        assert resp.status_code == 422
+        assert resp.json()["detail"]["error"] == "needs_clarity"
     finally:
         draft_path.unlink(missing_ok=True)
 
@@ -839,7 +840,8 @@ async def test_spec_build_spawns_agent_per_open_task(client):
     }
     with patch("routers.specs.ostk") as mock_ostk, \
          patch("routers.agents.spawn_agent", new_callable=AsyncMock) as mock_spawn, \
-         patch("routers.specs.Path.exists", return_value=True):
+         patch("routers.specs.Path.exists", return_value=True), \
+         patch("routers.specs.Path.read_text", return_value="# Plan\n\n- [ ] item\n"):
         mock_ostk.spec_build = AsyncMock(return_value=mock_result)
         resp = await client.post("/api/specs/docs/spec/plan.md/build")
 
@@ -877,7 +879,8 @@ async def test_spec_build_returns_agent_names(client):
     }
     with patch("routers.specs.ostk") as mock_ostk, \
          patch("routers.agents.spawn_agent", new_callable=AsyncMock), \
-         patch("routers.specs.Path.exists", return_value=True):
+         patch("routers.specs.Path.exists", return_value=True), \
+         patch("routers.specs.Path.read_text", return_value="# Plan\n\n- [ ] item\n"):
         mock_ostk.spec_build = AsyncMock(return_value=mock_result)
         resp = await client.post("/api/specs/docs/spec/plan.md/build")
 
@@ -899,7 +902,8 @@ async def test_spec_build_is_idempotent_when_no_open_tasks(client):
     """
     with patch("routers.specs.ostk") as mock_ostk, \
          patch("routers.agents.spawn_agent", new_callable=AsyncMock) as mock_spawn, \
-         patch("routers.specs.Path.exists", return_value=True):
+         patch("routers.specs.Path.exists", return_value=True), \
+         patch("routers.specs.Path.read_text", return_value="# Plan\n\n- [ ] item\n"):
         mock_ostk.spec_build = AsyncMock(return_value={"agents": []})
         # Wave 2: build now tries a decompose when there are no tasks.
         mock_ostk.doc_decompose = AsyncMock(return_value={"result": "ok", "task_ids": []})
@@ -967,7 +971,8 @@ async def test_promote_compat_endpoint(client):
     draft_path = draft_dir / "test-compat-promote-tmp.md"
     spec_path = USER_SPECS_DIR / "test-compat-promote-tmp.md"
     draft_path.write_text(
-        "---\ntitle: Compat Promote Test\nstatus: draft\n---\n# Compat Test\n\n- [ ] AC item\n"
+        "---\ntitle: Compat Promote Test\nstatus: draft\n---\n# Compat Test\n\n"
+        "See api/services/receipts_gate.py for implementation.\n\n- [ ] AC item\n"
     )
     try:
         resp = await client.post(
@@ -1086,8 +1091,7 @@ async def test_create_draft_appends_ac_to_file(client, tmp_path):
 
     with (
         patch("routers.specs.ostk") as mock_ostk,
-        patch("services.chat_providers._resolve_api_key", new_callable=AsyncMock, return_value="sk-test"),
-        patch("anthropic.AsyncAnthropic") as mock_client_cls,
+        patch("services.ai_backend.get_ai_client", new_callable=AsyncMock) as mock_get_ai_client,
     ):
         mock_ostk.doc_draft = AsyncMock(return_value=draft_path)
         # Wave 2: once AC is written, the route auto-promotes so the
@@ -1097,9 +1101,10 @@ async def test_create_draft_appends_ac_to_file(client, tmp_path):
         )
         mock_ostk.cwd = str(tmp_path)
 
-        mock_anthropic = mock_client_cls.return_value
-        mock_anthropic.messages = type("M", (), {})()
-        mock_anthropic.messages.create = AsyncMock(return_value=mock_message)
+        fake_client = type("FakeClient", (), {})()
+        fake_client.messages = type("FakeMsgs", (), {})()
+        fake_client.messages.create = AsyncMock(return_value=mock_message)
+        mock_get_ai_client.return_value = fake_client
 
         resp = await client.post("/api/specs/draft", json={"title": "my feature", "kind": "spec"})
 
@@ -1161,6 +1166,7 @@ async def test_spec_tasks_includes_assigned_agent_after_build(client):
         patch("routers.specs.ostk") as mock_ostk,
         patch("routers.agents.spawn_agent", new_callable=AsyncMock),
         patch("routers.specs.Path.exists", return_value=True),
+        patch("routers.specs.Path.read_text", return_value="# Plan\n\n- [ ] item\n"),
     ):
         mock_ostk.spec_build = AsyncMock(return_value=build_result)
         mock_ostk.spec_tasks = AsyncMock(return_value=tasks_result)

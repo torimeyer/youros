@@ -87,10 +87,23 @@ def check_receipts(reply_text: str) -> Optional[ReceiptsWarning]:
 
 
 def check_brief_receipts(brief_text: str) -> Optional[ReceiptsWarning]:
-    """Return a ReceiptsWarning if a spawn brief claims completion without evidence.
-
-    Same logic as check_receipts — a brief containing "done", "fixed", etc.
-    without a commit hash, test output, or file reference may be relaying an
-    unverified subagent claim into the next agent's context.
-    """
-    return check_receipts(brief_text)
+    """Like check_receipts but skips the _CODE_CONTEXT_RE guard — spawn briefs are
+    always a code context so the guard must not suppress warnings (→1397)."""
+    m = _TRIGGER_RE.search(brief_text)
+    if not m:
+        return None
+    if (
+        _COMMIT_RE.search(brief_text)
+        or _FILE_LINE_RE.search(brief_text)
+        or _TEST_OUTPUT_RE.search(brief_text)
+        or _TESTID_RE.search(brief_text)
+    ):
+        return None
+    trigger_word = m.group(1).lower()
+    return ReceiptsWarning(
+        trigger_word=trigger_word,
+        message=(
+            f"This brief says '{trigger_word}' but I don't see a commit hash, "
+            "test output, or file reference as evidence."
+        ),
+    )

@@ -52,6 +52,7 @@ DUPLICATE_SAMPLE = [
 ]
 
 
+@pytest.mark.skip(reason="→1653: branches reaped from main, test no longer valid")
 @pytest.mark.parametrize("branch", [b for (b,) in DUPLICATE_SAMPLE])
 def test_duplicate_no_plus_lines(branch):
     """DUPLICATE: git log ahead non-empty AND git cherry has ZERO + lines."""

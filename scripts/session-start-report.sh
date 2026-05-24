@@ -66,7 +66,7 @@ if [ -d "$WORKTREE_BASE" ]; then
 fi
 
 # ---- 4. Today's handoff file ----
-TODAY=$(date +%Y-%m-%d 2>/dev/null || echo "")
+TODAY=$(date +%Y-%m-%d || echo "")
 HANDOFF_FILE=""
 if [ -n "$TODAY" ]; then
     for f in "$HOME/.claude/handoffs/${TODAY}"*.md; do

@@ -51,7 +51,13 @@ STORE_PATH_CONSTANTS = {
     "services.gemini_captures_store": "GEMINI_CAPTURES_PATH",
     "services.gem_chat_history_store": "GEM_CHAT_HISTORY_DIR",
     "services.user_memory_store": "_MEMORY_PATH",
+    "services.parked_tasks_store": "PARKED_TASKS_PATH",
+    "services.turn_audit_store": "DATA_DIR",
 }
+
+_IN_MEMORY_STORES = frozenset({
+    "services.plan_mode_store",
+})
 
 
 @pytest.mark.parametrize("module_name,const_name", list(STORE_PATH_CONSTANTS.items()))
@@ -89,7 +95,7 @@ def test_every_services_store_module_is_covered():
         for p in services_dir.glob("*_store.py")
     )
     covered = sorted(STORE_PATH_CONSTANTS.keys())
-    missing = set(found_stores) - set(covered)
+    missing = set(found_stores) - set(covered) - _IN_MEMORY_STORES
     assert not missing, (
         f"New store modules are not covered by the data-safety check: {sorted(missing)}. "
         f"Add them to STORE_PATH_CONSTANTS in {__file__} with the name of the "

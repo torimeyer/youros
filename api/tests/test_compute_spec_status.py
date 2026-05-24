@@ -275,3 +275,73 @@ async def test_build_endpoint_records_source_build_claim(
     # Cleanup
     specs_router._spec_claims.pop("docs/spec/build-claim-spec.md", None)
     specs_router._task_assignments.pop("501", None)
+
+
+# ---------------------------------------------------------------------------
+# Integration test: GET /api/specs must honour _spec_claims (FR-012 / →1662)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_list_specs_active_claim_overrides_ready_status(client, monkeypatch):
+    """RED (→1662): GET /api/specs must show 'in-progress' when a claim is active.
+
+    list_docs() calls compute_spec_status without claims, so a spec with
+    an active terminal-agent claim but no tasks returns 'ready'. After the
+    fix, list_specs re-applies compute_spec_status with _spec_claims and
+    the status becomes 'in-progress'.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+    from unittest.mock import AsyncMock
+
+    spec_path = "docs/spec/claim-override-test.md"
+
+    # Stub list_docs to return a promoted spec with no tasks and status
+    # already computed as 'ready' (which is what list_docs returns today,
+    # because it ignores _spec_claims when calling compute_spec_status).
+    fake_doc = {
+        "path": spec_path,
+        "title": "Claim Override Test",
+        "status": "ready",
+        "task_ids": [],
+        "task_summary": {"total": 0, "open": 0, "closed": 0},
+        "acceptance_criteria": [],
+        "promoted_at": "2026-05-01T00:00:00+00:00",
+        "created_at": "2026-05-01T00:00:00+00:00",
+        "updated_at_ms": 0,
+        "stage": "spec",
+        "husk": False,
+        "missing_files": [],
+        "open_linked_needles": [],
+        "is_user_local": False,
+    }
+    monkeypatch.setattr(
+        ostk_module.ostk, "list_docs", AsyncMock(return_value=[fake_doc])
+    )
+
+    # Inject an active claim for this spec into the router's registry
+    specs_router._spec_claims[spec_path] = [
+        {
+            "agent": "gemini-terminal",
+            "source": "agent",
+            "started_at": "2026-05-23T10:00:00+00:00",
+            "task_ids": [],
+        }
+    ]
+
+    try:
+        resp = await client.get("/api/specs")
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        data = resp.json()
+        matching = [d for d in data["docs"] if d.get("path") == spec_path]
+        assert matching, (
+            f"Spec {spec_path!r} not found in response; "
+            f"paths={[d.get('path') for d in data['docs']]}"
+        )
+        doc = matching[0]
+        assert doc["status"] == "in-progress", (
+            f"Spec with active claim must show 'in-progress', got {doc['status']!r}. "
+            "list_specs must re-apply compute_spec_status with _spec_claims."
+        )
+    finally:
+        specs_router._spec_claims.pop(spec_path, None)

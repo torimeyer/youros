@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -6,6 +7,7 @@ from dotenv import load_dotenv
 # GOOGLE_CLIENT_ID) are available when modules read them at import time.
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -69,7 +71,7 @@ async def lifespan(app: FastAPI):
     await schedule_spec_commit_scanner()
     await install_signal_shutdown_hook()
     from services.ostk import start_clock_refresher
-    await start_clock_refresher()
+    _keep(await start_clock_refresher())
     yield
     await notify_chat_clients_on_shutdown()
     # →1569: cancel background tasks started via _keep() so async tests using

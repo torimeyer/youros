@@ -267,6 +267,7 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
                 "title: e2e http journey\n"
                 "status: draft\n"
                 "---\n\n"
+                "See api/services/receipts_gate.py for implementation.\n\n"
                 "- [ ] One\n"
                 "- [ ] Two\n"
             )
@@ -277,9 +278,9 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
 
     monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)
 
-    # Also stub the anthropic call in the draft route so no network hits.
+    # Stub the AI call so no real subprocess is spawned.
     monkeypatch.setattr(
-        "services.chat_providers._resolve_api_key",
+        "services.ai_backend.get_ai_client",
         AsyncMock(return_value=None),
     )
 

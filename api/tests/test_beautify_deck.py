@@ -71,8 +71,8 @@ async def test_beautify_happy_path(client):
         _make_pptx(pptx_path, slide_count=2)
 
         with patch("routers.projects.TORIOS_DIR", tmppath), patch(
-            "routers.beautify._resolve_api_key", AsyncMock(return_value="sk-test")
-        ), patch("anthropic.AsyncAnthropic", _FakeClient), patch.dict(
+            "services.ai_backend.get_ai_client", AsyncMock(return_value=_FakeClient())
+        ), patch.dict(
             "routers.beautify._cache", {}, clear=True
         ):
             resp = await client.post(
@@ -151,8 +151,8 @@ async def test_beautify_cache_uses_mtime(client):
         # The same fake instance is used on both calls because we patch the
         # class to always return it.
         with patch("routers.projects.TORIOS_DIR", tmppath), patch(
-            "routers.beautify._resolve_api_key", AsyncMock(return_value="sk-test")
-        ), patch("anthropic.AsyncAnthropic", return_value=fake_client), patch.dict(
+            "services.ai_backend.get_ai_client", AsyncMock(return_value=fake_client)
+        ), patch.dict(
             "routers.beautify._cache", {}, clear=True
         ):
             resp1 = await client.post(
@@ -193,7 +193,7 @@ async def test_beautify_requires_api_key(client):
         _make_pptx(pptx_path, slide_count=1)
 
         with patch("routers.projects.TORIOS_DIR", tmppath), patch(
-            "routers.beautify._resolve_api_key", AsyncMock(return_value="")
+            "services.ai_backend.get_ai_client", AsyncMock(return_value=None)
         ), patch.dict("routers.beautify._cache", {}, clear=True):
             resp = await client.post(
                 "/api/files/beautify-deck", json={"path": "deck.pptx"}

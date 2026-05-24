@@ -3573,15 +3573,16 @@ def get_cached_clock() -> dict:
     return dict(_clock_cache)
 
 
-async def start_clock_refresher(interval_seconds: int = 30) -> None:
+async def start_clock_refresher(interval_seconds: int = 30):
     """Start a single background task that keeps _clock_cache fresh.
 
     Idempotent: a second call while the task is alive is a no-op.
     On any exception the previous cached value is kept and the loop retries.
+    Returns the task (new or existing) so callers can register it for cleanup.
     """
     global _clock_cache_task
     if _clock_cache_task is not None and not _clock_cache_task.done():
-        return
+        return None
 
     async def _refresh_loop() -> None:
         while True:
@@ -3594,3 +3595,4 @@ async def start_clock_refresher(interval_seconds: int = 30) -> None:
             await asyncio.sleep(interval_seconds)
 
     _clock_cache_task = asyncio.create_task(_refresh_loop())
+    return _clock_cache_task

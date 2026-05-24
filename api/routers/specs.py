@@ -377,6 +377,31 @@ async def list_specs(clear_to_build: Optional[bool] = None):
     try:
         docs = await ostk.list_docs()
         docs = [d for d in docs if d.get("status") != "plan"]
+
+        # Re-apply compute_spec_status with active claims from _spec_claims.
+        # list_docs() calls compute_spec_status without claims so its returned
+        # status ignores terminal-agent activity.  We correct that here by
+        # re-running it for any doc that has registered claims.
+        for _d in docs:
+            _path = _d.get("path", "")
+            if not _path:
+                continue
+            _claims = _spec_claims.get(_path, [])
+            if not _claims:
+                continue
+            _raw_ids = _d.get("task_ids", [])
+            _norm_ids = [ostk._normalize_task_id(t) for t in _raw_ids]
+            _summary = _d.get("task_summary", {})
+            _n_open = _summary.get("open", len(_norm_ids))
+            _task_map = (
+                {tid: "closed" for tid in _norm_ids}
+                if _norm_ids and _n_open == 0
+                else {}
+            )
+            _d["status"] = ostk.compute_spec_status(
+                _d["status"], _norm_ids, _task_map, claims=_claims
+            )
+
         # Umbrella / leaf hierarchy enrichment
         for d in docs:
             d.update(_read_umbrella_fields(d.get("path", "")))
