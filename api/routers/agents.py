@@ -3710,7 +3710,12 @@ async def _compute_agents_snapshot_async() -> dict:
     # 2b. Persisted metadata (agents from previous server sessions).
     persisted_pass_changed = False
     _meta_i = 0
-    for name, meta in agent_metadata.items():
+    # →1660: materialize items() before iterating. This loop awaits
+    # (asyncio.sleep(0)) partway through, which yields to the event loop;
+    # a concurrent agent register/heartbeat then mutates agent_metadata and
+    # the resumed iteration raises "dictionary changed size during iteration",
+    # which starves the snapshot loop and wedges /api/agents under load.
+    for name, meta in list(agent_metadata.items()):
         _meta_i += 1
         if _meta_i % 10 == 0:
             await asyncio.sleep(0)
