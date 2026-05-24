@@ -12,6 +12,7 @@ __pycache__/
 .claude/*
 !.claude/hooks/
 !.claude/settings.json
+!.claude/skills/
 .claude/hooks/*.log
 .claude/hooks/*.log.old
 .claude/settings.local.json
