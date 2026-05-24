@@ -110,6 +110,12 @@ def _make_agentfile_text(template: dict) -> str:
     cfg.tools = list(_DEFAULT_TOOLS)
     cfg.limits = LimitPolicy(tokens=_DEFAULT_TOKEN_LIMIT, test_coverage=0)
     cfg.token_limit = _DEFAULT_TOKEN_LIMIT
+    # Propagate quick_mode from the store template so the regenerated
+    # agentfile keeps ``LIMIT quick_mode true``. Without this, the →1681
+    # seeder reconcile silently drops the flag — it was only ever set in the
+    # hand-written agentfile (8b5dc30), never in the store — which slows the
+    # first-byte latency on spawn (full mailbox block instead of the short one).
+    cfg.quick_mode = bool(template.get("quick_mode", False))
     # Store sandbox as isolation field.  Use "nono" for read sandbox (light),
     # "none" for write (custom templates user created, trusted).
     cfg.isolation = "nono" if sandbox == "read" else "none"
@@ -627,6 +633,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         ),
         "model": "sonnet",
         "budget": 3.0,
+        # quick_mode → the seeder writes ``LIMIT quick_mode true`` into the
+        # regenerated agentfile so the spawn path uses the short mailbox block
+        # and first-byte latency stays in the few-seconds demo budget.
+        "quick_mode": True,
         "source": "marketplace",
         "personas": ["pm"],
         "installed": False,

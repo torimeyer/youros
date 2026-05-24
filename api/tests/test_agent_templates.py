@@ -348,24 +348,35 @@ def test_marketplace_seed_writes_agentfiles_on_first_load(tmp_path, monkeypatch)
 
 
 def test_marketplace_seed_is_idempotent(tmp_path, monkeypatch):
-    """Running _seed_marketplace_agentfiles twice does not overwrite existing files."""
+    """Seeding converges to the store's canonical content (→1681).
+
+    Two contracts:
+      * No-op when in sync: re-seeding an unchanged tree leaves content alone.
+      * Reconcile-on-drift: a hand-edited (drifted) marketplace agentfile is
+        restored to the store-generated content on the next seed. Marketplace
+        builtins are store-managed and the seeder overwrites drift so store
+        prompt updates propagate without a manual delete; user customizations
+        belong in custom agents, not marketplace builtins.
+    """
     import services.agent_templates_store as mod
 
     fake_mkt_dir = tmp_path / "marketplace"
     monkeypatch.setattr(mod, "MARKETPLACE_AGENTS_DIR", fake_mkt_dir)
 
     mod._seed_marketplace_agentfiles()
-    files_after_first = {f.name: f.read_text() for f in fake_mkt_dir.glob("*.agent")}
-
-    # Modify a file.
     first_file = next(fake_mkt_dir.glob("*.agent"))
-    first_file.write_text("# hand-edited\nFROM opus\nPROMPT \"custom\"\n")
+    canonical = first_file.read_text()
 
+    # No-op when already in sync: re-seeding does not change content.
     mod._seed_marketplace_agentfiles()
-    files_after_second = {f.name: f.read_text() for f in fake_mkt_dir.glob("*.agent")}
+    assert first_file.read_text() == canonical
 
-    # The hand-edited file must NOT be overwritten.
-    assert files_after_second[first_file.name] == "# hand-edited\nFROM opus\nPROMPT \"custom\"\n"
+    # Drift: hand-edit the file, then re-seed.
+    first_file.write_text("# hand-edited\nFROM opus\nPROMPT \"custom\"\n")
+    mod._seed_marketplace_agentfiles()
+
+    # Reconcile: the drifted file is restored to the store's canonical content.
+    assert first_file.read_text() == canonical
 
 
 def test_custom_template_create_writes_agentfile_to_user_dir(tmp_path, monkeypatch):

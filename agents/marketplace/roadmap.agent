@@ -6,4 +6,5 @@ TOOL shell
 TOOL file:read
 LIMIT tokens 100000
 LIMIT test_coverage 0
+LIMIT quick_mode true
 ISOLATION nono
