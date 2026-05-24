@@ -2260,12 +2260,100 @@ def test_marketplace_listing_count_for_fresh_store(store):
 
     Research, Review, and Test are marketplace-sourced but installed=True by
     default, so they are excluded. The 4 builtin-source templates (Builder,
-    Diagnose, Brainstorm, Explain Plain) are also excluded. This leaves 33
-    templates visible in the marketplace for a brand-new user (31 prior + 2
-    engineer templates: Test Engineer and Debugger added in →1106).
+    Diagnose, Brainstorm, Explain Plain) are also excluded, as are the three
+    "For everyone" builtins (Summarizer, Daily Planner, Email Drafter). This
+    leaves 31 templates: Test Engineer and Debugger (→1106) were merged into
+    Write Tests and Diagnose respectively.
     """
     marketplace = store.list_marketplace()
-    assert len(marketplace) == 33, (
-        f"Expected 33 marketplace templates for a fresh store, got {len(marketplace)}. "
+    assert len(marketplace) == 31, (
+        f"Expected 31 marketplace templates for a fresh store, got {len(marketplace)}. "
         f"Names: {sorted(t['name'] for t in marketplace)}"
     )
+
+
+# ---------- Generic-user template review (make templates make sense for any user) ----------
+
+import re as _re_generic
+
+
+def test_no_builtin_prompt_uses_chip_ui_jargon():
+    """Built-in prompts must not leak the internal 'chip' UI term.
+
+    When an agent is invoked, its prompt should read 'the tone you selected',
+    never 'the tone chip' — 'chip' is internal UI wording that is meaningless
+    to the agent and to anyone reading the prompt.
+    """
+    offenders = [
+        t["id"] for t in BUILTIN_AGENT_TEMPLATES
+        if _re_generic.search(r"\bchips?\b", t.get("prompt_template", ""), _re_generic.I)
+    ]
+    assert not offenders, f"prompt_template still uses 'chip' UI jargon: {offenders}"
+
+
+def test_write_tests_absorbs_test_engineer():
+    """Test Engineer is merged into Write Tests (the well-wired, clearer name).
+
+    No standalone 'Test Engineer' card, 'Test Engineer' resolves to Write Tests
+    via migration, and Write Tests now also RUNS the suite (absorbed step).
+    """
+    from services.agent_templates_store import _resolve_alias
+
+    names = {t["name"] for t in BUILTIN_AGENT_TEMPLATES}
+    ids = {t["id"] for t in BUILTIN_AGENT_TEMPLATES}
+    assert "Test Engineer" not in names, "Test Engineer must not be a standalone template"
+    assert "builtin-eng-test-engineer" not in ids
+    assert _resolve_alias("Test Engineer") == "builtin-eng-write-tests"
+    wt = next(t for t in BUILTIN_AGENT_TEMPLATES if t["id"] == "builtin-eng-write-tests")
+    assert "run the tests" in wt["prompt_template"].lower(), (
+        "Write Tests must absorb Test Engineer's 'run the tests' step"
+    )
+
+
+def test_debugger_absorbs_into_diagnose():
+    """Debugger is merged into Diagnose (the well-wired root-cause template).
+
+    No standalone 'Debugger' card, 'Debugger' resolves to Diagnose, and Diagnose
+    gained Debugger's ranked-candidate + file:line root-cause shape.
+    """
+    from services.agent_templates_store import _resolve_alias
+
+    names = {t["name"] for t in BUILTIN_AGENT_TEMPLATES}
+    ids = {t["id"] for t in BUILTIN_AGENT_TEMPLATES}
+    assert "Debugger" not in names, "Debugger must not be a standalone template"
+    assert "builtin-eng-debugger" not in ids
+    assert _resolve_alias("Debugger") == "builtin-diagnose"
+    dg = next(t for t in BUILTIN_AGENT_TEMPLATES if t["id"] == "builtin-diagnose")
+    low = dg["prompt_template"].lower()
+    assert "candidate" in low or "ranked" in low, (
+        "Diagnose must absorb Debugger's ranked-candidate-causes step"
+    )
+
+
+def test_everyone_persona_templates_are_real_builtins():
+    """'For everyone' onboarding agents must be real builtins, not empty shells.
+
+    agentMarketplace.ts advertises Summarizer / Daily Planner / Email Drafter on
+    the default persona. They must exist as source='builtin' (always installed)
+    with a real prompt and at least one required input, or new users land on
+    agents with no backing prompt.
+    """
+    by_name = {t["name"]: t for t in BUILTIN_AGENT_TEMPLATES}
+    for name in ["Summarizer", "Daily Planner", "Email Drafter"]:
+        t = by_name.get(name)
+        assert t is not None, f"{name} missing from BUILTIN_AGENT_TEMPLATES"
+        assert t["source"] == "builtin", f"{name} must be source='builtin' (always installed)"
+        assert t.get("installed") is True, f"{name} must be installed by default"
+        assert len(t.get("prompt_template", "")) >= 150, f"{name} prompt is too thin"
+        assert any(i.get("required") for i in t.get("user_inputs", [])), (
+            f"{name} must have at least one required input"
+        )
+
+
+def test_everyone_persona_agentfiles_exist():
+    """Each new 'For everyone' builtin has a matching agentfile in agents/."""
+    from config import PROJECT_ROOT
+
+    for stem in ["summarizer", "daily-planner", "email-drafter"]:
+        path = PROJECT_ROOT / "agents" / f"{stem}.agent"
+        assert path.exists(), f"Expected builtin agentfile at {path}"

@@ -199,6 +199,8 @@ MIGRATIONS: dict[str, str] = {
     "Concept Explainer": "Explain Plain",
     "Bug Finder": "Review",
     "Flash Cards": "Study Guide",
+    "Test Engineer": "Write Tests",
+    "Debugger": "Diagnose",
 }
 
 # Single unified template list. Built-ins have source="builtin".
@@ -248,13 +250,14 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         ),
         "icon": "bug_report",
         "prompt_template": (
-            "Be the engineer who finds the real cause, not the workaround. "
-            "Your job: (1) Reproduce the bug exactly -- no guessing. "
-            "(2) Read code, logs, and traces to find the root cause. "
-            "(3) Fix the root cause, not the symptom. (4) Write a regression "
-            "test that fails before your fix and passes after. Don't call "
-            "something fixed until the regression test is green. Report "
-            "findings in plain language."
+            "Be the engineer who finds the real cause, not the workaround.\n\n"
+            "If urgency is \"Production down\": skip preamble and state the highest-probability root cause first, then verify it.\n\n"
+            "(1) Reproduce the bug exactly. No guessing. State in one sentence what the failure mode is: the mechanism, not the symptom.\n\n"
+            "(2) Read the code, logs, and traces at the failure site. List up to 3 candidate root causes ranked by probability. For each: one sentence on why it could be the cause, one sentence on what evidence would confirm or rule it out.\n\n"
+            "(3) Verify. Check the evidence for each candidate, eliminate until one remains, and state the confirmed root cause as `<file>:<line>: <one-line explanation>`.\n\n"
+            "(4) Fix the root cause, not the symptom. Make the minimal change, no opportunistic refactoring. If the fix needs a behavior change, call it out explicitly.\n\n"
+            "(5) Write a regression test that fails before your fix and passes after, then run it to confirm it is green. Don't call something fixed until that test is green.\n\n"
+            "Avoid: fixing the symptom without understanding the cause, calling something flaky without evidence, changing more than the minimal fix. Report findings in plain language."
         ),
         "model": "sonnet",
         "budget": 3.0,
@@ -264,6 +267,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "builtin": True,
         "user_inputs": [
             {"key": "bug", "label": "Describe the bug or paste the error", "placeholder": "What's happening? Paste any stack trace or error message here", "type": "textarea", "required": True, "advanced": False},
+            {"key": "urgency", "label": "Urgency", "placeholder": "", "type": "chips", "options": ["Take your time", "Production down"], "required": False, "advanced": False},
             {"key": "area", "label": "Where should I look?", "placeholder": "", "type": "chips", "options": ["Frontend", "Backend", "Tests", "Infrastructure"], "required": False, "advanced": True},
             {"key": "hypothesis", "label": "Where do you think the problem is?", "placeholder": "e.g. probably in the auth middleware", "type": "text", "required": False, "advanced": True},
         ],
@@ -384,6 +388,84 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "user_inputs": [
             {"key": "tests", "label": "Which tests should run, or paste the test command?", "placeholder": "e.g. pytest tests/test_auth.py, or just \"all tests\"", "type": "text", "required": True, "advanced": False},
             {"key": "scope", "label": "Test scope", "placeholder": "", "type": "chips", "options": ["Single file", "Module", "Full suite"], "required": False, "advanced": False},
+        ],
+    },
+    # --- General-purpose builtins (source=builtin, the "For everyone" persona) ---
+    {
+        "id": "builtin-summarizer",
+        "name": "Summarizer",
+        "aliases": [],
+        "description": "Turn a document, article, or meeting notes into the key points and a one-line takeaway.",
+        "icon": "summarize",
+        "prompt_template": (
+            "You are a summarizer. From the text, transcript, or notes the user provides, produce:\n\n"
+            "**TL;DR**: one sentence capturing the single most important point.\n\n"
+            "**Key points**: 3 to 7 bullets, each a distinct idea in plain language. Keep the original meaning. Do not add opinions or invent detail.\n\n"
+            "**Action items** (only if any exist): who needs to do what, one line each.\n\n"
+            "Match the length you selected: Brief is the TL;DR plus 3 bullets; Detailed allows up to 7 bullets with short context. Do not pad. If the source is unclear or contradictory, say so in one line rather than guessing."
+        ),
+        "model": "sonnet",
+        "budget": 2.0,
+        "source": "builtin",
+        "personas": [],
+        "installed": True,
+        "builtin": True,
+        "user_inputs": [
+            {"key": "content", "label": "Paste the text, notes, or transcript to summarize", "placeholder": "Paste what you want summarized here", "type": "textarea", "required": True, "advanced": False},
+            {"key": "length", "label": "How long?", "placeholder": "", "type": "chips", "options": ["Brief", "Standard", "Detailed"], "required": False, "advanced": False},
+        ],
+    },
+    {
+        "id": "builtin-daily-planner",
+        "name": "Daily Planner",
+        "aliases": [],
+        "description": "Turn your tasks and priorities into a focused, realistic plan for today.",
+        "icon": "today",
+        "prompt_template": (
+            "You are a planning assistant. From the tasks and any deadlines or priorities the user lists, build a focused plan for today.\n\n"
+            "(1) Today's focus: one sentence naming the single most important outcome.\n\n"
+            "(2) Plan: order the tasks into a realistic sequence. For each, give a time estimate and, where it matters, the best time of day. Group quick wins together. Do not schedule more than a real day holds; move the overflow to a clearly labeled \"Later\" list.\n\n"
+            "(3) If you only do one thing: the single task that matters most if the day gets cut short.\n\n"
+            "(4) Watch out for: 1 to 2 risks (a dependency, a meeting that eats focus time, a task that is bigger than it looks).\n\n"
+            "Plain language. Be realistic about time, not aspirational. Do not invent tasks the user did not mention."
+        ),
+        "model": "sonnet",
+        "budget": 2.0,
+        "source": "builtin",
+        "personas": [],
+        "installed": True,
+        "builtin": True,
+        "user_inputs": [
+            {"key": "tasks", "label": "What's on your plate today?", "placeholder": "List your tasks, one per line. Add any deadlines or priorities.", "type": "textarea", "required": True, "advanced": False},
+            {"key": "hours", "label": "How much focus time do you have?", "placeholder": "", "type": "chips", "options": ["Half day", "Full day", "Packed with meetings"], "required": False, "advanced": False},
+        ],
+    },
+    {
+        "id": "builtin-email-drafter",
+        "name": "Email Drafter",
+        "aliases": [],
+        "description": "Draft a clear, friendly email from a few notes. One clear ask, no filler.",
+        "icon": "mail",
+        "prompt_template": (
+            "You are an email writer. From the user's goal, recipient, and any notes, draft an email. Output the email only, no preamble.\n\n"
+            "- Subject: specific and short, no clickbait.\n"
+            "- Greeting: match the relationship (first name for a peer, fuller for formal).\n"
+            "- Opening: one sentence stating why you are writing. No \"I hope this finds you well.\"\n"
+            "- Body: the context the recipient needs, in 2 to 4 short sentences. One idea per sentence.\n"
+            "- The ask: exactly one clear thing you want, with a date if there is a deadline.\n"
+            "- Sign-off: match the tone.\n\n"
+            "Match the tone you selected (warm, professional, or direct). Keep it under 150 words. Avoid filler (\"just circling back\", \"per my last email\"), stacked asks, and fake urgency."
+        ),
+        "model": "sonnet",
+        "budget": 2.0,
+        "source": "builtin",
+        "personas": [],
+        "installed": True,
+        "builtin": True,
+        "user_inputs": [
+            {"key": "goal", "label": "What's the email for?", "placeholder": "e.g. ask my manager to approve time off next week", "type": "textarea", "required": True, "advanced": False},
+            {"key": "recipient", "label": "Who is it to?", "placeholder": "e.g. my manager, a customer, a teammate", "type": "text", "required": False, "advanced": False},
+            {"key": "tone", "label": "Tone", "placeholder": "", "type": "chips", "options": ["Warm", "Professional", "Direct"], "required": False, "advanced": True},
         ],
     },
     # --- PM templates (marketplace, personas=["pm"]) ---
@@ -597,15 +679,16 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-eng-write-tests",
         "name": "Write Tests",
         "aliases": [],
-        "description": "Paste a function or module, get tests for the happy path, edge cases, and failure paths. Names tests by what they assert.",
+        "description": "Get tests for the happy path, edge cases, and failure paths, named by what they assert, then run so you know they pass.",
         "icon": "bug_report",
         "prompt_template": (
-            "You are a senior test engineer. For the function or module the user pastes, do the following in order.\n\n"
-            "(1) List the cases that need coverage: happy path, edge cases (empty/null/boundary), error paths, concurrency or async surface if applicable. One line each.\n\n"
-            "(2) Write the tests using the project's existing framework. Detect from imports if obvious; otherwise honor the framework chip. Default Python: pytest. Default JS/TS: Vitest if present in package.json, else Jest.\n\n"
+            "You are a senior test engineer. For the function or module the user points to or pastes, do the following in order.\n\n"
+            "(1) Map the surface that needs coverage. List every function, method, or endpoint, and for each the cases that matter: happy path, edge cases (empty/null/boundary), error paths, and any async or concurrency surface. One line each.\n\n"
+            "(2) Write the tests using the project's existing framework. Detect from imports, package.json, or pyproject.toml if obvious; otherwise use the framework you selected. Default Python: pytest. Default JS/TS: Vitest if present in package.json, else Jest.\n\n"
             "(3) Name each test by what it asserts (e.g. test_returns_empty_list_when_input_is_none). Never name by what the test calls (e.g. test_function_name).\n\n"
-            "(4) After the test code, add a 3-line block: \"Covered:\", \"Skipped:\", \"Why skipped:\".\n\n"
-            "Avoid: tests that pass without exercising the code, asserting on internals only, copying production logic into the test, \"should work\" assertions without a concrete expectation."
+            "(4) Run the tests. Every test must pass before you call it done. If a test fails, fix the test or the code, and never skip or xfail without a documented reason.\n\n"
+            "(5) End with a 3-line block: \"Covered:\", \"Skipped:\", \"Why skipped:\".\n\n"
+            "Avoid: tests that pass without exercising the code, asserting on internals only, copying production logic into the test, mocking so much that nothing real is tested, \"should work\" assertions without a concrete expectation."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -671,74 +754,6 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
             {"key": "goal", "label": "What are you trying to improve?", "placeholder": "", "type": "chips", "options": ["Readability", "Performance", "Testability", "Simplicity"], "required": True, "advanced": False},
         ],
     },
-    {
-        "id": "builtin-eng-test-engineer",
-        "name": "Test Engineer",
-        "aliases": [],
-        "description": "Write a complete, runnable test suite for a module or function — happy path, edge cases, and failure paths included.",
-        "icon": "science",
-        "prompt_template": (
-            "You are a test engineer. Your job is to write a thorough, runnable test suite, not just placeholder tests.\n\n"
-            "(1) Read the code the user points to. Map the public surface: every function, method, or endpoint that needs coverage. List them.\n\n"
-            "(2) For each entry point, identify the cases: happy path, edge cases (null, empty, boundary values), "
-            "error paths, any async or concurrency surface.\n\n"
-            "(3) Write the tests. Use the framework the user selected. If \"Auto\", detect from the project's imports, "
-            "package.json, or pyproject.toml. Default Python: pytest. Default JS/TS: Vitest if present in package.json, else Jest.\n\n"
-            "(4) Name each test by what it asserts, not what it calls. "
-            "Good: test_returns_empty_list_when_input_is_none. Bad: test_process_items.\n\n"
-            "(5) Run the tests. Every test must pass before you call done. "
-            "If a test fails, fix the test or the code -- never skip or xfail without a documented reason.\n\n"
-            "(6) End with a 3-line summary: \"Covered:\", \"Skipped:\", \"Why skipped:\".\n\n"
-            "Avoid: tests that pass without exercising the code, asserting on private internals only, "
-            "copying production logic into the test body, mocking so much that nothing real is tested, "
-            "\"should work\" assertions without a concrete expectation."
-        ),
-        "model": "sonnet",
-        "budget": 3.0,
-        "source": "marketplace",
-        "personas": ["engineer"],
-        "installed": False,
-        "builtin": True,
-        "user_inputs": [
-            {"key": "target", "label": "What do you want tests for?", "placeholder": "Point to a file, function, or module (e.g. api/services/auth.py)", "type": "textarea", "required": True, "advanced": False},
-            {"key": "framework", "label": "Test framework", "placeholder": "", "type": "chips", "options": ["Auto", "Pytest", "Jest", "Vitest"], "required": False, "advanced": False},
-        ],
-    },
-    {
-        "id": "builtin-eng-debugger",
-        "name": "Debugger",
-        "aliases": [],
-        "description": "Diagnose a bug from a stack trace or error log, implement the fix, and add a regression test so it stays fixed.",
-        "icon": "bug_report",
-        "prompt_template": (
-            "You are a debugging specialist. Your job is to find the root cause, not the workaround.\n\n"
-            "If urgency is \"Production down\": skip preamble. State the highest-probability root cause first, "
-            "then work through verification.\n\n"
-            "(1) Read the error output. State in one sentence what the failure mode is -- "
-            "the mechanism, not the symptom.\n\n"
-            "(2) Read the code at the failure site. List up to 3 candidate root causes ranked by probability. "
-            "For each: one sentence on why it could be the cause, one sentence on what evidence would confirm or rule it out.\n\n"
-            "(3) Verify. Check the evidence for each candidate. Eliminate until one remains. "
-            "State the confirmed root cause as: `<file>:<line>: <one-line explanation>`.\n\n"
-            "(4) Fix the root cause. Implement the minimal fix -- no opportunistic refactoring. "
-            "If the fix requires a behavior change, call it out explicitly.\n\n"
-            "(5) Write one regression test that fails before the fix and passes after. "
-            "Name it by what it prevents (e.g. test_does_not_crash_when_user_is_none).\n\n"
-            "(6) Run the regression test to confirm it is green.\n\n"
-            "Avoid: fixing the symptom without understanding the cause, calling something flaky without evidence, "
-            "changing more than the minimal fix, marking something fixed before the test is green."
-        ),
-        "model": "sonnet",
-        "budget": 3.0,
-        "source": "marketplace",
-        "personas": ["engineer"],
-        "installed": False,
-        "builtin": True,
-        "user_inputs": [
-            {"key": "error", "label": "Paste the error output or describe the bug", "placeholder": "Paste the stack trace, error log, or describe what's broken", "type": "textarea", "required": True, "advanced": False},
-            {"key": "urgency", "label": "Urgency", "placeholder": "", "type": "chips", "options": ["Take your time", "Production down"], "required": False, "advanced": False},
-        ],
-    },
     # --- Sales and customer success ---
     {
         "id": "builtin-sales-prospect-research",
@@ -783,7 +798,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
             "- Middle: connect their context to your value prop in 2 sentences max.\n"
             "- Ask: one clear thing you want next (\"15 min next week?\" or \"worth a reply?\"). One ask only.\n"
             "- Sign-off: name on its own line.\n\n"
-            "Total under 120 words. Match the tone chip and stage chip the user picked.\n\n"
+            "Total under 120 words. Match the tone and stage you selected.\n\n"
             "Avoid: \"I hope this email finds you well\", \"circling back\", \"synergy\", \"leverage\", \"bandwidth\", "
             "multiple asks, stacking compliments, fake urgency, \"just bumping this\"."
         ),
@@ -912,7 +927,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
             "If a voice style is selected, apply it: Warm & personal = conversational and direct; "
             "Crisp & analytical = precise, evidence-first; Playful = light, uses wit without sarcasm; "
             "Authoritative = confident, cites sources or specifics.\n\n"
-            "Length: hit the chip the user picked or default to under 700 words.\n\n"
+            "Length: hit the length you selected or default to under 700 words.\n\n"
             "Avoid: throat-clearing intros, jargon (\"synergy\", \"leverage\", \"unlock\", \"in essence\"), "
             "bulleted lists where prose is fine, conclusions that say \"in conclusion\"."
         ),
@@ -1008,7 +1023,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
             "(2) Do NOT rewrite for style or change the writer's voice. If a sentence is grammatically fine but you'd phrase it differently, leave it alone.\n"
             "(3) Preserve formatting (paragraphs, lists, headers, code blocks).\n"
             "(4) After the corrected text, list 3-8 notable fixes as numbered bullets. Each: \"<original> → <fix> — <one-line reason>\".\n"
-            "(5) If the focus chip narrows scope (e.g. Grammar only), respect it.\n\n"
+            "(5) If you narrowed the focus (e.g. Grammar only), respect it.\n\n"
             "Avoid: silently changing meaning, \"improving\" voice, suggesting cuts the writer didn't ask for, fixing things that aren't actually wrong."
         ),
         "model": "sonnet",
@@ -1060,7 +1075,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "prompt_template": (
             "You are a home cook planning a week of meals. Output (in this order):\n\n"
             "**This week's plan**: 7 dinners. One line each, formatted \"Mon: <meal name> — <one-line description>\". "
-            "Reuse ingredients across days to cut waste. Match the household-size chip and dietary chips.\n\n"
+            "Reuse ingredients across days to cut waste. Match the household size and dietary needs you selected.\n\n"
             "**Ingredients you already have**: bullet list of what they listed that gets used.\n\n"
             "**To buy**: ingredients they need but didn't list. If they picked the \"with grouped grocery list\" output mode, "
             "group these by aisle: Produce, Dairy, Meat/Fish, Pantry, Frozen, Other. Otherwise just a flat list.\n\n"
@@ -1098,7 +1113,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
             "**Budget rollup**: estimated totals broken into Lodging, Food, Activities, Transport, Buffer (10%). Total at the end.\n\n"
             "**Book in advance**: bullet list of anything that needs reservation now (popular restaurants, timed-entry attractions, tours).\n\n"
             "**If something falls through**: 1-2 backup options for the highest-risk activity.\n\n"
-            "Match the vibe chip (Relax, Pack-it-in, Mix). Match the trip-type chip.\n\n"
+            "Match the vibe you selected (Relax, Pack-it-in, Mix). Match the trip type you selected.\n\n"
             "Avoid: itineraries that schedule every minute, generic \"explore the city center\" placeholders, costs that don't add up to the total, recommending closed venues, ignoring travel time between activities."
         ),
         "model": "sonnet",
@@ -1129,7 +1144,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
             "After the list, end with:\n"
             "- **Wildcard** (1 line): the unconventional pick worth considering if the safer options feel boring.\n"
             "- **If you only have an hour**: the one option that's quickest to actually buy.\n\n"
-            "Match the relationship-context chip if the user picked one.\n\n"
+            "Match the relationship context if you specified one.\n\n"
             "Avoid: generic options (\"a nice candle\", \"Amazon gift card\"), gifts that require a return trip the giver didn't budget for, anything tone-deaf to the occasion."
         ),
         "model": "sonnet",
@@ -1154,7 +1169,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
             "You are a patient tutor helping a kid through a homework problem. "
             "Your job is to walk them to the answer, never to hand it to them.\n\n"
             "Rules:\n"
-            "(1) Read the problem and the grade-level chip. Match your vocabulary and explanation depth to that grade.\n"
+            "(1) Read the problem and the grade level you selected. Match your vocabulary and explanation depth to that grade.\n"
             "(2) Start by asking what they already understand about the problem. Wait for the answer.\n"
             "(3) Then ask ONE guiding question that points toward the next step. Wait for the answer.\n"
             "(4) Continue one question at a time. Praise effort, not the kid (\"good thinking, that's the right approach\" not \"you're so smart\").\n"
@@ -1188,7 +1203,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "icon": "menu_book",
         "prompt_template": (
             "You are a study coach turning class notes into review material. "
-            "Read the notes the user pasted. Output depends on the format chip.\n\n"
+            "Read the notes the user pasted. Output depends on the format you selected.\n\n"
             "**If \"Study guide\" or \"Both\"**:\n"
             "- **Key concepts**: 5-10 concepts. Each one a single line with a one-sentence definition. "
             "Definition must be in plain language a student would write themselves, not the textbook phrasing.\n"
@@ -1227,7 +1242,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "icon": "format_list_numbered",
         "prompt_template": (
             "You are an essay coach. Build an outline from the prompt the user pasted. "
-            "Match the essay-type chip if they picked one.\n\n"
+            "Match the essay type if you selected one.\n\n"
             "Output:\n\n"
             "**Thesis** (1-2 sentences): a specific claim, not a vague topic. "
             "The thesis should be debatable, not a fact.\n\n"

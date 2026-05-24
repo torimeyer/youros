@@ -140,10 +140,6 @@
       "name": "Debug Helper",
       "desc": "Read an error log, find the root cause, and suggest a fix."
     },
-    "debugger": {
-      "desc": "Diagnose a bug from a stack trace or error log, implement the fix, and add a regression test so it stays fixed.",
-      "name": "Debugger"
-    },
     "design-critique": {
       "name": "Design Critique",
       "desc": "Review a design for usability, clarity, and accessibility -- with specific, prioritized feedback."
@@ -248,10 +244,6 @@
       "name": "Study Guide",
       "desc": "Turn class notes into a study guide with key concepts and example questions."
     },
-    "test-engineer": {
-      "name": "Test Engineer",
-      "desc": "Write a complete, runnable test suite for a module or function \u2014 happy path, edge cases, and failure paths included."
-    },
     "marketplace/test": {
       "desc": "Runs your tests and tells you what passed and what broke. For failures, it reads the code and suggests how to fix them.",
       "name": "Test"
@@ -263,6 +255,18 @@
     "write-tests": {
       "name": "Write Tests",
       "desc": "Generate test cases for your code."
+    },
+    "summarizer": {
+      "name": "Summarizer",
+      "desc": "Turn a document, article, or meeting notes into the key points and a one-line takeaway."
+    },
+    "daily-planner": {
+      "name": "Daily Planner",
+      "desc": "Turn your tasks and priorities into a focused, realistic plan for today."
+    },
+    "email-drafter": {
+      "name": "Email Drafter",
+      "desc": "Draft a clear, friendly email from a few notes. One clear ask, no filler."
     }
   }
 }
