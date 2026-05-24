@@ -19,6 +19,31 @@ TOKEN_PATH = MYOS_DIR / "google_token.json"
 CREDENTIALS_PATH = MYOS_DIR / "google_credentials.json"
 DRIVE_CACHE_DIR = MYOS_DIR / "drive_cache"
 
+
+def _read_tokens() -> dict:
+    """Load the saved Google token, tolerating a corrupt trailing byte.
+
+    google_token.json has been seen with a stray byte after the valid JSON
+    object (legacy non-atomic write / truncated concurrent write). Plain
+    json.loads rejects that with 'Extra data: ... char N', which used to
+    500 every Calendar and Gmail request that needed a token. raw_decode
+    parses just the first complete JSON object and ignores trailing bytes;
+    on recovery we rewrite the clean object atomically so the file self-heals
+    and the error cannot recur. Writes already go through atomic_write_text.
+    """
+    text = TOKEN_PATH.read_text()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        obj, _idx = json.JSONDecoder().raw_decode(text.lstrip())
+        if isinstance(obj, dict):
+            try:
+                atomic_write_text(TOKEN_PATH, json.dumps(obj))
+            except OSError:
+                pass
+            return obj
+        raise
+
 SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
@@ -240,7 +265,7 @@ def get_credentials() -> dict:
     """
     if not TOKEN_PATH.exists():
         raise RuntimeError("Not authenticated. Connect your Google account first.")
-    tokens = json.loads(TOKEN_PATH.read_text())
+    tokens = _read_tokens()
     return _refresh_if_needed(tokens)
 
 
@@ -254,7 +279,7 @@ def get_email() -> str | None:
     if not TOKEN_PATH.exists():
         return None
     try:
-        tokens = json.loads(TOKEN_PATH.read_text())
+        tokens = _read_tokens()
         # Try id_token claims first.
         id_token = tokens.get("id_token")
         if id_token:
@@ -281,7 +306,7 @@ def has_calendar_scope() -> bool:
     if not TOKEN_PATH.exists():
         return False
     try:
-        tokens = json.loads(TOKEN_PATH.read_text())
+        tokens = _read_tokens()
         scope_str = tokens.get("scope", "")
         return "calendar" in scope_str
     except Exception:
@@ -293,7 +318,7 @@ def has_gmail_scope() -> bool:
     if not TOKEN_PATH.exists():
         return False
     try:
-        tokens = json.loads(TOKEN_PATH.read_text())
+        tokens = _read_tokens()
         scope_str = tokens.get("scope", "")
         return "gmail" in scope_str
     except Exception:
@@ -314,7 +339,7 @@ def has_write_scope() -> bool:
     if not TOKEN_PATH.exists():
         return False
     try:
-        tokens = json.loads(TOKEN_PATH.read_text())
+        tokens = _read_tokens()
         scope_str = tokens.get("scope", "")
         # Full drive scope grants everything; drive.file is app-only.
         return (
@@ -333,7 +358,7 @@ def has_full_drive_scope() -> bool:
     if not TOKEN_PATH.exists():
         return False
     try:
-        tokens = json.loads(TOKEN_PATH.read_text())
+        tokens = _read_tokens()
         scope_str = tokens.get("scope", "")
         # Use word-boundary check: auth/drive must not be followed by .
         # because auth/drive.file and auth/drive.readonly are substrings.
@@ -347,7 +372,7 @@ def revoke() -> None:
     """Revoke the stored token and delete the token file."""
     if TOKEN_PATH.exists():
         try:
-            tokens = json.loads(TOKEN_PATH.read_text())
+            tokens = _read_tokens()
             token = tokens.get("access_token") or tokens.get("refresh_token")
             if token:
                 import urllib.request

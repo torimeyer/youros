@@ -858,3 +858,29 @@ def test_google_connected_reads_token_file(tmp_path):
     assert data.get("google_connected") is True, (
         f"google_connected should be True when token file exists, got: {data}"
     )
+
+
+def test_read_tokens_recovers_from_trailing_byte_corruption(tmp_path, monkeypatch):
+    """A google_token.json with a stray trailing byte must not 500 Calendar/Gmail.
+
+    Regression for the v3.19 release-prep bug: the token file held a valid JSON
+    object followed by one extra byte ("Extra data: ... char N"), which made
+    every ``json.loads(TOKEN_PATH.read_text())`` raise and 500 calendar/gmail.
+    ``_read_tokens`` uses raw_decode to read the first object and self-heals the
+    file atomically so the error cannot recur.
+    """
+    import services.google_auth as ga
+
+    tok = tmp_path / "google_token.json"
+    valid = {"access_token": "a", "refresh_token": "r", "scope": "s", "token_type": "Bearer"}
+    # Valid object + one stray non-whitespace byte = the "Extra data" corruption.
+    # (json.loads tolerates trailing whitespace, so the stray byte must be real.)
+    tok.write_text(json.dumps(valid) + "0")
+    monkeypatch.setattr(ga, "TOKEN_PATH", tok)
+
+    # Bare json.loads would raise "Extra data"; _read_tokens recovers it.
+    got = ga._read_tokens()
+    assert got == valid
+
+    # Self-heal: the file is rewritten clean, so a plain json.loads now works.
+    json.loads(tok.read_text())
