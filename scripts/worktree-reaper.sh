@@ -133,10 +133,31 @@ while IFS= read -r line; do
                 # new SHAs whose content is already present on main.  Content-check
                 # so those are not parked forever as "unique".
                 if git diff --quiet "$BASE..$wt_branch" 2>/dev/null; then
-                  printf '%-48s %-10s %s\n' "$wt_branch" "absorbed" "$ahead (squashed)"
-                  absorbed_branches+=("$wt_branch")
-                  absorbed_paths+=("$wt_path")
-                  absorbed_count=$((absorbed_count + 1))
+                  # Empty content diff against main. This is EITHER a real
+                  # squash-merged branch (content already on main, safe to
+                  # remove) OR a live agent that made an --allow-empty
+                  # scaffold commit and has uncommitted work in its tree.
+                  # The ahead==0 path below guards dirty trees; this path
+                  # did not, so an empty scaffold commit let the reaper
+                  # delete live agents mid-flight (→1665). Apply the same
+                  # dirty-tree guard here before treating it as absorbed.
+                  wt_dirty=0
+                  if [ -d "$wt_path" ]; then
+                    if ! git -C "$wt_path" diff --quiet 2>/dev/null || \
+                       ! git -C "$wt_path" diff --cached --quiet 2>/dev/null; then
+                      wt_dirty=1
+                    fi
+                  fi
+                  if [ "$wt_dirty" -eq 1 ]; then
+                    printf '%-48s %-10s %s\n' "$wt_branch" "unique" "dirty (empty-diff commit)"
+                    echo "  [reaper] $wt_branch has uncommitted work over an empty-diff commit, skipping (→1665)" >&2
+                    unique_count=$((unique_count + 1))
+                  else
+                    printf '%-48s %-10s %s\n' "$wt_branch" "absorbed" "$ahead (squashed)"
+                    absorbed_branches+=("$wt_branch")
+                    absorbed_paths+=("$wt_path")
+                    absorbed_count=$((absorbed_count + 1))
+                  fi
                 else
                   printf '%-48s %-10s %s\n' "$wt_branch" "unique" "$ahead"
                   echo "  [reaper] REFUSING to delete $wt_branch: $ahead unmerged commit(s) ahead of main -- cherry-pick before removing" >&2
