@@ -647,8 +647,8 @@ describe('Dashboard widget customization', () => {
     await waitFor(() => {
       expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument()
     })
-    // Widget renders the week grid even with no events.
-    expect(screen.getByTestId('cal-grid-week')).toBeInTheDocument()
+    // Widget renders the month grid (default range) even with no events.
+    expect(screen.getByTestId('cal-grid-month')).toBeInTheDocument()
   })
 
   it('toggling on Focus on this first shows an empty-state card when there are no blocking tasks', async () => {
@@ -1252,21 +1252,20 @@ describe('calendar widget range selector', () => {
     })
   })
 
-  it('defaults to Week and fetches /calendar/events without ?days=', async () => {
+  it('defaults to Month and fetches /calendar/events?days=30', async () => {
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument()
     })
-    // Week button is the active selection on first render.
-    const weekBtn = screen.getByTestId('calendar-range-week')
-    expect(weekBtn).toHaveAttribute('aria-pressed', 'true')
-    // Default Week sends no query string so the on-disk cache stays warm.
+    // Month button is the active selection on first render.
+    const monthBtn = screen.getByTestId('calendar-range-month')
+    expect(monthBtn).toHaveAttribute('aria-pressed', 'true')
+    // Default Month sends ?days=30.
     const calendarCalls = mockedApiGet.mock.calls
       .map((c) => c[0])
       .filter((p) => typeof p === 'string' && p.startsWith('/calendar/events'))
     expect(calendarCalls.length).toBeGreaterThan(0)
-    expect(calendarCalls).toContain('/calendar/events')
-    expect(calendarCalls.every((p) => !p.includes('?days='))).toBe(true)
+    expect(calendarCalls).toContain('/calendar/events?days=30')
   })
 
   it('switching to Day re-fetches with ?days=1 and persists to localStorage', async () => {
@@ -1283,10 +1282,17 @@ describe('calendar widget range selector', () => {
     expect(localStorage.getItem('myos.calendar_widget_range')).toBe('day')
   })
 
-  it('switching to Month re-fetches with ?days=30 and persists to localStorage', async () => {
+  it('switching to Month from Week re-fetches with ?days=30 and persists to localStorage', async () => {
     renderDashboard()
     await waitFor(() => expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument())
 
+    // First switch to Week so we have a non-Month starting state.
+    fireEvent.click(screen.getByTestId('calendar-range-week'))
+    await waitFor(() => {
+      expect(screen.getByTestId('calendar-range-week')).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    // Now switch to Month.
     fireEvent.click(screen.getByTestId('calendar-range-month'))
 
     await waitFor(() => {

@@ -3735,24 +3735,26 @@ describe('friendlyAgentName', () => {
     return `${h12}:${m}${ampm}`
   })()
 
-  it('formats an inferred claude-code session as "Claude Sonnet · Chat · time"', () => {
+  it('formats an inferred claude-code session (no task/desc) as "Your chat with Claude"', () => {
+    // →1674/→1675: inferred sessions with no task and no description are now
+    // treated as main sessions and rendered as "Your chat with Claude".
     const result = friendlyAgentName({
       name: 'claude-code-005c3b5b-d9',
       model: 'claude-sonnet-4-6',
       source: 'claude-code',
       spawned_at: TS,
     })
-    expect(result).toBe(`Claude · Sonnet · Chat · ${TS_LABEL}`)
+    expect(result).toBe('Your chat with Claude')
   })
 
-  it('formats an inferred claude-code session without model', () => {
+  it('formats an inferred claude-code session without model as "Your chat with Claude"', () => {
     const result = friendlyAgentName({
       name: 'claude-code-abcdef1234',
       model: undefined,
       source: 'claude-code',
       spawned_at: TS,
     })
-    expect(result).toBe(`Claude · Chat · ${TS_LABEL}`)
+    expect(result).toBe('Your chat with Claude')
   })
 
   it('formats a fleet agent as "Role · fleet-name · time"', () => {
@@ -3802,6 +3804,9 @@ describe('friendlyAgentName', () => {
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: TS,
+          // →1674/→1675: a task is required for an inferred-name agent to appear as
+          // user-spawned (no task = main session = filtered from the Agents page).
+          task: 'Fix auth bug',
         }],
       }
       if (path === '/agents/templates') return { templates: [] }
@@ -3812,8 +3817,8 @@ describe('friendlyAgentName', () => {
     await waitFor(() => {
       // Raw UUID slug must NOT appear as visible text (it lives only in the tooltip)
       expect(screen.queryByText('claude-code-005c3b5b-d9')).not.toBeInTheDocument()
-      // Friendly label must appear - matches the pattern "Claude · Sonnet · Chat · HH:MMam/pm"
-      expect(screen.getByText(/^Claude · Sonnet · Chat · \d+:\d+(am|pm)$/)).toBeInTheDocument()
+      // Task text is the friendly label for a registered subagent
+      expect(screen.getByText('Fix auth bug')).toBeInTheDocument()
     })
   })
 })
@@ -3942,15 +3947,15 @@ describe('agentTitleParts', () => {
   })
 
   it('test_inferred_claude_code_session_fallback', () => {
-    // claude-code-xxx agents with no task must still render as
-    // "Claude · Sonnet · Chat · time" with no secondary line.
+    // →1674/→1675: inferred claude-code-xxx agents with no task and no description
+    // are now treated as main sessions and render as "Your chat with Claude".
     const result = agentTitleParts({
       name: 'claude-code-005c3b5b-d9',
       model: 'claude-sonnet-4-6',
       source: 'claude-code',
       spawned_at: TS,
     })
-    expect(result.primary).toBe(`Claude · Sonnet · Chat · ${TS_LABEL}`)
+    expect(result.primary).toBe('Your chat with Claude')
     expect(result.secondary).toBeNull()
   })
 
@@ -4035,11 +4040,13 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
     })).toBe(false)
   })
 
-  it('isMainSession returns false for inferred session without Claude Code session description', () => {
+  it('isMainSession returns true for inferred session with no task and no description (→1674/→1675)', () => {
+    // The new fallback treats any inferred-name agent with no task and no description
+    // as a main session (mirrors backend is_main_session for badge/count parity).
     expect(isMainSession({
       name: 'claude-code-005c3b5b-d9',
       source: 'claude-code',
-    })).toBe(false)
+    })).toBe(true)
   })
 
   it('isMainSession returns false for chat-source agents', () => {

@@ -12,9 +12,13 @@ export const REQUEST_TIMEOUT_MS = 30000
 // Options for api.get (and other verbs). Pass retryOn502 > 0 to silently
 // retry on 502 responses and network errors (e.g. during backend warmup).
 // retryDelayMs controls the wait between attempts.
+// timeoutMs overrides the global REQUEST_TIMEOUT_MS for a single call —
+// useful for hydration paths where a fast fallback is preferable to a
+// 30-second hang.
 export interface RequestOptions {
   retryOn502?: number
   retryDelayMs?: number
+  timeoutMs?: number
 }
 
 // Custom error that preserves the parsed JSON detail from FastAPI responses
@@ -89,9 +93,9 @@ function notifySidebarOnWrite(method: string, path: string): void {
   }
 }
 
-async function requestOnce<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function requestOnce<T>(method: string, path: string, body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const res = await fetch(`${BASE}${path}`, {
       method,
@@ -125,12 +129,12 @@ async function requestOnce<T>(method: string, path: string, body?: unknown): Pro
 }
 
 async function request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
-  const { retryOn502 = 0, retryDelayMs = 500 } = options
+  const { retryOn502 = 0, retryDelayMs = 500, timeoutMs = REQUEST_TIMEOUT_MS } = options
   let lastErr: unknown
   for (let attempt = 0; attempt <= retryOn502; attempt++) {
     if (attempt > 0) await new Promise<void>((r) => setTimeout(r, retryDelayMs))
     try {
-      return await requestOnce<T>(method, path, body)
+      return await requestOnce<T>(method, path, body, timeoutMs)
     } catch (err) {
       lastErr = err
       // Only retry transient gateway failures and raw network errors.

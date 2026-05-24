@@ -238,6 +238,12 @@ const LS_KEYS = {
   teamAccentColor: 'myos-team-accent-color',
 } as const
 
+// Short timeouts used during app hydration. A slow or unresponsive backend
+// should not pin the loading screen for 30 s — fall back to localStorage
+// values quickly and let the server catch up in the background.
+export const HYDRATION_SETTINGS_TIMEOUT_MS = 5000
+export const HYDRATION_ENTERPRISE_TIMEOUT_MS = 5000
+
 // Chat panel resize bounds.
 // MIN keeps the chat usable (message list still readable, input still wide
 // enough to type a sentence). MAX reserves room for the sidebar (224px)
@@ -632,7 +638,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   hydrateFromServer: async () => {
     let server: Record<string, unknown> = {}
     try {
-      server = await api.get<Record<string, unknown>>('/settings')
+      server = await api.get<Record<string, unknown>>('/settings', { timeoutMs: HYDRATION_SETTINGS_TIMEOUT_MS })
     } catch (e) {
       console.error('settings hydration failed:', e)
       set({ hydrated: true })
@@ -878,7 +884,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // Fetch enterprise user identity and org info
     try {
-      const me = await api.get<{ authenticated: boolean; enterprise: boolean; email?: string; role?: string }>('/enterprise/me')
+      const me = await api.get<{ authenticated: boolean; enterprise: boolean; email?: string; role?: string }>('/enterprise/me', { timeoutMs: HYDRATION_ENTERPRISE_TIMEOUT_MS })
       if (me.authenticated && me.email) {
         set({ enterpriseUser: { authenticated: true, email: me.email, role: me.role || 'member' } })
       } else {
@@ -887,7 +893,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       // If enterprise is active, fetch org name and auto-detect team mode
       if (me.enterprise) {
         try {
-          const ent = await api.get<{ org?: { name?: string } }>('/enterprise')
+          const ent = await api.get<{ org?: { name?: string } }>('/enterprise', { timeoutMs: HYDRATION_ENTERPRISE_TIMEOUT_MS })
           if (ent.org?.name) {
             lsSet(LS_KEYS.orgName, ent.org.name)
             set({ orgName: ent.org.name })

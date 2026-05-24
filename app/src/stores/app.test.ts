@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useAppStore, TEAM_MODE_VISIBLE, DEFAULT_DASHBOARD_WIDGETS, DASHBOARD_WIDGET_LABELS } from './app'
+import { useAppStore, TEAM_MODE_VISIBLE, DEFAULT_DASHBOARD_WIDGETS, DASHBOARD_WIDGET_LABELS, HYDRATION_SETTINGS_TIMEOUT_MS, HYDRATION_ENTERPRISE_TIMEOUT_MS } from './app'
 import { api } from '../lib/api'
 
 // Mock the api module so no real network calls fire and we can assert
@@ -459,6 +459,74 @@ describe('useAppStore — team mode gate (TEAM_MODE_VISIBLE=false)', () => {
       .mockResolvedValueOnce({ org: { name: 'Acme' } })  // /enterprise
     await useAppStore.getState().hydrateFromServer()
     expect(useAppStore.getState().instanceMode).toBe('personal')
+  })
+
+  it('hydrated is set to true before enterprise fetch resolves', async () => {
+    let resolveEnterprise!: (v: unknown) => void
+    const enterprisePromise = new Promise((res) => { resolveEnterprise = res })
+
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({ onboarded: true })  // /settings — resolves immediately
+      .mockResolvedValueOnce({ authenticated: true, enterprise: true, email: 'a@b.com', role: 'member' })  // /enterprise/me — resolves immediately
+      .mockReturnValueOnce(enterprisePromise as Promise<unknown>)  // /enterprise — deferred
+
+    const hydrationPromise = useAppStore.getState().hydrateFromServer()
+
+    // Flush microtasks up to the await on /enterprise/me
+    await new Promise((res) => setTimeout(res, 0))
+
+    // hydrated must be true even though /enterprise is still pending
+    expect(useAppStore.getState().hydrated).toBe(true)
+
+    // Unblock enterprise and let hydration finish cleanly
+    resolveEnterprise({ org: { name: 'Acme' } })
+    await hydrationPromise
+  })
+
+  it('settings timeout causes fast fallback with hydrated=true within timeout window', async () => {
+    const settingsError = Object.assign(new Error('timeout'), { name: 'AbortError' })
+    vi.mocked(api.get).mockRejectedValueOnce(settingsError)
+
+    await useAppStore.getState().hydrateFromServer()
+
+    // Must resolve quickly (fallback path), not hang for REQUEST_TIMEOUT_MS
+    expect(useAppStore.getState().hydrated).toBe(true)
+  })
+
+  it('enterprise/me timeout leaves hydrated=true and enterpriseUser=null', async () => {
+    const enterpriseError = Object.assign(new Error('timeout'), { name: 'AbortError' })
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({ onboarded: true })  // /settings
+      .mockRejectedValueOnce(enterpriseError)       // /enterprise/me
+
+    await useAppStore.getState().hydrateFromServer()
+
+    expect(useAppStore.getState().hydrated).toBe(true)
+    expect(useAppStore.getState().enterpriseUser).toBeNull()
+  })
+
+  it('settings fetch is called with HYDRATION_SETTINGS_TIMEOUT_MS option', async () => {
+    vi.mocked(api.get).mockResolvedValue({})
+    await useAppStore.getState().hydrateFromServer()
+
+    expect(vi.mocked(api.get)).toHaveBeenCalledWith(
+      '/settings',
+      expect.objectContaining({ timeoutMs: HYDRATION_SETTINGS_TIMEOUT_MS }),
+    )
+  })
+
+  it('enterprise/me fetch is called with HYDRATION_ENTERPRISE_TIMEOUT_MS option', async () => {
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({ onboarded: true })  // /settings
+      .mockResolvedValueOnce({ authenticated: true, enterprise: true, email: 'a@b.com', role: 'member' })  // /enterprise/me
+      .mockResolvedValueOnce({ org: {} })  // /enterprise
+
+    await useAppStore.getState().hydrateFromServer()
+
+    expect(vi.mocked(api.get)).toHaveBeenCalledWith(
+      '/enterprise/me',
+      expect.objectContaining({ timeoutMs: HYDRATION_ENTERPRISE_TIMEOUT_MS }),
+    )
   })
 })
 
