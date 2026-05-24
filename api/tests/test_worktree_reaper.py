@@ -89,9 +89,22 @@ def test_active_agent_names_active_statuses_constant_covers_running():
     assert "spawned" in ACTIVE_STATUSES
 
 
-def test_active_agent_names_missing_file_returns_empty(tmp_path):
-    """Missing state file must return empty set without raising."""
-    assert _active_agent_names(tmp_path) == set()
+def test_active_agent_names_missing_file_returns_none(tmp_path):
+    """Missing state file must return None (unknown), not empty set.
+
+    Returning set() caused MYOS_ACTIVE_AGENTS="" to be passed to the shell
+    script, which bypassed the [ -n "$ACTIVE_AGENT_NAMES" ] guard entirely and
+    silently treated every worktree as unprotected.  (→1665, →1678)
+    """
+    assert _active_agent_names(tmp_path) is None
+
+
+def test_active_agent_names_corrupt_file_returns_none(tmp_path):
+    """A corrupt/unparseable state file must return None, not empty set."""
+    state_file = tmp_path / ".ostk" / "agent_state.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text("{broken json")
+    assert _active_agent_names(tmp_path) is None
 
 
 def test_active_agent_names_unknown_status_treated_as_active(tmp_path):

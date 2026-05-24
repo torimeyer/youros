@@ -59,16 +59,27 @@ _TERMINAL_STATUSES = frozenset(
 )
 
 
-def _active_agent_names(repo_root: Path) -> Set[str]:
-    """Return agent names whose status is non-terminal.
+def _active_agent_names(repo_root: Path) -> Optional[Set[str]]:
+    """Return agent names whose status is non-terminal, or None on read failure.
 
     Reads ``.ostk/agent_state.json``. Unknown statuses are treated as
     active (fail-safe): a new status string must never cause the reaper
     to accidentally remove a live worktree.
+
+    Returns None (not an empty set) when the state file is missing or
+    cannot be parsed.  The caller must not set MYOS_ACTIVE_AGENTS in that
+    case, so the shell script falls through to its own agent_state.json
+    fallback and triggers its own fail-safe (exit 1) rather than silently
+    treating every worktree as unprotected.
+
+    Background: returning set() on read failure caused MYOS_ACTIVE_AGENTS=""
+    to be passed to the shell script.  The guard checks
+    ``[ -n "$ACTIVE_AGENT_NAMES" ]`` which is false for an empty string, so
+    no worktree was ever protected -- a silent bypass.  (→1665, →1678)
     """
     state_file = repo_root / ".ostk" / "agent_state.json"
     if not state_file.exists():
-        return set()
+        return None
     try:
         records = json.loads(state_file.read_text())
         return {
@@ -78,7 +89,7 @@ def _active_agent_names(repo_root: Path) -> Set[str]:
             and info.get("status") not in _TERMINAL_STATUSES
         }
     except Exception:
-        return set()
+        return None
 
 
 def _reaper_script(repo_root: Path) -> str:
