@@ -2651,9 +2651,17 @@ def _run_enrich_pipeline(
         if _is_old_stopped:
             agent.setdefault("transcript_bytes", 0)
             agent.setdefault("transcript_lines", 0)
+            # Skip per-agent transcript I/O for old stopped agents — file is frozen.
+            # Use setdefault so a prior enrichment value is preserved if already set.
+            agent.setdefault("kernel_event_index", agent.get("transcript_bytes") or 0)
+            agent.setdefault("per_agent_transcript_bytes", 0)
         else:
             metrics = _get_transcript_metrics(agent["name"])
             agent.update(metrics)
+            # →1702: compute per_agent_transcript_bytes once at snapshot-build time,
+            # not on every /api/agents request.
+            agent["kernel_event_index"] = agent.get("transcript_bytes") or 0
+            agent["per_agent_transcript_bytes"] = _get_per_agent_transcript_bytes_cached(agent["name"])
         meta = agent_metadata.get(agent["name"], {})
         tokens_used = meta.get("tokens_used", 0)
         token_limit = meta.get("token_limit")
@@ -4241,10 +4249,14 @@ async def list_agents(
     # on-disk JSONL size) and kernel_event_index (the pre-existing shared session
     # JSONL size, kept for backward compat). transcript_bytes is left as-is so
     # existing consumers (ghost detection, stall detection, frontend) are unchanged.
+    # →1702: snapshot agents already have both fields from _run_enrich_pipeline.
+    # Only compute here for rows added since the last snapshot (registered after
+    # the last 500ms background cycle) — typically 0-1 rows per request.
     for _ar in agents:
-        _ar_name = _ar.get("name", "")
-        _ar["kernel_event_index"] = _ar.get("transcript_bytes") or 0
-        _ar["per_agent_transcript_bytes"] = _get_per_agent_transcript_bytes_cached(_ar_name)
+        if "per_agent_transcript_bytes" not in _ar:
+            _ar_name = _ar.get("name", "")
+            _ar["kernel_event_index"] = _ar.get("transcript_bytes") or 0
+            _ar["per_agent_transcript_bytes"] = _get_per_agent_transcript_bytes_cached(_ar_name)
     if summary:
         compact_keys = ("name", "source", "status", "spawned_at", "transcript_bytes",
                         "kernel_event_index", "per_agent_transcript_bytes",
