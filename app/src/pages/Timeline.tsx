@@ -194,8 +194,8 @@ export default function Timeline() {
             {goalNames.length === 0 && (
               <EmptyState
                 icon="calendar_today"
-                title="No tasks to display."
-                description="Add tags to your tasks to organize them."
+                title="No needles to display."
+                description="Add tags to your needles to organize them."
               />
             )}
 
@@ -229,7 +229,7 @@ export default function Timeline() {
                           <div key={d} className="py-2 px-0.5" style={{ gridColumn: `span ${barSpan}` }}>
                             <div className={`h-7 rounded ${style.bg} border ${style.border} flex items-center px-2`}>
                               <span className={`text-[10px] font-bold tracking-wider ${style.text}`}>
-                                {goalTasks.length} task{goalTasks.length !== 1 ? "s" : ""}
+                                {goalTasks.length} needle{goalTasks.length !== 1 ? "s" : ""}
                               </span>
                             </div>
                           </div>

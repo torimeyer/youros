@@ -871,14 +871,14 @@ async def chat_create_tasks_from_roadmap(body: Optional[dict] = None):
     count = len(created)
     if count == 0:
         reply = (
-            "Those items were already open tasks, so nothing new was "
+            "Those items were already open needles, so nothing new was "
             "created."
         )
     else:
-        noun = "task" if count == 1 else "tasks"
+        noun = "needle" if count == 1 else "needles"
         reply = (
             f"Created {count} {noun} from {roadmap_path.name}. "
-            "See them on the [Tasks page](/tasks)."
+            "See them on the [Needles page](/tasks)."
         )
     return {
         "status": "ok",
@@ -966,7 +966,7 @@ async def search_giphy(q: str = Query(...), limit: int = Query(default=12, le=25
 _SLASH_HELP_TEXT = (
     "Available commands:\n"
     "  /status   . Show system status\n"
-    "  /tasks    . List open tasks\n"
+    "  /tasks    . List open needles\n"
     "  /commit <message> . Commit with a message\n"
     "  /agents   . Show active and recent agents\n"
     "  /build-spec <slug> . Claim a spec and flip its status to Building\n"
@@ -1011,9 +1011,9 @@ async def _handle_slash_command(text: str, websocket: WebSocket, tab_id: str = "
         try:
             tasks = await ostk.list_tasks(status="open")
             if not tasks:
-                result = "No open tasks."
+                result = "No open needles."
             else:
-                lines = [f"Open tasks ({len(tasks)}):"]
+                lines = [f"Open needles ({len(tasks)}):"]
                 for t in tasks[:30]:
                     tid = t.get("id", "?")
                     title = t.get("title", "Untitled")

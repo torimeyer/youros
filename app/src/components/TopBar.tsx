@@ -327,7 +327,7 @@ export default function TopBar({ title }: TopBarProps) {
             setTimeout(() => window.dispatchEvent(new CustomEvent('myos-quick-add-task')), 100)
           }}
           className="p-2.5 sm:p-2 text-slate-400 hover:text-blue-400 transition-all"
-          title="Add Task"
+          title="Add Needle"
         >
           <Icon name="add_task" />
         </button>

@@ -74,7 +74,7 @@ function buildSummary(results: AuditResults): string {
     `Proposed: ${proposedCompleted} done, ${proposedDuplicate} duplicate, ${proposedArchived} no longer relevant.`,
   )
   parts.push(
-    `Skipped ${results.skipped_irl} real-life task${results.skipped_irl === 1 ? '' : 's'}.`,
+    `Skipped ${results.skipped_irl} real-life needle${results.skipped_irl === 1 ? '' : 's'}.`,
   )
   return parts.join(' ')
 }
@@ -193,7 +193,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       data-testid="tasks-audit-modal"
       role="dialog"
-      aria-label="Tasks audit"
+      aria-label="Needles audit"
     >
       <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-slate-900 border border-slate-800 rounded-xl shadow-2xl">
         <div className="flex items-start justify-between px-5 py-4 border-b border-slate-800">
@@ -204,7 +204,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
                 className="text-base font-medium text-slate-100"
                 data-testid="audit-review-headline"
               >
-                Review every task. Nothing closes until you say so.
+                Review every needle. Nothing closes until you say so.
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
                 myOS will suggest what it thinks is done, duplicate, or no
@@ -239,7 +239,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
                   className="text-sm text-slate-300"
                   data-testid="audit-progress"
                 >
-                  Checked {status.checked} of {status.total} tasks...
+                  Checked {status.checked} of {status.total} needles...
                 </p>
               )}
 
@@ -261,7 +261,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
               >
                 {status.results.review.length === 0 && status.status === 'done' && (
                   <p className="text-sm text-slate-500">
-                    Nothing to review. Your task list is clean.
+                    Nothing to review. Your needle list is clean.
                   </p>
                 )}
                 {status.results.review.map((entry) => (
@@ -295,7 +295,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
                         data-testid={`audit-close-${entry.task_id}`}
                         className="px-3 py-1 text-xs rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30 disabled:opacity-50"
                       >
-                        Close this task
+                        Close this needle
                       </button>
                       <button
                         onClick={() => handleReject(entry)}

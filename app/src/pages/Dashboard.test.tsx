@@ -354,11 +354,11 @@ describe('Quick Launch inline modals', () => {
       expect(screen.getByText('Quick Launch')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /New Task/i }))
+    fireEvent.click(screen.getByRole('button', { name: /New Needle/i }))
 
     // The modal heading should appear in place, no navigation happens.
     expect(screen.getByRole('dialog', { name: /Add a new task/i })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'New task' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'New needle' })).toBeInTheDocument()
     expect(mockNavigate).not.toHaveBeenCalledWith('/tasks')
   })
 

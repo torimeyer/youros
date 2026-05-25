@@ -461,13 +461,13 @@ export default function Dashboard() {
   const closedCount = data?.counts?.closed ?? 0;
 
   const quickLaunchActions: Record<string, () => void> = {
-    'New Task': () => setQuickAddTaskOpen(true),
+    'New Needle': () => setQuickAddTaskOpen(true),
     'Spawn Agent': () => setQuickSpawnOpen(true),
     'Open Chat': () => toggleChat(),
   };
 
   const quickLaunch = [
-    { icon: 'add_task', label: 'New Task', color: 'text-blue-400', hoverBorder: 'hover:border-blue-500' },
+    { icon: 'add_task', label: 'New Needle', color: 'text-blue-400', hoverBorder: 'hover:border-blue-500' },
     { icon: 'bolt', label: 'Spawn Agent', color: 'text-purple-400', hoverBorder: 'hover:border-purple-500' },
     { icon: 'chat', label: 'Open Chat', color: 'text-cyan-400', hoverBorder: 'hover:border-cyan-500' },
   ];
@@ -669,7 +669,7 @@ export default function Dashboard() {
             </div>
           </div>
           <p className="text-sm text-slate-400 ml-[52px]">
-            When a task blocks several others, it will show up here so you know to finish it first.
+            When a needle blocks several others, it will show up here so you know to finish it first.
           </p>
         </div>
       );
@@ -697,7 +697,7 @@ export default function Dashboard() {
           </div>
         </div>
         <p className="text-sm text-slate-400 ml-[52px]">
-          Finishing this unblocks {compounds.top.blocks_count} other {compounds.top.blocks_count === 1 ? 'task' : 'tasks'}.
+          Finishing this unblocks {compounds.top.blocks_count} other {compounds.top.blocks_count === 1 ? 'needle' : 'needles'}.
           Getting it done first lets everything else move forward.
         </p>
         {compounds.all.length > 1 && (

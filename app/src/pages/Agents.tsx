@@ -4374,16 +4374,16 @@ export default function Agents() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                  Hand Off Tasks
+                  Hand Off Needles
                   <div className="group relative">
                     <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-300 cursor-help" />
                     <div className="absolute left-0 top-full mt-1 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
-                      These tasks are open and unblocked. They are good candidates for an AI agent to handle while you focus on other work. Clicking "Hand off" spawns an agent that will read the task, do the work, and report back when done.
+                      These needles are open and unblocked. They are good candidates for an AI agent to handle while you focus on other work. Clicking "Hand off" spawns an agent that will read the needle, do the work, and report back when done.
                     </div>
                   </div>
                 </h2>
                 <p className="text-sm text-slate-400 mt-1">
-                  Open tasks an agent can pick up for you. Click "Hand off" to start one working on it now.
+                  Open needles an agent can pick up for you. Click "Hand off" to start one working on it now.
                 </p>
               </div>
               <button
@@ -4413,7 +4413,7 @@ export default function Agents() {
                 {/* Delegation targets */}
                 {delegationData.delegation_targets.length === 0 ? (
                   <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-6">
-                    No tasks to delegate right now. As you add more tasks, delegation suggestions will appear here.
+                    No needles to delegate right now. As you add more needles, delegation suggestions will appear here.
                   </div>
                 ) : (
                   <div className="flex flex-col gap-3 mb-6">

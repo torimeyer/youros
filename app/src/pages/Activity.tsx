@@ -450,7 +450,7 @@ export default function Activity() {
               <EmptyState
                 icon="history"
                 title="Your activity will show up here as you work"
-                description="Tasks you close, specs you promote, and agents you run will all appear here."
+                description="Needles you close, specs you promote, and agents you run will all appear here."
               />
             ) : (
               <>

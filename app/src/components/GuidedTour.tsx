@@ -24,8 +24,8 @@ const TOUR_STEPS: TourStep[] = [
   },
   {
     selector: '[data-tour="tasks"]',
-    title: 'Tasks',
-    description: 'Keep track of what you need to do. Add tasks, set priorities, link them together, and organize with labels and groups.',
+    title: 'Needles',
+    description: 'Keep track of what you need to do. Add needles, set priorities, link them together, and organize with labels and groups.',
     route: '/tasks',
     position: 'bottom',
   },
@@ -45,14 +45,14 @@ const TOUR_STEPS: TourStep[] = [
   {
     selector: '[data-tour="agents"]',
     title: 'Agents',
-    description: 'Send background AI agents to work on tasks for you. See what they can do, hand off work, and track their progress.',
+    description: 'Send background AI agents to work on needles for you. See what they can do, hand off work, and track their progress.',
     route: '/agents',
     position: 'bottom',
   },
   {
     selector: '[data-tour="search"]',
     title: 'Search',
-    description: 'Press Cmd+K to search across all your tasks and jump anywhere fast. That is the tour. Try asking the chat a question next.',
+    description: 'Press Cmd+K to search across all your needles and jump anywhere fast. That is the tour. Try asking the chat a question next.',
     route: '/',
     position: 'bottom',
   },

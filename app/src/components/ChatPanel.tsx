@@ -2067,7 +2067,7 @@ export function ChatPanel() {
               ? {
                   ...m,
                   content:
-                    'I could not create tasks from the roadmap: ' +
+                    'I could not create needles from the roadmap: ' +
                     (err?.message || 'unknown error'),
                   isError: true,
                 }
@@ -2626,7 +2626,7 @@ export function ChatPanel() {
               {[
                 { icon: 'calendar_month', text: "What's on my calendar today?", send: true },
                 { icon: 'checklist', text: 'Help me plan my week', send: true },
-                { icon: 'bolt', text: 'Break this into tasks', send: false, label: 'What project or goal?', placeholder: 'e.g. Launch the new onboarding flow', prefix: 'Break this into tasks: ' },
+                { icon: 'bolt', text: 'Break this into needles', send: false, label: 'What project or goal?', placeholder: 'e.g. Launch the new onboarding flow', prefix: 'Break this into needles: ' },
                 { icon: 'summarize', text: 'Write a status update', send: false, label: 'About what?', placeholder: 'e.g. last week\'s sprint', prefix: 'Write a status update about ' },
               ].map((s) => (
                 <button

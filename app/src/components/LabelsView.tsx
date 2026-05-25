@@ -123,7 +123,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
       {/* Header with create button */}
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-slate-400">
-          Use labels to organize your tasks into groups.
+          Use labels to organize your needles into groups.
         </p>
         <button
           onClick={() => setShowCreate(!showCreate)}
@@ -212,7 +212,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
           <Icon name="label" className="text-4xl text-slate-600 mb-3" />
           <p className="text-slate-400 text-sm">No labels yet.</p>
           <p className="text-slate-500 text-xs mt-1">
-            Create labels to organize your tasks into groups.
+            Create labels to organize your needles into groups.
           </p>
         </div>
       ) : (

@@ -130,7 +130,7 @@ function TaskCard({ task }: { task: Task }) {
           data-testid="card-type-chip"
           className="text-xs px-2 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 shrink-0"
         >
-          Task
+          Needle
         </span>
       </div>
       <div className="flex items-center gap-1.5 flex-wrap">
@@ -290,7 +290,7 @@ function AllView() {
 
         <KanbanColumn
           id="ready-tasks"
-          label="Ready tasks"
+          label="Ready needles"
           count={openTasks.length}
           emptyTestId="empty-state-ready-tasks"
           isEmpty={openTasks.length === 0}

@@ -95,7 +95,7 @@ export default function GoalsView() {
         <Icon name="flag" className="text-4xl text-slate-600 mb-3" />
         <p className="text-slate-400 text-sm">No goals yet.</p>
         <p className="text-slate-500 text-xs mt-1">
-          Goals are created automatically from task tags.
+          Goals are created automatically from needle tags.
         </p>
       </div>
     );
@@ -117,7 +117,7 @@ export default function GoalsView() {
               <span className="text-white font-medium">{goals.length}</span> goals
             </span>
             <span>
-              <span className="text-white font-medium">{totalClosed}</span>/{totalTasks} tasks done
+              <span className="text-white font-medium">{totalClosed}</span>/{totalTasks} needles done
             </span>
           </div>
         </div>
@@ -183,7 +183,7 @@ export default function GoalsView() {
               {expanded && (
                 <div className="border-t border-slate-800 px-5 py-3">
                   {goal.tasks.length === 0 ? (
-                    <p className="text-sm text-slate-500 py-2">No tasks in this goal.</p>
+                    <p className="text-sm text-slate-500 py-2">No needles in this goal.</p>
                   ) : (
                     <div className="flex flex-col gap-1.5">
                       {goal.tasks.map((task) => (

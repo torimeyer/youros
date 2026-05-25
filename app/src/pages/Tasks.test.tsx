@@ -127,7 +127,7 @@ describe('Tasks page', () => {
     await waitFor(() => {
       expect(screen.getByTestId('page-header')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('page-header')).toHaveTextContent('Tasks')
+    expect(screen.getByTestId('page-header')).toHaveTextContent('Needles')
   })
 
   it('renders the export button in the overflow menu', async () => {
@@ -525,7 +525,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    const closeButtons = screen.getAllByTitle('Close task')
+    const closeButtons = screen.getAllByTitle('Close needle')
     fireEvent.click(closeButtons[0])
 
     await waitFor(() => {
@@ -546,7 +546,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Old completed task')).toBeInTheDocument()
     })
 
-    const reopenButton = screen.getByTitle('Reopen task')
+    const reopenButton = screen.getByTitle('Reopen needle')
     fireEvent.click(reopenButton)
 
     await waitFor(() => {
@@ -589,7 +589,7 @@ describe('Tasks page', () => {
     })
 
     selectOnlyStatus('closed')
-    expect(screen.getByText('No tasks match this filter.')).toBeInTheDocument()
+    expect(screen.getByText('No needles match this filter.')).toBeInTheDocument()
   })
 
   it('displays task IDs with # prefix', async () => {
@@ -634,7 +634,7 @@ describe('Tasks page', () => {
       expect(mockedApiGet).toHaveBeenCalledWith('/tasks')
     })
 
-    const closeButtons = screen.getAllByTitle('Close task')
+    const closeButtons = screen.getAllByTitle('Close needle')
     fireEvent.click(closeButtons[0])
 
     await waitFor(() => {
@@ -1016,7 +1016,7 @@ describe('Tasks page', () => {
     fireEvent.click(screen.getByTestId('task-row-1'))
 
     await waitFor(() => {
-      expect(screen.getByText('This task is standalone. No blockers, no dependencies, no related tasks.')).toBeInTheDocument()
+      expect(screen.getByText('This needle is standalone. No blockers, no dependencies, no related needles.')).toBeInTheDocument()
     })
   })
 
@@ -1548,7 +1548,7 @@ describe('Tasks page', () => {
       // The popover dialog appears with the plain-language copy.
       const dialog = await screen.findByRole('dialog', { name: 'What does this do?' })
       expect(dialog).toBeInTheDocument()
-      expect(dialog).toHaveTextContent('Reads the task and plans the approach')
+      expect(dialog).toHaveTextContent('Reads the needle and plans the approach')
       expect(dialog).toHaveTextContent('Runs pytest and tsc to catch regressions')
       expect(dialog).toHaveTextContent('Only reports done when everything is green')
 
@@ -1833,12 +1833,12 @@ describe('Tasks page', () => {
       })
       // Review headline must make clear nothing closes without approval.
       expect(screen.getByTestId('audit-review-headline').textContent).toContain(
-        'Review every task. Nothing closes until you say so.',
+        'Review every needle. Nothing closes until you say so.',
       )
       expect(screen.getByTestId('audit-review-row-r-2')).toBeInTheDocument()
       const closeButton = screen.getByTestId('audit-close-r-1')
       expect(closeButton).toBeInTheDocument()
-      expect(closeButton.textContent).toContain('Close this task')
+      expect(closeButton.textContent).toContain('Close this needle')
       expect(screen.getByTestId('audit-keep-r-1')).toBeInTheDocument()
       expect(screen.getByText('This looks already done')).toBeInTheDocument()
       expect(screen.getByText(/duplicate of t-9/)).toBeInTheDocument()
@@ -1847,7 +1847,7 @@ describe('Tasks page', () => {
         '1 done',
       )
       expect(screen.getByTestId('audit-summary').textContent).toContain(
-        'Skipped 1 real-life task',
+        'Skipped 1 real-life needle',
       )
     })
 
@@ -2401,7 +2401,7 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
     fireEvent.click(screen.getByTestId('overflow-delete-all'))
     expect(screen.getByTestId('confirm-modal-backdrop')).toBeInTheDocument()
     // The modal title contains "Delete all N tasks?"
-    expect(screen.getByText(/Delete all \d+ tasks?/i)).toBeInTheDocument()
+    expect(screen.getByText(/Delete all \d+ needles?/i)).toBeInTheDocument()
   })
 
   it('confirming Delete all calls the delete endpoint with current filters', async () => {
@@ -2743,8 +2743,8 @@ describe('Tasks page - live updates (bus + 3s poll)', () => {
     // the sibling task's delete button.
     const row = screen.getByText('Delete me please').closest('[data-testid^="task-row"], [role="listitem"], li, div')!
     const deleteBtn = Array.from(row.querySelectorAll('button')).find(
-      (b) => b.getAttribute('title') === 'Delete task permanently'
-    ) ?? screen.getAllByTitle('Delete task permanently')[0]
+      (b) => b.getAttribute('title') === 'Delete needle permanently'
+    ) ?? screen.getAllByTitle('Delete needle permanently')[0]
     fireEvent.click(deleteBtn)
 
     // Task is optimistically removed right away.
@@ -2784,7 +2784,7 @@ describe('Tasks page - live updates (bus + 3s poll)', () => {
       expect(screen.getByText('Task to undo delete')).toBeInTheDocument()
     })
 
-    const deleteBtn = screen.getByTitle('Delete task permanently')
+    const deleteBtn = screen.getByTitle('Delete needle permanently')
     fireEvent.click(deleteBtn)
 
     // Undo toast appears immediately after clicking delete.

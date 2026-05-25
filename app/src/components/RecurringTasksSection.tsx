@@ -218,9 +218,9 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
     <div className={outerClass} data-testid="recurring-tasks-section">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-lg font-semibold">Recurring tasks</h2>
+          <h2 className="text-lg font-semibold">Recurring needles</h2>
           <p className="text-xs text-slate-500 mt-1">
-            Tasks that create themselves again on a schedule.
+            Needles that create themselves again on a schedule.
           </p>
         </div>
         <button
@@ -229,7 +229,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
           data-testid="recurring-add-button"
         >
           <Icon name="add" size={16} />
-          Add recurring task
+          Add recurring needle
         </button>
       </div>
 
@@ -240,7 +240,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
       {!loading && rules.length === 0 && (
         <div>
           <p className="text-sm text-slate-500 mb-4">
-            No recurring tasks yet. Add one to have it show up automatically each day, week, or month.
+            No recurring needles yet. Add one to have it show up automatically each day, week, or month.
           </p>
           {showSuggestions && (
             <div>
@@ -340,7 +340,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
         >
           <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-start justify-between mb-4">
-              <h3 className="text-white font-semibold text-lg">New recurring task</h3>
+              <h3 className="text-white font-semibold text-lg">New recurring needle</h3>
               <button
                 onClick={close}
                 className="text-slate-500 hover:text-white transition-colors"

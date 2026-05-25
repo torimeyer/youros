@@ -1638,7 +1638,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             onClick={(e) => e.stopPropagation()}
           >
             <p className="px-3 pb-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
-              Link to another task
+              Link to another needle
             </p>
             <div className="px-3 pb-2">
               <input
@@ -1704,7 +1704,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
   return (
     <div className="min-h-dvh bg-slate-950 text-white">
-      {!embedded && <TopBar title="Tasks" />}
+      {!embedded && <TopBar title="Needles" />}
 
       <div data-tour="tasks" className={`${embedded ? '' : 'pt-16 sm:pt-20 '}px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
         {/* Banner */}
@@ -1720,7 +1720,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         {/* Primary toolbar: one tight row */}
         <div className="flex items-center gap-2 mb-3 flex-wrap" data-testid="primary-toolbar">
           {/* Title + LIVE */}
-          <h1 data-testid="page-header" className="text-xl sm:text-2xl font-bold">Tasks</h1>
+          <h1 data-testid="page-header" className="text-xl sm:text-2xl font-bold">Needles</h1>
           <span className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full" data-testid="live-badge">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
             LIVE
@@ -1728,7 +1728,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
           {/* View tabs */}
           <div className="flex items-center gap-3 text-sm ml-2 mr-auto">
-            <button onClick={() => setActiveTab("tasks")} className={activeTab === "tasks" ? "text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-400 pb-0.5 hover:text-slate-300"}>Tasks</button>
+            <button onClick={() => setActiveTab("tasks")} className={activeTab === "tasks" ? "text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-400 pb-0.5 hover:text-slate-300"}>Needles</button>
             <button onClick={() => setActiveTab("labels")} className={activeTab === "labels" ? "text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-400 pb-0.5 hover:text-slate-300"}>Labels</button>
             <button onClick={() => setActiveTab("health")} className={activeTab === "health" ? "text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-400 pb-0.5 hover:text-slate-300"}>Health</button>
           </div>
@@ -2015,12 +2015,12 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
               {!loading && filteredTasks.length === 0 && tasks.length === 0 && (
                 <EmptyState
                   icon="checklist"
-                  title="No tasks yet."
+                  title="No needles yet."
                   description="Type a task above, or tell myOS an idea in chat and it will create tasks for you."
                 />
               )}
               {!loading && filteredTasks.length === 0 && tasks.length > 0 && (
-                <p className="text-sm text-slate-500 py-4">No tasks match this filter.</p>
+                <p className="text-sm text-slate-500 py-4">No needles match this filter.</p>
               )}
               {taskGroups.map(({ key: priority, label, tasks: groupTasks }) => (
                   <Fragment key={priority}>
@@ -2086,7 +2086,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                     </span>
                     <button
                       onClick={(e) => { e.stopPropagation(); task.status === "closed" ? reopenTask(task.id) : closeTask(task.id); }}
-                      title={task.status === "closed" ? "Reopen task" : "Close task"}
+                      title={task.status === "closed" ? "Reopen needle" : "Close needle"}
                       className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
                         task.status === "closed"
                           ? "border-green-500 bg-green-500/20 hover:border-amber-400 hover:bg-amber-500/20"
@@ -2259,7 +2259,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         }}
                         disabled={autoLabelingTaskId === task.id}
                         className="p-1 text-slate-600 hover:text-purple-400 disabled:opacity-50 transition-colors"
-                        title="Auto-label this task"
+                        title="Auto-label this needle"
                       >
                         {autoLabelingTaskId === task.id ? (
                           <Icon name="hourglass_empty" className="text-sm animate-spin" />
@@ -2274,7 +2274,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         deleteTask(task.id);
                       }}
                       className="p-1 text-slate-700 hover:text-red-400 transition-colors"
-                      title="Delete task permanently"
+                      title="Delete needle permanently"
                     >
                       <Icon name="delete" className="text-sm" />
                     </button>
@@ -2345,7 +2345,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                               <p>Comprehensive build spawns an agent that works the way you would want it to:</p>
                               <ol className="list-decimal list-inside space-y-0.5">
                                 <li>Loads workspace context.</li>
-                                <li>Reads the task and plans the approach.</li>
+                                <li>Reads the needle and plans the approach.</li>
                                 <li>Builds the solution.</li>
                                 <li>Writes tests.</li>
                                 <li>Runs the tests and fixes anything red.</li>
@@ -2419,7 +2419,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                       {task.unblocks && task.unblocks > 0 && (
                         <span
                           className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                          title={`Completing this task unblocks ${task.unblocks} other tasks`}
+                          title={`Completing this needle unblocks ${task.unblocks} other needles`}
                         >
                           unblocks {task.unblocks}
                         </span>
@@ -2530,7 +2530,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                                 </div>
                               )}
                               {!task.description && (
-                                <p className="text-slate-500">No briefing available for this task.</p>
+                                <p className="text-slate-500">No briefing available for this needle.</p>
                               )}
                             </div>
                           )}
@@ -2629,7 +2629,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
                               {briefing.neighbors.length > 0 && (
                                 <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Related tasks</h4>
+                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Related needles</h4>
                                   <ul className="space-y-1">
                                     {briefing.neighbors.map((n, i) => (
                                       <li key={i} className="flex items-center gap-2 text-slate-300">
@@ -2642,7 +2642,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                               )}
 
                               {briefing.blocked_by.length === 0 && briefing.unblocks.length === 0 && briefing.neighbors.length === 0 && (
-                                <p className="text-slate-500">This task is standalone. No blockers, no dependencies, no related tasks.</p>
+                                <p className="text-slate-500">This needle is standalone. No blockers, no dependencies, no related needles.</p>
                               )}
                             </div>
                           )}
@@ -2713,7 +2713,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                             </div>
                           )}
                           {!traceLoading && !trace && (
-                            <p className="text-slate-500">No history available for this task.</p>
+                            <p className="text-slate-500">No history available for this needle.</p>
                           )}
                           {!traceLoading && trace && (
                             <div className="space-y-3">
@@ -2895,7 +2895,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                               )}
 
                               {linkedContext.emails.length === 0 && linkedContext.events.length === 0 && linkedContext.files.length === 0 && (
-                                <p className="text-slate-500">No related emails, events, or files found for this task.</p>
+                                <p className="text-slate-500">No related emails, events, or files found for this needle.</p>
                               )}
                             </div>
                           )}
@@ -2909,7 +2909,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                       <div className="mt-4 pt-3 border-t border-slate-800">
                         {commitTaskId === task.id ? (
                           <div className="space-y-2">
-                            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Link a commit to this task</h4>
+                            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Link a commit to this needle</h4>
                             <div className="flex items-center gap-2">
                               <input
                                 type="text"
@@ -2955,7 +2955,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                             data-testid="commit-trigger-btn"
                           >
                             <Icon name="commit" className="text-sm" />
-                            Link a commit to this task
+                            Link a commit to this needle
                           </button>
                         )}
                       </div>
@@ -3005,7 +3005,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
               </div>
               <span className="text-slate-600 text-xs">
-                Press <kbd className="px-1.5 py-0.5 bg-slate-800 rounded text-slate-400">/</kbd> for new task
+                Press <kbd className="px-1.5 py-0.5 bg-slate-800 rounded text-slate-400">/</kbd> for new needle
               </span>
             </div>
           </>
@@ -3033,8 +3033,8 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
       <ConfirmModal
         open={deleteAllConfirmOpen}
-        title={`Delete all ${filteredTasks.length} task${filteredTasks.length === 1 ? "" : "s"}?`}
-        message="This removes every task currently visible with your filters. It cannot be undone."
+        title={`Delete all ${filteredTasks.length} needle${filteredTasks.length === 1 ? "" : "s"}?`}
+        message="This removes every needle currently visible with your filters. It cannot be undone."
         confirmLabel="Delete all"
         danger
         onConfirm={executeDeleteAll}
@@ -3046,7 +3046,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setImportModalOpen(false)}>
           <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Import Tasks</h2>
+              <h2 className="text-lg font-semibold">Import Needles</h2>
               <button onClick={() => setImportModalOpen(false)} className="text-slate-400 hover:text-white">
                 <Icon name="close" size={20} />
               </button>
@@ -3138,7 +3138,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
             {importResult && (
               <div className={`mt-4 p-3 rounded-lg text-sm ${importResult.errors.length > 0 ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300' : 'bg-green-500/10 border border-green-500/30 text-green-300'}`}>
-                {importResult.created > 0 && <span>Created {importResult.created} tasks. </span>}
+                {importResult.created > 0 && <span>Created {importResult.created} needles. </span>}
                 {importResult.errors.map((e, i) => <span key={i} className="block">{e}</span>)}
               </div>
             )}
@@ -3285,7 +3285,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
           data-testid="undo-delete-task-toast"
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 text-sm text-slate-200 px-4 py-3 rounded-xl shadow-lg"
         >
-          <span>Task deleted.</span>
+          <span>Needle deleted.</span>
           <button
             data-testid="undo-delete-task-button"
             onClick={handleUndo}

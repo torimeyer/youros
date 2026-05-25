@@ -62,7 +62,7 @@ function flattenResponse(resp: unknown): AnyItem[] {
 
 const NAV_ITEMS = [
   { id: 'home', label: 'Home', icon: 'home', path: '/' },
-  { id: 'tasks', label: 'Tasks', icon: 'checklist', path: '/tasks' },
+  { id: 'tasks', label: 'Needles', icon: 'checklist', path: '/tasks' },
   { id: 'inbox', label: 'Inbox', icon: 'inbox', path: '/inbox' },
   { id: 'agents', label: 'Agents', icon: 'smart_toy', path: '/agents' },
   { id: 'adoption', label: 'Adoption', icon: 'trending_up', path: '/adoption' },
@@ -123,7 +123,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       },
       {
         id: 'new-task',
-        label: 'Create New Task',
+        label: 'Create New Needle',
         icon: 'add_task',
         shortcut: `${modKey}N`,
         fn: () => { navigate('/tasks?new=1'); onClose() },
@@ -401,11 +401,11 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
           {/* Tasks */}
           {q && (
             tasksLoading
-              ? spinnerRow('Searching tasks...', 'tasks-loading')
+              ? spinnerRow('Searching needles...', 'tasks-loading')
               : tasksResults.length > 0
                 ? (
                   <div data-testid="section-tasks">
-                    {sectionHeader('Tasks', 'text-pink-400')}
+                    {sectionHeader('Needles', 'text-pink-400')}
                     {tasksResults.map((t, i) => {
                       const idx = tasksOffset + i
                       const sel = idx === selectedIndex

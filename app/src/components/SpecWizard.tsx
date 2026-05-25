@@ -224,7 +224,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
             }`}
           >
             <Icon name="add_task" size={16} />
-            Task
+            Needle
           </button>
           <button
             onClick={() => setMode("spec")}

@@ -25,14 +25,14 @@ describe("QuickAddTaskModal", () => {
     render(
       <QuickAddTaskModal open={false} onClose={vi.fn()} onSuccess={vi.fn()} />
     );
-    expect(screen.queryByText("New task")).not.toBeInTheDocument();
+    expect(screen.queryByText("New needle")).not.toBeInTheDocument();
   });
 
   it("renders the form when open is true", () => {
     render(
       <QuickAddTaskModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />
     );
-    expect(screen.getByText("New task")).toBeInTheDocument();
+    expect(screen.getByText("New needle")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Task title")).toBeInTheDocument();
   });
 
@@ -58,7 +58,7 @@ describe("QuickAddTaskModal", () => {
     fireEvent.change(screen.getByPlaceholderText("Task title"), {
       target: { value: "Write docs" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Add task" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add needle" }));
 
     await waitFor(() => {
       expect(mockedPost).toHaveBeenCalledWith("/tasks", {
@@ -80,7 +80,7 @@ describe("QuickAddTaskModal", () => {
     fireEvent.change(screen.getByPlaceholderText("Task title"), {
       target: { value: "Write docs" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Add task" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add needle" }));
 
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalled();
@@ -99,11 +99,11 @@ describe("QuickAddTaskModal", () => {
     fireEvent.change(screen.getByPlaceholderText("Task title"), {
       target: { value: "Broken" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Add task" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add needle" }));
 
     await waitFor(() => {
       expect(
-        screen.getByText("Could not create task. Try again.")
+        screen.getByText("Could not create needle. Try again.")
       ).toBeInTheDocument();
     });
     expect(onClose).not.toHaveBeenCalled();
@@ -159,7 +159,7 @@ describe("QuickAddTaskModal", () => {
       target: { value: "Urgent one" },
     });
     fireEvent.click(screen.getByRole("button", { name: /P0/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Add task" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add needle" }));
 
     await waitFor(() => {
       expect(mockedPost).toHaveBeenCalledWith("/tasks", {

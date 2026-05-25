@@ -239,7 +239,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
             onClick={() => setSubtab('tasks')}
             className={tabBtnClass(subtab === 'tasks')}
           >
-            Tasks
+            Needles
           </button>
           <button
             data-testid="plan-waves-subtab-waves"
@@ -302,13 +302,13 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
           {subtab === 'tasks' && (
             <>
               {tasksLoading && (
-                <div className="text-sm text-slate-400 py-8 text-center">Loading tasks...</div>
+                <div className="text-sm text-slate-400 py-8 text-center">Loading needles...</div>
               )}
               {tasksError && (
                 <div className="text-sm text-red-400 bg-red-500/10 rounded-lg px-4 py-3">{tasksError}</div>
               )}
               {tasks && tasks.length === 0 && (
-                <div className="text-sm text-slate-400 py-8 text-center">No open tasks.</div>
+                <div className="text-sm text-slate-400 py-8 text-center">No open needles.</div>
               )}
               {tasks && tasks.map((t) => {
                 const specBadge = tasksWithSpecBadge(t)
@@ -349,7 +349,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
                 </div>
               )}
               {wavesData && wavesData.waves.length === 0 && (
-                <div className="text-sm text-slate-400 py-8 text-center">No open tasks to plan.</div>
+                <div className="text-sm text-slate-400 py-8 text-center">No open needles to plan.</div>
               )}
               {wavesData && wavesData.waves.map((wave) => (
                 <div

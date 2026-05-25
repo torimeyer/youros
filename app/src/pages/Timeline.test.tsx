@@ -101,8 +101,8 @@ describe('Timeline page', () => {
     expect(screen.getByText('Agents')).toBeInTheDocument()
 
     // The gantt bar label shows "N tasks" or "N task"
-    expect(screen.getByText('2 tasks')).toBeInTheDocument()
-    expect(screen.getByText('1 task')).toBeInTheDocument()
+    expect(screen.getByText('2 needles')).toBeInTheDocument()
+    expect(screen.getByText('1 needle')).toBeInTheDocument()
   })
 
   it('shows empty message when no tasks match', async () => {
@@ -111,7 +111,7 @@ describe('Timeline page', () => {
     renderTimeline()
 
     await waitFor(() => {
-      expect(screen.getByText(/No tasks to display/)).toBeInTheDocument()
+      expect(screen.getByText(/No needles to display/)).toBeInTheDocument()
     })
     // EmptyState primitive renders with data-testid
     expect(screen.getByTestId('empty-state')).toBeInTheDocument()

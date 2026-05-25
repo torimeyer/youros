@@ -38,7 +38,7 @@ export default function AboutMyOS() {
       heading: 'What myOS is',
       body: (
         <p className="text-sm text-slate-400">
-          myOS is a workspace that runs locally on your computer. It helps you organize tasks and
+          myOS is a workspace that runs locally on your computer. It helps you organize needles and
           notes, and coordinates AI agents on your behalf. It is built around the idea that your
           work should compound, not vanish at the end of each session.
         </p>
@@ -85,8 +85,8 @@ export default function AboutMyOS() {
       heading: 'Work that compounds',
       body: (
         <p className="text-sm text-slate-400">
-          Tasks, notes, and decisions all live in a structured store. Past work is searchable and
-          reusable. Closing a task today changes what is suggested next week.
+          Needles, notes, and decisions all live in a structured store. Past work is searchable and
+          reusable. Closing a needle today changes what is suggested next week.
         </p>
       ),
     },
@@ -161,7 +161,7 @@ export default function AboutMyOS() {
             {(taskCount ?? 0) > 0 && (
               <div className="text-center">
                 <div className="text-3xl font-semibold text-slate-100">{taskCount}</div>
-                <div className="text-xs text-slate-500 mt-1">tasks tracked</div>
+                <div className="text-xs text-slate-500 mt-1">needles tracked</div>
               </div>
             )}
             {(agentCount ?? 0) > 0 && (

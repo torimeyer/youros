@@ -43,7 +43,7 @@ const CATEGORY_CONFIG = {
     icon: 'reply' as const,
   },
   task_worthy: {
-    label: 'Task found',
+    label: 'Needle found',
     color: 'text-amber-400',
     bg: 'bg-amber-500/15 border-amber-500/30',
     dot: 'bg-amber-400',
@@ -121,7 +121,7 @@ export default function GmailTriage() {
         if (action === 'create_task' && res.title) {
           setActionFeedback((prev) => ({
             ...prev,
-            [messageId]: `Task created: ${res.title}`,
+            [messageId]: `Needle created: ${res.title}`,
           }))
         }
         if (action === 'archive' || action === 'skip') {
@@ -158,7 +158,7 @@ export default function GmailTriage() {
               />
               <SummaryBadge
                 count={summary.task_worthy}
-                label={summary.task_worthy === 1 ? 'task found' : 'tasks found'}
+                label={summary.task_worthy === 1 ? 'needle found' : 'needles found'}
                 color="text-amber-400"
               />
               <SummaryBadge
@@ -290,10 +290,10 @@ export default function GmailTriage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       {msg.category === 'task_worthy' && (
                         <ActionButton
-                          label="Create Task"
+                          label="Create Needle"
                           icon="add_task"
                           state={actionStates[actionKey(msg.id, 'create_task')]}
-                          doneLabel="Task created"
+                          doneLabel="Needle created"
                           onClick={() => applyAction('create_task', msg.id)}
                           className="bg-amber-600 hover:bg-amber-700"
                         />
