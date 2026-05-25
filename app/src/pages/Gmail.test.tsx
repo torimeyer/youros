@@ -754,6 +754,116 @@ describe('Gmail delete (Trash) actions', () => {
   })
 })
 
+describe('Gmail — localStorage cache reflects read state (→1688)', () => {
+  const mockedApiPost = vi.mocked(api.post)
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.gmailCache.v1')
+  })
+
+  it('updates localStorage is_unread to false when user opens an unread message', async () => {
+    const MESSAGE = {
+      id: 'unread1',
+      thread_id: 't1',
+      subject: 'Your health records are ready to view',
+      from_name: 'Health Records Online',
+      from_email: 'noreply@healthrecords.com',
+      snippet: 'Log in to view your records.',
+      date: '2026-05-24T10:00:00+00:00',
+      is_unread: true,
+    }
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/gmail/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/gmail/messages')) return Promise.resolve({ messages: [MESSAGE] })
+      if (path.includes('/gmail/send_capability')) {
+        return Promise.resolve({ has_send_scope: true, reauth_url: null })
+      }
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({})
+
+    renderGmail()
+
+    // Wait for the message to render and the localStorage cache to be written.
+    await waitFor(() => {
+      const cached = JSON.parse(window.localStorage.getItem('myos.gmailCache.v1') || '[]') as Array<{ id: string; is_unread: boolean }>
+      expect(cached.some((m) => m.id === 'unread1' && m.is_unread === true)).toBe(true)
+    })
+
+    // Click the message row to expand it — this should mark it as read.
+    // Use the subject text which is unique (from_name is different).
+    const messageButton = await screen.findByText('Your health records are ready to view')
+    fireEvent.click(messageButton)
+
+    // Wait for the mark-read API to be called.
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/gmail/messages/unread1/read', {})
+    })
+
+    // The localStorage cache must now have is_unread: false for this message.
+    // Without the fix the cache still holds is_unread: true, so the next page
+    // load shows the already-read email with a blue dot until the slow
+    // background fetch completes. Regression guard for →1688.
+    const cached = JSON.parse(window.localStorage.getItem('myos.gmailCache.v1') || '[]') as Array<{ id: string; is_unread: boolean }>
+    const entry = cached.find((m) => m.id === 'unread1')
+    expect(entry).toBeDefined()
+    expect(entry!.is_unread).toBe(false)
+  })
+
+  it('does not show blue dot for a previously-read email when initialized from stale localStorage', async () => {
+    // Seed localStorage with a message marked as read (simulating the state
+    // after the fix has persisted the read state). The page must not render
+    // a blue dot for it. This tests the initialization path that caused →1688.
+    const staleCache = [
+      {
+        id: 'read1',
+        thread_id: 't1',
+        subject: 'Your DoorDash order has arrived',
+        from_name: 'DoorDash',
+        from_email: 'noreply@doordash.com',
+        snippet: 'Your order is here.',
+        date: '2026-05-24T08:00:00+00:00',
+        is_unread: false,
+      },
+    ]
+    window.localStorage.setItem('myos.gmailCache.v1', JSON.stringify(staleCache))
+
+    // Make the API hang so we can assert the initial cache-seeded render.
+    let resolveMessages!: (v: { messages: unknown[] }) => void
+    const messagesPromise = new Promise<{ messages: unknown[] }>((res) => { resolveMessages = res })
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/gmail/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/gmail/messages')) return messagesPromise
+      if (path.includes('/gmail/send_capability')) {
+        return Promise.resolve({ has_send_scope: true, reauth_url: null })
+      }
+      return Promise.resolve({})
+    })
+
+    renderGmail()
+
+    // While the network fetch is pending the page uses the localStorage seed.
+    // The message should render without a blue dot.
+    await waitFor(() => {
+      expect(screen.getByText('Your DoorDash order has arrived')).toBeInTheDocument()
+    })
+
+    // Find the row button that contains this subject and check no blue dot.
+    const subjectEl = screen.getByText('Your DoorDash order has arrived')
+    const rowContainer = subjectEl.closest('button')
+    expect(rowContainer).not.toBeNull()
+    // A blue dot would be a span with bg-blue-400 inside this row.
+    const blueDots = rowContainer!.querySelectorAll('span.bg-blue-400')
+    expect(blueDots.length).toBe(0)
+
+    // Clean up the pending promise.
+    resolveMessages({ messages: staleCache })
+  })
+})
+
 describe('Gmail — Google OAuth connect button', () => {
   beforeEach(() => {
     vi.clearAllMocks()

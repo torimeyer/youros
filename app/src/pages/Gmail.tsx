@@ -250,9 +250,9 @@ export default function Gmail() {
 
     // Expanding: mark as read locally first for instant feedback.
     if (msg.is_unread) {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === msg.id ? { ...m, is_unread: false } : m))
-      )
+      const updated = messages.map((m) => (m.id === msg.id ? { ...m, is_unread: false } : m))
+      setMessages(updated)
+      writeGmailCache(updated)
       setMarkingRead((prev) => new Set(prev).add(msg.id))
       try {
         await api.post(`/gmail/messages/${msg.id}/read`, {})
