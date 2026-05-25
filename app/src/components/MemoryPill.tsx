@@ -21,12 +21,12 @@ export default function MemoryPill() {
 
   return (
     <button
-      onClick={() => navigate('/settings')}
+      onClick={() => navigate('/settings#memory')}
       title="Things I remember about you. Click to edit."
       data-testid="memory-pill"
       className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition-colors cursor-pointer"
     >
-      📌 {count}
+      🧠 {count} remembered
     </button>
   )
 }

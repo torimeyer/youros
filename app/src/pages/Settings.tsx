@@ -725,6 +725,9 @@ export default function Settings() {
         window.setTimeout(() => handleSuggestStandingInstructions(), 0);
       }
     }
+    if (hash === '#memory') {
+      setActiveSection('section-preferences');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1245,7 +1248,6 @@ export default function Settings() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-slate-200">Use Gemini CLI</span>
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30 uppercase tracking-wider">Experimental</span>
                     </div>
                     <Toggle checked={useGeminiCli} onChange={() => handleUseGeminiCliToggle(!useGeminiCli)} testId="gemini-cli-toggle" />
                   </div>

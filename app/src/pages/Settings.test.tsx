@@ -1470,4 +1470,14 @@ describe('Settings — Memory provenance (F4)', () => {
     await waitFor(() => expect(screen.getByTestId('suggested-topics-list')).toBeInTheDocument())
     expect(screen.getByText('writing-style')).toBeInTheDocument()
   })
+
+  it('Gemini CLI toggle has no Experimental badge', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/settings') return Promise.resolve({ provider: 'Google Gemini' })
+      return Promise.resolve({})
+    })
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('gemini-cli-toggle')).toBeInTheDocument())
+    expect(screen.queryByText('Experimental')).not.toBeInTheDocument()
+  })
 })
