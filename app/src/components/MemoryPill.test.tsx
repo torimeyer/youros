@@ -1,11 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import MemoryPill from './MemoryPill'
 
 vi.mock('../lib/api', () => ({
   api: { get: vi.fn() },
 }))
+
+const mockNavigate = vi.fn()
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom')
+  return { ...actual, useNavigate: () => mockNavigate }
+})
 
 import { api } from '../lib/api'
 const mockApi = api as { get: ReturnType<typeof vi.fn> }
@@ -19,12 +25,21 @@ describe('MemoryPill', () => {
     vi.clearAllMocks()
   })
 
-  it('renders with count when memory has bullets', async () => {
+  it('renders brain icon and "N remembered" label', async () => {
     mockApi.get.mockResolvedValue({ bullet_count: 3, file_exists: true })
     render(<MemoryPill />, { wrapper: Wrapper })
     const pill = await screen.findByTestId('memory-pill')
     expect(pill).toBeInTheDocument()
-    expect(pill).toHaveTextContent('3')
+    expect(pill).toHaveTextContent('🧠')
+    expect(pill).toHaveTextContent('3 remembered')
+  })
+
+  it('navigates to /settings#memory on click', async () => {
+    mockApi.get.mockResolvedValue({ bullet_count: 5, file_exists: true })
+    render(<MemoryPill />, { wrapper: Wrapper })
+    const pill = await screen.findByTestId('memory-pill')
+    fireEvent.click(pill)
+    expect(mockNavigate).toHaveBeenCalledWith('/settings#memory')
   })
 
   it('does not render when bullet count is 0', async () => {
