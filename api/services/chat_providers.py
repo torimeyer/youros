@@ -831,6 +831,12 @@ async def _resolve_api_key(settings_key: str) -> str:
 
 MAX_AGENT_TURNS = 40
 
+# Tighter cap for read-only discovery loops (→1699). When the model has burned
+# MAX_TOOL_ROUNDS turns making only read/search calls with no file edits, we
+# force a text-only synthesis response instead of allowing it to keep
+# rediscovering the same facts across expensive subscription round-trips.
+MAX_TOOL_ROUNDS = 6
+
 
 # --- Anthropic transient-error retry policy ---
 #
@@ -3149,6 +3155,72 @@ class ChatService:
                     r[:500] for r in raw_results if isinstance(r, str)
                 )
                 conversation.append({"role": "user", "content": tool_results})
+
+                # Read-only discovery cap (→1699): if MAX_TOOL_ROUNDS have passed
+                # with no file edits, force a text-only answer so the model stops
+                # rediscovering the same facts across expensive subscription calls.
+                if turn >= MAX_TOOL_ROUNDS and not files_modified:
+                    async def _forced_text_create() -> Any:
+                        return await client.messages.create(
+                            model="claude-sonnet-4-20250514",
+                            max_tokens=4096,
+                            system=cached_system_prompt,
+                            messages=_add_conversation_prefix_cache(conversation),
+                            # No tools= arg → model must respond with text only
+                        )
+
+                    forced_resp = await _with_ws_heartbeat(
+                        websocket,
+                        lambda: _anthropic_retry_call(
+                            _forced_text_create,
+                            op_name="anthropic.messages.create.forced",
+                        ),
+                    )
+                    total_input_tokens += forced_resp.usage.input_tokens
+                    total_output_tokens += forced_resp.usage.output_tokens
+                    total_cache_creation_tokens += getattr(forced_resp.usage, "cache_creation_input_tokens", 0) or 0
+                    total_cache_read_tokens += getattr(forced_resp.usage, "cache_read_input_tokens", 0) or 0
+                    forced_text_parts = [b.text for b in forced_resp.content if b.type == "text"]
+                    if not forced_text_parts:
+                        # Model returned no text even without tools — emit a fallback
+                        # so the UI always gets a response at the cap boundary.
+                        fallback = (
+                            f"I've used {MAX_TOOL_ROUNDS} search rounds on this and I'm not yet done. "
+                            "Tell me the specific file, doc, or needle to look at and I'll go straight there."
+                        )
+                        forced_text_parts = [fallback]
+                    for t in forced_text_parts:
+                        await websocket.send_json({"type": "token", "data": t})
+                    await websocket.send_json({
+                        "type": "done",
+                        "usage": {
+                            "input_tokens": total_input_tokens,
+                            "output_tokens": total_output_tokens,
+                            "cache_creation_input_tokens": total_cache_creation_tokens,
+                            "cache_read_input_tokens": total_cache_read_tokens,
+                        },
+                    })
+                    _boot_ctx = _get_boot_context()
+                    safe_record_chat_turn(
+                        model="claude-sonnet-4-20250514",
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                        has_ostk_boot=bool(_boot_ctx),
+                        boot_context_bytes=len(_boot_ctx.encode("utf-8")) if _boot_ctx else 0,
+                        backend="anthropic_api",
+                        cache_creation_input_tokens=total_cache_creation_tokens,
+                        cache_read_input_tokens=total_cache_read_tokens,
+                    )
+                    _log_chat_completion(
+                        model="claude-sonnet-4-20250514",
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                        provider="anthropic",
+                        cache_creation_input_tokens=total_cache_creation_tokens,
+                        cache_read_input_tokens=total_cache_read_tokens,
+                        topic=_extract_chat_topic(messages),
+                    )
+                    return "\n".join(forced_text_parts)
 
             # Loop exits naturally when Claude responds with text only (no tool calls)
 

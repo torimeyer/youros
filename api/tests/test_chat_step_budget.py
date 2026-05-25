@@ -29,6 +29,7 @@ import pytest
 
 from services.chat_providers import (
     MAX_AGENT_TURNS,
+    MAX_TOOL_ROUNDS,
     ChatService,
     _system_prompt,
 )
@@ -200,8 +201,8 @@ async def test_cap_hit_sends_graceful_message_and_done():
     assert "spawn" not in combined_text.lower() or "do not spawn" in combined_text.lower(), (
         f"Cap-hit message must not instruct the user to spawn an agent. Got: {combined_text!r}"
     )
-    assert str(MAX_AGENT_TURNS) in combined_text, (
-        f"Cap-hit message should mention the step count ({MAX_AGENT_TURNS}). Got: {combined_text!r}"
+    assert str(MAX_TOOL_ROUNDS) in combined_text, (
+        f"Cap-hit message should mention the step count ({MAX_TOOL_ROUNDS}). Got: {combined_text!r}"
     )
 
     # Must have sent a done event after the cap
