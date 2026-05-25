@@ -5,16 +5,12 @@ import TopBar from '../components/TopBar';
 import QuickAddTaskModal from '../components/QuickAddTaskModal';
 import QuickSpawnAgentModal from '../components/QuickSpawnAgentModal';
 import DashboardCustomizeModal from '../components/DashboardCustomizeModal';
-import NeedlesCountWidget from '../components/NeedlesCountWidget';
-import ActiveAgentsWidget from '../components/ActiveAgentsWidget';
-import QuickActionsWidget from '../components/QuickActionsWidget';
 import RecentSpecsWidget from '../components/RecentSpecsWidget';
 import JiraWidget from '../components/JiraWidget';
 import ConfluenceWidget from '../components/ConfluenceWidget';
 import CompetitiveIntelWidget from '../components/CompetitiveIntelWidget';
 import BlockersWidget from '../components/BlockersWidget';
 import DependencyMapWidget from '../components/DependencyMapWidget';
-import ExecUpdateWidget from '../components/ExecUpdateWidget';
 import { Card, SkeletonLine } from '../components/ui';
 import { api } from '../lib/api';
 import { reportError } from '../lib/reportError';
@@ -979,24 +975,6 @@ export default function Dashboard() {
     );
   };
 
-  const renderNeedlesCount = () => (
-    <div key="needles_count" data-testid="widget-needles-count">
-      <NeedlesCountWidget />
-    </div>
-  );
-
-  const renderActiveAgents = () => (
-    <div key="active_agents" data-testid="widget-active-agents">
-      <ActiveAgentsWidget />
-    </div>
-  );
-
-  const renderQuickActions = () => (
-    <div key="quick_actions" data-testid="widget-quick-actions">
-      <QuickActionsWidget onAddNeedle={() => setQuickAddTaskOpen(true)} />
-    </div>
-  );
-
   const renderRecentSpecs = () => (
     <div key="recent_specs" data-testid="widget-recent-specs">
       <RecentSpecsWidget />
@@ -1027,12 +1005,6 @@ export default function Dashboard() {
     </div>
   );
 
-  const renderExecUpdate = () => (
-    <div key="exec_update" data-testid="widget-exec-update">
-      <ExecUpdateWidget />
-    </div>
-  );
-
   const renderDependencyMapWidget = () => (
     <div key="dependency_map_widget" data-testid="widget-dependency-map-widget">
       <DependencyMapWidget />
@@ -1047,9 +1019,6 @@ export default function Dashboard() {
   const widgetRenderers: Record<string, () => ReactNode> = {
     briefing: renderBriefing,
     focus_first: renderFocusFirst,
-    needles_count: renderNeedlesCount,
-    active_agents: renderActiveAgents,
-    quick_actions: renderQuickActions,
     adventure: renderAdventure,
     todays_focus: renderTodaysFocus,
     quick_launch: renderQuickLaunch,
@@ -1061,7 +1030,6 @@ export default function Dashboard() {
     competitive_intel: renderCompetitiveIntel,
     blockers_widget: renderBlockersWidget,
     dependency_map_widget: renderDependencyMapWidget,
-    exec_update: renderExecUpdate,
   };
 
   const [widgetMenuOpen, setWidgetMenuOpen] = useState<string | null>(null);
