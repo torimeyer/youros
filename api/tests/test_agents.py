@@ -14052,3 +14052,60 @@ async def test_spawn_preflight_with_conflict():
         with _spawn_lock_mutex:
             _spawn_lock_holders.pop(raw_glob, None)
 
+
+# →1702: per_agent_transcript_bytes must be computed in snapshot, not per-request
+
+
+@pytest.mark.asyncio
+async def test_per_agent_transcript_bytes_computed_in_snapshot(monkeypatch):
+    """→1702: when the cached snapshot already has per_agent_transcript_bytes on a row,
+    the per-request handler must NOT recompute it by calling _get_per_agent_transcript_bytes_cached.
+
+    The annotation belongs in _run_enrich_pipeline (snapshot-time), not in list_agents
+    (per-request). This test freezes a snapshot with the field already set and asserts
+    zero calls to the cached getter for those rows.
+    """
+    import routers.agents as agents_mod
+
+    call_count: dict = {"n": 0}
+    original_cached = agents_mod._get_per_agent_transcript_bytes_cached
+
+    def counting_cached(name: str) -> int:
+        call_count["n"] += 1
+        return original_cached(name)
+
+    monkeypatch.setattr(agents_mod, "_get_per_agent_transcript_bytes_cached", counting_cached)
+
+    frozen_snapshot: dict = {
+        "agents": [
+            {
+                "name": "snap-agent-1702",
+                "status": "running",
+                "spawned_at": "2026-01-01T00:00:00+00:00",
+                "transcript_bytes": 456,
+                "per_agent_transcript_bytes": 123,
+                "kernel_event_index": 456,
+            }
+        ],
+        "daemon_running": False,
+        "computed_at": "2026-01-01T00:00:01+00:00",
+    }
+    monkeypatch.setattr(agents_mod, "_cached_snapshot", frozen_snapshot)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/agents?status=running")
+
+    assert resp.status_code == 200
+    agents_out = resp.json()["agents"]
+    snap_row = next((a for a in agents_out if a["name"] == "snap-agent-1702"), None)
+    assert snap_row is not None, "snap-agent-1702 must appear in response"
+    assert snap_row["per_agent_transcript_bytes"] == 123, (
+        f"Expected 123 from snapshot, got {snap_row['per_agent_transcript_bytes']}"
+    )
+    assert call_count["n"] == 0, (
+        f"_get_per_agent_transcript_bytes_cached called {call_count['n']} time(s) "
+        "for a snapshot row that already has per_agent_transcript_bytes — "
+        "annotation must be computed at snapshot-build time (→1702), not per-request"
+    )
+
