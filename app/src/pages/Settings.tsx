@@ -1632,7 +1632,16 @@ export default function Settings() {
               className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-800/70 transition-colors text-left"
               data-testid="pill-imessage"
             >
-              <span className="w-2.5 h-2.5 rounded-full bg-slate-600 flex-shrink-0" />
+              <span
+                data-testid="imessage-status-dot"
+                className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                  connectionStatus.iMessage.loading
+                    ? 'bg-slate-600 animate-pulse'
+                    : connectionStatus.iMessage.connected
+                    ? 'bg-emerald-400'
+                    : 'bg-slate-600'
+                }`}
+              />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-slate-200">iMessage</p>
                 <p className="text-xs text-slate-400">{connectionStatus.iMessage.connected ? 'Connected' : 'Set up iMessage'}</p>
@@ -1760,11 +1769,11 @@ export default function Settings() {
 
           {syncConfigured ? (
             <div>
-              <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-emerald-900/20 border border-emerald-800/30 rounded-lg">
-                <Icon name="check_circle" size={16} className="text-emerald-400" />
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-emerald-50 border border-emerald-300 dark:bg-emerald-900/20 dark:border-emerald-800/30 rounded-lg">
+                <Icon name="check_circle" size={16} className="text-emerald-600 dark:text-emerald-400" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-emerald-300 font-medium">Sync is on</p>
-                  <p className="text-xs text-slate-400 truncate">{syncRepoUrl}</p>
+                  <p className="text-sm text-emerald-700 dark:text-emerald-300 font-medium">Sync is on</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 truncate">{syncRepoUrl}</p>
                 </div>
               </div>
               {syncLastSynced && (
