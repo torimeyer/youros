@@ -8,6 +8,14 @@ interface Verb {
 
 const NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]*$/
 
+const SUGGESTED_VERBS: Verb[] = [
+  { name: 'standup', description: 'Write a daily standup update from recent activity' },
+  { name: 'summarize', description: 'Summarize what happened in the last session or day' },
+  { name: 'brainstorm', description: 'Generate ideas for a feature or problem' },
+  { name: 'debug', description: 'Diagnose and explain a bug or error' },
+  { name: 'release', description: 'Draft a release checklist or release notes' },
+]
+
 export default function CustomVerbs() {
   const [verbs, setVerbs] = useState<Verb[]>([])
   const [loading, setLoading] = useState(true)
@@ -47,6 +55,15 @@ export default function CustomVerbs() {
       // ignore — list stays unchanged
     } finally {
       setAdding(false)
+    }
+  }
+
+  const handleAdopt = async (verb: Verb) => {
+    try {
+      await api.post('/ostk/language/verb', { name: verb.name, description: verb.description })
+      await fetchVerbs()
+    } catch {
+      // ignore
     }
   }
 
@@ -98,6 +115,35 @@ export default function CustomVerbs() {
           ))}
         </ul>
       )}
+
+      {(() => {
+        const existingNames = new Set(verbs.map((v) => v.name))
+        const available = SUGGESTED_VERBS.filter((s) => !existingNames.has(s.name))
+        if (available.length === 0) return null
+        return (
+          <div data-testid="suggested-commands" className="mb-5">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Suggested commands</p>
+            <ul className="space-y-1.5">
+              {available.map((s) => (
+                <li
+                  key={s.name}
+                  className="flex items-center gap-3 px-3 py-2 bg-slate-800/30 rounded-lg border border-slate-700/30"
+                >
+                  <code className="text-sm font-mono text-accent-400 shrink-0">{s.name}</code>
+                  <span className="flex-1 text-xs text-slate-400">{s.description}</span>
+                  <button
+                    data-testid={`adopt-${s.name}`}
+                    onClick={() => handleAdopt(s)}
+                    className="shrink-0 text-xs px-2.5 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+                  >
+                    Add
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      })()}
 
       <div className="space-y-2" data-testid="custom-verbs-form">
         <div className="flex gap-2">
