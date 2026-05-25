@@ -755,6 +755,35 @@ describe('Settings', () => {
         expect(googlePill.textContent).toContain('Sign in to use Gmail, Calendar, and Drive')
       })
     })
+
+    it('iMessage status dot is green when iMessage is connected (→1695)', async () => {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path === '/imessage/status') return Promise.resolve({ available: true, reason: '' })
+        return Promise.resolve({})
+      })
+
+      renderSettings()
+
+      await waitFor(() => {
+        const dot = screen.getByTestId('imessage-status-dot')
+        expect(dot.className).toContain('bg-emerald-400')
+      })
+    })
+
+    it('iMessage status dot is gray when iMessage is not connected (→1695)', async () => {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path === '/imessage/status') return Promise.resolve({ available: false, reason: 'not available' })
+        return Promise.resolve({})
+      })
+
+      renderSettings()
+
+      await waitFor(() => {
+        const dot = screen.getByTestId('imessage-status-dot')
+        expect(dot.className).not.toContain('bg-emerald-400')
+        expect(dot.className).toContain('bg-slate-600')
+      })
+    })
   })
 
   describe('Chat backend section (Fix 2: separate card)', () => {
