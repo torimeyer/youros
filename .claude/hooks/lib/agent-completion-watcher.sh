@@ -22,6 +22,10 @@ ANNC_FILE="${MYOS_COMPLETION_ANNC:-$HOME/.myos/subagents/pending-completion-anno
 STATE_FILE="${MYOS_COMPLETION_STATE:-$HOME/.myos/subagents/completion-watcher-state.json}"
 PID_FILE="${MYOS_COMPLETION_PID:-$HOME/.myos/subagents/completion-watcher.pid}"
 LOCK_FILE="${MYOS_COMPLETION_LOCK:-$HOME/.myos/subagents/completion-watcher.lock}"
+COUNT_FILE="${MYOS_COMPLETION_COUNT:-}"   # running-agent count written by POLL_PY each cycle
+# After this many consecutive zero-running-agent polls (post SAW_RUNNING), exit.
+EMPTY_THRESHOLD="${MYOS_COMPLETION_WATCHER_EMPTY_THRESHOLD:-3}"
+MAX_BACKOFF=30   # seconds; cap for exponential backoff on poll failure
 
 # Singleton: only one watcher may run host-wide at any time, regardless of how
 # many worktrees are open. We use an OS-level exclusive lock so the guarantee is
@@ -58,8 +62,12 @@ echo $$ > "$PID_FILE" 2>/dev/null || true
 
 CURL_PID=""
 CURL_TMP=""
+# Allocate a per-run temp file for the running-agent count if not injected.
+if [ -z "$COUNT_FILE" ]; then
+    COUNT_FILE="$(mktemp -t completion-watcher-count.XXXXXX 2>/dev/null)" || COUNT_FILE=""
+fi
 
-trap 'rm -f "$PID_FILE" "${CURL_TMP:-}"; [ -n "${CURL_PID:-}" ] && kill "${CURL_PID}" 2>/dev/null; true' EXIT INT TERM
+trap 'rm -f "$PID_FILE" "${CURL_TMP:-}" "${COUNT_FILE:-}"; [ -n "${CURL_PID:-}" ] && kill "${CURL_PID}" 2>/dev/null; true' EXIT INT TERM
 
 # Python snippet: compare current /api/agents response against the known-state
 # file. Emit any running → terminal transitions to the announcements file.
@@ -74,6 +82,7 @@ EXCLUDE_NAMES = {"ack-bot", "heartbeat-bot", "e2e-smoke"}
 resp_file  = sys.argv[1]
 annc_file  = sys.argv[2]
 state_file = sys.argv[3]
+count_file = sys.argv[4] if len(sys.argv) > 4 else ""
 
 try:
     with open(resp_file, "r") as f:
@@ -131,41 +140,89 @@ os.makedirs(os.path.dirname(state_file) or ".", exist_ok=True)
 with open(state_file, "w") as f:
     for name, status in current.items():
         f.write(json.dumps({"name": name, "status": status}) + "\n")
+
+# Write running-agent count so the shell can exit once all agents are terminal.
+running_count = sum(1 for s in current.values() if s not in TERMINAL)
+if count_file:
+    try:
+        with open(count_file, "w") as f:
+            f.write(str(running_count) + "\n")
+    except Exception:
+        pass
 '
 
 POLL_COUNT=0
+FAIL_COUNT=0      # consecutive failed polls; drives exponential backoff
+EMPTY_POLLS=0     # consecutive polls where running-agent count == 0
+SAW_RUNNING=0     # set to 1 once we observe at least one running agent
 
 while true; do
     sleep "$POLL_INTERVAL"
     POLL_COUNT=$((POLL_COUNT + 1))
 
-    # Periodic ghost purge every ~60s (12 × default 5s interval): belt-and-
-    # suspenders fallback for any sibling that somehow bypassed the lock (e.g.
-    # LOCK_FILE manually deleted, or OS without flock/lockf support).
+    # ── Fix 3: Periodic ghost purge with kill -0 liveness guard ──────────────
+    # Belt-and-suspenders for any sibling that bypassed the lock (e.g. LOCK_FILE
+    # manually deleted, or OS without flock/lockf support).
+    # MUST NOT kill a process without first verifying it is still alive.
+    # This prevents the ghost-reaper-kills-live-agent bug (feedback_ghost_reaper_live_pid_check.md).
     if [ $((POLL_COUNT % 12)) -eq 0 ]; then
-        pgrep -f "agent-completion-watcher.sh" | grep -v "^$$" | xargs kill 2>/dev/null || true
+        while IFS= read -r _gpid; do
+            [ "$_gpid" = "$$" ] && continue
+            kill -0 "$_gpid" 2>/dev/null || continue  # already dead — skip
+            kill "$_gpid" 2>/dev/null || true
+        done < <(pgrep -f "agent-completion-watcher.sh" 2>/dev/null)
     fi
 
-    # In-flight curl guard: if the previous curl is still running (backend
-    # slower than POLL_INTERVAL), skip this iteration — do not queue another
-    # curl and let them pile up under a wedged backend.
+    # ── In-flight curl guard ──────────────────────────────────────────────────
+    # If the previous curl is still running (backend slower than POLL_INTERVAL),
+    # skip this iteration — do not queue another curl under a wedged backend.
     if [ -n "$CURL_PID" ] && kill -0 "$CURL_PID" 2>/dev/null; then
         continue
     fi
 
-    # Previous curl finished; reap it and process its result.
+    # ── Process previous curl result ──────────────────────────────────────────
     if [ -n "$CURL_PID" ]; then
         wait "$CURL_PID" 2>/dev/null
         CURL_EXIT=$?
         if [ "$CURL_EXIT" -eq 0 ] && [ -s "${CURL_TMP:-}" ]; then
-            python3 -c "$POLL_PY" "$CURL_TMP" "$ANNC_FILE" "$STATE_FILE" 2>/dev/null || true
+            # Successful poll: process transitions, reset failure counter.
+            python3 -c "$POLL_PY" "$CURL_TMP" "$ANNC_FILE" "$STATE_FILE" "${COUNT_FILE:-}" 2>/dev/null || true
+            FAIL_COUNT=0
+
+            # ── Fix 1: Exit when all running agents reach terminal state ──────
+            # Read the running-agent count written by POLL_PY.
+            if [ -n "${COUNT_FILE:-}" ] && [ -f "$COUNT_FILE" ]; then
+                _rc=$(tr -d '[:space:]' < "$COUNT_FILE" 2>/dev/null)
+                if [ "${_rc:-1}" -eq 0 ]; then
+                    EMPTY_POLLS=$((EMPTY_POLLS + 1))
+                else
+                    EMPTY_POLLS=0
+                    SAW_RUNNING=1
+                fi
+                # Only exit after we've seen at least one running agent — avoids
+                # exiting immediately at session start when no agents are up yet.
+                if [ "$SAW_RUNNING" -eq 1 ] && [ "$EMPTY_POLLS" -ge "$EMPTY_THRESHOLD" ]; then
+                    exit 0
+                fi
+            fi
+        else
+            # ── Fix 2: Exponential backoff on poll failure ────────────────────
+            # Prevents tight-loop stampede when the backend is slow or down.
+            # Backoff: 2^FAIL_COUNT seconds, capped at MAX_BACKOFF.
+            FAIL_COUNT=$((FAIL_COUNT + 1))
+            if [ "$FAIL_COUNT" -le 4 ]; then
+                _backoff=$(( 1 << FAIL_COUNT ))   # 2, 4, 8, 16
+            else
+                _backoff="$MAX_BACKOFF"
+            fi
+            sleep "$_backoff"
         fi
         rm -f "$CURL_TMP" 2>/dev/null || true
         CURL_PID=""
         CURL_TMP=""
     fi
 
-    # Fire the next poll in the background so its PID is trackable.
+    # ── Fire the next poll in the background ──────────────────────────────────
     # summary=1 keeps payload ~120KB even with 500+ agents; the no-limit ensures
     # newly-spawned agents beyond the old 100-row cutoff are always visible.
     CURL_TMP="$(mktemp -t completion-watcher-resp.XXXXXX 2>/dev/null)" || continue
