@@ -62,7 +62,7 @@ describe('OstkFiles', () => {
     renderPage()
     await waitFor(() => {
       const decisionsTab = screen.getByTestId('tab-decisions')
-      expect(decisionsTab.className).toContain('bg-slate-700')
+      expect(decisionsTab.className).toContain('bg-slate-200 dark:bg-slate-700')
     })
   })
 

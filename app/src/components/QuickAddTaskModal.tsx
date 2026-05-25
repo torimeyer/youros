@@ -87,10 +87,10 @@ export default function QuickAddTaskModal({ open, onClose, onSuccess }: Props) {
       data-testid="quick-add-task-backdrop"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
     >
-      <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg p-6 shadow-2xl">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full max-w-lg p-6 shadow-2xl">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Icon name="add_task" className="text-blue-400" size={22} />
+            <Icon name="add_task" className="text-blue-600 dark:text-blue-400" size={22} />
             <h2 className="text-white font-semibold text-lg">New needle</h2>
           </div>
           <button
@@ -104,7 +104,7 @@ export default function QuickAddTaskModal({ open, onClose, onSuccess }: Props) {
 
         <div className="space-y-4">
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5">
+            <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">
               What needs to get done?
             </label>
             <input
@@ -114,12 +114,12 @@ export default function QuickAddTaskModal({ open, onClose, onSuccess }: Props) {
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Task title"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
             />
           </div>
 
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5">
+            <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">
               How urgent is it?
             </label>
             <div className="flex gap-2">
@@ -133,8 +133,8 @@ export default function QuickAddTaskModal({ open, onClose, onSuccess }: Props) {
                     aria-pressed={selected}
                     className={`flex-1 px-3 py-2 rounded-lg border text-sm transition-colors ${
                       selected
-                        ? "bg-pink-500/20 border-pink-500 text-pink-300"
-                        : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600"
+                        ? "bg-pink-500/20 border-pink-500 text-pink-700 dark:text-pink-300"
+                        : "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-600"
                     }`}
                   >
                     <div className="font-semibold">{p.label}</div>
@@ -145,13 +145,13 @@ export default function QuickAddTaskModal({ open, onClose, onSuccess }: Props) {
             </div>
           </div>
 
-          {error && <div className="text-red-400 text-sm">{error}</div>}
+          {error && <div className="text-red-600 dark:text-red-400 text-sm">{error}</div>}
         </div>
 
         <div className="flex items-center justify-end gap-2 mt-6">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
+            className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
           >
             Cancel
           </button>

@@ -36,7 +36,7 @@ export default function AdhdCheckin({ running_count, agents, intervalSeconds }: 
 
   return (
     <div className="fixed bottom-4 right-4 z-50 max-w-sm animate-slide-up">
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 shadow-2xl">
+      <div className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-2xl">
         <div className="flex items-center gap-2 mb-2">
           <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
           <span className="text-sm font-medium text-white">
@@ -44,15 +44,15 @@ export default function AdhdCheckin({ running_count, agents, intervalSeconds }: 
           </span>
           <button
             onClick={() => setVisible(false)}
-            className="ml-auto text-slate-500 hover:text-slate-300"
+            className="ml-auto text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
           >
             <Icon name="close" size={16} />
           </button>
         </div>
         <div className="space-y-1.5">
           {agents.slice(0, 3).map((agent) => (
-            <div key={agent.name} className="text-xs text-slate-400">
-              <span className="text-slate-300 font-medium">
+            <div key={agent.name} className="text-xs text-slate-600 dark:text-slate-400">
+              <span className="text-slate-700 dark:text-slate-300 font-medium">
                 {agent.task || agent.name.split("/").pop()}
               </span>
               {agent.current_step && (

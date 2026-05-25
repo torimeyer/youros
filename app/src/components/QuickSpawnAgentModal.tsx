@@ -90,10 +90,10 @@ export default function QuickSpawnAgentModal({ open, onClose, onSuccess }: Props
       data-testid="quick-spawn-agent-backdrop"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
     >
-      <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg p-6 shadow-2xl">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full max-w-lg p-6 shadow-2xl">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Icon name="bolt" className="text-purple-400" size={22} />
+            <Icon name="bolt" className="text-purple-600 dark:text-purple-400" size={22} />
             <h2 className="text-white font-semibold text-lg">Spawn agent</h2>
           </div>
           <button
@@ -107,7 +107,7 @@ export default function QuickSpawnAgentModal({ open, onClose, onSuccess }: Props
 
         <div className="space-y-4">
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5">
+            <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">
               Agent name
             </label>
             <input
@@ -117,12 +117,12 @@ export default function QuickSpawnAgentModal({ open, onClose, onSuccess }: Props
               onChange={(e) => setName(e.target.value)}
               onKeyDown={handleNameKeyDown}
               placeholder="e.g. research-assistant"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
             />
           </div>
 
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5">
+            <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">
               What should it do? (optional)
             </label>
             <textarea
@@ -132,17 +132,17 @@ export default function QuickSpawnAgentModal({ open, onClose, onSuccess }: Props
               onKeyDown={handlePromptKeyDown}
               placeholder="Describe the job. Enter to submit, Shift+Enter for a new line."
               rows={4}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 resize-none"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 resize-none"
             />
           </div>
 
-          {error && <div className="text-red-400 text-sm">{error}</div>}
+          {error && <div className="text-red-600 dark:text-red-400 text-sm">{error}</div>}
         </div>
 
         <div className="flex items-center justify-end gap-2 mt-6">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
+            className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
           >
             Cancel
           </button>

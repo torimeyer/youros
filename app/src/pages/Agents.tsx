@@ -118,26 +118,26 @@ function IconPicker({
 
   return (
     <div ref={containerRef} className="relative mb-4">
-      <label className="block text-sm text-slate-400 mb-1">Icon</label>
+      <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Icon</label>
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm hover:border-blue-500 transition-colors w-full text-left"
+        className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm hover:border-blue-500 transition-colors w-full text-left"
         data-testid="icon-picker-trigger"
       >
-        <Icon name={value} size={20} className="text-blue-400" />
+        <Icon name={value} size={20} className="text-blue-600 dark:text-blue-400" />
         <span className="flex-1">{value}</span>
         <Icon name={open ? "expand_less" : "expand_more"} size={18} className="text-slate-500" />
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1 left-0 right-0 bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-3 max-h-80 overflow-y-auto" data-testid="icon-picker-dropdown">
+        <div className="absolute z-50 mt-1 left-0 right-0 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-3 max-h-80 overflow-y-auto" data-testid="icon-picker-dropdown">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search icons..."
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-2"
+            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-2"
             data-testid="icon-picker-search"
             autoFocus
           />
@@ -157,8 +157,8 @@ function IconPicker({
                   title={ic}
                   className={`flex items-center justify-center p-1.5 rounded-lg transition-colors ${
                     ic === value
-                      ? "bg-blue-500/20 text-blue-400 ring-1 ring-blue-500"
-                      : "text-slate-400 hover:bg-slate-700 hover:text-white"
+                      ? "bg-blue-500/20 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-white"
                   }`}
                   data-testid={`icon-option-${ic}`}
                 >
@@ -281,25 +281,25 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
 
       {/* Create form */}
       {showCreate && (
-        <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 mb-6">
+        <div className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-5 mb-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Name</label>
+              <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Name</label>
               <input
                 type="text"
                 value={createForm.name}
                 onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
                 onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
                 placeholder="e.g. deploy-checker"
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Model</label>
+              <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Model</label>
               <select
                 value={createForm.model}
                 onChange={(e) => setCreateForm({ ...createForm, model: e.target.value })}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
               >
                 <option value="auto">Auto</option>
                 <option value="opus">Opus</option>
@@ -309,25 +309,25 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
             </div>
           </div>
           <div className="mb-4">
-            <label className="block text-sm text-slate-400 mb-1">Description</label>
+            <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Description</label>
             <input
               type="text"
               value={createForm.description}
               onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
               onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
               placeholder="What does this agent do?"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
           </div>
           <div className="mb-4">
-            <label className="block text-sm text-slate-400 mb-1">Instructions</label>
+            <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Instructions</label>
             <textarea
               value={createForm.prompt}
               onChange={(e) => setCreateForm({ ...createForm, prompt: e.target.value })}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleCreate(); } }}
               rows={3}
               placeholder="What should this agent do? (Enter to create, Shift+Enter for newline)"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
             />
           </div>
           <button
@@ -358,19 +358,19 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
                   className="flex items-start gap-3 cursor-pointer"
                   onClick={() => setExpanded(isExpanded ? null : af.name)}
                 >
-                  <Icon name={icon} className="text-2xl text-blue-400 mt-0.5 shrink-0" />
+                  <Icon name={icon} className="text-2xl text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-white text-sm font-medium">{af.name}</p>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                         af.source === "builtin"
-                          ? "bg-blue-500/20 text-blue-400"
-                          : "bg-green-500/20 text-green-400"
+                          ? "bg-blue-500/20 text-blue-600 dark:text-blue-400"
+                          : "bg-green-500/20 text-green-600 dark:text-green-400"
                       }`}>
                         {af.source === "builtin" ? "built-in" : "custom"}
                       </span>
                     </div>
-                    <p className="text-slate-400 text-xs mt-0.5 line-clamp-3">{af.description || "No description yet"}</p>
+                    <p className="text-slate-600 dark:text-slate-400 text-xs mt-0.5 line-clamp-3">{af.description || "No description yet"}</p>
                     <div className="flex gap-3 mt-1.5">
                       <span className="text-[10px] text-slate-500">{af.model}</span>
                       <span className="text-[10px] text-slate-500">{af.tools.length} tools</span>
@@ -383,17 +383,17 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
                 </div>
 
                 {isExpanded && (
-                  <div className="mt-3 pt-3 border-t border-slate-700/50">
+                  <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700/50">
                     <div className="mb-3">
                       <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Instructions</p>
-                      <p className="text-xs text-slate-300 leading-relaxed">{af.prompt || "No instructions yet"}</p>
+                      <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">{af.prompt || "No instructions yet"}</p>
                     </div>
                     {af.tools.length > 0 && (
                       <div className="mb-3">
                         <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Tools</p>
                         <div className="flex flex-wrap gap-1.5">
                           {af.tools.map((tool) => (
-                            <span key={tool} className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded">
+                            <span key={tool} className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded">
                               {tool}
                             </span>
                           ))}
@@ -413,7 +413,7 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
                       </Button>
                       <button
                         onClick={() => navigate(`/agentfiles/${encodeURIComponent(af.name)}/edit`)}
-                        className="flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-700 hover:border-slate-600 text-slate-400 hover:text-white text-xs transition-colors"
+                        className="flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-slate-600 text-slate-600 dark:text-slate-400 hover:text-white text-xs transition-colors"
                         aria-label={`Edit ${af.name}`}
                       >
                         <Icon name="edit" className="text-sm" />
@@ -471,8 +471,8 @@ function ChipsField({ input, value, onChange, autoFocus }: {
           <button key={opt} type="button" onClick={() => selectKnown(opt)}
             className={`px-3 py-1 rounded-full text-xs border transition-colors ${
               value === opt
-                ? "border-blue-500 bg-blue-500/20 text-blue-300"
-                : "border-slate-600 text-slate-400 hover:border-slate-400 hover:text-slate-300"
+                ? "border-blue-500 bg-blue-500/20 text-blue-700 dark:text-blue-300"
+                : "border-slate-600 text-slate-600 dark:text-slate-400 hover:border-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
             }`}>
             {opt}
           </button>
@@ -480,8 +480,8 @@ function ChipsField({ input, value, onChange, autoFocus }: {
         <button type="button" onClick={openOther}
           className={`px-3 py-1 rounded-full text-xs border transition-colors ${
             isOther || otherOpen
-              ? "border-blue-500 bg-blue-500/20 text-blue-300"
-              : "border-slate-600 text-slate-400 hover:border-slate-400 hover:text-slate-300"
+              ? "border-blue-500 bg-blue-500/20 text-blue-700 dark:text-blue-300"
+              : "border-slate-600 text-slate-600 dark:text-slate-400 hover:border-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
           }`}>
           Other
         </button>
@@ -490,7 +490,7 @@ function ChipsField({ input, value, onChange, autoFocus }: {
         <input type="text" value={otherText} autoFocus={autoFocus}
           onChange={(e) => { setOtherText(e.target.value); onChange(e.target.value); }}
           placeholder="Type your own..."
-          className="mt-2 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+          className="mt-2 w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
       )}
     </div>
   );
@@ -514,8 +514,8 @@ function MultiChipsField({ input, value, onChange }: {
         <button key={opt} type="button" onClick={() => toggle(opt)}
           className={`px-3 py-1 rounded-full text-xs border transition-colors ${
             selected.includes(opt)
-              ? "border-blue-500 bg-blue-500/20 text-blue-300"
-              : "border-slate-600 text-slate-400 hover:border-slate-400 hover:text-slate-300"
+              ? "border-blue-500 bg-blue-500/20 text-blue-700 dark:text-blue-300"
+              : "border-slate-600 text-slate-600 dark:text-slate-400 hover:border-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
           }`}>
           {opt}
         </button>
@@ -697,12 +697,12 @@ function TemplateEditorModal({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
         <div
-          className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden max-h-[90vh] flex flex-col"
+          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden max-h-[90vh] flex flex-col"
           data-testid="template-detail-modal"
         >
           {/* Header */}
-          <div className="flex items-center gap-3 p-6 border-b border-slate-800 shrink-0">
-            <Icon name={icon} className="text-blue-400 text-2xl" />
+          <div className="flex items-center gap-3 p-6 border-b border-slate-200 dark:border-slate-800 shrink-0">
+            <Icon name={icon} className="text-blue-600 dark:text-blue-400 text-2xl" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-lg font-semibold text-white">{name}</h3>
@@ -712,12 +712,12 @@ function TemplateEditorModal({
                   </span>
                 )}
                 {(aliases || []).map((a) => (
-                  <span key={a} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 font-mono">
+                  <span key={a} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 font-mono">
                     alias: {a}
                   </span>
                 ))}
               </div>
-              <p className="text-xs text-slate-400 mt-0.5 line-clamp-2" data-testid="template-detail-description-preview">
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 line-clamp-2" data-testid="template-detail-description-preview">
                 {description}
               </p>
             </div>
@@ -734,7 +734,7 @@ function TemplateEditorModal({
             {/* Description section (editable) */}
             {templateId && (
               <div data-testid="template-description-section">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">
                   Description
                 </p>
                 <p className="text-[10px] text-slate-500 mb-2">
@@ -744,22 +744,22 @@ function TemplateEditorModal({
                   value={description}
                   onChange={(e) => { setDescription(e.target.value); setDescriptionError(""); }}
                   rows={3}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y"
+                  className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y"
                   data-testid="template-description-input"
                   maxLength={2000}
                   placeholder="Short summary shown on the template card"
                 />
                 <div className="flex items-center justify-end gap-2 mt-1">
                   {descriptionError && (
-                    <p className="text-xs text-red-400 mr-auto" data-testid="template-description-error">{descriptionError}</p>
+                    <p className="text-xs text-red-600 dark:text-red-400 mr-auto" data-testid="template-description-error">{descriptionError}</p>
                   )}
                   {descriptionSaved && (
-                    <p className="text-xs text-green-400 mr-auto" data-testid="template-description-saved">Description saved.</p>
+                    <p className="text-xs text-green-600 dark:text-green-400 mr-auto" data-testid="template-description-saved">Description saved.</p>
                   )}
                   <button
                     onClick={handleSaveDescription}
                     disabled={descriptionLoading || !descriptionDirty || !description.trim()}
-                    className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-3 py-1.5 text-xs transition-colors"
+                    className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-200 dark:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-3 py-1.5 text-xs transition-colors"
                     data-testid="template-description-save"
                   >
                     {descriptionLoading ? "Saving..." : "Save description"}
@@ -771,14 +771,14 @@ function TemplateEditorModal({
             {/* Prompt section — hidden when identical to description */}
             {promptTemplate.trim() !== description.trim() && (
               <div data-testid="template-prompt-section">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Prompt</p>
-                <div className="bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-xs text-slate-300 leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap">
+                <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">Prompt</p>
+                <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-4 py-3 text-xs text-slate-700 dark:text-slate-300 leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap">
                   {promptPreview}
                 </div>
                 {promptTemplate.length > 500 && (
                   <button
                     onClick={() => setPromptExpanded(!promptExpanded)}
-                    className="text-[10px] text-blue-400 hover:text-blue-300 mt-1 transition-colors"
+                    className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 mt-1 transition-colors"
                     data-testid="template-prompt-expand"
                   >
                     {promptExpanded ? "Show less" : "Show full prompt"}
@@ -790,7 +790,7 @@ function TemplateEditorModal({
             {/* MCPs and Skills declared by this agent */}
             {((declaredMcps && declaredMcps.length > 0) || (declaredSkills && declaredSkills.length > 0) || (workspaceMcps && workspaceMcps.length > 0)) && (
               <div data-testid="template-mcp-skills-section">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">
                   Tools &amp; integrations
                 </p>
                 {declaredMcps && declaredMcps.length > 0 && (
@@ -798,7 +798,7 @@ function TemplateEditorModal({
                     <p className="text-[10px] text-slate-500 mb-1.5">This agent uses:</p>
                     <div className="flex flex-wrap gap-1.5">
                       {declaredMcps.map((mcp) => (
-                        <span key={mcp} className="text-[10px] px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 font-mono" data-testid="declared-mcp-chip">
+                        <span key={mcp} className="text-[10px] px-2 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400 font-mono" data-testid="declared-mcp-chip">
                           {mcp}
                         </span>
                       ))}
@@ -810,7 +810,7 @@ function TemplateEditorModal({
                     <p className="text-[10px] text-slate-500 mb-1.5">Skills:</p>
                     <div className="flex flex-wrap gap-1.5">
                       {declaredSkills.map((skill) => (
-                        <span key={skill} className="text-[10px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-400 font-mono" data-testid="declared-skill-chip">
+                        <span key={skill} className="text-[10px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-600 dark:text-purple-400 font-mono" data-testid="declared-skill-chip">
                           {skill}
                         </span>
                       ))}
@@ -818,7 +818,7 @@ function TemplateEditorModal({
                   </div>
                 )}
                 {workspaceMcps && workspaceMcps.length > 0 && (
-                  <p className="text-[10px] text-slate-400" data-testid="workspace-mcps-note">
+                  <p className="text-[10px] text-slate-600 dark:text-slate-400" data-testid="workspace-mcps-note">
                     Plus all enabled MCPs in your workspace: {workspaceMcps.join(", ")}.
                   </p>
                 )}
@@ -828,7 +828,7 @@ function TemplateEditorModal({
             {/* Alias section */}
             {templateId && (
               <div data-testid="template-alias-section">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">
                   Custom alias
                 </p>
                 <p className="text-[10px] text-slate-500 mb-2">
@@ -841,14 +841,14 @@ function TemplateEditorModal({
                     onChange={(e) => { setAliasValue(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "")); setAliasError(""); }}
                     onKeyDown={(e) => { if (e.key === "Enter" && aliasValue.trim()) handleSaveAlias(); }}
                     placeholder="e.g. my-builder"
-                    className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                    className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
                     data-testid="template-alias-input"
                     maxLength={30}
                   />
                   <button
                     onClick={handleSaveAlias}
                     disabled={aliasLoading || !aliasValue.trim()}
-                    className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-3 py-1.5 text-sm transition-colors"
+                    className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-200 dark:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-3 py-1.5 text-sm transition-colors"
                     data-testid="template-alias-save"
                   >
                     {aliasLoading ? "Saving..." : "Save"}
@@ -857,7 +857,7 @@ function TemplateEditorModal({
                     <button
                       onClick={handleClearAlias}
                       disabled={aliasLoading}
-                      className="text-slate-500 hover:text-red-400 transition-colors"
+                      className="text-slate-500 hover:text-red-600 dark:hover:text-red-400 transition-colors"
                       title="Remove alias"
                       data-testid="template-alias-delete"
                     >
@@ -866,10 +866,10 @@ function TemplateEditorModal({
                   )}
                 </div>
                 {aliasError && (
-                  <p className="text-xs text-red-400 mt-1" data-testid="template-alias-error">{aliasError}</p>
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-1" data-testid="template-alias-error">{aliasError}</p>
                 )}
                 {aliasSaved && (
-                  <p className="text-xs text-green-400 mt-1" data-testid="template-alias-saved">Alias saved.</p>
+                  <p className="text-xs text-green-600 dark:text-green-400 mt-1" data-testid="template-alias-saved">Alias saved.</p>
                 )}
               </div>
             )}
@@ -881,8 +881,8 @@ function TemplateEditorModal({
                   {/* Main (non-advanced) fields */}
                   {userInputs.filter((inp) => !inp.advanced).map((inp, idx) => (
                     <div key={inp.key} className="mb-3">
-                      <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                        {inp.label}{inp.required && <span className="text-pink-400 ml-1">*</span>}
+                      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">
+                        {inp.label}{inp.required && <span className="text-pink-600 dark:text-pink-400 ml-1">*</span>}
                       </label>
                       {inp.type === "textarea" && (
                         <textarea
@@ -890,7 +890,7 @@ function TemplateEditorModal({
                           onChange={(e) => setFieldValues((v) => ({ ...v, [inp.key]: e.target.value }))}
                           rows={3}
                           placeholder={inp.placeholder ?? ""}
-                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
                           autoFocus={idx === 0}
                           data-testid={idx === 0 ? "template-user-message-input" : undefined}
                         />
@@ -904,7 +904,7 @@ function TemplateEditorModal({
                             if (e.key === "Enter") { e.preventDefault(); onSpawn(current, buildMessage(userInputs, fieldValues)); }
                           }}
                           placeholder={inp.placeholder ?? ""}
-                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
                           autoFocus={idx === 0}
                           data-testid={idx === 0 ? "template-user-message-input" : undefined}
                         />
@@ -919,7 +919,7 @@ function TemplateEditorModal({
                         <select
                           value={fieldValues[inp.key] ?? ""}
                           onChange={(e) => setFieldValues((v) => ({ ...v, [inp.key]: e.target.value }))}
-                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                         >
                           <option value="">Select...</option>
                           {(inp.options ?? []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
@@ -933,7 +933,7 @@ function TemplateEditorModal({
                       <button
                         type="button"
                         onClick={() => setAdvancedOpen((o) => !o)}
-                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                       >
                         <span className="material-symbols-outlined text-sm">{advancedOpen ? "expand_less" : "expand_more"}</span>
                         Advanced options
@@ -942,7 +942,7 @@ function TemplateEditorModal({
                         <div className="mt-3 space-y-3">
                           {userInputs.filter((inp) => inp.advanced).map((inp) => (
                             <div key={inp.key}>
-                              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">
                                 {inp.label}
                               </label>
                               {inp.type === "textarea" && (
@@ -951,7 +951,7 @@ function TemplateEditorModal({
                                   onChange={(e) => setFieldValues((v) => ({ ...v, [inp.key]: e.target.value }))}
                                   rows={2}
                                   placeholder={inp.placeholder ?? ""}
-                                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                                  className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
                                 />
                               )}
                               {inp.type === "text" && (
@@ -960,7 +960,7 @@ function TemplateEditorModal({
                                   value={fieldValues[inp.key] ?? ""}
                                   onChange={(e) => setFieldValues((v) => ({ ...v, [inp.key]: e.target.value }))}
                                   placeholder={inp.placeholder ?? ""}
-                                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                                  className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
                                 />
                               )}
                               {inp.type === "chips" && (
@@ -979,7 +979,7 @@ function TemplateEditorModal({
               ) : (
                 /* Legacy: no user_inputs — show generic textarea */
                 <>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">
                     What do you want to tell this agent?
                   </label>
                   <textarea
@@ -988,7 +988,7 @@ function TemplateEditorModal({
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSpawn(current, userMessage); } }}
                     rows={3}
                     placeholder="Describe the specific task, provide context, or paste content for the agent to work with... (Enter to spawn, Shift+Enter for newline)"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
                     data-testid="template-user-message-input"
                     autoFocus
                   />
@@ -999,7 +999,7 @@ function TemplateEditorModal({
             <div className="flex items-center justify-end gap-3 pt-1">
               <button
                 onClick={onCancel}
-                className="text-slate-400 hover:text-white text-sm transition-colors px-4 py-2"
+                className="text-slate-600 dark:text-slate-400 hover:text-white text-sm transition-colors px-4 py-2"
               >
                 Cancel
               </button>
@@ -1025,13 +1025,13 @@ function TemplateEditorModal({
   // New template creation form
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-xl">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-xl">
         <h3 className="text-lg font-semibold text-white mb-4">
           {isNew ? "New Template" : "Edit Template"}
         </h3>
 
         {/* Name */}
-        <label className="block text-sm text-slate-400 mb-1">Name</label>
+        <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Name</label>
         <input
           type="text"
           value={name}
@@ -1040,11 +1040,11 @@ function TemplateEditorModal({
             if (e.key === "Enter" && name.trim()) onSpawn(current, userMessage);
           }}
           placeholder="e.g. Research Agent"
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
+          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
         />
 
         {/* Description / Prompt */}
-        <label className="block text-sm text-slate-400 mb-1">Description</label>
+        <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Description</label>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -1056,7 +1056,7 @@ function TemplateEditorModal({
           }}
           rows={3}
           placeholder="What should this agent do? (Enter to spawn, Shift+Enter for newline)"
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4 resize-none"
+          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4 resize-none"
         />
 
         {/* Icon */}
@@ -1065,11 +1065,11 @@ function TemplateEditorModal({
         {/* Model + Budget row */}
         <div className="flex gap-4 mb-6">
           <div className="flex-1">
-            <label className="block text-sm text-slate-400 mb-1">Model</label>
+            <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Model</label>
             <select
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
             >
               <option value="sonnet">Sonnet</option>
               <option value="opus">Opus</option>
@@ -1077,14 +1077,14 @@ function TemplateEditorModal({
             </select>
           </div>
           <div className="flex-1">
-            <label className="block text-sm text-slate-400 mb-1">Token budget</label>
+            <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Token budget</label>
             <input
               type="number"
               min={0}
               step={0.5}
               value={budget}
               onChange={(e) => setBudget(parseFloat(e.target.value) || 0)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
             />
           </div>
         </div>
@@ -1093,7 +1093,7 @@ function TemplateEditorModal({
         <div className="flex items-center justify-end gap-3">
           <button
             onClick={onCancel}
-            className="text-slate-400 hover:text-white text-sm transition-colors px-4 py-2"
+            className="text-slate-600 dark:text-slate-400 hover:text-white text-sm transition-colors px-4 py-2"
           >
             Cancel
           </button>
@@ -1101,7 +1101,7 @@ function TemplateEditorModal({
             <button
               onClick={() => { if (name.trim()) onSave(current); }}
               disabled={!name.trim()}
-              className="border border-blue-500 text-blue-400 hover:bg-blue-500/10 disabled:border-slate-700 disabled:text-slate-600 rounded-lg px-4 py-2 text-sm transition-colors"
+              className="border border-blue-500 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 disabled:border-slate-200 dark:border-slate-700 disabled:text-slate-600 rounded-lg px-4 py-2 text-sm transition-colors"
             >
               Save Template
             </button>
@@ -1109,7 +1109,7 @@ function TemplateEditorModal({
           <button
             onClick={() => { if (name.trim()) onSpawn(current, userMessage); }}
             disabled={!name.trim()}
-            className="bg-pink-500 hover:bg-pink-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
+            className="bg-pink-500 hover:bg-pink-600 disabled:bg-slate-200 dark:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
           >
             Spawn Agent
           </button>
@@ -1397,11 +1397,11 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 const ROLE_COLORS: Record<string, string> = {
-  User: "text-blue-400",
+  User: "text-blue-600 dark:text-blue-400",
   Assistant: "text-emerald-400",
-  Tool: "text-amber-400",
-  "Tool result": "text-amber-300",
-  System: "text-slate-400",
+  Tool: "text-amber-600 dark:text-amber-400",
+  "Tool result": "text-amber-700 dark:text-amber-300",
+  System: "text-slate-600 dark:text-slate-400",
 };
 
 function TranscriptContent({ content }: { content: string }) {
@@ -1411,10 +1411,10 @@ function TranscriptContent({ content }: { content: string }) {
       <div className="space-y-3">
         {blocks.map((block, idx) => (
           <Card key={idx} variant="outlined" padding="sm">
-            <div className={`text-xs font-semibold uppercase tracking-wide mb-1 ${ROLE_COLORS[block.role] ?? "text-slate-400"}`}>
+            <div className={`text-xs font-semibold uppercase tracking-wide mb-1 ${ROLE_COLORS[block.role] ?? "text-slate-600 dark:text-slate-400"}`}>
               {ROLE_LABEL[block.role] ?? block.role}
             </div>
-            <div className="chat-bubble-content text-sm text-slate-300 space-y-1">
+            <div className="chat-bubble-content text-sm text-slate-700 dark:text-slate-300 space-y-1">
               {renderMarkdown(block.body)}
             </div>
           </Card>
@@ -1424,7 +1424,7 @@ function TranscriptContent({ content }: { content: string }) {
   }
   // Fallback: no speaker prefixes, render full content as markdown
   return (
-    <div className="chat-bubble-content text-sm text-slate-300 space-y-1">
+    <div className="chat-bubble-content text-sm text-slate-700 dark:text-slate-300 space-y-1">
       {renderMarkdown(content)}
     </div>
   );
@@ -1492,17 +1492,17 @@ function AgentStatusBar({ spawnedAt, budget, model, transcriptBytes, transcriptL
   ].filter(Boolean);
 
   return (
-    <div className="bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 font-mono text-xs flex items-center gap-1 flex-wrap" data-testid="agent-status-bar">
+    <div className="bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 font-mono text-xs flex items-center gap-1 flex-wrap" data-testid="agent-status-bar">
       {segments.map((seg, i) => (
         <span key={i} className="flex items-center gap-1">
           {i > 0 && <span className="text-slate-700 mx-0.5">|</span>}
-          <span className={i === 0 ? "text-green-400" : "text-slate-400"}>{seg}</span>
+          <span className={i === 0 ? "text-green-600 dark:text-green-400" : "text-slate-600 dark:text-slate-400"}>{seg}</span>
         </span>
       ))}
       {etaText && (
         <>
           <span className="text-slate-700 mx-0.5">|</span>
-          <span className="text-blue-400">{etaText}</span>
+          <span className="text-blue-600 dark:text-blue-400">{etaText}</span>
         </>
       )}
     </div>
@@ -1575,19 +1575,19 @@ function AgentCompactSummary({ spawnedAt, budget, model, costEstimate: _costEsti
 
   return (
     <div
-      className="font-mono text-xs text-slate-400 flex items-center gap-1 flex-wrap"
+      className="font-mono text-xs text-slate-600 dark:text-slate-400 flex items-center gap-1 flex-wrap"
       data-testid="agent-compact-summary"
     >
       {segments.map((seg, i) => (
         <span key={i} className="flex items-center gap-1">
           {i > 0 && <span className="text-slate-700 mx-0.5">|</span>}
-          <span className={i === 0 ? "text-green-400" : "text-slate-400"}>{seg}</span>
+          <span className={i === 0 ? "text-green-600 dark:text-green-400" : "text-slate-600 dark:text-slate-400"}>{seg}</span>
         </span>
       ))}
       {etaText && (
         <>
           <span className="text-slate-700 mx-0.5">|</span>
-          <span className="text-blue-400">{etaText}</span>
+          <span className="text-blue-600 dark:text-blue-400">{etaText}</span>
         </>
       )}
     </div>
@@ -1604,7 +1604,7 @@ function BudgetProgressBar({ tokensUsed, tokenLimit, costEstimate }: {
     if (tokensUsed <= 0) return null;
     return (
       <div className="flex items-center gap-2 text-xs" data-testid="budget-bar">
-        <span className="text-slate-400">{(tokensUsed / 1000).toFixed(1)}k used</span>
+        <span className="text-slate-600 dark:text-slate-400">{(tokensUsed / 1000).toFixed(1)}k used</span>
         {costEstimate !== undefined && costEstimate > 0 && (
           <span className="text-slate-500">(~${costEstimate.toFixed(4)})</span>
         )}
@@ -1614,7 +1614,7 @@ function BudgetProgressBar({ tokensUsed, tokenLimit, costEstimate }: {
 
   const pct = Math.min(100, Math.round((tokensUsed / tokenLimit) * 100));
   const barColor = pct < 50 ? "bg-green-500" : pct < 80 ? "bg-yellow-500" : "bg-red-500";
-  const textColor = pct < 50 ? "text-green-400" : pct < 80 ? "text-yellow-400" : "text-red-400";
+  const textColor = pct < 50 ? "text-green-600 dark:text-green-400" : pct < 80 ? "text-yellow-600 dark:text-yellow-400" : "text-red-600 dark:text-red-400";
 
   return (
     <div className="mt-2" data-testid="budget-bar">
@@ -1626,7 +1626,7 @@ function BudgetProgressBar({ tokensUsed, tokenLimit, costEstimate }: {
           <span className="text-slate-500">~${costEstimate.toFixed(4)}</span>
         )}
       </div>
-      <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+      <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-500 ${barColor}`}
           style={{ width: `${pct}%` }}
@@ -1639,22 +1639,22 @@ function BudgetProgressBar({ tokensUsed, tokenLimit, costEstimate }: {
 const AGENT_STATUS_BADGE_CONFIG: Record<string, { label: string; className: string; title: string }> = {
   clean: {
     label: "CLEAN",
-    className: "bg-green-500/20 text-green-400",
+    className: "bg-green-500/20 text-green-600 dark:text-green-400",
     title: "Agent finished and committed its work",
   },
   salvaged: {
     label: "SALVAGED",
-    className: "bg-blue-500/20 text-blue-400",
+    className: "bg-blue-500/20 text-blue-600 dark:text-blue-400",
     title: "Agent stopped but its work was rescued and merged by another session",
   },
   failed: {
     label: "FAILED",
-    className: "bg-red-500/20 text-red-400",
+    className: "bg-red-500/20 text-red-600 dark:text-red-400",
     title: "Agent produced real output but did not finish",
   },
   "abandoned-no-work": {
     label: "NO WORK",
-    className: "bg-slate-500/20 text-slate-400",
+    className: "bg-slate-500/20 text-slate-600 dark:text-slate-400",
     title: "Agent stopped without producing any meaningful output",
   },
 };
@@ -1681,7 +1681,7 @@ function RecoveryBadge({ recoveryCount, maxRecoveries }: {
   if (recoveryCount <= 0) return null;
   return (
     <span
-      className="text-xs font-bold px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400"
+      className="text-xs font-bold px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-600 dark:text-yellow-400"
       data-testid="recovery-badge"
     >
       Recovered ({recoveryCount}/{maxRecoveries})
@@ -1722,7 +1722,7 @@ function AgentGhostBadge({
   if (state === "alive") {
     return (
       <span
-        className="text-xs px-2 py-0.5 rounded bg-green-500/15 text-green-400 font-semibold"
+        className="text-xs px-2 py-0.5 rounded bg-green-500/15 text-green-600 dark:text-green-400 font-semibold"
         data-testid="alive-badge"
         title="Agent is running and has checked in recently"
       >
@@ -1735,7 +1735,7 @@ function AgentGhostBadge({
     <span className="flex items-center gap-1">
       <button
         onClick={() => setShowDismiss((s) => !s)}
-        className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 font-semibold hover:bg-red-500/30 transition-colors"
+        className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-600 dark:text-red-400 font-semibold hover:bg-red-500/30 transition-colors"
         data-testid="ghost-badge"
         title="This agent may have stalled — no recent heartbeat or PID. Click to dismiss."
       >
@@ -1773,14 +1773,14 @@ function AgentMemorySection({
   return (
     <div className="mt-2">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+        <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
           Memory
         </span>
         {hasSomething && (
           <button
             onClick={onClear}
             disabled={clearing}
-            className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors"
+            className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 disabled:opacity-50 transition-colors"
           >
             {clearing ? "Clearing..." : "Clear memory"}
           </button>
@@ -1793,25 +1793,25 @@ function AgentMemorySection({
       ) : (
         <div className="space-y-2">
           {Object.keys(facts).length > 0 && (
-            <div className="bg-slate-950 rounded-lg p-3 text-xs space-y-1">
+            <div className="bg-white dark:bg-slate-950 rounded-lg p-3 text-xs space-y-1">
               <p className="text-slate-500 mb-1">Remembered facts</p>
               {Object.entries(facts).map(([k, v]) => (
                 <div key={k} className="flex gap-2">
-                  <span className="text-slate-400 shrink-0">{k}:</span>
+                  <span className="text-slate-600 dark:text-slate-400 shrink-0">{k}:</span>
                   <span className="text-white">{v}</span>
                 </div>
               ))}
             </div>
           )}
           {summaries.length > 0 && (
-            <div className="bg-slate-950 rounded-lg p-3 text-xs space-y-2">
+            <div className="bg-white dark:bg-slate-950 rounded-lg p-3 text-xs space-y-2">
               <p className="text-slate-500 mb-1">Past sessions</p>
               {summaries.map((s, i) => (
                 <div key={i} className="flex gap-2">
                   <span className="text-slate-600 shrink-0 tabular-nums">
                     {s.saved_at ? s.saved_at.slice(0, 10) : ""}
                   </span>
-                  <span className="text-slate-300">{s.text}</span>
+                  <span className="text-slate-700 dark:text-slate-300">{s.text}</span>
                 </div>
               ))}
             </div>
@@ -2034,20 +2034,20 @@ const statusColor = (status: string) => {
   switch (status) {
     case "running":
     case "spawned":
-      return "bg-green-500/20 text-green-400";
+      return "bg-green-500/20 text-green-600 dark:text-green-400";
     case "completed":
-      return "bg-blue-500/20 text-blue-400";
+      return "bg-blue-500/20 text-blue-600 dark:text-blue-400";
     case "failed":
-      return "bg-red-500/20 text-red-400";
+      return "bg-red-500/20 text-red-600 dark:text-red-400";
     case "killed":
-      return "bg-orange-500/20 text-orange-400";
+      return "bg-orange-500/20 text-orange-600 dark:text-orange-400";
     case "recovering":
-      return "bg-yellow-500/20 text-yellow-400";
+      return "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400";
     case "terminated_stale":
     case "abandoned":
-      return "bg-red-500/20 text-red-400";
+      return "bg-red-500/20 text-red-600 dark:text-red-400";
     default:
-      return "bg-slate-500/20 text-slate-400";
+      return "bg-slate-500/20 text-slate-600 dark:text-slate-400";
   }
 };
 
@@ -2098,34 +2098,34 @@ function PMTemplateEditorForm({
 
   return (
     <>
-      <label className="block text-sm text-slate-400 mb-1">Name</label>
+      <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Name</label>
       <input
         type="text"
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
         placeholder="e.g. Competitive analysis"
-        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
+        className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
       />
 
-      <label className="block text-sm text-slate-400 mb-1">Description</label>
+      <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Description</label>
       <input
         type="text"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
         placeholder="One line summary of what this template does"
-        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
+        className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
       />
 
-      <label className="block text-sm text-slate-400 mb-1">Instructions template</label>
+      <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Instructions template</label>
       <textarea
         value={promptTemplate}
         onChange={(e) => setPromptTemplate(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSave(); } }}
         rows={4}
         placeholder="Use [placeholders] for parts you will fill in before spawning (Enter to save, Shift+Enter for newline)"
-        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-1 resize-none"
+        className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-1 resize-none"
       />
       <p className="text-xs text-slate-500 mb-4">Use [square brackets] for parts the user fills in. Example: Research [topic] and write a summary.</p>
 
@@ -2133,11 +2133,11 @@ function PMTemplateEditorForm({
 
       <div className="flex gap-4 mb-6">
         <div className="flex-1">
-          <label className="block text-sm text-slate-400 mb-1">Model</label>
+          <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Model</label>
           <select
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
           >
             <option value="sonnet">Sonnet</option>
             <option value="opus">Opus</option>
@@ -2145,14 +2145,14 @@ function PMTemplateEditorForm({
           </select>
         </div>
         <div className="flex-1">
-          <label className="block text-sm text-slate-400 mb-1">Token budget</label>
+          <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Token budget</label>
           <input
             type="number"
             min={0}
             step={0.5}
             value={budget}
             onChange={(e) => setBudget(parseFloat(e.target.value) || 0)}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
           />
         </div>
       </div>
@@ -2166,7 +2166,7 @@ function PMTemplateEditorForm({
         />
       ) : (
         <div className="mb-6">
-          <label className="block text-sm text-slate-400 mb-1">Attach files</label>
+          <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Attach files</label>
           <p className="text-xs text-slate-500">
             Save the template first, then open it again to attach files.
           </p>
@@ -2176,14 +2176,14 @@ function PMTemplateEditorForm({
       <div className="flex items-center justify-end gap-3">
         <button
           onClick={onCancel}
-          className="text-slate-400 hover:text-white text-sm transition-colors px-4 py-2"
+          className="text-slate-600 dark:text-slate-400 hover:text-white text-sm transition-colors px-4 py-2"
         >
           Cancel
         </button>
         <button
           onClick={handleSave}
           disabled={!name.trim() || saving}
-          className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
+          className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-200 dark:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
         >
           {saving ? "Saving..." : "Save Template"}
         </button>
@@ -3890,7 +3890,7 @@ export default function Agents() {
               New Agent
             </Button>
           </div>
-          <p data-testid="agents-page-subtitle" className="text-sm text-slate-400 mt-0.5 mb-4 sm:mb-6">
+          <p data-testid="agents-page-subtitle" className="text-sm text-slate-600 dark:text-slate-400 mt-0.5 mb-4 sm:mb-6">
             Workers you send off to run jobs. They edit files, run tests, and commit code in the background.
           </p>
           <div className="flex gap-2 sm:gap-4 flex-wrap">
@@ -3901,8 +3901,8 @@ export default function Agents() {
                 data-testid={`tab-${tab.toLowerCase()}`}
                 className={`text-sm pb-1 transition-colors ${
                   activeTab === tab
-                    ? "text-blue-400 border-b-2 border-blue-400"
-                    : "text-slate-400 hover:text-white"
+                    ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400"
+                    : "text-slate-600 dark:text-slate-400 hover:text-white"
                 }`}
               >
                 {tab}
@@ -3913,7 +3913,7 @@ export default function Agents() {
 
         {/* New Agent Form */}
         {showNewForm && (
-          <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4 mb-6">
+          <div className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-4 mb-6">
             <div className="flex gap-3 items-center mb-3">
               <input
                 type="text"
@@ -3923,7 +3923,7 @@ export default function Agents() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleSpawn(newAgentName, newAgentPrompt || undefined, undefined, undefined, newAgentTokenLimit ? parseInt(newAgentTokenLimit, 10) : null);
                 }}
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
               <button
                 onClick={() => handleSpawn(newAgentName, newAgentPrompt || undefined, undefined, undefined, newAgentTokenLimit ? parseInt(newAgentTokenLimit, 10) : null)}
@@ -3938,7 +3938,7 @@ export default function Agents() {
                   setNewAgentPrompt("");
                   setNewAgentTokenLimit("");
                 }}
-                className="text-slate-400 hover:text-white transition-colors"
+                className="text-slate-600 dark:text-slate-400 hover:text-white transition-colors"
               >
                 <Icon name="close" size={20} />
               </button>
@@ -3951,17 +3951,17 @@ export default function Agents() {
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSpawn(newAgentName, newAgentPrompt || undefined, undefined, undefined, newAgentTokenLimit ? parseInt(newAgentTokenLimit, 10) : null); } }}
                 rows={3}
                 placeholder="What should this agent do? (Enter to spawn, Shift+Enter for newline)"
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-sm resize-none"
+                className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-sm resize-none"
               />
               {newAgentPrompt && /\[.+?\]/.test(newAgentPrompt) && (
-                <p className="text-xs text-amber-400 mt-1">
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
                   Replace the <span className="font-mono">[placeholders]</span> above with your specific details before spawning.
                 </p>
               )}
             </div>
             {/* Token budget limit */}
             <div className="flex items-center gap-3 mt-3">
-              <label className="text-sm text-slate-400 whitespace-nowrap">Usage limit</label>
+              <label className="text-sm text-slate-600 dark:text-slate-400 whitespace-nowrap">Usage limit</label>
               <input
                 type="number"
                 min={0}
@@ -3969,7 +3969,7 @@ export default function Agents() {
                 value={newAgentTokenLimit}
                 onChange={(e) => setNewAgentTokenLimit(e.target.value)}
                 placeholder="No limit"
-                className="w-40 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="w-40 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
               <span className="text-xs text-slate-500">Leave empty for unlimited</span>
             </div>
@@ -3982,9 +3982,9 @@ export default function Agents() {
           <>
             {/* Coordination Locks (needle 338) */}
             {locks.length > 0 && (
-              <div className="mb-4 bg-slate-900/40 border border-slate-800 rounded-xl p-4">
+              <div className="mb-4 bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-3">
-                  <Icon name="lock" className="text-amber-400" size={18} />
+                  <Icon name="lock" className="text-amber-600 dark:text-amber-400" size={18} />
                   <span className="text-sm font-semibold text-white">Agents working on shared items</span>
                   <span className="text-xs text-slate-500">({locks.length})</span>
                 </div>
@@ -3992,17 +3992,17 @@ export default function Agents() {
                   {locks.map((lock) => (
                     <div
                       key={lock.name}
-                      className="flex items-center gap-2 bg-slate-800/60 border border-amber-500/30 rounded-lg px-3 py-1.5"
+                      className="flex items-center gap-2 bg-slate-50/60 dark:bg-slate-800/60 border border-amber-500/30 rounded-lg px-3 py-1.5"
                     >
-                      <Icon name="lock" className="text-amber-400" size={14} />
+                      <Icon name="lock" className="text-amber-600 dark:text-amber-400" size={14} />
                       <span className="text-sm text-white font-mono">{lock.name}</span>
                       {lock.holder && (
-                        <span className="text-xs text-slate-400">{lock.holder}</span>
+                        <span className="text-xs text-slate-600 dark:text-slate-400">{lock.holder}</span>
                       )}
                       <button
                         onClick={() => handleReleaseLock(lock.name)}
                         disabled={releasingLock[lock.name]}
-                        className="ml-1 text-xs text-slate-400 hover:text-red-400 transition-colors disabled:opacity-50"
+                        className="ml-1 text-xs text-slate-600 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50"
                         title="Unstick this"
                       >
                         {releasingLock[lock.name] ? "..." : "Release"}
@@ -4031,7 +4031,7 @@ export default function Agents() {
                     data-testid="cancel-all-agents-btn"
                     onClick={handleCancelAll}
                     disabled={runningCount === 0 || cancelAllPending}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-red-900/30 border border-red-700/50 text-red-400 hover:bg-red-900/50 hover:text-red-300"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-red-900/30 border border-red-700/50 text-red-600 dark:text-red-400 hover:bg-red-900/50 hover:text-red-700 dark:hover:text-red-300"
                     title={runningCount === 0 ? "No background agents running" : `Cancel all ${runningCount} running agent${runningCount === 1 ? "" : "s"}`}
                   >
                     <Icon name="cancel" size={14} />
@@ -4043,7 +4043,7 @@ export default function Agents() {
             {!agentsLoaded ? (
               <div
                 data-testid="active-agents-loading"
-                className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8"
+                className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center text-slate-600 dark:text-slate-400 mb-8"
               >
                 Loading...
               </div>
@@ -4123,7 +4123,7 @@ export default function Agents() {
                         >
                           <span className="text-white font-semibold leading-tight line-clamp-2 break-words">{agentTitleParts(agent).primary}</span>
                           {agentTitleParts(agent).secondary && (
-                            <span className="text-slate-400 text-xs leading-tight line-clamp-1">{agentTitleParts(agent).secondary}</span>
+                            <span className="text-slate-600 dark:text-slate-400 text-xs leading-tight line-clamp-1">{agentTitleParts(agent).secondary}</span>
                           )}
                         </span>
                         <span className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}>
@@ -4131,7 +4131,7 @@ export default function Agents() {
                         </span>
                         <AgentStatusBadge badge={agent.badge} />
                         {pendingGrants.length > 0 && (
-                          <span className="text-xs font-bold px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400">
+                          <span className="text-xs font-bold px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-600 dark:text-yellow-400">
                             {pendingGrants.length} pending
                           </span>
                         )}
@@ -4146,10 +4146,10 @@ export default function Agents() {
                           <span
                             className={`text-xs font-bold px-2 py-0.5 rounded ${
                               (contextPressure[agent.name]?.pressure_pct ?? 0) >= 90
-                                ? "bg-red-500/20 text-red-400"
+                                ? "bg-red-500/20 text-red-600 dark:text-red-400"
                                 : (contextPressure[agent.name]?.pressure_pct ?? 0) >= 70
-                                  ? "bg-amber-500/20 text-amber-400"
-                                  : "bg-slate-700/50 text-slate-400"
+                                  ? "bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                                  : "bg-slate-200 dark:bg-slate-700/50 text-slate-600 dark:text-slate-400"
                             }`}
                             title="How much of the agent's memory is used"
                           >
@@ -4183,7 +4183,7 @@ export default function Agents() {
                             expanding. Truncated to 60 chars to fit the row. */}
                         {!isActiveExpanded && agent.current_step && (
                           <span
-                            className="w-full text-xs text-slate-400 mt-0.5 truncate"
+                            className="w-full text-xs text-slate-600 dark:text-slate-400 mt-0.5 truncate"
                             data-testid="agent-current-step"
                             title={agent.current_step}
                           >
@@ -4195,7 +4195,7 @@ export default function Agents() {
                       </div>
                       <button
                         onClick={() => toggleActiveExpanded(agent.name)}
-                        className="text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-sm shrink-0"
+                        className="text-slate-600 dark:text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-sm shrink-0"
                         title={isActiveExpanded ? "Collapse session" : "Expand session"}
                         data-testid={`active-agent-toggle-${agent.name}`}
                       >
@@ -4235,13 +4235,13 @@ export default function Agents() {
                                 className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-start justify-between gap-3"
                               >
                                 <div className="flex items-start gap-2 flex-1 min-w-0">
-                                  <Icon name="lock_open" className="text-yellow-400 mt-0.5" size={18} />
+                                  <Icon name="lock_open" className="text-yellow-600 dark:text-yellow-400 mt-0.5" size={18} />
                                   <div className="flex-1 min-w-0">
                                     <p className="text-sm text-white">
-                                      Wants to {grant.type === "secret" ? "access a stored password" : grant.type === "file_access" ? "read a file" : grant.type === "tool" ? "use a tool" : grant.type === "budget" ? "increase its spending limit" : grant.type === "model_upgrade" ? "use a more powerful AI model" : grant.type}: <span className="font-mono text-yellow-300">{grant.target}</span>
+                                      Wants to {grant.type === "secret" ? "access a stored password" : grant.type === "file_access" ? "read a file" : grant.type === "tool" ? "use a tool" : grant.type === "budget" ? "increase its spending limit" : grant.type === "model_upgrade" ? "use a more powerful AI model" : grant.type}: <span className="font-mono text-yellow-700 dark:text-yellow-300">{grant.target}</span>
                                     </p>
                                     {grant.detail && (
-                                      <p className="text-xs text-slate-400 mt-1 break-words">{grant.detail}</p>
+                                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 break-words">{grant.detail}</p>
                                     )}
                                   </div>
                                 </div>
@@ -4249,14 +4249,14 @@ export default function Agents() {
                                   <button
                                     onClick={() => handleApproveGrant(grant.id)}
                                     disabled={grantActioning[grant.id]}
-                                    className="bg-green-600 hover:bg-green-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-xs rounded px-2.5 py-1 transition-colors"
+                                    className="bg-green-600 hover:bg-green-700 disabled:bg-slate-200 dark:bg-slate-700 disabled:text-slate-500 text-white text-xs rounded px-2.5 py-1 transition-colors"
                                   >
                                     {grantActioning[grant.id] ? "..." : "Approve"}
                                   </button>
                                   <button
                                     onClick={() => handleDenyGrant(grant.id)}
                                     disabled={grantActioning[grant.id]}
-                                    className="border border-slate-700 text-slate-300 text-xs rounded px-2.5 py-1 hover:border-red-500 hover:text-red-400 disabled:opacity-50 transition-colors"
+                                    className="border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs rounded px-2.5 py-1 hover:border-red-500 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50 transition-colors"
                                   >
                                     Deny
                                   </button>
@@ -4297,7 +4297,7 @@ export default function Agents() {
                             card. They were previously gated behind a second
                             "expandedAgent" toggle, but that UX is gone now
                             that the whole detail view is collapsible. */}
-                        <div className="mt-4 pt-4 border-t border-slate-800">
+                        <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
                           <div className="grid grid-cols-2 gap-4 text-xs mb-4">
                             <div>
                               <span className="text-slate-500">Source</span>
@@ -4316,16 +4316,16 @@ export default function Agents() {
                           />
                           {(agentNotes[agent.name] ?? []).length > 0 && (
                             <div className="mt-2">
-                              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
                                 Notes
                               </span>
-                              <div className="mt-2 bg-slate-950 rounded-lg p-3 text-xs space-y-2">
+                              <div className="mt-2 bg-white dark:bg-slate-950 rounded-lg p-3 text-xs space-y-2">
                                 {(agentNotes[agent.name] ?? []).map((note, i) => (
                                   <div key={i} className="flex gap-2">
                                     <span className="text-slate-600 shrink-0 tabular-nums">
                                       {note.ts ? new Date(note.ts).toLocaleString() : ""}
                                     </span>
-                                    <span className="text-slate-300">{note.content}</span>
+                                    <span className="text-slate-700 dark:text-slate-300">{note.content}</span>
                                   </div>
                                 ))}
                               </div>
@@ -4339,7 +4339,7 @@ export default function Agents() {
                               variant="ghost"
                               size="sm"
                               onClick={() => openTranscript(agent.name)}
-                              className="text-blue-400 hover:text-blue-300"
+                              className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
                             >
                               <Icon name="description" size={16} />
                               View Transcript
@@ -4352,7 +4352,7 @@ export default function Agents() {
                             size="sm"
                             onClick={() => handleKill(agent.name)}
                             disabled={killingAgents[agent.name]}
-                            className="hover:border-red-500 hover:text-red-400"
+                            className="hover:border-red-500 hover:text-red-600 dark:hover:text-red-400"
                           >
                             {killingAgents[agent.name] ? "Cancelling..." : "Cancel"}
                           </Button>
@@ -4376,20 +4376,20 @@ export default function Agents() {
                 <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                   Hand Off Needles
                   <div className="group relative">
-                    <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-300 cursor-help" />
-                    <div className="absolute left-0 top-full mt-1 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
+                    <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-help" />
+                    <div className="absolute left-0 top-full mt-1 w-72 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-xs text-slate-700 dark:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
                       These needles are open and unblocked. They are good candidates for an AI agent to handle while you focus on other work. Clicking "Hand off" spawns an agent that will read the needle, do the work, and report back when done.
                     </div>
                   </div>
                 </h2>
-                <p className="text-sm text-slate-400 mt-1">
+                <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
                   Open needles an agent can pick up for you. Click "Hand off" to start one working on it now.
                 </p>
               </div>
               <button
                 onClick={fetchDelegation}
                 disabled={delegationLoading}
-                className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1 disabled:opacity-50"
+                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors flex items-center gap-1 disabled:opacity-50"
               >
                 <Icon name="refresh" size={18} />
                 Refresh
@@ -4397,13 +4397,13 @@ export default function Agents() {
             </div>
 
             {delegationLoading && (
-              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-6">
+              <div className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center text-slate-600 dark:text-slate-400 mb-6">
                 Loading suggestions...
               </div>
             )}
 
             {delegationError && (
-              <div className="bg-slate-900/40 border border-red-900/30 rounded-xl p-8 text-center text-slate-400 mb-6">
+              <div className="bg-white/40 dark:bg-slate-900/40 border border-red-900/30 rounded-xl p-8 text-center text-slate-600 dark:text-slate-400 mb-6">
                 {delegationError}
               </div>
             )}
@@ -4412,7 +4412,7 @@ export default function Agents() {
               <>
                 {/* Delegation targets */}
                 {delegationData.delegation_targets.length === 0 ? (
-                  <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-6">
+                  <div className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center text-slate-600 dark:text-slate-400 mb-6">
                     No needles to delegate right now. As you add more needles, delegation suggestions will appear here.
                   </div>
                 ) : (
@@ -4420,18 +4420,18 @@ export default function Agents() {
                     {delegationData.delegation_targets.map((target) => (
                       <div
                         key={target.id}
-                        className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 flex items-center justify-between hover:border-slate-700 transition-colors"
+                        className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex items-center justify-between hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
                       >
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 rounded-lg bg-pink-500/10 border border-pink-500/20 flex items-center justify-center">
-                            <Icon name="smart_toy" className="text-pink-400" size={22} />
+                            <Icon name="smart_toy" className="text-pink-600 dark:text-pink-400" size={22} />
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="text-white font-mono text-sm font-semibold">{target.id}</span>
                               <span className="text-white font-medium">{target.title}</span>
                             </div>
-                            <p className="text-slate-400 text-xs mt-1">
+                            <p className="text-slate-600 dark:text-slate-400 text-xs mt-1">
                               Open and unblocked. An agent can work on this now.
                             </p>
                           </div>
@@ -4439,7 +4439,7 @@ export default function Agents() {
                         <button
                           onClick={() => handleDelegateSpawn(target)}
                           disabled={spawningDelegation[target.id]}
-                          className="bg-pink-500 hover:bg-pink-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors flex items-center gap-2"
+                          className="bg-pink-500 hover:bg-pink-600 disabled:bg-slate-200 dark:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors flex items-center gap-2"
                         >
                           <Icon name="bolt" size={16} />
                           {spawningDelegation[target.id] ? "Starting..." : "Hand off"}
@@ -4467,8 +4467,8 @@ export default function Agents() {
                     onClick={() => setGrantFilter(f)}
                     className={`text-xs px-3 py-1 rounded-full transition-colors ${
                       grantFilter === f
-                        ? "bg-blue-500/20 text-blue-400 border border-blue-500/50"
-                        : "bg-slate-800 text-slate-400 border border-slate-700 hover:text-white"
+                        ? "bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/50"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:text-white"
                     }`}
                   >
                     {f === "pending" ? "Waiting" : f === "granted" ? "Approved" : "Denied"}
@@ -4476,15 +4476,15 @@ export default function Agents() {
                 ))}
               </div>
             </div>
-            <p className="text-sm text-slate-400 mb-6">
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
               When agents need extra access (like reading a file, using a tool, or changing their budget), their requests show up here for you to approve or deny.
             </p>
             {grantsLoading && grants.length === 0 ? (
-              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400">
+              <div className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center text-slate-600 dark:text-slate-400">
                 Loading...
               </div>
             ) : grants.filter((g) => g.agent && g.agent !== "unknown").length === 0 ? (
-              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400">
+              <div className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center text-slate-600 dark:text-slate-400">
                 {grantFilter === "pending"
                   ? "No pending requests. Agents will ask for permission here when they need extra access."
                   : grantFilter === "granted"
@@ -4497,7 +4497,7 @@ export default function Agents() {
                   <div
                     key={grant.id}
                     data-testid="grant-card"
-                    className="bg-slate-900/40 border border-slate-800 rounded-xl p-5"
+                    className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-5"
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -4516,7 +4516,7 @@ export default function Agents() {
                                 ? "upgrade"
                                 : "lock_open"
                             }
-                            className="text-xl text-slate-400"
+                            className="text-xl text-slate-600 dark:text-slate-400"
                           />
                           <span className="text-white font-medium">
                             {grant.type === "file_access"
@@ -4533,18 +4533,18 @@ export default function Agents() {
                           </span>
                           <span className={`text-xs font-bold px-2 py-0.5 rounded ${
                             grant.status === "pending"
-                              ? "bg-yellow-500/20 text-yellow-400"
+                              ? "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400"
                               : grant.status === "granted"
-                              ? "bg-green-500/20 text-green-400"
-                              : "bg-red-500/20 text-red-400"
+                              ? "bg-green-500/20 text-green-600 dark:text-green-400"
+                              : "bg-red-500/20 text-red-600 dark:text-red-400"
                           }`}>
                             {grant.status === "pending" ? "WAITING" : grant.status === "granted" ? "APPROVED" : "DENIED"}
                           </span>
                         </div>
-                        <div className="text-sm text-slate-300 mb-1">
+                        <div className="text-sm text-slate-700 dark:text-slate-300 mb-1">
                           <span className="text-slate-500">Agent:</span> {grant.agent}
                         </div>
-                        <div className="text-sm text-slate-300 mb-1">
+                        <div className="text-sm text-slate-700 dark:text-slate-300 mb-1">
                           <span className="text-slate-500">Requesting:</span> {grant.target}
                         </div>
                         {grant.detail && (
@@ -4561,7 +4561,7 @@ export default function Agents() {
                           <button
                             onClick={() => handleApproveGrant(grant.id)}
                             disabled={grantActioning[grant.id]}
-                            className="bg-green-600 hover:bg-green-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm rounded-lg px-4 py-2 transition-colors flex items-center gap-1"
+                            className="bg-green-600 hover:bg-green-700 disabled:bg-slate-200 dark:bg-slate-700 disabled:text-slate-500 text-white text-sm rounded-lg px-4 py-2 transition-colors flex items-center gap-1"
                           >
                             <Icon name="check" size={16} />
                             {grantActioning[grant.id] ? "..." : "Approve"}
@@ -4569,7 +4569,7 @@ export default function Agents() {
                           <button
                             onClick={() => handleDenyGrant(grant.id)}
                             disabled={grantActioning[grant.id]}
-                            className="border border-slate-700 text-slate-300 text-sm rounded-lg px-4 py-2 hover:border-red-500 hover:text-red-400 disabled:opacity-50 transition-colors flex items-center gap-1"
+                            className="border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm rounded-lg px-4 py-2 hover:border-red-500 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50 transition-colors flex items-center gap-1"
                           >
                             <Icon name="close" size={16} />
                             {grantActioning[grant.id] ? "..." : "Deny"}
@@ -4632,7 +4632,7 @@ export default function Agents() {
                       type="button"
                       onClick={toggleShowInactive}
                       data-testid="recent-cancelled-toggle"
-                      className="inline-flex items-center gap-2 text-xs text-slate-300 bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700 rounded-full px-3 py-1 transition-colors"
+                      className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/70 hover:bg-slate-200 dark:hover:bg-slate-700/70 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1 transition-colors"
                     >
                       {showInactive ? (
                         <>
@@ -4654,7 +4654,7 @@ export default function Agents() {
                       type="button"
                       onClick={toggleShowE2e}
                       data-testid="recent-e2e-toggle"
-                      className="inline-flex items-center gap-2 text-xs text-slate-300 bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700 rounded-full px-3 py-1 transition-colors"
+                      className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/70 hover:bg-slate-200 dark:hover:bg-slate-700/70 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1 transition-colors"
                     >
                       {showE2e ? (
                         <>
@@ -4679,7 +4679,7 @@ export default function Agents() {
               {!agentsLoaded ? (
                 <div
                   data-testid="recent-agents-loading"
-                  className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8"
+                  className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center text-slate-600 dark:text-slate-400 mb-8"
                 >
                   Loading...
                 </div>
@@ -4699,7 +4699,7 @@ export default function Agents() {
                     return (
                       <div
                         key={agent.name}
-                        className={`bg-slate-900/40 border border-slate-800 rounded-xl px-5 py-3${showInactive && isInactive ? " opacity-50" : ""}`}
+                        className={`bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl px-5 py-3${showInactive && isInactive ? " opacity-50" : ""}`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
@@ -4709,7 +4709,7 @@ export default function Agents() {
                             >
                               <span className="text-white font-medium leading-tight">{agentTitleParts(agent).primary}</span>
                               {agentTitleParts(agent).secondary && (
-                                <span className="text-slate-400 text-xs leading-tight">{agentTitleParts(agent).secondary}</span>
+                                <span className="text-slate-600 dark:text-slate-400 text-xs leading-tight">{agentTitleParts(agent).secondary}</span>
                               )}
                             </span>
                             <span
@@ -4730,7 +4730,7 @@ export default function Agents() {
                             {isE2eSmoke(agent) && (
                               <span
                                 data-testid="recent-e2e-pill"
-                                className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 bg-slate-800/70 border border-slate-700 rounded px-1.5 py-0.5"
+                                className="text-[10px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5"
                                 title="Spawned by the end-to-end smoke test"
                               >
                                 e2e
@@ -4745,7 +4745,7 @@ export default function Agents() {
                               <button
                                 onClick={() => handleRecover(agent.name)}
                                 disabled={recoveringAgents[agent.name]}
-                                className="text-xs text-yellow-400 hover:text-yellow-300 disabled:opacity-50 transition-colors flex items-center gap-1"
+                                className="text-xs text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 disabled:opacity-50 transition-colors flex items-center gap-1"
                               >
                                 <Icon name="replay" size={14} />
                                 {recoveringAgents[agent.name] ? "Recovering..." : "Recover"}
@@ -4754,7 +4754,7 @@ export default function Agents() {
                             {(agent.transcript_bytes ?? 0) > 0 && (
                               <button
                                 onClick={() => openTranscript(agent.name)}
-                                className="text-xs text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+                                className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors flex items-center gap-1"
                               >
                                 <Icon name="description" size={14} />
                                 Transcript
@@ -4770,7 +4770,7 @@ export default function Agents() {
                                 addDismissed(agent.name);
                                 setAllAgents((prev) => prev.filter((a) => a.name !== agent.name));
                               }}
-                              className="text-slate-600 hover:text-red-400 transition-colors text-xs flex items-center gap-1"
+                              className="text-slate-600 hover:text-red-600 dark:hover:text-red-400 transition-colors text-xs flex items-center gap-1"
                               title="Remove from history"
                             >
                               <Icon name="close" size={14} />
@@ -4783,7 +4783,7 @@ export default function Agents() {
                                 }
                                 setExpandedAgent(isRecentExpanded ? null : agent.name);
                               }}
-                              className="text-slate-500 hover:text-slate-300 transition-colors text-xs flex items-center gap-1"
+                              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors text-xs flex items-center gap-1"
                             >
                               <Icon name={isRecentExpanded ? "expand_less" : "memory"} size={16} />
                               {isRecentExpanded ? "Hide" : "Memory"}
@@ -4791,7 +4791,7 @@ export default function Agents() {
                           </div>
                         </div>
                         {agent.actionable_doc && agent.status === 'completed' && (
-                          <p className="mt-2 text-sm text-slate-400 leading-snug" data-testid="recent-actionable-doc">
+                          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 leading-snug" data-testid="recent-actionable-doc">
                             {agent.actionable_doc}
                           </p>
                         )}
@@ -4816,8 +4816,8 @@ export default function Agents() {
                           />
                         )}
                         {agent.status === 'completed' && getFollowOns(agent).length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-slate-800">
-                            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">What's next</p>
+                          <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                            <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">What's next</p>
                             <div className="flex flex-wrap gap-2">
                               {getFollowOns(agent).map((action) => (
                                 <button
@@ -4837,7 +4837,7 @@ export default function Agents() {
                                     handleSpawn(agentName, spawnPrompt, undefined, undefined, undefined, undefined, 'none');
                                     navigate('/agents');
                                   }}
-                                  className="inline-flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-emerald-900/60 border border-slate-700 hover:border-emerald-700 text-slate-300 hover:text-emerald-300 rounded-full px-3 py-1 transition-colors"
+                                  className="inline-flex items-center gap-1.5 text-xs bg-slate-100 dark:bg-slate-800 hover:bg-emerald-900/60 border border-slate-200 dark:border-slate-700 hover:border-emerald-700 text-slate-700 dark:text-slate-300 hover:text-emerald-300 rounded-full px-3 py-1 transition-colors"
                                 >
                                   <span className="material-symbols-outlined text-[12px]">arrow_forward</span>
                                   {action.label}
@@ -4847,7 +4847,7 @@ export default function Agents() {
                           </div>
                         )}
                         {isRecentExpanded && (
-                          <div className="mt-3 pt-3 border-t border-slate-800">
+                          <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800">
                             <AgentMemorySection
                               agentName={agent.name}
                               memory={agentMemory[agent.name]}
@@ -4856,16 +4856,16 @@ export default function Agents() {
                             />
                             {(agentNotes[agent.name] ?? []).length > 0 && (
                               <div className="mt-2">
-                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
                                   Notes
                                 </span>
-                                <div className="mt-2 bg-slate-950 rounded-lg p-3 text-xs space-y-2">
+                                <div className="mt-2 bg-white dark:bg-slate-950 rounded-lg p-3 text-xs space-y-2">
                                   {(agentNotes[agent.name] ?? []).map((note, i) => (
                                     <div key={i} className="flex gap-2">
                                       <span className="text-slate-600 shrink-0 tabular-nums">
                                         {note.ts ? new Date(note.ts).toLocaleString() : ""}
                                       </span>
-                                      <span className="text-slate-300">{note.content}</span>
+                                      <span className="text-slate-700 dark:text-slate-300">{note.content}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -4889,20 +4889,20 @@ export default function Agents() {
                 <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                   Shared Workspace
                   {workspaceMessages.length > 0 && (
-                    <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                    <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400">
                       {workspaceMessages.length}
                     </span>
                   )}
                   <div className="group relative">
-                    <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-300 cursor-help" />
-                    <div className="absolute left-0 top-full mt-1 w-80 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
+                    <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-help" />
+                    <div className="absolute left-0 top-full mt-1 w-80 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-xs text-slate-700 dark:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
                       <p className="font-semibold text-white mb-1">How agents share context</p>
                       <p className="mb-2">When you run multiple agents on related tasks, they can leave notes here (findings, questions, and results) so other agents don't duplicate work.</p>
                       <p>Every new agent you spawn automatically receives everything in this workspace as context. Clear it when you start a new project or when the notes are no longer relevant.</p>
                     </div>
                   </div>
                 </h2>
-                <p className="text-sm text-slate-400 mt-1">
+                <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
                   Notes left by agents for each other. New agents see this automatically when they start.
                 </p>
               </div>
@@ -4910,7 +4910,7 @@ export default function Agents() {
                 <button
                   onClick={fetchWorkspace}
                   disabled={workspaceLoading}
-                  className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1 disabled:opacity-50"
+                  className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors flex items-center gap-1 disabled:opacity-50"
                 >
                   <Icon name="refresh" size={18} />
                   Refresh
@@ -4918,7 +4918,7 @@ export default function Agents() {
                 <button
                   onClick={clearWorkspace}
                   disabled={workspaceClearing || workspaceMessages.length === 0}
-                  className="text-sm text-red-400 hover:text-red-300 transition-colors flex items-center gap-1 disabled:opacity-50"
+                  className="text-sm text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors flex items-center gap-1 disabled:opacity-50"
                 >
                   <Icon name="delete_sweep" size={18} />
                   {workspaceClearing ? "Clearing..." : "Clear workspace"}
@@ -4927,11 +4927,11 @@ export default function Agents() {
             </div>
 
             {workspaceLoading && workspaceMessages.length === 0 ? (
-              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400">
+              <div className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center text-slate-600 dark:text-slate-400">
                 Loading...
               </div>
             ) : workspaceMessages.length === 0 ? (
-              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400">
+              <div className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center text-slate-600 dark:text-slate-400">
                 No messages yet. Agents post findings here so other agents can pick them up.
               </div>
             ) : (() => {
@@ -4942,30 +4942,30 @@ export default function Agents() {
               }
               const typeColor = (t: string) => {
                 switch (t) {
-                  case "finding": return "bg-yellow-500/20 text-yellow-400";
-                  case "question": return "bg-purple-500/20 text-purple-400";
-                  case "result": return "bg-green-500/20 text-green-400";
-                  case "context": return "bg-blue-500/20 text-blue-400";
-                  default: return "bg-slate-500/20 text-slate-400";
+                  case "finding": return "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400";
+                  case "question": return "bg-purple-500/20 text-purple-600 dark:text-purple-400";
+                  case "result": return "bg-green-500/20 text-green-600 dark:text-green-400";
+                  case "context": return "bg-blue-500/20 text-blue-600 dark:text-blue-400";
+                  default: return "bg-slate-500/20 text-slate-600 dark:text-slate-400";
                 }
               };
               return (
                 <div className="flex flex-col gap-4">
                   {Object.entries(byAgent).map(([agentName, msgs]) => (
-                    <div key={agentName} className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
+                    <div key={agentName} className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
                       <div className="flex items-center gap-2 mb-3">
-                        <Icon name="smart_toy" className="text-pink-400" size={18} />
+                        <Icon name="smart_toy" className="text-pink-600 dark:text-pink-400" size={18} />
                         <span className="text-white font-semibold">{agentName}</span>
                         <span className="text-xs text-slate-500">{msgs.length} message{msgs.length !== 1 ? "s" : ""}</span>
                       </div>
                       <div className="flex flex-col gap-2">
                         {msgs.map((msg) => (
-                          <div key={msg.id} className="flex items-start gap-3 bg-slate-950/50 rounded-lg px-3 py-2">
+                          <div key={msg.id} className="flex items-start gap-3 bg-white dark:bg-slate-950/50 rounded-lg px-3 py-2">
                             <span className={"text-xs font-bold px-2 py-0.5 rounded shrink-0 mt-0.5 " + typeColor(msg.message_type)}>
                               {msg.message_type.toUpperCase()}
                             </span>
                             <div className="flex-1 min-w-0">
-                              <p className="text-slate-200 text-sm">{msg.content}</p>
+                              <p className="text-slate-800 dark:text-slate-200 text-sm">{msg.content}</p>
                               <p className="text-slate-600 text-xs mt-1">
                                 {new Date(msg.timestamp).toLocaleString()}
                               </p>
@@ -4983,7 +4983,7 @@ export default function Agents() {
 
         {activeTab === "Insights" && <AgentInsights />}
 
-        {activeTab === "Templates" && <div className="mt-8 border-t border-slate-800 pt-8">
+        {activeTab === "Templates" && <div className="mt-8 border-t border-slate-200 dark:border-slate-800 pt-8">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-white" data-testid="agent-templates-heading">
             Agent Templates
@@ -5002,7 +5002,7 @@ export default function Agents() {
               setEditorDeclaredSkills(undefined);
               setEditorOpen(true);
             }}
-            className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+            className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors flex items-center gap-1"
           >
             <Icon name="add" size={18} />
             New template
@@ -5015,9 +5015,9 @@ export default function Agents() {
           </p>
         )}
         {displayTemplates.length === 0 && pmTemplates.length === 0 && userTemplates.length === 0 ? (
-          <div className="border border-dashed border-slate-700 rounded-xl p-10 text-center mb-8" data-testid="agent-templates-empty">
+          <div className="border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-10 text-center mb-8" data-testid="agent-templates-empty">
             <Icon name="storefront" className="text-4xl text-slate-600 mb-3" />
-            <p className="text-slate-400 text-sm font-medium">You have no templates yet</p>
+            <p className="text-slate-600 dark:text-slate-400 text-sm font-medium">You have no templates yet</p>
             <p className="text-slate-500 text-xs mt-1">Browse the Agents catalog below to add your first template.</p>
           </div>
         ) : (
@@ -5120,7 +5120,7 @@ export default function Agents() {
         {/* PM template editor modal */}
         {pmTemplateEditor.open && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-xl">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-xl">
               <h3 className="text-lg font-semibold text-white mb-4">
                 {pmTemplateEditor.isNew ? "New Template" : "Edit Template"}
               </h3>
@@ -5137,11 +5137,11 @@ export default function Agents() {
         {/* Fleets panel removed: fleet launching has been folded into the Plans page template grid. */}
 
         {/* Agents catalog (always visible) */}
-        <div className="mt-8 bg-slate-900/40 border border-slate-800 rounded-xl p-6" data-testid="marketplace-section">
+        <div className="mt-8 bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-6" data-testid="marketplace-section">
           <h2 className="text-lg font-semibold text-white mb-4" data-testid="marketplace-heading">Agents</h2>
           {AGENT_MARKETPLACE.map((cat) => (
             <div key={cat.id} className="mb-6 last:mb-0">
-              <h4 className="text-sm text-slate-400 font-medium mb-3 uppercase tracking-wider">{cat.category}</h4>
+              <h4 className="text-sm text-slate-600 dark:text-slate-400 font-medium mb-3 uppercase tracking-wider">{cat.category}</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                 {cat.templates.flatMap((mt) => {
                   const alreadyAdded = isCustomTemplate(mt.name) || builtInTemplates.some(
@@ -5172,19 +5172,19 @@ export default function Agents() {
         </div>
 
         {/* MCP Servers */}
-        <div className="mt-6 bg-slate-900/40 border border-slate-800 rounded-xl p-6" data-testid="mcp-servers-section">
+        <div className="mt-6 bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-6" data-testid="mcp-servers-section">
           <div className="flex items-center gap-2 mb-5">
             <h2 className="text-lg font-semibold text-white" data-testid="mcp-servers-heading">MCP servers</h2>
-            <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">MCP</span>
+            <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">MCP</span>
             <div className="group relative ml-1">
-              <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-300 cursor-help" />
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
+              <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-help" />
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-xs text-slate-700 dark:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
                 Connect external tool servers (like Stitch, Gmail, Calendar). The chat panel can use their tools the same way it uses built-in tools.
               </div>
             </div>
             <button
               onClick={() => setShowBrowse(true)}
-              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
+              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
             >
               <Icon name="explore" size={16} />
               Browse
@@ -5200,10 +5200,10 @@ export default function Agents() {
               </p>
               <div className="space-y-2">
                 {ostkMcpServers.map((server) => (
-                  <div key={server.name} className="flex items-center gap-3 px-3 py-2.5 bg-slate-800/50 rounded-lg border border-emerald-900/40">
+                  <div key={server.name} className="flex items-center gap-3 px-3 py-2.5 bg-slate-100 dark:bg-slate-800/50 rounded-lg border border-emerald-900/40">
                     <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" title="Managed automatically" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-slate-200 font-medium">{server.name}</p>
+                      <p className="text-sm text-slate-800 dark:text-slate-200 font-medium">{server.name}</p>
                       <p className="text-xs text-slate-500 truncate font-mono">{server.command}</p>
                     </div>
                     <span className="text-xs text-emerald-400/70 flex-shrink-0">auto</span>
@@ -5223,21 +5223,21 @@ export default function Agents() {
                 </p>
               )}
               {mcpServers.map((server, index) => (
-                <div key={index} className="flex items-center gap-3 px-3 py-2.5 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                <div key={index} className="flex items-center gap-3 px-3 py-2.5 bg-slate-100 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700/50">
                   <button
                     onClick={() => handleToggleMcpServer(index)}
-                    className={`w-8 h-5 rounded-full relative flex-shrink-0 transition-colors ${server.enabled ? 'accent-bg' : 'bg-slate-700'}`}
+                    className={`w-8 h-5 rounded-full relative flex-shrink-0 transition-colors ${server.enabled ? 'accent-bg' : 'bg-slate-200 dark:bg-slate-700'}`}
                     title={server.enabled ? 'Disable' : 'Enable'}
                   >
                     <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${server.enabled ? 'left-3.5' : 'left-0.5'}`} />
                   </button>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-slate-200 font-medium">{server.name}</p>
+                    <p className="text-sm text-slate-800 dark:text-slate-200 font-medium">{server.name}</p>
                     <p className="text-xs text-slate-500 truncate">{server.url}</p>
                   </div>
                   <button
                     onClick={() => handleRemoveMcpServer(index)}
-                    className="p-1 text-slate-600 hover:text-red-400 transition-colors flex-shrink-0"
+                    className="p-1 text-slate-600 hover:text-red-600 dark:hover:text-red-400 transition-colors flex-shrink-0"
                     title="Remove"
                   >
                     <Icon name="delete" size={16} />
@@ -5287,12 +5287,12 @@ export default function Agents() {
           {/* Browse directory modal */}
           {showBrowse && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => { setShowBrowse(false); setBrowseSearch(''); setExpandedEntry(null); }}>
-              <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between px-5 pt-5 pb-3">
                   <h3 className="text-base font-semibold text-white">Server Directory</h3>
                   <button
                     onClick={() => { setShowBrowse(false); setBrowseSearch(''); setExpandedEntry(null); }}
-                    className="p-1 text-slate-400 hover:text-white transition-colors"
+                    className="p-1 text-slate-600 dark:text-slate-400 hover:text-white transition-colors"
                   >
                     <Icon name="close" size={20} />
                   </button>
@@ -5306,7 +5306,7 @@ export default function Agents() {
                       onChange={e => setBrowseSearch(e.target.value)}
                       placeholder="Search servers..."
                       autoFocus
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
                     />
                   </div>
                 </div>
@@ -5325,30 +5325,30 @@ export default function Agents() {
                     return (
                       <div
                         key={entry.name}
-                        className="bg-slate-800/50 rounded-lg border border-slate-700/50 hover:border-slate-600 transition-colors"
+                        className="bg-slate-100 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700/50 hover:border-slate-600 transition-colors"
                       >
                         <div
                           className="flex items-center gap-3 px-3 py-2.5 cursor-pointer"
                           onClick={() => setExpandedEntry(isExpanded ? null : entry.name)}
                         >
-                          <div className="w-8 h-8 rounded-lg bg-slate-700/60 flex items-center justify-center flex-shrink-0">
-                            <Icon name={entry.icon} size={18} className="text-slate-300" />
+                          <div className="w-8 h-8 rounded-lg bg-slate-100/60 dark:bg-slate-700/60 flex items-center justify-center flex-shrink-0">
+                            <Icon name={entry.icon} size={18} className="text-slate-700 dark:text-slate-300" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm text-slate-200 font-medium">{entry.name}</p>
+                            <p className="text-sm text-slate-800 dark:text-slate-200 font-medium">{entry.name}</p>
                             <p className="text-xs text-slate-500">{entry.description}</p>
                           </div>
                           <Icon name={isExpanded ? 'expand_less' : 'expand_more'} size={20} className="text-slate-500 flex-shrink-0" />
                         </div>
                         {isExpanded && (
                           <div className="px-3 pb-3 space-y-2.5">
-                            <div className="border-t border-slate-700/50 pt-2.5" />
+                            <div className="border-t border-slate-200 dark:border-slate-700/50 pt-2.5" />
                             <div>
-                              <p className="text-xs text-slate-400 mb-1">Package</p>
+                              <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Package</p>
                               <code className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-slate-900/80 px-2 py-1 rounded font-mono block break-all">{entry.npmPackage}</code>
                             </div>
                             <div>
-                              <p className="text-xs text-slate-400 mb-1">Setup command</p>
+                              <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Setup command</p>
                               <div className="flex items-center gap-2">
                                 <code className="text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-900/80 px-2 py-1 rounded font-mono flex-1 break-all">{entry.setupCommand}</code>
                                 <button
@@ -5367,7 +5367,7 @@ export default function Agents() {
                               </div>
                             )}
                             {added ? (
-                              <span className="flex items-center gap-1 text-xs text-green-400">
+                              <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
                                 <Icon name="check_circle" size={16} />
                                 Already added
                               </span>
@@ -5447,10 +5447,10 @@ export default function Agents() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
           onClick={(e) => { if (e.target === e.currentTarget) setTranscriptModal(null); }}
         >
-          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2 min-w-0">
-                <Icon name="description" className="text-blue-400" size={20} />
+                <Icon name="description" className="text-blue-600 dark:text-blue-400" size={20} />
                 <span className="text-white font-semibold truncate">{transcriptModal.name}</span>
                 <span className="text-xs text-slate-500">transcript</span>
               </div>
@@ -5464,17 +5464,17 @@ export default function Agents() {
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {transcriptModal.loading ? (
-                <div className="flex items-center gap-2 text-slate-400 text-sm" role="status" aria-label="Loading transcript">
+                <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 text-sm" role="status" aria-label="Loading transcript">
                   <div className="w-4 h-4 border-2 border-slate-600 border-t-blue-400 rounded-full animate-spin" />
                   Loading transcript...
                 </div>
               ) : transcriptModal.error ? (
                 <div className="space-y-3" data-testid="transcript-error">
-                  <p className="text-slate-400 text-sm">{transcriptModal.error}</p>
+                  <p className="text-slate-600 dark:text-slate-400 text-sm">{transcriptModal.error}</p>
                   {transcriptModal.retryable && (
                     <button
                       onClick={() => openTranscript(transcriptModal.name)}
-                      className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                      className="px-3 py-1.5 text-xs bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
                     >
                       Retry
                     </button>

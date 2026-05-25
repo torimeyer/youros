@@ -48,11 +48,11 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
       data-testid="exec-update-composer"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
     >
-      <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md p-6 shadow-2xl">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full max-w-md p-6 shadow-2xl">
         {/* Header */}
         <div className="flex items-start justify-between mb-5">
           <div className="flex items-center gap-2">
-            <Icon name="edit_note" className="text-blue-400" size={20} />
+            <Icon name="edit_note" className="text-blue-600 dark:text-blue-400" size={20} />
             <h2 className="text-white font-semibold text-lg">New progress update</h2>
           </div>
           <button
@@ -65,7 +65,7 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
         </div>
 
         {/* Mode picker — mirrors SpecWizard.tsx two-mode header */}
-        <div className="flex gap-1 bg-slate-800 rounded-lg p-1 mb-5">
+        <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-1 mb-5">
           <button
             type="button"
             data-testid="mode-quick"
@@ -73,7 +73,7 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
             className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-colors ${
               mode === 'quick'
                 ? 'bg-blue-600 text-white'
-                : 'text-slate-400 hover:text-white'
+                : 'text-slate-600 dark:text-slate-400 hover:text-white'
             }`}
           >
             Quick draft
@@ -85,7 +85,7 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
             className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-colors ${
               mode === 'guided'
                 ? 'bg-blue-600 text-white'
-                : 'text-slate-400 hover:text-white'
+                : 'text-slate-600 dark:text-slate-400 hover:text-white'
             }`}
           >
             Guided
@@ -96,7 +96,7 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
         {mode === 'quick' && (
           <div data-testid="quick-mode" className="space-y-4">
             <div>
-              <label className="block text-xs text-slate-400 mb-1.5">Audience</label>
+              <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">Audience</label>
               <div className="flex flex-wrap gap-2">
                 {AUDIENCES.map((a) => (
                   <button
@@ -106,7 +106,7 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
                     className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                       audience === a
                         ? 'bg-blue-600 text-white'
-                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-600'
                     }`}
                   >
                     {a}
@@ -116,7 +116,7 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
             </div>
 
             <div>
-              <label className="block text-xs text-slate-400 mb-1.5">
+              <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">
                 Time window: <span className="text-white font-medium">{windowDays} days</span>
               </label>
               <input
@@ -136,7 +136,7 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
               </div>
             </div>
 
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-600 dark:text-slate-400">
               Will pull sources from all connected tools automatically.
             </p>
           </div>
@@ -146,11 +146,11 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
         {mode === 'guided' && (
           <div data-testid="guided-mode" className="space-y-4">
             <div>
-              <label className="block text-xs text-slate-400 mb-1.5">Audience</label>
+              <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">Audience</label>
               <select
                 value={audience}
                 onChange={(e) => setAudience(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
                 aria-label="Audience"
               >
                 {AUDIENCES.map((a) => (
@@ -160,7 +160,7 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
             </div>
 
             <div>
-              <label className="block text-xs text-slate-400 mb-1.5">
+              <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">
                 Time window: <span className="text-white font-medium">{windowDays} days</span>
               </label>
               <input
@@ -176,7 +176,7 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
             </div>
 
             <div>
-              <label className="block text-xs text-slate-400 mb-1.5">
+              <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">
                 Limit to specific sources
                 <span className="text-slate-500 ml-1">(optional — leave empty to use all)</span>
               </label>
@@ -192,7 +192,7 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
                       .filter(Boolean),
                   )
                 }
-                className="w-full bg-slate-800 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
                 aria-label="Source IDs"
               />
             </div>
@@ -200,14 +200,14 @@ export default function ExecUpdateComposer({ onComplete, onCancel }: Props) {
         )}
 
         {error && (
-          <p className="mt-3 text-xs text-red-400">{error}</p>
+          <p className="mt-3 text-xs text-red-600 dark:text-red-400">{error}</p>
         )}
 
         {/* Actions */}
         <div className="flex items-center justify-end gap-2 mt-6">
           <button
             onClick={onCancel}
-            className="px-4 py-2 text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
+            className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
           >
             Cancel
           </button>

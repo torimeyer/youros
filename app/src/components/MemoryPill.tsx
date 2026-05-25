@@ -24,7 +24,7 @@ export default function MemoryPill() {
       onClick={() => navigate('/settings#memory')}
       title="Things I remember about you. Click to edit."
       data-testid="memory-pill"
-      className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition-colors cursor-pointer"
+      className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-300 hover:text-white hover:border-slate-500 transition-colors cursor-pointer"
     >
       🧠 {count} remembered
     </button>

@@ -148,9 +148,9 @@ export default function GemChatPanel({ gem, onClose }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-xl shadow-2xl flex flex-col max-h-[85vh]">
+      <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl flex flex-col max-h-[85vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 flex-shrink-0">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
           <div className="flex items-center gap-2">
             <Icon name="auto_awesome" size={16} className="text-emerald-400" />
             <span className="text-sm font-semibold text-white truncate">{gem.name}</span>
@@ -188,7 +188,7 @@ export default function GemChatPanel({ gem, onClose }: Props) {
               <div
                 className={`max-w-[80%] px-3 py-2 rounded-xl text-sm border ${
                   entry.role === 'user'
-                    ? 'bg-slate-700 border-slate-600 text-slate-100'
+                    ? 'bg-slate-200 dark:bg-slate-700 border-slate-600 text-slate-900 dark:text-slate-100'
                     : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 prose prose-sm prose-invert max-w-none'
                 }`}
               >
@@ -221,7 +221,7 @@ export default function GemChatPanel({ gem, onClose }: Props) {
         </div>
 
         {/* Input */}
-        <div className="px-4 pb-4 pt-2 border-t border-slate-800 flex-shrink-0">
+        <div className="px-4 pb-4 pt-2 border-t border-slate-200 dark:border-slate-800 flex-shrink-0">
           <div className="flex items-end gap-2">
             <textarea
               ref={textareaRef}
@@ -232,7 +232,7 @@ export default function GemChatPanel({ gem, onClose }: Props) {
               placeholder="Message…"
               rows={1}
               disabled={sending}
-              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/40 transition-colors resize-none disabled:opacity-50"
+              className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/40 transition-colors resize-none disabled:opacity-50"
             />
             <button
               data-testid="gem-chat-send"

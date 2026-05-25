@@ -345,15 +345,15 @@ export default function OnboardingWizard() {
 
   // Dark-mode-aware style helpers (use effectiveDark, not darkMode)
   const inputCls = effectiveDark
-    ? 'bg-slate-800 border-slate-700 text-white'
+    ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white'
     : 'bg-white border-gray-300 text-slate-900'
-  const subtextCls = effectiveDark ? 'text-slate-400' : 'text-slate-500'
+  const subtextCls = effectiveDark ? 'text-slate-600 dark:text-slate-400' : 'text-slate-500'
   const cardCls = effectiveDark
-    ? 'bg-slate-900/60 border-slate-800'
+    ? 'bg-white/60 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800'
     : 'bg-white border-gray-200 shadow-sm'
-  const dotInactiveCls = effectiveDark ? 'bg-slate-700' : 'bg-gray-300'
+  const dotInactiveCls = effectiveDark ? 'bg-slate-200 dark:bg-slate-700' : 'bg-gray-300'
   const navBtnCls = effectiveDark
-    ? 'text-slate-400 hover:text-white'
+    ? 'text-slate-600 dark:text-slate-400 hover:text-white'
     : 'text-slate-500 hover:text-slate-900'
 
   return (
@@ -369,7 +369,7 @@ export default function OnboardingWizard() {
       {/* Exit confirm dialog (→1519) */}
       {showExitConfirm && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50" data-testid="exit-confirm-dialog">
-          <div className={`rounded-xl p-6 max-w-sm w-full mx-4 shadow-xl ${effectiveDark ? 'bg-slate-900 border border-slate-700' : 'bg-white border border-gray-200'}`}>
+          <div className={`rounded-xl p-6 max-w-sm w-full mx-4 shadow-xl ${effectiveDark ? 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700' : 'bg-white border border-gray-200'}`}>
             <h3 className="text-base font-semibold mb-2">Exit setup?</h3>
             <p className={`text-sm mb-4 ${subtextCls}`}>You can resume from Settings anytime.</p>
             <div className="flex gap-3 justify-end">
@@ -395,7 +395,7 @@ export default function OnboardingWizard() {
       {/* Close button (→1519) */}
       <button
         onClick={() => setShowExitConfirm(true)}
-        className={`fixed top-4 right-4 z-50 p-1.5 rounded-full transition-colors ${effectiveDark ? 'text-slate-500 hover:text-white hover:bg-slate-800' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}
+        className={`fixed top-4 right-4 z-50 p-1.5 rounded-full transition-colors ${effectiveDark ? 'text-slate-500 hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}
         data-testid="onboarding-close-btn"
         aria-label="Exit setup"
       >
@@ -418,11 +418,11 @@ export default function OnboardingWizard() {
         {/* OAuth error banner */}
         {oauthError && (
           <div
-            className="mb-4 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center justify-between"
+            className="mb-4 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-sm flex items-center justify-between"
             data-testid="oauth-error-banner"
           >
             <span>{oauthError}</span>
-            <button onClick={() => setOauthError(null)} className="ml-3 text-red-400 hover:text-red-300 text-xs underline">Dismiss</button>
+            <button onClick={() => setOauthError(null)} className="ml-3 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-xs underline">Dismiss</button>
           </div>
         )}
 
@@ -486,12 +486,12 @@ export default function OnboardingWizard() {
                           }`}
                         >
                           <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${
-                            isPicked ? 'bg-blue-500/30 text-blue-300' : effectiveDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-slate-500'
+                            isPicked ? 'bg-blue-500/30 text-blue-700 dark:text-blue-300' : effectiveDark ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400' : 'bg-gray-100 text-slate-500'
                           }`}>
                             <Icon name={PERSONA_ICONS[cat.id] || 'person'} size={16} />
                           </div>
                           <span className="text-sm font-medium">{cat.category}</span>
-                          {isPicked && <Icon name="check_circle" className="text-blue-400 ml-auto" size={16} />}
+                          {isPicked && <Icon name="check_circle" className="text-blue-600 dark:text-blue-400 ml-auto" size={16} />}
                         </button>
                       )
                     })}
@@ -505,12 +505,12 @@ export default function OnboardingWizard() {
                       }`}
                     >
                       <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${
-                        otherSelected ? 'bg-blue-500/30 text-blue-300' : effectiveDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-slate-500'
+                        otherSelected ? 'bg-blue-500/30 text-blue-700 dark:text-blue-300' : effectiveDark ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400' : 'bg-gray-100 text-slate-500'
                       }`}>
                         <Icon name="edit" size={16} />
                       </div>
                       <span className="text-sm font-medium">Other</span>
-                      {otherSelected && <Icon name="check_circle" className="text-blue-400 ml-auto" size={16} />}
+                      {otherSelected && <Icon name="check_circle" className="text-blue-600 dark:text-blue-400 ml-auto" size={16} />}
                     </button>
                     {otherSelected && (
                       <input
@@ -696,7 +696,7 @@ function ForkStep({
   return (
     <div className="text-center" data-testid="step-fork">
       <div className="mb-6">
-        <Icon name="rocket_launch" size={48} className="text-blue-400" />
+        <Icon name="rocket_launch" size={48} className="text-blue-600 dark:text-blue-400" />
       </div>
       <h1 className="text-3xl font-bold mb-2">Let's get started</h1>
       <p className={`${subtextCls} text-lg mb-8`}>Who is this for?</p>
@@ -706,7 +706,7 @@ function ForkStep({
           className={`flex items-center gap-4 p-5 rounded-xl border ${cardCls} hover:border-blue-500 hover:bg-blue-500/10 text-left transition-all`}
           data-testid="fork-personal"
         >
-          <div className="w-12 h-12 rounded-xl bg-pink-500/20 text-pink-400 flex items-center justify-center shrink-0">
+          <div className="w-12 h-12 rounded-xl bg-pink-500/20 text-pink-600 dark:text-pink-400 flex items-center justify-center shrink-0">
             <Icon name="person" size={28} />
           </div>
           <div>
@@ -719,7 +719,7 @@ function ForkStep({
           className={`flex items-center gap-4 p-5 rounded-xl border ${cardCls} hover:border-indigo-500 hover:bg-indigo-500/10 text-left transition-all`}
           data-testid="fork-team"
         >
-          <div className="w-12 h-12 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+          <div className="w-12 h-12 rounded-xl bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
             <Icon name="groups" size={28} />
           </div>
           <div>
@@ -871,7 +871,7 @@ function WelcomeStep({ subtextCls }: { subtextCls: string }) {
   return (
     <div className="text-center" data-testid="step-welcome">
       <div className="mb-6">
-        <Icon name="rocket_launch" size={48} className="text-blue-400" />
+        <Icon name="rocket_launch" size={48} className="text-blue-600 dark:text-blue-400" />
       </div>
       <h1 className="text-3xl font-bold mb-4">Welcome!</h1>
       <p className={`${subtextCls} text-lg leading-relaxed`}>
@@ -1213,14 +1213,14 @@ function ConnectStep({
     { name: 'Google Gemini', label: 'Google (Gemini)' },
   ]
 
-  const sectionDivider = `text-xs font-semibold uppercase tracking-wider mb-3 pb-1 border-b ${darkMode ? 'text-slate-500 border-slate-800' : 'text-slate-400 border-gray-200'}`
+  const sectionDivider = `text-xs font-semibold uppercase tracking-wider mb-3 pb-1 border-b ${darkMode ? 'text-slate-500 border-slate-200 dark:border-slate-800' : 'text-slate-600 dark:text-slate-400 border-gray-200'}`
 
   return (
     <div data-testid="step-connect">
       <h2 className="text-2xl font-bold mb-2">Connect your providers</h2>
       {detectedProvider && (
         <div
-          className="inline-flex items-center gap-1.5 mb-4 px-3 py-1.5 rounded-full text-sm font-medium bg-green-500/15 text-green-400 border border-green-500/30"
+          className="inline-flex items-center gap-1.5 mb-4 px-3 py-1.5 rounded-full text-sm font-medium bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/30"
           data-testid="already-connected-badge"
         >
           <span>Already connected: {detectedProvider}</span>
@@ -1247,14 +1247,14 @@ function ConnectStep({
                   isSelected
                     ? 'border-blue-500 bg-blue-500/10'
                     : darkMode
-                      ? 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                      ? 'border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/50 hover:border-slate-600'
                       : 'border-gray-200 bg-white hover:border-gray-300'
                 }`}
                 data-testid={`provider-${p.name}`}
               >
                 <p className="text-sm font-medium">{p.label}</p>
                 {isSelected && (
-                  <span className="text-xs text-blue-400 font-medium">Selected</span>
+                  <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">Selected</span>
                 )}
               </button>
             )
@@ -1276,7 +1276,7 @@ function ConnectStep({
               onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}
               className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
                 darkMode
-                  ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
+                  ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white hover:border-blue-500'
                   : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
               }`}
               data-testid="connect-anthropic"
@@ -1329,7 +1329,7 @@ function ConnectStep({
                 }}
                 className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
                   darkMode
-                    ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
+                    ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white hover:border-blue-500'
                     : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
                 }`}
                 data-testid="connect-google"
@@ -1346,7 +1346,7 @@ function ConnectStep({
             {/* Gemini: recommend Cloud Console first, AI Studio as fallback */}
             <div
               className={`mb-3 p-3 rounded-lg text-xs space-y-2 border bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border-blue-500/30 ${
-                darkMode ? 'text-slate-200' : 'text-slate-700'
+                darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-700'
               }`}
               data-testid="gemini-key-help"
             >
@@ -1357,7 +1357,7 @@ function ConnectStep({
                   href="https://console.cloud.google.com"
                   target="_blank"
                   rel="noreferrer"
-                  className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                  className={`underline ${darkMode ? 'text-blue-700 dark:text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
                 >
                   Google Cloud project
                 </a>{' '}
@@ -1370,7 +1370,7 @@ function ConnectStep({
                     href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com"
                     target="_blank"
                     rel="noreferrer"
-                    className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                    className={`underline ${darkMode ? 'text-blue-700 dark:text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
                   >
                     "Generative Language API"
                   </a>{' '}
@@ -1388,7 +1388,7 @@ function ConnectStep({
                   href="https://aistudio.google.com/apikey"
                   target="_blank"
                   rel="noreferrer"
-                  className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                  className={`underline ${darkMode ? 'text-blue-700 dark:text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
                 >
                   Google AI Studio
                 </a>{' '}
@@ -1491,7 +1491,7 @@ export function AtlassianSetupCard({
 
   if (connected === null || connected === true) return null
 
-  const cardBase = `mt-4 p-3 rounded-lg border ${darkMode ? 'border-slate-700' : 'border-gray-200'}`
+  const cardBase = `mt-4 p-3 rounded-lg border ${darkMode ? 'border-slate-200 dark:border-slate-700' : 'border-gray-200'}`
 
   if (!expanded) {
     return (
@@ -1500,7 +1500,7 @@ export function AtlassianSetupCard({
           <p className="text-sm font-medium">Connect Jira & Confluence (optional)</p>
           <button
             onClick={handleExpand}
-            className="text-xs text-blue-500 hover:text-blue-400"
+            className="text-xs text-blue-500 hover:text-blue-600 dark:hover:text-blue-400"
             data-testid="onboarding-atlassian-setup"
           >
             Set up
@@ -1656,7 +1656,7 @@ export function GithubSetupCard({
 
   if (connected === null || connected === true) return null
 
-  const cardBase = `mt-4 p-3 rounded-lg border ${darkMode ? 'border-slate-700' : 'border-gray-200'}`
+  const cardBase = `mt-4 p-3 rounded-lg border ${darkMode ? 'border-slate-200 dark:border-slate-700' : 'border-gray-200'}`
 
   if (!expanded) {
     return (
@@ -1665,7 +1665,7 @@ export function GithubSetupCard({
           <p className="text-sm font-medium">Connect GitHub (optional)</p>
           <button
             onClick={() => setExpanded(true)}
-            className="text-xs text-blue-500 hover:text-blue-400"
+            className="text-xs text-blue-500 hover:text-blue-600 dark:hover:text-blue-400"
             data-testid="onboarding-github-setup"
           >
             Set up
@@ -1785,7 +1785,7 @@ function ReadyStep({
   return (
     <div className="text-center" data-testid="step-ready">
       <div className="mb-6">
-        <Icon name="check_circle" size={48} className="text-green-400" />
+        <Icon name="check_circle" size={48} className="text-green-600 dark:text-green-400" />
       </div>
       <h2 className="text-2xl font-bold mb-4">You're all set!</h2>
       <p className={`${subtextCls} mb-8`}>

@@ -121,16 +121,16 @@ export default function GmailReplyComposer({
   }
 
   return (
-    <div className="mt-3 bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+    <div className="mt-3 bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
       <div className="flex items-center gap-2 mb-3">
-        <Icon name="reply" size={16} className="text-blue-400" />
-        <span className="text-sm font-medium text-slate-200">
+        <Icon name="reply" size={16} className="text-blue-600 dark:text-blue-400" />
+        <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
           {replyAll ? 'Reply all' : 'Reply'}
         </span>
       </div>
 
       {errorMessage && (
-        <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
+        <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-700 dark:text-red-300">
           <p>{errorMessage}</p>
           {reauthUrl && (
             <a
@@ -151,7 +151,7 @@ export default function GmailReplyComposer({
         placeholder="Write your reply, or let myOS draft one for you."
         rows={6}
         aria-label="Reply body"
-        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-slate-600 disabled:opacity-50 resize-y"
+        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-3 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-500 focus:outline-none focus:border-slate-600 disabled:opacity-50 resize-y"
       />
 
       <div className="flex items-center justify-between mt-3 gap-2 flex-wrap">
@@ -174,7 +174,7 @@ export default function GmailReplyComposer({
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition-colors disabled:opacity-50"
+            className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm transition-colors disabled:opacity-50"
           >
             Cancel
           </button>

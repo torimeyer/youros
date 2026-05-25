@@ -33,8 +33,8 @@ export function FilterDrawer({
 }: FilterDrawerProps) {
   const pillClass = (active: boolean) =>
     active
-      ? "px-3 py-1.5 rounded-md bg-slate-800 text-white font-medium flex items-center gap-1.5 text-sm"
-      : "px-3 py-1.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300 flex items-center gap-1.5 text-sm";
+      ? "px-3 py-1.5 rounded-md bg-slate-100 dark:bg-slate-800 text-white font-medium flex items-center gap-1.5 text-sm"
+      : "px-3 py-1.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-700 dark:hover:text-slate-300 flex items-center gap-1.5 text-sm";
 
   return (
     <div
@@ -66,7 +66,7 @@ export function FilterDrawer({
                   <span
                     className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                       active
-                        ? "bg-blue-500/30 text-blue-300"
+                        ? "bg-blue-500/30 text-blue-700 dark:text-blue-300"
                         : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-500"
                     }`}
                   >

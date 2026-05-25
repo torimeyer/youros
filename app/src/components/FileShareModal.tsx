@@ -91,10 +91,10 @@ export default function FileShareModal({ filePath, fileName, onClose }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-sm mx-4 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-5">
+      <div className="w-full max-w-sm mx-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Icon name="link" size={16} className="text-blue-400" />
+            <Icon name="link" size={16} className="text-blue-600 dark:text-blue-400" />
             <span className="text-sm font-semibold text-white">Share file</span>
           </div>
           <button
@@ -107,34 +107,34 @@ export default function FileShareModal({ filePath, fileName, onClose }: Props) {
           </button>
         </div>
 
-        <p className="text-xs text-slate-400 truncate mb-4" title={fileName}>{fileName}</p>
+        <p className="text-xs text-slate-600 dark:text-slate-400 truncate mb-4" title={fileName}>{fileName}</p>
 
         {loading && (
-          <div className="flex items-center justify-center py-6 text-slate-400 text-sm">
+          <div className="flex items-center justify-center py-6 text-slate-600 dark:text-slate-400 text-sm">
             <Icon name="hourglass_empty" size={16} className="mr-2 animate-spin" />
             Creating link...
           </div>
         )}
 
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
         {!loading && !error && revoked && (
-          <p className="text-sm text-slate-400 text-center py-4">Link revoked.</p>
+          <p className="text-sm text-slate-600 dark:text-slate-400 text-center py-4">Link revoked.</p>
         )}
 
         {!loading && !error && !revoked && url && (
           <>
-            <div className="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-2 mb-2">
+            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 rounded-lg px-3 py-2 mb-2">
               <span
                 data-testid="file-share-url"
-                className="text-xs text-slate-300 truncate flex-1 font-mono"
+                className="text-xs text-slate-700 dark:text-slate-300 truncate flex-1 font-mono"
               >
                 {url}
               </span>
               <button
                 data-testid="file-share-copy"
                 onClick={handleCopy}
-                className="shrink-0 text-slate-400 hover:text-blue-400 transition-colors"
+                className="shrink-0 text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                 title="Copy link"
               >
                 <Icon name={copied ? 'check' : 'content_copy'} size={14} />
@@ -142,7 +142,7 @@ export default function FileShareModal({ filePath, fileName, onClose }: Props) {
             </div>
 
             {copied && (
-              <p data-testid="file-share-copied" className="text-xs text-green-400 mb-2">
+              <p data-testid="file-share-copied" className="text-xs text-green-600 dark:text-green-400 mb-2">
                 Copied to clipboard!
               </p>
             )}
@@ -155,7 +155,7 @@ export default function FileShareModal({ filePath, fileName, onClose }: Props) {
               data-testid="file-share-revoke"
               onClick={handleRevoke}
               disabled={revoking}
-              className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors disabled:opacity-50"
             >
               <Icon name="link_off" size={14} />
               {revoking ? 'Revoking...' : 'Revoke link'}

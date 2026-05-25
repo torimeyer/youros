@@ -32,9 +32,9 @@ interface ProvenTemplate {
 }
 
 const SEVERITY_STYLES: Record<string, { bg: string; text: string; icon: string }> = {
-  high: { bg: "bg-red-500/10", text: "text-red-400", icon: "error" },
-  medium: { bg: "bg-yellow-500/10", text: "text-yellow-400", icon: "warning" },
-  low: { bg: "bg-blue-500/10", text: "text-blue-400", icon: "info" },
+  high: { bg: "bg-red-500/10", text: "text-red-600 dark:text-red-400", icon: "error" },
+  medium: { bg: "bg-yellow-500/10", text: "text-yellow-600 dark:text-yellow-400", icon: "warning" },
+  low: { bg: "bg-blue-500/10", text: "text-blue-600 dark:text-blue-400", icon: "info" },
 };
 
 function formatDuration(seconds: number): string {
@@ -107,7 +107,7 @@ export default function AgentInsights() {
       {recommendations.length > 0 && (
         <section>
           <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-            <Icon name="lightbulb" size={18} className="text-yellow-400" />
+            <Icon name="lightbulb" size={18} className="text-yellow-600 dark:text-yellow-400" />
             Recommendations
           </h3>
           <div className="space-y-2">
@@ -118,7 +118,7 @@ export default function AgentInsights() {
                   <Icon name={style.icon} size={18} className={`${style.text} mt-0.5 shrink-0`} />
                   <div>
                     <span className="text-sm text-white font-medium">{rec.template}</span>
-                    <p className="text-sm text-slate-300 mt-0.5">{rec.message}</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300 mt-0.5">{rec.message}</p>
                   </div>
                 </div>
               );
@@ -131,7 +131,7 @@ export default function AgentInsights() {
       {adjustments.length > 0 && (
         <section>
           <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-            <Icon name="tune" size={18} className="text-orange-400" />
+            <Icon name="tune" size={18} className="text-orange-600 dark:text-orange-400" />
             Suggested adjustments
           </h3>
           <div className="space-y-2">
@@ -139,9 +139,9 @@ export default function AgentInsights() {
               <div key={i} className="bg-orange-500/10 rounded-lg px-4 py-3">
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-white font-medium">{adj.template}</span>
-                  <span className="text-xs text-orange-400">{adj.consecutive_failures} failures in a row</span>
+                  <span className="text-xs text-orange-600 dark:text-orange-400">{adj.consecutive_failures} failures in a row</span>
                 </div>
-                <p className="text-sm text-slate-300 mt-1">{adj.suggestion}</p>
+                <p className="text-sm text-slate-700 dark:text-slate-300 mt-1">{adj.suggestion}</p>
               </div>
             ))}
           </div>
@@ -152,13 +152,13 @@ export default function AgentInsights() {
       {hasData && (
         <section>
           <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-            <Icon name="analytics" size={18} className="text-blue-400" />
+            <Icon name="analytics" size={18} className="text-blue-600 dark:text-blue-400" />
             Template performance
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-slate-400 text-xs uppercase tracking-wider border-b border-slate-800">
+                <tr className="text-slate-600 dark:text-slate-400 text-xs uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
                   <th className="text-left py-2 pr-4">Template</th>
                   <th className="text-right py-2 px-4">Runs</th>
                   <th className="text-right py-2 px-4">Success</th>
@@ -171,24 +171,24 @@ export default function AgentInsights() {
                 {stats.map((stat) => {
                   const isProven = proven.some((p) => p.name === stat.template);
                   const rateColor =
-                    stat.success_rate >= 0.8 ? "text-green-400" :
-                    stat.success_rate >= 0.5 ? "text-yellow-400" : "text-red-400";
+                    stat.success_rate >= 0.8 ? "text-green-600 dark:text-green-400" :
+                    stat.success_rate >= 0.5 ? "text-yellow-600 dark:text-yellow-400" : "text-red-600 dark:text-red-400";
                   return (
-                    <tr key={stat.template} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                    <tr key={stat.template} className="border-b border-slate-200 dark:border-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800/30">
                       <td className="py-2.5 pr-4 text-white flex items-center gap-2">
                         {stat.template}
                         {isProven && (
-                          <span className="bg-green-500/20 text-green-400 text-xs px-1.5 py-0.5 rounded-full">proven</span>
+                          <span className="bg-green-500/20 text-green-600 dark:text-green-400 text-xs px-1.5 py-0.5 rounded-full">proven</span>
                         )}
                       </td>
-                      <td className="text-right py-2.5 px-4 text-slate-300">{stat.runs}</td>
+                      <td className="text-right py-2.5 px-4 text-slate-700 dark:text-slate-300">{stat.runs}</td>
                       <td className={`text-right py-2.5 px-4 font-medium ${rateColor}`}>
                         {formatRate(stat.success_rate)}
                       </td>
-                      <td className="text-right py-2.5 px-4 text-slate-300">
+                      <td className="text-right py-2.5 px-4 text-slate-700 dark:text-slate-300">
                         {formatDuration(stat.median_duration_s)}
                       </td>
-                      <td className="text-right py-2.5 px-4 text-slate-400">
+                      <td className="text-right py-2.5 px-4 text-slate-600 dark:text-slate-400">
                         {stat.best_model || "—"}
                       </td>
                       <td className="text-right py-2.5 pl-4">
@@ -216,7 +216,7 @@ export default function AgentInsights() {
       {proven.length > 0 && (
         <section>
           <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-            <Icon name="verified" size={18} className="text-green-400" />
+            <Icon name="verified" size={18} className="text-green-600 dark:text-green-400" />
             Proven templates
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -224,9 +224,9 @@ export default function AgentInsights() {
               <Card key={p.name} className="p-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-white font-medium">{p.name}</span>
-                  <span className="text-green-400 text-xs font-medium">{formatRate(p.success_rate)}</span>
+                  <span className="text-green-600 dark:text-green-400 text-xs font-medium">{formatRate(p.success_rate)}</span>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
                   {p.runs} runs
                 </p>
               </Card>
@@ -239,7 +239,7 @@ export default function AgentInsights() {
       {!hasData && recommendations.length === 0 && (
         <div className="text-center py-12">
           <Icon name="analytics" size={40} className="text-slate-600 mx-auto mb-3" />
-          <p className="text-slate-400">No agent data yet.</p>
+          <p className="text-slate-600 dark:text-slate-400">No agent data yet.</p>
           <p className="text-slate-500 text-sm mt-1">
             Run a few agents and insights will appear here.
           </p>

@@ -131,12 +131,12 @@ export default function SpecTemplateDetailsModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
     >
       <div
-        className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg p-6 shadow-2xl"
+        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full max-w-lg p-6 shadow-2xl"
         data-testid="spec-template-details-modal"
       >
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Icon name={template.icon || "description"} className="text-blue-400" size={22} />
+            <Icon name={template.icon || "description"} className="text-blue-600 dark:text-blue-400" size={22} />
             <h2 className="text-white font-semibold text-lg">
               {template.name}
             </h2>
@@ -151,7 +151,7 @@ export default function SpecTemplateDetailsModal({
         </div>
 
         <p
-          className="text-sm text-slate-400 mb-4"
+          className="text-sm text-slate-600 dark:text-slate-400 mb-4"
           data-testid="spec-template-details-description"
         >
           {template.description}
@@ -159,7 +159,7 @@ export default function SpecTemplateDetailsModal({
 
         <div className="space-y-4">
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5">
+            <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">
               Spec name
 </label>
             <input
@@ -170,14 +170,14 @@ export default function SpecTemplateDetailsModal({
               onKeyDown={handleTitleKeyDown}
               placeholder="Name this spec"
               data-testid="spec-template-title-input"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
           </div>
 
           {hasUserInputs ? (
             template!.user_inputs!.map((inp) => (
               <div key={inp.key}>
-                <label className="block text-xs text-slate-400 mb-1.5">
+                <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">
                   {inp.label}{!inp.required ? " (optional)" : ""}
                 </label>
                 {inp.type === "textarea" ? (
@@ -186,7 +186,7 @@ export default function SpecTemplateDetailsModal({
                     onChange={(e) => setFieldValues((prev) => ({ ...prev, [inp.key]: e.target.value }))}
                     placeholder={inp.placeholder}
                     rows={3}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
                   />
                 ) : (
                   <input
@@ -195,14 +195,14 @@ export default function SpecTemplateDetailsModal({
                     onChange={(e) => setFieldValues((prev) => ({ ...prev, [inp.key]: e.target.value }))}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSubmit(); } }}
                     placeholder={inp.placeholder}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                   />
                 )}
               </div>
             ))
           ) : (
             <div>
-              <label className="block text-xs text-slate-400 mb-1.5">
+              <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">
                 Anything extra we should know? (optional)
               </label>
               <textarea
@@ -213,7 +213,7 @@ export default function SpecTemplateDetailsModal({
                 placeholder="Add audience, deadline, or anything else that matters."
                 rows={3}
                 data-testid="spec-template-note-input"
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
               />
             </div>
           )}
@@ -225,7 +225,7 @@ export default function SpecTemplateDetailsModal({
 </p>
               <ul className="space-y-1">
                 {criteria.map((c, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
+                  <li key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
                     <span className="mt-0.5 w-3 h-3 rounded-full border border-slate-500 flex-shrink-0" />
                     <span>{c}</span>
                   </li>
@@ -241,7 +241,7 @@ export default function SpecTemplateDetailsModal({
               </p>
               <ul className="space-y-1">
                 {tasks.map((t, i) => (
-                  <li key={i} className="text-sm text-slate-300">
+                  <li key={i} className="text-sm text-slate-700 dark:text-slate-300">
                     {i + 1}. {t}
                   </li>
                 ))}
@@ -250,7 +250,7 @@ export default function SpecTemplateDetailsModal({
           )}
 
           {error && (
-            <div className="text-red-400 text-sm" data-testid="spec-template-error">
+            <div className="text-red-600 dark:text-red-400 text-sm" data-testid="spec-template-error">
               {error}
             </div>
           )}
@@ -259,7 +259,7 @@ export default function SpecTemplateDetailsModal({
         <div className="flex items-center justify-end gap-2 mt-6">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
+            className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
             data-testid="spec-template-cancel"
           >
             Cancel

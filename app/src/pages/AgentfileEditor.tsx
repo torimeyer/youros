@@ -103,7 +103,7 @@ export default function AgentfileEditor() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-48 text-slate-400 text-sm">
+      <div className="flex items-center justify-center h-48 text-slate-600 dark:text-slate-400 text-sm">
         Loading...
       </div>
     );
@@ -117,7 +117,7 @@ export default function AgentfileEditor() {
       <div className="flex items-center gap-3 mb-6">
         <button
           onClick={() => navigate("/agents")}
-          className="text-slate-400 hover:text-white transition-colors"
+          className="text-slate-600 dark:text-slate-400 hover:text-white transition-colors"
           aria-label="Back to agents"
         >
           <Icon name="arrow_back" className="text-xl" />
@@ -129,7 +129,7 @@ export default function AgentfileEditor() {
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => setRawView(!rawView)}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-700 hover:border-slate-600 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-slate-600 transition-colors"
             aria-label={rawView ? "Show form" : "View raw file"}
           >
             <Icon name={rawView ? "edit" : "code"} className="text-sm" />
@@ -139,14 +139,14 @@ export default function AgentfileEditor() {
       </div>
 
       {isBuiltin && (
-        <div className="mb-4 flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 text-amber-400 text-sm">
+        <div className="mb-4 flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 text-amber-600 dark:text-amber-400 text-sm">
           <Icon name="lock" className="text-base mt-0.5 shrink-0" />
           <span>This is a built-in setup and cannot be edited.</span>
         </div>
       )}
 
       {error && (
-        <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">
+        <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-600 dark:text-red-400 text-sm">
           {error}
         </div>
       )}
@@ -154,7 +154,7 @@ export default function AgentfileEditor() {
       {rawView ? (
         <Card variant="default" padding="md">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-3">Raw file</p>
-          <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap leading-relaxed">
+          <pre className="text-xs text-slate-700 dark:text-slate-300 font-mono whitespace-pre-wrap leading-relaxed">
             {rawText || "(empty)"}
           </pre>
         </Card>
@@ -162,19 +162,19 @@ export default function AgentfileEditor() {
         <div className="space-y-5">
           {/* Name */}
           <div>
-            <label className="block text-sm text-slate-400 mb-1.5">Name</label>
+            <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1.5">Name</label>
             <input
               type="text"
               value={form.name}
               disabled
-              className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-slate-400 text-sm cursor-not-allowed"
+              className="w-full bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-600 dark:text-slate-400 text-sm cursor-not-allowed"
             />
             <p className="text-xs text-slate-600 mt-1">Name is set by the file and cannot be changed here.</p>
           </div>
 
           {/* Description */}
           <div>
-            <label className="block text-sm text-slate-400 mb-1.5" htmlFor="af-description">
+            <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1.5" htmlFor="af-description">
               Description
             </label>
             <input
@@ -184,13 +184,13 @@ export default function AgentfileEditor() {
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               disabled={isBuiltin}
               placeholder="What does this agent do?"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
 
           {/* Model */}
           <div>
-            <label className="block text-sm text-slate-400 mb-1.5" htmlFor="af-model">
+            <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1.5" htmlFor="af-model">
               Model
             </label>
             <select
@@ -198,7 +198,7 @@ export default function AgentfileEditor() {
               value={form.model}
               onChange={(e) => setForm({ ...form, model: e.target.value })}
               disabled={isBuiltin}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {MODELS.map((m) => (
                 <option key={m.value} value={m.value}>{m.label}</option>
@@ -208,7 +208,7 @@ export default function AgentfileEditor() {
 
           {/* Tools */}
           <div>
-            <label className="block text-sm text-slate-400 mb-1.5">Tools</label>
+            <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1.5">Tools</label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {COMMON_TOOLS.map((tool) => {
                 const checked = form.tools.includes(tool.value);
@@ -219,8 +219,8 @@ export default function AgentfileEditor() {
                       isBuiltin ? "opacity-50 cursor-not-allowed" : ""
                     } ${
                       checked
-                        ? "bg-blue-600/20 border-blue-500/50 text-blue-300"
-                        : "bg-slate-800/50 border-slate-700 text-slate-400 hover:border-slate-600"
+                        ? "bg-blue-600/20 border-blue-500/50 text-blue-700 dark:text-blue-300"
+                        : "bg-slate-100 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-600"
                     }`}
                   >
                     <input
@@ -246,7 +246,7 @@ export default function AgentfileEditor() {
                 {form.tools
                   .filter((t) => !COMMON_TOOLS.find((c) => c.value === t))
                   .map((t) => (
-                    <span key={t} className="text-[11px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded">
+                    <span key={t} className="text-[11px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded">
                       {t}
                     </span>
                   ))}
@@ -256,7 +256,7 @@ export default function AgentfileEditor() {
 
           {/* Instructions */}
           <div>
-            <label className="block text-sm text-slate-400 mb-1.5" htmlFor="af-instructions">
+            <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1.5" htmlFor="af-instructions">
               What this agent does
             </label>
             <textarea
@@ -266,7 +266,7 @@ export default function AgentfileEditor() {
               disabled={isBuiltin}
               rows={6}
               placeholder="Describe what this agent should do when launched..."
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed resize-y"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed resize-y"
             />
           </div>
 
@@ -283,7 +283,7 @@ export default function AgentfileEditor() {
                 {saving ? "Saving..." : "Save changes"}
               </Button>
               {saved && (
-                <span className="text-sm text-green-400 flex items-center gap-1">
+                <span className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
                   <Icon name="check_circle" className="text-base" />
                   Saved
                 </span>

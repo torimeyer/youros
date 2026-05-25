@@ -24,10 +24,10 @@ const isMac = () =>
 const modKey = isMac() ? '⌘' : 'Ctrl+'
 
 const priorityColor = (p: string) => {
-  if (p === 'P0') return 'text-pink-400'
-  if (p === 'P1') return 'text-orange-400'
-  if (p === 'P3') return 'text-slate-400'
-  return 'text-blue-400'
+  if (p === 'P0') return 'text-pink-600 dark:text-pink-400'
+  if (p === 'P1') return 'text-orange-600 dark:text-orange-400'
+  if (p === 'P3') return 'text-slate-600 dark:text-slate-400'
+  return 'text-blue-600 dark:text-blue-400'
 }
 
 function Highlight({ text, query }: { text: string; query: string }) {
@@ -288,13 +288,13 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
     `w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors cursor-pointer ${
       idx === selectedIndex
         ? 'bg-blue-500/20 text-blue-100'
-        : 'text-slate-300 hover:bg-slate-800/50'
+        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/50'
     }`
 
   const sectionHeader = (label: string, accent: string, bordered = true) => (
     <div
       className={`px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest ${accent}${
-        bordered ? ' border-t border-slate-800/50 mt-1 pt-2' : ''
+        bordered ? ' border-t border-slate-200 dark:border-slate-800/50 mt-1 pt-2' : ''
       }`}
     >
       {label}
@@ -303,7 +303,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
 
   const spinnerRow = (label: string, testId: string) => (
     <div
-      className="px-4 py-2 text-xs text-slate-500 flex items-center gap-2 border-t border-slate-800/50 mt-1 pt-2"
+      className="px-4 py-2 text-xs text-slate-500 flex items-center gap-2 border-t border-slate-200 dark:border-slate-800/50 mt-1 pt-2"
       data-testid={testId}
     >
       <Icon name="refresh" className="text-xs animate-spin" />
@@ -319,23 +319,23 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <div
-        className="relative w-full max-w-lg bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden"
+        className="relative w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         data-testid="universal-search"
       >
         {/* Input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-800">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-800">
           <Icon name="search" className="text-slate-500" />
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="flex-1 bg-transparent text-sm text-slate-200 placeholder-slate-500 outline-none"
+            className="flex-1 bg-transparent text-sm text-slate-800 dark:text-slate-200 placeholder-slate-500 outline-none"
             placeholder="Search everywhere..."
             data-testid="universal-search-input"
           />
-          <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono text-slate-500 bg-slate-800 rounded border border-slate-700">
+          <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
             ESC
           </kbd>
         </div>
@@ -346,7 +346,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
           {/* Navigate */}
           {filteredNav.length > 0 && (
             <div data-testid="section-navigate">
-              {sectionHeader('Navigate', 'text-blue-400', false)}
+              {sectionHeader('Navigate', 'text-blue-600 dark:text-blue-400', false)}
               {filteredNav.map((n, i) => {
                 const idx = i
                 const sel = idx === selectedIndex
@@ -359,7 +359,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
                     className={rowCls(idx)}
                     data-testid={`nav-item-${n.id}`}
                   >
-                    <Icon name={n.icon} className={`text-lg ${sel ? 'text-blue-400' : 'text-blue-500/60'}`} />
+                    <Icon name={n.icon} className={`text-lg ${sel ? 'text-blue-600 dark:text-blue-400' : 'text-blue-500/60'}`} />
                     <span className="flex-1 text-left">
                       <Highlight text={n.label} query={q} />
                     </span>
@@ -372,7 +372,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
           {/* Actions */}
           {filteredActions.length > 0 && (
             <div data-testid="section-actions">
-              {sectionHeader('Actions', 'text-purple-400', filteredNav.length > 0)}
+              {sectionHeader('Actions', 'text-purple-600 dark:text-purple-400', filteredNav.length > 0)}
               {filteredActions.map((a, i) => {
                 const idx = actionsOffset + i
                 const sel = idx === selectedIndex
@@ -385,11 +385,11 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
                     className={rowCls(idx)}
                     data-testid={`action-item-${a.id}`}
                   >
-                    <Icon name={a.icon} className={`text-lg ${sel ? 'text-purple-400' : 'text-purple-500/60'}`} />
+                    <Icon name={a.icon} className={`text-lg ${sel ? 'text-purple-600 dark:text-purple-400' : 'text-purple-500/60'}`} />
                     <span className="flex-1 text-left">
                       <Highlight text={a.label} query={q} />
                     </span>
-                    <kbd className="text-[10px] font-mono text-slate-500 bg-slate-800 rounded px-1.5 py-0.5 border border-slate-700">
+                    <kbd className="text-[10px] font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 rounded px-1.5 py-0.5 border border-slate-200 dark:border-slate-700">
                       {a.shortcut}
                     </kbd>
                   </button>
@@ -405,7 +405,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
               : tasksResults.length > 0
                 ? (
                   <div data-testid="section-tasks">
-                    {sectionHeader('Needles', 'text-pink-400')}
+                    {sectionHeader('Needles', 'text-pink-600 dark:text-pink-400')}
                     {tasksResults.map((t, i) => {
                       const idx = tasksOffset + i
                       const sel = idx === selectedIndex
@@ -418,7 +418,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
                           className={rowCls(idx)}
                           data-testid={`task-item-${t.id}`}
                         >
-                          <Icon name="checklist" className={`text-lg ${sel ? 'text-pink-400' : 'text-pink-500/60'}`} />
+                          <Icon name="checklist" className={`text-lg ${sel ? 'text-pink-600 dark:text-pink-400' : 'text-pink-500/60'}`} />
                           <span className="flex-1 text-left">
                             <Highlight text={t.title} query={q} />
                           </span>
@@ -440,7 +440,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
               : deepResults.length > 0
                 ? (
                   <div data-testid="section-deep">
-                    {sectionHeader('Tasks & Audit', 'text-orange-400')}
+                    {sectionHeader('Tasks & Audit', 'text-orange-600 dark:text-orange-400')}
                     {deepResults.map((d, i) => {
                       const idx = deepOffset + i
                       const sel = idx === selectedIndex
@@ -454,7 +454,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
                           className={rowCls(idx)}
                           data-testid={`deep-item-${i}`}
                         >
-                          <Icon name="manage_search" className={`text-lg ${sel ? 'text-orange-400' : 'text-orange-500/60'}`} />
+                          <Icon name="manage_search" className={`text-lg ${sel ? 'text-orange-600 dark:text-orange-400' : 'text-orange-500/60'}`} />
                           <span className="flex-1 text-left">
                             <Highlight text={label} query={q} />
                           </span>
@@ -473,7 +473,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
               : recallResults.length > 0
                 ? (
                   <div data-testid="section-transcripts">
-                    {sectionHeader('Transcripts', 'text-cyan-400')}
+                    {sectionHeader('Transcripts', 'text-cyan-600 dark:text-cyan-400')}
                     {recallResults.map((r, i) => {
                       const idx = recallOffset + i
                       const sel = idx === selectedIndex
@@ -487,7 +487,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
                           className={rowCls(idx)}
                           data-testid={`transcript-item-${i}`}
                         >
-                          <Icon name="record_voice_over" className={`text-lg ${sel ? 'text-cyan-400' : 'text-cyan-500/60'}`} />
+                          <Icon name="record_voice_over" className={`text-lg ${sel ? 'text-cyan-600 dark:text-cyan-400' : 'text-cyan-500/60'}`} />
                           <span className="flex-1 text-left">
                             <Highlight text={label} query={q} />
                           </span>

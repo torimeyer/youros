@@ -55,12 +55,12 @@ export default function CompetitiveIntelWidget() {
       <Card padding="sm" className="sm:p-6">
         <div className="flex items-center justify-between mb-4 pr-2">
           <div className="flex items-center gap-2">
-            <Icon name="radar" className="text-violet-400" size={20} />
+            <Icon name="radar" className="text-violet-600 dark:text-violet-400" size={20} />
             <h2 className="text-lg font-semibold">Competitor Signals</h2>
           </div>
           <button
             onClick={() => setModalOpen(true)}
-            className="text-xs text-violet-400 hover:text-violet-300 transition-colors flex items-center gap-1"
+            className="text-xs text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition-colors flex items-center gap-1"
             aria-label="Add competitor signal"
           >
             <Icon name="add" size={14} />
@@ -84,7 +84,7 @@ export default function CompetitiveIntelWidget() {
             {captures.map((c) => (
               <div
                 key={c.id}
-                className="flex flex-col gap-0.5 p-2 rounded-lg hover:bg-slate-800/50 transition-colors"
+                className="flex flex-col gap-0.5 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors"
                 data-testid="intel-capture-row"
               >
                 <div className="flex items-center justify-between gap-2">
@@ -96,12 +96,12 @@ export default function CompetitiveIntelWidget() {
                   </span>
                 </div>
                 {c.url && (
-                  <span className="text-xs text-slate-400 truncate">
+                  <span className="text-xs text-slate-600 dark:text-slate-400 truncate">
                     {truncate(c.url)}
                   </span>
                 )}
                 {!c.url && c.text && (
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-slate-600 dark:text-slate-400">
                     {truncate(c.text)}
                   </span>
                 )}
@@ -110,7 +110,7 @@ export default function CompetitiveIntelWidget() {
                     {c.tags.map((t) => (
                       <span
                         key={t}
-                        className="text-xs bg-violet-900/40 text-violet-300 rounded px-1.5 py-0.5"
+                        className="text-xs bg-violet-900/40 text-violet-700 dark:text-violet-300 rounded px-1.5 py-0.5"
                       >
                         {t}
                       </span>

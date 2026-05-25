@@ -37,7 +37,7 @@ export function GoogleWorkspaceSetupCard({
     fetchStatus()
   }, [])
 
-  const cardBase = `mt-2 p-3 rounded-lg border ${darkMode ? 'border-slate-700' : 'border-gray-200'}`
+  const cardBase = `mt-2 p-3 rounded-lg border ${darkMode ? 'border-slate-200 dark:border-slate-700' : 'border-gray-200'}`
 
   if (connected === null) {
     return (
@@ -85,7 +85,7 @@ export function GoogleWorkspaceSetupCard({
           }}
           className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors ${
             darkMode
-              ? 'bg-slate-800/50 border-slate-700 text-slate-300 hover:border-blue-500'
+              ? 'bg-slate-100 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-blue-500'
               : 'bg-gray-50 border-gray-200 text-slate-600 hover:border-blue-500'
           }`}
           data-testid="connect-google-workspace"

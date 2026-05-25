@@ -17,8 +17,8 @@ describe('Button', () => {
   it('applies secondary variant classes', () => {
     render(<Button variant="secondary">Secondary</Button>)
     const btn = screen.getByTestId('button')
-    expect(btn.className).toContain('bg-slate-800')
-    expect(btn.className).toContain('border-slate-700')
+    expect(btn.className).toContain('bg-slate-100 dark:bg-slate-800')
+    expect(btn.className).toContain('border-slate-200 dark:border-slate-700')
   })
 
   it('applies danger variant classes', () => {
@@ -28,7 +28,7 @@ describe('Button', () => {
 
   it('applies ghost variant classes', () => {
     render(<Button variant="ghost">Ghost</Button>)
-    expect(screen.getByTestId('button').className).toContain('text-slate-400')
+    expect(screen.getByTestId('button').className).toContain('text-slate-600 dark:text-slate-400')
   })
 
   it('applies size sm classes', () => {

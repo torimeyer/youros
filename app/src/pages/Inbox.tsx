@@ -109,9 +109,9 @@ export default function Inbox() {
       <TopBar title="Inbox" />
       <div className="flex-1 overflow-y-auto p-6">
         {loading && isEmpty ? (
-          <p className="text-slate-400 text-sm">Loading...</p>
+          <p className="text-slate-600 dark:text-slate-400 text-sm">Loading...</p>
         ) : isEmpty ? (
-          <div className="flex flex-col items-center justify-center h-64 gap-3 text-slate-400">
+          <div className="flex flex-col items-center justify-center h-64 gap-3 text-slate-600 dark:text-slate-400">
             <Icon name="inbox" className="text-4xl" />
             <p className="text-sm">Your inbox is clear.</p>
           </div>
@@ -133,7 +133,7 @@ export default function Inbox() {
                       <div
                         key={notif.id}
                         data-testid={`notification-item-${notif.id}`}
-                        className="bg-slate-900 border border-slate-800 rounded-xl p-4"
+                        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4"
                       >
                         <div className="flex items-start gap-4">
                           <div className="flex-1 min-w-0">
@@ -144,15 +144,15 @@ export default function Inbox() {
                                   className="w-2 h-2 rounded-full bg-blue-500 shrink-0"
                                 />
                               )}
-                              <span className="text-sm font-medium text-slate-100 truncate">
+                              <span className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
                                 {notif.title}
                               </span>
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-400 shrink-0">
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shrink-0">
                                 {notifTypeLabel(notif.type)}
                               </span>
                             </div>
                             {notif.body && (
-                              <p className="text-xs text-slate-400">
+                              <p className="text-xs text-slate-600 dark:text-slate-400">
                                 {notif.body.length > 120
                                   ? `${notif.body.slice(0, 120)}...`
                                   : notif.body}
@@ -167,7 +167,7 @@ export default function Inbox() {
                                 onClick={() =>
                                   setCommentingOn({ notifId: notif.id, issueKey: jiraKey })
                                 }
-                                className="text-xs px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors"
+                                className="text-xs px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-600 dark:text-blue-400 hover:bg-blue-500/30 transition-colors"
                               >
                                 Comment
                               </button>
@@ -176,7 +176,7 @@ export default function Inbox() {
                               <button
                                 type="button"
                                 onClick={() => window.open(notif.action_url as string, '_blank')}
-                                className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+                                className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                               >
                                 Open
                               </button>
@@ -185,7 +185,7 @@ export default function Inbox() {
                               type="button"
                               data-testid={`notif-dismiss-${notif.id}`}
                               onClick={() => handleDismissNotification(notif.id)}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700 transition-colors"
+                              className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                             >
                               Dismiss
                             </button>
@@ -219,20 +219,20 @@ export default function Inbox() {
                       <div
                         key={item.id}
                         data-testid={`inbox-item-${item.id}`}
-                        className="bg-slate-900 border border-slate-800 rounded-xl p-4"
+                        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4"
                       >
                         <div className="flex items-start gap-4">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="text-sm font-medium text-slate-100 truncate">
+                              <span className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
                                 {item.title}
                               </span>
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-400 shrink-0">
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shrink-0">
                                 {sourceLabel(item.source)}
                               </span>
                             </div>
                             {item.preview && (
-                              <p className="text-xs text-slate-400">
+                              <p className="text-xs text-slate-600 dark:text-slate-400">
                                 {item.preview.length > 120
                                   ? `${item.preview.slice(0, 120)}...`
                                   : item.preview}
@@ -245,7 +245,7 @@ export default function Inbox() {
                                 type="button"
                                 data-testid={`inbox-reply-${item.id}`}
                                 onClick={() => setReplyingTo(item.id)}
-                                className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors"
+                                className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-600 dark:text-purple-400 hover:bg-purple-500/30 transition-colors"
                               >
                                 Reply
                               </button>
@@ -257,21 +257,21 @@ export default function Inbox() {
                                 item.permalink &&
                                 window.open(item.permalink, '_blank')
                               }
-                              className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                              className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                             >
                               Open
                             </button>
                             <button
                               type="button"
                               onClick={() => { void handleConvert(item) }}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition-colors"
+                              className="text-xs px-3 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/30 transition-colors"
                             >
                               Convert to task
                             </button>
                             <button
                               type="button"
                               onClick={() => handleDismiss(item.id)}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700 transition-colors"
+                              className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                             >
                               Dismiss
                             </button>

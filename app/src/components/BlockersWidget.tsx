@@ -101,7 +101,7 @@ export default function BlockersWidget() {
       <Card hover padding="sm" className="sm:p-6">
         <div className="flex items-center justify-between mb-4 pr-8">
           <div className="flex items-center gap-2">
-            <Icon name="block" className="text-red-400" size={20} />
+            <Icon name="block" className="text-red-600 dark:text-red-400" size={20} />
             <h2 className="text-lg font-semibold">Cross-team Blockers</h2>
           </div>
           <span className="text-xs text-slate-500" data-testid="blockers-count">
@@ -130,7 +130,7 @@ export default function BlockersWidget() {
                 <div
                   key={blocker.key}
                   data-testid={`blocker-row-${blocker.key}`}
-                  className="p-2 rounded-lg hover:bg-slate-800/50 transition-colors"
+                  className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors"
                 >
                   <div className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
@@ -142,7 +142,7 @@ export default function BlockersWidget() {
                           {blocker.summary}
                         </span>
                       </div>
-                      <div className="flex items-center gap-3 text-xs text-slate-400">
+                      <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
                         <span data-testid={`blocker-age-${blocker.key}`}>
                           {blocker.age_days}d old
                         </span>
@@ -153,8 +153,8 @@ export default function BlockersWidget() {
                         )}
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                           blocker.status === 'Blocked'
-                            ? 'bg-red-500/20 text-red-400'
-                            : 'bg-slate-700/60 text-slate-400'
+                            ? 'bg-red-500/20 text-red-600 dark:text-red-400'
+                            : 'bg-slate-100/60 dark:bg-slate-700/60 text-slate-600 dark:text-slate-400'
                         }`}>
                           {blocker.status}
                         </span>
@@ -166,7 +166,7 @@ export default function BlockersWidget() {
                       data-testid={`blocker-nudge-${blocker.key}`}
                       disabled={ns?.loading}
                       onClick={() => openPicker(blocker.key)}
-                      className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {ns?.loading ? 'Sending…' : 'Send nudge'}
                     </button>
@@ -176,11 +176,11 @@ export default function BlockersWidget() {
                   {isPicking && (
                     <div
                       data-testid={`nudge-picker-${blocker.key}`}
-                      className="mt-2 p-2 bg-slate-800 rounded-lg border border-slate-700/60"
+                      className="mt-2 p-2 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200/60 dark:border-slate-700/60"
                     >
-                      <p className="text-xs text-slate-400 mb-2">Send nudge via:</p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">Send nudge via:</p>
                       <div className="flex gap-3 mb-2">
-                        <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                        <label className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                           <input
                             type="radio"
                             name={`nudge-channel-${blocker.key}`}
@@ -191,7 +191,7 @@ export default function BlockersWidget() {
                           />
                           Jira comment
                         </label>
-                        <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                        <label className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                           <input
                             type="radio"
                             name={`nudge-channel-${blocker.key}`}
@@ -216,7 +216,7 @@ export default function BlockersWidget() {
                           type="button"
                           data-testid={`nudge-cancel-${blocker.key}`}
                           onClick={() => setNudgePicker(null)}
-                          className="px-2 py-1 rounded text-xs font-medium bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors"
+                          className="px-2 py-1 rounded text-xs font-medium bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-600 transition-colors"
                         >
                           Cancel
                         </button>
@@ -228,7 +228,7 @@ export default function BlockersWidget() {
                   {ns?.result && (
                     <p
                       data-testid={`nudge-result-${blocker.key}`}
-                      className={`mt-1 text-xs ${ns.error ? 'text-red-400' : 'text-green-400'}`}
+                      className={`mt-1 text-xs ${ns.error ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}
                     >
                       {ns.result}
                     </p>

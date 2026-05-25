@@ -47,7 +47,7 @@ export default function WhatsNew() {
   return (
     <button
       onClick={handleClick}
-      className="group relative flex items-center gap-3 w-full px-4 py-1.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-500 hover:text-slate-300 hover:bg-slate-800/30"
+      className="group relative flex items-center gap-3 w-full px-4 py-1.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/30"
       title="What's New"
       data-testid="whats-new-button"
     >

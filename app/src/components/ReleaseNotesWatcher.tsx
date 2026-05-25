@@ -283,11 +283,11 @@ export default function ReleaseNotesWatcher() {
       aria-modal="true"
       aria-label={`${title} is live`}
     >
-      <div className="relative max-w-lg w-[92vw] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-6">
+      <div className="relative max-w-lg w-[92vw] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl p-6">
         <button
           type="button"
           onClick={() => setCurrent(null)}
-          className="absolute top-3 right-3 text-slate-400 hover:text-slate-200 transition-colors"
+          className="absolute top-3 right-3 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
           aria-label="Close release notes"
         >
           <Icon name="close" size={18} />
@@ -295,9 +295,9 @@ export default function ReleaseNotesWatcher() {
 
         <div className="flex items-center gap-2 text-xl mb-1">
           <span role="img" aria-label="Ship">🚢</span>
-          <span className="font-semibold text-slate-100">{title}</span>
+          <span className="font-semibold text-slate-900 dark:text-slate-100">{title}</span>
         </div>
-        <div className="text-sm text-slate-400 mb-4">
+        <div className="text-sm text-slate-600 dark:text-slate-400 mb-4">
           Your agents just shipped this. Here's what changed.
         </div>
 
@@ -306,11 +306,11 @@ export default function ReleaseNotesWatcher() {
             {acs.map((ac, i) => (
               <li
                 key={i}
-                className="flex items-start gap-2 text-sm text-slate-300"
+                className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300"
               >
                 <Icon
                   name="check_circle"
-                  className="text-green-400 mt-0.5 shrink-0"
+                  className="text-green-600 dark:text-green-400 mt-0.5 shrink-0"
                   size={16}
                 />
                 <span>{ac.text}</span>

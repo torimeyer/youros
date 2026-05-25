@@ -24,11 +24,11 @@ const COLS = 28;
 const dates = Array.from({ length: COLS }, (_, i) => i + 1);
 
 const goalColors = [
-  { bg: "bg-blue-500/30", border: "border-blue-500", text: "text-blue-400", dot: "bg-blue-500" },
-  { bg: "bg-pink-500/30", border: "border-pink-500", text: "text-pink-400", dot: "bg-pink-500" },
-  { bg: "bg-purple-500/30", border: "border-purple-500", text: "text-purple-400", dot: "bg-purple-500" },
-  { bg: "bg-cyan-500/30", border: "border-cyan-500", text: "text-cyan-400", dot: "bg-cyan-500" },
-  { bg: "bg-orange-500/30", border: "border-orange-500", text: "text-orange-400", dot: "bg-orange-500" },
+  { bg: "bg-blue-500/30", border: "border-blue-500", text: "text-blue-600 dark:text-blue-400", dot: "bg-blue-500" },
+  { bg: "bg-pink-500/30", border: "border-pink-500", text: "text-pink-600 dark:text-pink-400", dot: "bg-pink-500" },
+  { bg: "bg-purple-500/30", border: "border-purple-500", text: "text-purple-600 dark:text-purple-400", dot: "bg-purple-500" },
+  { bg: "bg-cyan-500/30", border: "border-cyan-500", text: "text-cyan-600 dark:text-cyan-400", dot: "bg-cyan-500" },
+  { bg: "bg-orange-500/30", border: "border-orange-500", text: "text-orange-600 dark:text-orange-400", dot: "bg-orange-500" },
   { bg: "bg-emerald-500/30", border: "border-emerald-500", text: "text-emerald-400", dot: "bg-emerald-500" },
 ];
 
@@ -89,11 +89,11 @@ export default function Timeline() {
 
   const viewModeClass = (v: ViewMode) =>
     viewMode === v
-      ? "px-3 py-1 rounded-md bg-slate-800 text-white font-medium"
-      : "px-3 py-1 rounded-md text-slate-400 hover:text-slate-300";
+      ? "px-3 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-white font-medium"
+      : "px-3 py-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300";
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white flex flex-col">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white flex flex-col">
       <TopBar title="Timeline" />
 
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 flex-1 flex flex-col">
@@ -114,16 +114,16 @@ export default function Timeline() {
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1 text-sm bg-slate-800 rounded-lg overflow-hidden">
+            <div className="flex items-center gap-1 text-sm bg-slate-100 dark:bg-slate-800 rounded-lg overflow-hidden">
               <button
                 onClick={() => setStatusFilter("open")}
-                className={`px-3 py-1 ${statusFilter === "open" ? "accent-bg !text-white" : "text-slate-300 hover:text-white"}`}
+                className={`px-3 py-1 ${statusFilter === "open" ? "accent-bg !text-white" : "text-slate-700 dark:text-slate-300 hover:text-white"}`}
               >
                 Open
               </button>
               <button
                 onClick={() => setStatusFilter("closed")}
-                className={`px-3 py-1 ${statusFilter === "closed" ? "accent-bg !text-white" : "text-slate-300 hover:text-white"}`}
+                className={`px-3 py-1 ${statusFilter === "closed" ? "accent-bg !text-white" : "text-slate-700 dark:text-slate-300 hover:text-white"}`}
               >
                 Closed
               </button>
@@ -136,7 +136,7 @@ export default function Timeline() {
                   className={`px-2.5 py-1 rounded-full ${
                     (p === "ALL" && !priorityFilter) || priorityFilter === p
                       ? "accent-bg !text-white"
-                      : "text-slate-300 hover:text-white"
+                      : "text-slate-700 dark:text-slate-300 hover:text-white"
                   }`}
                 >
                   {p}
@@ -153,28 +153,28 @@ export default function Timeline() {
 
         {/* Date nav */}
         <div className="flex items-center gap-4 mb-6">
-          <button className="p-1 text-slate-400 hover:text-white">
+          <button className="p-1 text-slate-600 dark:text-slate-400 hover:text-white">
             <Icon name="chevron_left" className="text-lg" />
           </button>
-          <span className="text-sm font-medium text-slate-300">{monthName}</span>
-          <button className="p-1 text-slate-400 hover:text-white">
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{monthName}</span>
+          <button className="p-1 text-slate-600 dark:text-slate-400 hover:text-white">
             <Icon name="chevron_right" className="text-lg" />
           </button>
         </div>
 
         {/* Gantt chart */}
-        <div className="flex-1 bg-slate-900/40 border border-slate-800 rounded-lg overflow-hidden">
+        <div className="flex-1 bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
           {/* Date headers */}
           <div
-            className="grid border-b border-slate-800"
+            className="grid border-b border-slate-200 dark:border-slate-800"
             style={{ gridTemplateColumns: `200px repeat(${COLS}, 1fr)` }}
           >
-            <div className="px-4 py-2 text-xs text-slate-600 border-r border-slate-800" />
+            <div className="px-4 py-2 text-xs text-slate-600 border-r border-slate-200 dark:border-slate-800" />
             {dates.map((d) => (
               <div
                 key={d}
                 className={`py-2 text-center text-xs font-mono ${
-                  d === todayCol ? "text-blue-400 font-bold" : "text-slate-600"
+                  d === todayCol ? "text-blue-600 dark:text-blue-400 font-bold" : "text-slate-600"
                 }`}
               >
                 {d}
@@ -215,10 +215,10 @@ export default function Timeline() {
                 <div key={goalName}>
                   {/* Goal bar row */}
                   <div
-                    className="grid border-b border-slate-800/50 items-center"
+                    className="grid border-b border-slate-200 dark:border-slate-800/50 items-center"
                     style={{ gridTemplateColumns: `200px repeat(${COLS}, 1fr)` }}
                   >
-                    <div className="px-4 py-3 text-sm font-medium text-slate-200 truncate border-r border-slate-800 flex items-center gap-2">
+                    <div className="px-4 py-3 text-sm font-medium text-slate-800 dark:text-slate-200 truncate border-r border-slate-200 dark:border-slate-800 flex items-center gap-2">
                       <span className={`w-2 h-2 rounded-full ${style.dot}`} />
                       {goalName}
                       <span className="text-[10px] text-slate-500 ml-auto">{goalTasks.length}</span>
@@ -246,10 +246,10 @@ export default function Timeline() {
                     return (
                       <div
                         key={task.id}
-                        className="grid border-b border-slate-800/30 items-center"
+                        className="grid border-b border-slate-200 dark:border-slate-800/30 items-center"
                         style={{ gridTemplateColumns: `200px repeat(${COLS}, 1fr)` }}
                       >
-                        <div className="px-4 py-2 text-xs text-slate-400 truncate border-r border-slate-800 pl-8">
+                        <div className="px-4 py-2 text-xs text-slate-600 dark:text-slate-400 truncate border-r border-slate-200 dark:border-slate-800 pl-8">
                           {task.id} {task.title}
                         </div>
                         {dates.map((d) => (
@@ -272,12 +272,12 @@ export default function Timeline() {
         </div>
 
         {/* Footer bar */}
-        <div className="mt-4 flex items-center justify-between bg-slate-900/60 border border-slate-800 rounded-lg px-4 py-2 text-xs font-mono text-slate-500">
+        <div className="mt-4 flex items-center justify-between bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg px-4 py-2 text-xs font-mono text-slate-500">
           <span>v0.1 | GANTT_v1.0 | {now.toLocaleString().toUpperCase()}</span>
           <span>
             {filtered.length} TASK{filtered.length !== 1 ? "S" : ""} |{" "}
             {goalNames.length} GOAL{goalNames.length !== 1 ? "S" : ""} |{" "}
-            <span className="text-amber-400">
+            <span className="text-amber-600 dark:text-amber-400">
               {tasks.filter((t) => t.status === "open").length} OPEN
             </span>
           </span>

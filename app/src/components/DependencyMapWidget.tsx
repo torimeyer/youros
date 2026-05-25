@@ -69,13 +69,13 @@ export default function DependencyMapWidget({ epicKey }: Props) {
     <div
       key={node.key}
       data-testid={`depmap-node-${node.key}`}
-      className={`flex items-start gap-2 py-1.5 ${indent ? 'pl-6 border-l border-slate-700/60' : ''}`}
+      className={`flex items-start gap-2 py-1.5 ${indent ? 'pl-6 border-l border-slate-200/60 dark:border-slate-700/60' : ''}`}
     >
       <span className="text-[10px] font-mono text-slate-500 shrink-0 mt-0.5">{node.key}</span>
       <div className="flex-1 min-w-0">
         <span className="text-sm text-white truncate block">{node.summary}</span>
         <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-[10px] text-slate-400 px-1.5 py-0.5 bg-slate-700/50 rounded">
+          <span className="text-[10px] text-slate-600 dark:text-slate-400 px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700/50 rounded">
             {node.status}
           </span>
           {node.owner && (
@@ -90,7 +90,7 @@ export default function DependencyMapWidget({ epicKey }: Props) {
     <div data-testid="widget-dependency-map">
       <Card hover padding="sm" className="sm:p-6">
         <div className="flex items-center gap-2 mb-4 pr-8">
-          <Icon name="account_tree" className="text-blue-400" size={20} />
+          <Icon name="account_tree" className="text-blue-600 dark:text-blue-400" size={20} />
           <h2 className="text-lg font-semibold">Dependency Map</h2>
         </div>
 

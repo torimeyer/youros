@@ -73,7 +73,7 @@ export default function SlackConnect() {
       <div className="flex items-center gap-3" data-testid="slack-connect-connected">
         <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" />
         <div className="flex-1 min-w-0">
-          <p className="text-sm text-slate-200 font-medium">
+          <p className="text-sm text-slate-800 dark:text-slate-200 font-medium">
             Connected to {status.team_name || 'your workspace'}
           </p>
           <p className="text-xs text-slate-500">Slack workspace</p>
@@ -82,7 +82,7 @@ export default function SlackConnect() {
           onClick={handleDisconnect}
           disabled={disconnecting}
           data-testid="slack-disconnect-btn"
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors disabled:opacity-50"
         >
           <Icon name="link_off" size={15} />
           Disconnect
@@ -107,7 +107,7 @@ export default function SlackConnect() {
         <p className="text-xs text-slate-500 mt-1.5">One-click sign in via Slack OAuth</p>
         <button
           onClick={() => setShowCredForm(true)}
-          className="text-xs text-slate-500 hover:text-slate-300 mt-1 underline"
+          className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 mt-1 underline"
         >
           Change credentials
         </button>
@@ -118,16 +118,16 @@ export default function SlackConnect() {
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
               placeholder="Client ID"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500/50"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500/50"
             />
             <input
               type="password"
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
               placeholder="Client Secret"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500/50"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500/50"
             />
-            {configureError && <p className="text-xs text-red-400">{configureError}</p>}
+            {configureError && <p className="text-xs text-red-600 dark:text-red-400">{configureError}</p>}
             <div className="flex gap-2">
               <button
                 type="submit"
@@ -139,7 +139,7 @@ export default function SlackConnect() {
               <button
                 type="button"
                 onClick={() => setShowCredForm(false)}
-                className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200"
+                className="px-3 py-1.5 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
               >
                 Cancel
               </button>
@@ -152,13 +152,13 @@ export default function SlackConnect() {
 
   return (
     <div data-testid="slack-connect-disconnected">
-      <p className="text-sm text-slate-400 mb-3">
+      <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
         Enter your Slack app credentials to enable sign-in.{' '}
         <a
           href="https://api.slack.com/apps"
           target="_blank"
           rel="noreferrer"
-          className="text-purple-400 hover:text-purple-300 underline"
+          className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 underline"
         >
           Create an app at api.slack.com/apps
         </a>
@@ -169,7 +169,7 @@ export default function SlackConnect() {
           value={clientId}
           onChange={(e) => setClientId(e.target.value)}
           placeholder="Client ID"
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500/50"
+          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500/50"
           data-testid="slack-client-id-input"
         />
         <input
@@ -177,10 +177,10 @@ export default function SlackConnect() {
           value={clientSecret}
           onChange={(e) => setClientSecret(e.target.value)}
           placeholder="Client Secret"
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500/50"
+          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500/50"
           data-testid="slack-client-secret-input"
         />
-        {configureError && <p className="text-xs text-red-400">{configureError}</p>}
+        {configureError && <p className="text-xs text-red-600 dark:text-red-400">{configureError}</p>}
         <button
           type="submit"
           disabled={configuring || !clientId.trim() || !clientSecret.trim()}

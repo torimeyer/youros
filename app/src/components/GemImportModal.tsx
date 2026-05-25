@@ -119,11 +119,11 @@ export default function GemImportModal({ gem, onClose, onSaved }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2">
-            <Icon name="auto_awesome" size={16} className="text-blue-400" />
+            <Icon name="auto_awesome" size={16} className="text-blue-600 dark:text-blue-400" />
             <span className="text-sm font-semibold text-white">
               {isEdit ? 'Edit Gem' : 'Create Gem'}
             </span>
@@ -146,8 +146,8 @@ export default function GemImportModal({ gem, onClose, onSaved }: Props) {
         >
           {/* Name */}
           <div>
-            <label htmlFor="gem-name" className="block text-sm text-slate-300 mb-1.5 font-medium">
-              Name <span className="text-red-400">*</span>
+            <label htmlFor="gem-name" className="block text-sm text-slate-700 dark:text-slate-300 mb-1.5 font-medium">
+              Name <span className="text-red-600 dark:text-red-400">*</span>
             </label>
             <input
               ref={nameRef}
@@ -158,14 +158,14 @@ export default function GemImportModal({ gem, onClose, onSaved }: Props) {
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Code reviewer, Research assistant"
               required
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/40 transition-colors"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/40 transition-colors"
             />
           </div>
 
           {/* System prompt */}
           <div>
-            <label htmlFor="gem-system-prompt" className="block text-sm text-slate-300 mb-1.5 font-medium">
-              Instructions <span className="text-red-400">*</span>
+            <label htmlFor="gem-system-prompt" className="block text-sm text-slate-700 dark:text-slate-300 mb-1.5 font-medium">
+              Instructions <span className="text-red-600 dark:text-red-400">*</span>
             </label>
             <p className="text-xs text-slate-500 mb-2">
               Tell Gemini what role to play, what to focus on, and how to respond. Paste from Gemini&apos;s Gem editor if you have one.
@@ -178,13 +178,13 @@ export default function GemImportModal({ gem, onClose, onSaved }: Props) {
               placeholder="You are a helpful assistant that..."
               required
               rows={6}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/40 transition-colors resize-y min-h-[100px]"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/40 transition-colors resize-y min-h-[100px]"
             />
           </div>
 
           {/* Knowledge files */}
           <div>
-            <label className="block text-sm text-slate-300 mb-1.5 font-medium">
+            <label className="block text-sm text-slate-700 dark:text-slate-300 mb-1.5 font-medium">
               Knowledge files <span className="text-slate-500 font-normal">(optional)</span>
             </label>
             <p className="text-xs text-slate-500 mb-2">
@@ -200,14 +200,14 @@ export default function GemImportModal({ gem, onClose, onSaved }: Props) {
               className={`border-2 border-dashed rounded-lg px-4 py-4 text-center cursor-pointer transition-colors ${
                 dragOver
                   ? 'border-blue-500 bg-blue-500/10'
-                  : 'border-slate-700 hover:border-slate-500 bg-slate-800/50'
+                  : 'border-slate-200 dark:border-slate-700 hover:border-slate-500 bg-slate-100 dark:bg-slate-800/50'
               }`}
             >
               <Icon
                 name={uploading ? 'hourglass_empty' : 'upload_file'}
                 className="text-2xl text-slate-500 mb-1"
               />
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-600 dark:text-slate-400">
                 {uploading ? 'Uploading...' : 'Click to browse or drag a file here'}
               </p>
             </div>
@@ -224,7 +224,7 @@ export default function GemImportModal({ gem, onClose, onSaved }: Props) {
             />
 
             {uploadError && (
-              <p data-testid="gem-upload-error" className="text-xs text-red-400 mt-2">{uploadError}</p>
+              <p data-testid="gem-upload-error" className="text-xs text-red-600 dark:text-red-400 mt-2">{uploadError}</p>
             )}
 
             {knowledgeFiles.length > 0 && (
@@ -232,7 +232,7 @@ export default function GemImportModal({ gem, onClose, onSaved }: Props) {
                 {knowledgeFiles.map((f) => (
                   <li
                     key={f}
-                    className="flex items-center justify-between bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300"
+                    className="flex items-center justify-between bg-slate-100 dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-300"
                     data-testid={`gem-file-item-${f}`}
                   >
                     <span className="flex items-center gap-2 truncate">
@@ -242,7 +242,7 @@ export default function GemImportModal({ gem, onClose, onSaved }: Props) {
                     <button
                       type="button"
                       onClick={() => removeFile(f)}
-                      className="text-slate-500 hover:text-red-400 transition-colors ml-2 shrink-0"
+                      className="text-slate-500 hover:text-red-600 dark:hover:text-red-400 transition-colors ml-2 shrink-0"
                       aria-label={`Remove ${f}`}
                       data-testid={`gem-file-remove-${f}`}
                     >
@@ -255,7 +255,7 @@ export default function GemImportModal({ gem, onClose, onSaved }: Props) {
           </div>
 
           {submitError && (
-            <p data-testid="gem-submit-error" className="text-sm text-red-400">{submitError}</p>
+            <p data-testid="gem-submit-error" className="text-sm text-red-600 dark:text-red-400">{submitError}</p>
           )}
 
           {/* Footer buttons */}
@@ -264,7 +264,7 @@ export default function GemImportModal({ gem, onClose, onSaved }: Props) {
               type="button"
               data-testid="gem-modal-cancel"
               onClick={onClose}
-              className="px-4 py-2 text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
+              className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
             >
               Cancel
             </button>

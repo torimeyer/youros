@@ -19,10 +19,10 @@ export default function AdminStarterPack() {
   const [newAgent, setNewAgent] = useState('')
   const [newSkill, setNewSkill] = useState('')
 
-  const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'}`
-  const labelCls = darkMode ? 'text-slate-400' : 'text-slate-500'
-  const inputCls = `flex-1 rounded-lg border px-3 py-2 text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`
-  const chipCls = `inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm ${darkMode ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-700'}`
+  const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-800' : 'bg-white border-slate-200'}`
+  const labelCls = darkMode ? 'text-slate-600 dark:text-slate-400' : 'text-slate-500'
+  const inputCls = `flex-1 rounded-lg border px-3 py-2 text-sm ${darkMode ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`
+  const chipCls = `inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm ${darkMode ? 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200' : 'bg-slate-100 text-slate-700'}`
 
   const fetchPack = useCallback(async () => {
     try {
@@ -87,7 +87,7 @@ export default function AdminStarterPack() {
       </div>
 
       <div className={cardCls}>
-        <h3 className={`mb-1 text-sm font-medium ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>Agents</h3>
+        <h3 className={`mb-1 text-sm font-medium ${darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-800'}`}>Agents</h3>
         <p className={`mb-4 text-xs ${labelCls}`}>These agent types will be pre-installed for new members.</p>
         <div className="mb-3 flex flex-wrap gap-2">
           {pack.agentfiles.map(id => (
@@ -95,7 +95,7 @@ export default function AdminStarterPack() {
               {id}
               <button
                 onClick={() => removeAgent(id)}
-                className="ml-1 text-slate-400 hover:text-red-400"
+                className="ml-1 text-slate-600 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400"
                 aria-label={`Remove ${id}`}
               >
                 <Icon name="close" size={12} />
@@ -125,7 +125,7 @@ export default function AdminStarterPack() {
       </div>
 
       <div className={cardCls}>
-        <h3 className={`mb-1 text-sm font-medium ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>Skills</h3>
+        <h3 className={`mb-1 text-sm font-medium ${darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-800'}`}>Skills</h3>
         <p className={`mb-4 text-xs ${labelCls}`}>These skills will be enabled for new members by default.</p>
         <div className="mb-3 flex flex-wrap gap-2">
           {pack.skills.map(id => (
@@ -133,7 +133,7 @@ export default function AdminStarterPack() {
               {id}
               <button
                 onClick={() => removeSkill(id)}
-                className="ml-1 text-slate-400 hover:text-red-400"
+                className="ml-1 text-slate-600 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400"
                 aria-label={`Remove ${id}`}
               >
                 <Icon name="close" size={12} />

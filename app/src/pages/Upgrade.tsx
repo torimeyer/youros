@@ -64,22 +64,22 @@ export default function Upgrade() {
   const bothBehind = status?.myos.behind && status?.ostk.behind
 
   return (
-    <div className="min-h-dvh bg-slate-950">
+    <div className="min-h-dvh bg-white dark:bg-slate-950">
       <TopBar title="Updates" />
       <main className="pt-24 pb-12 px-8 max-w-2xl">
-        <p className="text-slate-400 mb-8 text-sm">
+        <p className="text-slate-600 dark:text-slate-400 mb-8 text-sm">
           Keep everything up to date to get the latest features and fixes.
         </p>
 
         {loading && (
-          <div className="flex items-center gap-3 text-slate-400">
+          <div className="flex items-center gap-3 text-slate-600 dark:text-slate-400">
             <div className="w-4 h-4 border-2 border-slate-600 border-t-blue-400 rounded-full animate-spin" />
             <span className="text-sm">Checking for updates...</span>
           </div>
         )}
 
         {error && (
-          <div className="flex items-center gap-3 text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm">
+          <div className="flex items-center gap-3 text-red-600 dark:text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm">
             <Icon name="error_outline" size={18} className="shrink-0" />
             {error}
           </div>
@@ -115,8 +115,8 @@ export default function Upgrade() {
               <div
                 className={`flex items-start gap-3 rounded-xl px-4 py-3 text-sm border ${
                   result.success
-                    ? 'bg-green-500/10 border-green-500/20 text-green-300'
-                    : 'bg-red-500/10 border-red-500/20 text-red-300'
+                    ? 'bg-green-500/10 border-green-500/20 text-green-700 dark:text-green-300'
+                    : 'bg-red-500/10 border-red-500/20 text-red-700 dark:text-red-300'
                 }`}
               >
                 <Icon
@@ -130,7 +130,7 @@ export default function Upgrade() {
 
             <button
               onClick={fetchStatus}
-              className="mt-2 text-xs text-slate-600 hover:text-slate-400 transition-colors self-start"
+              className="mt-2 text-xs text-slate-600 hover:text-slate-600 dark:hover:text-slate-400 transition-colors self-start"
             >
               Refresh status
             </button>
@@ -155,29 +155,29 @@ function ComponentCard({
   updating: boolean
 }) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="font-semibold text-white text-sm">{name}</span>
             {info.behind ? (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400">
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-600 dark:text-orange-400">
                 Update available
               </span>
             ) : (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-400">
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">
                 Up to date
               </span>
             )}
           </div>
           <p className="text-xs text-slate-500 mb-3">{description}</p>
           <div className="flex items-center gap-4 text-xs">
-            <span className="text-slate-400">
-              Installed: <span className="text-slate-300 font-mono">{info.current}</span>
+            <span className="text-slate-600 dark:text-slate-400">
+              Installed: <span className="text-slate-700 dark:text-slate-300 font-mono">{info.current}</span>
             </span>
             {info.behind && (
-              <span className="text-slate-400">
-                Latest: <span className="text-blue-400 font-mono">{info.latest}</span>
+              <span className="text-slate-600 dark:text-slate-400">
+                Latest: <span className="text-blue-600 dark:text-blue-400 font-mono">{info.latest}</span>
               </span>
             )}
           </div>

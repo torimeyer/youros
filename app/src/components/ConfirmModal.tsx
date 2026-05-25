@@ -69,7 +69,7 @@ export default function ConfirmModal({
       onClick={handleBackdropClick}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
     >
-      <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-sm p-6 shadow-2xl">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full max-w-sm p-6 shadow-2xl">
         <h2
           id="confirm-modal-title"
           className="text-white font-semibold text-base mb-2"
@@ -78,7 +78,7 @@ export default function ConfirmModal({
         </h2>
         <p
           id="confirm-modal-message"
-          className="text-slate-400 text-sm mb-6"
+          className="text-slate-600 dark:text-slate-400 text-sm mb-6"
         >
           {message}
         </p>
@@ -86,7 +86,7 @@ export default function ConfirmModal({
           <button
             data-testid="confirm-modal-cancel"
             onClick={onCancel}
-            className="px-4 py-2 text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
+            className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
           >
             {cancelLabel}
           </button>

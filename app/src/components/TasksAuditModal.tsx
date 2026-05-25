@@ -195,18 +195,18 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
       role="dialog"
       aria-label="Needles audit"
     >
-      <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-slate-900 border border-slate-800 rounded-xl shadow-2xl">
-        <div className="flex items-start justify-between px-5 py-4 border-b border-slate-800">
+      <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl">
+        <div className="flex items-start justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-start gap-2">
-            <Icon name="fact_check" className="text-lg text-blue-400 mt-0.5" />
+            <Icon name="fact_check" className="text-lg text-blue-600 dark:text-blue-400 mt-0.5" />
             <div>
               <h2
-                className="text-base font-medium text-slate-100"
+                className="text-base font-medium text-slate-900 dark:text-slate-100"
                 data-testid="audit-review-headline"
               >
                 Review every needle. Nothing closes until you say so.
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                 myOS will suggest what it thinks is done, duplicate, or no
                 longer relevant. You decide one by one.
               </p>
@@ -214,7 +214,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
           </div>
           <button
             onClick={handleClose}
-            className="p-1 text-slate-500 hover:text-slate-200 shrink-0"
+            className="p-1 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 shrink-0"
             aria-label="Close"
           >
             <Icon name="close" className="text-lg" />
@@ -223,11 +223,11 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
 
         <div className="px-5 py-4 space-y-4">
           {startError && (
-            <p className="text-sm text-red-400">{startError}</p>
+            <p className="text-sm text-red-600 dark:text-red-400">{startError}</p>
           )}
 
           {!status && !startError && (
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
               Audit started. You will review every result.
             </p>
           )}
@@ -236,7 +236,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
             <>
               {status.status === 'running' && (
                 <p
-                  className="text-sm text-slate-300"
+                  className="text-sm text-slate-700 dark:text-slate-300"
                   data-testid="audit-progress"
                 >
                   Checked {status.checked} of {status.total} needles...
@@ -244,13 +244,13 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
               )}
 
               {status.status === 'done' && (
-                <p className="text-sm text-slate-300" data-testid="audit-summary">
+                <p className="text-sm text-slate-700 dark:text-slate-300" data-testid="audit-summary">
                   {buildSummary(status.results)}
                 </p>
               )}
 
               {status.status === 'failed' && (
-                <p className="text-sm text-red-400">
+                <p className="text-sm text-red-600 dark:text-red-400">
                   The audit could not finish. Please try again.
                 </p>
               )}
@@ -268,18 +268,18 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
                   <div
                     key={entry.task_id}
                     data-testid={`audit-review-row-${entry.task_id}`}
-                    className="flex items-start gap-3 p-3 bg-slate-950/60 border border-slate-800 rounded-lg"
+                    className="flex items-start gap-3 p-3 bg-white dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-lg"
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs text-slate-500 font-mono">
                           #{entry.task_id}
                         </span>
-                        <span className="text-sm text-slate-200">
+                        <span className="text-sm text-slate-800 dark:text-slate-200">
                           {entry.title || '(no title)'}
                         </span>
                       </div>
-                      <p className="mt-1 text-xs text-slate-400">
+                      <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
                         {entry.reason_label}
                       </p>
                       {entry.evidence && (
@@ -293,7 +293,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
                         onClick={() => handleApprove(entry)}
                         disabled={approvingId === entry.task_id}
                         data-testid={`audit-close-${entry.task_id}`}
-                        className="px-3 py-1 text-xs rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30 disabled:opacity-50"
+                        className="px-3 py-1 text-xs rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-700 dark:text-green-300 border border-green-500/30 disabled:opacity-50"
                       >
                         Close this needle
                       </button>
@@ -301,7 +301,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
                         onClick={() => handleReject(entry)}
                         disabled={approvingId === entry.task_id}
                         data-testid={`audit-keep-${entry.task_id}`}
-                        className="px-3 py-1 text-xs rounded-lg bg-slate-700/40 hover:bg-slate-700/60 text-slate-300 border border-slate-700 disabled:opacity-50"
+                        className="px-3 py-1 text-xs rounded-lg bg-slate-100/40 dark:bg-slate-700/40 hover:bg-slate-100/60 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 disabled:opacity-50"
                       >
                         Keep
                       </button>
@@ -311,10 +311,10 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
               </div>
 
               {status.status === 'done' && (
-                <div className="flex justify-end pt-2 border-t border-slate-800">
+                <div className="flex justify-end pt-2 border-t border-slate-200 dark:border-slate-800">
                   <button
                     onClick={handleClose}
-                    className="px-4 py-1.5 text-sm rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30"
+                    className="px-4 py-1.5 text-sm rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30"
                   >
                     Done
                   </button>

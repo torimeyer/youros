@@ -212,7 +212,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
 
   const outerClass =
     cardClass ||
-    "bg-slate-900/40 border border-slate-800 p-6 rounded-xl hover:border-slate-700 transition-colors";
+    "bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-6 rounded-xl hover:border-slate-200 dark:hover:border-slate-700 transition-colors";
 
   return (
     <div className={outerClass} data-testid="recurring-tasks-section">
@@ -225,7 +225,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
         </div>
         <button
           onClick={openAdd}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
           data-testid="recurring-add-button"
         >
           <Icon name="add" size={16} />
@@ -244,7 +244,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
           </p>
           {showSuggestions && (
             <div>
-              <p className="text-xs text-slate-400 font-medium mb-2">Quick start</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400 font-medium mb-2">Quick start</p>
               <div className="grid grid-cols-2 gap-2">
                 {SUGGESTED_RECURRING.map((s) => (
                   <button
@@ -264,9 +264,9 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
                         await fetchRules();
                       } catch { /* ignore */ }
                     }}
-                    className="text-left p-3 rounded-lg border border-slate-700 bg-slate-800/50 hover:border-slate-600 transition-colors"
+                    className="text-left p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/50 hover:border-slate-600 transition-colors"
                   >
-                    <p className="text-sm font-medium text-slate-200">{s.title}</p>
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{s.title}</p>
                     <p className="text-xs text-slate-500 mt-1">{s.description}</p>
                     <p className="text-[10px] text-slate-600 mt-1.5">
                       {scheduleLabel(s.schedule)} · {s.priority}
@@ -285,11 +285,11 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
             <div
               key={rule.id}
               className={`flex items-start justify-between gap-3 p-3 rounded-lg border ${
-                rule.active ? "border-slate-700 bg-slate-800/40" : "border-slate-800 opacity-60"
+                rule.active ? "border-slate-200 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/40" : "border-slate-200 dark:border-slate-800 opacity-60"
               }`}
             >
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-200 truncate">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">
                   {rule.task_template.title}
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">
@@ -309,7 +309,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
                   className={`text-xs px-2 py-1 rounded transition-colors ${
                     rule.active
                       ? "text-emerald-300 hover:text-emerald-200"
-                      : "text-slate-500 hover:text-slate-300"
+                      : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                   }`}
                   title={rule.active ? "Pause this recurring task" : "Resume this recurring task"}
                 >
@@ -317,7 +317,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
                 </button>
                 <button
                   onClick={() => handleDelete(rule)}
-                  className="text-xs text-red-400 hover:text-red-300 transition-colors px-2 py-1 rounded"
+                  className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors px-2 py-1 rounded"
                   title="Remove"
                 >
                   Remove
@@ -338,7 +338,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
             if (e.target === e.currentTarget) close();
           }}
         >
-          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full max-w-lg p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-start justify-between mb-4">
               <h3 className="text-white font-semibold text-lg">New recurring needle</h3>
               <button
@@ -352,35 +352,35 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
 
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-slate-400 mb-1.5">Title</label>
+                <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">Title</label>
                 <input
                   type="text"
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                   placeholder="Weekly status update"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
+                  className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
                   data-testid="recurring-title-input"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-slate-400 mb-1.5">Description</label>
+                <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">Description</label>
                 <textarea
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   placeholder="What needs to be done and why."
                   rows={2}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
+                  className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1.5">Priority</label>
+                  <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">Priority</label>
                   <select
                     value={form.priority}
                     onChange={(e) => setForm({ ...form, priority: e.target.value })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-pink-500"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-pink-500"
                   >
                     <option value="P0">P0 (top priority)</option>
                     <option value="P1">P1 (normal)</option>
@@ -389,11 +389,11 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1.5">How often?</label>
+                  <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">How often?</label>
                   <select
                     value={form.kind}
                     onChange={(e) => setForm({ ...form, kind: e.target.value as ScheduleKind })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-pink-500"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-pink-500"
                     data-testid="recurring-kind-select"
                   >
                     <option value="daily">Daily</option>
@@ -404,7 +404,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
               </div>
 
               <div>
-                <label className="block text-xs text-slate-400 mb-1.5">
+                <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">
                   Acceptance criteria (optional)
                 </label>
                 <input
@@ -412,13 +412,13 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
                   value={form.ac}
                   onChange={(e) => setForm({ ...form, ac: e.target.value })}
                   placeholder="How you'll know the task is done."
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
+                  className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
                 />
               </div>
 
               {(form.kind === "daily" || form.kind === "weekly") && (
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1.5">
+                  <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">
                     Which days of the week?
                   </label>
                   <div className="flex flex-wrap gap-2">
@@ -432,8 +432,8 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
                           aria-pressed={selected}
                           className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${
                             selected
-                              ? "bg-pink-500/20 border-pink-500 text-pink-300"
-                              : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600"
+                              ? "bg-pink-500/20 border-pink-500 text-pink-700 dark:text-pink-300"
+                              : "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-600"
                           }`}
                         >
                           {label}
@@ -446,7 +446,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
 
               {form.kind === "monthly" && (
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1.5">
+                  <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1.5">
                     Day of the month (1 to 31)
                   </label>
                   <input
@@ -460,7 +460,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
                         day_of_month: Math.max(1, Math.min(31, Number(e.target.value) || 1)),
                       })
                     }
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-pink-500"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-pink-500"
                   />
                   <p className="text-xs text-slate-500 mt-1">
                     If a month is shorter (like February), the task fires on that month's last day.
@@ -468,13 +468,13 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
                 </div>
               )}
 
-              {error && <div className="text-red-400 text-sm">{error}</div>}
+              {error && <div className="text-red-600 dark:text-red-400 text-sm">{error}</div>}
             </div>
 
             <div className="flex items-center justify-end gap-2 mt-6">
               <button
                 onClick={close}
-                className="px-4 py-2 text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
+                className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
               >
                 Cancel
               </button>

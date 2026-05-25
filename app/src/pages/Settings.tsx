@@ -63,7 +63,7 @@ function Toggle({ checked, onChange, testId, disabled, label }: { checked: boole
       data-testid={testId}
       disabled={disabled}
       onClick={onChange}
-      className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${checked ? 'bg-blue-500' : 'bg-slate-700'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+      className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${checked ? 'bg-blue-500' : 'bg-slate-200 dark:bg-slate-700'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${checked ? 'translate-x-5' : ''}`} />
     </button>
@@ -801,7 +801,7 @@ export default function Settings() {
   };
 
   const cardClass =
-    'bg-slate-900/40 border border-slate-800 p-4 sm:p-6 rounded-xl hover:border-slate-700 transition-colors';
+    'bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-4 sm:p-6 rounded-xl hover:border-slate-200 dark:hover:border-slate-700 transition-colors';
 
   const navItems = [
     { id: 'section-connections', label: 'Connections', icon: 'hub' },
@@ -811,17 +811,17 @@ export default function Settings() {
   // No IntersectionObserver needed: tabs show one section at a time.
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="Settings" />
 
       {/* Mobile horizontal nav */}
-      <div className="lg:hidden overflow-x-auto flex gap-2 px-4 py-2 border-b border-slate-800 sticky top-16 bg-slate-950 z-10">
+      <div className="lg:hidden overflow-x-auto flex gap-2 px-4 py-2 border-b border-slate-200 dark:border-slate-800 sticky top-16 bg-white dark:bg-slate-950 z-10">
         {navItems.map((item) => (
           <button
             key={item.id}
             onClick={() => setActiveSection(item.id)}
             className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium flex-shrink-0 transition-colors ${
-              activeSection === item.id ? 'bg-slate-700 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white'
+              activeSection === item.id ? 'bg-slate-200 dark:bg-slate-700 text-white' : 'bg-slate-50/60 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 hover:text-white'
             }`}
           >
             {item.label}
@@ -838,8 +838,8 @@ export default function Settings() {
               onClick={() => setActiveSection(item.id)}
               className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm text-left transition-colors ${
                 activeSection === item.id
-                  ? 'bg-slate-800 text-white font-medium'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  ? 'bg-slate-100 dark:bg-slate-800 text-white font-medium'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50'
               }`}
             >
               <Icon name={item.icon} size={15} className="shrink-0" />
@@ -861,7 +861,7 @@ export default function Settings() {
             data-testid="standing-instructions-section"
           >
           <h2 className="text-lg font-semibold mb-2">Standing instructions</h2>
-          <p className="text-sm text-slate-400 mb-4">
+          <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
             Write instructions once and every chat, agent run, and task will follow them. Examples: your preferred tone, what apps to prefer, how you want code explained.
           </p>
           <div className="mb-3">
@@ -882,7 +882,7 @@ export default function Settings() {
             <div
               data-testid="standing-instructions-suggest-error"
               role="alert"
-              className="mb-3 text-sm text-red-400"
+              className="mb-3 text-sm text-red-600 dark:text-red-400"
             >
               {suggestError}
             </div>
@@ -890,9 +890,9 @@ export default function Settings() {
           {suggestions.length > 0 && (
             <div
               data-testid="standing-instructions-suggestions"
-              className="mb-4 p-3 bg-slate-800/60 border border-slate-700 rounded-lg space-y-2"
+              className="mb-4 p-3 bg-slate-50/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg space-y-2"
             >
-              <p className="text-sm text-slate-300 mb-2">
+              <p className="text-sm text-slate-700 dark:text-slate-300 mb-2">
                 Uncheck or edit any you do not want, then save.
               </p>
               {suggestions.map((s, i) => (
@@ -921,7 +921,7 @@ export default function Settings() {
                       setSuggestions(next);
                     }}
                     data-testid={`standing-instructions-suggestion-text-${i}`}
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500"
+                    className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
               ))}
@@ -938,7 +938,7 @@ export default function Settings() {
                   type="button"
                   onClick={() => { setSuggestions([]); setSuggestError(null); }}
                   data-testid="standing-instructions-dismiss-suggestions"
-                  className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-white text-sm font-medium transition-colors"
+                  className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 rounded-lg text-white text-sm font-medium transition-colors"
                 >
                   Dismiss
                 </button>
@@ -951,7 +951,7 @@ export default function Settings() {
             rows={6}
             data-testid="standing-instructions-textarea"
             placeholder="For example: always explain things in plain language, prefer Google Calendar over iCal, keep replies short unless I ask for detail."
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
           />
           <div className="flex items-center gap-3 mt-3">
             <button
@@ -965,7 +965,7 @@ export default function Settings() {
               <span
                 data-testid="standing-instructions-status"
                 role={standingSaveIsError ? 'alert' : 'status'}
-                className={`text-sm ${standingSaveIsError ? 'text-red-400' : 'text-green-400'}`}
+                className={`text-sm ${standingSaveIsError ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}
               >
                 {standingSaveStatus}
               </span>
@@ -983,7 +983,7 @@ export default function Settings() {
 
             {/* Accent Color */}
             <div className="mb-5">
-              <label className="text-sm text-slate-400 mb-2 block">Accent Color</label>
+              <label className="text-sm text-slate-600 dark:text-slate-400 mb-2 block">Accent Color</label>
               <div className="flex gap-3">
                 {accentColors.map((c) => (
                   <button
@@ -1001,7 +1001,7 @@ export default function Settings() {
 
             {/* OS Identifier */}
             <div className="mb-5">
-              <label className="text-sm text-slate-400 mb-2 block">OS Identifier</label>
+              <label className="text-sm text-slate-600 dark:text-slate-400 mb-2 block">OS Identifier</label>
               <input
                 type="text"
                 value={osName}
@@ -1014,7 +1014,7 @@ export default function Settings() {
 
             {/* Compact Mode */}
             <div className="mb-5">
-              <label className="text-sm text-slate-400 mb-2 block">Compact Mode</label>
+              <label className="text-sm text-slate-600 dark:text-slate-400 mb-2 block">Compact Mode</label>
               <p className="text-xs text-slate-500 mb-2">Tighter spacing and smaller text throughout the app.</p>
               <div className="flex gap-2">
                 <button
@@ -1022,7 +1022,7 @@ export default function Settings() {
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     !compactMode
                       ? 'accent-bg !text-white'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-white'
                   }`}
                 >
                   Normal
@@ -1032,7 +1032,7 @@ export default function Settings() {
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     compactMode
                       ? 'accent-bg !text-white'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-white'
                   }`}
                 >
                   Compact
@@ -1042,7 +1042,7 @@ export default function Settings() {
 
             {/* Greeting Style */}
             <div className="mb-5">
-              <label className="text-sm text-slate-400 mb-2 block">Home Greeting</label>
+              <label className="text-sm text-slate-600 dark:text-slate-400 mb-2 block">Home Greeting</label>
               <div className="flex gap-2">
                 {(['time', 'quote', 'none'] as const).map((style) => (
                   <button
@@ -1051,7 +1051,7 @@ export default function Settings() {
                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                       greetingStyle === style
                         ? 'accent-bg !text-white'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-white'
                     }`}
                   >
                     {style === 'time' ? 'Time of day' : style === 'quote' ? 'Quote' : 'None'}
@@ -1070,32 +1070,32 @@ export default function Settings() {
             {features.map((f: { label: string; enabled: boolean }, index: number) => (
               <div
                 key={f.label}
-                className="flex items-center gap-3 bg-slate-800/50 border border-slate-700/50 rounded-lg px-3 py-2.5"
+                className="flex items-center gap-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg px-3 py-2.5"
               >
-                <Icon name={featureIcons[f.label] || 'extension'} className="text-slate-400" size={18} />
-                <span className="flex-1 text-sm text-slate-300">{featureDisplayNames[f.label] || f.label}</span>
+                <Icon name={featureIcons[f.label] || 'extension'} className="text-slate-600 dark:text-slate-400" size={18} />
+                <span className="flex-1 text-sm text-slate-700 dark:text-slate-300">{featureDisplayNames[f.label] || f.label}</span>
                 <Toggle checked={f.enabled} onChange={() => handleFeatureToggle(index)} label={featureDisplayNames[f.label] || f.label} />
               </div>
             ))}
           </div>
 
           {/* Budget Caps toggle */}
-          <div className="mt-6 pt-6 border-t border-slate-800">
+          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-200">Show budget caps</span>
+              <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Show budget caps</span>
               <Toggle checked={showBudgetCaps} onChange={() => setShowBudgetCaps(!showBudgetCaps)} testId="budget-caps-toggle" />
             </div>
             <p className="text-xs text-slate-500 mt-2">Shows budget cap columns in Usage. Off by default since caps are not real spend.</p>
           </div>
 
           {/* Power user mode toggle */}
-          <div className="mt-4 pt-4 border-t border-slate-800">
+          <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-slate-200">Power user mode</span>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Power user mode</span>
                 <div className="group relative">
-                  <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-300 cursor-help" />
-                  <div className="absolute left-0 top-full mt-1 w-80 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
+                  <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-help" />
+                  <div className="absolute left-0 top-full mt-1 w-80 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-xs text-slate-700 dark:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
                     <p className="font-semibold text-white mb-1">What this unlocks</p>
                     <p className="mb-2"><strong>Delegate tab:</strong> see suggested tasks an agent could pick up and hand them off with one click.</p>
                     <p className="mb-2"><strong>Shared Workspace tab:</strong> a message board where multiple agents leave each other notes mid-task, so they can build on each other's findings.</p>
@@ -1118,7 +1118,7 @@ export default function Settings() {
 
             {/* Provider for API Key setup */}
             <div className="mb-5">
-              <label className="text-sm text-slate-400 mb-2 block">Set Up Provider</label>
+              <label className="text-sm text-slate-600 dark:text-slate-400 mb-2 block">Set Up Provider</label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {providers.map((p) => (
                   <div
@@ -1127,7 +1127,7 @@ export default function Settings() {
                     className={`p-3 rounded-lg border text-center cursor-pointer transition-colors ${
                       selectedProvider === p.name
                         ? 'accent-border accent-highlight'
-                        : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                        : 'border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/50 hover:border-slate-600'
                     }`}
                   >
                     <p className="text-sm font-medium">{p.name}</p>
@@ -1138,11 +1138,11 @@ export default function Settings() {
 
             {/* Connection */}
             <div className="mb-5">
-              <label className="text-sm text-slate-400 mb-3 block">Connect {selectedProvider}</label>
+              <label className="text-sm text-slate-600 dark:text-slate-400 mb-3 block">Connect {selectedProvider}</label>
 
               {/* Status indicator */}
               {keyStatusLoading ? (
-                <div data-testid="key-status-skeleton" className="h-8 bg-slate-800/60 rounded-lg animate-pulse mb-3" />
+                <div data-testid="key-status-skeleton" className="h-8 bg-slate-50/60 dark:bg-slate-800/60 rounded-lg animate-pulse mb-3" />
               ) : keyAvailable[selectedProvider] ? (
                 <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-white border border-green-300 rounded-lg">
                   <Icon name="check_circle" size={16} className="text-green-600" />
@@ -1152,8 +1152,8 @@ export default function Settings() {
                 </div>
               ) : (
                 <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-amber-900/20 border border-amber-800/30 rounded-lg">
-                  <Icon name="warning" size={16} className="text-amber-400" />
-                  <span className="text-sm text-amber-400">No key found. Paste one below to save it securely.</span>
+                  <Icon name="warning" size={16} className="text-amber-600 dark:text-amber-400" />
+                  <span className="text-sm text-amber-600 dark:text-amber-400">No key found. Paste one below to save it securely.</span>
                 </div>
               )}
 
@@ -1167,20 +1167,20 @@ export default function Settings() {
                 ) : googleOAuthAvailable ? (
                   <button
                     onClick={() => window.open('/api/auth/google', '_self')}
-                    className="w-full mb-3 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
+                    className="w-full mb-3 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
                   >
                     <Icon name="login" size={18} />
                     Sign in with Google
                   </button>
                 ) : (
-                  <p className="text-sm text-slate-400 mb-3">
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
                     Google sign-in is not set up yet. Paste a Gemini API key below.
                   </p>
                 )
               ) : (
                 <button
                   onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}
-                  className="w-full mb-3 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
+                  className="w-full mb-3 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
                 >
                   <Icon name="open_in_new" size={18} />
                   Get a key from Anthropic
@@ -1191,7 +1191,7 @@ export default function Settings() {
               {selectedProvider === 'Google Gemini' && (
                 <div
                   className={`mb-3 p-3 rounded-lg text-xs space-y-2 border bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border-blue-500/30 ${
-                    darkMode ? 'text-slate-200' : 'text-slate-700'
+                    darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-700'
                   }`}
                 >
                   <p className={`font-medium ${darkMode ? 'text-white' : 'text-slate-900'}`}>Where to get a Gemini API key</p>
@@ -1202,7 +1202,7 @@ export default function Settings() {
                       href="https://console.cloud.google.com"
                       target="_blank"
                       rel="noreferrer"
-                      className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                      className={`underline ${darkMode ? 'text-blue-700 dark:text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
                     >
                       Google Cloud project
                     </a>{' '}
@@ -1215,7 +1215,7 @@ export default function Settings() {
                         href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com"
                         target="_blank"
                         rel="noreferrer"
-                        className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                        className={`underline ${darkMode ? 'text-blue-700 dark:text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
                       >
                         "Generative Language API"
                       </a>{' '}
@@ -1233,7 +1233,7 @@ export default function Settings() {
                       href="https://aistudio.google.com/apikey"
                       target="_blank"
                       rel="noreferrer"
-                      className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                      className={`underline ${darkMode ? 'text-blue-700 dark:text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
                     >
                       Google AI Studio
                     </a>{' '}
@@ -1244,10 +1244,11 @@ export default function Settings() {
 
               {/* Gemini CLI Toggle */}
               {selectedProvider === 'Google Gemini' && (
-                <div className="mb-6 pt-4 border-t border-slate-800">
+                <div className="mb-6 pt-4 border-t border-slate-200 dark:border-slate-800">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-slate-200">Use Gemini CLI</span>
+                      <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Use Gemini CLI</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30 uppercase tracking-wider">Experimental</span>
                     </div>
                     <Toggle checked={useGeminiCli} onChange={() => handleUseGeminiCliToggle(!useGeminiCli)} testId="gemini-cli-toggle" />
                   </div>
@@ -1268,19 +1269,19 @@ export default function Settings() {
                       ) : geminiCliReady ? (
                         <>
                           <span className="w-2 h-2 rounded-full bg-green-500" />
-                          <span className="text-green-400">Gemini CLI is ready</span>
+                          <span className="text-green-600 dark:text-green-400">Gemini CLI is ready</span>
                         </>
                       ) : (
                         <>
                           <span className="w-2 h-2 rounded-full bg-red-500" />
-                          <span className="text-red-400">Gemini CLI not found or not signed in</span>
+                          <span className="text-red-600 dark:text-red-400">Gemini CLI not found or not signed in</span>
                         </>
                       )}
                     </div>
                     <button
                       onClick={handleRecheckGeminiStatus}
                       disabled={recheckingGemini}
-                      className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors uppercase font-bold tracking-tight disabled:opacity-50"
+                      className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors uppercase font-bold tracking-tight disabled:opacity-50"
                     >
                       {recheckingGemini ? 'Checking...' : 'Recheck'}
                     </button>
@@ -1299,11 +1300,11 @@ export default function Settings() {
                     placeholder={keyAvailable[selectedProvider]
                       ? 'Paste a new key to replace the current one'
                       : (selectedProvider === 'Anthropic' ? 'Paste API key (sk-ant-xxxx...)' : 'Paste API key (AIzaSy...)')}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
                   />
                   <button
                     onClick={() => setApiKeyVisible(!apiKeyVisible)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400 hover:text-white transition-colors"
                   >
                     <Icon
                       name={apiKeyVisible ? 'visibility_off' : 'visibility'}
@@ -1337,7 +1338,7 @@ export default function Settings() {
                 Claude model list while Gemini is selected is confusing. */}
             {selectedProvider === 'Anthropic' && (
               <div data-testid="anthropic-model-dropdown">
-                <label className="text-sm text-slate-400 mb-2 block">Model</label>
+                <label className="text-sm text-slate-600 dark:text-slate-400 mb-2 block">Model</label>
                 <select
                   value={selectedModel}
                   onChange={(e) => handleModelChange(e.target.value)}
@@ -1358,7 +1359,7 @@ export default function Settings() {
           <div className={activeSection !== 'section-connections' ? 'hidden' : 'space-y-6'}>
           <div className={cardClass} data-testid="chat-backend-section">
           <h2 className="text-lg font-semibold mb-1">AI backend</h2>
-          <p className="text-sm text-slate-400 mb-4">
+          <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
             Pick which sign-in powers every AI feature in myOS — chat, tasks, specs, and more. Your Claude subscription costs nothing extra if you already pay for Pro or Max. Using your Anthropic key charges per message.
           </p>
           <div className="space-y-2" data-testid="chat-backend-radios">
@@ -1372,7 +1373,7 @@ export default function Settings() {
                 className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors ${
                   chatBackendPreference === opt.value
                     ? 'accent-border accent-highlight'
-                    : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                    : 'border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/50 hover:border-slate-600'
                 }`}
               >
                 <input
@@ -1383,12 +1384,12 @@ export default function Settings() {
                   onChange={() => handleChatBackendPreferenceChange(opt.value)}
                   className="accent-blue-500"
                 />
-                <span className="text-sm text-slate-200">{opt.label}</span>
+                <span className="text-sm text-slate-800 dark:text-slate-200">{opt.label}</span>
               </label>
             ))}
           </div>
 
-          <div className="mt-4 pt-4 border-t border-slate-800">
+          <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-3 flex-wrap">
               <div
                 data-testid="claude-code-ready-indicator"
@@ -1402,12 +1403,12 @@ export default function Settings() {
                 ) : claudeCodeReady ? (
                   <>
                     <span className="w-2 h-2 rounded-full bg-green-500" />
-                    <span className="text-green-400" data-testid="claude-auth-status-signed-in">Claude subscription is ready</span>
+                    <span className="text-green-600 dark:text-green-400" data-testid="claude-auth-status-signed-in">Claude subscription is ready</span>
                   </>
                 ) : (
                   <>
                     <span className="w-2 h-2 rounded-full bg-amber-500" />
-                    <span className="text-amber-400" data-testid="claude-auth-status-not-signed-in">Claude subscription not signed in</span>
+                    <span className="text-amber-600 dark:text-amber-400" data-testid="claude-auth-status-not-signed-in">Claude subscription not signed in</span>
                   </>
                 )}
               </div>
@@ -1415,17 +1416,17 @@ export default function Settings() {
                 data-testid="claude-recheck-button"
                 onClick={handleRecheckClaudeStatus}
                 disabled={recheckingClaude}
-                className="text-xs px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 hover:border-slate-500 transition-colors disabled:opacity-50"
+                className="text-xs px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-500 transition-colors disabled:opacity-50"
               >
                 {recheckingClaude ? 'Checking...' : 'Re-check'}
               </button>
             </div>
             {claudeCodeReady === false && (
-              <div className="mt-3 p-3 rounded-lg bg-slate-800/60 border border-slate-700 text-sm text-slate-300" data-testid="claude-login-instructions">
+              <div className="mt-3 p-3 rounded-lg bg-slate-50/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-sm text-slate-700 dark:text-slate-300" data-testid="claude-login-instructions">
                 <p className="font-medium text-white mb-1">To sign in with Claude Pro or Max</p>
                 <p>Open your Terminal app and run:</p>
-                <code className="block mt-1.5 px-2 py-1 bg-slate-900 rounded text-green-400 font-mono text-xs select-all">claude login</code>
-                <p className="mt-2 text-slate-400 text-xs">Then click Re-check above to confirm it worked.</p>
+                <code className="block mt-1.5 px-2 py-1 bg-white dark:bg-slate-900 rounded text-green-600 dark:text-green-400 font-mono text-xs select-all">claude login</code>
+                <p className="mt-2 text-slate-600 dark:text-slate-400 text-xs">Then click Re-check above to confirm it worked.</p>
               </div>
             )}
           </div>
@@ -1436,7 +1437,7 @@ export default function Settings() {
           <div id="section-ai-provider" className={`space-y-6${activeSection !== 'section-connections' ? ' hidden' : ''}`}>
           <div className={cardClass} data-testid="ai-provider-section">
             <h2 className="text-lg font-semibold mb-1">AI Provider</h2>
-            <p className="text-sm text-slate-400 mb-4">
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
               Choose which AI answers your messages. Claude is always available. Connect your Google account to use Gemini Enterprise.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1447,12 +1448,12 @@ export default function Settings() {
                 className={`flex items-start gap-3 p-3.5 rounded-lg border text-left transition-colors ${
                   defaultProvider === 'claude'
                     ? 'accent-border accent-highlight'
-                    : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                    : 'border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/50 hover:border-slate-600'
                 }`}
               >
                 <span className="mt-1 w-2.5 h-2.5 rounded-full bg-emerald-400 claude-provider-dot flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-200">Claude</p>
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Claude</p>
                   <p className="text-xs text-slate-500 mt-0.5">Always connected</p>
                   {defaultProvider === 'claude' && (
                     <p className="text-xs accent-text mt-1 font-medium">Default</p>
@@ -1469,8 +1470,8 @@ export default function Settings() {
                   defaultProvider === 'gemini' && geminiStatus.available
                     ? 'accent-border accent-highlight'
                     : geminiStatus.available
-                    ? 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
-                    : 'border-slate-800 bg-slate-900/30 opacity-60 cursor-not-allowed'
+                    ? 'border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/50 hover:border-slate-600'
+                    : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/30 opacity-60 cursor-not-allowed'
                 }`}
               >
                 <span
@@ -1484,13 +1485,13 @@ export default function Settings() {
                   }`}
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-200">Gemini Enterprise</p>
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Gemini Enterprise</p>
                   {geminiStatus.loading ? (
                     <p className="text-xs text-slate-500 mt-0.5">Checking...</p>
                   ) : geminiStatus.available ? (
                     <>
                       {geminiStatus.email && (
-                        <p className="text-xs text-slate-400 mt-0.5 truncate">{geminiStatus.email}</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 truncate">{geminiStatus.email}</p>
                       )}
                       <p className="text-xs text-slate-500 mt-0.5">Google Workspace · Slack · Jira · Confluence</p>
                       {defaultProvider === 'gemini' && (
@@ -1500,13 +1501,13 @@ export default function Settings() {
                   ) : (
                     <>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Run <code className="text-green-400 font-mono">gcloud auth application-default login</code> or the Gemini CLI to connect
+                        Run <code className="text-green-600 dark:text-green-400 font-mono">gcloud auth application-default login</code> or the Gemini CLI to connect
                       </p>
                       {geminiStatus.api_error && (
                         <p
                           data-testid="gemini-api-error"
                           aria-label="Gemini API error"
-                          className="text-xs text-red-400 mt-1 break-words"
+                          className="text-xs text-red-600 dark:text-red-400 mt-1 break-words"
                         >
                           {geminiStatus.api_error}
                         </p>
@@ -1525,7 +1526,7 @@ export default function Settings() {
             {/* Google pill */}
             <button
               onClick={() => setExpandedConnection(expandedConnection === 'google' ? null : 'google')}
-              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-800/70 transition-colors text-left"
+              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
               data-testid="pill-google"
             >
               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
@@ -1536,15 +1537,15 @@ export default function Settings() {
                   : 'bg-slate-600'
               }`} />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-200">Google</p>
-                <p className="text-xs text-slate-400 truncate">{connectionStatus.Drive.connected ? connectionStatus.Drive.label || 'Connected' : 'Sign in to use Gmail, Calendar, and Drive'}</p>
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Google</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400 truncate">{connectionStatus.Drive.connected ? connectionStatus.Drive.label || 'Connected' : 'Sign in to use Gmail, Calendar, and Drive'}</p>
               </div>
-              <Icon name={expandedConnection === 'google' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-400 flex-shrink-0" />
+              <Icon name={expandedConnection === 'google' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
             </button>
             {expandedConnection === 'google' && (
               <div className={cardClass} data-testid="google-connect-section">
                 <div className="flex items-center gap-2 mb-3">
-                  <Icon name="travel_explore" size={18} className="text-blue-400" />
+                  <Icon name="travel_explore" size={18} className="text-blue-600 dark:text-blue-400" />
                   <h2 className="text-base font-semibold">Google</h2>
                 </div>
                 <p className="text-xs text-slate-500 mb-3">Gmail, Calendar, and Drive</p>
@@ -1552,7 +1553,7 @@ export default function Settings() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" />
-                      <p className="text-sm text-slate-200 font-medium">
+                      <p className="text-sm text-slate-800 dark:text-slate-200 font-medium">
                         {connectionStatus.Drive.label || 'Connected'}
                       </p>
                     </div>
@@ -1569,7 +1570,7 @@ export default function Settings() {
                           reportError('Failed to disconnect Google', err);
                         }
                       }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
                     >
                       <Icon name="link_off" size={15} />
                       Disconnect
@@ -1592,7 +1593,7 @@ export default function Settings() {
                     Connect Google
                   </button>
                 ) : (
-                  <p className="text-sm text-slate-400">
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
                     Google sign-in is not configured for this instance.
                   </p>
                 )}
@@ -1602,7 +1603,7 @@ export default function Settings() {
             {/* Slack pill */}
             <button
               onClick={() => setExpandedConnection(expandedConnection === 'slack' ? null : 'slack')}
-              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-800/70 transition-colors text-left"
+              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
               data-testid="pill-slack"
             >
               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
@@ -1613,15 +1614,15 @@ export default function Settings() {
                   : 'bg-slate-600'
               }`} />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-200">Slack</p>
-                <p className="text-xs text-slate-400 truncate">{connectionStatus.Slack.connected ? connectionStatus.Slack.label || 'Connected' : 'Sign in to use slash commands'}</p>
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Slack</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400 truncate">{connectionStatus.Slack.connected ? connectionStatus.Slack.label || 'Connected' : 'Sign in to use slash commands'}</p>
               </div>
-              <Icon name={expandedConnection === 'slack' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-400 flex-shrink-0" />
+              <Icon name={expandedConnection === 'slack' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
             </button>
             {expandedConnection === 'slack' && (
               <div className={cardClass} data-testid="slack-connect-section">
                 <div className="flex items-center gap-2 mb-4">
-                  <Icon name="forum" size={18} className="text-purple-400" />
+                  <Icon name="forum" size={18} className="text-purple-600 dark:text-purple-400" />
                   <h2 className="text-base font-semibold">Slack</h2>
                 </div>
                 <SlackConnect />
@@ -1631,7 +1632,7 @@ export default function Settings() {
             {/* iMessage pill */}
             <button
               onClick={() => setExpandedConnection(expandedConnection === 'imessage' ? null : 'imessage')}
-              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-800/70 transition-colors text-left"
+              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
               data-testid="pill-imessage"
             >
               <span
@@ -1645,18 +1646,18 @@ export default function Settings() {
                 }`}
               />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-200">iMessage</p>
-                <p className="text-xs text-slate-400">{connectionStatus.iMessage.connected ? 'Connected' : 'Set up iMessage'}</p>
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">iMessage</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400">{connectionStatus.iMessage.connected ? 'Connected' : 'Set up iMessage'}</p>
               </div>
-              <Icon name={expandedConnection === 'imessage' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-400 flex-shrink-0" />
+              <Icon name={expandedConnection === 'imessage' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
             </button>
             {expandedConnection === 'imessage' && (
               <div className={cardClass} data-testid="imessage-connect-section">
                 <div className="flex items-center gap-2 mb-4">
-                  <Icon name="chat_bubble" size={18} className="text-green-400" />
+                  <Icon name="chat_bubble" size={18} className="text-green-600 dark:text-green-400" />
                   <h2 className="text-base font-semibold">iMessage</h2>
                 </div>
-                <p className="text-sm text-slate-400 mb-3">
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
                   Read and reply to iMessages from within myOS. Requires macOS.
                 </p>
                 <a
@@ -1673,26 +1674,26 @@ export default function Settings() {
             {/* GitHub pill */}
             <button
               onClick={() => setExpandedConnection(expandedConnection === 'github' ? null : 'github')}
-              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-800/70 transition-colors text-left"
+              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
               data-testid="pill-github"
             >
               <span className="w-2.5 h-2.5 rounded-full bg-slate-600 flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-200">GitHub</p>
-                <p className="text-xs text-slate-400">Sign in to access your repos</p>
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">GitHub</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400">Sign in to access your repos</p>
               </div>
-              <Icon name={expandedConnection === 'github' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-400 flex-shrink-0" />
+              <Icon name={expandedConnection === 'github' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
             </button>
             {expandedConnection === 'github' && (
               <div className={cardClass} data-testid="github-connect-section">
                 <div className="flex items-center gap-2 mb-4">
-                  <Icon name="code" size={18} className="text-slate-300" />
+                  <Icon name="code" size={18} className="text-slate-700 dark:text-slate-300" />
                   <h2 className="text-base font-semibold">GitHub</h2>
                 </div>
                 <GithubSetupCard
                   darkMode={true}
-                  inputCls="bg-slate-800 border-slate-700 text-white"
-                  subtextCls="text-slate-400"
+                  inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white"
+                  subtextCls="text-slate-600 dark:text-slate-400"
                 />
               </div>
             )}
@@ -1700,33 +1701,33 @@ export default function Settings() {
             {/* Atlassian pill */}
             <button
               onClick={() => setExpandedConnection(expandedConnection === 'atlassian' ? null : 'atlassian')}
-              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-800/70 transition-colors text-left"
+              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
               data-testid="pill-atlassian"
             >
               <span className="w-2.5 h-2.5 rounded-full bg-slate-600 flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-200">Atlassian</p>
-                <p className="text-xs text-slate-400">Connect Jira & Confluence</p>
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Atlassian</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400">Connect Jira & Confluence</p>
               </div>
-              <Icon name={expandedConnection === 'atlassian' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-400 flex-shrink-0" />
+              <Icon name={expandedConnection === 'atlassian' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
             </button>
             {expandedConnection === 'atlassian' && (
               <>
                 <div className={cardClass} data-testid="atlassian-connect-section">
                   <div className="flex items-center gap-2 mb-4">
-                    <Icon name="bug_report" size={18} className="text-blue-400" />
+                    <Icon name="bug_report" size={18} className="text-blue-600 dark:text-blue-400" />
                     <h2 className="text-base font-semibold">Jira & Confluence</h2>
                   </div>
                   <AtlassianSetupCard
                     darkMode={true}
-                    inputCls="bg-slate-800 border-slate-700 text-white"
-                    subtextCls="text-slate-400"
+                    inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white"
+                    subtextCls="text-slate-600 dark:text-slate-400"
                   />
                 </div>
                 <div className={cardClass} data-testid="atlassian-preferences-section">
                   <h2 className="text-base font-semibold mb-3">Confluence preferences</h2>
                   <div>
-                    <label className="block text-sm text-slate-400 mb-1" htmlFor="default-confluence-space">
+                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1" htmlFor="default-confluence-space">
                       Default Confluence space
                     </label>
                     <input
@@ -1739,7 +1740,7 @@ export default function Settings() {
                       }}
                       placeholder="e.g. IAM"
                       data-testid="default-confluence-space-input"
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
                     />
                     <p className="text-xs text-slate-500 mt-1">
                       Paste a space shortcut (like IAM) or a full Confluence URL. The widget will show pages from this space only.
@@ -1756,14 +1757,14 @@ export default function Settings() {
           </div>
 
           {/* Divider */}
-          <div className="h-px bg-slate-700/50 my-6" />
+          <div className="h-px bg-slate-200 dark:bg-slate-700/50 my-6" />
 
         <div className={cardClass}>
           <div className="flex items-center gap-2 mb-5">
             <h2 className="text-lg font-semibold">Sync</h2>
             <div className="group relative ml-1">
-              <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-300 cursor-help" />
-              <div className="absolute bottom-full left-0 mb-2 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-[60]">
+              <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-help" />
+              <div className="absolute bottom-full left-0 mb-2 w-72 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-xs text-slate-700 dark:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-[60]">
                 Keep your settings the same across all your devices using a private git repo you own.
               </div>
             </div>
@@ -1784,7 +1785,7 @@ export default function Settings() {
                 </p>
               )}
               {syncStatus && (
-                <p className="text-sm text-slate-300 mb-3">{syncStatus}</p>
+                <p className="text-sm text-slate-700 dark:text-slate-300 mb-3">{syncStatus}</p>
               )}
               <div className="flex gap-3">
                 <button
@@ -1800,7 +1801,7 @@ export default function Settings() {
                   onClick={handleDisconnectSync}
                   disabled={syncLoading}
                   data-testid="sync-disconnect-button"
-                  className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-400 hover:text-red-400 hover:border-red-800 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:border-red-800 transition-colors"
                 >
                   <Icon name="link_off" size={18} />
                   Disconnect
@@ -1809,7 +1810,7 @@ export default function Settings() {
             </div>
           ) : (
             <div>
-              <p className="text-sm text-slate-400 mb-4">
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
                 Enter the URL of a private git repo you own. myOS will use it to keep your settings the same across all your devices.
               </p>
               <div className="flex gap-2">
@@ -1832,7 +1833,7 @@ export default function Settings() {
                 </button>
               </div>
               {syncStatus && (
-                <p className="text-sm text-red-400 mt-2">{syncStatus}</p>
+                <p className="text-sm text-red-600 dark:text-red-400 mt-2">{syncStatus}</p>
               )}
             </div>
           )}
@@ -1844,10 +1845,10 @@ export default function Settings() {
           <div id="section-team-admin" className={activeSection !== 'section-team-admin' ? 'hidden' : ''}>
           <div className={cardClass}>
             <div className="flex items-center gap-2 mb-3">
-              <Icon name="admin_panel_settings" size={22} className="text-indigo-400" />
+              <Icon name="admin_panel_settings" size={22} className="text-indigo-600 dark:text-indigo-400" />
               <h2 className="text-lg font-semibold">Team Admin</h2>
             </div>
-            <p className="text-sm text-slate-400 mb-4">
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
               Manage your team, policies, security, and audit trail.
             </p>
             <a
@@ -1869,7 +1870,7 @@ export default function Settings() {
               {pushSupported && (
                 <div className="flex items-center justify-between py-2">
                   <div className="pr-3">
-                    <p className="text-sm text-slate-300">Desktop notifications</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">Desktop notifications</p>
                     <p className="text-xs text-slate-500">Get alerts even when the browser tab is closed</p>
                   </div>
                   <Toggle checked={settingsPushEnabled} onChange={handlePushToggle} testId="push-toggle" disabled={pushToggling} />
@@ -1877,25 +1878,25 @@ export default function Settings() {
               )}
               <div className="flex items-center justify-between py-2">
                 <div className="pr-3">
-                  <p className="text-sm text-slate-300">Chime sound</p>
+                  <p className="text-sm text-slate-700 dark:text-slate-300">Chime sound</p>
                   <p className="text-xs text-slate-500">Play a short sound when a notification arrives</p>
                 </div>
                 <Toggle checked={chimeEnabled} onChange={handleChimeToggle} testId="chime-toggle" />
               </div>
-              <div className="mt-4 pt-4 border-t border-slate-800">
-                <p className="text-xs font-medium text-slate-400 mb-3">What triggers notifications</p>
+              <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
+                <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-3">What triggers notifications</p>
                 <div className="space-y-3">
                   {notifications.map((n, index) => (
                     <div key={n.label} className="flex items-center justify-between py-1">
-                      <span className="text-sm text-slate-300">{n.label}</span>
+                      <span className="text-sm text-slate-700 dark:text-slate-300">{n.label}</span>
                       <Toggle checked={n.enabled} onChange={() => handleNotificationToggle(index)} />
                     </div>
                   ))}
                 </div>
               </div>
-              <div className="mt-4 pt-4 border-t border-slate-800 flex items-center justify-between">
+              <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-300">Quiet Hours</p>
+                  <p className="text-sm text-slate-700 dark:text-slate-300">Quiet Hours</p>
                   <p className="text-xs text-slate-500">10pm – 7am</p>
                 </div>
                 <Toggle checked={quietHours} onChange={handleQuietHoursToggle} testId="quiet-hours-toggle" />
@@ -1910,28 +1911,28 @@ export default function Settings() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="pr-3">
-                    <p className="text-sm text-slate-300">Pick the right agent automatically</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">Pick the right agent automatically</p>
                     <p className="text-xs text-slate-500">When you ask a question, myOS chooses the best built-in or saved agent for the job.</p>
                   </div>
                   <Toggle checked={autoTemplateMatching} onChange={handleAutoTemplateMatchingToggle} testId="auto-template-toggle" />
                 </div>
-                <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+                <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800">
                   <div className="pr-3">
-                    <p className="text-sm text-slate-300">Daily briefing</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">Daily briefing</p>
                     <p className="text-xs text-slate-500">Show a short summary of your day on the dashboard.</p>
                   </div>
                   <Toggle checked={briefingEnabled} onChange={handleBriefingToggle} testId="briefing-toggle" />
                 </div>
-                <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+                <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800">
                   <div className="pr-3">
-                    <p className="text-sm text-slate-300">Chat memory</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">Chat memory</p>
                     <p className="text-xs text-slate-500">Let the AI remember what you talked about in your previous chat.</p>
                   </div>
                   <Toggle checked={chatMemoryEnabled} onChange={handleChatMemoryToggle} testId="chat-memory-toggle" />
                 </div>
-                <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+                <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800">
                   <div className="pr-3">
-                    <p className="text-sm text-slate-300">Warn when the model claims done without evidence</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">Warn when the model claims done without evidence</p>
                     <p className="text-xs text-slate-500">Shows a pill on messages that say "done" or "fixed" without a commit hash, test output, or file reference.</p>
                   </div>
                   <Toggle checked={chatReceiptsGateEnabled} onChange={handleReceiptsGateToggle} testId="receipts-gate-toggle" />
@@ -1944,7 +1945,7 @@ export default function Settings() {
           <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
             <div className={cardClass}>
               <h2 className="text-lg font-semibold mb-1">Memory</h2>
-              <p className="text-sm text-slate-400 mb-4">
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
                 Things you tell me to remember show up here. You can edit or remove them anytime.
               </p>
               {memoryOverflow?.hard_cap && (
@@ -1966,7 +1967,7 @@ export default function Settings() {
                     {suggestTopicsLoading ? 'Thinking…' : 'Suggest topics'}
                   </button>
                   {suggestedTopics !== null && suggestedTopics.length === 0 && (
-                    <p className="mt-2 text-xs text-amber-300">No groupings suggested — your memory looks well-organized already.</p>
+                    <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">No groupings suggested. Your memory looks well-organized already.</p>
                   )}
                   {suggestedTopics && suggestedTopics.length > 0 && (
                     <div data-testid="suggested-topics-list" className="mt-3 space-y-3">
@@ -1976,7 +1977,7 @@ export default function Settings() {
                           <ul className="space-y-1">
                             {bullets.map((bullet) => (
                               <li key={bullet} className="flex items-center gap-2">
-                                <span className="text-xs text-slate-300 flex-1">{bullet}</span>
+                                <span className="text-xs text-slate-700 dark:text-slate-300 flex-1">{bullet}</span>
                                 <button
                                   data-testid={`apply-split-${topic}`}
                                   onClick={() => handleApplySplit(bullet, topic)}
@@ -2004,7 +2005,7 @@ export default function Settings() {
                           : 'edited manually';
                         return (
                           <li key={i} className="flex items-baseline gap-3">
-                            <span className="text-sm text-slate-200 flex-1">{bullet.text}</span>
+                            <span className="text-sm text-slate-800 dark:text-slate-200 flex-1">{bullet.text}</span>
                             <span
                               data-testid={`memory-provenance-${i}`}
                               className="text-xs text-slate-500 shrink-0"
@@ -2025,7 +2026,7 @@ export default function Settings() {
                 onChange={(e) => setMemoryContent(e.target.value)}
                 placeholder="Things you tell me to remember will show up here."
                 rows={10}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 text-sm text-slate-200 px-3 py-2 font-mono resize-y focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm text-slate-800 dark:text-slate-200 px-3 py-2 font-mono resize-y focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
               <div className="mt-3 flex items-center gap-3">
                 <button
@@ -2036,7 +2037,7 @@ export default function Settings() {
                   Save
                 </button>
                 {memorySaveStatus && (
-                  <span className="text-xs text-slate-400">{memorySaveStatus}</span>
+                  <span className="text-xs text-slate-600 dark:text-slate-400">{memorySaveStatus}</span>
                 )}
               </div>
             </div>
@@ -2049,10 +2050,10 @@ export default function Settings() {
                 <h2 className="text-lg font-semibold">ADHD mode</h2>
                 <Toggle checked={adhdEnabled} onChange={handleAdhdToggle} testId="adhd-toggle" />
               </div>
-              <p className="text-sm text-slate-400 mb-5">Get regular check-ins while agents work, see where you left off when you come back, and get one clear recommendation instead of a list.</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-5">Get regular check-ins while agents work, see where you left off when you come back, and get one clear recommendation instead of a list.</p>
               <div className={`space-y-5 ${adhdEnabled ? '' : 'opacity-40 pointer-events-none'}`}>
                 <div>
-                  <p className="text-sm text-slate-300 mb-1">Check-in interval</p>
+                  <p className="text-sm text-slate-700 dark:text-slate-300 mb-1">Check-in interval</p>
                   <p className="text-xs text-slate-500 mb-3">How often to show you what your agents are doing</p>
                   <div className="flex items-center gap-4">
                     <input
@@ -2065,19 +2066,19 @@ export default function Settings() {
                       className="flex-1 accent-blue-500"
                       data-testid="adhd-interval-slider"
                     />
-                    <span className="text-sm text-slate-300 w-16 text-right font-mono">{adhdCheckInSeconds}s</span>
+                    <span className="text-sm text-slate-700 dark:text-slate-300 w-16 text-right font-mono">{adhdCheckInSeconds}s</span>
                   </div>
                 </div>
-                <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+                <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
                   <div className="pr-3">
-                    <p className="text-sm text-slate-300">Welcome back summary</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">Welcome back summary</p>
                     <p className="text-xs text-slate-500">When you return after 5+ minutes, show you where you left off</p>
                   </div>
                   <div className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" title="Always on when focus mode is active" />
                 </div>
-                <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+                <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
                   <div className="pr-3">
-                    <p className="text-sm text-slate-300">Reduce choices</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">Reduce choices</p>
                     <p className="text-xs text-slate-500">Show one recommendation instead of a list. Less deciding, more doing.</p>
                   </div>
                   <Toggle checked={adhdFocusMode} onChange={handleAdhdFocusModeToggle} testId="adhd-focus-toggle" />
@@ -2098,13 +2099,13 @@ export default function Settings() {
                   const isCustom = !!customShortcuts[s.label];
                   return (
                     <div key={s.label} className="flex items-center justify-between py-2">
-                      <span className="text-sm text-slate-300">{s.label}</span>
+                      <span className="text-sm text-slate-700 dark:text-slate-300">{s.label}</span>
                       <div className="flex items-center gap-2">
                         {isCustom && !isEditing && (
                           <button
                             type="button"
                             onClick={() => handleShortcutReset(s.label)}
-                            className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                            className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                             title="Reset to default"
                           >
                             ×
@@ -2112,7 +2113,7 @@ export default function Settings() {
                         )}
                         {isEditing ? (
                           <kbd
-                            className="px-2.5 py-1 bg-slate-700 border border-blue-500 rounded-md text-xs text-blue-300 font-mono min-w-[72px] text-center"
+                            className="px-2.5 py-1 bg-slate-200 dark:bg-slate-700 border border-blue-500 rounded-md text-xs text-blue-700 dark:text-blue-300 font-mono min-w-[72px] text-center"
                             onKeyDown={(e) => {
                               e.preventDefault();
                               if (e.key === 'Escape') { setEditingShortcut(null); return; }
@@ -2138,7 +2139,7 @@ export default function Settings() {
                           </kbd>
                         ) : (
                           <kbd
-                            className={`px-2.5 py-1 rounded-md text-xs font-mono cursor-pointer transition-colors hover:border-slate-500 ${isCustom ? 'bg-slate-800 border border-blue-500/50 text-blue-300' : 'bg-slate-800 border border-slate-700 text-slate-300'}`}
+                            className={`px-2.5 py-1 rounded-md text-xs font-mono cursor-pointer transition-colors hover:border-slate-500 ${isCustom ? 'bg-slate-100 dark:bg-slate-800 border border-blue-500/50 text-blue-700 dark:text-blue-300' : 'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'}`}
                             onClick={() => setEditingShortcut(s.label)}
                             title="Click to edit"
                           >
@@ -2160,39 +2161,39 @@ export default function Settings() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-slate-300">Take the tour</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">Take the tour</p>
                     <p className="text-xs text-slate-500">Walk through what myOS can do, step by step.</p>
                   </div>
                   <button
                     data-testid="settings-tour-button"
                     onClick={() => useAppStore.getState().setShowTour(true)}
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors"
                   >
                     Start
                   </button>
                 </div>
-                <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+                <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-slate-300">Open activity log</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">Open activity log</p>
                     <p className="text-xs text-slate-500">See everything myOS has done recently.</p>
                   </div>
                   <NavLink
                     data-testid="settings-activity-link"
                     to="/activity"
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors"
                   >
                     Open
                   </NavLink>
                 </div>
-                <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+                <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-slate-300">Rules</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">Rules</p>
                     <p className="text-xs text-slate-500">View and edit the rules your agents follow.</p>
                   </div>
                   <NavLink
                     data-testid="settings-rules-link"
                     to="/settings/rules"
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors"
                   >
                     Open
                   </NavLink>
@@ -2204,17 +2205,17 @@ export default function Settings() {
           {/* ── Danger Zone ────────────────────────── */}
           <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
             <div className={cardClass}>
-              <h2 className="text-lg font-semibold mb-2 text-red-400">Danger zone</h2>
-              <p className="text-sm text-slate-400 mb-4">
+              <h2 className="text-lg font-semibold mb-2 text-red-600 dark:text-red-400">Danger zone</h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
                 Permanently delete all your tasks, chats, and agent history. Your settings are kept so the app still works after.
               </p>
               {wipeDataError && (
-                <p className="text-sm text-red-400 mb-3">{wipeDataError}</p>
+                <p className="text-sm text-red-600 dark:text-red-400 mb-3">{wipeDataError}</p>
               )}
               <button
                 onClick={handleDeleteAllData}
                 data-testid="delete-all-data-button"
-                className="flex items-center gap-2 px-4 py-2.5 bg-red-900/30 border border-red-800 rounded-lg text-sm text-red-400 hover:bg-red-900/50 hover:text-red-300 transition-colors"
+                className="flex items-center gap-2 px-4 py-2.5 bg-red-900/30 border border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400 hover:bg-red-900/50 hover:text-red-700 dark:hover:text-red-300 transition-colors"
               >
                 <Icon name="delete_forever" size={18} />
                 Delete all data

@@ -51,7 +51,7 @@ function StreamRow({ entry, expanded, onToggle }: StreamRowProps) {
     <div>
       <button
         type="button"
-        className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg hover:bg-slate-900/60 transition-colors text-left"
+        className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg hover:bg-white/60 dark:hover:bg-slate-900/60 transition-colors text-left"
         onClick={onToggle}
         aria-expanded={expanded}
         data-testid="stream-row"
@@ -64,7 +64,7 @@ function StreamRow({ entry, expanded, onToggle }: StreamRowProps) {
 
         {/* Summary */}
         <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium text-slate-200">{entry.summary}</span>
+          <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{entry.summary}</span>
         </div>
 
         {/* Timestamp + expand chevron */}
@@ -81,21 +81,21 @@ function StreamRow({ entry, expanded, onToggle }: StreamRowProps) {
       {/* Technical detail drawer */}
       {expanded && (
         <div
-          className="ml-11 mb-1 px-4 py-3 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-400 space-y-1"
+          className="ml-11 mb-1 px-4 py-3 rounded-lg bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 space-y-1"
           data-testid="stream-row-detail"
         >
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             <span>
               <span className="text-slate-600">event</span>{" "}
-              <span className="font-mono text-slate-300">{entry.raw.event}</span>
+              <span className="font-mono text-slate-700 dark:text-slate-300">{entry.raw.event}</span>
             </span>
             <span>
               <span className="text-slate-600">category</span>{" "}
-              <span className="font-mono text-slate-300">{entry.raw.category}</span>
+              <span className="font-mono text-slate-700 dark:text-slate-300">{entry.raw.category}</span>
             </span>
             <span>
               <span className="text-slate-600">time</span>{" "}
-              <span className="font-mono text-slate-300">{entry.timestamp}</span>
+              <span className="font-mono text-slate-700 dark:text-slate-300">{entry.timestamp}</span>
             </span>
 
           </div>
@@ -141,7 +141,7 @@ function BundleRow({ bundle, expanded, onToggle }: BundleRowProps) {
     <div>
       <button
         type="button"
-        className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg hover:bg-slate-900/60 transition-colors text-left"
+        className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg hover:bg-white/60 dark:hover:bg-slate-900/60 transition-colors text-left"
         onClick={onToggle}
         aria-expanded={expanded}
         data-testid="stream-bundle"
@@ -155,9 +155,9 @@ function BundleRow({ bundle, expanded, onToggle }: BundleRowProps) {
 
         {/* Summary with count badge */}
         <div className="flex-1 min-w-0 flex items-center gap-2">
-          <span className="text-sm font-medium text-slate-200 truncate">{lead.summary}</span>
+          <span className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{lead.summary}</span>
           <span
-            className="text-xs font-medium bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded"
+            className="text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded"
             data-testid="bundle-count"
           >
             {"\u00d7"} {count}
@@ -178,7 +178,7 @@ function BundleRow({ bundle, expanded, onToggle }: BundleRowProps) {
       {/* Expanded list of individual entries */}
       {expanded && (
         <div
-          className="ml-11 mb-1 px-4 py-3 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-400"
+          className="ml-11 mb-1 px-4 py-3 rounded-lg bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400"
           data-testid="stream-bundle-detail"
         >
           <ul className="space-y-1">
@@ -189,7 +189,7 @@ function BundleRow({ bundle, expanded, onToggle }: BundleRowProps) {
                 data-testid="bundle-entry"
               >
                 <span className="font-mono text-slate-500 shrink-0">{formatTime(entry.timestamp)}</span>
-                <span className="text-slate-300 break-words">{entryDetailLabel(entry)}</span>
+                <span className="text-slate-700 dark:text-slate-300 break-words">{entryDetailLabel(entry)}</span>
               </li>
             ))}
           </ul>
@@ -220,8 +220,8 @@ function DaySection({ group, expandedKeys, onToggle, disableBundling }: DaySecti
   return (
     <div className="mb-6">
       <div className="flex items-center gap-3 mb-2">
-        <span className="text-sm font-semibold text-slate-300">{group.label}</span>
-        <div className="flex-1 h-px bg-slate-800" />
+        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{group.label}</span>
+        <div className="flex-1 h-px bg-slate-100 dark:bg-slate-800" />
         <span className="text-xs text-slate-600" data-testid="day-count">
           {itemCount} {itemCount === 1 ? "item" : "items"}
           {bundledDown && (
@@ -348,7 +348,7 @@ export default function Activity() {
   const totalVisible = displayGroups.reduce((n, g) => n + g.entries.length, 0);
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white flex flex-col">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white flex flex-col">
       <TopBar title="Activity" />
 
       <div data-tour="activity" className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 flex-1 flex flex-col">
@@ -356,13 +356,13 @@ export default function Activity() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex flex-wrap items-center gap-4">
             <h1 data-testid="page-header" role="heading" className="text-xl sm:text-2xl font-bold">Activity</h1>
-            <div className="flex items-center gap-1 border-b border-slate-800">
+            <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800">
               <button
                 onClick={() => setTab("events")}
                 className={`px-3 py-2 text-sm font-medium transition-colors border-b-2 ${
                   tab === "events"
                     ? "border-blue-500 text-white"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
+                    : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
                 }`}
               >
                 Events
@@ -373,7 +373,7 @@ export default function Activity() {
                 className={`px-3 py-2 text-sm font-medium transition-colors border-b-2 ${
                   tab === "transcripts"
                     ? "border-blue-500 text-white"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
+                    : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
                 }`}
               >
                 Transcripts
@@ -384,10 +384,10 @@ export default function Activity() {
           {tab === "events" && (
             <div className="flex items-center gap-3">
               {/* Show technical details toggle */}
-              <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer select-none">
+              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 cursor-pointer select-none">
                 <input
                   type="checkbox"
-                  className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-slate-600 bg-slate-100 dark:bg-slate-800 text-blue-500 focus:ring-blue-500"
                   checked={showTechnical}
                   onChange={(e) => setShowTechnical(e.target.checked)}
                   data-testid="show-technical-toggle"
@@ -400,7 +400,7 @@ export default function Activity() {
               <select
                 value={eventCount}
                 onChange={(e) => setEventCount(Number(e.target.value))}
-                className="bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-sm text-slate-300"
+                className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-sm text-slate-700 dark:text-slate-300"
               >
                 <option value={50}>Last 50</option>
                 <option value={100}>Last 100</option>
@@ -410,7 +410,7 @@ export default function Activity() {
 
               <button
                 onClick={() => fetchActivity()}
-                className="text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-1"
+                className="text-sm text-slate-600 dark:text-slate-400 hover:text-white transition-colors flex items-center gap-1"
               >
                 <Icon name="refresh" size={16} />
                 Refresh
@@ -420,7 +420,7 @@ export default function Activity() {
                 onClick={handleDedupe}
                 disabled={deduping}
                 title="Remove duplicate events from the log"
-                className="text-sm text-slate-400 hover:text-amber-300 transition-colors flex items-center gap-1 disabled:opacity-50"
+                className="text-sm text-slate-600 dark:text-slate-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors flex items-center gap-1 disabled:opacity-50"
               >
                 <Icon name="auto_fix_high" size={16} />
                 {deduping ? "Cleaning..." : "Clean up"}
@@ -430,7 +430,7 @@ export default function Activity() {
         </div>
 
         {dedupeResult && tab === "events" && (
-          <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-3 py-1.5 mb-4">
+          <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-3 py-1.5 mb-4">
             {dedupeResult}
           </div>
         )}
@@ -455,7 +455,7 @@ export default function Activity() {
             ) : (
               <>
                 {showTechnical && (
-                  <div className="mb-4 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-3 py-1.5">
+                  <div className="mb-4 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-3 py-1.5">
                     Showing all {rawEvents.length} raw events including internal system activity.
                   </div>
                 )}

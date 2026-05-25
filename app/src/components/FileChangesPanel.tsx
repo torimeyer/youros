@@ -59,7 +59,7 @@ export default function FileChangesPanel({ turnId, files }: Props) {
     <div className="mt-2" data-testid="file-changes-panel">
       <button
         onClick={() => setExpanded(e => !e)}
-        className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+        className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
         data-testid="file-changes-toggle"
         aria-expanded={expanded}
       >
@@ -72,27 +72,27 @@ export default function FileChangesPanel({ turnId, files }: Props) {
           {files.map(file => (
             <div
               key={file.path}
-              className="rounded border border-slate-700 overflow-hidden text-xs"
+              className="rounded border border-slate-200 dark:border-slate-700 overflow-hidden text-xs"
               data-testid={`file-change-${file.path}`}
             >
-              <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-800">
-                <span className="font-mono text-slate-300 truncate">{file.path}</span>
+              <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800">
+                <span className="font-mono text-slate-700 dark:text-slate-300 truncate">{file.path}</span>
                 <div className="flex items-center gap-2 shrink-0">
                   {file.is_binary && (
                     <span className="text-slate-500 text-xs">{file.mime_type} · {file.size_bytes}B</span>
                   )}
                   {errors[file.path] && (
-                    <span className="text-red-400 text-xs" data-testid={`undo-error-${file.path}`}>
+                    <span className="text-red-600 dark:text-red-400 text-xs" data-testid={`undo-error-${file.path}`}>
                       {errors[file.path]}
                     </span>
                   )}
                   {undone[file.path] ? (
-                    <span className="text-green-400 text-xs" data-testid={`undone-${file.path}`}>Undone</span>
+                    <span className="text-green-600 dark:text-green-400 text-xs" data-testid={`undone-${file.path}`}>Undone</span>
                   ) : (
                     <button
                       onClick={() => undoFile(file.path)}
                       disabled={!!loading[file.path]}
-                      className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-300 transition-colors"
+                      className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-700 dark:text-slate-300 transition-colors"
                       data-testid={`undo-btn-${file.path}`}
                     >
                       {loading[file.path] ? '…' : 'Undo'}
@@ -109,7 +109,7 @@ export default function FileChangesPanel({ turnId, files }: Props) {
           {files.length > 1 && (
             <button
               onClick={undoAll}
-              className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+              className="text-xs px-3 py-1 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-700 dark:text-slate-300 transition-colors"
               data-testid="undo-all-btn"
             >
               Undo all changes

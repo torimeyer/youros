@@ -122,12 +122,12 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
     <div>
       {/* Header with create button */}
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
           Use labels to organize your needles into groups.
         </p>
         <button
           onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300"
+          className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
         >
           <Icon name="add" className="text-base" />
           New label
@@ -136,7 +136,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
 
       {/* Create form */}
       {showCreate && (
-        <div className="bg-slate-900/60 border border-slate-800 rounded-lg px-5 py-4 mb-4">
+        <div className="bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg px-5 py-4 mb-4">
           <div className="flex items-center gap-3 mb-3">
             <input
               type="text"
@@ -144,7 +144,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Label name"
-              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 placeholder-slate-600 focus:outline-none focus:border-slate-500"
+              className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-300 placeholder-slate-600 focus:outline-none focus:border-slate-500"
               autoFocus
             />
             <button
@@ -161,7 +161,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
                 setNewColor("");
                 setError(null);
               }}
-              className="p-2 text-slate-400 hover:text-white"
+              className="p-2 text-slate-600 dark:text-slate-400 hover:text-white"
             >
               <Icon name="close" className="text-base" />
             </button>
@@ -201,7 +201,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
           )}
 
           {error && (
-            <p className="mt-2 text-xs text-red-400">{error}</p>
+            <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>
           )}
         </div>
       )}
@@ -210,7 +210,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
       {labels.length === 0 && !showCreate ? (
         <div className="text-center py-12">
           <Icon name="label" className="text-4xl text-slate-600 mb-3" />
-          <p className="text-slate-400 text-sm">No labels yet.</p>
+          <p className="text-slate-600 dark:text-slate-400 text-sm">No labels yet.</p>
           <p className="text-slate-500 text-xs mt-1">
             Create labels to organize your needles into groups.
           </p>
@@ -222,8 +222,8 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
               key={label.id}
               className={`group flex items-center gap-2 px-3 py-2 rounded-lg border transition-all cursor-pointer ${
                 activeLabelId === label.id
-                  ? "border-white/30 bg-slate-800"
-                  : "border-slate-800 bg-slate-900/60 hover:border-slate-700"
+                  ? "border-white/30 bg-slate-100 dark:bg-slate-800"
+                  : "border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 hover:border-slate-200 dark:hover:border-slate-700"
               }`}
               onClick={() => {
                 if (activeLabelId === label.id) {
@@ -238,7 +238,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
                 className="w-3 h-3 rounded-full flex-shrink-0"
                 style={{ backgroundColor: label.color }}
               />
-              <span className="text-sm text-slate-300 font-medium">{label.name}</span>
+              <span className="text-sm text-slate-700 dark:text-slate-300 font-medium">{label.name}</span>
 
               {/* Delete button (shows on hover) */}
               <button
@@ -246,7 +246,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
                   e.stopPropagation();
                   deleteLabel(label.id);
                 }}
-                className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-500 hover:text-red-400 transition-opacity"
+                className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-500 hover:text-red-600 dark:hover:text-red-400 transition-opacity"
                 title="Delete label"
               >
                 <Icon name="close" className="text-sm" />
@@ -255,7 +255,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
               <div className="relative" onClick={(e) => e.stopPropagation()}>
                 <button
                   onClick={() => setSharingLabelId(sharingLabelId === label.id ? null : label.id)}
-                  className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-500 hover:text-blue-400 transition-opacity"
+                  className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-opacity"
                   title="Share this label view"
                 >
                   <Icon name="share" className="text-sm" />

@@ -56,11 +56,11 @@ interface WorkflowRun {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { color: string; label: string }> = {
-    pending: { color: 'text-slate-400 bg-slate-800', label: 'Waiting' },
-    running: { color: 'text-blue-400 bg-blue-500/20', label: 'Running' },
-    done: { color: 'text-green-400 bg-green-500/20', label: 'Done' },
-    failed: { color: 'text-red-400 bg-red-500/20', label: 'Failed' },
-    skipped: { color: 'text-yellow-400 bg-yellow-500/20', label: 'Skipped' },
+    pending: { color: 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800', label: 'Waiting' },
+    running: { color: 'text-blue-600 dark:text-blue-400 bg-blue-500/20', label: 'Running' },
+    done: { color: 'text-green-600 dark:text-green-400 bg-green-500/20', label: 'Done' },
+    failed: { color: 'text-red-600 dark:text-red-400 bg-red-500/20', label: 'Failed' },
+    skipped: { color: 'text-yellow-600 dark:text-yellow-400 bg-yellow-500/20', label: 'Skipped' },
   }
   const style = map[status] ?? map['pending']
   return (
@@ -75,10 +75,10 @@ function StatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 function StepIcon({ status }: { status: string }) {
-  if (status === 'done') return <Icon name="check_circle" className="text-green-400 text-lg" />
-  if (status === 'running') return <Icon name="pending" className="text-blue-400 text-lg animate-pulse" />
-  if (status === 'failed') return <Icon name="cancel" className="text-red-400 text-lg" />
-  if (status === 'skipped') return <Icon name="remove_circle" className="text-yellow-400 text-lg" />
+  if (status === 'done') return <Icon name="check_circle" className="text-green-600 dark:text-green-400 text-lg" />
+  if (status === 'running') return <Icon name="pending" className="text-blue-600 dark:text-blue-400 text-lg animate-pulse" />
+  if (status === 'failed') return <Icon name="cancel" className="text-red-600 dark:text-red-400 text-lg" />
+  if (status === 'skipped') return <Icon name="remove_circle" className="text-yellow-600 dark:text-yellow-400 text-lg" />
   return <Icon name="radio_button_unchecked" className="text-slate-600 text-lg" />
 }
 
@@ -131,15 +131,15 @@ function RunsDrawer({ workflowId }: { workflowId: string }) {
 
   return (
     <div className="px-4 pb-3 space-y-2">
-      <p className="text-xs font-semibold text-slate-400 mb-1">Recent runs</p>
+      <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Recent runs</p>
       {runs.map((run) => {
         const isExpanded = expandedRun === run.run_id
         const statusColors: Record<string, string> = {
-          done: 'text-green-400 bg-green-500/10',
-          failed: 'text-red-400 bg-red-500/10',
-          running: 'text-blue-400 bg-blue-500/10',
+          done: 'text-green-600 dark:text-green-400 bg-green-500/10',
+          failed: 'text-red-600 dark:text-red-400 bg-red-500/10',
+          running: 'text-blue-600 dark:text-blue-400 bg-blue-500/10',
         }
-        const statusColor = statusColors[run.status] ?? 'text-slate-400 bg-slate-800'
+        const statusColor = statusColors[run.status] ?? 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800'
         const startedLabel = run.started_at
           ? new Date(run.started_at).toLocaleString()
           : 'Unknown start'
@@ -147,17 +147,17 @@ function RunsDrawer({ workflowId }: { workflowId: string }) {
         return (
           <div
             key={run.run_id}
-            className="rounded-lg border border-slate-700/50 bg-slate-800/40 overflow-hidden"
+            className="rounded-lg border border-slate-200 dark:border-slate-700/50 bg-slate-50/40 dark:bg-slate-800/40 overflow-hidden"
           >
             {/* Run summary row */}
             <button
-              className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-slate-800/60 transition-colors"
+              className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-slate-50/60 dark:hover:bg-slate-800/60 transition-colors"
               onClick={() => setExpandedRun(isExpanded ? null : run.run_id)}
             >
               <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${statusColor}`}>
                 {run.status === 'done' ? 'Success' : run.status === 'failed' ? 'Failed' : run.status}
               </span>
-              <span className="text-xs text-slate-300 flex-1">{startedLabel}</span>
+              <span className="text-xs text-slate-700 dark:text-slate-300 flex-1">{startedLabel}</span>
               {run.duration_seconds != null && (
                 <span className="text-xs text-slate-500 shrink-0">
                   {formatDuration(run.duration_seconds)}
@@ -171,13 +171,13 @@ function RunsDrawer({ workflowId }: { workflowId: string }) {
 
             {/* Expanded step breakdown */}
             {isExpanded && (
-              <div className="border-t border-slate-700/50 px-3 py-2 space-y-1.5">
+              <div className="border-t border-slate-200 dark:border-slate-700/50 px-3 py-2 space-y-1.5">
                 {run.steps.map((step) => {
                   const stepColors: Record<string, string> = {
-                    done: 'text-green-400',
-                    failed: 'text-red-400',
-                    skipped: 'text-yellow-400',
-                    running: 'text-blue-400',
+                    done: 'text-green-600 dark:text-green-400',
+                    failed: 'text-red-600 dark:text-red-400',
+                    skipped: 'text-yellow-600 dark:text-yellow-400',
+                    running: 'text-blue-600 dark:text-blue-400',
                   }
                   const stepColor = stepColors[step.status] ?? 'text-slate-500'
                   const stepDuration =
@@ -210,7 +210,7 @@ function RunsDrawer({ workflowId }: { workflowId: string }) {
                           {/* Link to agent row on the Agents page */}
                           <Link
                             to={`/agents?highlight=${encodeURIComponent(step.agent_name)}`}
-                            className="text-xs text-slate-300 hover:text-white hover:underline transition-colors"
+                            className="text-xs text-slate-700 dark:text-slate-300 hover:text-white hover:underline transition-colors"
                             onClick={(e) => e.stopPropagation()}
                           >
                             {step.agent_name}
@@ -221,7 +221,7 @@ function RunsDrawer({ workflowId }: { workflowId: string }) {
                           )}
                         </div>
                         {step.error && (
-                          <p className="text-[11px] text-red-400 mt-0.5">{step.error}</p>
+                          <p className="text-[11px] text-red-600 dark:text-red-400 mt-0.5">{step.error}</p>
                         )}
                       </div>
                     </div>
@@ -262,7 +262,7 @@ function WorkflowDetail({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-xl max-h-[80vh] flex flex-col">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-xl max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div>
@@ -284,7 +284,7 @@ function WorkflowDetail({
           {workflow.steps.map((step, i) => (
             <div
               key={step.id}
-              className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50"
+              className="flex items-start gap-3 p-3 rounded-lg bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50"
             >
               <div className="mt-0.5">
                 <StepIcon status={step.status} />
@@ -299,9 +299,9 @@ function WorkflowDetail({
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-400 mt-0.5 truncate">{step.prompt}</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 truncate">{step.prompt}</p>
                 {step.error && (
-                  <p className="text-xs text-red-400 mt-1">{step.error}</p>
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">{step.error}</p>
                 )}
                 <div className="flex gap-3 mt-1 text-[10px] text-slate-600">
                   <span>{step.model} | ${step.budget}</span>
@@ -322,14 +322,14 @@ function WorkflowDetail({
         <div className="flex gap-3 justify-end">
           <button
             onClick={() => onDelete(workflow.id)}
-            className="text-red-400 hover:text-red-300 text-sm px-4 py-2 transition-colors"
+            className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm px-4 py-2 transition-colors"
           >
             Delete
           </button>
           <button
             onClick={() => onRun(workflow.id)}
             disabled={workflow.status === 'running'}
-            className="bg-pink-500 hover:bg-pink-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
+            className="bg-pink-500 hover:bg-pink-600 disabled:bg-slate-200 dark:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
           >
             {workflow.status === 'running' ? 'Running...' : 'Run automation'}
           </button>
@@ -391,25 +391,25 @@ function NewWorkflowModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-xl max-h-[85vh] flex flex-col">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-xl max-h-[85vh] flex flex-col">
         <h3 className="text-lg font-semibold text-white mb-4">New automation</h3>
 
         {/* Name */}
-        <label className="block text-sm text-slate-400 mb-1">Automation name</label>
+        <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Automation name</label>
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Research and write report"
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-5"
+          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-5"
         />
 
         {/* Steps */}
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm text-slate-400 font-medium">Steps</span>
+          <span className="text-sm text-slate-600 dark:text-slate-400 font-medium">Steps</span>
           <button
             onClick={addStep}
-            className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
           >
             <Icon name="add" className="text-base" />
             Add step
@@ -422,14 +422,14 @@ function NewWorkflowModal({
             return (
               <div
                 key={i}
-                className="p-3 bg-slate-800/50 border border-slate-700/50 rounded-lg space-y-2"
+                className="p-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg space-y-2"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-400">Step {i + 1}</span>
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Step {i + 1}</span>
                   {steps.length > 1 && (
                     <button
                       onClick={() => removeStep(i)}
-                      className="text-slate-600 hover:text-red-400 transition-colors"
+                      className="text-slate-600 hover:text-red-600 dark:hover:text-red-400 transition-colors"
                     >
                       <Icon name="delete" className="text-sm" />
                     </button>
@@ -444,7 +444,7 @@ function NewWorkflowModal({
                       value={step.agent_name}
                       onChange={(e) => updateStep(i, 'agent_name', e.target.value)}
                       placeholder="e.g. researcher"
-                      className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white text-xs placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-white text-xs placeholder-slate-600 focus:outline-none focus:border-blue-500"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
@@ -453,7 +453,7 @@ function NewWorkflowModal({
                       <select
                         value={step.model}
                         onChange={(e) => updateStep(i, 'model', e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-blue-500"
+                        className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-blue-500"
                       >
                         <option value="sonnet">Sonnet</option>
                         <option value="opus">Opus</option>
@@ -468,7 +468,7 @@ function NewWorkflowModal({
                         step={0.5}
                         value={step.budget}
                         onChange={(e) => updateStep(i, 'budget', parseFloat(e.target.value) || 0)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-blue-500"
+                        className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-blue-500"
                       />
                     </div>
                   </div>
@@ -481,7 +481,7 @@ function NewWorkflowModal({
                     onChange={(e) => updateStep(i, 'prompt', e.target.value)}
                     rows={2}
                     placeholder="Describe what this agent should do..."
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white text-xs placeholder-slate-600 focus:outline-none focus:border-blue-500 resize-none"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-white text-xs placeholder-slate-600 focus:outline-none focus:border-blue-500 resize-none"
                   />
                 </div>
 
@@ -504,8 +504,8 @@ function NewWorkflowModal({
                             }}
                             className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
                               checked
-                                ? 'border-blue-500 text-blue-400 bg-blue-500/10'
-                                : 'border-slate-700 text-slate-500 hover:border-slate-500'
+                                ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-500/10'
+                                : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:border-slate-500'
                             }`}
                           >
                             {pid}
@@ -522,13 +522,13 @@ function NewWorkflowModal({
 
         {/* Actions */}
         <div className="flex justify-end gap-3">
-          <button onClick={onCancel} className="text-slate-400 hover:text-white text-sm px-4 py-2 transition-colors">
+          <button onClick={onCancel} className="text-slate-600 dark:text-slate-400 hover:text-white text-sm px-4 py-2 transition-colors">
             Cancel
           </button>
           <button
             onClick={() => { if (valid) onSave(name, steps) }}
             disabled={!valid}
-            className="bg-pink-500 hover:bg-pink-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
+            className="bg-pink-500 hover:bg-pink-600 disabled:bg-slate-200 dark:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
           >
             Save automation
           </button>
@@ -699,7 +699,7 @@ export default function Workflows() {
   }
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="Automations" />
 
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
@@ -707,7 +707,7 @@ export default function Workflows() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-white">Automations</h1>
-            <p className="text-sm text-slate-400 mt-1">
+            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
               Chain agents together. Steps run at the same time unless you set dependencies.
             </p>
           </div>
@@ -730,7 +730,7 @@ export default function Workflows() {
         {status && (
           <div
             role="status"
-            className="mb-4 p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm"
+            className="mb-4 p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-600 dark:text-green-400 text-sm"
           >
             {status}
           </div>
@@ -739,7 +739,7 @@ export default function Workflows() {
         {/* Templates section */}
         {templates.length > 0 && (
           <div className="mb-8">
-            <h2 className="text-sm font-semibold text-slate-300 mb-2">Templates</h2>
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Templates</h2>
             <p className="text-xs text-slate-500 mb-3">
               Start from a ready-made automation. Click Use to open it in the builder.
             </p>
@@ -747,9 +747,9 @@ export default function Workflows() {
               {templates.map((tpl) => (
                 <div
                   key={tpl.id}
-                  className="flex items-start gap-3 p-4 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-600 transition-colors"
+                  className="flex items-start gap-3 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-600 transition-colors"
                 >
-                  <Icon name={tpl.icon} className="text-2xl text-pink-400 shrink-0 mt-0.5" />
+                  <Icon name={tpl.icon} className="text-2xl text-pink-600 dark:text-pink-400 shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-white">{tpl.name}</span>
@@ -757,11 +757,11 @@ export default function Workflows() {
                         {tpl.steps.length} {tpl.steps.length === 1 ? 'step' : 'steps'}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-400 mt-1">{tpl.description}</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">{tpl.description}</p>
                   </div>
                   <button
                     onClick={() => handleUseTemplate(tpl)}
-                    className="shrink-0 bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-medium rounded-lg px-3 py-1.5 transition-colors"
+                    className="shrink-0 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100 text-xs font-medium rounded-lg px-3 py-1.5 transition-colors"
                   >
                     Use
                   </button>
@@ -802,11 +802,11 @@ export default function Workflows() {
                       name="account_tree"
                       className={`text-2xl shrink-0 ${
                         wf.status === 'running'
-                          ? 'text-blue-400'
+                          ? 'text-blue-600 dark:text-blue-400'
                           : wf.status === 'done'
-                          ? 'text-green-400'
+                          ? 'text-green-600 dark:text-green-400'
                           : wf.status === 'failed'
-                          ? 'text-red-400'
+                          ? 'text-red-600 dark:text-red-400'
                           : 'text-slate-600'
                       }`}
                     />
@@ -836,7 +836,7 @@ export default function Workflows() {
                               ? 'bg-red-400'
                               : s.status === 'skipped'
                               ? 'bg-yellow-400'
-                              : 'bg-slate-700'
+                              : 'bg-slate-200 dark:bg-slate-700'
                           }`}
                         />
                       ))}
@@ -847,7 +847,7 @@ export default function Workflows() {
                         onClick={(e) => { e.stopPropagation(); handleRun(wf.id) }}
                         disabled={wf.status === 'running'}
                         title="Run automation"
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:text-slate-700 transition-colors"
+                        className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 disabled:text-slate-700 transition-colors"
                       >
                         <Icon name="play_arrow" className="text-base" />
                       </button>
@@ -856,8 +856,8 @@ export default function Workflows() {
                         title="Show run history"
                         className={`p-1.5 rounded-lg transition-colors ${
                           runsOpen
-                            ? 'text-indigo-400 bg-indigo-500/10'
-                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                            ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-500/10'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
                         }`}
                       >
                         <Icon name="history" className="text-base" />
@@ -865,14 +865,14 @@ export default function Workflows() {
                       <button
                         onClick={(e) => { e.stopPropagation(); navigate(`/workflows/builder/${wf.id}`) }}
                         title="Edit automation"
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                        className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                       >
                         <Icon name="edit" className="text-base" />
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(wf.id) }}
                         title="Delete automation"
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors"
+                        className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                       >
                         <Icon name="delete" className="text-base" />
                       </button>
@@ -881,7 +881,7 @@ export default function Workflows() {
 
                   {/* Run history panel */}
                   {runsOpen && (
-                    <div className="border-t border-slate-800">
+                    <div className="border-t border-slate-200 dark:border-slate-800">
                       <RunsDrawer workflowId={wf.id} />
                     </div>
                   )}

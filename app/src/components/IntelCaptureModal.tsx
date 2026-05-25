@@ -80,12 +80,12 @@ export default function IntelCaptureModal({ open, onClose, onCaptured }: Props) 
       aria-label="Add competitor signal"
       data-testid="intel-capture-modal"
     >
-      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-semibold">Add competitor signal</h2>
           <button
             onClick={handleClose}
-            className="text-slate-400 hover:text-white transition-colors"
+            className="text-slate-600 dark:text-slate-400 hover:text-white transition-colors"
             aria-label="Close"
           >
             <Icon name="close" size={20} />
@@ -95,7 +95,7 @@ export default function IntelCaptureModal({ open, onClose, onCaptured }: Props) 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Competitor */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
               Competitor
             </label>
             <input
@@ -104,7 +104,7 @@ export default function IntelCaptureModal({ open, onClose, onCaptured }: Props) 
               value={competitor}
               onChange={(e) => setCompetitor(e.target.value)}
               placeholder="Company name"
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
               data-testid="intel-competitor-input"
               required
             />
@@ -148,7 +148,7 @@ export default function IntelCaptureModal({ open, onClose, onCaptured }: Props) 
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://competitor.com/article"
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
                 data-testid="intel-url-input"
               />
             ) : (
@@ -157,7 +157,7 @@ export default function IntelCaptureModal({ open, onClose, onCaptured }: Props) 
                 onChange={(e) => setText(e.target.value)}
                 placeholder="Paste a quote, note, or summary…"
                 rows={4}
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500 resize-none"
+                className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500 resize-none"
                 data-testid="intel-text-input"
               />
             )}
@@ -165,7 +165,7 @@ export default function IntelCaptureModal({ open, onClose, onCaptured }: Props) 
 
           {/* Tags */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
               Tags <span className="text-slate-500 font-normal">(comma-separated)</span>
             </label>
             <input
@@ -173,13 +173,13 @@ export default function IntelCaptureModal({ open, onClose, onCaptured }: Props) 
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder="pricing, feature, partnership"
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
               data-testid="intel-tags-input"
             />
           </div>
 
           {error && (
-            <p className="text-sm text-red-400" role="alert">
+            <p className="text-sm text-red-600 dark:text-red-400" role="alert">
               {error}
             </p>
           )}
@@ -188,7 +188,7 @@ export default function IntelCaptureModal({ open, onClose, onCaptured }: Props) 
             <button
               type="button"
               onClick={handleClose}
-              className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+              className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-white transition-colors"
             >
               Cancel
             </button>
