@@ -210,9 +210,19 @@ async def list_tasks(
     include_session_tasks: bool = False,
     source: Optional[str] = None,
     clear_to_build: Optional[bool] = None,
+    include_closed: bool = False,
 ):
     try:
-        tasks = await ostk.list_tasks(status=status, priority=priority)
+        # Default to active-only to avoid shipping ~1400 closed needles on
+        # every 3s poll (→1694). Callers opt into closed history via
+        # ?status=closed or ?include_closed=true.
+        if status is None and not include_closed:
+            ostk_status = "open"
+        elif include_closed:
+            ostk_status = None
+        else:
+            ostk_status = status
+        tasks = await ostk.list_tasks(status=ostk_status, priority=priority)
         # Apply custom sort order within each priority group
         tasks = task_order_store.apply_order(tasks)
         # Load all assignments once for efficiency
@@ -375,10 +385,10 @@ async def task_counts():
         return t.get("status") not in ("closed", "shelved")
 
     try:
-        # No status filter on the ostk call: we need open and in_progress
-        # so the badge matches the Tasks page default view, which shows
-        # every non-closed, non-shelved task.
-        tasks = await ostk.list_tasks()
+        # Active-only: in_progress is an overlay applied by the router; ostk
+        # stores those tasks as "open". Passing status="open" avoids loading
+        # ~1400 closed needles just to count the active ones (→1694).
+        tasks = await ostk.list_tasks(status="open")
         open_count = sum(
             1 for t in tasks
             if _is_active(t) and not _is_session_task(t) and not _is_e2e_task(t)

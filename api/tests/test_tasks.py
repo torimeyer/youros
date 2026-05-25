@@ -70,7 +70,9 @@ async def test_list_tasks_with_priority_filter(client):
         resp = await client.get("/api/tasks?priority=P0")
 
     assert resp.status_code == 200
-    ctx.mock_ostk.list_tasks.assert_called_once_with(status=None, priority="P0")
+    # →1694: default request now passes status="open" (not None) to avoid
+    # shipping closed needles. Priority filter stacks on top.
+    ctx.mock_ostk.list_tasks.assert_called_once_with(status="open", priority="P0")
 
 
 # --- Regression: e2e smoke task filter on GET /api/tasks ---
@@ -3130,9 +3132,10 @@ async def test_delete_all_returns_count(client):
 async def test_task_counts_returns_open_count(client):
     """counts endpoint returns the number of visible open tasks.
 
-    The endpoint calls ostk.list_tasks() with no status filter so it
-    can include both open and in_progress tasks (mirroring the Tasks
-    page default view).
+    After →1694 the endpoint calls ostk.list_tasks(status="open") instead
+    of list_tasks() so it doesn't load ~1400 closed needles just to count
+    the active ones. in_progress tasks are stored as "open" in ostk and
+    get the in_progress overlay in the router.
     """
     tasks = [
         _make_task(id="t-1", title="Write report", status="open"),
@@ -3145,7 +3148,7 @@ async def test_task_counts_returns_open_count(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["open"] == 2
-    mock_ostk.list_tasks.assert_called_once_with()
+    mock_ostk.list_tasks.assert_called_once_with(status="open")
 
 
 @pytest.mark.asyncio
