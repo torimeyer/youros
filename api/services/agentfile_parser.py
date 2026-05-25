@@ -199,7 +199,8 @@ class AgentfileConfig:
     """
 
     # Legacy flat fields (kept for backward compatibility with existing callers).
-    name: str = ""
+    name: str = ""  # machine routing key — always path.stem, never a display name
+    title: str = ""  # human-readable display name from manifest "name" field
     model: str = "auto"
     prompt: str = ""
     tools: list[str] = field(default_factory=list)
@@ -624,7 +625,7 @@ def _apply_manifest(path: Path, config: AgentfileConfig, in_file: set[str]) -> N
     if "NAME" in in_file:
         logger.warning("agentfile %s has NAME directive — should be in manifest.json", path.name)
     elif "name" in entry:
-        config.name = entry["name"]
+        config.title = entry["name"]
 
     if "DESC" in in_file:
         logger.warning("agentfile %s has DESC directive — should be in manifest.json", path.name)
