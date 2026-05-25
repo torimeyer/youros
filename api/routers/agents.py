@@ -2490,6 +2490,34 @@ _resolve_cache: dict[str, tuple[float, Optional[Path]]] = {}
 # cold-rebuild spike on every flush cycle (→1192).
 _RESOLVE_TTL_SECONDS = 60.0
 
+# →1687: bound the per-request read storm for per_agent_transcript_bytes.
+# The /api/agents handler annotates every returned row with this field by
+# calling _get_per_agent_transcript_bytes, which scans the (now bloated)
+# transcript tree from disk via _resolve_transcript_source_uncached. With
+# many historical rows and frequent polling under agent activity, the
+# handler re-scanned the whole tree N times per request and pegged the CPU
+# file-read-bound. This TTL cache collapses repeated polls to one disk scan
+# per agent per window. A terminal agent's transcript never changes, so it
+# gets a long TTL; a running agent's file grows, so it gets a short one to
+# keep the displayed size fresh. per_agent_transcript_bytes is a display
+# field (→1549); stall/ghost detection uses transcript_bytes, computed in
+# the snapshot enrich pass, so coarse freshness here is safe.
+_per_agent_bytes_cache: dict[str, tuple[float, int]] = {}
+_PER_AGENT_BYTES_TTL_RUNNING = 3.0
+_PER_AGENT_BYTES_TTL_TERMINAL = 60.0
+
+
+def _per_agent_bytes_ttl_for(name: str) -> float:
+    meta = agent_metadata.get(name) or {}
+    if meta.get("status") == "running":
+        return _PER_AGENT_BYTES_TTL_RUNNING
+    return _PER_AGENT_BYTES_TTL_TERMINAL
+
+
+def _reset_per_agent_bytes_cache() -> None:
+    """Test hook. Drop the in-memory per-agent transcript byte cache."""
+    _per_agent_bytes_cache.clear()
+
 # Serialize concurrent enrich passes in list_agents. Without this, multiple
 # pollers (standing-rules hooks across many sessions) hit a cold resolve
 # and candidates cache simultaneously, each thread duplicating the same
@@ -3463,6 +3491,24 @@ def _get_per_agent_transcript_bytes(name: str) -> int:
         return 0
 
 
+def _get_per_agent_transcript_bytes_cached(name: str) -> int:
+    """TTL-cached wrapper around :func:`_get_per_agent_transcript_bytes` (→1687).
+
+    The /api/agents handler calls this once per returned row. Without the
+    cache, each poll re-scanned the transcript tree from disk for every
+    agent, which saturated the CPU under agent activity. The TTL is
+    status-aware: running agents refresh quickly, terminal agents (whose
+    transcript is frozen) are cached for a minute.
+    """
+    now = time.monotonic()
+    cached = _per_agent_bytes_cache.get(name)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    value = _get_per_agent_transcript_bytes(name)
+    _per_agent_bytes_cache[name] = (now + _per_agent_bytes_ttl_for(name), value)
+    return value
+
+
 def _format_jsonl_transcript(jsonl_path: Path) -> str:
     """Parse a Claude Code agent JSONL output file into a readable transcript.
 
@@ -4198,7 +4244,7 @@ async def list_agents(
     for _ar in agents:
         _ar_name = _ar.get("name", "")
         _ar["kernel_event_index"] = _ar.get("transcript_bytes") or 0
-        _ar["per_agent_transcript_bytes"] = _get_per_agent_transcript_bytes(_ar_name)
+        _ar["per_agent_transcript_bytes"] = _get_per_agent_transcript_bytes_cached(_ar_name)
     if summary:
         compact_keys = ("name", "source", "status", "spawned_at", "transcript_bytes",
                         "kernel_event_index", "per_agent_transcript_bytes",
