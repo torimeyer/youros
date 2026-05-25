@@ -191,29 +191,27 @@ export function NeedsClarityChip({
         <button
           type="button"
           data-testid="needs-clarity-chip"
-          className="inline-flex items-center p-0.5 rounded text-amber-300/40 cursor-pointer hover:text-amber-300/60 transition-colors"
-          title="Optional clarity tips available"
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-sky-500/10 text-sky-400/70 border border-sky-500/20 cursor-pointer hover:bg-sky-500/20 transition-colors dark:bg-sky-500/10 dark:text-sky-400/70 dark:border-sky-500/20"
+          title="Optional tips to strengthen this spec"
           onClick={(e) => {
             e.stopPropagation()
             setOpen(true)
           }}
         >
-          <Icon name="lightbulb" className="text-[10px]" />
-          <span className="sr-only">Optional clarity tips</span>
+          Enhance
         </button>
       ) : (
         <button
           type="button"
           data-testid="needs-clarity-chip"
-          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-amber-500/8 text-amber-300/70 border border-amber-500/15 cursor-pointer hover:bg-amber-500/15 transition-colors"
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-amber-500/10 text-amber-400/80 border border-amber-500/20 cursor-pointer hover:bg-amber-500/20 transition-colors dark:bg-amber-500/10 dark:text-amber-400/80 dark:border-amber-500/20"
           title={checkLines.join('\n')}
           onClick={(e) => {
             e.stopPropagation()
             setOpen(true)
           }}
         >
-          <Icon name="info" className="text-[9px]" />
-          Add detail?
+          Almost ready
           <span data-testid="needs-clarity-tooltip" className="sr-only">
             {checkLines.join('; ')}
           </span>
