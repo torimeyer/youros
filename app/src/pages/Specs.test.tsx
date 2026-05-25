@@ -1864,6 +1864,22 @@ describe('SpecBody', () => {
     expect(pre).not.toBeNull()
     expect(pre!.textContent).toContain('unclosed block')
   })
+
+  it('renders GFM pipe tables as HTML table elements →1711', () => {
+    const body = '| Layer | State today | Action |\n|---|---|---|\n| Auth | broken | fix it |'
+    const { container } = render(<SpecBody body={body} />)
+    expect(container.querySelector('table')).not.toBeNull()
+    expect(container.querySelector('th')).not.toBeNull()
+    expect(container.querySelector('td')).not.toBeNull()
+    expect(screen.getByText('Layer')).toBeInTheDocument()
+    expect(screen.getByText('broken')).toBeInTheDocument()
+  })
+
+  it('does not render pipe table separators as visible text →1711', () => {
+    const body = '| A | B |\n|---|---|\n| x | y |'
+    render(<SpecBody body={body} />)
+    expect(screen.queryByText(/---/)).toBeNull()
+  })
 })
 
 describe('Specs focus from kanban link (→1501)', () => {

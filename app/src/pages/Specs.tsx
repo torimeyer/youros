@@ -178,12 +178,13 @@ function TaskProgressBar({ summary }: { summary: TaskSummary }) {
 
 export function SpecBody({ body }: { body: string }) {
   // Render markdown body as simple formatted text.
-  // Splits on headings and renders paragraphs, bold, inline code, lists, and fenced code blocks.
+  // Splits on headings and renders paragraphs, bold, inline code, lists, fenced code blocks, and GFM pipe tables.
   const lines = body.split("\n");
   const elements: React.ReactNode[] = [];
   let key = 0;
   let inCodeBlock = false;
   const codeLines: string[] = [];
+  const tableLines: string[] = [];
 
   const flushCodeBlock = () => {
     elements.push(
@@ -197,9 +198,56 @@ export function SpecBody({ body }: { body: string }) {
     codeLines.length = 0;
   };
 
+  const isSeparatorRow = (row: string) =>
+    /^\|[\s:]*[-:]+[\s:]*(\|[\s:]*[-:]+[\s:]*)*\|?\s*$/.test(row);
+
+  const parseTableCells = (row: string): string[] => {
+    const inner = row.replace(/^\|/, "").replace(/\|$/, "");
+    return inner.split("|").map((c) => c.trim());
+  };
+
+  const flushTable = () => {
+    if (tableLines.length === 0) return;
+    const sepIdx = tableLines.findIndex(isSeparatorRow);
+    const headerLines = sepIdx > 0 ? tableLines.slice(0, sepIdx) : [];
+    const bodyLines = sepIdx >= 0 ? tableLines.slice(sepIdx + 1) : tableLines;
+    elements.push(
+      <div key={key++} className="overflow-x-auto my-2">
+        <table className="text-xs text-slate-300 border-collapse w-full">
+          {headerLines.length > 0 && (
+            <thead>
+              {headerLines.map((row, ri) => (
+                <tr key={ri} className="border-b border-slate-700">
+                  {parseTableCells(row).map((cell, ci) => (
+                    <th key={ci} className="px-2 py-1 text-left font-semibold text-slate-200">
+                      {renderInline(cell)}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+          )}
+          <tbody>
+            {bodyLines.map((row, ri) => (
+              <tr key={ri} className="border-b border-slate-800">
+                {parseTableCells(row).map((cell, ci) => (
+                  <td key={ci} className="px-2 py-1">
+                    {renderInline(cell)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+    tableLines.length = 0;
+  };
+
   for (const line of lines) {
     // Fenced code block boundary (``` with optional language tag)
     if (line.trimStart().startsWith("```")) {
+      flushTable();
       if (!inCodeBlock) {
         inCodeBlock = true;
       } else {
@@ -216,6 +264,15 @@ export function SpecBody({ body }: { body: string }) {
     }
 
     const trimmed = line.trimStart();
+
+    // GFM pipe table rows
+    if (trimmed.startsWith("|")) {
+      tableLines.push(trimmed);
+      continue;
+    }
+
+    flushTable();
+
     if (trimmed.startsWith("### ")) {
       elements.push(
         <h4 key={key++} className="text-xs font-semibold text-slate-200 mt-2 mb-0.5">
@@ -254,7 +311,8 @@ export function SpecBody({ body }: { body: string }) {
     }
   }
 
-  // Flush unclosed code block (malformed markdown)
+  // Flush any trailing table or unclosed code block
+  flushTable();
   if (inCodeBlock && codeLines.length > 0) {
     flushCodeBlock();
   }
