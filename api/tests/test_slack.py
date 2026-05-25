@@ -264,8 +264,14 @@ class TestSlackService:
             assert is_connected() is False
 
     @pytest.mark.asyncio
-    async def test_list_channels_filters_to_is_member(self):
-        """list_channels must only return channels the user has joined (is_member=True)."""
+    async def test_list_channels_returns_all_api_visible_channels(self):
+        """list_channels must return every channel conversations.list returns.
+
+        The is_member flag only indicates bot membership, not reading rights.
+        Filtering by it caused an empty list when the bot was never invited
+        (→1705). The API already limits results by OAuth scope and channel type;
+        we must not add a second membership gate here.
+        """
         raw_channels = [
             {"id": "C1", "name": "general", "is_private": False, "num_members": 50, "topic": {}, "is_member": True},
             {"id": "C2", "name": "random", "is_private": False, "num_members": 30, "topic": {}, "is_member": False},
@@ -277,7 +283,7 @@ class TestSlackService:
             result = await list_channels()
 
         ids = [ch["id"] for ch in result]
-        assert "C1" in ids, "joined public channel must be included"
-        assert "C3" in ids, "joined private channel must be included"
-        assert "C2" not in ids, "unjoined channel (is_member=False) must be excluded"
-        assert "C4" not in ids, "channel with no is_member field must be excluded"
+        assert "C1" in ids, "member public channel must be included"
+        assert "C2" in ids, "non-member public channel must be included (→1705 fix)"
+        assert "C3" in ids, "member private channel must be included"
+        assert "C4" in ids, "channel with no is_member field must be included"
