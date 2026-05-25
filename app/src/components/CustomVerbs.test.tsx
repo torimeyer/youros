@@ -107,6 +107,53 @@ describe('CustomVerbs — add', () => {
   })
 })
 
+describe('CustomVerbs: suggested commands', () => {
+  it('shows a suggested commands section', async () => {
+    mockedApiGet.mockResolvedValue({ verbs: [] })
+    render(<CustomVerbs />)
+    await waitFor(() => screen.getByTestId('custom-verbs-empty'))
+    expect(screen.getByTestId('suggested-commands')).toBeInTheDocument()
+    expect(screen.getByText(/suggested/i)).toBeInTheDocument()
+  })
+
+  it('renders at least one suggestion with an adopt button', async () => {
+    mockedApiGet.mockResolvedValue({ verbs: [] })
+    render(<CustomVerbs />)
+    await waitFor(() => screen.getByTestId('suggested-commands'))
+    const adoptBtns = screen.getAllByTestId(/^adopt-/)
+    expect(adoptBtns.length).toBeGreaterThan(0)
+  })
+
+  it('clicking adopt calls POST and refreshes', async () => {
+    mockedApiGet
+      .mockResolvedValueOnce({ verbs: [] })
+      .mockResolvedValueOnce({ verbs: [{ name: 'standup', description: 'Write a daily standup update' }] })
+    mockedApiPost.mockResolvedValue({})
+
+    render(<CustomVerbs />)
+    await waitFor(() => screen.getByTestId('suggested-commands'))
+
+    fireEvent.click(screen.getByTestId('adopt-standup'))
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/ostk/language/verb', {
+        name: 'standup',
+        description: expect.any(String),
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('verb-row-standup')).toBeInTheDocument()
+    })
+  })
+
+  it('hides a suggestion once it is already in the list', async () => {
+    mockedApiGet.mockResolvedValue({ verbs: [{ name: 'standup', description: 'Write a daily standup update' }] })
+    render(<CustomVerbs />)
+    await waitFor(() => screen.getByTestId('verb-row-standup'))
+    expect(screen.queryByTestId('adopt-standup')).not.toBeInTheDocument()
+  })
+})
+
 describe('CustomVerbs — remove', () => {
   it('calls DELETE and removes verb from list', async () => {
     mockedApiGet
