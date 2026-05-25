@@ -2345,9 +2345,24 @@ class OstkService:
             # is still required in the happy path.
             ac = doc.get("acceptance_criteria", [])
             ac_all_met = bool(ac) and all(c.get("checked") for c in ac)
+            prior_status = doc["status"]
             doc["status"] = self.compute_spec_status(
-                doc["status"], norm_ids, task_status_map, ac_all_met=ac_all_met
+                prior_status, norm_ids, task_status_map, ac_all_met=ac_all_met
             )
+            # Persist the transition to "complete" so the spec auto-closes
+            # on disk. Without this writeback the frontmatter still says
+            # "building"/"spec" and the spec never durably closes. (→1698)
+            if doc["status"] == "complete" and prior_status not in ("complete", "done"):
+                doc_path_str = doc.get("path", "")
+                if doc_path_str:
+                    try:
+                        if doc_path_str.startswith("/") or doc_path_str.startswith("~"):
+                            _spec_path = Path(doc_path_str).expanduser()
+                        else:
+                            _spec_path = Path(self.cwd) / doc_path_str
+                        self._write_status_to_frontmatter(_spec_path, "complete")
+                    except Exception:
+                        pass  # best effort; stale state better than a 500
 
         # Stage enrichment (→1512): compute shipped/husk/stage per doc
         try:
@@ -2534,6 +2549,41 @@ class OstkService:
                 text = stripped[5:].strip()
                 criteria.append({"text": text, "checked": False})
         return criteria
+
+    def _write_status_to_frontmatter(self, path: Path, status: str) -> None:
+        """Persist a new status value into a spec's YAML frontmatter.
+
+        Rewrites the ``status:`` line in place.  If no ``status:`` field
+        exists, appends one.  No-ops when the file is missing or has no
+        frontmatter block.
+        """
+        if not path.exists():
+            return
+        text = path.read_text()
+        lines = text.split("\n")
+        if not lines or lines[0].strip() != "---":
+            return
+        end = None
+        for i, line in enumerate(lines[1:], 1):
+            if line.strip() == "---":
+                end = i
+                break
+        if end is None:
+            return
+
+        # Rewrite or append status: inside the frontmatter block
+        fm_lines = lines[1:end]
+        replaced = False
+        for idx, line in enumerate(fm_lines):
+            if line.strip().startswith("status:"):
+                fm_lines[idx] = f"status: {status}"
+                replaced = True
+                break
+        if not replaced:
+            fm_lines.append(f"status: {status}")
+
+        new_lines = ["---"] + fm_lines + ["---"] + lines[end + 1:]
+        path.write_text("\n".join(new_lines))
 
     def _write_tasks_to_frontmatter(self, spec_path: str, task_ids: list[str]) -> None:
         """Write task IDs into a spec's YAML front matter ``tasks:`` field.
