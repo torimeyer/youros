@@ -21,6 +21,7 @@ from services.chat_providers import (
     stream_multi_ai_conversation,
 )
 from services.memory_trigger import handle as _handle_memory_trigger
+from config import PROJECT_ROOT
 from services.ostk import ostk
 from services.settings_store import settings_store
 
@@ -545,6 +546,39 @@ async def build_context() -> str:
         return ""
 
 
+def _build_workspace_doc_index() -> str:
+    """Return a compact list of draft and spec docs (filenames only, no content).
+
+    Lets the model answer 'what is the status of X' questions without filesystem
+    discovery calls. Draft = in-progress; spec = promoted/complete. Capped at
+    ~50 entries to keep the injected block small (→1699).
+    """
+    parts: list[str] = []
+    try:
+        draft_dir = PROJECT_ROOT / "docs" / "draft"
+        if draft_dir.is_dir():
+            drafts = sorted(
+                p.name for p in draft_dir.iterdir()
+                if p.suffix == ".md" and not p.name.startswith("_")
+            )[:25]
+            if drafts:
+                parts.append("Draft docs (in progress): " + ", ".join(drafts))
+    except Exception:
+        pass
+    try:
+        spec_dir = PROJECT_ROOT / "docs" / "spec"
+        if spec_dir.is_dir():
+            specs = sorted(
+                p.name for p in spec_dir.iterdir()
+                if p.suffix == ".md" and not p.name.startswith("_")
+            )[:25]
+            if specs:
+                parts.append("Spec docs (promoted/complete): " + ", ".join(specs))
+    except Exception:
+        pass
+    return "\n".join(parts)
+
+
 async def build_baseline_context() -> str:
     """Always-on system context injected into every chat turn."""
     lines = []
@@ -568,6 +602,9 @@ async def build_baseline_context() -> str:
                 lines.append(f"  [{pri}] {title}")
     except Exception:
         pass
+    doc_index = _build_workspace_doc_index()
+    if doc_index:
+        lines.append(doc_index)
     return "\n".join(lines)
 
 
