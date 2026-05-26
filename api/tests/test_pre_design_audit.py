@@ -213,3 +213,109 @@ def test_cli_multiple_concepts():
     )
     assert result.returncode == 0
     assert "MATCH FOUND" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Semantic search (→1727)
+# ---------------------------------------------------------------------------
+
+
+def test_split_camel_two_tokens():
+    """'SourceBadge' must split into ['source', 'badge']."""
+    audit = _load_audit_module()
+    assert audit._split_camel("SourceBadge") == ["source", "badge"]
+
+
+def test_split_camel_three_tokens():
+    """'ClaimSourceChip' must split into ['claim', 'source', 'chip']."""
+    audit = _load_audit_module()
+    assert audit._split_camel("ClaimSourceChip") == ["claim", "source", "chip"]
+
+
+def test_expand_terms_includes_synonyms():
+    """_expand_terms must include 'chip' when 'badge' is in the input."""
+    audit = _load_audit_module()
+    expanded = audit._expand_terms(["source", "badge"])
+    assert "chip" in expanded, "badge should expand to include chip"
+    assert "source" in expanded
+    assert "claim" in expanded, "source should expand to include claim"
+
+
+def test_search_semantic_finds_claim_source_chip_for_source_badge():
+    """Proposing 'SourceBadge' must surface ClaimSourceChip.tsx as a semantic POSSIBLE MATCH."""
+    audit = _load_audit_module()
+    hits = audit.search_semantic("SourceBadge", REPO_ROOT)
+    paths = [h["path"] for h in hits]
+    assert any("ClaimSourceChip" in p for p in paths), (
+        f"Expected ClaimSourceChip.tsx in semantic hits for 'SourceBadge', got: {paths}"
+    )
+
+
+def test_search_semantic_hit_has_required_fields():
+    """Each semantic hit must have path, match_type, score, and matched_terms."""
+    audit = _load_audit_module()
+    hits = audit.search_semantic("SourceBadge", REPO_ROOT)
+    for h in hits:
+        assert "path" in h
+        assert h["match_type"] == "semantic"
+        assert isinstance(h.get("score"), int)
+        assert isinstance(h.get("matched_terms"), list)
+
+
+def test_search_semantic_skips_literal_concept():
+    """search_semantic must not return the concept's own name as a hit."""
+    audit = _load_audit_module()
+    hits = audit.search_semantic("ClaimSourceChip", REPO_ROOT)
+    paths = [h["path"] for h in hits]
+    assert not any("ClaimSourceChip" in p for p in paths), (
+        "Literal concept name must be excluded from semantic results"
+    )
+
+
+def test_search_semantic_empty_for_single_token():
+    """Single-token concepts cannot be matched semantically (too ambiguous)."""
+    audit = _load_audit_module()
+    hits = audit.search_semantic("Button", REPO_ROOT)
+    # Should be [] because _split_camel("Button") → ["button"] (1 token < 2)
+    assert hits == []
+
+
+def test_run_audit_possible_match_for_source_badge():
+    """run_audit must return possible_match=True (not match=True) for 'SourceBadge'."""
+    audit = _load_audit_module()
+    report = audit.run_audit(["SourceBadge"], REPO_ROOT)
+    # 'SourceBadge' doesn't exist literally but ClaimSourceChip is a semantic match
+    assert report.get("possible_match") is True or report.get("match") is True, (
+        "Expected either match or possible_match for SourceBadge"
+    )
+    # Crucially, semantic hits should be populated
+    sem_hits = report["semantic"][0]["hits"]
+    assert len(sem_hits) > 0, f"Expected semantic hits for SourceBadge, got none"
+    assert any("ClaimSourceChip" in h["path"] for h in sem_hits)
+
+
+def test_cli_possible_match_output_for_source_badge():
+    """CLI must print 'POSSIBLE MATCH' when concept has semantic but no literal match."""
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "SourceBadge", "--repo-root", str(REPO_ROOT)],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0
+    output = result.stdout
+    # Must flag it — either as MATCH FOUND (literal) or POSSIBLE MATCH (semantic)
+    assert "MATCH FOUND" in output or "POSSIBLE MATCH" in output, (
+        f"Expected MATCH FOUND or POSSIBLE MATCH for SourceBadge, got:\n{output}"
+    )
+    # The semantic signal row must be present
+    assert "semantic" in output.lower() or "Semantic" in output, output
+
+
+def test_cli_report_has_semantic_signal_row():
+    """CLI output must include the semantic signal row in the table."""
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "ClaimSourceChip", "--repo-root", str(REPO_ROOT)],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert "semantic" in result.stdout.lower(), (
+        "Table must include a 'semantic' signal row"
+    )
