@@ -544,6 +544,52 @@ class OstkService:
         issues_path.write_text("\n".join(updated) + "\n")
         return f"reopened {task_id}"
 
+    async def set_needle_in_progress(self, needle_id: str) -> bool:
+        """Persist in_progress status for a needle in issues.jsonl.
+
+        Only transitions open → in_progress. Already in_progress or
+        terminal needles are left unchanged. Returns True if a write
+        happened, False if no change was needed or needle not found.
+
+        Called at agent spawn/register time so the needle shows
+        in_progress persistently (not just as a live-agent overlay),
+        surviving across agent completion until the branch merges to
+        main and close_task is called.
+        """
+        issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+        if not issues_path.exists():
+            return False
+
+        norm_id = self._normalize_task_id(needle_id)
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        lines = issues_path.read_text().strip().splitlines()
+        found = False
+        changed = False
+        updated: list[str] = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                updated.append(line)
+                continue
+            raw_id = str(entry.get("id", ""))
+            if self._normalize_task_id(raw_id) == norm_id:
+                found = True
+                if entry.get("status") == "open":
+                    entry["status"] = "in_progress"
+                    entry["in_progress_at"] = now_iso
+                    changed = True
+            updated.append(json.dumps(entry, ensure_ascii=False))
+
+        if not found or not changed:
+            return False
+
+        issues_path.write_text("\n".join(updated) + "\n")
+        return True
+
     async def delete_task(self, task_id: str) -> str:
         """Permanently remove a task from issues.jsonl.
 

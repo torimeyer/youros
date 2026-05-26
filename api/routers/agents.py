@@ -4520,6 +4520,29 @@ def _extract_all_needle_ids(
     return list(seen.keys())
 
 
+def _fire_set_needle_in_progress(needle_id: str) -> None:
+    """Schedule a persistent in_progress write for *needle_id*, non-blocking.
+
+    Wraps ostk.set_needle_in_progress in a create_task so the spawn/register
+    hot path is never delayed. Swallows all errors so a JSONL write failure
+    never disrupts agent registration.
+    """
+    if not needle_id:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_set_needle_in_progress_async(needle_id))
+    except RuntimeError:
+        pass
+
+
+async def _set_needle_in_progress_async(needle_id: str) -> None:
+    try:
+        await ostk.set_needle_in_progress(needle_id)
+    except Exception:
+        pass
+
+
 def _build_spec_ac_block(task_id: str, docs: list[dict]) -> str:
     """Return an AC injection block if any doc in *docs* references *task_id*.
 
@@ -5946,13 +5969,16 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
         # Originating task linkage is stored via spawn_meta["task_id"]
         # above. The effective ``in_progress`` label on the task is
         # computed on read (see routers.tasks.list_tasks and the
-        # ``get_running_task_ids`` helper in this module) so that the
-        # label follows the live-agent signal in both directions: on
-        # when an agent is working, off when the last one ends. We do
-        # not write the status back into issues.jsonl here because
-        # that would leave the task "in_progress" forever after the
-        # agent finished. Terminal states (closed, shelved) are
-        # preserved by the overlay logic itself.
+        # ``get_running_task_ids`` helper in this module) for
+        # backward-compat overlay. Additionally, if a needle_id was
+        # resolved, we persistently write in_progress to issues.jsonl
+        # so the status survives across agent completion and is visible
+        # to ostk CLI readers, not just the API overlay. The needle
+        # stays in_progress until the branch merges to main, at which
+        # point the auto-merge path calls close_task (→1714).
+        _spawn_nid = spawn_meta.get("needle_id")
+        if _spawn_nid:
+            _fire_set_needle_in_progress(_spawn_nid)
 
         return {
             "result": f"Agent '{body.name}' spawned",
@@ -6512,6 +6538,11 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     elif existing.get("chat_mode"):
         record["chat_mode"] = existing["chat_mode"]
     agent_metadata[body.name] = record
+    # Persistently mark the needle in_progress when an agent registers
+    # for it (→1714). Fire-and-forget so register latency is unaffected.
+    _reg_nid = record.get("needle_id")
+    if _reg_nid and status == "running":
+        _fire_set_needle_in_progress(_reg_nid)
     # →1475: link session JSONL at register time so transcript_bytes is populated
     # immediately. If no file found yet (timing race), mark pending for retry.
     if source == "claude-code" and not record.get("transcript_path"):
@@ -7423,6 +7454,16 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
                         "mark_agent_complete.auto_merge name=%s branch=%s merged",
                         name, _am_branch,
                     )
+                    # Close the needle associated with this agent on merge (→1714).
+                    _am_nid = existing_meta.get("needle_id")
+                    if _am_nid:
+                        try:
+                            await ostk.close_task(f"→{_am_nid}", closed_reason="completed")
+                        except Exception:
+                            logger.warning(
+                                "mark_agent_complete.auto_merge needle_close_failed name=%s nid=%s",
+                                name, _am_nid,
+                            )
             else:
                 logger.warning(
                     "mark_agent_complete.auto_merge_failed name=%s branch=%s stderr=%s",

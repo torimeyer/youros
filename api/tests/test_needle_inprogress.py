@@ -177,3 +177,111 @@ def test_needle_overlay_arrow_id_normalization():
                 t["status"] = "in_progress"
 
     assert task["status"] == "in_progress"
+
+
+# ---------------------------------------------------------------------------
+# Persistent set_needle_in_progress tests (→1714)
+# ---------------------------------------------------------------------------
+
+import asyncio
+import json
+import tempfile
+from pathlib import Path
+
+
+def _make_issues_jsonl(tmp_path: Path, entries: list[dict]) -> Path:
+    issues_dir = tmp_path / ".ostk" / "needles"
+    issues_dir.mkdir(parents=True)
+    issues_file = issues_dir / "issues.jsonl"
+    issues_file.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+    return issues_file
+
+
+def _run(coro):
+    return asyncio.get_event_loop().run_until_complete(coro)
+
+
+def test_set_needle_in_progress_open_to_in_progress(tmp_path):
+    """open needle transitions to in_progress and returns True."""
+    from services.ostk import OstkService
+
+    _make_issues_jsonl(tmp_path, [
+        {"id": "→1714", "status": "open", "title": "test needle"},
+    ])
+    svc = OstkService(cwd=str(tmp_path))
+    result = _run(svc.set_needle_in_progress("→1714"))
+    assert result is True
+
+    lines = (tmp_path / ".ostk" / "needles" / "issues.jsonl").read_text().strip().splitlines()
+    entry = json.loads(lines[0])
+    assert entry["status"] == "in_progress"
+    assert "in_progress_at" in entry
+
+
+def test_set_needle_in_progress_bare_id(tmp_path):
+    """Bare id (no arrow) resolves the same needle as arrow-prefixed."""
+    from services.ostk import OstkService
+
+    _make_issues_jsonl(tmp_path, [
+        {"id": "→1714", "status": "open", "title": "test needle"},
+    ])
+    svc = OstkService(cwd=str(tmp_path))
+    result = _run(svc.set_needle_in_progress("1714"))
+    assert result is True
+
+    entry = json.loads((tmp_path / ".ostk" / "needles" / "issues.jsonl").read_text().strip().splitlines()[0])
+    assert entry["status"] == "in_progress"
+
+
+def test_set_needle_in_progress_idempotent(tmp_path):
+    """Already-in_progress needle is left unchanged and returns False."""
+    from services.ostk import OstkService
+
+    _make_issues_jsonl(tmp_path, [
+        {"id": "→1714", "status": "in_progress", "title": "test needle", "in_progress_at": "2026-01-01T00:00:00+00:00"},
+    ])
+    svc = OstkService(cwd=str(tmp_path))
+    result = _run(svc.set_needle_in_progress("→1714"))
+    assert result is False
+
+    entry = json.loads((tmp_path / ".ostk" / "needles" / "issues.jsonl").read_text().strip().splitlines()[0])
+    assert entry["in_progress_at"] == "2026-01-01T00:00:00+00:00"
+
+
+def test_set_needle_in_progress_skips_closed(tmp_path):
+    """Closed needle is left unchanged and returns False."""
+    from services.ostk import OstkService
+
+    _make_issues_jsonl(tmp_path, [
+        {"id": "→1714", "status": "closed", "title": "done needle"},
+    ])
+    svc = OstkService(cwd=str(tmp_path))
+    result = _run(svc.set_needle_in_progress("→1714"))
+    assert result is False
+
+    entry = json.loads((tmp_path / ".ostk" / "needles" / "issues.jsonl").read_text().strip().splitlines()[0])
+    assert entry["status"] == "closed"
+
+
+def test_set_needle_in_progress_missing_needle(tmp_path):
+    """Needle not in file returns False without modifying the file."""
+    from services.ostk import OstkService
+
+    _make_issues_jsonl(tmp_path, [
+        {"id": "→9999", "status": "open", "title": "other needle"},
+    ])
+    svc = OstkService(cwd=str(tmp_path))
+    result = _run(svc.set_needle_in_progress("→1714"))
+    assert result is False
+
+    entry = json.loads((tmp_path / ".ostk" / "needles" / "issues.jsonl").read_text().strip().splitlines()[0])
+    assert entry["status"] == "open"
+
+
+def test_set_needle_in_progress_no_issues_file(tmp_path):
+    """Missing issues.jsonl returns False gracefully."""
+    from services.ostk import OstkService
+
+    svc = OstkService(cwd=str(tmp_path))
+    result = _run(svc.set_needle_in_progress("→1714"))
+    assert result is False
