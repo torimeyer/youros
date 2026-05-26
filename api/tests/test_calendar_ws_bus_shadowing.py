@@ -42,6 +42,7 @@ async def test_ws_calendar_events_no_attribute_error(monkeypatch):
     Connects, receives the snapshot message, verifies no 'function' object
     error is raised during subscribe().
     """
+    pytest.importorskip("httpx_ws", reason="httpx_ws not installed — skipping WS transport test")
     from httpx import AsyncClient
     from httpx_ws import aconnect_ws
     import httpx
