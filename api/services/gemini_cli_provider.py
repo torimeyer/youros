@@ -48,8 +48,8 @@ def _build_subprocess_env() -> dict[str, str]:
     return env
 
 def _find_gemini_binary() -> Optional[str]:
-    # Check common locations and user local bin
-    return shutil.which("gemini") or shutil.which("/Users/torimeyer/.nvm/versions/node/v24.14.0/bin/gemini")
+    # Resolve the gemini CLI from PATH.
+    return shutil.which("gemini")
 
 async def is_gemini_cli_available(force: bool = False) -> bool:
     now = time.monotonic()
