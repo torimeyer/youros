@@ -13,8 +13,7 @@ export interface GameDef {
 
 // Single source of truth. Adding a game = append one entry + drop in a
 // default-exported component. Components are lazy() so they stay out of the
-// main bundle until a tile is clicked (mirrors the React.lazy use in
-// pages/Activity.tsx).
+// main bundle until a tile is clicked (mirrors React.lazy in pages/Activity.tsx).
 export const GAMES: GameDef[] = [
   {
     id: 'set',
@@ -23,5 +22,13 @@ export const GAMES: GameDef[] = [
     lane: 'logic',
     blurb: 'Spot three cards that are all alike or all different.',
     component: lazy(() => import('./games/Set')),
+  },
+  {
+    id: 'solitaire',
+    name: 'Solitaire',
+    icon: 'playing_cards',
+    lane: 'logic',
+    blurb: 'Stack down by alternating color, build each suit up from the ace.',
+    component: lazy(() => import('./games/Solitaire')),
   },
 ]
