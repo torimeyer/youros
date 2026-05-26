@@ -765,6 +765,14 @@ async def stream_chat(
     async def _read_stdout() -> None:
         nonlocal full_text, final_usage, saw_deltas, _first_token_logged
         assert proc.stdout is not None
+        # Track text-block boundaries so we can inject \n\n when a new text
+        # block starts after a non-text block (e.g. tool_use). Mirrors the
+        # same logic in chat_providers.py stream_anthropic(). Without this
+        # the first token of the new block appends directly onto the last
+        # character of the previous block: "world.Now" instead of
+        # "world.\n\nNow". →1737
+        _in_text_block = False
+        _had_text_block = False
         while True:
             line = await proc.stdout.readline()
             if not line:
@@ -775,6 +783,22 @@ async def stream_chat(
                 continue
 
             etype = event.get("type", "")
+            if etype == "stream_event":
+                inner = event.get("event", {})
+                inner_type = inner.get("type", "")
+                if inner_type == "content_block_start":
+                    block = inner.get("content_block", {})
+                    if block.get("type") == "text":
+                        if _had_text_block and not _in_text_block:
+                            sep = "\n\n"
+                            full_text += sep
+                            await _send_safe(websocket, {"type": "token", "data": sep})
+                        _in_text_block = True
+                elif inner_type == "content_block_stop":
+                    if _in_text_block:
+                        _had_text_block = True
+                        _in_text_block = False
+
             text, done, usage, extra_msg = _handle_stream_event(event, tool_index_map)
             if text:
                 if not _first_token_logged:
