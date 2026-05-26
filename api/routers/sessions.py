@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -293,11 +294,27 @@ def _session_type(session_id: str) -> str:
     return "ostk"
 
 
-async def _build_coordination_data() -> dict:
-    """Assemble the full coordination snapshot (sessions, locks, events)."""
-    from services.ostk import ostk
-    from routers.agents import agent_metadata, nudge_history
+# Coordination snapshot cache (→1738). The gather below walks the ostk
+# sessions dir and the Claude Code transcript dir (thousands of files) and
+# reads per-session event logs. Running it inline on the event loop for every
+# poll / WS connect / agent mutation blocked the loop for seconds and starved
+# every other request (health, agents, chat provider-detection) -> HTTP 502/000
+# cascades. We offload the sync filesystem work to a thread AND cache it with a
+# short TTL + single-flight, so a burst of callers shares one off-loop scan.
+_COORD_TTL_SECONDS = 3.0
+_coord_cache: Optional[dict] = None
+_coord_cache_ts: float = 0.0
+_coord_refresh_lock = asyncio.Lock()
 
+
+def _gather_sessions_and_events_sync(
+    meta_snapshot: dict, nudge_snapshot: dict
+) -> tuple[list[dict], list[dict]]:
+    """Synchronous, filesystem-heavy gather. MUST run off the event loop.
+
+    Operates only on immutable snapshots of the agent/nudge maps so it is
+    safe to call from a worker thread.
+    """
     # --- sessions ---
     raw_sessions = _get_sessions()
     seen: set[str] = {s["session_id"] for s in raw_sessions}
@@ -315,7 +332,7 @@ async def _build_coordination_data() -> dict:
     sessions = []
     for s in raw_sessions:
         sid = s["session_id"]
-        meta = agent_metadata.get(sid, {})
+        meta = meta_snapshot.get(sid, {})
         sessions.append({
             "id": sid,
             "name": meta.get("task") or sid,
@@ -325,7 +342,41 @@ async def _build_coordination_data() -> dict:
             "status": s["status"],
         })
 
-    # --- locks ---
+    # --- recent coordination events (nudges across all agents, last 20) ---
+    all_events: list[dict] = []
+    for agent_name, nudges in nudge_snapshot.items():
+        for nudge in nudges:
+            all_events.append({
+                "from_session": "user",
+                "to_session": agent_name,
+                "message": nudge.get("message", ""),
+                "timestamp": nudge.get("timestamp", ""),
+                "kind": nudge.get("kind", "user_message"),
+            })
+    all_events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+    events = all_events[:20]
+    return sessions, events
+
+
+async def _build_coordination_data() -> dict:
+    """Assemble the full coordination snapshot (sessions, locks, events).
+
+    The filesystem-heavy session/event gather is offloaded to a worker thread
+    so the event loop stays responsive while it runs.
+    """
+    from services.ostk import ostk
+    from routers.agents import agent_metadata, nudge_history
+
+    # Snapshot the in-memory maps on the loop (cheap) so the worker thread
+    # never iterates a dict another coroutine is mutating.
+    meta_snapshot = dict(agent_metadata)
+    nudge_snapshot = {k: list(v) for k, v in nudge_history.items()}
+
+    sessions, events = await asyncio.to_thread(
+        _gather_sessions_and_events_sync, meta_snapshot, nudge_snapshot
+    )
+
+    # --- locks (already async) ---
     try:
         raw_locks = await ostk.list_locks()
     except Exception:
@@ -340,20 +391,6 @@ async def _build_coordination_data() -> dict:
             "paths": lk.get("paths", []),
         })
 
-    # --- recent coordination events (nudges across all agents, last 20) ---
-    all_events: list[dict] = []
-    for agent_name, nudges in nudge_history.items():
-        for nudge in nudges:
-            all_events.append({
-                "from_session": "user",
-                "to_session": agent_name,
-                "message": nudge.get("message", ""),
-                "timestamp": nudge.get("timestamp", ""),
-                "kind": nudge.get("kind", "user_message"),
-            })
-    all_events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
-    events = all_events[:20]
-
     return {
         "sessions": sessions,
         "locks": locks,
@@ -361,10 +398,34 @@ async def _build_coordination_data() -> dict:
     }
 
 
+async def _coordination_snapshot() -> dict:
+    """Short-TTL, single-flight wrapper around _build_coordination_data.
+
+    Concurrent callers within the TTL share one cached result and only one
+    refresh runs at a time, bounding the expensive gather to about once per
+    TTL regardless of how many pollers, WS clients, or mutations fire.
+    """
+    global _coord_cache, _coord_cache_ts
+    now = time.monotonic()
+    if _coord_cache is not None and (now - _coord_cache_ts) < _COORD_TTL_SECONDS:
+        return _coord_cache
+    async with _coord_refresh_lock:
+        now = time.monotonic()
+        if _coord_cache is not None and (now - _coord_cache_ts) < _COORD_TTL_SECONDS:
+            return _coord_cache
+        data = await _build_coordination_data()
+        _coord_cache = data
+        _coord_cache_ts = time.monotonic()
+        return data
+
+
 async def _publish_session_state() -> None:
     """Recompute coordination data and push to WS subscribers. Best-effort."""
+    global _coord_cache, _coord_cache_ts
     try:
         data = await _build_coordination_data()
+        _coord_cache = data
+        _coord_cache_ts = time.monotonic()
         await _session_events_bus.publish("snapshot", data)
     except Exception:
         pass  # never block mutation endpoints
@@ -380,7 +441,7 @@ async def sessions_state_ws(websocket: WebSocket) -> None:
     """
     await websocket.accept()
     try:
-        data = await _build_coordination_data()
+        data = await _coordination_snapshot()
         await websocket.send_json({"type": "snapshot", **data})
         async with _session_events_bus.subscribe() as q:
             while True:
@@ -398,7 +459,7 @@ async def sessions_state_ws(websocket: WebSocket) -> None:
 @router.get("/sessions/coordination")
 async def get_coordination():
     """Visible coordination panel: sessions, locks, and recent inter-session events."""
-    return await _build_coordination_data()
+    return await _coordination_snapshot()
 
 
 @router.get("/sessions/active")
