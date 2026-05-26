@@ -79,7 +79,7 @@ export default function OrgSettings() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <span className={darkMode ? 'text-gray-400 text-sm' : 'text-gray-500 text-sm'}>
+        <span className={darkMode ? 'text-gray-400 text-sm' : 'text-gray-600 text-sm'}>
           Loading settings...
         </span>
       </div>
@@ -153,7 +153,7 @@ export default function OrgSettings() {
               onChange={(e) => setSettings({ ...settings, marketplace_url: e.target.value })}
               placeholder="https://marketplace.yourcompany.com"
             />
-            <p className={`mt-1 text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+            <p className={`mt-1 text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
               Link your team to an internal or external skill marketplace.
             </p>
           </div>
@@ -198,7 +198,7 @@ export default function OrgSettings() {
               onChange={(e) => setSettings({ ...settings, default_skill_pack_id: e.target.value })}
               placeholder="Leave blank to use the community default"
             />
-            <p className={`mt-1 text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+            <p className={`mt-1 text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
               New members receive this skill pack during onboarding.
             </p>
           </div>

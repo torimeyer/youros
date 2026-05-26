@@ -395,7 +395,7 @@ export default function OnboardingWizard() {
       {/* Close button (→1519) */}
       <button
         onClick={() => setShowExitConfirm(true)}
-        className={`fixed top-4 right-4 z-50 p-1.5 rounded-full transition-colors ${effectiveDark ? 'text-slate-500 hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}
+        className={`fixed top-4 right-4 z-50 p-1.5 rounded-full transition-colors ${effectiveDark ? 'text-slate-500 hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'}`}
         data-testid="onboarding-close-btn"
         aria-label="Exit setup"
       >

@@ -72,7 +72,7 @@ export default function MeetingTasks({ meetings: propMeetings }: Props) {
             <div>
               <p className="font-medium text-sm">{event.summary ?? 'Untitled meeting'}</p>
               {startTime && (
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-600">
                   {endTime ? startTime + ' – ' + endTime : startTime}
                 </p>
               )}

@@ -105,7 +105,7 @@ export default function SpecImport() {
       <div className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto w-full">
         <div className="mb-6">
           <h2 className="text-lg font-semibold mb-1">Import from spec-kit YAML</h2>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-600">
             Paste or upload a spec-kit YAML file. We'll create a spec you can build from.
           </p>
         </div>
@@ -165,7 +165,7 @@ export default function SpecImport() {
                 {preview.description}
               </div>
             )}
-            <div className="flex gap-4 text-sm text-gray-500">
+            <div className="flex gap-4 text-sm text-gray-600">
               <span data-testid="preview-task-count">{preview.taskCount} task{preview.taskCount !== 1 ? "s" : ""}</span>
               <span data-testid="preview-ac-count">{preview.acCount} acceptance {preview.acCount !== 1 ? "criteria" : "criterion"}</span>
             </div>
