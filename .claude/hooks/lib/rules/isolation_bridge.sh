@@ -192,8 +192,9 @@ COMPLETION_CLAUSE = (
     "  (a) git commit -m \"...\" (commit all file changes to your worktree branch), OR\n"
     "  (b) ostk work add \"...\" --priority P0 (file a needle with the evidence).\n"
     "Exiting after analysis only — no commit, no needle — is a failed run.\n"
-    "If running tests: run targeted tests first (e.g. pytest path/to/test.py -x -q),\n"
-    "commit, then optionally run the full suite. Do not block a commit on full-suite pass."
+    "If running tests: commit your work BEFORE running any verify step\n"
+    "(e.g. git commit -m 'wip(→NNN): implementation' then pytest path/to/test.py -x -q).\n"
+    "A failed verify still leaves a recoverable commit. Do not block a commit on full-suite pass."
 )
 injected_prompt = (prompt or desc) + COMPLETION_CLAUSE
 
