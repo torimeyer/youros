@@ -21,6 +21,7 @@ export function useRunningAgentsFeed() {
   const setTerminatedAgent = useRunningAgentsStore((s) => s.setTerminatedAgent)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevAgentsRef = useRef<RunningAgent[]>([])
 
   // Apply incoming WS frames to the store
   useEffect(() => {
@@ -75,6 +76,15 @@ export function useRunningAgentsFeed() {
             ? data
             : ((data as { agents?: RunningAgent[] }).agents ?? [])
           const running = list.filter((a) => ACTIVE_STATUSES.has(a.status))
+          // Skip setSnapshot when the agent list is identical. list.filter()
+          // always returns a new array reference, which would cause storeAgents
+          // to change every tick even when nothing is running (→1730).
+          const prev = prevAgentsRef.current
+          const changed =
+            prev.length !== running.length ||
+            running.some((a, i) => a.name !== prev[i]?.name || a.status !== prev[i]?.status)
+          if (!changed) return
+          prevAgentsRef.current = running
           setSnapshot(running.length, running)
         } catch {
           // network error during fallback — ignore, retry next interval

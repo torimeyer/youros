@@ -299,9 +299,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   // string is still used for shelved/week/recurring views triggered by code
   // paths that call setStatusFilter directly.
   const [selectedStatus, setSelectedStatus] = useState<StatusPill>("all");
-  // Closed tasks are fetched on demand when the user clicks the "closed" tab.
-  // The default /api/tasks response omits them (→1694) so we keep them here.
-  const [closedTasks, setClosedTasks] = useState<Task[]>([]);
   const [closedSortOrder] = useState<ClosedSortOrder>("newest");
   const [sortBy, setSortBy] = useState<SortBy>("date-desc");
   // Agents currently running or queued. Keyed by task_id.
@@ -413,17 +410,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     }
   }, []);
 
-  // Fetch closed tasks on demand (→1694). The default /tasks response is
-  // active-only so we request ?status=closed when the user opens that tab.
-  const fetchClosedTasks = useCallback(async () => {
-    try {
-      const res = await api.get<TasksResponse>("/tasks?status=closed");
-      setClosedTasks(res.tasks ?? []);
-    } catch {
-      // silent; closed list is non-critical
-    }
-  }, []);
-
   const fetchLabels = useCallback(async () => {
     try {
       const res = await api.get<LabelsResponse>("/labels");
@@ -505,13 +491,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       .then((res) => setWaveAssignments(res.assignments ?? {}))
       .catch(() => { /* silent — no assignments yet */ });
   }, [fetchTasks, fetchLabels]);
-
-  // Fetch closed tasks when the user switches to the "closed" tab (→1694).
-  useEffect(() => {
-    if (selectedStatus === "closed") {
-      fetchClosedTasks();
-    }
-  }, [selectedStatus, fetchClosedTasks]);
 
   // Poll running agents every 3s to drive the per-row in-progress indicator
   // (needle: no live feedback that the agent is working on a task). The
@@ -606,8 +585,21 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         nextBuildStates.set(a.task_id, a.build_state);
       }
     }
-    setRunningAgentTaskIds(next);
-    setBuildStateByTaskId(nextBuildStates);
+    // Functional updater: return prev when contents are identical so React
+    // skips the re-render. Without this guard, every storeAgents reference
+    // change (e.g. the 2s fallback poll in useRunningAgentsFeed) produces a
+    // new Set/Map object → Object.is fails → infinite render loop (→1730).
+    setRunningAgentTaskIds(prev => {
+      if (prev.size === next.size && [...next].every(id => prev.has(id))) return prev;
+      return next;
+    });
+    setBuildStateByTaskId(prev => {
+      if (
+        prev.size === nextBuildStates.size &&
+        [...nextBuildStates.entries()].every(([k, v]) => prev.get(k) === v)
+      ) return prev;
+      return nextBuildStates;
+    });
   }, [storeAgents]);
 
   // Live updates for new tasks. Two channels:
@@ -1320,14 +1312,8 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   // Build a lookup map: task id -> Task (for showing dependency titles)
   const tasksById = new Map(tasks.map((t) => [t.id, t]));
 
-  // Filtering logic. Closed tasks come from their own state (fetched lazily
-  // via ?status=closed when the tab is opened). Active tasks come from the
-  // main `tasks` state which is the default /api/tasks response (→1694).
-  // Fall back to filtering the main tasks state when closedTasks hasn't
-  // been fetched yet (lazy-load hasn't fired or mock returns no data).
-  let filteredTasks = selectedStatus === "closed"
-    ? (closedTasks.length > 0 ? closedTasks : tasks.filter((t) => t.status === "closed"))
-    : tasks;
+  // Filtering logic
+  let filteredTasks = tasks;
 
   // Determine whether we're in a tri-state pill view (Open/InProgress/Closed)
   // or a legacy single-select view (all/shelved/week/recurring). Legacy

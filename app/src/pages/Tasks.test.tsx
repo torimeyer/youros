@@ -3507,4 +3507,35 @@ describe('Sort by wave (→1523)', () => {
     await waitFor(() => expect(screen.queryByTestId('wave-group-1')).not.toBeInTheDocument())
     expect(screen.queryByTestId('wave-group-2')).not.toBeInTheDocument()
   })
+
+  // Regression test for →1730: rapid storeAgents reference changes triggered
+  // an infinite setState loop (setRunningAgentTaskIds / setBuildStateByTaskId
+  // always received new Set/Map objects, Object.is fails, re-render loop).
+  it('does not infinite-loop when storeAgents updates repeatedly with identical data', async () => {
+    const consoleError = vi.spyOn(console, 'error')
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+
+    const agent = {
+      name: 'agent-diagnose-test',
+      status: 'running',
+      task_id: '1',
+      needle_id: null,
+      label: 'agent-diagnose-001-test',
+      build_state: 'running' as const,
+    }
+    await act(async () => {
+      for (let i = 0; i < 60; i++) {
+        useRunningAgentsStore.getState().setSnapshot(1, [{ ...agent }])
+      }
+    })
+
+    const infiniteLoopErrors = consoleError.mock.calls.filter(
+      (args) =>
+        typeof args[0] === 'string' &&
+        args[0].includes('Maximum update depth exceeded'),
+    )
+    expect(infiniteLoopErrors).toHaveLength(0)
+    consoleError.mockRestore()
+  })
 })
