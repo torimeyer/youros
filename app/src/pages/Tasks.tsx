@@ -2028,7 +2028,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
               {!loading && filteredTasks.length === 0 && tasks.length === 0 && (
                 <EmptyState
                   icon="checklist"
-                  title="No needles yet."
+                  title="Haystack's clear."
                   description="Type a task above, or tell myOS an idea in chat and it will create tasks for you."
                 />
               )}
@@ -2195,9 +2195,9 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         {task.status === "closed" && task.closed_reason === "completed" && (
                           <span
                             data-testid={`closed-badge-${task.id}`}
-                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/30"
+                            className="needle-snap inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/30"
                           >
-                            Done
+                            Threaded
                           </span>
                         )}
                         {task.status === "closed" && task.closed_reason === "duplicate" && (

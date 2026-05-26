@@ -1973,7 +1973,7 @@ describe('Tasks page', () => {
       await waitFor(() => {
         expect(screen.getByText('Done task')).toBeInTheDocument()
       })
-      expect(screen.getByTestId('closed-badge-2').textContent).toBe('Done')
+      expect(screen.getByTestId('closed-badge-2').textContent).toBe('Threaded')
       expect(screen.getByTestId('closed-badge-3').textContent).toBe('Duplicate')
       expect(screen.getByTestId('closed-badge-4').textContent).toBe('Archived')
     })
