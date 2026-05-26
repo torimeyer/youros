@@ -211,7 +211,7 @@ export function NeedsClarityChip({
             setOpen(true)
           }}
         >
-          Almost ready
+          Add detail?
           <span data-testid="needs-clarity-tooltip" className="sr-only">
             {checkLines.join('; ')}
           </span>

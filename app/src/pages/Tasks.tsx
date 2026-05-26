@@ -1323,7 +1323,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   // Filtering logic. Closed tasks come from their own state (fetched lazily
   // via ?status=closed when the tab is opened). Active tasks come from the
   // main `tasks` state which is the default /api/tasks response (→1694).
-  let filteredTasks = selectedStatus === "closed" ? closedTasks : tasks;
+  // Fall back to filtering the main tasks state when closedTasks hasn't
+  // been fetched yet (lazy-load hasn't fired or mock returns no data).
+  let filteredTasks = selectedStatus === "closed"
+    ? (closedTasks.length > 0 ? closedTasks : tasks.filter((t) => t.status === "closed"))
+    : tasks;
 
   // Determine whether we're in a tri-state pill view (Open/InProgress/Closed)
   // or a legacy single-select view (all/shelved/week/recurring). Legacy
@@ -1480,7 +1484,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   const inProgressCount = tasks.filter(
     (t) => runningAgentTaskIds.has(t.id) && t.status !== "closed"
   ).length;
-  const closedCount = closedTasks.length;
+  const closedCount = tasks.filter((t) => t.status === "closed").length;
   const filterCounts: Partial<Record<StatusPill, number>> = {
     open: openCount,
     in_progress: inProgressCount,
