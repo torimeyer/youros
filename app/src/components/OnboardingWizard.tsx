@@ -1261,6 +1261,15 @@ function ConnectStep({
           })}
         </div>
 
+        {selectedProvider === 'Anthropic' && detectedProvider && (
+          <div
+            data-testid="anthropic-connected-status"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm"
+          >
+            <Icon name="check_circle" size={16} />
+            <span>Connected via {detectedProvider}. No key needed.</span>
+          </div>
+        )}
         {selectedProvider === 'Anthropic' && !detectedProvider && (
           <>
             <button
@@ -1310,7 +1319,7 @@ function ConnectStep({
         )}
 
         {/* Gemini chat — shown when Google Gemini is the selected AI provider */}
-        {selectedProvider === 'Google Gemini' && !detectedProvider && (
+        {selectedProvider === 'Google Gemini' && (
           <div className="mt-3">
             {googleOAuthAvailable ? (
               <button
@@ -1638,7 +1647,7 @@ export function GithubSetupCard({
     setStatus('connecting')
     setError(null)
     api.post('/github/connect', { repo: ownerRepo, token })
-      .then(() => setStatus('done'))
+      .then(() => { setStatus('done'); setConnected(true) })
       .catch((e: Error) => {
         setStatus('error')
         setError(e?.message ?? 'Connection failed')

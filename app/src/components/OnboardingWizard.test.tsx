@@ -1727,3 +1727,89 @@ describe('OnboardingWizard — persona install deferred to Next click (→1521)'
     })
   })
 })
+
+describe('OnboardingWizard - provider-select effect (→1703)', () => {
+  function navigateToConnect() {
+    fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
+    for (let i = 0; i < 7; i++) {
+      fireEvent.click(screen.getByTestId('skip-button'))
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ onboarded: false, osName: '', darkMode: false })
+  })
+
+  it('selecting Anthropic shows connected-via status when Claude Code is detected (→1703)', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({ claude_code: true })
+      if (path === '/github/status') return Promise.resolve({ connected: false })
+      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
+      return Promise.resolve({})
+    })
+    render(<OnboardingWizard />)
+    await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('step-connect')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('provider-Anthropic'))
+
+    expect(screen.getByTestId('anthropic-connected-status')).toBeInTheDocument()
+  })
+
+  it('selecting Gemini shows key/connect form even when another provider is detected (→1703)', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({ claude_code: true })
+      if (path === '/github/status') return Promise.resolve({ connected: false })
+      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
+      return Promise.resolve({})
+    })
+    render(<OnboardingWizard />)
+    await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('step-connect')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('provider-Google Gemini'))
+
+    expect(screen.getByTestId('api-key-input')).toBeInTheDocument()
+  })
+})
+
+describe('OnboardingWizard - GitHub step functional (→1693)', () => {
+  function navigateToConnect() {
+    fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
+    for (let i = 0; i < 7; i++) {
+      fireEvent.click(screen.getByTestId('skip-button'))
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ onboarded: false, osName: '', darkMode: false })
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
+      if (path === '/github/status') return Promise.resolve({ connected: false })
+      return Promise.resolve({})
+    })
+  })
+
+  it('GitHub card hides after successful token connect (→1693)', async () => {
+    vi.mocked(api.post).mockResolvedValue({ ok: true, user: 'testuser' })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('onboarding-github-card')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('onboarding-github-setup'))
+    await waitFor(() => expect(screen.getByTestId('onboarding-github-repo')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByTestId('onboarding-github-repo'), { target: { value: 'acme/website' } })
+    fireEvent.change(screen.getByTestId('onboarding-github-token'), { target: { value: 'ghp_mytoken' } })
+    fireEvent.click(screen.getByTestId('onboarding-github-connect'))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('onboarding-github-card')).not.toBeInTheDocument()
+    })
+  })
+})
