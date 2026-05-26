@@ -3838,6 +3838,118 @@ class TestOsPersonaScoping:
 
 
 # ---------------------------------------------------------------------------
+# →1697: Gemini path must receive PM context (needles / fleet / activity)
+# ---------------------------------------------------------------------------
+
+
+class TestGeminiPmContextInjection:
+    """stream_gemini must inject PM context (boot state, activity, memory) into
+    the system instruction for all backend paths, not just Claude.
+
+    Regression guard for →1697: Gemini replied 'no access to your project
+    management system' because stream_gemini fell back to the minimal
+    _gemini_system_instruction() template which had no PM data.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stream_gemini_api_key_path_includes_boot_context(self):
+        """stream_gemini must include _get_boot_context() output in the
+        system_instruction passed to chats.create (API-key backend path)."""
+        import sys
+        import types as _types
+        from unittest.mock import MagicMock, patch as _patch, AsyncMock as _AsyncMock
+
+        BOOT_MARKER = "BOOT_CONTEXT_MARKER_needle_count_42"
+        ACTIVITY_MARKER = "ACTIVITY_MARKER_recent_task_landed"
+
+        ws = FakeWebSocket()
+
+        # Minimal google.genai stub that captures chats.create kwargs.
+        genai_stub = _types.ModuleType("google.genai")
+        genai_stub.types = _types.ModuleType("google.genai.types")
+
+        captured_config = {}
+
+        def fake_chats_create(**kwargs):
+            captured_config.update(kwargs)
+            fake_chat = MagicMock()
+            fake_chat.send_message_stream.return_value = iter([])
+            return fake_chat
+
+        fake_chats = MagicMock()
+        fake_chats.create = MagicMock(side_effect=lambda **kw: fake_chats_create(**kw))
+        fake_model_obj = MagicMock()
+        fake_model_obj.chats = fake_chats
+        genai_stub.Client = MagicMock(return_value=fake_model_obj)
+
+        class _FakeFinishReason:
+            name = "STOP"
+
+        class _FakeConfig:
+            def __init__(self, system_instruction=None, **kw):
+                self.system_instruction = system_instruction
+
+        genai_stub.types.GenerateContentConfig = _FakeConfig
+        genai_stub.types.Part = MagicMock(side_effect=lambda **kw: kw)
+        genai_stub.types.Blob = MagicMock(side_effect=lambda **kw: kw)
+        genai_stub.types.FinishReason = MagicMock()
+
+        google_stub = _types.ModuleType("google")
+        google_stub.genai = genai_stub
+
+        service = ChatService()
+        messages = [{"role": "user", "content": "what are my open needles?"}]
+
+        import asyncio as _asyncio
+
+        async def _fake_to_thread(fn, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        with _patch("services.chat_providers._resolve_api_key", new=_AsyncMock(return_value="fake-key")), \
+             _patch("services.chat_providers._maybe_match_template", new=_AsyncMock(return_value=None)), \
+             _patch("services.chat_providers._get_boot_context", return_value=BOOT_MARKER), \
+             _patch("services.chat_providers._recent_activity_context", return_value=ACTIVITY_MARKER), \
+             _patch("services.chat_providers.settings_store") as mock_store, \
+             _patch.dict(sys.modules, {"google": google_stub, "google.genai": genai_stub}):
+            mock_store.get.side_effect = lambda k, default=None: (
+                "myOS" if k in ("os_name", "instance_name")
+                else False if k == "use_gemini_cli"
+                else default
+            )
+            with _patch(
+                "services.chat_providers.asyncio.to_thread",
+                new=_fake_to_thread,
+            ):
+                try:
+                    await service.stream_gemini(messages, ws)
+                except Exception:
+                    pass  # partial mock; streaming errors are fine
+
+        assert fake_chats.create.called, "model.chats.create was never called"
+        call_kwargs = fake_chats.create.call_args
+        config_arg = (
+            call_kwargs.kwargs.get("config")
+            if call_kwargs.kwargs
+            else (call_kwargs[1].get("config") if call_kwargs[1] else None)
+        )
+        assert config_arg is not None, "chats.create must receive a config= kwarg"
+        sys_instr = getattr(config_arg, "system_instruction", None)
+        assert sys_instr is not None, "config must carry system_instruction"
+
+        assert BOOT_MARKER in sys_instr, (
+            f"system_instruction must contain boot context. "
+            f"Got: {sys_instr[:300]!r}"
+        )
+        assert ACTIVITY_MARKER in sys_instr, (
+            f"system_instruction must contain recent activity. "
+            f"Got: {sys_instr[:300]!r}"
+        )
+        assert "gemini" in sys_instr.lower(), (
+            "system_instruction must still identify the model as Gemini"
+        )
+
+
+# ---------------------------------------------------------------------------
 # _resolve_chat_backend — subscription-first default selection
 # ---------------------------------------------------------------------------
 

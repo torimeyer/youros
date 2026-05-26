@@ -290,10 +290,12 @@ _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE = (
     "both sides, do not narrate the exchange, do not add stage "
     "directions. Keep replies conversational and concise. "
     "Never use em-dashes. "
-    "IMPORTANT: You cannot create calendar events, send emails, or use any tools. "
-    "You are a chat-only model. If the user asks you to do something that requires "
-    "tools (calendar, email, tasks, files), tell them to switch to Claude using the "
-    "toggle below the chat input. Claude has access to all myOS tools. "
+    "IMPORTANT: You can see the project state provided in your context (open tasks, "
+    "needles, fleet status, recent activity) and describe it to the user. "
+    "However, you cannot take actions: no creating calendar events, sending emails, "
+    "editing files, or modifying tasks. "
+    "If the user wants to take an action, tell them to switch to Claude using the "
+    "toggle below the chat input. Claude has full tool access. "
     "when using the fcp:midi plugin to compose music, save .mid files only and stop. "
     "do not shell out to render to wav/mp3/m4a. "
     "do not install system tools (no brew, no apt). "
@@ -2015,6 +2017,37 @@ def _compose_system_prompt(matched_template: Optional[dict], messages: "list[dic
     return base + "\n\n---\nACTIVE TEMPLATE: " + str(matched_template.get("name", "")) + "\n" + extra
 
 
+def _build_gemini_system_prompt(matched_template: Optional[dict], messages: "list[dict] | None" = None) -> str:
+    """Build Gemini's system prompt: identity + read-only PM context.
+
+    Combines ``_gemini_system_instruction()`` (Gemini identity + no-action rule)
+    with the same boot-state context Claude receives: needle counts, fleet
+    status, recent activity, and user memory. Gemini can describe this context
+    to the user but cannot take tool actions.
+    """
+    base = _gemini_system_instruction()
+    standing = _standing_instructions_block()
+    if standing:
+        base = standing + "\n\n" + base
+    boot_ctx = _get_boot_context()
+    if boot_ctx:
+        base += (
+            "\n\nSESSION CONTEXT (from `ostk boot`, read-only — describe this "
+            "to the user but do not attempt tool actions):\n" + boot_ctx + "\n"
+        )
+    activity = _recent_activity_context()
+    if activity:
+        base += f"\n\n{activity}\n"
+    user_memory = _user_memory_block(_extract_context_keywords(messages))
+    if user_memory:
+        base += f"\n\n{user_memory}\n"
+    if matched_template:
+        extra = str(matched_template.get("prompt") or "").strip()
+        if extra:
+            base += "\n\n---\nACTIVE TEMPLATE: " + str(matched_template.get("name", "")) + "\n" + extra
+    return base
+
+
 def _build_cached_system_blocks(matched_template: Optional[dict], messages: "list[dict] | None" = None) -> list[dict]:
     """Build system prompt as separate cached blocks.
 
@@ -3399,20 +3432,21 @@ class ChatService:
         system_instruction: Optional[str] = None,
         **kwargs: Any,
     ) -> str:
+        # Resolve PM context once, shared across all backend paths (CLI, Vertex, API key).
+        # Callers that pass an explicit system_instruction (e.g. gems router with a
+        # template) get their value honoured unchanged. For bare chat turns from the
+        # main router, inject the Gemini identity plus the same boot-state / activity /
+        # memory context that Claude receives so Gemini can describe tasks and needles.
+        if system_instruction is None:
+            _api_key_hint = await _resolve_api_key("anthropic_api_key")
+            _matched_tmpl = await _maybe_match_template(messages, websocket, _api_key_hint)
+            system_instruction = _build_gemini_system_prompt(_matched_tmpl, messages)
+
         # Priority 0: Gemini CLI (if enabled and available).
         if settings_store.get("use_gemini_cli") and await gemini_cli_provider.is_gemini_cli_available():
             try:
-                # Resolve system prompt for the CLI if none was provided.
-                if not system_instruction:
-                    # Resolve anthropic key for template matching (optional).
-                    # match_template falls back to env or deterministic matching if None.
-                    api_key = await _resolve_api_key("anthropic_api_key")
-                    matched_template = await _maybe_match_template(messages, websocket, api_key)
-                    if matched_template or _standing_instructions_block():
-                        system_instruction = _compose_system_prompt(matched_template, messages)
-
                 return await gemini_cli_provider.stream_chat(
-                    messages, websocket, system_prompt=system_instruction or _gemini_system_instruction(), **kwargs
+                    messages, websocket, system_prompt=system_instruction, **kwargs
                 )
             except Exception as e:
                 _gemini_log.warning(f"Gemini CLI failed, falling back to API: {e}")
@@ -3582,7 +3616,7 @@ class ChatService:
                 model=model_name,
                 history=merged_history,
                 config=genai.types.GenerateContentConfig(
-                    system_instruction=system_instruction if system_instruction is not None else _gemini_system_instruction()
+                    system_instruction=system_instruction
                 ),
             )
             # The google.genai SDK's streaming ``send_message_stream()``
