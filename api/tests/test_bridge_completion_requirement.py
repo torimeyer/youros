@@ -82,3 +82,37 @@ def test_bridge_injected_prompt_replaces_plain_prompt():
     assert m.group(1) == "injected_prompt", (
         f"body['prompt'] must be injected_prompt, found {m.group(1)!r}"
     )
+
+
+def test_bridge_completion_clause_no_test_before_commit_ordering():
+    src = _bridge_src()
+    # The old text said "run targeted tests first ... commit" which agents read as
+    # "test first, commit only if tests pass." When tests fail, work is stranded.
+    # This pattern must be gone from the clause (→1725 fix).
+    broken = re.search(
+        r"run targeted tests first.*?commit",
+        src,
+        re.IGNORECASE | re.DOTALL,
+    )
+    assert broken is None, (
+        "completion clause must NOT say 'run targeted tests first ... commit'. "
+        "That ordering causes agents to strand uncommitted work when verify "
+        "fails (→1725). Say 'commit BEFORE running tests' instead."
+    )
+
+
+def test_bridge_completion_clause_commit_before_verify():
+    src = _bridge_src()
+    # The clause must now explicitly tell agents to commit BEFORE running verify.
+    # A failed verify then still leaves a recoverable commit in the worktree.
+    has_commit_before = bool(
+        re.search(
+            r"commit.{0,160}before.{0,160}(verif|test|run)",
+            src,
+            re.IGNORECASE | re.DOTALL,
+        )
+    )
+    assert has_commit_before, (
+        "completion clause must explicitly say to commit BEFORE running "
+        "verify / tests so a failed verify leaves a recoverable commit (→1725)."
+    )
