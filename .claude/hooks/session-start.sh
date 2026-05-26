@@ -151,7 +151,11 @@ fi
 # Ensure the daemon is always running at session start so the parent session
 # gets mid-turn push notifications when watched agents complete.
 # Kill any stale daemon first (may be from a previous session or an old worktree).
-WATCHER_SCRIPT="$CWD/.claude/hooks/lib/agent-completion-watcher.sh"
+# →1726: resolve via main worktree so the canonical (committed) copy is always
+# used — not a stale working-tree copy from an agent worktree.
+_GIT_MAIN_WT=$(git -C "${CWD:-.}" worktree list --porcelain 2>/dev/null \
+    | awk '/^worktree /{print $2; exit}')
+WATCHER_SCRIPT="${_GIT_MAIN_WT:-$CWD}/.claude/hooks/lib/agent-completion-watcher.sh"
 WATCHER_PID_FILE="$HOME/.myos/subagents/completion-watcher.pid"
 
 if [ -x "$WATCHER_SCRIPT" ] && [ -z "${MYOS_AGENT_NAME:-}" ]; then
