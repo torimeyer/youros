@@ -565,6 +565,40 @@ def _isolate_threads_store(tmp_path, monkeypatch):
     yield
 
 
+def _guard_jsonl_ids(content: bytes) -> set[str]:
+    """Return the set of 'id' values parsed from a JSONL byte string."""
+    import json as _json
+    ids: set[str] = set()
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = _json.loads(line)
+            needle_id = obj.get("id")
+            if needle_id:
+                ids.add(str(needle_id))
+        except Exception:
+            pass
+    return ids
+
+
+def _issues_only_external_activity(before: bytes | None, after: bytes | None) -> bool:
+    """True when issues.jsonl changed but no new needle IDs were introduced.
+
+    Concurrent ostk agents closing needles rewrite issues.jsonl: existing
+    entries change status or are removed, but no new IDs appear.  When
+    after_ids ⊆ before_ids the change is entirely external — no test-
+    originated needle leaked into the real store (→1723).
+
+    Returns False when before == after (no change) or when a new ID appears
+    (potential test leak, keep the guard loud).
+    """
+    if before is None or after is None or before == after:
+        return False
+    return _guard_jsonl_ids(after) <= _guard_jsonl_ids(before)
+
+
 @pytest.fixture(autouse=True)
 def _guard_real_store_writes():
     """Fail any test that silently writes to the real ostk or myOS data stores.
@@ -578,6 +612,10 @@ def _guard_real_store_writes():
     commands that atomically rewrite the file with identical content only bump
     mtime — a content-based snapshot ignores those and avoids the false-positive
     that made test_complete_agent_hook_queues_on_transport_failure flaky (→1460).
+
+    For issues.jsonl, changes where no new needle IDs appeared are tolerated —
+    they indicate concurrent ostk agents closing/modifying existing needles,
+    not the test leaking new data into the real store (→1723).
 
     Defined last so its teardown assertion runs while the isolation fixtures are
     still patched — it can see the real on-disk files, not the tmp copies.
@@ -598,12 +636,15 @@ def _guard_real_store_writes():
 
     yield
 
-    assert _snap(issues_path) == snap_issues, (
-        f"Real issues.jsonl was modified during test — "
-        f"a code path bypassed _isolate_tasks_ostk. "
-        f"Content before: {len(snap_issues or b'')} bytes, "
-        f"after: {len(_snap(issues_path) or b'')} bytes"
-    )
+    after_issues = _snap(issues_path)
+    if after_issues != snap_issues and not _issues_only_external_activity(snap_issues, after_issues):
+        raise AssertionError(
+            f"Real issues.jsonl was modified during test — "
+            f"a code path bypassed _isolate_tasks_ostk. "
+            f"Content before: {len(snap_issues or b'')} bytes, "
+            f"after: {len(after_issues or b'')} bytes"
+        )
+
     assert _snap(threads_path) == snap_threads, (
         f"Real threads.json was modified during test — "
         f"a code path bypassed _isolate_threads_store. "
