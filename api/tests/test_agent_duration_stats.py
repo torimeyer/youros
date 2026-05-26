@@ -151,6 +151,37 @@ def test_cache_force_refresh(monkeypatch, seeded_state: Path):
     assert stats_mod._cache["expires_at"] >= first_exp
 
 
+def test_local_stats_preferred_over_time_primitive(monkeypatch, seeded_state: Path):
+    """Local agent_state.json data takes priority; time primitive is fallback only."""
+    invalidate_cache()
+    seeded_now = datetime(2026, 4, 15, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(stats_mod, "AGENT_STATE_PATH", seeded_state)
+    monkeypatch.setattr(stats_mod, "_get_now", lambda: seeded_now)
+    # Simulate a polluted time primitive returning a short bogus estimate.
+    monkeypatch.setattr(stats_mod, "_try_time_primitive_estimate", lambda: 20)
+
+    result = get_duration_stats()
+
+    # The local state has 6 samples with median 450s.  The time primitive's
+    # 20s should be ignored entirely when local data exists.
+    assert result["sample_count"] == 6
+    assert result["median_seconds"] == 450
+
+
+def test_time_primitive_used_when_no_local_history(monkeypatch, tmp_path: Path):
+    """When agent_state.json has zero samples, fall back to time primitive."""
+    invalidate_cache()
+    empty = tmp_path / "empty_state.json"
+    empty.write_text("{}")
+    monkeypatch.setattr(stats_mod, "AGENT_STATE_PATH", empty)
+    monkeypatch.setattr(stats_mod, "_try_time_primitive_estimate", lambda: 300)
+
+    result = get_duration_stats()
+
+    assert result["median_seconds"] == 300
+    assert result["sample_count"] == 1
+
+
 @pytest.mark.asyncio
 async def test_duration_stats_endpoint(client, monkeypatch, seeded_state: Path):
     invalidate_cache()

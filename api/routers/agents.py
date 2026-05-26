@@ -2122,16 +2122,19 @@ def _recover_stale_agents():
                 changed = True
                 continue
 
-        # Case 2c (→1678): universal PID-liveness guard for ALL sources.
+        # Case 2c (→1678): PID-liveness guard for non-claude-code backend spawns.
         # The Case 2b multi-signal check above only runs for source=="claude-code",
-        # so backend-managed spawns (ui/api/chat) fell straight through to Case 3
+        # so backend-managed spawns (api/chat) fell straight through to Case 3
         # and got marked abandoned even when their PID was still alive and working.
-        # That false-abandon is what triggers the respawn cascade: the auto-
-        # respawner re-launches "abandoned" agents, multiplying processes until
-        # the 500ms snapshot loop starves and the event loop wedges. If the PID
-        # is alive (even orphaned/reparented), keep the agent running and only
-        # flag a stale heartbeat — never abandon a live process.
-        if pid and _is_pid_alive(pid):
+        # That false-abandon is what triggers the respawn cascade.
+        #
+        # Differentiate by source (→1453 vs →1678 conflict):
+        # - source="api"/"chat": autonomous backend processes that may survive
+        #   restart reparented to init. Keep them alive even if not our child.
+        # - source="ui": orphan PIDs from old backend run — reparented to init
+        #   but their drain/heartbeat tasks are gone. Let these fall to Case 3.
+        _is_api_autonomous = source in ("api", "chat")
+        if pid and _is_pid_alive(pid) and (_is_pid_my_child(pid) or _is_api_autonomous):
             meta["stale_heartbeat"] = True
             changed = True
             continue

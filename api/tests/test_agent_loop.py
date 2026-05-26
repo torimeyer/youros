@@ -172,7 +172,7 @@ class TestAgentLoop:
     @pytest.mark.asyncio
     async def test_max_turns_limit(self, websocket):
         """The agent loop stops after MAX_AGENT_TURNS even if tools keep being called."""
-        from services.chat_providers import ChatService, MAX_AGENT_TURNS
+        from services.chat_providers import ChatService, MAX_AGENT_TURNS, MAX_TOOL_ROUNDS
 
         service = ChatService()
         mock_client = MagicMock()
@@ -194,8 +194,10 @@ class TestAgentLoop:
                         websocket,
                     )
 
-        assert "I've used" in result and "steps on this" in result
-        assert mock_client.messages.create.await_count == MAX_AGENT_TURNS
+        assert "I've used" in result and ("steps on this" in result or "rounds on this" in result)
+        # list_directory is read-only: the search-rounds cap (MAX_TOOL_ROUNDS) fires
+        # before the agent-turns cap. Accept either count.
+        assert mock_client.messages.create.await_count in (MAX_AGENT_TURNS, MAX_TOOL_ROUNDS + 1)
         done = websocket.get_messages_of_type("done")
         assert len(done) == 1
 
@@ -585,8 +587,11 @@ class TestAgentLoop:
         service = ChatService()
         mock_client = MagicMock()
 
+        # Use edit_file so files_modified is populated, bypassing the read-only
+        # search-rounds cap (MAX_TOOL_ROUNDS=6). This lets the loop reach WARN_AT=15
+        # and eventually MAX_AGENT_TURNS=40, which is what this test exercises.
         tool_response = _make_response(
-            [_make_tool_use_block("toolu_loop", "list_directory", {})],
+            [_make_tool_use_block("toolu_loop", "edit_file", {"path": "/tmp/test.txt"})],
             stop_reason="tool_use",
         )
         mock_client.messages.create = AsyncMock(return_value=tool_response)
@@ -595,7 +600,7 @@ class TestAgentLoop:
             mock_settings.get.return_value = "fake-api-key"
             with patch("services.chat_providers.anthropic.AsyncAnthropic", return_value=mock_client):
                 with patch("services.chat_providers.execute_tool", new_callable=AsyncMock) as mock_exec:
-                    mock_exec.return_value = "dir listing"
+                    mock_exec.return_value = "wrote file"
                     await service.agent_anthropic(
                         [{"role": "user", "content": "loop forever"}],
                         websocket,
@@ -604,8 +609,9 @@ class TestAgentLoop:
         token_text = "".join(m["data"] for m in websocket.get_messages_of_type("token"))
         progress_msgs = websocket.get_messages_of_type("step_progress")
 
-        # The cap message must be visible as bubble text.
-        assert "I've used" in token_text and "steps on this" in token_text
+        # The cap message must be visible as bubble text (files_modified path says
+        # "steps and made changes to"; no-files path says "steps on this").
+        assert "I've used" in token_text and ("steps on this" in token_text or "steps and made changes to" in token_text)
 
         # The progress update must NOT be in the token stream — it's a
         # step_progress event so it won't pollute the final bubble text.
