@@ -55,4 +55,12 @@ export const GAMES: GameDef[] = [
     blurb: 'The original. Keep the ball in play and beat the computer to five.',
     component: lazy(() => import('./games/Pong')),
   },
+  {
+    id: 'snake',
+    name: 'Snake',
+    icon: 'gesture',
+    lane: 'retro',
+    blurb: 'Eat, grow, and do not run into the wall or your own tail.',
+    component: lazy(() => import('./games/Snake')),
+  },
 ]
