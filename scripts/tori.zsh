@@ -234,11 +234,14 @@ tori() {
   # Run :boot tack as soon as ostk is up
   ~/.local/bin/ostk tack ":boot" >/dev/null 2>&1
 
-  # Show a human-friendly summary instead
+  # Show a human-friendly summary instead. Count from the canonical needle
+  # store via `ostk work list --count` (the same source ostk boot reads), not
+  # by grepping a file — the old ~/.ostk/needles.jsonl path was a stale Apr-28
+  # artifact and the grep pattern missed the spaced JSON, so this always read 0.
   local _open _p0 _p1
-  _open=$(grep -c '"status":"open"' ~/claude/torios/.ostk/needles.jsonl 2>/dev/null) || _open=0
-  _p0=$(grep '"status":"open"' ~/claude/torios/.ostk/needles.jsonl 2>/dev/null | grep -c '"priority":"P0"') || _p0=0
-  _p1=$(grep '"status":"open"' ~/claude/torios/.ostk/needles.jsonl 2>/dev/null | grep -c '"priority":"P1"') || _p1=0
+  _open=$(~/.local/bin/ostk work list --status open --count 2>/dev/null); _open=${_open//[^0-9]/}; [ -z "$_open" ] && _open=0
+  _p0=$(~/.local/bin/ostk work list --status open --priority P0 --count 2>/dev/null); _p0=${_p0//[^0-9]/}; [ -z "$_p0" ] && _p0=0
+  _p1=$(~/.local/bin/ostk work list --status open --priority P1 --count 2>/dev/null); _p1=${_p1//[^0-9]/}; [ -z "$_p1" ] && _p1=0
 
   if [ "$_p0" -gt 0 ]; then
     printf '\033[38;2;255;80;80m  ⚠ %s urgent task%s need attention\033[0m\n' "$_p0" "$([ $_p0 -gt 1 ] && echo s)"
