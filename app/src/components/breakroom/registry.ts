@@ -1,0 +1,27 @@
+import { lazy, type ComponentType } from 'react'
+
+export type GameLane = 'logic' | 'retro'
+
+export interface GameDef {
+  id: string
+  name: string
+  icon: string // Material Symbols name
+  lane: GameLane
+  blurb: string
+  component: ComponentType
+}
+
+// Single source of truth. Adding a game = append one entry + drop in a
+// default-exported component. Components are lazy() so they stay out of the
+// main bundle until a tile is clicked (mirrors the React.lazy use in
+// pages/Activity.tsx).
+export const GAMES: GameDef[] = [
+  {
+    id: 'set',
+    name: 'Set',
+    icon: 'style',
+    lane: 'logic',
+    blurb: 'Spot three cards that are all alike or all different.',
+    component: lazy(() => import('./games/Set')),
+  },
+]
