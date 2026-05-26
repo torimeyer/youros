@@ -10,6 +10,7 @@ import { useRunningAgentsStore } from '../stores/runningAgents'
 import { useMemoryToastStore } from '../stores/memoryToast'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { renderMarkdown, renderTextWithMarkdown } from '../lib/markdown'
+import { formatTime, formatElapsed, formatTokenCount } from '../lib/time'
 import { api } from '../lib/api'
 import { bumpAgents, bumpCalendar } from '../lib/sidebarBus'
 import {
@@ -150,6 +151,8 @@ interface Message {
   /** File changes recorded during this turn. Non-empty only on turns where the
    *  model wrote files tracked by the ostk gen_table. */
   fileChanges?: FileChange[]
+  /** ISO timestamp of when this message was created, used for →1734 bubble timestamps. */
+  timestamp?: string
 }
 
 interface GiphyResult {
@@ -739,6 +742,9 @@ export function ChatPanel() {
   const [trackedAgents, setTrackedAgents] = useState<TrackedAgent[]>([])
   const [stepProgress, setStepProgress] = useState<{ step: number; maxSteps: number } | null>(null)
   const [parkedTasks, setParkedTasks] = useState<ParkedTask[]>([])
+  // →1733: live status during streaming
+  const [liveElapsedSec, setLiveElapsedSec] = useState<number | null>(null)
+  const [liveStreamedChars, setLiveStreamedChars] = useState(0)
 
   // Push-fed running set from useRunningAgentsStore. When a tracked
   // agent disappears from this set, the banner hides instantly.
@@ -836,6 +842,8 @@ export function ChatPanel() {
         setStepProgress({ step: data.step, maxSteps: data.max_steps })
       }
     } else if (lastMessage.type === 'token') {
+      // Accumulate streamed char count for →1733 live token estimate.
+      setLiveStreamedChars(c => c + ((lastMessage.data as string)?.length ?? 0))
       // Model-tagged tokens (sent by parallel broadcast) must route to
       // the bubble for that specific model, not the most recently
       // opened bubble. Without this, two parallel streams collide
@@ -1376,6 +1384,9 @@ export function ChatPanel() {
       setEtaMs(null)
       setCurrentModel(null)
       setStepProgress(null)
+      // →1733: clear live status
+      setLiveElapsedSec(null)
+      setLiveStreamedChars(0)
       // Defensive cleanup. The complete phase usually arrives just
       // before done, but if the backend ever drops it the pill must
       // still go away when the stream ends.
@@ -1552,6 +1563,18 @@ export function ChatPanel() {
     }, 250)
     return () => clearInterval(id)
   }, [etaMs, isStreaming, placeholderAwaitingServer])
+
+  // →1733: elapsed time ticker. Counts up every second while a turn is in flight.
+  useEffect(() => {
+    if (!isStreaming && !placeholderAwaitingServer) return
+    const id = setInterval(() => {
+      const start = turnStartRef.current
+      if (start !== null) {
+        setLiveElapsedSec(Math.floor((Date.now() - start) / 1000))
+      }
+    }, 1000)
+    return () => clearInterval(id)
+  }, [isStreaming, placeholderAwaitingServer])
 
   // Reset all per-turn streaming state when the active tab changes.
   // Without this, switching tabs carries over multiAiStatus ("Claude is
@@ -1939,6 +1962,7 @@ export function ChatPanel() {
     }
 
     const userMsgId = genId()
+    const nowIso = new Date().toISOString()
     const userMessage: Message = {
       id: userMsgId,
       role: 'user',
@@ -1946,6 +1970,7 @@ export function ChatPanel() {
       replyTo: replyingTo || undefined,
       thread_id: replyThreadId,
       imageUrl: pendingImage || undefined,
+      timestamp: nowIso,
     }
 
     const mentionMatch = text.match(/@(\w+)/i)
@@ -1958,10 +1983,14 @@ export function ChatPanel() {
       content: '',
       model: detectedModel,
       thread_id: replyThreadId,
+      timestamp: nowIso,
     }
     setMessages([...updatedMessages, assistantMessage])
     setIsStreaming(true)
     setPlaceholderAwaitingServer(true)
+    // →1733: reset live status for new turn
+    setLiveElapsedSec(0)
+    setLiveStreamedChars(0)
     setCurrentModel(detectedModel)
     setReplyingTo(null)
     setPendingImage(null)
@@ -2158,14 +2187,16 @@ export function ChatPanel() {
   }
 
   const sendGif = (gifUrl: string) => {
+    const gifNowIso = new Date().toISOString()
     const userMessage: Message = {
       id: genId(),
       role: 'user',
       content: '',
       gifUrl,
       replyTo: replyingTo || undefined,
+      timestamp: gifNowIso,
     }
-    const assistantMessage: Message = { id: genId(), role: 'assistant', content: '', model: defaultChatModel }
+    const assistantMessage: Message = { id: genId(), role: 'assistant', content: '', model: defaultChatModel, timestamp: gifNowIso }
     const updatedMessages = [...messages, userMessage]
     setMessages([...updatedMessages, assistantMessage])
     setIsStreaming(true)
@@ -2176,6 +2207,9 @@ export function ChatPanel() {
     receivedAnyServerEventRef.current = false
     turnStartRef.current = Date.now()
     setEtaMs(computeEta())
+    // →1733: reset live status for new turn
+    setLiveElapsedSec(0)
+    setLiveStreamedChars(0)
 
     // Send messages with GIF URLs so the AI can see them
     const apiMessages = updatedMessages.map(m => ({
@@ -2899,6 +2933,16 @@ export function ChatPanel() {
                     </div>
                   )}
 
+                  {/* →1734 per-message timestamp */}
+                  {msg.timestamp && (
+                    <div
+                      data-testid={`msg-timestamp-${msg.id}`}
+                      className={`text-[10px] text-slate-400 dark:text-slate-600 mt-0.5 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}
+                    >
+                      {formatTime(msg.timestamp)}
+                    </div>
+                  )}
+
                   {/* Reply and reaction buttons on hover */}
                   <div className={`${msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'} opacity-0 group-hover:opacity-100 mt-0.5 transition-all`}>
                     <div className="flex items-center gap-0.5 z-10">
@@ -3353,6 +3397,16 @@ export function ChatPanel() {
             </button>
           </div>
         </div>
+        {/* →1733 Live status: elapsed time + running token count while streaming */}
+        {(isStreaming || placeholderAwaitingServer) && liveElapsedSec !== null && (
+          <div
+            data-testid="chat-live-status"
+            className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums"
+          >
+            {formatElapsed(liveElapsedSec)}{liveStreamedChars > 0 ? ` · ${formatTokenCount(Math.ceil(liveStreamedChars / 4))}` : ''}
+          </div>
+        )}
+
         {/* Tiny indicator showing which pathway is powering the response.
             Uses plain language so a non-engineer sees at a glance whether
             the chat is using the Claude subscription or the Anthropic key. */}
