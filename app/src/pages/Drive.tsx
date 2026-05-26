@@ -718,7 +718,7 @@ export default function Drive() {
     <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="Drive" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 max-w-6xl mx-auto">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl sm:text-2xl font-bold">Google Drive</h1>
         </div>

@@ -181,7 +181,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
     return (
       <>
         {!embedded && <TopBar title="Conversations" />}
-        <div className={embedded ? "" : "pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8"}>
+        <div className={embedded ? "" : "px-4 pb-4 sm:px-8 sm:pb-8"}>
           {/* Back button and header */}
           <div className="flex items-center gap-4 mb-6">
             <button
@@ -304,7 +304,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
   return (
     <>
       {!embedded && <TopBar title="Conversations" />}
-      <div className={embedded ? "" : "pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8"}>
+      <div className={embedded ? "" : "px-4 pb-4 sm:px-8 sm:pb-8"}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-white">Transcripts</h1>

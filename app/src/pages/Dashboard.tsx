@@ -1065,7 +1065,7 @@ export default function Dashboard() {
     >
       <TopBar title="Home" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {visibleBanners.map((id) => widgetRenderers[id]?.())}
 
         {/* Greeting + Customize button */}

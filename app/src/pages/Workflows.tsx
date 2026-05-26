@@ -702,7 +702,7 @@ export default function Workflows() {
     <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="Automations" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header row */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>

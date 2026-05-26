@@ -3875,7 +3875,7 @@ export default function Agents() {
   return (
     <>
       <TopBar title="Agents" />
-      <div data-tour="agents" className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+      <div data-tour="agents" className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header */}
         <div className="mb-6">
           <div className="flex flex-wrap items-center justify-between gap-3">

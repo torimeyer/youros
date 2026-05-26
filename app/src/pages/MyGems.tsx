@@ -173,7 +173,7 @@ export default function MyGems() {
     <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="My Gems" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 max-w-4xl mx-auto">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8 max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>

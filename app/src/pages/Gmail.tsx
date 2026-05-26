@@ -379,7 +379,7 @@ export default function Gmail() {
     return (
       <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="Gmail" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
         </div>
       </div>
@@ -390,7 +390,7 @@ export default function Gmail() {
     return (
       <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="Gmail" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
             icon="mail"
             accentColor="#ef4444"
@@ -439,7 +439,7 @@ export default function Gmail() {
     return (
       <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="Gmail" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
             icon="warning"
             accentColor="#f59e0b"
@@ -475,7 +475,7 @@ export default function Gmail() {
   return (
     <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="Gmail" />
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header row */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>

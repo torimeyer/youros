@@ -20,7 +20,7 @@ export default function Releases() {
     <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="What's New" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center gap-3 mb-2">
             <Icon name="auto_awesome" className="text-yellow-600 dark:text-yellow-400" size={28} />

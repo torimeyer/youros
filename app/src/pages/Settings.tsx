@@ -829,7 +829,7 @@ export default function Settings() {
         ))}
       </div>
 
-      <div className="flex pt-16 sm:pt-20">
+      <div className="flex">
         {/* Left nav rail — sticky on desktop */}
         <nav className="hidden lg:flex flex-col sticky top-20 self-start w-52 shrink-0 pl-4 py-6 space-y-0.5">
           {navItems.map((item) => (

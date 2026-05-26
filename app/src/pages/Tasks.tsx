@@ -1719,7 +1719,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       {!embedded && <TopBar title="Needles" />}
 
-      <div data-tour="tasks" className={`${embedded ? '' : 'pt-16 sm:pt-20 '}px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
+      <div data-tour="tasks" className={`px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
         {/* Banner */}
         {banner && banner.trim() && (
           <div className="mb-4 px-4 py-3 bg-purple-500/20 border border-purple-500/40 rounded-lg text-sm text-purple-200 flex items-center justify-between">

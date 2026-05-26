@@ -474,7 +474,7 @@ export default function SettingsRules() {
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <TopBar title="Rules" />
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto px-6 pb-6">
         <PageHeader
           title="Rules"
           subtitle="Turn each rule on or off, tweak its settings, or see when it last fired."
