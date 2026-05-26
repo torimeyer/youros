@@ -31,7 +31,7 @@ export default function TeamStart() {
   }
 
   return (
-    <div className="max-w-lg mx-auto pt-16 px-6">
+    <div className="max-w-lg mx-auto px-6">
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center">

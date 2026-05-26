@@ -155,7 +155,6 @@ export default function Team() {
     return (
       <div className="min-h-screen bg-slate-950">
         <TopBar title="Team" />
-        <div className="pt-16 sm:pt-20" />
       </div>
     );
   }
@@ -164,7 +163,7 @@ export default function Team() {
     return (
       <div className="min-h-screen bg-slate-950">
         <TopBar title="Team" />
-        <div className="pt-16 sm:pt-20 px-4 sm:px-8 max-w-2xl mx-auto mt-16">
+        <div className="px-4 sm:px-8 max-w-2xl mx-auto mt-16">
           <EmptyState
             icon="group"
             title="Team mode isn't set up yet"
@@ -184,7 +183,7 @@ export default function Team() {
   return (
     <div className="min-h-screen bg-slate-950">
       <TopBar title="Team" />
-      <div className="pt-16 sm:pt-20 px-4 sm:px-8 max-w-4xl mx-auto py-6">
+      <div className="px-4 sm:px-8 max-w-4xl mx-auto py-6">
         <div className="mb-4 px-3 py-2 rounded-lg bg-amber-500/10 text-amber-400 text-sm">
           Team features are in beta. Some things may change.
         </div>

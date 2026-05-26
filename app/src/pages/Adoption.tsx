@@ -65,7 +65,7 @@ export default function Adoption() {
     return (
       <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="What's working" />
-        <div className="pt-16 px-6 pb-6 sm:pt-20 max-w-2xl mx-auto">
+        <div className="px-6 pb-6 max-w-2xl mx-auto">
           <p className="text-slate-400 text-sm py-8">
             {loading ? 'Loading...' : "Couldn't load your activity right now. Try refreshing."}
           </p>
@@ -79,7 +79,7 @@ export default function Adoption() {
   return (
     <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="What's working" />
-      <div className="pt-16 px-6 pb-6 sm:pt-20 max-w-2xl mx-auto space-y-8">
+      <div className="px-6 pb-6 max-w-2xl mx-auto space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-slate-100">What's working</h1>
         <p className="text-slate-400 text-sm mt-1">

@@ -186,7 +186,7 @@ export default function Jira() {
     return (
       <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="Jira" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
         </div>
       </div>
@@ -197,7 +197,7 @@ export default function Jira() {
     return (
       <div className="min-h-dvh bg-slate-950 text-white" data-testid="jira-page">
         <TopBar title="Jira" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
             icon="bug_report"
             accentColor="#94a3b8"
@@ -286,7 +286,7 @@ export default function Jira() {
     return (
       <div className="min-h-dvh bg-slate-950 text-white" data-testid="jira-page">
         <TopBar title="Jira" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <button
             onClick={() => navigate('/jira')}
             className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm mb-4 transition-colors"
@@ -408,7 +408,7 @@ export default function Jira() {
   return (
     <div className="min-h-dvh bg-slate-950 text-white" data-testid="jira-page">
       <TopBar title="Jira" />
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <div className="flex items-center gap-3">

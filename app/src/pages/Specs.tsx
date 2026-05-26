@@ -1083,7 +1083,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
         />
       )}
       {!embedded && <TopBar title="Specs" />}
-      <div data-tour="specs" className={`${embedded ? '' : 'pt-16 sm:pt-20 '}px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
+      <div data-tour="specs" className={`px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
 
         <SpecsOnboarding />
         {/* Header */}

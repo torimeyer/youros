@@ -288,6 +288,11 @@ export default function TopBar({ title }: TopBarProps) {
   }, [agentUnreadCount, markAllRead, persistentUnread, handleMarkAllPersistentRead])
 
   return (
+    <>
+    {/* Flow spacer: same height as the fixed header so page content never
+        slides underneath it. Pages must NOT add their own top padding for
+        the TopBar offset. This spacer is the single source of truth. */}
+    <div className="h-14 sm:h-16 shrink-0" aria-hidden="true" data-testid="topbar-spacer" />
     <header
       className="fixed top-0 left-0 lg:left-56 h-14 sm:h-16 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/50 flex items-center justify-between px-4 sm:px-8 z-40 transition-[right] duration-200"
       style={{ right: chatOpen && isDesktop ? chatWidth : 0 }}
@@ -435,5 +440,6 @@ export default function TopBar({ title }: TopBarProps) {
         </div>
       </div>
     </header>
+    </>
   )
 }

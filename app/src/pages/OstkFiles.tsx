@@ -343,7 +343,7 @@ export default function OstkFiles() {
     <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="ostk" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 max-w-4xl mx-auto">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8 max-w-4xl mx-auto">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold">ostk browser</h1>
