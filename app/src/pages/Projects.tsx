@@ -21,11 +21,11 @@ interface ProjectsResponse {
 }
 
 const typeConfig: Record<string, { icon: string; color: string; label: string }> = {
-  node: { icon: 'javascript', color: 'bg-yellow-500/20 text-yellow-400', label: 'Node.js' },
-  python: { icon: 'code', color: 'bg-blue-500/20 text-blue-400', label: 'Python' },
-  rust: { icon: 'memory', color: 'bg-orange-500/20 text-orange-400', label: 'Rust' },
-  go: { icon: 'speed', color: 'bg-cyan-500/20 text-cyan-400', label: 'Go' },
-  folder: { icon: 'folder', color: 'bg-slate-500/20 text-slate-400', label: 'Folder' },
+  node: { icon: 'javascript', color: 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400', label: 'Node.js' },
+  python: { icon: 'code', color: 'bg-blue-500/20 text-blue-600 dark:text-blue-400', label: 'Python' },
+  rust: { icon: 'memory', color: 'bg-orange-500/20 text-orange-600 dark:text-orange-400', label: 'Rust' },
+  go: { icon: 'speed', color: 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-400', label: 'Go' },
+  folder: { icon: 'folder', color: 'bg-slate-500/20 text-slate-600 dark:text-slate-400', label: 'Folder' },
 };
 
 
@@ -54,7 +54,7 @@ export default function Projects() {
   }, [fetchProjects]);
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="Projects" />
 
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
@@ -62,13 +62,13 @@ export default function Projects() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold mb-1">Projects</h1>
-            <p className="text-slate-400">
+            <p className="text-slate-600 dark:text-slate-400">
               All directories in the myOS workspace.
             </p>
           </div>
           <button
             onClick={fetchProjects}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-300 transition-colors"
           >
             <Icon name="refresh" size={16} />
             Refresh
@@ -121,7 +121,7 @@ export default function Projects() {
 
                   {/* Description */}
                   {project.description && (
-                    <p className="text-sm text-slate-400 mb-4 line-clamp-2">
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 line-clamp-2">
                       {project.description}
                     </p>
                   )}
@@ -143,7 +143,7 @@ export default function Projects() {
 
                     {/* Git badge */}
                     {project.has_git && (
-                      <span className="flex items-center gap-1 text-green-400">
+                      <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
                         <Icon name="commit" size={14} />
                         git
                       </span>

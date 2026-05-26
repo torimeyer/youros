@@ -177,7 +177,7 @@ export function NeedsClarityChip({
     return (
       <span
         data-testid="needs-clarity-chip"
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-400 border border-green-500/30"
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/30"
       >
         <Icon name="check_circle" className="text-[10px]" />
         Ready
@@ -191,8 +191,8 @@ export function NeedsClarityChip({
         <button
           type="button"
           data-testid="needs-clarity-chip"
-          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-sky-500/10 text-sky-400/70 border border-sky-500/20 cursor-pointer hover:bg-sky-500/20 transition-colors dark:bg-sky-500/10 dark:text-sky-400/70 dark:border-sky-500/20"
-          title="Optional tips to strengthen this spec"
+          className="inline-flex items-center p-0.5 rounded text-amber-700 dark:text-amber-300/40 cursor-pointer hover:text-amber-700 dark:hover:text-amber-300/60 transition-colors"
+          title="Optional clarity tips available"
           onClick={(e) => {
             e.stopPropagation()
             setOpen(true)
@@ -204,7 +204,7 @@ export function NeedsClarityChip({
         <button
           type="button"
           data-testid="needs-clarity-chip"
-          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-amber-500/10 text-amber-400/80 border border-amber-500/20 cursor-pointer hover:bg-amber-500/20 transition-colors dark:bg-amber-500/10 dark:text-amber-400/80 dark:border-amber-500/20"
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-amber-500/8 text-amber-700 dark:text-amber-300/70 border border-amber-500/15 cursor-pointer hover:bg-amber-500/15 transition-colors"
           title={checkLines.join('\n')}
           onClick={(e) => {
             e.stopPropagation()
@@ -226,13 +226,13 @@ export function NeedsClarityChip({
             if (e.target === e.currentTarget) setOpen(false)
           }}
         >
-          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-lg w-full mx-4 shadow-xl max-h-[80vh] overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 max-w-lg w-full mx-4 shadow-xl max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-white text-lg font-semibold">What needs clarity</h2>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-600 dark:text-slate-400 hover:text-white"
                 aria-label="Close"
               >
                 <Icon name="close" />
@@ -246,7 +246,7 @@ export function NeedsClarityChip({
                   data-testid="fill-all-gaps-btn"
                   disabled={fillingAll}
                   onClick={handleFillAll}
-                  className="w-full py-2 px-4 rounded-lg text-sm font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full py-2 px-4 rounded-lg text-sm font-medium bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {fillingAll && fillAllProgress
                     ? `Filling ${fillAllProgress.done} of ${fillAllProgress.total}…`
@@ -258,7 +258,7 @@ export function NeedsClarityChip({
                       type="button"
                       data-testid="apply-all-btn"
                       onClick={handleApplyAll}
-                      className="flex-1 py-1 px-3 rounded text-xs font-medium bg-amber-500/30 text-amber-300 border border-amber-500/40 hover:bg-amber-500/40"
+                      className="flex-1 py-1 px-3 rounded text-xs font-medium bg-amber-500/30 text-amber-700 dark:text-amber-300 border border-amber-500/40 hover:bg-amber-500/40"
                     >
                       Apply all suggestions
                     </button>
@@ -266,7 +266,7 @@ export function NeedsClarityChip({
                       type="button"
                       data-testid="review-first-btn"
                       onClick={() => setShowApplyAllConfirm(false)}
-                      className="py-1 px-3 rounded text-xs font-medium bg-slate-700 text-slate-300 border border-slate-600 hover:bg-slate-600"
+                      className="py-1 px-3 rounded text-xs font-medium bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-600 hover:bg-slate-600"
                     >
                       Review first
                     </button>
@@ -289,18 +289,18 @@ export function NeedsClarityChip({
                     <Icon
                       name={check.passed ? 'check_circle' : 'warning'}
                       className={`text-sm mt-0.5 flex-shrink-0 ${
-                        check.passed ? 'text-green-400' : 'text-amber-400'
+                        check.passed ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'
                       }`}
                     />
                     <div className="flex-1 min-w-0">
                       <p
                         className={`text-sm font-medium ${
-                          check.passed ? 'text-green-300' : 'text-amber-300'
+                          check.passed ? 'text-green-700 dark:text-green-300' : 'text-amber-700 dark:text-amber-300'
                         }`}
                       >
                         {CHECK_LABEL[check.name] ?? check.name}
                       </p>
-                      <p className="text-xs text-slate-400 mt-0.5">{check.detail}</p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{check.detail}</p>
 
                       {!check.passed && (specPath || taskId) && (
                         <div className="mt-2">
@@ -310,14 +310,14 @@ export function NeedsClarityChip({
                               data-testid={`clarity-suggest-${check.name}`}
                               disabled={suggesting === check.name}
                               onClick={() => handleSuggest(check.name)}
-                              className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-700 text-slate-300 border border-slate-600 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-600 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               {suggesting === check.name ? 'Thinking…' : 'AI suggest'}
                             </button>
                             {suggestErrors[check.name] && (
                               <p
                                 data-testid={`clarity-suggest-error-${check.name}`}
-                                className="mt-1 text-[10px] text-red-400"
+                                className="mt-1 text-[10px] text-red-600 dark:text-red-400"
                               >
                                 {suggestErrors[check.name].includes('No Anthropic API key') ? (
                                   <>
@@ -335,7 +335,7 @@ export function NeedsClarityChip({
                           </div>
                           <textarea
                             data-testid={`clarity-input-${check.name}`}
-                            className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 resize-none focus:outline-none focus:border-amber-500/60"
+                            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 resize-none focus:outline-none focus:border-amber-500/60"
                             rows={3}
                             placeholder={CHECK_PLACEHOLDER[check.name] ?? 'Provide the missing information…'}
                             value={drafts[check.name] ?? ''}
@@ -349,7 +349,7 @@ export function NeedsClarityChip({
                           {rationales[check.name] && (
                             <p
                               data-testid={`clarity-rationale-${check.name}`}
-                              className="mt-1 text-xs text-slate-400 italic"
+                              className="mt-1 text-xs text-slate-600 dark:text-slate-400 italic"
                             >
                               {rationales[check.name]}
                             </p>
@@ -359,7 +359,7 @@ export function NeedsClarityChip({
                             data-testid={`clarity-save-${check.name}`}
                             disabled={saving === check.name || !drafts[check.name]?.trim()}
                             onClick={() => handleSave(check.name)}
-                            className="mt-1 px-3 py-1 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="mt-1 px-3 py-1 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {saving === check.name ? 'Saving…' : 'Accept'}
                           </button>
@@ -371,7 +371,7 @@ export function NeedsClarityChip({
               ))}
             </div>
 
-            {saveError && <p className="mt-3 text-xs text-red-400">{saveError}</p>}
+            {saveError && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{saveError}</p>}
           </div>
         </div>
       )}

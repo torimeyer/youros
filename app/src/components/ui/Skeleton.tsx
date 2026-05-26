@@ -7,7 +7,7 @@ export function SkeletonLine({ width = 'w-full', className = '' }: SkeletonLineP
   return (
     <div
       data-testid="skeleton-line"
-      className={`bg-slate-800 animate-pulse rounded h-4 ${width} ${className}`}
+      className={`bg-slate-100 dark:bg-slate-800 animate-pulse rounded h-4 ${width} ${className}`}
     />
   )
 }
@@ -22,7 +22,7 @@ export function SkeletonBlock({ width = 'w-full', height = 'h-24', className = '
   return (
     <div
       data-testid="skeleton-block"
-      className={`bg-slate-800 animate-pulse rounded ${width} ${height} ${className}`}
+      className={`bg-slate-100 dark:bg-slate-800 animate-pulse rounded ${width} ${height} ${className}`}
     />
   )
 }
@@ -42,7 +42,7 @@ export function SkeletonAvatar({ size = 'md', className = '' }: SkeletonAvatarPr
   return (
     <div
       data-testid="skeleton-avatar"
-      className={`bg-slate-800 animate-pulse rounded-full shrink-0 ${avatarSizeClasses[size]} ${className}`}
+      className={`bg-slate-100 dark:bg-slate-800 animate-pulse rounded-full shrink-0 ${avatarSizeClasses[size]} ${className}`}
     />
   )
 }

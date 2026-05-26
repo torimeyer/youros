@@ -46,7 +46,7 @@ export default function SinceYouLastLooked() {
   return (
     <button
       onClick={handleClick}
-      className="group relative flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-400 hover:text-slate-100 hover:bg-slate-800/50"
+      className="group relative flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/50"
       title="Agents finished while you were away"
       data-testid="since-you-last-looked-button"
     >

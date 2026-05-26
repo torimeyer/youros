@@ -83,8 +83,8 @@ export default function TimeFilter({ value, onChange, labels, includeAll }: Time
           onKeyDown={(e) => handleKeyDown(e, period)}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
             value === period
-              ? "bg-blue-500/20 text-blue-400 border border-blue-500/50"
-              : "bg-slate-900 text-slate-400 border border-slate-800 hover:border-slate-700 hover:text-slate-300"
+              ? "bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/50"
+              : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700 hover:text-slate-700 dark:hover:text-slate-300"
           }`}
         >
           {resolvedLabels[period]}

@@ -22,7 +22,7 @@ export default function GoogleSetupGuideModal({ onClose }: { onClose: () => void
       onClick={onClose}
     >
       <div
-        className="bg-slate-900 border border-slate-700 rounded-2xl p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto text-left"
+        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto text-left"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between mb-4">
@@ -30,27 +30,27 @@ export default function GoogleSetupGuideModal({ onClose }: { onClose: () => void
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-500 hover:text-slate-300"
+            className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
             aria-label="Close"
           >
             <Icon name="close" size={20} />
           </button>
         </div>
 
-        <p className="text-sm text-slate-400 mb-5">
+        <p className="text-sm text-slate-600 dark:text-slate-400 mb-5">
           myOS needs a credentials file from Google so it can connect to your Drive, Calendar, and Gmail. You only have to do this once. Here is how.
         </p>
 
-        <ol className="space-y-4 text-sm text-slate-300">
+        <ol className="space-y-4 text-sm text-slate-700 dark:text-slate-300">
           <li>
-            <div className="font-semibold text-slate-200 mb-1">1. Open Google Cloud Console</div>
-            <p className="text-slate-400">
+            <div className="font-semibold text-slate-800 dark:text-slate-200 mb-1">1. Open Google Cloud Console</div>
+            <p className="text-slate-600 dark:text-slate-400">
               Go to{' '}
               <a
                 href="https://console.cloud.google.com"
                 target="_blank"
                 rel="noreferrer"
-                className="text-blue-400 hover:text-blue-300 underline"
+                className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline"
               >
                 console.cloud.google.com
               </a>{' '}
@@ -59,11 +59,11 @@ export default function GoogleSetupGuideModal({ onClose }: { onClose: () => void
           </li>
 
           <li>
-            <div className="font-semibold text-slate-200 mb-1">2. Turn on the APIs you want</div>
-            <p className="text-slate-400 mb-2">
+            <div className="font-semibold text-slate-800 dark:text-slate-200 mb-1">2. Turn on the APIs you want</div>
+            <p className="text-slate-600 dark:text-slate-400 mb-2">
               In the search bar, find and enable each of these:
             </p>
-            <ul className="list-disc list-inside space-y-1 text-slate-400 ml-2">
+            <ul className="list-disc list-inside space-y-1 text-slate-600 dark:text-slate-400 ml-2">
               <li>Google Drive API</li>
               <li>Google Calendar API</li>
               <li>Gmail API</li>
@@ -74,39 +74,39 @@ export default function GoogleSetupGuideModal({ onClose }: { onClose: () => void
           </li>
 
           <li>
-            <div className="font-semibold text-slate-200 mb-1">3. Create OAuth credentials</div>
-            <p className="text-slate-400">
+            <div className="font-semibold text-slate-800 dark:text-slate-200 mb-1">3. Create OAuth credentials</div>
+            <p className="text-slate-600 dark:text-slate-400">
               Go to "APIs and Services" then "Credentials". Click "Create Credentials" and pick "OAuth client ID". Choose "Desktop app" as the type, give it any name, and click Create.
             </p>
           </li>
 
           <li>
-            <div className="font-semibold text-slate-200 mb-1">4. Download the JSON file</div>
-            <p className="text-slate-400">
+            <div className="font-semibold text-slate-800 dark:text-slate-200 mb-1">4. Download the JSON file</div>
+            <p className="text-slate-600 dark:text-slate-400">
               After creating the client, click the download button next to it. You will get a small .json file. Upload it from the Drive tab to finish connecting.
             </p>
           </li>
         </ol>
 
-        <div className="mt-6 p-3 bg-slate-800/50 border border-slate-700 rounded-lg">
-          <p className="text-xs text-slate-400">
+        <div className="mt-6 p-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg">
+          <p className="text-xs text-slate-600 dark:text-slate-400">
             Your credentials file stays on your computer. myOS never uploads it anywhere.
           </p>
         </div>
 
-        <div className="mt-4 p-3 bg-slate-800/30 border border-slate-700 rounded-lg">
-          <p className="text-xs text-slate-300 font-medium mb-1">Want to use Gemini chat too?</p>
-          <p className="text-xs text-slate-400">
+        <div className="mt-4 p-3 bg-slate-100 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700 rounded-lg">
+          <p className="text-xs text-slate-700 dark:text-slate-300 font-medium mb-1">Want to use Gemini chat too?</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400">
             Recommended: reuse this same Google Cloud project. Three steps:
           </p>
-          <ol className="text-xs text-slate-400 list-decimal ml-5 mt-1 space-y-1">
+          <ol className="text-xs text-slate-600 dark:text-slate-400 list-decimal ml-5 mt-1 space-y-1">
             <li>
               Enable{' '}
               <a
                 href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com"
                 target="_blank"
                 rel="noreferrer"
-                className="text-blue-400 hover:text-blue-300 underline"
+                className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline"
               >
                 "Generative Language API"
               </a>{' '}
@@ -123,7 +123,7 @@ export default function GoogleSetupGuideModal({ onClose }: { onClose: () => void
               href="https://aistudio.google.com/apikey"
               target="_blank"
               rel="noreferrer"
-              className="text-blue-400 hover:text-blue-300 underline"
+              className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline"
             >
               Google AI Studio
             </a>{' '}
@@ -134,7 +134,7 @@ export default function GoogleSetupGuideModal({ onClose }: { onClose: () => void
         <button
           type="button"
           onClick={onClose}
-          className="w-full mt-5 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-medium transition-colors"
+          className="w-full mt-5 py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl font-medium transition-colors"
         >
           Got it
         </button>

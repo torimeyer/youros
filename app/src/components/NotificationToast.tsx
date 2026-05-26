@@ -5,17 +5,17 @@ import Icon from './Icon'
 function statusIcon(status: string): { icon: string; color: string } {
   switch (status) {
     case 'completed':
-      return { icon: 'check_circle', color: 'text-green-400' }
+      return { icon: 'check_circle', color: 'text-green-600 dark:text-green-400' }
     case 'failed':
-      return { icon: 'error', color: 'text-red-400' }
+      return { icon: 'error', color: 'text-red-600 dark:text-red-400' }
     case 'killed':
     case 'stopped':
-      return { icon: 'cancel', color: 'text-orange-400' }
+      return { icon: 'cancel', color: 'text-orange-600 dark:text-orange-400' }
     case 'running':
     case 'spawned':
-      return { icon: 'play_circle', color: 'text-blue-400' }
+      return { icon: 'play_circle', color: 'text-blue-600 dark:text-blue-400' }
     default:
-      return { icon: 'info', color: 'text-slate-400' }
+      return { icon: 'info', color: 'text-slate-600 dark:text-slate-400' }
   }
 }
 
@@ -106,26 +106,26 @@ function Toast({
   // The body (agent description) is suppressed because it typically
   // just repeats the name in the completion case.
   return (
-    <div className="flex items-start gap-3 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 shadow-xl w-72 animate-toast-in">
+    <div className="flex items-start gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 shadow-xl w-72 animate-toast-in">
       <Icon name={icon} size={20} className={`${color} mt-0.5 shrink-0`} />
       <div className="flex-1 min-w-0">
         {statusLabel ? (
           <>
             <p className="text-sm font-medium text-white">{statusLabel}</p>
-            <p className="text-xs text-slate-400 leading-relaxed break-words line-clamp-2">
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed break-words line-clamp-2">
               {name}
             </p>
           </>
         ) : (
           <>
             <p className="text-sm font-medium text-white truncate">{name}</p>
-            <p className="text-xs text-slate-400 leading-relaxed">{bodyText}</p>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">{bodyText}</p>
           </>
         )}
       </div>
       <button
         onClick={onDismiss}
-        className="text-slate-600 hover:text-slate-400 shrink-0 transition-colors"
+        className="text-slate-600 hover:text-slate-600 dark:hover:text-slate-400 shrink-0 transition-colors"
       >
         <Icon name="close" size={14} />
       </button>

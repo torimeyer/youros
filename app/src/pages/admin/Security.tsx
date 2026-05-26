@@ -39,11 +39,11 @@ export default function AdminSecurity() {
 
   const [loading, setLoading] = useState(true)
 
-  const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'}`
-  const labelCls = darkMode ? 'text-slate-400' : 'text-slate-500'
+  const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-800' : 'bg-white border-slate-200'}`
+  const labelCls = darkMode ? 'text-slate-600 dark:text-slate-400' : 'text-slate-500'
   const valueCls = darkMode ? 'text-white' : 'text-slate-900'
-  const headingCls = darkMode ? 'text-slate-200' : 'text-slate-800'
-  const inputCls = darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+  const headingCls = darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-800'
+  const inputCls = darkMode ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
 
   useEffect(() => {
     Promise.all([
@@ -153,7 +153,7 @@ export default function AdminSecurity() {
         <div className="flex items-center justify-between mb-4">
           <h2 className={`text-base font-semibold ${headingCls}`}>Single sign-on (SSO)</h2>
           {sso.configured && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-500/20 text-green-400">
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">
               Active
             </span>
           )}
@@ -173,7 +173,7 @@ export default function AdminSecurity() {
             )}
             <button
               onClick={handleRemoveSSO}
-              className="text-sm text-red-400 hover:text-red-300 transition-colors"
+              className="text-sm text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
             >
               Remove SSO configuration
             </button>
@@ -248,14 +248,14 @@ export default function AdminSecurity() {
         {apiKeyProviders.length > 0 && (
           <div className="mb-4 space-y-2">
             {apiKeyProviders.map((p) => (
-              <div key={p} className={`flex items-center justify-between px-3 py-2 rounded-lg ${darkMode ? 'bg-slate-800/50' : 'bg-slate-50'}`}>
+              <div key={p} className={`flex items-center justify-between px-3 py-2 rounded-lg ${darkMode ? 'bg-slate-100 dark:bg-slate-800/50' : 'bg-slate-50'}`}>
                 <div className="flex items-center gap-2">
-                  <Icon name="vpn_key" className="text-green-400" size={16} />
+                  <Icon name="vpn_key" className="text-green-600 dark:text-green-400" size={16} />
                   <span className={`text-sm font-medium ${valueCls}`}>{p.charAt(0).toUpperCase() + p.slice(1)}</span>
                 </div>
                 <button
                   onClick={() => handleRemoveApiKey(p)}
-                  className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                  className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
                 >
                   Remove
                 </button>
@@ -298,8 +298,8 @@ export default function AdminSecurity() {
             data-testid="signing-key-status-badge"
             className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
               signingKey.exists
-                ? 'bg-green-500/20 text-green-400'
-                : 'bg-slate-500/20 text-slate-400'
+                ? 'bg-green-500/20 text-green-600 dark:text-green-400'
+                : 'bg-slate-500/20 text-slate-600 dark:text-slate-400'
             }`}
           >
             {signingKey.exists ? 'Active' : 'Not set'}
@@ -345,7 +345,7 @@ export default function AdminSecurity() {
             <button
               onClick={() => setRevokeConfirm(true)}
               data-testid="revoke-signing-key-btn"
-              className="text-sm text-red-400 hover:text-red-300 transition-colors"
+              className="text-sm text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
             >
               Revoke key
             </button>
@@ -358,13 +358,13 @@ export default function AdminSecurity() {
                 onClick={handleRevokeKey}
                 disabled={signingBusy}
                 data-testid="revoke-confirm-btn"
-                className="text-sm text-red-400 hover:text-red-300 transition-colors font-semibold"
+                className="text-sm text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors font-semibold"
               >
                 Yes, remove
               </button>
               <button
                 onClick={() => setRevokeConfirm(false)}
-                className={`text-sm ${labelCls} hover:text-slate-300 transition-colors`}
+                className={`text-sm ${labelCls} hover:text-slate-700 dark:hover:text-slate-300 transition-colors`}
               >
                 Cancel
               </button>

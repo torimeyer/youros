@@ -38,9 +38,9 @@ export function SpawnGeminiModal({ path, title, checks, onClose, onSpawned }: Sp
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-md w-full mx-4 shadow-xl">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 max-w-md w-full mx-4 shadow-xl">
         <h2 className="text-white text-lg font-semibold mb-1">Spawn Gemini agent</h2>
-        <p className="text-slate-400 text-sm mb-4">{title}</p>
+        <p className="text-slate-600 dark:text-slate-400 text-sm mb-4">{title}</p>
 
         {checks && checks.filter((c) => c.passed).length > 0 && (
           <div className="mb-4 space-y-1">
@@ -48,21 +48,21 @@ export function SpawnGeminiModal({ path, title, checks, onClose, onSpawned }: Sp
               .filter((c) => c.passed)
               .slice(0, 3)
               .map((c) => (
-                <div key={c.name} className="flex items-center gap-2 text-xs text-slate-400">
-                  <span className="text-green-400">✓</span>
+                <div key={c.name} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                  <span className="text-green-600 dark:text-green-400">✓</span>
                   {c.detail}
                 </div>
               ))}
           </div>
         )}
 
-        {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+        {error && <p className="text-red-600 dark:text-red-400 text-sm mb-3">{error}</p>}
 
         <div className="flex gap-3 justify-end">
           <button
             data-testid="cancel-gemini-btn"
             onClick={onClose}
-            className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg border border-slate-700 hover:border-slate-500 transition-colors"
+            className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-white rounded-lg border border-slate-200 dark:border-slate-700 hover:border-slate-500 transition-colors"
           >
             Cancel
           </button>

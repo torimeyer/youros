@@ -788,7 +788,7 @@ export function Sidebar() {
           data-testid="theme-toggle"
           aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
           onClick={toggleDarkMode}
-          className="relative flex items-center w-full h-10 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition-colors duration-200 cursor-pointer border border-slate-300 dark:border-slate-700 p-1"
+          className="relative flex items-center w-full h-10 rounded-full bg-slate-100 hover:bg-slate-200 dark:hover:bg-slate-800 dark:hover:bg-slate-700 transition-colors duration-200 cursor-pointer border border-slate-300 dark:border-slate-700 p-1"
         >
           {/* Sun icon (light) */}
           <span className={`w-1/2 flex items-center justify-center z-10 transition-colors duration-200 ${!darkMode ? 'text-amber-500' : 'text-slate-500 hover:text-slate-400'}`}>

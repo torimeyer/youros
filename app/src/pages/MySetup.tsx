@@ -19,12 +19,12 @@ function StatCard({ icon, label, value, sub }: {
   sub?: string
 }) {
   return (
-    <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5 flex flex-col gap-2">
-      <div className="flex items-center gap-2 text-slate-400">
+    <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-xl p-5 flex flex-col gap-2">
+      <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
         <Icon name={icon} className="text-lg" />
         <span className="text-xs font-semibold uppercase tracking-wider">{label}</span>
       </div>
-      <div className="text-2xl font-bold text-slate-100">{value}</div>
+      <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</div>
       {sub && <div className="text-xs text-slate-500">{sub}</div>}
     </div>
   )
@@ -95,12 +95,12 @@ export default function MySetup() {
   }
 
   if (loading) {
-    return <div className="p-6 text-slate-400 text-sm">Loading...</div>
+    return <div className="p-6 text-slate-600 dark:text-slate-400 text-sm">Loading...</div>
   }
 
   if (error || !data) {
     return (
-      <div className="p-6 text-slate-400 text-sm">
+      <div className="p-6 text-slate-600 dark:text-slate-400 text-sm">
         Couldn't load your setup right now. Try refreshing.
       </div>
     )
@@ -111,8 +111,8 @@ export default function MySetup() {
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-slate-100">My AI setup</h1>
-        <p className="text-slate-400 text-sm mt-1">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">My AI setup</h1>
+        <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">
           A snapshot of how your AI assistant is set up and what you've been doing with it.
         </p>
       </div>
@@ -148,12 +148,12 @@ export default function MySetup() {
       {/* Top skills */}
       {data.top_skills.length > 0 && (
         <div>
-          <h2 className="text-sm font-semibold text-slate-300 mb-3">Top skills this week</h2>
+          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Top skills this week</h2>
           <div className="flex flex-wrap gap-2">
             {data.top_skills.map((skill) => (
               <span
                 key={skill}
-                className="px-3 py-1.5 rounded-full bg-slate-700/60 text-slate-300 text-sm font-medium"
+                className="px-3 py-1.5 rounded-full bg-slate-100/60 dark:bg-slate-700/60 text-slate-700 dark:text-slate-300 text-sm font-medium"
               >
                 {skill}
               </span>
@@ -164,12 +164,12 @@ export default function MySetup() {
 
       {/* Actions */}
       <div>
-        <h2 className="text-sm font-semibold text-slate-300 mb-3">Export and share</h2>
+        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Export and share</h2>
         <div className="flex flex-wrap gap-3">
           <button
             data-testid="copy-markdown-btn"
             onClick={handleCopyMarkdown}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-sm font-medium transition-colors"
           >
             <Icon name={copied ? 'check' : 'content_copy'} className="text-base" />
             {copied ? 'Copied!' : 'Copy as markdown'}
@@ -178,7 +178,7 @@ export default function MySetup() {
             data-testid="download-config-btn"
             onClick={handleDownloadConfig}
             disabled={downloading}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-sm font-medium transition-colors disabled:opacity-50"
           >
             <Icon name="download" className="text-base" />
             {downloading ? 'Downloading...' : 'Download config'}
@@ -188,11 +188,11 @@ export default function MySetup() {
 
       {/* Shareable text block */}
       <div>
-        <h2 className="text-sm font-semibold text-slate-300 mb-3">Share anywhere</h2>
+        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Share anywhere</h2>
         <p className="text-xs text-slate-500 mb-2">Paste this into a message, doc, or anywhere else.</p>
         <pre
           data-testid="share-text-block"
-          className="bg-slate-800/60 border border-slate-700/50 rounded-lg p-4 text-slate-300 text-xs whitespace-pre-wrap font-mono leading-relaxed overflow-x-auto"
+          className="bg-slate-50/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 rounded-lg p-4 text-slate-700 dark:text-slate-300 text-xs whitespace-pre-wrap font-mono leading-relaxed overflow-x-auto"
         >
           {shareText}
         </pre>

@@ -48,7 +48,7 @@ export default function JiraWidget() {
       <Card hover padding="sm" className="sm:p-6" onClick={() => navigate('/jira')}>
         <div className="flex items-center justify-between mb-4 pr-8">
           <div className="flex items-center gap-2">
-            <Icon name="bug_report" className="text-blue-400" size={20} />
+            <Icon name="bug_report" className="text-blue-600 dark:text-blue-400" size={20} />
             <h2 className="text-lg font-semibold">Jira Issues</h2>
           </div>
           <span className="text-xs text-slate-500">{issues.length} assigned</span>
@@ -72,14 +72,14 @@ export default function JiraWidget() {
                   e.stopPropagation();
                   navigate(`/jira/${issue.key}`);
                 }}
-                className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-800/50 transition-colors cursor-pointer"
+                className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
               >
                 <span className="text-[10px] font-mono text-slate-500 shrink-0">{issue.key}</span>
                 <span className="flex-1 text-sm font-medium text-white truncate">
                   {issue.summary}
                 </span>
                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${
-                  issue.status === 'In Progress' ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-700/60 text-slate-400'
+                  issue.status === 'In Progress' ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400' : 'bg-slate-100/60 dark:bg-slate-700/60 text-slate-600 dark:text-slate-400'
                 }`}>
                   {issue.status}
                 </span>

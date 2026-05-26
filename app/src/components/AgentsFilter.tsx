@@ -91,7 +91,7 @@ export function ChatFilterChip({
       onClick={onToggle}
       data-testid="recent-chat-toggle"
       aria-label={showChat ? "Hide chat agents" : `Show ${hiddenCount} hidden chat agent${hiddenCount === 1 ? "" : "s"}`}
-      className="inline-flex items-center gap-2 text-xs text-slate-300 bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700 rounded-full px-3 py-1 transition-colors"
+      className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/70 hover:bg-slate-200 dark:hover:bg-slate-700/70 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1 transition-colors"
     >
       {showChat ? (
         <>

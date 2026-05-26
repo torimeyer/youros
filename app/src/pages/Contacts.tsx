@@ -46,7 +46,7 @@ export default function Contacts() {
   }, [contacts, search])
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="Contacts" />
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
         {/* Header */}
@@ -54,7 +54,7 @@ export default function Contacts() {
           <div>
             <h1 className="text-xl sm:text-2xl font-bold">Contacts</h1>
             {!loading && !error && (
-              <p className="text-sm text-slate-400 mt-0.5">
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
                 {contacts.length} contact{contacts.length !== 1 ? 's' : ''}
               </p>
             )}
@@ -64,7 +64,7 @@ export default function Contacts() {
         {/* Privacy note */}
         <div
           data-testid="privacy-note"
-          className="flex items-start gap-2 bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3 mb-4 text-sm text-slate-400"
+          className="flex items-start gap-2 bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 mb-4 text-sm text-slate-600 dark:text-slate-400"
         >
           <Icon name="lock" size={16} className="mt-0.5 shrink-0 text-slate-500" />
           <span>Loaded from macOS Contacts. Stays on this machine — never sent anywhere.</span>
@@ -83,12 +83,12 @@ export default function Contacts() {
               placeholder="Search by name, phone, or email…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
             {search && (
               <button
                 onClick={() => setSearch('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
               >
                 <Icon name="close" size={16} />
               </button>
@@ -97,7 +97,7 @@ export default function Contacts() {
         </div>
 
         {/* Content */}
-        <div className="bg-slate-900/40 border border-slate-800 rounded-xl">
+        <div className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl">
           {loading ? (
             <div className="p-6">
               <LoadingState variant="spinner" message="Loading contacts from macOS Contacts…" />
@@ -114,11 +114,11 @@ export default function Contacts() {
               />
             </div>
           ) : (
-            <div className="divide-y divide-slate-800/60">
+            <div className="divide-y divide-slate-200/60 dark:divide-slate-800/60">
               {filtered.map((contact, idx) => (
                 <div key={idx} className="px-4 py-3 flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center shrink-0 mt-0.5">
-                    <span className="text-sm font-medium text-slate-300">
+                  <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
                       {(contact.name || '?').charAt(0).toUpperCase()}
                     </span>
                   </div>
@@ -127,12 +127,12 @@ export default function Contacts() {
                       {contact.name || <span className="text-slate-500 italic">No name</span>}
                     </p>
                     {contact.phone_numbers.map((p, i) => (
-                      <p key={i} className="text-xs text-slate-400 mt-0.5">
+                      <p key={i} className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                         {p}
                       </p>
                     ))}
                     {contact.emails.map((e, i) => (
-                      <p key={i} className="text-xs text-slate-400 mt-0.5">
+                      <p key={i} className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                         {e}
                       </p>
                     ))}

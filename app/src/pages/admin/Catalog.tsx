@@ -36,13 +36,13 @@ export default function AdminCatalog() {
   const [installingId, setInstallingId] = useState<string | null>(null)
   const [installFeedback, setInstallFeedback] = useState<Record<string, string>>({})
 
-  const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'}`
-  const labelCls = darkMode ? 'text-slate-400' : 'text-slate-500'
+  const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-800' : 'bg-white border-slate-200'}`
+  const labelCls = darkMode ? 'text-slate-600 dark:text-slate-400' : 'text-slate-500'
   const valueCls = darkMode ? 'text-white' : 'text-slate-900'
-  const headingCls = darkMode ? 'text-slate-200' : 'text-slate-800'
-  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`
+  const headingCls = darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-800'
+  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm ${darkMode ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`
   const btnPrimary = 'rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50'
-  const btnSecondary = `rounded-lg border px-3 py-1.5 text-xs font-medium ${darkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`
+  const btnSecondary = `rounded-lg border px-3 py-1.5 text-xs font-medium ${darkMode ? 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`
 
   const fetchEntries = useCallback(async () => {
     setLoading(true)
@@ -175,7 +175,7 @@ export default function AdminCatalog() {
           </p>
         )}
         {!loading && entries.length > 0 && (
-          <ul data-testid="catalog-list" className="divide-y divide-slate-800/20 space-y-0">
+          <ul data-testid="catalog-list" className="divide-y divide-slate-200 dark:divide-slate-800/20 space-y-0">
             {entries.map((entry) => (
               <li key={entry.id} data-testid={`catalog-entry-${entry.id}`} className="py-4 first:pt-0 last:pb-0">
                 <div className="flex items-start justify-between gap-4">

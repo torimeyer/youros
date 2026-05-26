@@ -106,7 +106,7 @@ describe('PlanWavesPanel — needle title rendering', () => {
     await waitFor(() => screen.getByTestId('wave-needle-needle-title-clamp'))
 
     const needle = screen.getByTestId('wave-needle-needle-title-clamp')
-    const titleEl = needle.querySelector('p.text-slate-200')
+    const titleEl = needle.querySelector('p.text-slate-800')
     expect(titleEl).not.toBeNull()
     expect(titleEl!.textContent).toBe('Onboarding: three options')
     expect(titleEl!.textContent).not.toContain('⊕')
@@ -190,7 +190,7 @@ describe('PlanWavesPanel — Tasks subtab', () => {
 
     await waitFor(() => screen.getByTestId('task-row-t1'))
     const row = screen.getByTestId('task-row-t1')
-    expect(row.querySelector('p.text-slate-200')?.textContent).toBe('Ship it')
+    expect(row.querySelector('p.text-slate-800')?.textContent).toBe('Ship it')
   })
 })
 

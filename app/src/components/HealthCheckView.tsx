@@ -68,8 +68,8 @@ const issueTypeIcons: Record<string, string> = {
 };
 
 const severityColors: Record<string, string> = {
-  warning: "text-amber-400 bg-amber-500/10 border-amber-500/30",
-  info: "text-blue-400 bg-blue-500/10 border-blue-500/30",
+  warning: "text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/30",
+  info: "text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/30",
 };
 
 // Issue types that have auto-fix support
@@ -252,12 +252,12 @@ export default function HealthCheckView() {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-4">
         <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center">
-          <Icon name="error" className="text-3xl text-red-400" />
+          <Icon name="error" className="text-3xl text-red-600 dark:text-red-400" />
         </div>
-        <p className="text-sm text-red-300">{error}</p>
+        <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
         <button
           onClick={() => runHealthCheck()}
-          className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-700"
+          className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700"
         >
           Try again
         </button>
@@ -273,7 +273,7 @@ export default function HealthCheckView() {
         </div>
         <div className="text-center">
           <h2 className="text-lg font-medium text-white mb-1">Task Health Check</h2>
-          <p className="text-sm text-slate-400 max-w-md">
+          <p className="text-sm text-slate-600 dark:text-slate-400 max-w-md">
             Scan your open tasks for problems like duplicates and missing
             descriptions.
           </p>
@@ -293,7 +293,7 @@ export default function HealthCheckView() {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-3">
         <div className="w-10 h-10 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
-        <p className="text-sm text-slate-400">Checking task quality...</p>
+        <p className="text-sm text-slate-600 dark:text-slate-400">Checking task quality...</p>
       </div>
     );
   }
@@ -312,14 +312,14 @@ export default function HealthCheckView() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
           data-testid="fix-all-confirm-modal"
         >
-          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-sm w-full mx-4 space-y-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 max-w-sm w-full mx-4 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
                 <Icon name="auto_fix_high" className="text-xl text-emerald-400" />
               </div>
               <div>
                 <h3 className="text-sm font-medium text-white">Fix all issues?</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                   This will fix {fixableIssueCount} issue{fixableIssueCount === 1 ? "" : "s"} automatically. Duplicates are not included.
                 </p>
               </div>
@@ -327,7 +327,7 @@ export default function HealthCheckView() {
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setShowFixAllConfirm(false)}
-                className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+                className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors"
               >
                 Cancel
               </button>
@@ -345,38 +345,38 @@ export default function HealthCheckView() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
-          <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
+        <div className="bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+          <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 text-xs mb-1">
             <Icon name="task_alt" className="text-sm" />
             Tasks checked
           </div>
           <div className="text-2xl font-bold text-white">{summary.total}</div>
         </div>
-        <div className={`bg-slate-900/60 border rounded-lg p-4 ${
+        <div className={`bg-white/60 dark:bg-slate-900/60 border rounded-lg p-4 ${
           allClean ? "border-emerald-500/30" : "border-amber-500/30"
         }`}>
           <div className="flex items-center gap-2 text-xs mb-1">
             <Icon
               name={allClean ? "check_circle" : "warning"}
-              className={`text-sm ${allClean ? "text-emerald-400" : "text-amber-400"}`}
+              className={`text-sm ${allClean ? "text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}
             />
-            <span className={allClean ? "text-emerald-400" : "text-amber-400"}>
+            <span className={allClean ? "text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
               Issues found
             </span>
           </div>
-          <div className={`text-2xl font-bold ${allClean ? "text-emerald-400" : "text-amber-400"}`}>
+          <div className={`text-2xl font-bold ${allClean ? "text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
             {totalProblems}
           </div>
         </div>
-        <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
-          <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
+        <div className="bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+          <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 text-xs mb-1">
             <Icon name="content_copy" className="text-sm" />
             Possible duplicates
           </div>
           <div className="text-2xl font-bold text-white">{duplicates.length}</div>
         </div>
-        <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
-          <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
+        <div className="bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+          <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 text-xs mb-1">
             <Icon name="notes" className="text-sm" />
             Missing descriptions
           </div>
@@ -409,7 +409,7 @@ export default function HealthCheckView() {
           )}
           <button
             onClick={() => runHealthCheck()}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-300 bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded-lg border border-slate-700 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
           >
             <Icon name="refresh" className="text-sm" />
             Run again
@@ -435,7 +435,7 @@ export default function HealthCheckView() {
           className={`rounded-lg px-4 py-3 text-sm ${
             fixAllMessage.ok
               ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
-              : "bg-red-500/10 border border-red-500/30 text-red-300"
+              : "bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300"
           }`}
           data-testid="fix-all-message"
         >
@@ -469,7 +469,7 @@ export default function HealthCheckView() {
           className={`rounded-lg px-4 py-2.5 flex items-center gap-2 text-sm ${
             resolveMessage.ok
               ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
-              : "bg-red-500/10 border border-red-500/30 text-red-300"
+              : "bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300"
           }`}
         >
           <Icon name={resolveMessage.ok ? "check_circle" : "error"} className="text-base flex-shrink-0" />
@@ -481,13 +481,13 @@ export default function HealthCheckView() {
       {duplicates.length > 0 && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <h4 className="text-xs font-medium uppercase tracking-wider text-slate-400">
+            <h4 className="text-xs font-medium uppercase tracking-wider text-slate-600 dark:text-slate-400">
               Possible duplicate pairs
             </h4>
             <button
               onClick={resolveAll}
               disabled={resolvingAll}
-              className="flex items-center gap-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-red-500/30 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 border border-red-500/30 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               data-testid="resolve-all-button"
             >
               {resolvingAll ? (
@@ -508,7 +508,7 @@ export default function HealthCheckView() {
                   className="border border-amber-500/30 bg-amber-500/10 rounded-lg px-4 py-3"
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2 text-amber-400">
+                    <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
                       <Icon name="content_copy" className="text-base" />
                       <span className="text-xs font-medium uppercase tracking-wider opacity-80">
                         {Math.round(pair.similarity * 100)}% similar
@@ -517,7 +517,7 @@ export default function HealthCheckView() {
                     <button
                       onClick={() => resolvePair(pair)}
                       disabled={isResolving || resolvingAll}
-                      className="flex items-center gap-1 text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-red-500/30 px-2 py-0.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center gap-1 text-xs bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 border border-red-500/30 px-2 py-0.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       data-testid={`resolve-pair-${idx}`}
                     >
                       {isResolving ? (
@@ -530,18 +530,18 @@ export default function HealthCheckView() {
                   </div>
                   <div className="flex flex-col gap-1 text-sm">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono text-slate-400">
+                      <span className="text-xs font-mono text-slate-600 dark:text-slate-400">
                         #{pair.task_a.id}
                       </span>
                       <span className="text-white">{pair.task_a.title}</span>
                       <span className="ml-auto text-xs text-emerald-400 font-medium">keep</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono text-slate-400">
+                      <span className="text-xs font-mono text-slate-600 dark:text-slate-400">
                         #{pair.task_b.id}
                       </span>
                       <span className="text-white">{pair.task_b.title}</span>
-                      <span className="ml-auto text-xs text-red-400 font-medium">close</span>
+                      <span className="ml-auto text-xs text-red-600 dark:text-red-400 font-medium">close</span>
                     </div>
                   </div>
                 </div>
@@ -559,8 +559,8 @@ export default function HealthCheckView() {
               onClick={() => setIssueFilter("all")}
               className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
                 issueFilter === "all"
-                  ? "bg-slate-700 text-white"
-                  : "text-slate-400 hover:text-slate-300"
+                  ? "bg-slate-200 dark:bg-slate-700 text-white"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
               }`}
             >
               All ({usefulIssues.length})
@@ -574,8 +574,8 @@ export default function HealthCheckView() {
                   onClick={() => setIssueFilter(issueFilter === type ? "all" : type)}
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
                     issueFilter === type
-                      ? "bg-slate-700 text-white"
-                      : "text-slate-400 hover:text-slate-300"
+                      ? "bg-slate-200 dark:bg-slate-700 text-white"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
                   }`}
                 >
                   <Icon name={issueTypeIcons[type]} className="text-xs" />
@@ -640,7 +640,7 @@ export default function HealthCheckView() {
                             return (
                               <span
                                 key={tid}
-                                className="flex items-center gap-1 text-xs text-red-400"
+                                className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"
                                 data-testid={`fix-error-${issue.type}-${tid}`}
                                 title={fixState.message}
                               >

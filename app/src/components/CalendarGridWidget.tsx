@@ -121,7 +121,7 @@ function DayView({
 
   if (allDayEvs.length === 0 && timedEvs.length === 0) {
     return (
-      <p className="text-sm text-slate-400" data-testid="cal-grid-empty">
+      <p className="text-sm text-slate-600 dark:text-slate-400" data-testid="cal-grid-empty">
         Nothing on your calendar today.
       </p>
     )
@@ -147,7 +147,7 @@ function DayView({
         {Array.from({ length: totalHours + 1 }, (_, i) => (
           <div
             key={i}
-            className="absolute left-0 right-0 border-t border-slate-800/60"
+            className="absolute left-0 right-0 border-t border-slate-200/60 dark:border-slate-800/60"
             style={{ top: i * HOUR_HEIGHT }}
             data-testid={`cal-day-hour-${startH + i}`}
           >
@@ -243,17 +243,17 @@ function WeekView({
           onClick={onPrev}
           data-testid="cal-week-prev"
           aria-label="Previous week"
-          className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+          className="p-1 rounded text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
           <Icon name="chevron_left" size={16} />
         </button>
-        <span className="text-[10px] text-slate-400">{weekLabel}</span>
+        <span className="text-[10px] text-slate-600 dark:text-slate-400">{weekLabel}</span>
         <button
           type="button"
           onClick={onNext}
           data-testid="cal-week-next"
           aria-label="Next week"
-          className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+          className="p-1 rounded text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
           <Icon name="chevron_right" size={16} />
         </button>
@@ -272,14 +272,14 @@ function WeekView({
             className={`flex flex-col min-h-[80px] p-1 rounded ${
               isToday
                 ? 'bg-blue-500/10 ring-1 ring-blue-500/40'
-                : 'bg-slate-900/30'
+                : 'bg-white dark:bg-slate-900/30'
             }`}
             data-testid={`cal-week-col-${i}`}
           >
-            <p className={`text-[9px] font-medium uppercase leading-none mb-0.5 ${isToday ? 'text-blue-300' : 'text-slate-500'}`}>
+            <p className={`text-[9px] font-medium uppercase leading-none mb-0.5 ${isToday ? 'text-blue-700 dark:text-blue-300' : 'text-slate-500'}`}>
               {DAY_SHORT[i]}
             </p>
-            <p className={`text-xs font-bold leading-none mb-1 ${isToday ? 'text-blue-200' : 'text-slate-300'}`}>
+            <p className={`text-xs font-bold leading-none mb-1 ${isToday ? 'text-blue-200' : 'text-slate-700 dark:text-slate-300'}`}>
               {d.getDate()}
             </p>
             <div className="space-y-0.5 flex-1 min-w-0">
@@ -374,13 +374,13 @@ function MonthView({
                   ? 'opacity-0 pointer-events-none'
                   : isToday
                   ? 'bg-blue-500/10 ring-1 ring-blue-500/40'
-                  : 'bg-slate-900/20'
+                  : 'bg-white/20 dark:bg-slate-900/20'
               }`}
               data-testid={`cal-month-cell-${i}`}
             >
               {isCurrentMonth && (
                 <>
-                  <p className={`text-[9px] font-medium leading-tight mb-px ${isToday ? 'text-blue-300 font-bold' : 'text-slate-400'}`}>
+                  <p className={`text-[9px] font-medium leading-tight mb-px ${isToday ? 'text-blue-700 dark:text-blue-300 font-bold' : 'text-slate-600 dark:text-slate-400'}`}>
                     {dayNum}
                   </p>
                   {shown.map(ev => {
@@ -437,7 +437,7 @@ export default function CalendarGridWidget({
   }, [today, weekOffset])
 
   if (loading && events.length === 0) {
-    return <p className="text-sm text-slate-400">Loading events...</p>
+    return <p className="text-sm text-slate-600 dark:text-slate-400">Loading events...</p>
   }
 
   if (range === 'day') {

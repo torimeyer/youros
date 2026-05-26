@@ -134,12 +134,12 @@ export default function TeamDashboard() {
 
   const cardClass = `rounded-xl border p-6 ${
     darkMode
-      ? 'bg-slate-900/50 border-slate-800'
+      ? 'bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-800'
       : 'bg-white border-slate-200'
   }`
 
-  const labelClass = darkMode ? 'text-slate-400' : 'text-slate-500'
-  const headingClass = darkMode ? 'text-slate-200' : 'text-slate-800'
+  const labelClass = darkMode ? 'text-slate-600 dark:text-slate-400' : 'text-slate-500'
+  const headingClass = darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-800'
   const valueClass = darkMode ? 'text-white' : 'text-slate-900'
 
   if (!enterpriseUser || enterpriseUser.role !== 'admin') {
@@ -166,7 +166,7 @@ export default function TeamDashboard() {
         )}
 
         {error && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 text-sm">
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-600 dark:text-red-400 text-sm">
             {error}
           </div>
         )}
@@ -212,7 +212,7 @@ export default function TeamDashboard() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className={`border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+                      <tr className={`border-b ${darkMode ? 'border-slate-200 dark:border-slate-700' : 'border-slate-200'}`}>
                         <th className={`text-left py-2 px-3 font-medium ${labelClass}`}>Email</th>
                         <th className={`text-left py-2 px-3 font-medium ${labelClass}`}>Role</th>
                         <th className={`text-left py-2 px-3 font-medium ${labelClass}`}>Joined</th>
@@ -222,15 +222,15 @@ export default function TeamDashboard() {
                       {data.members.map((m) => (
                         <tr
                           key={m.id}
-                          className={`border-b ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}
+                          className={`border-b ${darkMode ? 'border-slate-200 dark:border-slate-800' : 'border-slate-100'}`}
                         >
                           <td className={`py-2 px-3 ${valueClass}`}>{m.email}</td>
                           <td className="py-2 px-3">
                             <span
                               className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
                                 m.role === 'admin'
-                                  ? 'bg-purple-500/20 text-purple-400'
-                                  : 'bg-slate-700 text-slate-400'
+                                  ? 'bg-purple-500/20 text-purple-600 dark:text-purple-400'
+                                  : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
                               }`}
                             >
                               {m.role}
@@ -260,7 +260,7 @@ export default function TeamDashboard() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className={`border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+                      <tr className={`border-b ${darkMode ? 'border-slate-200 dark:border-slate-700' : 'border-slate-200'}`}>
                         <th className={`text-left py-2 px-3 font-medium ${labelClass}`}>User</th>
                         <th className={`text-right py-2 px-3 font-medium ${labelClass}`}>Agents used</th>
                         <th className={`text-right py-2 px-3 font-medium ${labelClass}`}>Budget used</th>
@@ -271,7 +271,7 @@ export default function TeamDashboard() {
                       {data.spend_by_user.map((s) => (
                         <tr
                           key={s.email}
-                          className={`border-b ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}
+                          className={`border-b ${darkMode ? 'border-slate-200 dark:border-slate-800' : 'border-slate-100'}`}
                         >
                           <td className={`py-2 px-3 ${valueClass}`}>{s.email}</td>
                           <td className={`py-2 px-3 text-right ${valueClass}`}>
@@ -341,18 +341,18 @@ export default function TeamDashboard() {
                     <div
                       key={p}
                       className={`flex items-center justify-between px-3 py-2 rounded-lg ${
-                        darkMode ? 'bg-slate-800/50' : 'bg-slate-50'
+                        darkMode ? 'bg-slate-100 dark:bg-slate-800/50' : 'bg-slate-50'
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <Icon name="vpn_key" className="text-green-400" size={16} />
+                        <Icon name="vpn_key" className="text-green-600 dark:text-green-400" size={16} />
                         <span className={`text-sm font-medium ${valueClass}`}>
                           {p.charAt(0).toUpperCase() + p.slice(1)}
                         </span>
                       </div>
                       <button
                         onClick={() => handleRemoveApiKey(p)}
-                        className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                        className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
                       >
                         Remove
                       </button>
@@ -367,7 +367,7 @@ export default function TeamDashboard() {
                   onChange={(e) => setApiKeyProvider(e.target.value)}
                   className={`border rounded-lg px-2 py-2 text-sm ${
                     darkMode
-                      ? 'bg-slate-800 border-slate-700 text-white'
+                      ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white'
                       : 'bg-white border-slate-300 text-slate-900'
                   }`}
                 >
@@ -381,7 +381,7 @@ export default function TeamDashboard() {
                   placeholder="Paste API key"
                   className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500 ${
                     darkMode
-                      ? 'bg-slate-800 border-slate-700 text-white'
+                      ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white'
                       : 'bg-white border-slate-300 text-slate-900'
                   }`}
                 />
@@ -395,7 +395,7 @@ export default function TeamDashboard() {
               </div>
 
               {apiKeyError && (
-                <p className="text-red-400 text-sm mt-2">{apiKeyError}</p>
+                <p className="text-red-600 dark:text-red-400 text-sm mt-2">{apiKeyError}</p>
               )}
             </div>
 
@@ -412,7 +412,7 @@ export default function TeamDashboard() {
                   placeholder="Email address"
                   className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500 ${
                     darkMode
-                      ? 'bg-slate-800 border-slate-700 text-white'
+                      ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white'
                       : 'bg-white border-slate-300 text-slate-900'
                   }`}
                 />
@@ -421,7 +421,7 @@ export default function TeamDashboard() {
                   onChange={(e) => setInviteRole(e.target.value)}
                   className={`border rounded-lg px-2 py-2 text-sm ${
                     darkMode
-                      ? 'bg-slate-800 border-slate-700 text-white'
+                      ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white'
                       : 'bg-white border-slate-300 text-slate-900'
                   }`}
                 >
@@ -439,13 +439,13 @@ export default function TeamDashboard() {
 
               {inviteUrl && (
                 <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-sm">
-                  <p className="text-green-400 font-medium mb-1">Invite link created</p>
+                  <p className="text-green-600 dark:text-green-400 font-medium mb-1">Invite link created</p>
                   <p className={`text-xs break-all ${labelClass}`}>{inviteUrl}</p>
                 </div>
               )}
 
               {inviteError && (
-                <p className="text-red-400 text-sm mt-1">{inviteError}</p>
+                <p className="text-red-600 dark:text-red-400 text-sm mt-1">{inviteError}</p>
               )}
 
               {/* Pending invites */}
@@ -459,7 +459,7 @@ export default function TeamDashboard() {
                       <div
                         key={inv.token}
                         className={`flex items-center justify-between px-3 py-2 rounded-lg ${
-                          darkMode ? 'bg-slate-800/50' : 'bg-slate-50'
+                          darkMode ? 'bg-slate-100 dark:bg-slate-800/50' : 'bg-slate-50'
                         }`}
                       >
                         <span className={`text-sm ${valueClass}`}>

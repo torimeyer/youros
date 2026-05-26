@@ -43,7 +43,7 @@ export function OrgNameStep({
         autoFocus
       />
       {orgName && (
-        <p className="mt-4 text-sm text-blue-400">
+        <p className="mt-4 text-sm text-blue-600 dark:text-blue-400">
           Your team workspace will be called <span className="font-bold">{orgName} OS</span>
         </p>
       )}
@@ -143,9 +143,9 @@ export function InviteTeamStep({
       {inviteEmails.length > 0 && (
         <div className="space-y-2">
           {inviteEmails.map((email) => (
-            <div key={email} className={`flex items-center justify-between px-3 py-2 rounded-lg ${darkMode ? 'bg-slate-800/50' : 'bg-gray-100'}`}>
-              <span className={`text-sm ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>{email}</span>
-              <button onClick={() => removeEmail(email)} className="text-slate-500 hover:text-red-400 transition-colors">
+            <div key={email} className={`flex items-center justify-between px-3 py-2 rounded-lg ${darkMode ? 'bg-slate-100 dark:bg-slate-800/50' : 'bg-gray-100'}`}>
+              <span className={`text-sm ${darkMode ? 'text-slate-700 dark:text-slate-300' : 'text-slate-700'}`}>{email}</span>
+              <button onClick={() => removeEmail(email)} className="text-slate-500 hover:text-red-600 dark:hover:text-red-400 transition-colors">
                 <Icon name="close" size={16} />
               </button>
             </div>
@@ -195,10 +195,10 @@ export function GuardrailsStep({
   darkMode: boolean
 }) {
   const unselectedCard = darkMode
-    ? 'bg-slate-900 border-slate-800 hover:border-slate-700'
+    ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700'
     : 'bg-white border-gray-200 hover:border-gray-300 shadow-sm'
   const unselectedIcon = darkMode
-    ? 'bg-slate-800 text-slate-400'
+    ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
     : 'bg-gray-100 text-slate-500'
   const labelCls = darkMode ? 'text-white' : 'text-slate-900'
 
@@ -220,7 +220,7 @@ export function GuardrailsStep({
             }`}
           >
             <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-              isolationLevel === level.id ? 'bg-blue-500/30 text-blue-300' : unselectedIcon
+              isolationLevel === level.id ? 'bg-blue-500/30 text-blue-700 dark:text-blue-300' : unselectedIcon
             }`}>
               <Icon name={level.icon} size={22} />
             </div>
@@ -228,7 +228,7 @@ export function GuardrailsStep({
               <p className={`font-medium ${labelCls}`}>{level.label}</p>
               <p className={`text-sm mt-0.5 ${subtextCls}`}>{level.description}</p>
             </div>
-            {isolationLevel === level.id && <Icon name="check_circle" className="text-blue-400 mt-1" size={20} />}
+            {isolationLevel === level.id && <Icon name="check_circle" className="text-blue-600 dark:text-blue-400 mt-1" size={20} />}
           </button>
         ))}
       </div>
@@ -257,7 +257,7 @@ export function TeamReadyStep({
   return (
     <div className="text-center" data-testid="step-team-ready">
       <div className="mb-6">
-        <Icon name="groups" size={48} className="text-indigo-400" />
+        <Icon name="groups" size={48} className="text-indigo-600 dark:text-indigo-400" />
       </div>
       <h1 className="text-3xl font-bold mb-2">{orgName} OS is ready</h1>
       <p className={`${subtextCls} mb-8`}>Here's what we set up for your team.</p>

@@ -349,12 +349,12 @@ export default function GuidedTour({ onComplete }: GuidedTourProps) {
       <div
         ref={tooltipRef}
         data-testid="tour-tooltip"
-        className="absolute bg-slate-900 border border-slate-700 rounded-xl shadow-2xl shadow-black/50 w-80 p-5"
+        className="absolute bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl shadow-black/50 w-80 p-5"
         style={getTooltipStyle()}
       >
         {/* Arrow */}
         <div
-          className={`absolute w-3 h-3 bg-slate-900 ${borderClass} border-slate-700`}
+          className={`absolute w-3 h-3 bg-white dark:bg-slate-900 ${borderClass} border-slate-200 dark:border-slate-700`}
           style={arrowStyles}
         />
 
@@ -367,7 +367,7 @@ export default function GuidedTour({ onComplete }: GuidedTourProps) {
         <h2 className="text-base font-bold text-white mb-1.5">{current.title}</h2>
 
         {/* Description */}
-        <p className="text-sm text-slate-400 leading-relaxed mb-5">{current.description}</p>
+        <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-5">{current.description}</p>
 
         {/* Progress dots */}
         <div className="flex items-center gap-1 mb-4">
@@ -375,7 +375,7 @@ export default function GuidedTour({ onComplete }: GuidedTourProps) {
             <div
               key={i}
               className={`h-1 rounded-full transition-all duration-300 ${
-                i === step ? 'w-5 bg-blue-500' : i < step ? 'w-1.5 bg-blue-500/40' : 'w-1.5 bg-slate-700'
+                i === step ? 'w-5 bg-blue-500' : i < step ? 'w-1.5 bg-blue-500/40' : 'w-1.5 bg-slate-200 dark:bg-slate-700'
               }`}
             />
           ))}
@@ -385,7 +385,7 @@ export default function GuidedTour({ onComplete }: GuidedTourProps) {
         <div className="flex items-center justify-between">
           <button
             onClick={step > 0 ? handleBack : handleSkip}
-            className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
           >
             {step > 0 ? 'Back' : 'Skip tour'}
           </button>

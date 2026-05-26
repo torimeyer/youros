@@ -65,11 +65,11 @@ export default function AdminOverview() {
     }
   }
 
-  const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'}`
-  const labelCls = darkMode ? 'text-slate-400' : 'text-slate-500'
+  const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-800' : 'bg-white border-slate-200'}`
+  const labelCls = darkMode ? 'text-slate-600 dark:text-slate-400' : 'text-slate-500'
   const valueCls = darkMode ? 'text-white' : 'text-slate-900'
-  const headingCls = darkMode ? 'text-slate-200' : 'text-slate-800'
-  const inputCls = darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+  const headingCls = darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-800'
+  const inputCls = darkMode ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
 
   if (loading) {
     return (
@@ -81,7 +81,7 @@ export default function AdminOverview() {
 
   if (error) {
     return (
-      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 text-sm">
+      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-600 dark:text-red-400 text-sm">
         {error}
       </div>
     )
@@ -129,7 +129,7 @@ export default function AdminOverview() {
         </div>
         {inviteUrl && (
           <div className="mt-3 bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-sm">
-            <p className="text-green-400 font-medium mb-1">Invite link created</p>
+            <p className="text-green-600 dark:text-green-400 font-medium mb-1">Invite link created</p>
             <p className={`text-xs break-all ${labelCls}`}>{inviteUrl}</p>
           </div>
         )}
@@ -144,7 +144,7 @@ export default function AdminOverview() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className={`border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+                <tr className={`border-b ${darkMode ? 'border-slate-200 dark:border-slate-700' : 'border-slate-200'}`}>
                   <th className={`text-left py-2 px-3 font-medium ${labelCls}`}>User</th>
                   <th className={`text-right py-2 px-3 font-medium ${labelCls}`}>Agents</th>
                   <th className={`text-right py-2 px-3 font-medium ${labelCls}`}>Budget</th>
@@ -153,7 +153,7 @@ export default function AdminOverview() {
               </thead>
               <tbody>
                 {data.spend_by_user.map((s) => (
-                  <tr key={s.email} className={`border-b ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+                  <tr key={s.email} className={`border-b ${darkMode ? 'border-slate-200 dark:border-slate-800' : 'border-slate-100'}`}>
                     <td className={`py-2 px-3 ${valueCls}`}>{s.email}</td>
                     <td className={`py-2 px-3 text-right ${valueCls}`}>{s.agent_count}</td>
                     <td className={`py-2 px-3 text-right ${valueCls}`}>${s.total_budget.toFixed(2)}</td>
@@ -172,7 +172,7 @@ export default function AdminOverview() {
           <h2 className={`text-base font-semibold mb-4 ${headingCls}`}>Active agents</h2>
           <div className="space-y-2">
             {data.active_agents.map((a, i) => (
-              <div key={i} className={`flex items-center justify-between px-3 py-2 rounded-lg ${darkMode ? 'bg-slate-800/50' : 'bg-slate-50'}`}>
+              <div key={i} className={`flex items-center justify-between px-3 py-2 rounded-lg ${darkMode ? 'bg-slate-100 dark:bg-slate-800/50' : 'bg-slate-50'}`}>
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
                   <span className={`text-sm font-medium ${valueCls}`}>{a.name}</span>

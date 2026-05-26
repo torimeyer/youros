@@ -98,7 +98,7 @@ export function SpecDriveSync({ specPath }: SpecDriveSyncProps) {
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
           aria-label="Open in Google Drive"
-          className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded-lg px-3 py-1.5 transition-colors"
+          className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 border border-blue-500/30 rounded-lg px-3 py-1.5 transition-colors"
           data-testid="drive-link"
         >
           <Icon name="open_in_new" size={14} />
@@ -112,7 +112,7 @@ export function SpecDriveSync({ specPath }: SpecDriveSyncProps) {
           onClick={handlePublish}
           disabled={loading}
           aria-label="Publish this spec to Google Drive"
-          className="border border-slate-600 text-slate-400 hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+          className="border border-slate-600 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
           data-testid="publish-to-drive-button"
         >
           <Icon name="upload" size={14} />
@@ -127,7 +127,7 @@ export function SpecDriveSync({ specPath }: SpecDriveSyncProps) {
             onClick={handleSync}
             disabled={loading}
             aria-label="Push local changes to Google Drive"
-            className="border border-slate-600 text-slate-400 hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            className="border border-slate-600 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
             data-testid="sync-to-drive-button"
           >
             <Icon name="sync" size={14} />
@@ -138,7 +138,7 @@ export function SpecDriveSync({ specPath }: SpecDriveSyncProps) {
             onClick={handlePull}
             disabled={loading}
             aria-label="Import changes from Google Drive"
-            className="border border-slate-600 text-slate-400 hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            className="border border-slate-600 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
             data-testid="pull-from-drive-button"
           >
             <Icon name="cloud_download" size={14} />
@@ -154,7 +154,7 @@ export function SpecDriveSync({ specPath }: SpecDriveSyncProps) {
       )}
 
       {error && (
-        <span className="text-xs text-red-400" data-testid="drive-sync-error">
+        <span className="text-xs text-red-600 dark:text-red-400" data-testid="drive-sync-error">
           {error}
         </span>
       )}

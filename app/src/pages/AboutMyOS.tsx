@@ -37,7 +37,7 @@ export default function AboutMyOS() {
       id: 'what-myos-is',
       heading: 'What myOS is',
       body: (
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
           myOS is a workspace that runs locally on your computer. It helps you organize needles and
           notes, and coordinates AI agents on your behalf. It is built around the idea that your
           work should compound, not vanish at the end of each session.
@@ -48,7 +48,7 @@ export default function AboutMyOS() {
       id: 'why-not-wrapper',
       heading: 'Why this is not another AI wrapper',
       body: (
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
           Most AI tools call a model and forget. myOS coordinates. The kernel underneath tracks
           every file change, every agent run, every decision, so that next week's work picks up
           where today's left off. The AI provider is interchangeable. The coordination is not.
@@ -59,7 +59,7 @@ export default function AboutMyOS() {
       id: 'kernel-underneath',
       heading: 'The kernel underneath: ostk',
       body: (
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
           myOS is the part you see. Underneath, it runs on ostk, an independent open-source
           coordination kernel that myOS is built on top of. ostk tracks who changed what, prevents
           agents from stepping on each other, keeps a record of every action, and remembers
@@ -72,7 +72,7 @@ export default function AboutMyOS() {
       id: 'how-agents-coordinate',
       heading: 'How agents coordinate',
       body: (
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
           When you spawn an agent, ostk gives it an identity, an isolated workspace, and a record
           of the project state. Multiple agents can run at the same time without overwriting each
           other's work because the kernel tracks file generations and detects conflicts before they
@@ -84,7 +84,7 @@ export default function AboutMyOS() {
       id: 'work-that-compounds',
       heading: 'Work that compounds',
       body: (
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
           Needles, notes, and decisions all live in a structured store. Past work is searchable and
           reusable. Closing a needle today changes what is suggested next week.
         </p>
@@ -94,9 +94,9 @@ export default function AboutMyOS() {
       id: 'local-and-model-agnostic',
       heading: 'Local first, model agnostic',
       body: (
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
           Your data stays on your machine in{' '}
-          <code className="text-slate-300 bg-slate-800 px-1 rounded">~/.myos/</code>. The AI
+          <code className="text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 rounded">~/.myos/</code>. The AI
           provider is a setting, not a dependency. Anthropic, Google, and others are pluggable.
           Switch providers without losing your work.
         </p>
@@ -106,21 +106,21 @@ export default function AboutMyOS() {
       id: 'where-to-look-next',
       heading: 'Where to look next',
       body: (
-        <ul className="text-sm text-slate-400 space-y-2 list-disc list-inside">
+        <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-2 list-disc list-inside">
           <li>
-            <a href="/settings" className="underline hover:text-slate-200">
+            <a href="/settings" className="underline hover:text-slate-800 dark:hover:text-slate-200">
               Settings
             </a>{' '}
             to configure your AI provider, standing instructions, and connected services.
           </li>
           <li>
-            <a href="/settings#shortcuts" className="underline hover:text-slate-200">
+            <a href="/settings#shortcuts" className="underline hover:text-slate-800 dark:hover:text-slate-200">
               Keyboard shortcuts
             </a>{' '}
             for the moves that save the most time.
           </li>
           <li>
-            <a href="/privacy" className="underline hover:text-slate-200">
+            <a href="/privacy" className="underline hover:text-slate-800 dark:hover:text-slate-200">
               Privacy
             </a>{' '}
             for a plain-language summary of how your data is handled.
@@ -128,7 +128,7 @@ export default function AboutMyOS() {
           <li>
             <a
               href="https://github.com/torimeyer/myos"
-              className="underline hover:text-slate-200"
+              className="underline hover:text-slate-800 dark:hover:text-slate-200"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -142,12 +142,12 @@ export default function AboutMyOS() {
   ]
 
   return (
-    <div className="min-h-dvh bg-slate-950">
+    <div className="min-h-dvh bg-white dark:bg-slate-950">
       <TopBar title="About" />
       <main className="pt-24 pb-16 px-8 max-w-3xl mx-auto">
         <div data-testid="about-hero" className="mb-10">
-          <h1 className="text-4xl font-bold text-slate-100 mb-3">myOS</h1>
-          <p className="text-lg text-slate-400">
+          <h1 className="text-4xl font-bold text-slate-900 dark:text-slate-100 mb-3">myOS</h1>
+          <p className="text-lg text-slate-600 dark:text-slate-400">
             A workspace that remembers your work and coordinates AI agents on your behalf, all
             running locally on your machine.
           </p>
@@ -156,23 +156,23 @@ export default function AboutMyOS() {
         {showCounters && (
           <div
             data-testid="about-counters"
-            className="grid grid-cols-3 gap-4 mb-10 bg-slate-900 border border-slate-800 rounded-xl p-6"
+            className="grid grid-cols-3 gap-4 mb-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6"
           >
             {(taskCount ?? 0) > 0 && (
               <div className="text-center">
-                <div className="text-3xl font-semibold text-slate-100">{taskCount}</div>
+                <div className="text-3xl font-semibold text-slate-900 dark:text-slate-100">{taskCount}</div>
                 <div className="text-xs text-slate-500 mt-1">needles tracked</div>
               </div>
             )}
             {(agentCount ?? 0) > 0 && (
               <div className="text-center">
-                <div className="text-3xl font-semibold text-slate-100">{agentCount}</div>
+                <div className="text-3xl font-semibold text-slate-900 dark:text-slate-100">{agentCount}</div>
                 <div className="text-xs text-slate-500 mt-1">agents run</div>
               </div>
             )}
             {(decisionCount ?? 0) > 0 && (
               <div className="text-center">
-                <div className="text-3xl font-semibold text-slate-100">{decisionCount}</div>
+                <div className="text-3xl font-semibold text-slate-900 dark:text-slate-100">{decisionCount}</div>
                 <div className="text-xs text-slate-500 mt-1">decisions logged</div>
               </div>
             )}
@@ -184,10 +184,10 @@ export default function AboutMyOS() {
             <div
               key={section.id}
               data-testid={`about-section-${section.id}`}
-              className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6"
             >
               <h2
-                className="text-lg font-semibold text-slate-100 mb-4"
+                className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4"
                 data-testid={`about-heading-${section.id}`}
               >
                 {section.heading}

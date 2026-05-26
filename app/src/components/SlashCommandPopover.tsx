@@ -16,10 +16,10 @@ interface Props {
 }
 
 const CATEGORY_COLORS: Record<SlashCommand['category'], string> = {
-  workflow: 'text-blue-400 bg-blue-500/10',
-  mode: 'text-purple-400 bg-purple-500/10',
-  data: 'text-orange-400 bg-orange-500/10',
-  system: 'text-slate-400 bg-slate-500/10',
+  workflow: 'text-blue-600 dark:text-blue-400 bg-blue-500/10',
+  mode: 'text-purple-600 dark:text-purple-400 bg-purple-500/10',
+  data: 'text-orange-600 dark:text-orange-400 bg-orange-500/10',
+  system: 'text-slate-600 dark:text-slate-400 bg-slate-500/10',
 }
 
 export default function SlashCommandPopover({ commands, onSelect }: Props) {
@@ -42,7 +42,7 @@ export default function SlashCommandPopover({ commands, onSelect }: Props) {
   return (
     <div
       data-testid="slash-command-popover"
-      className="absolute bottom-full left-0 right-0 mb-1 bg-slate-900 border border-slate-700 rounded-lg shadow-xl overflow-hidden z-50"
+      className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl overflow-hidden z-50"
     >
       <div
         ref={listRef}
@@ -59,8 +59,8 @@ export default function SlashCommandPopover({ commands, onSelect }: Props) {
               onSelect(cmd)
             }}
             onMouseEnter={() => setActiveIndex(i)}
-            className={`w-full text-left px-3 py-2 flex items-center gap-3 transition-colors border-b border-slate-800/50 last:border-0 ${
-              i === activeIndex ? 'bg-slate-800' : 'hover:bg-slate-800/50'
+            className={`w-full text-left px-3 py-2 flex items-center gap-3 transition-colors border-b border-slate-200 dark:border-slate-800/50 last:border-0 ${
+              i === activeIndex ? 'bg-slate-100 dark:bg-slate-800' : 'hover:bg-slate-100 dark:hover:bg-slate-800/50'
             }`}
           >
             {/* Category badge */}
@@ -70,7 +70,7 @@ export default function SlashCommandPopover({ commands, onSelect }: Props) {
               {cmd.category}
             </span>
             {/* Command name */}
-            <span className="text-slate-200 font-mono text-sm shrink-0 min-w-[90px]">
+            <span className="text-slate-800 dark:text-slate-200 font-mono text-sm shrink-0 min-w-[90px]">
               {cmd.id}
             </span>
             {/* Description always visible */}
@@ -80,7 +80,7 @@ export default function SlashCommandPopover({ commands, onSelect }: Props) {
           </button>
         ))}
       </div>
-      <div className="px-3 py-1.5 border-t border-slate-800 flex items-center gap-3 text-[10px] text-slate-600">
+      <div className="px-3 py-1.5 border-t border-slate-200 dark:border-slate-800 flex items-center gap-3 text-[10px] text-slate-600">
         <span><kbd className="font-mono">↑↓</kbd> navigate</span>
         <span><kbd className="font-mono">↵</kbd> select</span>
         <span><kbd className="font-mono">Esc</kbd> close</span>

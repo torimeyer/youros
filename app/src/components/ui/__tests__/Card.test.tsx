@@ -10,8 +10,8 @@ describe('Card', () => {
     const card = screen.getByTestId('card')
     expect(card).toBeInTheDocument()
     expect(card).toHaveTextContent('Hello')
-    expect(card.className).toContain('bg-slate-900/40')
-    expect(card.className).toContain('border-slate-800')
+    expect(card.className).toContain('bg-white/40 dark:bg-slate-900/40')
+    expect(card.className).toContain('border-slate-200 dark:border-slate-800')
     expect(card.className).toContain('rounded-xl')
     expect(card.className).toContain('p-5')
   })
@@ -19,8 +19,8 @@ describe('Card', () => {
   it('applies correct classes for elevated variant with lg padding', () => {
     render(<Card variant="elevated" padding="lg">Content</Card>)
     const card = screen.getByTestId('card')
-    expect(card.className).toContain('bg-slate-900')
-    expect(card.className).toContain('border-slate-700')
+    expect(card.className).toContain('bg-white dark:bg-slate-900')
+    expect(card.className).toContain('border-slate-200 dark:border-slate-700')
     expect(card.className).toContain('shadow-lg')
     expect(card.className).toContain('p-6')
   })
@@ -35,7 +35,7 @@ describe('Card', () => {
   it('adds hover classes when hover prop is true', () => {
     render(<Card hover>Hoverable</Card>)
     const card = screen.getByTestId('card')
-    expect(card.className).toContain('hover:border-slate-700')
+    expect(card.className).toContain('hover:border-slate-200 dark:hover:border-slate-700')
     expect(card.className).toContain('transition-colors')
   })
 

@@ -147,11 +147,11 @@ export default function Confluence() {
     }
   }
 
-  const cardClass = 'bg-slate-900/40 border border-slate-800 p-4 rounded-xl'
+  const cardClass = 'bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-4 rounded-xl'
 
   if (loading) {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="Confluence" />
         <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
@@ -162,7 +162,7 @@ export default function Confluence() {
 
   if (!status?.connected) {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white" data-testid="confluence-page">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white" data-testid="confluence-page">
         <TopBar title="Confluence" />
         <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
           <ConnectCard
@@ -182,7 +182,7 @@ export default function Confluence() {
                   </button>
                   <button
                     onClick={() => setForceTokenForm(true)}
-                    className="text-xs text-slate-400 underline hover:opacity-80"
+                    className="text-xs text-slate-600 dark:text-slate-400 underline hover:opacity-80"
                     data-testid="confluence-use-token"
                   >
                     Use a token instead
@@ -191,39 +191,39 @@ export default function Confluence() {
               ) : (
                 <div className="w-full space-y-3 text-left">
                   <div>
-                    <label className="block text-sm text-slate-400 mb-1">Site URL</label>
+                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Site URL</label>
                     <input
                       type="text"
                       value={connectSite}
                       onChange={(e) => setConnectSite(e.target.value)}
                       placeholder="yourco.atlassian.net"
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-slate-400 mb-1">Email</label>
+                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Email</label>
                     <input
                       type="email"
                       value={connectEmail}
                       onChange={(e) => setConnectEmail(e.target.value)}
                       placeholder="you@company.com"
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-slate-400 mb-1">API Token</label>
+                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">API Token</label>
                     <input
                       type="password"
                       value={connectToken}
                       onChange={(e) => setConnectToken(e.target.value)}
                       placeholder="ATATT3x..."
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
                     />
                   </div>
                   <button
                     onClick={handleConnect}
                     disabled={connecting}
-                    className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors disabled:opacity-50"
+                    className="w-full py-3 bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors disabled:opacity-50"
                   >
                     {connecting ? 'Connecting...' : 'Connect'}
                   </button>
@@ -233,7 +233,7 @@ export default function Confluence() {
                       href="https://id.atlassian.com/manage-profile/security/api-tokens"
                       target="_blank"
                       rel="noreferrer"
-                      className="text-blue-400 hover:text-blue-300"
+                      className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
                     >
                       id.atlassian.com
                     </a>
@@ -251,12 +251,12 @@ export default function Confluence() {
   // Detail view
   if (pageId) {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white" data-testid="confluence-page">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white" data-testid="confluence-page">
         <TopBar title="Confluence" />
         <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
           <button
             onClick={() => navigate('/confluence')}
-            className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm mb-4 transition-colors"
+            className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 hover:text-white text-sm mb-4 transition-colors"
           >
             <Icon name="arrow_back" size={16} />
             Back to pages
@@ -278,10 +278,10 @@ export default function Confluence() {
                   href={detail.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="shrink-0 p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                  className="shrink-0 p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                   title="Open in Confluence"
                 >
-                  <Icon name="open_in_new" size={16} className="text-slate-400" />
+                  <Icon name="open_in_new" size={16} className="text-slate-600 dark:text-slate-400" />
                 </a>
               </div>
 
@@ -291,7 +291,7 @@ export default function Confluence() {
 
               {detail.body_html ? (
                 <div
-                  className="prose prose-invert prose-sm max-w-none text-slate-300"
+                  className="prose prose-invert prose-sm max-w-none text-slate-700 dark:text-slate-300"
                   dangerouslySetInnerHTML={{ __html: detail.body_html }}
                 />
               ) : (
@@ -306,7 +306,7 @@ export default function Confluence() {
 
   // List view
   return (
-    <div className="min-h-dvh bg-slate-950 text-white" data-testid="confluence-page">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white" data-testid="confluence-page">
       <TopBar title="Confluence" />
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
@@ -314,7 +314,7 @@ export default function Confluence() {
             <div className="flex items-center gap-3">
               <h1 className="text-xl sm:text-2xl font-bold">Confluence</h1>
               {status.site && (
-                <span className="px-2 py-0.5 bg-slate-500/20 text-slate-300 text-sm font-mono rounded-full">
+                <span className="px-2 py-0.5 bg-slate-500/20 text-slate-700 dark:text-slate-300 text-sm font-mono rounded-full">
                   {status.site}
                 </span>
               )}
@@ -332,7 +332,7 @@ export default function Confluence() {
           </div>
           <button
             onClick={handleDisconnect}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition-colors text-slate-400"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm transition-colors text-slate-600 dark:text-slate-400"
           >
             <Icon name="link_off" size={16} />
             Disconnect
@@ -347,7 +347,7 @@ export default function Confluence() {
 
         <div className={cardClass}>
           <div className="flex items-center gap-2 mb-4">
-            <Icon name="menu_book" className="text-blue-400" size={18} />
+            <Icon name="menu_book" className="text-blue-600 dark:text-blue-400" size={18} />
             <h2 className="text-base font-semibold">Recent Pages</h2>
             <span className="text-xs text-slate-500">{pages.length}</span>
           </div>
@@ -355,13 +355,13 @@ export default function Confluence() {
           {pages.length === 0 ? (
             <EmptyState icon="article" title="No recent pages" />
           ) : (
-            <div className="divide-y divide-slate-800/60">
+            <div className="divide-y divide-slate-200/60 dark:divide-slate-800/60">
               {pages.map((page) => (
                 <button
                   key={page.id}
                   data-testid={`confluence-row-${page.id}`}
                   onClick={() => navigate(`/confluence/${page.id}`)}
-                  className="w-full text-left py-3 px-2 hover:bg-slate-800/30 rounded-lg transition-colors"
+                  className="w-full text-left py-3 px-2 hover:bg-slate-100 dark:hover:bg-slate-800/30 rounded-lg transition-colors"
                 >
                   <div className="flex items-center gap-2">
                     <Icon name="article" size={14} className="text-slate-500 shrink-0" />

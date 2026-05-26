@@ -61,7 +61,7 @@ export default function RecentSpecsWidget() {
     <div data-testid="widget-recent-specs">
       <Card hover padding="sm" className="sm:p-6">
         <div className="flex items-center gap-2 mb-4 pr-8">
-          <Icon name="description" className="text-purple-400" size={20} />
+          <Icon name="description" className="text-purple-600 dark:text-purple-400" size={20} />
           <h2 className="text-lg font-semibold">Recent Specs</h2>
         </div>
 
@@ -72,13 +72,13 @@ export default function RecentSpecsWidget() {
             <SkeletonLine width="w-3/4" />
           </div>
         ) : error ? (
-          <p className="text-sm text-slate-400">{error}</p>
+          <p className="text-sm text-slate-600 dark:text-slate-400">{error}</p>
         ) : specs.length === 0 ? (
           <div className="flex items-center gap-3 py-6">
-            <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
               <Icon name="assignment" className="text-slate-500" size={18} />
             </div>
-            <p className="text-sm text-slate-400">No specs yet</p>
+            <p className="text-sm text-slate-600 dark:text-slate-400">No specs yet</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -91,16 +91,16 @@ export default function RecentSpecsWidget() {
                 <button
                   key={spec.path}
                   onClick={() => handleSpecClick(spec)}
-                  className="w-full text-left flex items-start gap-3 p-3 rounded-lg hover:bg-slate-800/50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  className="w-full text-left flex items-start gap-3 p-3 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 >
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${isPlan ? 'bg-blue-500/20' : 'bg-purple-500/20'}`}>
-                    <Icon name={isPlan ? 'task_alt' : 'description'} className={isPlan ? 'text-blue-400' : 'text-purple-400'} size={16} />
+                    <Icon name={isPlan ? 'task_alt' : 'description'} className={isPlan ? 'text-blue-600 dark:text-blue-400' : 'text-purple-600 dark:text-purple-400'} size={16} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white truncate">
                       {isPlan ? `Plan: ${spec.title}` : spec.title}
                     </p>
-                    <p className="text-xs text-slate-400 mt-0.5">{timeLabel}</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{timeLabel}</p>
                   </div>
                   <Icon name="chevron_right" className="text-slate-500 shrink-0 mt-0.5" size={18} />
                 </button>

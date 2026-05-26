@@ -68,7 +68,7 @@ function StatusDot({ status }: { status: "active" | "idle" }) {
 function SessionsColumn({ sessions }: { sessions: SessionRow[] }) {
   return (
     <div data-testid="sessions-column" className="flex flex-col gap-2">
-      <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+      <h2 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">
         Active sessions
       </h2>
       {sessions.length === 0 ? (
@@ -78,11 +78,11 @@ function SessionsColumn({ sessions }: { sessions: SessionRow[] }) {
           <div
             key={s.id}
             data-testid="session-row"
-            className="bg-slate-900 rounded-lg px-3 py-2 flex items-start gap-2"
+            className="bg-white dark:bg-slate-900 rounded-lg px-3 py-2 flex items-start gap-2"
           >
             <StatusDot status={s.status} />
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-slate-200 truncate">{s.name}</p>
+              <p className="text-sm text-slate-800 dark:text-slate-200 truncate">{s.name}</p>
               <p className="text-xs text-slate-500">
                 {typeLabel(s.type)} · last active {relativeTime(s.last_active_at)}
               </p>
@@ -97,7 +97,7 @@ function SessionsColumn({ sessions }: { sessions: SessionRow[] }) {
 function LocksColumn({ locks }: { locks: LockRow[] }) {
   return (
     <div data-testid="locks-column" className="flex flex-col gap-2">
-      <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+      <h2 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">
         Locks held
       </h2>
       {locks.length === 0 ? (
@@ -107,9 +107,9 @@ function LocksColumn({ locks }: { locks: LockRow[] }) {
           <div
             key={`${lk.lock_name}-${i}`}
             data-testid="lock-row"
-            className="bg-slate-900 rounded-lg px-3 py-2"
+            className="bg-white dark:bg-slate-900 rounded-lg px-3 py-2"
           >
-            <p className="text-sm text-slate-200 font-mono truncate">{lk.lock_name}</p>
+            <p className="text-sm text-slate-800 dark:text-slate-200 font-mono truncate">{lk.lock_name}</p>
             <p className="text-xs text-slate-500">
               Held by {lk.held_by_session || "unknown"} · {relativeTime(lk.started_at)}
             </p>
@@ -128,7 +128,7 @@ function LocksColumn({ locks }: { locks: LockRow[] }) {
 function EventsColumn({ events }: { events: EventRow[] }) {
   return (
     <div data-testid="events-column" className="flex flex-col gap-2">
-      <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+      <h2 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">
         Recent coordination
       </h2>
       {events.length === 0 ? (
@@ -138,12 +138,12 @@ function EventsColumn({ events }: { events: EventRow[] }) {
           <div
             key={`${ev.timestamp}-${i}`}
             data-testid="event-row"
-            className="bg-slate-900 rounded-lg px-3 py-2"
+            className="bg-white dark:bg-slate-900 rounded-lg px-3 py-2"
           >
             <p className="text-xs text-slate-500 mb-0.5">
               {ev.from_session} → {ev.to_session} · {relativeTime(ev.timestamp)}
             </p>
-            <p className="text-sm text-slate-300 line-clamp-2">{ev.message}</p>
+            <p className="text-sm text-slate-700 dark:text-slate-300 line-clamp-2">{ev.message}</p>
           </div>
         ))
       )}

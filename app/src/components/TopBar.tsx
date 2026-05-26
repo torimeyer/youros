@@ -38,17 +38,17 @@ const TOAST_WORTHY_PERSISTENT_TYPES = new Set<string>([
 function statusIcon(status: string): { icon: string; color: string } {
   switch (status) {
     case 'completed':
-      return { icon: 'check_circle', color: 'text-green-400' }
+      return { icon: 'check_circle', color: 'text-green-600 dark:text-green-400' }
     case 'failed':
-      return { icon: 'error', color: 'text-red-400' }
+      return { icon: 'error', color: 'text-red-600 dark:text-red-400' }
     case 'killed':
     case 'stopped':
-      return { icon: 'cancel', color: 'text-orange-400' }
+      return { icon: 'cancel', color: 'text-orange-600 dark:text-orange-400' }
     case 'running':
     case 'spawned':
-      return { icon: 'play_circle', color: 'text-blue-400' }
+      return { icon: 'play_circle', color: 'text-blue-600 dark:text-blue-400' }
     default:
-      return { icon: 'info', color: 'text-slate-400' }
+      return { icon: 'info', color: 'text-slate-600 dark:text-slate-400' }
   }
 }
 
@@ -69,11 +69,11 @@ function statusMessage(status: string): string {
 function NotificationItem({ n }: { n: AppNotification }) {
   const { icon, color } = statusIcon(n.status)
   return (
-    <div className={`flex items-start gap-3 px-4 py-3 hover:bg-slate-800/50 transition-colors ${n.read ? 'opacity-60' : ''}`}>
+    <div className={`flex items-start gap-3 px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors ${n.read ? 'opacity-60' : ''}`}>
       <Icon name={icon} size={18} className={`${color} mt-0.5 shrink-0`} />
       <div className="flex-1 min-w-0">
         <p className="text-sm text-white font-medium truncate">{n.agentName}</p>
-        <p className="text-xs text-slate-400">Agent {statusMessage(n.status)}</p>
+        <p className="text-xs text-slate-600 dark:text-slate-400">Agent {statusMessage(n.status)}</p>
       </div>
       <span className="text-[10px] text-slate-600 shrink-0 mt-0.5">{formatRelative(n.timestamp)}</span>
     </div>
@@ -90,7 +90,7 @@ function PersistentNotificationItem({
   const navigate = useNavigate()
   return (
     <div
-      className={`flex items-start gap-3 px-4 py-3 hover:bg-slate-800/50 transition-colors cursor-pointer ${n.read ? 'opacity-60' : ''}`}
+      className={`flex items-start gap-3 px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors cursor-pointer ${n.read ? 'opacity-60' : ''}`}
       onClick={() => {
         if (!n.read) onRead(n.id)
         if (n.action_url) navigate(n.action_url as string)
@@ -106,18 +106,18 @@ function PersistentNotificationItem({
         }
         size={18}
         className={
-          (n.type === 'upgrade' ? 'text-blue-400'
-          : n.type === 'agent' ? 'text-green-400'
-          : n.type === 'sync' ? 'text-purple-400'
-          : n.type === 'task_overdue' ? 'text-orange-400'
-          : 'text-slate-400') + ' mt-0.5 shrink-0'
+          (n.type === 'upgrade' ? 'text-blue-600 dark:text-blue-400'
+          : n.type === 'agent' ? 'text-green-600 dark:text-green-400'
+          : n.type === 'sync' ? 'text-purple-600 dark:text-purple-400'
+          : n.type === 'task_overdue' ? 'text-orange-600 dark:text-orange-400'
+          : 'text-slate-600 dark:text-slate-400') + ' mt-0.5 shrink-0'
         }
       />
       <div className="flex-1 min-w-0">
         <p className="text-sm text-white font-medium">{n.title}</p>
-        <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{n.body ?? ''}</p>
+        <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">{n.body ?? ''}</p>
         {n.action_label && (
-          <p className="text-xs text-blue-400 mt-1">{n.action_label} &rarr;</p>
+          <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">{n.action_label} &rarr;</p>
         )}
       </div>
       <span className="text-[10px] text-slate-600 shrink-0 mt-0.5">
@@ -289,21 +289,21 @@ export default function TopBar({ title }: TopBarProps) {
 
   return (
     <header
-      className="fixed top-0 left-0 lg:left-56 h-14 sm:h-16 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/50 flex items-center justify-between px-4 sm:px-8 z-40 transition-[right] duration-200"
+      className="fixed top-0 left-0 lg:left-56 h-14 sm:h-16 bg-white dark:bg-slate-950/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800/50 flex items-center justify-between px-4 sm:px-8 z-40 transition-[right] duration-200"
       style={{ right: chatOpen && isDesktop ? chatWidth : 0 }}
     >
       <div className="flex items-center gap-4 pl-10 lg:pl-0">
-        <span className="font-bold text-slate-100 tracking-tight text-sm sm:text-base">{title}</span>
+        <span className="font-bold text-slate-900 dark:text-slate-100 tracking-tight text-sm sm:text-base">{title}</span>
       </div>
 
       <div data-tour="search" className="flex-1 max-w-md mx-2 sm:mx-8 hidden sm:block">
         <button
           onClick={() => setCommandPaletteOpen(true)}
-          className="w-full relative group flex items-center bg-slate-900 rounded-lg pl-10 pr-4 py-2 text-sm text-slate-500 hover:text-slate-400 transition-all cursor-pointer border border-transparent hover:border-slate-700"
+          className="w-full relative group flex items-center bg-white dark:bg-slate-900 rounded-lg pl-10 pr-4 py-2 text-sm text-slate-500 hover:text-slate-600 dark:hover:text-slate-400 transition-all cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
         >
           <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-hover:text-blue-500" />
           <span>Search {displayOsName}</span>
-          <kbd className="ml-auto text-[10px] font-mono text-slate-600 bg-slate-800 rounded px-1.5 py-0.5 border border-slate-700">
+          <kbd className="ml-auto text-[10px] font-mono text-slate-600 bg-slate-100 dark:bg-slate-800 rounded px-1.5 py-0.5 border border-slate-200 dark:border-slate-700">
             {`${modKey}K`}
           </kbd>
         </button>
@@ -313,7 +313,7 @@ export default function TopBar({ title }: TopBarProps) {
         {!tourComplete && (
           <button
             onClick={() => setShowTour(true)}
-            className="flex items-center gap-1.5 px-2 py-1 text-slate-400 hover:text-blue-400 transition-all text-xs"
+            className="flex items-center gap-1.5 px-2 py-1 text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all text-xs"
             title="Start tour"
             data-testid="start-tour-btn"
           >
@@ -326,14 +326,14 @@ export default function TopBar({ title }: TopBarProps) {
             navigate('/tasks')
             setTimeout(() => window.dispatchEvent(new CustomEvent('myos-quick-add-task')), 100)
           }}
-          className="p-2.5 sm:p-2 text-slate-400 hover:text-blue-400 transition-all"
+          className="p-2.5 sm:p-2 text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all"
           title="Add Needle"
         >
           <Icon name="add_task" />
         </button>
         <button
           onClick={toggleChat}
-          className="p-2.5 sm:p-2 text-slate-400 hover:text-blue-400 transition-all"
+          className="p-2.5 sm:p-2 text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all"
           title={`Toggle Chat (${modKey}L)`}
         >
           <Icon name="chat" />
@@ -341,7 +341,7 @@ export default function TopBar({ title }: TopBarProps) {
         <div className="relative">
           <button
             onClick={handleOpenNotifications}
-            className="relative p-2.5 sm:p-2 text-slate-400 hover:text-blue-400 transition-all"
+            className="relative p-2.5 sm:p-2 text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all"
           >
             <Icon name="notifications" />
             {unreadCount > 0 && (
@@ -353,8 +353,8 @@ export default function TopBar({ title }: TopBarProps) {
           {showNotifications && (
             <>
               <div className="fixed inset-0 z-40" onClick={handleCloseNotifications} />
-              <div className="absolute right-0 top-full mt-2 w-80 bg-slate-900 border border-slate-800 rounded-xl shadow-xl z-50 overflow-hidden">
-                <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+              <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                   <span className="text-sm font-semibold text-white">Notifications</span>
                   <div className="flex items-center gap-3">
                     {unreadCount > 0 && (
@@ -363,7 +363,7 @@ export default function TopBar({ title }: TopBarProps) {
                           if (agentUnreadCount > 0) markAllRead()
                           if (persistentUnread > 0) handleMarkAllPersistentRead()
                         }}
-                        className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                        className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
                       >
                         Mark all read
                       </button>
@@ -371,7 +371,7 @@ export default function TopBar({ title }: TopBarProps) {
                     {(notifications.length > 0 || wsNotifications.length > 0) && (
                       <button
                         onClick={clearAll}
-                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                        className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                       >
                         Clear all
                       </button>
@@ -389,7 +389,7 @@ export default function TopBar({ title }: TopBarProps) {
                     <p className="text-xs text-slate-600 mt-1">Alerts from agents and updates will show up here.</p>
                   </div>
                 ) : (
-                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-800/50">
+                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-800/50">
                     {wsNotifications.map((n) => (
                       <PersistentNotificationItem
                         key={n.id}
@@ -403,13 +403,13 @@ export default function TopBar({ title }: TopBarProps) {
                   </div>
                 )}
                 {isPushSupported() && (
-                  <div className="px-4 py-3 border-t border-slate-800 flex items-center justify-between">
-                    <span className="text-xs text-slate-400">Push notifications</span>
+                  <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-xs text-slate-600 dark:text-slate-400">Push notifications</span>
                     <button
                       onClick={handleTogglePush}
                       disabled={pushToggling}
                       className={`w-9 h-5 rounded-full relative transition-colors ${
-                        pushEnabled ? 'accent-bg' : 'bg-slate-700'
+                        pushEnabled ? 'accent-bg' : 'bg-slate-200 dark:bg-slate-700'
                       } ${pushToggling ? 'opacity-50' : ''}`}
                     >
                       <span
@@ -427,7 +427,7 @@ export default function TopBar({ title }: TopBarProps) {
         {isOffline && (
           <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-900/50 border border-amber-700/50">
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            <span className="text-xs text-amber-300">Offline</span>
+            <span className="text-xs text-amber-700 dark:text-amber-300">Offline</span>
           </div>
         )}
         <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold bg-gradient-to-br from-pink-500 to-purple-600">
