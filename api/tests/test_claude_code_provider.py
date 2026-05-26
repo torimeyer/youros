@@ -1519,3 +1519,119 @@ class TestCacheStatsForwarded:
             f"Expected cache_read=1500 in done.usage, got {usage}. "
             "The frontend needs this to compute the cache-ratio badge."
         )
+
+
+class TestParagraphJoin:
+    """→1737: text blocks after tool_use must be separated by \\n\\n.
+
+    Root cause: _read_stdout in stream_chat had no text-block boundary
+    tracking. When Claude CLI emits content_block_start(text) after a
+    tool_use block, the first token of the new block appended directly
+    onto the last character of the previous block with no separator,
+    producing "world.Now" instead of "world.\\n\\nNow".
+
+    The stream_anthropic path (direct Anthropic API) already had the fix
+    via _in_text_block/_had_text_block state. This class covers the
+    Claude Code CLI path.
+    """
+
+    def _stream(self, inner_type: str, **kwargs) -> bytes:
+        inner: dict = {"type": inner_type}
+        inner.update(kwargs)
+        return (json.dumps({"type": "stream_event", "event": inner}) + "\n").encode()
+
+    def _text_start(self, idx: int) -> bytes:
+        return self._stream("content_block_start", index=idx,
+                            content_block={"type": "text", "text": ""})
+
+    def _text_delta(self, idx: int, text: str) -> bytes:
+        return self._stream("content_block_delta", index=idx,
+                            delta={"type": "text_delta", "text": text})
+
+    def _tool_start(self, idx: int, tool_id: str = "call_1") -> bytes:
+        return self._stream("content_block_start", index=idx,
+                            content_block={"type": "tool_use", "id": tool_id, "name": "Bash"})
+
+    def _json_delta(self, idx: int, partial: str) -> bytes:
+        return self._stream("content_block_delta", index=idx,
+                            delta={"type": "input_json_delta", "partial_json": partial})
+
+    def _stop(self, idx: int) -> bytes:
+        return self._stream("content_block_stop", index=idx)
+
+    def _result(self) -> bytes:
+        return (json.dumps({
+            "type": "result", "subtype": "success", "is_error": False,
+            "usage": {"input_tokens": 1, "output_tokens": 10},
+        }) + "\n").encode()
+
+    @pytest.mark.asyncio
+    async def test_second_text_block_gets_newline_separator(self):
+        """text -> tool_use -> text must produce \\n\\n between the two text runs.
+
+        Without the fix the assembled content is "Hello world.Now done."
+        With the fix it must be "Hello world.\\n\\nNow done."  →1737
+        """
+        lines = [
+            self._text_start(0),
+            self._text_delta(0, "Hello "),
+            self._text_delta(0, "world."),
+            self._stop(0),
+            self._tool_start(1, "call_1"),
+            self._json_delta(1, '{"cmd":"ls"}'),
+            self._stop(1),
+            self._text_start(2),
+            self._text_delta(2, "Now "),
+            self._text_delta(2, "done."),
+            self._stop(2),
+            self._result(),
+        ]
+
+        ws = FakeWebSocket()
+        with (
+            patch("services.claude_code_provider._find_claude_binary",
+                  return_value="/usr/local/bin/claude"),
+            patch("asyncio.create_subprocess_exec",
+                  new=AsyncMock(return_value=FakeProcess(stdout_lines=lines, return_code=0))),
+        ):
+            await stream_chat([{"role": "user", "content": "hi"}], ws)
+
+        tokens = ws.of_type("token")
+        assembled = "".join(t["data"] for t in tokens)
+
+        idx_world = assembled.find("world.")
+        idx_now = assembled.find("Now ")
+        assert idx_world != -1, f"First block text missing from {assembled!r}"
+        assert idx_now != -1, f"Second block text missing from {assembled!r}"
+
+        between = assembled[idx_world + len("world."):idx_now]
+        assert "\n\n" in between, (
+            f"Expected \\n\\n between text blocks but got {between!r}. "
+            f"Full assembled: {assembled!r}. "
+            "The second text block after tool_use must be separated by \\n\\n. →1737"
+        )
+
+    @pytest.mark.asyncio
+    async def test_single_text_block_no_extra_separator(self):
+        """A response with only one text block must not get a spurious \\n\\n prefix."""
+        lines = [
+            self._text_start(0),
+            self._text_delta(0, "Just one block."),
+            self._stop(0),
+            self._result(),
+        ]
+
+        ws = FakeWebSocket()
+        with (
+            patch("services.claude_code_provider._find_claude_binary",
+                  return_value="/usr/local/bin/claude"),
+            patch("asyncio.create_subprocess_exec",
+                  new=AsyncMock(return_value=FakeProcess(stdout_lines=lines, return_code=0))),
+        ):
+            await stream_chat([{"role": "user", "content": "hi"}], ws)
+
+        tokens = ws.of_type("token")
+        assembled = "".join(t["data"] for t in tokens)
+        assert assembled == "Just one block.", (
+            f"Single text block should not gain extra separators. Got: {assembled!r}"
+        )
