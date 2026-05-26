@@ -47,4 +47,12 @@ export const GAMES: GameDef[] = [
     blurb: 'Crack the hidden color code in ten guesses using the peg hints.',
     component: lazy(() => import('./games/Mastermind')),
   },
+  {
+    id: 'pong',
+    name: 'Pong',
+    icon: 'sports_tennis',
+    lane: 'retro',
+    blurb: 'The original. Keep the ball in play and beat the computer to five.',
+    component: lazy(() => import('./games/Pong')),
+  },
 ]
