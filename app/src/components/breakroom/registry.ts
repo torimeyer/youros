@@ -31,4 +31,12 @@ export const GAMES: GameDef[] = [
     blurb: 'Stack down by alternating color, build each suit up from the ace.',
     component: lazy(() => import('./games/Solitaire')),
   },
+  {
+    id: 'minesweeper',
+    name: 'Minesweeper',
+    icon: 'grid_on',
+    lane: 'logic',
+    blurb: 'Clear the field without detonating a mine. Flag what you suspect.',
+    component: lazy(() => import('./games/Minesweeper')),
+  },
 ]
