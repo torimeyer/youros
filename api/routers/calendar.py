@@ -275,14 +275,10 @@ async def websocket_calendar_events(websocket: WebSocket):
     async with _calendar_event_bus.subscribe() as queue:
       while True:
         try:
-          msg = queue.get_nowait()
+          msg = await asyncio.wait_for(queue.get(), timeout=15.0)
           await websocket.send_json(msg)
-        except asyncio.QueueEmpty:
-          await asyncio.sleep(0.1)
-          try:
-            await websocket.send_json({"type": "ping"})
-          except Exception:
-            break
+        except asyncio.TimeoutError:
+          await websocket.send_json({"type": "ping"})
   except WebSocketDisconnect:
     pass
   except Exception as e:
