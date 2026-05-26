@@ -329,14 +329,13 @@ def _render_briefing_from_facts(facts: dict) -> str:
         else:
             shown = closed[:3]
             rest = len(closed) - len(shown)
-            title_list = ", ".join(f"**{t}**" for t in shown)
+            bullet_lines = "\n".join(f"- **{t}**" for t in shown)
             if rest > 0:
                 p1_parts.append(
-                    f"{len(closed)} tasks closed yesterday, including {title_list}, "
-                    f"and {rest} more."
+                    f"{len(closed)} tasks closed yesterday:\n{bullet_lines}\n- and {rest} more."
                 )
             else:
-                p1_parts.append(f"{len(closed)} tasks closed yesterday: {title_list}.")
+                p1_parts.append(f"{len(closed)} tasks closed yesterday:\n{bullet_lines}")
     else:
         p1_parts.append("No tasks closed yesterday.")
 
