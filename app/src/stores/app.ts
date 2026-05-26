@@ -130,6 +130,8 @@ interface AppState {
   features: FeatureToggle[]
   setFeatures: (features: FeatureToggle[]) => void
   isFeatureEnabled: (label: string) => boolean
+  navOrder: string[]
+  setNavOrder: (order: string[]) => void
   defaultChatModel: string
   setDefaultChatModel: (model: string) => void
   sideBySideEnabled: boolean
@@ -216,6 +218,7 @@ const LS_KEYS = {
   dashboardWidgets: 'myos-dashboard-widgets',
   chatWidth: 'myos-chat-width',
   featureOrder: 'myos-feature-order',
+  navOrder: 'myos-nav-order',
   sidebarPosition: 'myos-sidebar-position',
   compactMode: 'myos-compact-mode',
   fontSize: 'myos-font-size',
@@ -385,6 +388,19 @@ function applyFeatureOrder(features: FeatureToggle[]): FeatureToggle[] {
   }
 }
 
+function readInitialNavOrder(): string[] {
+  const raw = lsGet(LS_KEYS.navOrder)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) return parsed
+    return []
+  } catch {
+    return []
+  }
+}
+const initialNavOrder = readInitialNavOrder()
+
 export const useAppStore = create<AppState>((set, get) => ({
   hydrated: false,
   onboarded: initialOnboarded,
@@ -449,6 +465,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setFeatures: (features) => {
     lsSet(LS_KEYS.featureOrder, JSON.stringify(features.map((f) => f.label)))
     set({ features })
+  },
+  navOrder: initialNavOrder,
+  setNavOrder: (navOrder) => {
+    lsSet(LS_KEYS.navOrder, JSON.stringify(navOrder))
+    set({ navOrder })
   },
   isFeatureEnabled: (label: string) => {
     const feature = get().features.find((f) => f.label === label)
