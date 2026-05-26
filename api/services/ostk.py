@@ -162,6 +162,35 @@ def read_audit_entries(audit_path: Optional[Path] = None) -> list[dict]:
     return entries
 
 
+def _read_active_store_ids(root: Path) -> Optional[set]:
+    """Return the set of task IDs present in issues.jsonl (the active store).
+
+    Returns None when the file does not exist (caller treats None as
+    "no filter" to preserve backward compatibility in test environments
+    where the file is absent).  Used by list_tasks to exclude rotated-
+    archive entries served by the ostk daemon (→1694).
+    """
+    issues_path = root / ".ostk" / "needles" / "issues.jsonl"
+    if not issues_path.exists():
+        return None
+    ids: set = set()
+    try:
+        for line in issues_path.read_text().splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                entry = json.loads(stripped)
+                nid = entry.get("id")
+                if nid:
+                    ids.add(nid)
+            except json.JSONDecodeError:
+                pass
+    except OSError:
+        return None
+    return ids
+
+
 def invalidate_audit_cache(audit_path: Optional[Path] = None) -> None:
     """Drop the cached parse for an audit.jsonl file. Call this right
     after appending an entry so the next reader sees the new line.
@@ -400,6 +429,15 @@ class OstkService:
                 task_id = entry.get("id")
                 if task_id:
                     seen[task_id] = entry
+            # →1694: reconcile against the active on-disk store.
+            # The ostk daemon reads both issues.jsonl (active) AND
+            # issues.jsonl.1 (rotated historical archive), so ``raw``
+            # contains all historical closed entries too — 1400+ on a
+            # long-lived project. Filter to only IDs present in the
+            # active file so the API never serves rotated-archive noise.
+            active_ids = _read_active_store_ids(Path(self.cwd))
+            if active_ids is not None:
+                seen = {k: v for k, v in seen.items() if k in active_ids}
             return list(seen.values())
 
         shared = await _coalesce_call(key, _do_call)
@@ -564,6 +602,26 @@ class OstkService:
                     updated.append(json.dumps(entry, ensure_ascii=False))
 
             issues_path.write_text("\n".join(updated) + ("\n" if updated else ""))
+
+            # →1694 resurrection fix: also remove from issues.jsonl.1 (rotated
+            # archive).  Without this, the entry survives in the rotated file
+            # and the daemon returns it again on the next ``ostk work list``,
+            # making the task reappear as if it was never deleted.
+            rotated_path = issues_path.with_suffix(".jsonl.1")
+            if rotated_path.exists():
+                rot_lines = rotated_path.read_text().strip().splitlines()
+                rot_updated = []
+                for line in rot_lines:
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        rot_updated.append(line)
+                        continue
+                    if entry.get("id") != task_id:
+                        rot_updated.append(json.dumps(entry, ensure_ascii=False))
+                rotated_path.write_text(
+                    "\n".join(rot_updated) + ("\n" if rot_updated else "")
+                )
 
         return f"deleted {task_id}"
 
