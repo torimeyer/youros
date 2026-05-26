@@ -200,8 +200,7 @@ interface SidebarGroupProps {
   unfinishedSpecs: number
   onNavigate?: () => void
   iconFilled: 'filled' | 'outlined'
-  features: { label: string; enabled: boolean }[]
-  setFeatures: (f: { label: string; enabled: boolean }[]) => void
+  setNavOrder: (order: string[]) => void
 }
 
 function SidebarGroup({
@@ -216,8 +215,7 @@ function SidebarGroup({
   unfinishedSpecs,
   onNavigate,
   iconFilled,
-  features,
-  setFeatures,
+  setNavOrder,
 }: SidebarGroupProps) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -241,14 +239,7 @@ function SidebarGroup({
     const newIndex = visibleItems.findIndex((item) => item.to === over.id)
     if (oldIndex === -1 || newIndex === -1) return
     const reordered = arrayMove(visibleItems, oldIndex, newIndex)
-    // Rebuild features array preserving items outside this group
-    const reorderedLabels = reordered.map((i) => i.featureLabel).filter(Boolean) as string[]
-    const seen = new Set(reorderedLabels)
-    const newFeatures: { label: string; enabled: boolean }[] = [
-      ...reorderedLabels.map((l) => features.find((f) => f.label === l)!).filter(Boolean),
-      ...features.filter((f) => !seen.has(f.label)),
-    ]
-    setFeatures(newFeatures)
+    setNavOrder(reordered.map((i) => i.featureLabel).filter(Boolean) as string[])
   }
 
   return (
@@ -326,7 +317,8 @@ export function Sidebar() {
   const displayOsName = useAppStore((s) => s.displayOsName())
   const instanceMode = useAppStore((s) => s.instanceMode)
   const features = useAppStore((s) => s.features)
-  const setFeatures = useAppStore((s) => s.setFeatures)
+  const navOrder = useAppStore((s) => s.navOrder)
+  const setNavOrder = useAppStore((s) => s.setNavOrder)
   const powerUserMode = useAppStore((s) => s.powerUserMode)
   const enterpriseUser = useAppStore((s) => s.enterpriseUser)
   const sidebarPosition = useAppStore((s) => s.sidebarPosition)
@@ -558,7 +550,9 @@ export function Sidebar() {
   })()
 
   // Build feature-filtered view of all nav items
-  const featureOrder = new Map(features.map((f, i) => [f.label, i]))
+  // Nav order is stored separately from feature toggles so all draggable
+  // items persist their position even if they have no feature-toggle entry.
+  const navOrderMap = new Map(navOrder.map((label, i) => [label, i]))
 
   function isEnabled(item: NavItem): boolean {
     if (!item.featureLabel) return true
@@ -579,7 +573,7 @@ export function Sidebar() {
       .sort((a, b) => {
         if (!a.featureLabel) return -1
         if (!b.featureLabel) return 1
-        return (featureOrder.get(a.featureLabel) ?? 999) - (featureOrder.get(b.featureLabel) ?? 999)
+        return (navOrderMap.get(a.featureLabel) ?? 999) - (navOrderMap.get(b.featureLabel) ?? 999)
       })
   }
 
@@ -712,8 +706,7 @@ export function Sidebar() {
               unfinishedSpecs={Math.max(0, unfinishedSpecs + pendingSpecDelta)}
               onNavigate={() => setMobileOpen(false)}
               iconFilled={iconStyle}
-              features={features}
-              setFeatures={setFeatures}
+              setNavOrder={setNavOrder}
             />
           )
         })}

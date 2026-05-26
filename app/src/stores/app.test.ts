@@ -49,6 +49,7 @@ describe('useAppStore', () => {
         { label: 'Automations', enabled: true },
         { label: 'Cost Tracking', enabled: true },
       ],
+      navOrder: [],
     })
     // Clear localStorage between tests so cached values do not leak
     try { localStorage.clear() } catch { /* noop */ }
@@ -190,6 +191,43 @@ describe('useAppStore', () => {
 
   it('isFeatureEnabled returns true for unknown features', () => {
     expect(useAppStore.getState().isFeatureEnabled('Unknown')).toBe(true)
+  })
+
+  describe('navOrder persistence (nav drag order decoupled from feature toggles)', () => {
+    it('store has navOrder array and setNavOrder action', () => {
+      const state = useAppStore.getState()
+      expect(Array.isArray(state.navOrder)).toBe(true)
+      expect(typeof state.setNavOrder).toBe('function')
+    })
+
+    it('setNavOrder updates the navOrder array', () => {
+      useAppStore.getState().setNavOrder(['iMessage', 'Gmail', 'Slack'])
+      expect(useAppStore.getState().navOrder).toEqual(['iMessage', 'Gmail', 'Slack'])
+    })
+
+    it('setNavOrder persists to localStorage so order survives a reload', () => {
+      useAppStore.getState().setNavOrder(['iMessage', 'ostk', 'Jira'])
+      const stored = localStorage.getItem('myos-nav-order')
+      expect(stored).not.toBeNull()
+      const parsed = JSON.parse(stored!)
+      expect(parsed).toContain('iMessage')
+      expect(parsed).toContain('ostk')
+      expect(parsed).toContain('Jira')
+    })
+
+    it('setNavOrder for unregistered featureLabel (iMessage) does not add phantom entries to features', () => {
+      const featuresBefore = useAppStore.getState().features.map((f) => f.label)
+      useAppStore.getState().setNavOrder(['iMessage', 'ostk', 'Jira', 'Confluence'])
+      const featuresAfter = useAppStore.getState().features.map((f) => f.label)
+      expect(featuresAfter).toEqual(featuresBefore)
+    })
+
+    it('setNavOrder for a registry-backed item (Gmail) still persists correctly', () => {
+      useAppStore.getState().setNavOrder(['Drive', 'Gmail', 'Calendar'])
+      expect(useAppStore.getState().navOrder).toContain('Gmail')
+      const stored = JSON.parse(localStorage.getItem('myos-nav-order')!)
+      expect(stored).toContain('Gmail')
+    })
   })
 
   it('toggling a feature updates isFeatureEnabled', () => {
