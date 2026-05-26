@@ -39,4 +39,12 @@ export const GAMES: GameDef[] = [
     blurb: 'Clear the field without detonating a mine. Flag what you suspect.',
     component: lazy(() => import('./games/Minesweeper')),
   },
+  {
+    id: 'mastermind',
+    name: 'Mastermind',
+    icon: 'lightbulb',
+    lane: 'logic',
+    blurb: 'Crack the hidden color code in ten guesses using the peg hints.',
+    component: lazy(() => import('./games/Mastermind')),
+  },
 ]
