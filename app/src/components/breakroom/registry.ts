@@ -63,4 +63,12 @@ export const GAMES: GameDef[] = [
     blurb: 'Eat, grow, and do not run into the wall or your own tail.',
     component: lazy(() => import('./games/Snake')),
   },
+  {
+    id: 'frogger',
+    name: 'Frogger',
+    icon: 'directions_car',
+    lane: 'retro',
+    blurb: 'Hop across the road and river to reach the far bank.',
+    component: lazy(() => import('./games/Frogger')),
+  },
 ]
