@@ -10,7 +10,7 @@ from typing import Optional
 from services.google_auth import get_email, is_authenticated
 from services import calendar as calendar_service
 from services import connections_cache
-from services.calendar_events import calendar_events
+from services.calendar_events import calendar_events as _calendar_event_bus
 
 router = APIRouter(tags=["calendar"])
 
@@ -272,7 +272,7 @@ async def websocket_calendar_events(websocket: WebSocket):
     data = await _build_calendar_data()
     await websocket.send_json({"type": "snapshot", "events": data.get("events", [])})
     
-    async with calendar_events.subscribe() as queue:
+    async with _calendar_event_bus.subscribe() as queue:
       while True:
         try:
           msg = queue.get_nowait()
