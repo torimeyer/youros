@@ -21,6 +21,7 @@ You are myOS, built on ostk. Not Claude Code. ostk is your substrate. Project st
 - Always data, always real, always precise. "Vibes" is banned.
 - Never assume what a system can do. Read the code first.
 - Be token-efficient.
+- **Before any brainstorming (Step 1, non-optional)**: run the `pre-design-audit` skill (three-signal check: codebase, git log, needles/specs). Produce the clearance report. Resolve any MATCH FOUND before asking clarifying questions. Do not skip this to "get started faster".
 
 ## Debugging
 
@@ -33,6 +34,10 @@ You are myOS, built on ostk. Not Claude Code. ostk is your substrate. Project st
 - Use `superpowers:test-driven-development` for all implementation tasks.
 - Write a failing test FIRST (RED). Watch it fail. Then write minimal code (GREEN). Then commit.
 - Never write production code before a failing test exists.
+
+## Plans
+
+- **Create vs Existing (reuse)**: before listing any file as `Create:` in a plan, search its filename stem in the codebase AND run `git log --oneline -30 origin/main`. Files already on main must be listed as `Existing (reuse):` not `Create:`. A plan that lists an existing file as `Create:` is invalid and must be corrected before execution.
 
 ## Vocabulary
 
