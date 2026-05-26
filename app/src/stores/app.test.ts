@@ -35,6 +35,7 @@ describe('useAppStore', () => {
       customAgentTemplates: [],
       features: [
         { label: 'Chat', enabled: true },
+        { label: 'Break Room', enabled: true },
         { label: 'Tasks', enabled: true },
         { label: 'Agents', enabled: true },
         { label: 'Activity', enabled: true },
@@ -59,7 +60,7 @@ describe('useAppStore', () => {
     expect(state.osName).toBe('myOS')
     expect(state.darkMode).toBe(true)
     expect(state.accentColor).toBe('blue')
-    expect(state.features).toHaveLength(13)
+    expect(state.features).toHaveLength(14)
   })
 
   it('toggleChat flips chatOpen from true to false', () => {

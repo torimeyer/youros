@@ -53,6 +53,7 @@ import AgentfileEditor from './pages/AgentfileEditor'
 import MySetup from './pages/MySetup'
 
 import MyGems from './pages/MyGems'
+import BreakRoom from './pages/BreakRoom'
 import Library from './pages/Library'
 
 export default function App() {
@@ -157,6 +158,7 @@ export default function App() {
           <Route path="agentfiles/:name/edit" element={<AgentfileEditor />} />
           <Route path="transcripts" element={<Transcripts />} />
           <Route path="backlog" element={<Backlog />} />
+          <Route path="break" element={<BreakRoom />} />
           <Route path="specs" element={<Specs />} />
           <Route path="specs/import" element={<SpecImport />} />
           <Route path="files" element={<Files />} />
