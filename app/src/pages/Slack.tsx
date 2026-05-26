@@ -29,6 +29,11 @@ interface SlackStatus {
   configured: boolean
 }
 
+interface SlackWorkspace {
+  team_id: string
+  team_name: string
+}
+
 // Seed from localStorage for instant paint — keyed by team_id to prevent
 // stale channels from a prior workspace showing after reconnect (→1063).
 const SLACK_CHANNELS_CACHE_KEY = 'myos.slackChannels.v2'
@@ -92,6 +97,8 @@ export default function Slack() {
   const [configuring, setConfiguring] = useState(false)
   const [configureError, setConfigureError] = useState<string | null>(null)
   const [showCredForm, setShowCredForm] = useState(false)
+  const [workspaces, setWorkspaces] = useState<SlackWorkspace[]>([])
+  const [activeTeamId, setActiveTeamId] = useState<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -102,15 +109,29 @@ export default function Slack() {
     }
   }, [])
 
-  const fetchChannels = useCallback(async (teamId?: string) => {
+  const fetchWorkspaces = useCallback(async () => {
     try {
-      const res = await api.get<{ channels: SlackChannel[] }>('/slack/channels')
+      const res = await api.get<{ workspaces: SlackWorkspace[] }>('/slack/workspaces')
+      setWorkspaces(res.workspaces || [])
+      if (res.workspaces?.length > 0 && !activeTeamId) {
+        setActiveTeamId(res.workspaces[0].team_id)
+      }
+    } catch {
+      // ignore
+    }
+  }, [activeTeamId])
+
+  const fetchChannels = useCallback(async (teamId?: string) => {
+    const tid = teamId ?? activeTeamId ?? undefined
+    try {
+      const url = tid ? `/slack/channels?team_id=${encodeURIComponent(tid)}` : '/slack/channels'
+      const res = await api.get<{ channels: SlackChannel[] }>(url)
       setChannels(res.channels || [])
       writeChannelCache(teamId ?? '', res.channels || [])
     } catch {
       setChannels((prev) => (prev.length > 0 ? prev : []))
     }
-  }, [])
+  }, [activeTeamId])
 
   const fetchMessages = useCallback(async (channelId: string) => {
     setMessagesLoading(true)
@@ -138,6 +159,7 @@ export default function Slack() {
             setChannels([])
             clearChannelCache()
           }
+          await fetchWorkspaces()
           await fetchChannels(s.team_id)
         } else {
           setChannels([])
@@ -148,10 +170,9 @@ export default function Slack() {
       }
       setLoading(false)
     })()
-  }, [fetchChannels])
+  }, [fetchChannels, fetchWorkspaces])
 
-  // Handle ?connected=true redirect — re-fetch status to get the new team_id
-  // so we can validate the cache and write channels under the correct workspace.
+  // Handle ?connected=true redirect: re-fetch status and workspaces.
   useEffect(() => {
     if (searchParams.get('connected') === 'true') {
       ;(async () => {
@@ -163,13 +184,14 @@ export default function Slack() {
             setChannels([])
             clearChannelCache()
           }
+          await fetchWorkspaces()
           await fetchChannels(s.team_id)
         } catch {
           // ignore
         }
       })()
     }
-  }, [searchParams, fetchChannels])
+  }, [searchParams, fetchChannels, fetchWorkspaces])
 
   const handleConnect = async () => {
     setConnectError(null)
@@ -187,7 +209,7 @@ export default function Slack() {
     setConfiguring(true)
     setConfigureError(null)
     try {
-      await api.post('/slack/configure', { client_id: clientId.trim(), client_secret: clientSecret.trim() })
+      await api.post('/slack/credentials', { client_id: clientId.trim(), client_secret: clientSecret.trim() })
       await fetchStatus()
     } catch {
       setConfigureError('Could not save Slack credentials. Check that they are correct and try again.')
@@ -196,17 +218,46 @@ export default function Slack() {
     }
   }
 
-  const handleDisconnect = async () => {
+  const handleDisconnect = async (teamId?: string) => {
     try {
-      await api.delete('/slack/disconnect')
-      setStatus({ connected: false, team_name: '', team_id: '', configured: false })
-      setChannels([])
-      clearChannelCache()
-      setSelectedChannel(null)
-      setMessages([])
+      const url = teamId ? `/slack/disconnect?team_id=${encodeURIComponent(teamId)}` : '/slack/disconnect'
+      await api.delete(url)
+      if (teamId) {
+        // Remove just this workspace from the list
+        const remaining = workspaces.filter((w) => w.team_id !== teamId)
+        setWorkspaces(remaining)
+        if (activeTeamId === teamId) {
+          const next = remaining[0]?.team_id ?? null
+          setActiveTeamId(next)
+          if (next) {
+            await fetchChannels(next)
+          } else {
+            setStatus({ connected: false, team_name: '', team_id: '', configured: false })
+            setChannels([])
+            clearChannelCache()
+            setSelectedChannel(null)
+            setMessages([])
+          }
+        }
+      } else {
+        setStatus({ connected: false, team_name: '', team_id: '', configured: false })
+        setWorkspaces([])
+        setChannels([])
+        clearChannelCache()
+        setSelectedChannel(null)
+        setMessages([])
+      }
     } catch {
       // ignore
     }
+  }
+
+  const handleSwitchWorkspace = async (teamId: string) => {
+    setActiveTeamId(teamId)
+    setSelectedChannel(null)
+    setMessages([])
+    setChannels([])
+    await fetchChannels(teamId)
   }
 
   const handleSelectChannel = (channelId: string) => {
@@ -370,23 +421,47 @@ export default function Slack() {
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl sm:text-2xl font-bold">Slack</h1>
-              {status.team_name && (
-                <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-sm font-semibold rounded-full">
-                  {status.team_name}
-                </span>
-              )}
-            </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-xl sm:text-2xl font-bold">Slack</h1>
+            {/* Workspace pills: click to switch, or show single badge */}
+            {workspaces.length > 1 ? (
+              workspaces.map((ws) => (
+                <button
+                  key={ws.team_id}
+                  data-testid={`slack-workspace-${ws.team_id}`}
+                  onClick={() => handleSwitchWorkspace(ws.team_id)}
+                  className={`px-2 py-0.5 text-sm font-semibold rounded-full transition-colors ${
+                    activeTeamId === ws.team_id
+                      ? 'bg-purple-500/30 text-purple-300 ring-1 ring-purple-500/50'
+                      : 'bg-slate-700/60 text-slate-400 hover:bg-slate-700'
+                  }`}
+                >
+                  {ws.team_name || ws.team_id}
+                </button>
+              ))
+            ) : status.team_name ? (
+              <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-sm font-semibold rounded-full">
+                {status.team_name}
+              </span>
+            ) : null}
           </div>
-          <button
-            onClick={handleDisconnect}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition-colors text-slate-400"
-          >
-            <Icon name="link_off" size={16} />
-            Disconnect
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleConnect}
+              data-testid="slack-add-workspace-btn"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 rounded-lg text-sm transition-colors text-purple-400"
+            >
+              <Icon name="add" size={16} />
+              Add workspace
+            </button>
+            <button
+              onClick={() => handleDisconnect(activeTeamId ?? undefined)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition-colors text-slate-400"
+            >
+              <Icon name="link_off" size={16} />
+              {workspaces.length > 1 ? 'Disconnect this' : 'Disconnect'}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
