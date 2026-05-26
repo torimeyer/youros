@@ -18,14 +18,14 @@ function SourceGroup({ icon, label, count, children, defaultOpen = false }: {
   const [open, setOpen] = useState(defaultOpen)
   if (count === 0) return null
   return (
-    <div className="border-b border-zinc-800 last:border-0 pb-2">
+    <div className="border-b border-slate-800 last:border-0 pb-2">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 w-full text-left py-1.5 hover:bg-zinc-800/50 rounded px-1 -mx-1"
+        className="flex items-center gap-2 w-full text-left py-1.5 hover:bg-slate-800/50 rounded px-1 -mx-1"
       >
-        <Icon name={icon} size={14} className="text-zinc-400" />
-        <span className="text-sm text-zinc-300">{label}</span>
-        <span className="text-xs text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded ml-auto">
+        <Icon name={icon} size={14} className="text-slate-400" />
+        <span className="text-sm text-slate-300">{label}</span>
+        <span className="text-xs text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded ml-auto">
           {count}
         </span>
       </button>
@@ -59,24 +59,24 @@ export default function WhatChanged() {
   if (totalChanges === 0) return null
 
   return (
-    <div className="rounded-lg border border-zinc-700 bg-zinc-900/50 p-4">
-      <h3 className="text-sm font-medium text-zinc-300 mb-3">
+    <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-4">
+      <h3 className="text-sm font-medium text-slate-300 mb-3">
         What changed
-        <span className="text-xs text-zinc-500 ml-2">last 2 hours</span>
+        <span className="text-xs text-slate-400 ml-2">last 2 hours</span>
       </h3>
       <div className="space-y-1">
         <SourceGroup icon="mail" label="New emails" count={data.new_emails?.length || 0} defaultOpen>
           {data.new_emails?.slice(0, 5).map((e, i) => (
-            <div key={i} className="text-xs text-zinc-400 cursor-pointer hover:text-zinc-200 truncate"
+            <div key={i} className="text-xs text-slate-400 cursor-pointer hover:text-slate-200 truncate"
               onClick={() => navigate('/gmail')}>
-              <span className="text-zinc-300">{e.from_name}</span>: {e.subject}
+              <span className="text-slate-300">{e.from_name}</span>: {e.subject}
             </div>
           ))}
         </SourceGroup>
 
         <SourceGroup icon="calendar" label="Meetings happened" count={data.calendar_events_happened?.length || 0}>
           {data.calendar_events_happened?.map((e, i) => (
-            <div key={i} className="text-xs text-zinc-400 cursor-pointer hover:text-zinc-200"
+            <div key={i} className="text-xs text-slate-400 cursor-pointer hover:text-slate-200"
               onClick={() => navigate('/calendar')}>
               {e.summary}
             </div>
@@ -86,7 +86,7 @@ export default function WhatChanged() {
         <SourceGroup icon="file" label="Drive files changed" count={data.drive_files_changed?.length || 0}>
           {data.drive_files_changed?.map((f, i) => (
             <a key={i} href={f.webViewLink} target="_blank" rel="noreferrer"
-              className="text-xs text-zinc-400 hover:text-zinc-200 block truncate">
+              className="text-xs text-slate-400 hover:text-slate-200 block truncate">
               {f.name}
             </a>
           ))}
@@ -94,7 +94,7 @@ export default function WhatChanged() {
 
         <SourceGroup icon="cpu" label="Agents finished" count={data.completed_agents?.length || 0}>
           {data.completed_agents?.slice(0, 5).map((a, i) => (
-            <div key={i} className="text-xs text-zinc-400 truncate">
+            <div key={i} className="text-xs text-slate-400 truncate">
               <span className={a.status === 'completed' ? 'text-green-400' : 'text-red-400'}>
                 {a.status}
               </span>{' '}
@@ -105,7 +105,7 @@ export default function WhatChanged() {
 
         <SourceGroup icon="file-plus" label="Files created" count={data.artifacts_created?.length || 0}>
           {data.artifacts_created?.slice(0, 5).map((f, i) => (
-            <div key={i} className="text-xs text-zinc-400 truncate">{f.name}</div>
+            <div key={i} className="text-xs text-slate-400 truncate">{f.name}</div>
           ))}
         </SourceGroup>
       </div>
