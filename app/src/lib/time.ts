@@ -4,6 +4,20 @@
  * return a plain-language string safe to render directly.
  */
 
+/** Format elapsed seconds as "5s" or "7m 14s" for live status lines. */
+export function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${m}m ${s}s`
+}
+
+/** Format a token count as "↓ 42 tokens" or "↓ 24.6k tokens". */
+export function formatTokenCount(count: number): string {
+  if (count >= 1000) return `↓ ${(count / 1000).toFixed(1)}k tokens`
+  return `↓ ${count} tokens`
+}
+
 type DateInput = string | Date | null | undefined;
 
 function toDate(input: DateInput): Date | null {
