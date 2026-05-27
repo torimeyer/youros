@@ -162,6 +162,35 @@ def read_audit_entries(audit_path: Optional[Path] = None) -> list[dict]:
     return entries
 
 
+def _read_active_store_ids(root: Path) -> Optional[set]:
+    """Return the set of task IDs present in issues.jsonl (the active store).
+
+    Returns None when the file does not exist (caller treats None as
+    "no filter" to preserve backward compatibility in test environments
+    where the file is absent).  Used by list_tasks to exclude rotated-
+    archive entries served by the ostk daemon (→1694).
+    """
+    issues_path = root / ".ostk" / "needles" / "issues.jsonl"
+    if not issues_path.exists():
+        return None
+    ids: set = set()
+    try:
+        for line in issues_path.read_text().splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                entry = json.loads(stripped)
+                nid = entry.get("id")
+                if nid:
+                    ids.add(nid)
+            except json.JSONDecodeError:
+                pass
+    except OSError:
+        return None
+    return ids
+
+
 def invalidate_audit_cache(audit_path: Optional[Path] = None) -> None:
     """Drop the cached parse for an audit.jsonl file. Call this right
     after appending an entry so the next reader sees the new line.
@@ -226,6 +255,67 @@ async def _coalesce_call(key: tuple, coro_factory):
         raise
     finally:
         _inflight_calls.pop(key, None)
+
+
+
+
+def _spec_audit_enrich_sync(
+    docs: list,
+    repo_root: "Path",
+    task_status_map: dict,
+) -> None:
+    """Synchronous spec_audit enrichment pass.  MUST run off the event loop.
+
+    Calls compute_shipped() and compute_husk_status() per doc, both of which
+    do filesystem I/O (Path.read_text + Path.exists).  Moving this work to a
+    worker thread via asyncio.to_thread() releases the event loop to keep
+    serving other requests (WS feeds, health, /api/agents/spawn) during the
+    scan (fix for →1739 / →1738).
+    """
+    try:
+        from services.spec_audit import (  # type: ignore[import]
+            compute_shipped,
+            compute_husk_status,
+            compute_stage,
+            ShippedResult,
+            HuskResult,
+        )
+        for doc in docs:
+            raw_path = doc.get("path", "")
+            if not raw_path or doc.get("status") == "plan":
+                doc.setdefault("stage", "draft")
+                doc.setdefault("husk", False)
+                doc.setdefault("missing_files", [])
+                doc.setdefault("open_linked_needles", [])
+                continue
+            if raw_path.startswith("/") or raw_path.startswith("~"):
+                abs_path = Path(raw_path).expanduser()
+            else:
+                abs_path = repo_root / raw_path
+            needle_statuses = dict(task_status_map)
+            try:
+                shipped = compute_shipped(
+                    abs_path, repo_root=repo_root, needle_statuses=needle_statuses
+                )
+            except Exception:
+                shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
+            try:
+                husk = compute_husk_status(abs_path)
+            except Exception:
+                husk = HuskResult(is_husk=False, reason="")
+            stage = compute_stage(doc, husk=husk, shipped=shipped)
+            doc["stage"] = stage
+            doc["husk"] = husk.is_husk
+            doc["husk_reason"] = husk.reason
+            doc["missing_files"] = shipped.missing_files
+            doc["open_linked_needles"] = shipped.open_needles
+    except Exception:
+        for doc in docs:
+            doc.setdefault("stage", "draft")
+            doc.setdefault("husk", False)
+            doc.setdefault("husk_reason", "")
+            doc.setdefault("missing_files", [])
+            doc.setdefault("open_linked_needles", [])
 
 
 class OstkService:
@@ -400,6 +490,15 @@ class OstkService:
                 task_id = entry.get("id")
                 if task_id:
                     seen[task_id] = entry
+            # →1694: reconcile against the active on-disk store.
+            # The ostk daemon reads both issues.jsonl (active) AND
+            # issues.jsonl.1 (rotated historical archive), so ``raw``
+            # contains all historical closed entries too — 1400+ on a
+            # long-lived project. Filter to only IDs present in the
+            # active file so the API never serves rotated-archive noise.
+            active_ids = _read_active_store_ids(Path(self.cwd))
+            if active_ids is not None:
+                seen = {k: v for k, v in seen.items() if k in active_ids}
             return list(seen.values())
 
         shared = await _coalesce_call(key, _do_call)
@@ -506,6 +605,57 @@ class OstkService:
         issues_path.write_text("\n".join(updated) + "\n")
         return f"reopened {task_id}"
 
+    async def set_needle_in_progress(self, needle_id: str) -> bool:
+        """Persist in_progress status for a needle in issues.jsonl.
+
+        Only transitions open → in_progress. Already in_progress or
+        terminal needles are left unchanged. Returns True if a write
+        happened, False if no change was needed or needle not found.
+
+        Called at agent spawn/register time so the needle shows
+        in_progress persistently (not just as a live-agent overlay),
+        surviving across agent completion until the branch merges to
+        main and close_task is called.
+        """
+        issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+        if not issues_path.exists():
+            return False
+
+        norm_id = self._normalize_task_id(needle_id)
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        def _sync_update() -> bool:
+            # All file I/O is in this sync helper so the async caller
+            # can delegate via asyncio.to_thread and never block the loop.
+            lines = issues_path.read_text().strip().splitlines()
+            found = False
+            changed = False
+            updated: list[str] = []
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    updated.append(line)
+                    continue
+                raw_id = str(entry.get("id", ""))
+                if self._normalize_task_id(raw_id) == norm_id:
+                    found = True
+                    if entry.get("status") == "open":
+                        entry["status"] = "in_progress"
+                        entry["in_progress_at"] = now_iso
+                        changed = True
+                updated.append(json.dumps(entry, ensure_ascii=False))
+
+            if not found or not changed:
+                return False
+
+            issues_path.write_text("\n".join(updated) + "\n")
+            return True
+
+        return await asyncio.to_thread(_sync_update)
+
     async def delete_task(self, task_id: str) -> str:
         """Permanently remove a task from issues.jsonl.
 
@@ -564,6 +714,26 @@ class OstkService:
                     updated.append(json.dumps(entry, ensure_ascii=False))
 
             issues_path.write_text("\n".join(updated) + ("\n" if updated else ""))
+
+            # →1694 resurrection fix: also remove from issues.jsonl.1 (rotated
+            # archive).  Without this, the entry survives in the rotated file
+            # and the daemon returns it again on the next ``ostk work list``,
+            # making the task reappear as if it was never deleted.
+            rotated_path = issues_path.with_suffix(".jsonl.1")
+            if rotated_path.exists():
+                rot_lines = rotated_path.read_text().strip().splitlines()
+                rot_updated = []
+                for line in rot_lines:
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        rot_updated.append(line)
+                        continue
+                    if entry.get("id") != task_id:
+                        rot_updated.append(json.dumps(entry, ensure_ascii=False))
+                rotated_path.write_text(
+                    "\n".join(rot_updated) + ("\n" if rot_updated else "")
+                )
 
         return f"deleted {task_id}"
 
@@ -2364,46 +2534,16 @@ class OstkService:
                     except Exception:
                         pass  # best effort; stale state better than a 500
 
-        # Stage enrichment (→1512): compute shipped/husk/stage per doc
-        try:
-            from services.spec_audit import compute_shipped, compute_husk_status, compute_stage, ShippedResult, HuskResult
-            repo_root = Path(self.cwd)
-            for doc in results:
-                raw_path = doc.get("path", "")
-                if not raw_path or doc.get("status") == "plan":
-                    doc.setdefault("stage", "draft")
-                    doc.setdefault("husk", False)
-                    doc.setdefault("missing_files", [])
-                    doc.setdefault("open_linked_needles", [])
-                    continue
-                # Resolve absolute path
-                if raw_path.startswith("/") or raw_path.startswith("~"):
-                    abs_path = Path(raw_path).expanduser()
-                else:
-                    abs_path = repo_root / raw_path
-                # Build needle_statuses from task_status_map for this doc
-                needle_statuses = dict(task_status_map)
-                try:
-                    shipped = compute_shipped(abs_path, repo_root=repo_root, needle_statuses=needle_statuses)
-                except Exception:
-                    shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
-                try:
-                    husk = compute_husk_status(abs_path)
-                except Exception:
-                    husk = HuskResult(is_husk=False, reason="")
-                stage = compute_stage(doc, husk=husk, shipped=shipped)
-                doc["stage"] = stage
-                doc["husk"] = husk.is_husk
-                doc["husk_reason"] = husk.reason
-                doc["missing_files"] = shipped.missing_files
-                doc["open_linked_needles"] = shipped.open_needles
-        except Exception:
-            for doc in results:
-                doc.setdefault("stage", "draft")
-                doc.setdefault("husk", False)
-                doc.setdefault("husk_reason", "")
-                doc.setdefault("missing_files", [])
-                doc.setdefault("open_linked_needles", [])
+        # Stage enrichment (→1512 / →1739): compute shipped/husk/stage per doc.
+        # compute_shipped() and compute_husk_status() do synchronous filesystem I/O
+        # (Path.read_text + Path.exists per file ref).  Running them on the event
+        # loop would block all other requests for the full scan duration.  Offload
+        # to a worker thread so the loop stays responsive.  GIL is released during
+        # the actual os.stat / read syscalls so to_thread is effective here.
+        repo_root = Path(self.cwd)
+        await asyncio.to_thread(
+            _spec_audit_enrich_sync, results, repo_root, task_status_map
+        )
 
         # Deduplicate: hide empty husk drafts in docs/draft/ when a promoted
         # version already exists in ~/.myos/specs/ for the same slug. This
