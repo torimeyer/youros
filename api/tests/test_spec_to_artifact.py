@@ -3,13 +3,31 @@
 Tests the 'produces' field on wizard_create and build_spec routing.
 """
 
+import os
 import pytest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch, call
 from fastapi.testclient import TestClient
 
+from config import PROJECT_ROOT
 from main import app
 
 client = TestClient(app)
+
+_LEAKED_SPEC = Path(PROJECT_ROOT) / "docs" / "spec" / "code-spec.md"
+
+
+@pytest.fixture(autouse=True)
+def cleanup_code_spec():
+    """Remove docs/spec/code-spec.md before and after every test in this module.
+
+    _set_spec_status writes to the real filesystem when pathlib.Path.write_text is
+    not patched.  This fixture ensures that even if a previous run leaked the file,
+    it is gone before each test, and cleaned up afterwards (→1751).
+    """
+    _LEAKED_SPEC.unlink(missing_ok=True)
+    yield
+    _LEAKED_SPEC.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +184,8 @@ def test_build_spec_code_uses_existing_flow():
          patch("routers.specs._resolve_task_configs", new_callable=AsyncMock, return_value=task_configs) as mock_resolve, \
          patch("routers.agents.spawn_agent", new_callable=AsyncMock, side_effect=mock_spawn), \
          patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.read_text", return_value=SPEC_BODY["code"]):
+         patch("pathlib.Path.read_text", return_value=SPEC_BODY["code"]), \
+         patch("pathlib.Path.write_text"):
         resp = client.post("/api/specs/docs/spec/code-spec.md/build")
 
     # Code path must use _resolve_task_configs

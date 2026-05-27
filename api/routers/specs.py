@@ -249,6 +249,10 @@ _SPEC_ARTIFACT_PATTERNS: tuple[re.Pattern[str], ...] = (
     # "Demo Smoke Spec 87311" or "spec-87311.md". Real user titles do
     # not end in a long numeric run.
     re.compile(r"[-_ ]\d{4,}(?:\.md)?$", re.IGNORECASE),
+    # Known test-fixture stub injected by test_spec_to_artifact.py via
+    # the /build endpoint path docs/spec/code-spec.md.  Kept as an
+    # explicit slug so the filter is self-documenting (→1751).
+    re.compile(r"(?:^|/)code[-_]spec(?:\.md)?$", re.IGNORECASE),
 )
 
 
@@ -377,6 +381,13 @@ async def list_specs(clear_to_build: Optional[bool] = None):
     try:
         docs = await ostk.list_docs()
         docs = [d for d in docs if d.get("status") != "plan"]
+        # Exclude test-artifact specs from both docs/draft/ and docs/spec/.
+        # The cleanup endpoint also uses this, but list_specs must apply it
+        # too so leaked fixtures never appear in the Specs view (→1751).
+        docs = [
+            d for d in docs
+            if not _is_test_artifact_spec(d.get("path", ""), d.get("title", ""))
+        ]
 
         # Re-apply compute_spec_status with active claims from _spec_claims.
         # list_docs() calls compute_spec_status without claims so its returned
