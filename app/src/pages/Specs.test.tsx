@@ -877,21 +877,10 @@ describe('Specs page', () => {
       expect(screen.getByText('auth system')).toBeInTheDocument()
     })
 
-    // Open the overflow menu on the auth system card.
-    const overflowButtons = screen.getAllByTestId('plan-overflow-button')
-    const authCard = overflowButtons
-      .map((b) => b.closest('[data-testid="spec-card"]'))
-      .find((c) => c?.textContent?.includes('auth system'))!
-    const authOverflow = authCard.querySelector(
-      '[data-testid="plan-overflow-button"]'
-    ) as HTMLElement
-    fireEvent.click(authOverflow)
-
-    await waitFor(() => {
-      const btns = screen.getAllByTestId('delete-spec-button')
-      expect(btns.length).toBeGreaterThan(0)
-    })
-    const deleteBtn = screen.getAllByTestId('delete-spec-button')[0]
+    // Find the trash icon on the auth system card and click it directly.
+    const specCards = screen.getAllByTestId('spec-card')
+    const authCard = specCards.find((c) => c.textContent?.includes('auth system'))!
+    const deleteBtn = authCard.querySelector('[data-testid="delete-spec-button"]') as HTMLElement
     fireEvent.click(deleteBtn)
 
     expect(confirmSpy).not.toHaveBeenCalled()
@@ -906,6 +895,71 @@ describe('Specs page', () => {
     confirmSpy.mockRestore()
   })
 
+  it('rename: pencil icon shows input, Enter saves via PATCH /title', async () => {
+    const mockedApiPatch = vi.mocked(api.patch)
+    mockedApiPatch.mockResolvedValue({ ok: true, title: 'auth system v2' })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // Click the pencil icon on the auth system card.
+    const specCards = screen.getAllByTestId('spec-card')
+    const authCard = specCards.find((c) => c.textContent?.includes('auth system'))!
+    const renameBtn = authCard.querySelector('[data-testid="rename-spec-button"]') as HTMLElement
+    fireEvent.click(renameBtn)
+
+    // Input should appear with current title.
+    const input = await screen.findByTestId('rename-spec-input')
+    expect(input).toBeInTheDocument()
+    expect((input as HTMLInputElement).value).toBe('auth system')
+
+    // Type new name and press Enter.
+    fireEvent.change(input, { target: { value: 'auth system v2' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(mockedApiPatch).toHaveBeenCalledWith(
+        '/specs/docs/spec/auth-system.md/title',
+        { title: 'auth system v2' }
+      )
+    })
+
+    // Title updates in the UI.
+    await waitFor(() => {
+      expect(screen.getByText('auth system v2')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('rename-spec-input')).not.toBeInTheDocument()
+  })
+
+  it('rename: Escape cancels without saving', async () => {
+    const mockedApiPatch = vi.mocked(api.patch)
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const specCards = screen.getAllByTestId('spec-card')
+    const authCard = specCards.find((c) => c.textContent?.includes('auth system'))!
+    const renameBtn = authCard.querySelector('[data-testid="rename-spec-button"]') as HTMLElement
+    fireEvent.click(renameBtn)
+
+    const input = await screen.findByTestId('rename-spec-input')
+    fireEvent.change(input, { target: { value: 'something else' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(mockedApiPatch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/title'),
+      expect.anything()
+    )
+    expect(screen.queryByTestId('rename-spec-input')).not.toBeInTheDocument()
+    expect(screen.getByText('auth system')).toBeInTheDocument()
+  })
+
   it('encodes path segments individually so FastAPI :path converter still matches', async () => {
     const mockedApiDelete = vi.mocked(api.delete)
     mockedApiDelete.mockResolvedValue({})
@@ -915,22 +969,13 @@ describe('Specs page', () => {
     await waitFor(() => {
       expect(screen.getByText('auth system')).toBeInTheDocument()
     })
-    const overflowButtons = screen.getAllByTestId('plan-overflow-button')
-    const authCard = overflowButtons
-      .map((b) => b.closest('[data-testid="spec-card"]'))
-      .find((c) => c?.textContent?.includes('auth system'))!
-    const authOverflow = authCard.querySelector(
-      '[data-testid="plan-overflow-button"]'
-    ) as HTMLElement
-    fireEvent.click(authOverflow)
-
-    await waitFor(() => {
-      expect(screen.getAllByTestId('delete-spec-button').length).toBeGreaterThan(0)
-    })
+    const specCards = screen.getAllByTestId('spec-card')
+    const authCard = specCards.find((c) => c.textContent?.includes('auth system'))!
+    const deleteBtn = authCard.querySelector('[data-testid="delete-spec-button"]') as HTMLElement
 
     vi.useFakeTimers()
     try {
-      fireEvent.click(screen.getAllByTestId('delete-spec-button')[0])
+      fireEvent.click(deleteBtn)
       await vi.advanceTimersByTimeAsync(5100)
       expect(mockedApiDelete).toHaveBeenCalledWith('/specs/docs/spec/auth-system.md')
     } finally {
@@ -1309,8 +1354,8 @@ describe('Specs page', () => {
   // Obsolete: the Verify button was removed. Previously this test
   // confirmed exactly one Verify button rendered per plan card.
 
-  // Wave 4 F6: Delete is reachable by its accessible name, no window.confirm.
-  it('Delete action is reachable by its accessible name and triggers the confirm dialog (not window.confirm)', async () => {
+  // Delete is reachable by its accessible name directly (no overflow menu).
+  it('Delete button is reachable by accessible name and triggers undo toast (no window.confirm)', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm')
     renderSpecs()
 
@@ -1318,21 +1363,15 @@ describe('Specs page', () => {
       expect(screen.getByText('auth system')).toBeInTheDocument()
     })
 
-    // The overflow button is reachable by its accessible name.
-    const overflowBtns = screen.getAllByRole('button', { name: 'More actions' })
-    expect(overflowBtns.length).toBeGreaterThan(0)
+    // The delete button is directly on each card, reachable by its accessible name.
+    const deleteBtns = screen.getAllByRole('button', { name: 'Delete spec' })
+    expect(deleteBtns.length).toBeGreaterThan(0)
 
     // Find the one on the auth system card.
-    const authOverflow = overflowBtns.find((b) =>
+    const authDeleteBtn = deleteBtns.find((b) =>
       b.closest('[data-testid="spec-card"]')?.textContent?.includes('auth system')
     )!
-    fireEvent.click(authOverflow)
-
-    // The Delete menu item is reachable by its accessible name.
-    const deleteItem = screen.getByRole('menuitem', { name: /Delete spec/i })
-    expect(deleteItem).toBeInTheDocument()
-
-    fireEvent.click(deleteItem)
+    fireEvent.click(authDeleteBtn)
 
     // window.confirm was never called. The in-app Undo toast appears.
     expect(confirmSpy).not.toHaveBeenCalled()
@@ -1411,20 +1450,10 @@ describe('Specs page real-time bus', () => {
       expect(screen.getByText('auth system')).toBeInTheDocument()
     })
 
-    const overflowButtons = screen.getAllByTestId('plan-overflow-button')
-    const authCard = overflowButtons
-      .map((b) => b.closest('[data-testid="spec-card"]'))
-      .find((c) => c?.textContent?.includes('auth system'))!
-    const authOverflow = authCard.querySelector(
-      '[data-testid="plan-overflow-button"]'
-    ) as HTMLElement
-    fireEvent.click(authOverflow)
-
-    await waitFor(() => {
-      expect(screen.getAllByTestId('delete-spec-button').length).toBeGreaterThan(0)
-    })
-
-    fireEvent.click(screen.getAllByTestId('delete-spec-button')[0])
+    const specCards = screen.getAllByTestId('spec-card')
+    const authCard = specCards.find((c) => c.textContent?.includes('auth system'))!
+    const deleteBtn = authCard.querySelector('[data-testid="delete-spec-button"]') as HTMLElement
+    fireEvent.click(deleteBtn)
 
     // Optimistic removal: spec is gone from the list.
     expect(screen.queryByText('auth system')).not.toBeInTheDocument()
