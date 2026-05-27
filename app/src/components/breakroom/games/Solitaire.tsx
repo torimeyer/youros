@@ -17,6 +17,10 @@ const SUIT_SYMBOL: Record<Suit, string> = {
   clubs: '♣',
   spades: '♠',
 }
+
+// Suggested ghost suit order for empty foundation slots
+const FOUNDATION_SUITS: Suit[] = ['spades', 'hearts', 'diamonds', 'clubs']
+
 const rankLabel = (r: number) =>
   r === 1 ? 'A' : r === 11 ? 'J' : r === 12 ? 'Q' : r === 13 ? 'K' : String(r)
 const isRed = (s: Suit) => s === 'hearts' || s === 'diamonds'
@@ -48,22 +52,76 @@ function topOf(pile: Card[]): Card | null {
   return pile.length ? pile[pile.length - 1] : null
 }
 
-function CardView({ card, selected }: { card: Card; selected?: boolean }) {
-  if (!card.faceUp) {
-    return <div className="h-16 w-11 rounded-md border border-slate-400 bg-indigo-900/50" />
-  }
+// ── Card back: deep indigo with diagonal lattice ─────────────────────────────
+function CardBack() {
   return (
     <div
-      className={`flex h-16 w-11 flex-col justify-between rounded-md border bg-white p-1 text-sm font-semibold ${
-        selected ? 'accent-border ring-2' : 'border-slate-300'
-      } ${isRed(card.suit) ? 'text-red-600' : 'text-slate-900'}`}
+      className="h-16 w-11 rounded-md border border-indigo-400 shadow-md"
+      style={{
+        backgroundColor: '#312e81',
+        backgroundImage: [
+          'repeating-linear-gradient(45deg, rgba(255,255,255,0.12) 0px, rgba(255,255,255,0.12) 1px, transparent 1px, transparent 7px)',
+          'repeating-linear-gradient(-45deg, rgba(255,255,255,0.12) 0px, rgba(255,255,255,0.12) 1px, transparent 1px, transparent 7px)',
+        ].join(', '),
+      }}
+    />
+  )
+}
+
+// ── Card face: rank corners + large center pip ────────────────────────────────
+function CardFace({ card, selected }: { card: Card; selected?: boolean }) {
+  const red = isRed(card.suit)
+  const rank = rankLabel(card.rank)
+  const suit = SUIT_SYMBOL[card.suit]
+  const textColor = red ? '#dc2626' : '#111827'
+
+  return (
+    <div
+      className={`relative h-16 w-11 select-none rounded-md border shadow-sm transition-all duration-100 ${
+        selected ? 'accent-border ring-2 shadow-lg -translate-y-1' : 'border-slate-200'
+      }`}
+      style={{
+        background: 'linear-gradient(160deg, #ffffff 0%, #f3f4f6 100%)',
+        color: textColor,
+      }}
     >
-      <span className="leading-none">{rankLabel(card.rank)}</span>
-      <span className="self-end leading-none">{SUIT_SYMBOL[card.suit]}</span>
+      {/* Top-left corner: rank + suit */}
+      <div className="absolute left-0.5 top-0.5 flex flex-col items-center leading-none">
+        <span className="text-[10px] font-bold leading-none">{rank}</span>
+        <span className="text-[9px] leading-none">{suit}</span>
+      </div>
+
+      {/* Center pip */}
+      <div className="flex h-full items-center justify-center text-xl leading-none">
+        {suit}
+      </div>
+
+      {/* Bottom-right corner: rotated (upside-down) rank + suit */}
+      <div className="absolute bottom-0.5 right-0.5 flex rotate-180 flex-col items-center leading-none">
+        <span className="text-[10px] font-bold leading-none">{rank}</span>
+        <span className="text-[9px] leading-none">{suit}</span>
+      </div>
     </div>
   )
 }
 
+function CardView({ card, selected }: { card: Card; selected?: boolean }) {
+  if (!card.faceUp) return <CardBack />
+  return <CardFace card={card} selected={selected} />
+}
+
+// ── Empty pile placeholder ────────────────────────────────────────────────────
+function EmptySlot({ ghost }: { ghost?: string }) {
+  return (
+    <div className="flex h-16 w-11 flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-white/20">
+      {ghost && (
+        <span className="text-lg leading-none text-white/20">{ghost}</span>
+      )}
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function Solitaire() {
   const { confirm, confirmProps } = useConfirm()
   const [game, setGame] = useState<Game>(newGame)
@@ -120,7 +178,11 @@ export default function Solitaire() {
     setSel(null)
     setGame((g) => {
       if (g.stock.length === 0) {
-        return { ...g, stock: [...g.waste].reverse().map((c) => ({ ...c, faceUp: false })), waste: [] }
+        return {
+          ...g,
+          stock: [...g.waste].reverse().map((c) => ({ ...c, faceUp: false })),
+          waste: [],
+        }
       }
       const stock = g.stock.slice()
       const card = { ...stock.pop()!, faceUp: true }
@@ -174,30 +236,47 @@ export default function Solitaire() {
   const wasteTop = topOf(game.waste)
 
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-slate-600 dark:text-slate-400">
+    <div
+      className="flex flex-col gap-4 rounded-xl p-4 shadow-inner"
+      style={{ background: 'linear-gradient(150deg, #14532d 0%, #166534 60%, #15803d 100%)' }}
+    >
+      <p className="text-sm text-green-100/70">
         Click a card to pick it up, then click where it goes. Tap the deck to draw.
       </p>
+
+      {/* ── Top row: stock · waste · gap · foundations ── */}
       <div className="flex items-start gap-2">
+        {/* Stock */}
         <button
           type="button"
           onClick={drawStock}
           aria-label="Draw from stock"
           data-testid="sol-stock"
-          className="h-16 w-11 rounded-md border border-slate-400 bg-slate-200 text-base text-slate-500 dark:bg-slate-800"
+          className="flex h-16 w-11 items-center justify-center rounded-md border border-white/20 bg-black/20 text-xl text-white/60 shadow-inner transition-colors hover:bg-black/30"
         >
           {game.stock.length ? '↻' : '⟳'}
         </button>
-        <button type="button" onClick={clickWaste} aria-label="Waste pile" className="h-16 w-11">
+
+        {/* Waste */}
+        <button
+          type="button"
+          onClick={clickWaste}
+          aria-label="Waste pile"
+          className="h-16 w-11"
+        >
           {wasteTop ? (
             <CardView card={wasteTop} selected={isSelCard(wasteTop)} />
           ) : (
-            <div className="h-16 w-11 rounded-md border border-dashed border-slate-300" />
+            <EmptySlot />
           )}
         </button>
+
         <div className="w-6" />
+
+        {/* Foundations */}
         {game.foundations.map((f, fi) => {
           const t = topOf(f)
+          const ghostSuit = FOUNDATION_SUITS[fi]
           return (
             <button
               key={fi}
@@ -210,14 +289,22 @@ export default function Solitaire() {
               {t ? (
                 <CardView card={t} />
               ) : (
-                <div className="flex h-16 w-11 items-center justify-center rounded-md border border-dashed border-slate-300 text-slate-400">
-                  A
+                <div className="flex h-16 w-11 flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-white/20">
+                  <span
+                    className="text-lg leading-none"
+                    style={{ color: isRed(ghostSuit) ? 'rgba(252,165,165,0.25)' : 'rgba(255,255,255,0.2)' }}
+                  >
+                    {SUIT_SYMBOL[ghostSuit]}
+                  </span>
+                  <span className="text-[9px] font-semibold leading-none text-white/20">A</span>
                 </div>
               )}
             </button>
           )
         })}
       </div>
+
+      {/* ── Tableau ── */}
       <div className="flex gap-2">
         {game.tableau.map((col, ci) => (
           <div
@@ -226,7 +313,7 @@ export default function Solitaire() {
             className="flex min-h-32 w-11 flex-col"
           >
             {col.length === 0 ? (
-              <div className="h-16 w-11 rounded-md border border-dashed border-slate-300" />
+              <EmptySlot />
             ) : (
               col.map((card, ri) => (
                 <button
@@ -246,6 +333,7 @@ export default function Solitaire() {
           </div>
         ))}
       </div>
+
       <ConfirmModal {...confirmProps} />
     </div>
   )
