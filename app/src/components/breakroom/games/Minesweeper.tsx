@@ -12,9 +12,10 @@ import { recordBestTime, loadBest } from '../storage'
 import { useConfirm } from '../../../hooks/useConfirm'
 import ConfirmModal from '../../ConfirmModal'
 
-const ROWS = 9
-const COLS = 9
-const MINES = 10
+// Classic Windows Expert: 30 columns x 16 rows, 99 mines
+const ROWS = 16
+const COLS = 30
+const MINES = 99
 const GAME_ID = 'minesweeper'
 
 // Classic Minesweeper digit colors (index = adjacent mine count)
@@ -107,7 +108,7 @@ export default function Minesweeper() {
       {/* Status bar */}
       <div className="flex items-center justify-between rounded border border-slate-200 bg-slate-100 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800">
         <span className="flex min-w-[3.5rem] items-center gap-1 font-mono font-bold tabular-nums text-slate-700 dark:text-slate-200">
-          💣 {String(minesLeft).padStart(2, '0')}
+          💣 {String(minesLeft).padStart(3, '0')}
         </span>
         <span className="text-xs text-slate-500 dark:text-slate-400">
           {status === 'playing'
@@ -133,24 +134,24 @@ export default function Minesweeper() {
         </div>
       </div>
 
-      {/* Board frame */}
+      {/* Board frame: full container width, cells fill available space */}
       <div
-        className="inline-block rounded border-2 border-slate-400 bg-slate-400 p-0.5 dark:border-slate-600 dark:bg-slate-600"
+        className="w-full rounded border-2 border-slate-400 bg-slate-400 p-0.5 dark:border-slate-600 dark:bg-slate-600"
         style={{ boxShadow: 'inset 2px 2px 0 rgba(255,255,255,0.4), inset -2px -2px 0 rgba(0,0,0,0.3)' }}
       >
         <div
           className="grid gap-px"
-          style={{ gridTemplateColumns: `repeat(${COLS}, 1.75rem)` }}
+          style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}
         >
           {board.map((row, r) =>
             row.map((cell, c) => {
-              // Revealed cell - flat, shows number or mine
+              // Revealed cell: flat, shows number or mine
               if (cell.revealed) {
                 return (
                   <div
                     key={`${r}-${c}`}
                     className={[
-                      'flex h-7 w-7 select-none items-center justify-center text-sm font-bold',
+                      'flex aspect-square w-full select-none items-center justify-center text-xs font-bold',
                       'border border-slate-400 bg-slate-200 dark:border-slate-600 dark:bg-slate-800',
                       cell.adj && !cell.mine ? NUM_COLOR[cell.adj] : '',
                     ].join(' ')}
@@ -160,7 +161,7 @@ export default function Minesweeper() {
                 )
               }
 
-              // Unrevealed cell - raised bevel, clickable
+              // Unrevealed cell: raised bevel, clickable
               return (
                 <button
                   key={`${r}-${c}`}
@@ -170,7 +171,7 @@ export default function Minesweeper() {
                   onContextMenu={(e) => rightClick(e, r, c)}
                   style={BEVEL_STYLE}
                   className={[
-                    'flex h-7 w-7 select-none items-center justify-center rounded-sm text-sm',
+                    'flex aspect-square w-full select-none items-center justify-center rounded-sm text-xs',
                     'bg-slate-300 transition-[filter] duration-75 dark:bg-slate-600',
                     status === 'playing' && !cell.flagged
                       ? 'hover:brightness-110 active:brightness-90 active:[box-shadow:inset_-2px_-2px_0_rgba(255,255,255,0.65),inset_2px_2px_0_rgba(0,0,0,0.28)]'
