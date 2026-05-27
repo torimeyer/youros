@@ -3663,3 +3663,41 @@ async def test_list_specs_excludes_scratch_note_keyword_in_title(client, monkeyp
         f"Scratch-title note leaked into /specs: {paths}"
     )
     assert any("real-feature" in p for p in paths)
+
+
+@pytest.mark.asyncio
+async def test_list_specs_excludes_leaked_code_spec(client, tmp_path, monkeypatch):
+    """Leaked test-fixture spec 'Code feature' / code-spec.md must NOT appear in /specs (→1751).
+
+    test_build_spec_code_uses_existing_flow calls _set_spec_status which calls
+    pathlib.Path.write_text without a mock, so a real docs/spec/code-spec.md lands
+    on disk when Path.exists is globally patched to True. The scanner must treat that
+    file as a test artifact and exclude it from the listing.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "no-user-specs")
+
+    # Simulate the leaked file exactly as _set_spec_status would write it.
+    (tmp_path / "docs" / "spec" / "code-spec.md").write_text(
+        "---\nstatus: building\ntitle: Code feature\n---\n"
+        "## Acceptance criteria\n- [ ] Handles edge case\n"
+    )
+
+    monkeypatch.setattr(ostk_module.ostk, "list_tasks", AsyncMock(return_value=[]))
+
+    res = await client.get("/api/specs")
+    assert res.status_code == 200
+    docs = res.json()["docs"]
+    titles = [d.get("title", "") for d in docs]
+    paths = [d.get("path", "") for d in docs]
+    assert "Code feature" not in titles, (
+        f"Leaked test-fixture 'Code feature' appeared in /specs titles: {titles}"
+    )
+    assert not any("code-spec" in p for p in paths), (
+        f"Leaked code-spec.md appeared in /specs paths: {paths}"
+    )
