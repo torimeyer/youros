@@ -586,8 +586,9 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   // the doc we just optimistically removed and the spec reappears for
   // the full ~5s window before the real DELETE finally removes it.
   const pendingDeleteSpecPathsRef = useRef<Set<string>>(new Set());
-  const [openMenuPath, setOpenMenuPath] = useState<string | null>(null);
   const [showWizard, setShowWizard] = useState(false);
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editBody, setEditBody] = useState("");
   const [editSaving, setEditSaving] = useState(false);
@@ -621,6 +622,20 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
       setMessageType("error");
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const handleRename = async (doc: Spec) => {
+    const trimmed = renameTitle.trim();
+    setRenamingPath(null);
+    if (!trimmed || trimmed === doc.title) return;
+    try {
+      await api.patch(`/specs/${encodeDocPath(doc.path)}/title`, { title: trimmed });
+      setDocs((prev) =>
+        prev.map((d) => (d.path === doc.path ? { ...d, title: trimmed } : d))
+      );
+    } catch (e) {
+      reportError('Failed to rename spec', e);
     }
   };
 
@@ -1285,9 +1300,25 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                           className="text-slate-500 flex-shrink-0"
                           size={20}
                         />
-                        <p className="text-white text-lg font-medium truncate">
-                          {doc.title}
-                        </p>
+                        {renamingPath === doc.path ? (
+                          <input
+                            autoFocus
+                            data-testid="rename-spec-input"
+                            className="text-white text-lg font-medium bg-transparent border-b border-blue-400 focus:outline-none min-w-0 flex-1"
+                            value={renameTitle}
+                            onChange={(e) => setRenameTitle(e.target.value)}
+                            onBlur={(e) => { e.stopPropagation(); handleRename(doc); }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); handleRename(doc); }
+                              if (e.key === "Escape") { e.stopPropagation(); setRenamingPath(null); }
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          <p className="text-white text-lg font-medium truncate">
+                            {doc.title}
+                          </p>
+                        )}
                         <StageChip
                           stage={getDocStage(doc)}
                           title={(() => {
@@ -1334,46 +1365,31 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                             })()}
                           </span>
                         )}
-                        {/* Overflow menu: Delete lives here so it's findable but hard to hit by accident. */}
-                        <div className="relative">
-                          <button
-                            type="button"
-                            aria-label="More actions"
-                            aria-haspopup="menu"
-                            aria-expanded={openMenuPath === doc.path}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenMenuPath(openMenuPath === doc.path ? null : doc.path);
-                            }}
-                            data-testid="plan-overflow-button"
-                            className="text-slate-500 hover:text-white rounded-lg p-1 transition-colors"
-                          >
-                            <Icon name="more_horiz" size={18} />
-                          </button>
-                          {openMenuPath === doc.path && (
-                            <div
-                              role="menu"
-                              data-testid="plan-overflow-menu"
-                              onClick={(e) => e.stopPropagation()}
-                              className="absolute right-0 top-7 z-10 min-w-[160px] rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 py-1 shadow-lg"
-                            >
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuPath(null);
-                                  deleteSpec(doc);
-                                }}
-                                data-testid="delete-spec-button"
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"
-                              >
-                                <Icon name="delete" size={16} className="text-red-600 dark:text-red-400" />
-                                Delete spec
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                        <button
+                          type="button"
+                          aria-label="Rename spec"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRenamingPath(doc.path);
+                            setRenameTitle(doc.title);
+                          }}
+                          data-testid="rename-spec-button"
+                          className="text-slate-500 hover:text-white rounded-lg p-1 transition-colors"
+                        >
+                          <Icon name="edit" size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Delete spec"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteSpec(doc);
+                          }}
+                          data-testid="delete-spec-button"
+                          className="text-slate-500 hover:text-red-400 rounded-lg p-1 transition-colors"
+                        >
+                          <Icon name="delete" size={18} />
+                        </button>
                       </div>
                     </div>
 

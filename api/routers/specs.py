@@ -1147,6 +1147,56 @@ async def patch_spec_body(spec_path: str, body: SpecBodyUpdate):
     return {"ok": True}
 
 
+class SpecTitleUpdate(BaseModel):
+    title: str
+
+
+@router.patch("/specs/{spec_path:path}/title")
+async def patch_spec_title(spec_path: str, body: SpecTitleUpdate):
+    """Update the title field in a spec's YAML frontmatter and its H1 heading."""
+    _validate_doc_path(spec_path)
+
+    new_title = body.title.strip()
+    if not new_title:
+        raise HTTPException(status_code=422, detail="Title cannot be empty")
+
+    abs_path = (
+        spec_path
+        if spec_path.startswith("/") or spec_path.startswith("~")
+        else str(Path(PROJECT_ROOT) / spec_path)
+    )
+    abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
+
+    if not Path(abs_path).exists():
+        raise HTTPException(status_code=404, detail="Spec file not found")
+
+    text = Path(abs_path).read_text(encoding="utf-8")
+    lines = text.split("\n")
+    new_lines: list[str] = []
+    in_fm = bool(lines and lines[0].strip() == "---")
+    saw_fm_end = False
+    h1_updated = False
+
+    for i, line in enumerate(lines):
+        if in_fm and not saw_fm_end:
+            stripped = line.strip()
+            if stripped.startswith("title:"):
+                indent = line[: len(line) - len(line.lstrip())]
+                new_lines.append(f"{indent}title: {new_title}")
+                continue
+            if stripped == "---" and new_lines:
+                saw_fm_end = True
+                in_fm = False
+        elif saw_fm_end and not h1_updated and line.startswith("# "):
+            new_lines.append(f"# {new_title}")
+            h1_updated = True
+            continue
+        new_lines.append(line)
+
+    Path(abs_path).write_text("\n".join(new_lines), encoding="utf-8")
+    return {"ok": True, "title": new_title}
+
+
 class SpecClarifySuggestBody(BaseModel):
     check: str
 
