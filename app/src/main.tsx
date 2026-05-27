@@ -3,6 +3,13 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { installVitePreloadRecovery } from './lib/vitePreloadRecovery'
+
+// After a dev-server or PM2 restart, an already-open tab holds stale
+// dynamic-import chunk hashes. Vite fires 'vite:preloadError' when those
+// fetches fail. One auto-reload recovers the tab silently. A sessionStorage
+// flag prevents the reload from looping if the server is still misconfigured.
+installVitePreloadRecovery()
 
 // Reveal icon font glyphs only after Material Symbols has loaded,
 // preventing a flash of icon-name text (e.g. "home", "search") on refresh.
