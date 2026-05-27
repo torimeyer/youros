@@ -162,6 +162,17 @@ async def _run_full_detection() -> dict[str, bool]:
     }
 
 
+def _reset_provider_cache() -> None:
+    """Reset the detect_providers() TTL cache.
+
+    Intended for use in tests only — forces the next detect_providers() call to
+    run a full detection scan rather than returning a stale cached result.
+    """
+    global _providers_cache_value, _providers_cache_ts
+    _providers_cache_value = None
+    _providers_cache_ts = 0.0
+
+
 async def detect_providers() -> dict[str, bool]:
     """Return availability of known AI providers.
 

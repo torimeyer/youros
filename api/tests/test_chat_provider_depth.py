@@ -93,7 +93,11 @@ class TestGeminiSystemPrompt:
     """
 
     def test_gemini_prompt_declares_no_tools(self):
-        assert "You cannot create calendar events, send emails, or use any tools" in GEMINI_SYSTEM_INSTRUCTION
+        # Commit 94bd2921 (→1697) rewrote the Gemini system prompt; the "no tool
+        # actions" contract is preserved but the exact wording changed.
+        # Old: "You cannot create calendar events, send emails, or use any tools."
+        # New: "you cannot take actions: no creating calendar events, sending emails…"
+        assert "you cannot take actions" in GEMINI_SYSTEM_INSTRUCTION
 
     def test_gemini_prompt_routes_tool_tasks_to_claude(self):
         assert "switch to Claude" in GEMINI_SYSTEM_INSTRUCTION
