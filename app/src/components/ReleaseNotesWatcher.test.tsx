@@ -500,6 +500,34 @@ describe('ReleaseNotesWatcher', () => {
     expect(window.localStorage.getItem('myos-ephemeral-celebrated-spec-paths')).toBeNull()
   })
 
+  it('shows checked criteria with a green check icon and unchecked criteria with a hollow icon', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    mockedApiGet.mockResolvedValueOnce(
+      specsResponse([{ path: 'docs/spec/mixed.md', title: 'Mixed', status: 'in-progress' }])
+    )
+    mockedApiGet.mockResolvedValueOnce({
+      docs: [{
+        path: 'docs/spec/mixed.md',
+        title: 'Mixed',
+        status: 'complete',
+        acceptance_criteria: [
+          { text: 'SC-001: The widget loads', checked: true },
+          { text: 'SC-002: Errors are handled', checked: false },
+        ],
+      }],
+    })
+    render(<ReleaseNotesWatcher />)
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled())
+    await vi.advanceTimersByTimeAsync(2100)
+    await waitFor(() =>
+      expect(screen.getByTestId('release-notes-modal')).toBeInTheDocument()
+    )
+    const checkedItem = screen.getByTestId('ac-item-checked')
+    expect(checkedItem).toBeInTheDocument()
+    const uncheckedItem = screen.getByTestId('ac-item-unchecked')
+    expect(uncheckedItem).toBeInTheDocument()
+  })
+
   it('closes the release-notes modal when Escape is pressed', async () => {
     // Muscle-memory UX: users hit Esc to dismiss any modal.
     mockedApiGet.mockResolvedValue(specsResponse([]))

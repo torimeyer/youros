@@ -306,14 +306,15 @@ export default function ReleaseNotesWatcher() {
             {acs.map((ac, i) => (
               <li
                 key={i}
-                className="flex items-start gap-2 text-sm text-slate-300"
+                className="flex items-start gap-2 text-sm"
+                data-testid={ac.checked ? 'ac-item-checked' : 'ac-item-unchecked'}
               >
                 <Icon
-                  name="check_circle"
-                  className="text-green-400 mt-0.5 shrink-0"
+                  name={ac.checked ? 'check_circle' : 'radio_button_unchecked'}
+                  className={`mt-0.5 shrink-0 ${ac.checked ? 'text-green-400' : 'text-slate-500'}`}
                   size={16}
                 />
-                <span>{ac.text}</span>
+                <span className={ac.checked ? 'text-slate-300' : 'text-slate-400'}>{ac.text}</span>
               </li>
             ))}
           </ul>
