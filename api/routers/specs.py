@@ -233,15 +233,19 @@ def _ac_generation_user(subject: str, *, from_roadmap: bool = False) -> str:
 # prefixes, not on the word "spec" alone.
 _SPEC_ARTIFACT_PATTERNS: tuple[re.Pattern[str], ...] = (
     # Smoke prefixes that lead a path/filename or a title.
+    # NOTE: the "test" prefix uses [-_] (no space): "test-foo" is a fixture
+    # but a real spec titled "Test spec" must NOT be hidden. The bare "e2e"
+    # prefix was dropped on purpose: "e2e-http-journey" is a legitimate spec
+    # name, while real e2e fixtures carry a trailing id (caught by \d{4,}).
     re.compile(
-        r"^(?:demo[-_ ]smoke[-_ ]?|smoke[-_ ]|e2e[-_ ]|test[-_ ]"
+        r"^(?:demo[-_ ]smoke[-_ ]?|smoke[-_ ]|test[-_]"
         r"|v\d+[-_ ]verify[-_ ]?|morning[-_ ]verify[-_ ]?)",
         re.IGNORECASE,
     ),
     # The same prefix sitting after a directory segment, so the match
     # holds for "docs/draft/demo-smoke-spec-87311.md" and friends.
     re.compile(
-        r"/(?:demo[-_ ]smoke[-_ ]?|smoke[-_ ]|e2e[-_ ]|test[-_ ]"
+        r"/(?:demo[-_ ]smoke[-_ ]?|smoke[-_ ]|test[-_]"
         r"|v\d+[-_ ]verify[-_ ]?|morning[-_ ]verify[-_ ]?)",
         re.IGNORECASE,
     ),
