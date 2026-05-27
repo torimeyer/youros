@@ -6,7 +6,6 @@ import ConfirmModal from '../../ConfirmModal'
 const COLS = 11
 const ROWS = 9
 
-const ROAD_COLORS = ['#ef4444', '#f97316', '#eab308']
 
 const mod = (n: number, m: number) => ((n % m) + m) % m
 
@@ -32,129 +31,61 @@ function initLanes(): LaneDef[] {
   ]
 }
 
-// ─── drawing helpers ────────────────────────────────────────────────────────
+// ─── drawing helpers (Basquiat-style) ───────────────────────────────────────
 
-function rrect(
-  ctx: CanvasRenderingContext2D,
-  x: number, y: number, w: number, h: number, r: number,
-) {
-  r = Math.min(r, w / 2, h / 2)
-  ctx.beginPath()
-  ctx.moveTo(x + r, y)
-  ctx.lineTo(x + w - r, y)
-  ctx.arcTo(x + w, y, x + w, y + r, r)
-  ctx.lineTo(x + w, y + h - r)
-  ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
-  ctx.lineTo(x + r, y + h)
-  ctx.arcTo(x, y + h, x, y + h - r, r)
-  ctx.lineTo(x, y + r)
-  ctx.arcTo(x, y, x + r, y, r)
-  ctx.closePath()
-}
-
-function drawSafeLane(ctx: CanvasRenderingContext2D, r: number, cell: number) {
+function drawUrbanLane(ctx: CanvasRenderingContext2D, r: number, cell: number, type: 'safe' | 'river' | 'road') {
   const y = r * cell
   const totalW = COLS * cell
-  ctx.fillStyle = '#15803d'
-  ctx.fillRect(0, y, totalW, cell)
-  ctx.fillStyle = '#16a34a'
-  const stride = Math.max(6, Math.floor(cell / 5))
-  for (let x = 0; x < totalW; x += stride * 2) ctx.fillRect(x, y, stride, cell)
-  ctx.fillStyle = '#4ade80'
-  ctx.fillRect(0, y, totalW, 2)
-  ctx.fillStyle = '#14532d'
-  ctx.fillRect(0, y + cell - 1, totalW, 1)
-}
-
-function drawRiverLane(ctx: CanvasRenderingContext2D, r: number, cell: number) {
-  const y = r * cell
-  const totalW = COLS * cell
-  ctx.fillStyle = '#1d4ed8'
-  ctx.fillRect(0, y, totalW, cell)
-  ctx.fillStyle = '#3b82f6'
-  const step = Math.max(16, Math.floor(cell * 0.7))
-  for (let x = 0; x < totalW; x += step) {
-    ctx.fillRect(x, y + Math.floor(cell * 0.16), Math.floor(cell * 0.4), 2)
-    ctx.fillRect(x + Math.floor(step * 0.4), y + Math.floor(cell * 0.44), Math.floor(cell * 0.28), 2)
+  
+  if (type === 'safe') {
+    ctx.fillStyle = '#1a1c1e' // Stark black asphalt
+    ctx.fillRect(0, y, totalW, cell)
+    ctx.strokeStyle = '#ef4444' // Jagged red lines
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    for(let i=0; i<totalW; i+=20) {
+      ctx.moveTo(i, y + Math.random() * 5)
+      ctx.lineTo(i + 15, y + 5 + Math.random() * 5)
+    }
+    ctx.stroke()
+  } else if (type === 'river') {
+    ctx.fillStyle = '#3b82f6' // Harsh blue
+    ctx.fillRect(0, y, totalW, cell)
+    ctx.fillStyle = 'rgba(0,0,0,0.1)'
+    ctx.font = 'bold 12px serif'
+    ctx.fillText('SAMO©', 10, y + 20)
+    ctx.fillText('PAY FOR SOUP', 100, y + 20)
+  } else {
+    ctx.fillStyle = '#eab308' // Dirty yellow
+    ctx.fillRect(0, y, totalW, cell)
+    ctx.strokeStyle = '#000'
+    ctx.lineWidth = 1
+    ctx.strokeRect(2, y + 2, totalW - 4, cell - 4)
   }
-  ctx.fillStyle = '#1e3a8a'
-  ctx.fillRect(0, y, totalW, 1)
-  ctx.fillRect(0, y + cell - 1, totalW, 1)
 }
 
-function drawRoadLane(ctx: CanvasRenderingContext2D, r: number, cell: number) {
-  const y = r * cell
-  const totalW = COLS * cell
-  ctx.fillStyle = '#374151'
-  ctx.fillRect(0, y, totalW, cell)
-  ctx.fillStyle = '#4b5563'
-  const tx = Math.max(5, Math.floor(cell * 0.2))
-  for (let x = 0; x < totalW; x += tx * 2) {
-    ctx.fillRect(x, y + Math.floor(cell * 0.1), Math.floor(tx * 0.6), 2)
-    ctx.fillRect(x + tx, y + Math.floor(cell * 0.62), Math.floor(tx * 0.6), 2)
+function drawOneObstacle(ctx: CanvasRenderingContext2D, x: number, y: number, cell: number, type: 'car' | 'log', color: string) {
+  if (type === 'car') {
+    ctx.fillStyle = color
+    ctx.fillRect(x + 2, y + 4, cell - 4, cell - 8)
+    ctx.strokeStyle = '#000'
+    ctx.lineWidth = 2
+    ctx.strokeRect(x + 2, y + 4, cell - 4, cell - 8)
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(x + 6, y + 8, cell - 12, cell/3)
+    ctx.strokeStyle = '#000'
+    ctx.beginPath(); ctx.moveTo(x+4, y+6); ctx.lineTo(x+8, y+10); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(x+8, y+6); ctx.lineTo(x+4, y+10); ctx.stroke()
+  } else {
+    ctx.fillStyle = '#000'
+    ctx.fillRect(x + 4, y + 4, cell - 8, cell - 8)
+    ctx.strokeStyle = '#fff'
+    ctx.strokeRect(x + 6, y + 6, cell - 12, cell - 12)
+    ctx.beginPath(); ctx.arc(x + cell/4 + 2, y + cell/2, cell/6, 0, Math.PI*2); ctx.stroke()
+    ctx.beginPath(); ctx.arc(x + 3*cell/4 - 2, y + cell/2, cell/6, 0, Math.PI*2); ctx.stroke()
   }
-  ctx.fillStyle = '#fbbf24'
-  const dashW = Math.max(8, Math.floor(cell * 0.38))
-  for (let x = 0; x < totalW; x += dashW * 2) ctx.fillRect(x, y + Math.floor(cell / 2) - 1, dashW, 2)
-  ctx.fillStyle = '#d1d5db'
-  ctx.fillRect(0, y, totalW, 1)
-  ctx.fillRect(0, y + cell - 1, totalW, 1)
 }
 
-function drawOneCar(ctx: CanvasRenderingContext2D, x: number, y: number, cell: number, color: string) {
-  const pad = Math.floor(cell * 0.06)
-  const vpad = Math.floor(cell * 0.16)
-  const bx = x + pad
-  const by = y + vpad
-  const w = cell - pad * 2
-  const h = cell - vpad * 2
-  const r = Math.min(3, Math.floor(cell * 0.1))
-  const lw = Math.max(2, Math.floor(cell * 0.08))
-
-  ctx.fillStyle = color
-  rrect(ctx, bx, by, w, h, r)
-  ctx.fill()
-
-  ctx.fillStyle = 'rgba(186,230,253,0.75)'
-  ctx.fillRect(bx + 4, by + 2, w - 8, Math.floor(h * 0.44))
-
-  ctx.fillStyle = '#fef3c7'
-  ctx.fillRect(bx + 1, by + 2, lw, lw)
-  ctx.fillRect(bx + w - 1 - lw, by + 2, lw, lw)
-  ctx.fillStyle = '#fee2e2'
-  ctx.fillRect(bx + 1, by + h - 2 - lw, lw, lw)
-  ctx.fillRect(bx + w - 1 - lw, by + h - 2 - lw, lw, lw)
-
-  ctx.strokeStyle = 'rgba(0,0,0,0.28)'
-  ctx.lineWidth = 1
-  rrect(ctx, bx, by, w, h, r)
-  ctx.stroke()
-}
-
-function drawOneLog(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, cell: number) {
-  const r = Math.min(4, Math.floor(cell * 0.12))
-  ctx.fillStyle = '#92400e'
-  rrect(ctx, x, y, w, h, r)
-  ctx.fill()
-  ctx.fillStyle = '#78350f'
-  for (let gi = 4; gi < h - 2; gi += Math.max(4, Math.floor(cell * 0.16))) {
-    ctx.fillRect(x + 5, y + gi, w - 10, 1)
-  }
-  ctx.fillStyle = '#a16207'
-  ctx.fillRect(x + 5, y + 2, w - 10, 2)
-  ctx.strokeStyle = '#b45309'
-  ctx.lineWidth = 1.5
-  rrect(ctx, x + 1, y + 1, w - 2, h - 2, Math.max(3, r - 1))
-  ctx.stroke()
-  ctx.fillStyle = 'rgba(255,255,255,0.10)'
-  ctx.fillRect(x + 4, y + 2, w - 8, 3)
-}
-
-/**
- * Draw vehicles (cars or logs) at fractional offset positions.
- * rawX = col * cell + dir * offset. Draw at rawX and wrapped copies so
- * objects wrap smoothly at canvas edges without a visible jump.
- */
 function drawVehicles(
   ctx: CanvasRenderingContext2D,
   occupied: number[], r: number,
@@ -163,37 +94,15 @@ function drawVehicles(
 ) {
   const totalW = COLS * cell
   const y = r * cell
-
-  if (isLog) {
-    const sorted = [...occupied].sort((a, b) => a - b)
-    const groups: { start: number; len: number }[] = []
-    let i = 0
-    while (i < sorted.length) {
-      let j = i
-      while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++
-      groups.push({ start: sorted[i], len: j - i + 1 })
-      i = j + 1
-    }
-    for (const { start, len } of groups) {
-      const rawX = start * cell + dir * offset
-      const logW = len * cell - 2
-      const logY = y + Math.floor(cell * 0.19)
-      const logH = Math.floor(cell * 0.62)
-      for (const baseX of [rawX, rawX + totalW, rawX - totalW]) {
-        drawOneLog(ctx, baseX + 1, logY, logW, logH, cell)
-      }
-    }
-  } else {
-    for (const c of occupied) {
-      const rawX = c * cell + dir * offset
-      for (const baseX of [rawX, rawX + totalW, rawX - totalW]) {
-        drawOneCar(ctx, baseX, y, cell, color)
-      }
+  for (const c of occupied) {
+    const rawX = c * cell + dir * offset
+    for (const baseX of [rawX, rawX + totalW, rawX - totalW]) {
+      drawOneObstacle(ctx, baseX, y, cell, isLog ? 'log' : 'car', color)
     }
   }
 }
 
-function drawFrog(
+function drawArtist(
   ctx: CanvasRenderingContext2D,
   col: number, row: number,
   cell: number, offsetX: number,
@@ -201,40 +110,24 @@ function drawFrog(
   const s = cell / 32
   const cx = col * cell + cell / 2 + offsetX
   const cy = row * cell + cell / 2
-
-  ctx.fillStyle = '#22c55e'
-  ctx.beginPath(); ctx.ellipse(cx - 8 * s, cy + 7 * s, 4 * s, 3 * s, -0.5, 0, Math.PI * 2); ctx.fill()
-  ctx.beginPath(); ctx.ellipse(cx + 8 * s, cy + 7 * s, 4 * s, 3 * s, 0.5, 0, Math.PI * 2); ctx.fill()
-
-  ctx.fillStyle = '#4ade80'
-  ctx.beginPath(); ctx.ellipse(cx, cy + 1 * s, 10 * s, 8 * s, 0, 0, Math.PI * 2); ctx.fill()
-
-  ctx.fillStyle = '#22c55e'
-  ctx.beginPath(); ctx.ellipse(cx, cy - 5 * s, 8 * s, 7 * s, 0, 0, Math.PI * 2); ctx.fill()
-
-  ctx.fillStyle = '#4ade80'
-  ctx.beginPath(); ctx.ellipse(cx - 9 * s, cy + 1 * s, 3 * s, 2 * s, -0.3, 0, Math.PI * 2); ctx.fill()
-  ctx.beginPath(); ctx.ellipse(cx + 9 * s, cy + 1 * s, 3 * s, 2 * s, 0.3, 0, Math.PI * 2); ctx.fill()
-
-  ctx.fillStyle = '#ffffff'
-  ctx.beginPath(); ctx.arc(cx - 5 * s, cy - 9 * s, 3.5 * s, 0, Math.PI * 2); ctx.fill()
-  ctx.beginPath(); ctx.arc(cx + 5 * s, cy - 9 * s, 3.5 * s, 0, Math.PI * 2); ctx.fill()
-
-  ctx.fillStyle = '#0f172a'
-  ctx.beginPath(); ctx.arc(cx - 5 * s, cy - 9 * s, 2 * s, 0, Math.PI * 2); ctx.fill()
-  ctx.beginPath(); ctx.arc(cx + 5 * s, cy - 9 * s, 2 * s, 0, Math.PI * 2); ctx.fill()
-
-  ctx.fillStyle = '#ffffff'
-  ctx.beginPath(); ctx.arc(cx - 4 * s, cy - 10 * s, 0.8 * s, 0, Math.PI * 2); ctx.fill()
-  ctx.beginPath(); ctx.arc(cx + 6 * s, cy - 10 * s, 0.8 * s, 0, Math.PI * 2); ctx.fill()
-
-  ctx.strokeStyle = '#16a34a'
-  ctx.lineWidth = 1.2 * s
-  ctx.beginPath(); ctx.arc(cx, cy - 2 * s, 4 * s, 0.3, Math.PI - 0.3); ctx.stroke()
-
-  ctx.strokeStyle = '#16a34a'
-  ctx.lineWidth = s
-  ctx.beginPath(); ctx.ellipse(cx, cy + 1 * s, 10 * s, 8 * s, 0, 0, Math.PI * 2); ctx.stroke()
+  ctx.strokeStyle = '#000'
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.moveTo(cx, cy - 10*s); ctx.lineTo(cx, cy + 5*s)
+  ctx.moveTo(cx, cy - 5*s); ctx.lineTo(cx - 10*s, cy - 8*s)
+  ctx.moveTo(cx, cy - 5*s); ctx.lineTo(cx + 10*s, cy - 8*s)
+  ctx.moveTo(cx, cy + 5*s); ctx.lineTo(cx - 8*s, cy + 12*s)
+  ctx.moveTo(cx, cy + 5*s); ctx.lineTo(cx + 8*s, cy + 12*s)
+  ctx.stroke()
+  ctx.fillStyle = '#000'
+  ctx.beginPath(); ctx.arc(cx, cy - 12*s, 6*s, 0, Math.PI*2); ctx.fill()
+  ctx.fillStyle = '#facc15'
+  ctx.beginPath()
+  ctx.moveTo(cx - 8*s, cy - 18*s); ctx.lineTo(cx - 8*s, cy - 25*s)
+  ctx.lineTo(cx - 4*s, cy - 21*s); ctx.lineTo(cx, cy - 25*s)
+  ctx.lineTo(cx + 4*s, cy - 21*s); ctx.lineTo(cx + 8*s, cy - 25*s)
+  ctx.lineTo(cx + 8*s, cy - 18*s); ctx.closePath(); ctx.fill()
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke()
 }
 
 // ─── component ──────────────────────────────────────────────────────────────
@@ -273,20 +166,16 @@ export default function Frogger() {
       const cell = cellRef.current
       const { frog, lanes } = game
 
-      ctx.clearRect(0, 0, COLS * cell, ROWS * cell)
+      ctx.fillStyle = '#f8f8f0' // Aged paper background
+      ctx.fillRect(0, 0, COLS * cell, ROWS * cell)
 
-      let roadIdx = 0
       for (let r = 0; r < ROWS; r++) {
         const ln = lanes[r]
-        if (ln.type === 'safe') {
-          drawSafeLane(ctx, r, cell)
-        } else if (ln.type === 'river') {
-          drawRiverLane(ctx, r, cell)
-          drawVehicles(ctx, ln.occupied, r, cell, ln.dir, ln.offset, true, '')
-        } else {
-          drawRoadLane(ctx, r, cell)
-          drawVehicles(ctx, ln.occupied, r, cell, ln.dir, ln.offset, false, ROAD_COLORS[roadIdx % ROAD_COLORS.length])
-          roadIdx++
+        drawUrbanLane(ctx, r, cell, ln.type)
+        if (ln.type === 'river') {
+          drawVehicles(ctx, ln.occupied, r, cell, ln.dir, ln.offset, true, '#000')
+        } else if (ln.type === 'road') {
+          drawVehicles(ctx, ln.occupied, r, cell, ln.dir, ln.offset, false, r % 2 === 0 ? '#ef4444' : '#eab308')
         }
       }
 
@@ -295,7 +184,7 @@ export default function Frogger() {
         fl.type === 'river' && fl.dir !== 0 && fl.occupied.includes(frog.col)
           ? fl.dir * fl.offset
           : 0
-      drawFrog(ctx, frog.col, frog.row, cell, frogOffX)
+      drawArtist(ctx, frog.col, frog.row, cell, frogOffX)
     }
 
     function check() {
@@ -312,13 +201,13 @@ export default function Frogger() {
       draw()
       if (kind === 'home') setWins((w) => w + 1)
       void confirmRef.current({
-        title: kind === 'home' ? 'Home safe' : 'Splat',
+        title: kind === 'home' ? 'THE CROWN IS YOURS' : 'ERASED',
         message:
           kind === 'home'
-            ? 'You made it across. Go again?'
-            : 'The frog did not make it. Try again?',
-        confirmLabel: kind === 'home' ? 'Again' : 'Retry',
-        cancelLabel: 'Done',
+            ? 'You tagged the heights of the city. Tag another?'
+            : 'The city avenues are unforgiving. Try to make your mark again?',
+        confirmLabel: kind === 'home' ? 'Tag Again' : 'Resurrect',
+        cancelLabel: 'Surrender',
       }).then((again) => {
         if (again) {
           game.frog = { col: 5, row: 8 }
@@ -412,16 +301,21 @@ export default function Frogger() {
   }, [])
 
   return (
-    <div className="flex flex-col items-center gap-3 w-full">
-      <div className="flex flex-wrap gap-4 text-sm text-slate-600 dark:text-slate-400 self-start">
-        <span className="font-medium">Crossings: {wins}</span>
-        <span>Arrow keys. Reach the top. Ride logs across the river. Dodge cars on the road.</span>
+    <div className="flex flex-col items-center gap-4 w-full font-serif">
+      <div className="flex flex-col gap-1 items-center italic self-start">
+        <h2 className="text-3xl text-black drop-shadow-sm uppercase font-black">The Concrete Crown</h2>
+        <p className="text-[10px] text-slate-500 tracking-widest">Navigate the 1980s avenues to make your mark.</p>
+      </div>
+
+      <div className="flex flex-wrap gap-4 text-xs text-slate-600 self-start border-l-2 border-black pl-3 py-1">
+        <span className="font-bold uppercase">Tags: {wins}</span>
+        <span className="italic uppercase">Ride the boomboxes. Avoid the cruisers. Reach the top billboard.</span>
       </div>
       <div ref={containerRef} className="w-full">
         <canvas
           ref={canvasRef}
           data-testid="frogger-canvas"
-          className="rounded-lg border border-slate-300 dark:border-slate-700 block mx-auto"
+          className="rounded-lg border-2 border-black shadow-[8px_8px_0_rgba(0,0,0,1)] block mx-auto"
         />
       </div>
       <ConfirmModal {...confirmProps} />

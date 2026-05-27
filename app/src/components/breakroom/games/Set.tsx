@@ -14,14 +14,14 @@ const GAME_ID = 'set'
 const INITIAL = 12
 const MAX = 21
 
-// Enriched, vibrant palette
+// Spiritualist, ethereal palette inspired by Hilma af Klint
 const COLOR: Record<SetCard['color'], string> = {
-  red: '#dc2020',
-  green: '#15a34a',
-  purple: '#7c3aed',
+  red: '#e5989b',    // Dusty rose
+  green: '#b7b7a4',  // Muted sage
+  purple: '#b5838d', // Ethereal mauve
 }
 
-// One hidden SVG at the document level supplies hatch patterns for every card.
+// Global SVG patterns for spiritualist shading
 function GlobalPatternDefs() {
   return (
     <svg
@@ -35,12 +35,12 @@ function GlobalPatternDefs() {
             key={color}
             id={`set-hatch-${color}`}
             patternUnits="userSpaceOnUse"
-            width="10"
-            height="10"
-            patternTransform="rotate(45 0 0)"
+            width="8"
+            height="8"
+            patternTransform="rotate(15 0 0)"
           >
-            {/* Single line per 10-unit tile: generous gap so stripes read clearly at any size */}
-            <line x1="0" y1="0" x2="0" y2="10" stroke={COLOR[color]} strokeWidth="3" />
+            {/* Soft, organic dots for spiritual "vibration" */}
+            <circle cx="2" cy="2" r="1.2" fill={COLOR[color]} fillOpacity="0.6" />
           </pattern>
         ))}
       </defs>
@@ -48,7 +48,7 @@ function GlobalPatternDefs() {
   )
 }
 
-// viewBox="0 0 40 80". All shapes sit in a 40 x 80 coordinate space.
+// Organic, botanical shapes for the "Seer's Convergence"
 function Shape({ card }: { card: SetCard }) {
   const c = COLOR[card.color]
   const fill =
@@ -60,34 +60,38 @@ function Shape({ card }: { card: SetCard }) {
 
   const shapeProps = {
     stroke: c,
-    strokeWidth: 2.5,
+    strokeWidth: 2,
     fill,
     strokeLinejoin: 'round' as const,
     strokeLinecap: 'round' as const,
   }
 
   return (
-    <svg viewBox="0 0 40 80" width="52" height="104" aria-hidden="true">
+    <svg viewBox="0 0 40 80" width="52" height="104" aria-hidden="true" className="filter drop-shadow-sm">
       {card.shape === 'oval' && (
-        // Rounded rectangle, clean oval proportions
-        <rect x="6" y="8" width="28" height="64" rx="14" {...shapeProps} />
+        // Botanical "Seed" shape
+        <path
+          d="M 20 10 C 35 10, 35 70, 20 70 C 5 70, 5 10, 20 10 Z"
+          {...shapeProps}
+        />
       )}
       {card.shape === 'diamond' && (
-        <polygon points="20,6 36,40 20,74 4,40" {...shapeProps} />
+        // "Celestial Eye" or Diamond
+        <path
+          d="M 20 6 L 36 40 L 20 74 L 4 40 Z M 20 30 A 10 10 0 1 1 20 50 A 10 10 0 1 1 20 30"
+          {...shapeProps}
+          fillRule="evenodd"
+        />
       )}
       {card.shape === 'squiggle' && (
-        // Closed S-curve: right-bulge top, left-bulge bottom, consistent thickness.
-        // Outer left edge ↓, hook across bottom, inner right edge ↑, hook across top.
+        // Ethereal "Life Force" spiral/curve
         <path
           d={[
-            'M 20 6',
-            'C 32 4, 36 12, 32 20',   // arc right, downward
-            'C 28 28, 12 32, 8 40',   // crossover toward left
-            'C 4 48, 8 60, 20 68',    // arc left, continuing down
-            'C 24 74, 32 74, 32 68',  // bottom hook (right side)
-            'C 26 58, 14 52, 18 44',  // inner right edge, up through crossover
-            'C 22 36, 34 32, 36 24',  // continuing up-right
-            'C 38 16, 32 2, 20 6',    // top hook back to start
+            'M 20 10',
+            'C 30 10, 35 25, 20 40',
+            'C 5 55, 10 70, 20 70',
+            'C 30 70, 35 55, 20 40',
+            'C 5 25, 10 10, 20 10',
             'Z',
           ].join(' ')}
           {...shapeProps}
@@ -109,48 +113,39 @@ function CardFace({ card }: { card: SetCard }) {
 
 function cardClass(sel: boolean, matched: boolean, disabled: boolean): string {
   const base = [
-    'relative flex min-h-[9rem] items-center justify-center rounded-2xl border-2',
-    'transition-all duration-150',
-    // Soft base shadow for a lifted-card feel
-    'shadow-[0_2px_8px_rgba(0,0,0,0.07)]',
-    disabled && !sel && !matched ? 'cursor-default' : 'cursor-pointer',
+    'relative flex min-h-[9rem] items-center justify-center rounded-3xl border-2',
+    'transition-all duration-300 ease-in-out',
+    'shadow-[0_4px_12px_rgba(0,0,0,0.05)]',
+    disabled && !sel && !matched ? 'cursor-default opacity-80' : 'cursor-pointer',
   ]
 
   if (matched) {
-    // Brief "pop" on a confirmed match
     return [
       ...base,
-      'accent-border scale-[1.07] -translate-y-2',
-      'shadow-[0_10px_28px_rgba(0,0,0,0.14)]',
-      'bg-gradient-to-b from-green-50 to-emerald-50 dark:from-slate-800 dark:to-slate-700',
-    ]
-      .filter(Boolean)
-      .join(' ')
+      'scale-[1.08] -translate-y-3 border-[#d8e2dc]',
+      'shadow-[0_15px_35px_rgba(181,131,141,0.2)]',
+      'bg-[#f8edeb] dark:bg-[#3d3133]',
+    ].join(' ')
   }
 
   if (sel) {
     return [
       ...base,
-      'accent-border scale-[1.04] -translate-y-1.5',
-      'shadow-[0_8px_22px_rgba(0,0,0,0.12)]',
-      // Subtle accent tint on selected card
-      'bg-gradient-to-b from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-slate-800',
-    ]
-      .filter(Boolean)
-      .join(' ')
+      'scale-[1.05] -translate-y-2 border-[#b5838d]',
+      'shadow-[0_10px_25px_rgba(0,0,0,0.1)]',
+      'bg-[#fae1dd] dark:bg-[#4a3a3d]',
+    ].join(' ')
   }
 
   return [
     ...base,
-    'border-slate-200 dark:border-slate-700',
-    // Delicate paper-like gradient on resting cards
-    'bg-gradient-to-b from-white to-slate-50 dark:from-slate-900 dark:to-slate-950',
-    'hover:-translate-y-0.5 hover:scale-[1.02]',
-    'hover:shadow-[0_6px_16px_rgba(0,0,0,0.10)]',
-    'hover:border-slate-300 dark:hover:border-slate-600',
-  ]
-    .filter(Boolean)
-    .join(' ')
+    'border-[#f4f1de] dark:border-slate-800',
+    // Aged parchment feel
+    'bg-[#fdfcf0] dark:bg-[#1a1a1a]',
+    'hover:-translate-y-1 hover:scale-[1.02]',
+    'hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)]',
+    'hover:border-[#e9edc9] dark:hover:border-slate-700',
+  ].join(' ')
 }
 
 export default function SetGame() {
@@ -161,7 +156,6 @@ export default function SetGame() {
   const [found, setFound] = useState(0)
   const [message, setMessage] = useState('')
   const [best, setBest] = useState<number | null>(loadBest(GAME_ID)?.best ?? null)
-  // Indices of the three cards currently mid-match-animation
   const [matchedIndices, setMatchedIndices] = useState<number[]>([])
 
   const deal = useCallback(() => {
@@ -190,10 +184,10 @@ export default function SetGame() {
         const isBest = recordHighScore(GAME_ID, score)
         if (isBest) setBest(score)
         const again = await confirm({
-          title: 'No more sets',
-          message: `You found ${score} set${score === 1 ? '' : 's'}.${isBest ? ' New best!' : ''} Play again?`,
-          confirmLabel: 'Play again',
-          cancelLabel: 'Done',
+          title: 'Visions Exhausted',
+          message: `The spiritual alignment has concluded. You witnessed ${score} convergence${score === 1 ? '' : 's'}.${isBest ? ' A new height of spiritual clarity!' : ''} Seek another vision?`,
+          confirmLabel: 'Begin Anew',
+          cancelLabel: 'Rest',
         })
         if (again) deal()
       }
@@ -202,8 +196,7 @@ export default function SetGame() {
   )
 
   function toggle(i: number) {
-    // Block during "not a set" flash and during match animation
-    if (message === 'Not a set' || matchedIndices.length > 0) return
+    if (message === 'Discordant' || matchedIndices.length > 0) return
     if (selected.includes(i)) {
       setSelected(selected.filter((x) => x !== i))
       return
@@ -216,7 +209,7 @@ export default function SetGame() {
 
     const [a, b, c] = next.map((idx) => tableau[idx])
     if (!isValidSet(a, b, c)) {
-      setMessage('Not a set')
+      setMessage('Discordant')
       setTimeout(() => {
         setSelected([])
         setMessage('')
@@ -224,9 +217,8 @@ export default function SetGame() {
       return
     }
 
-    // Valid set: show match pop, then resolve after a short beat
     setMatchedIndices(next)
-    setMessage('Set!')
+    setMessage('Convergence!')
 
     setTimeout(() => {
       const chosen = new Set(next)
@@ -254,19 +246,22 @@ export default function SetGame() {
   const isAnimating = matchedIndices.length > 0
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Global SVG pattern defs (hatch fills, invisible) */}
+    <div className="flex flex-col gap-6 italic">
       <GlobalPatternDefs />
 
-      {/* Score row */}
-      <div className="flex items-center gap-4 text-sm">
-        <span className="font-medium text-slate-700 dark:text-slate-300">Found: {found}</span>
-        {best != null && <span className="text-slate-500">Best: {best}</span>}
-        <span className="text-slate-500">Cards left: {deck.length}</span>
+      <div className="flex flex-col gap-1">
+        <h2 className="text-2xl font-serif text-[#b5838d] dark:text-[#e5989b]">The Seer's Convergence</h2>
+        <p className="text-xs text-slate-500 dark:text-slate-400">Align the frequencies of the spiritual plane.</p>
+      </div>
+
+      <div className="flex items-center gap-6 text-sm font-serif">
+        <span className="text-[#6b705c] dark:text-[#a5a58d]">Convergences: {found}</span>
+        {best != null && <span className="text-[#b7b7a4]">Greatest Vision: {best}</span>}
+        <span className="text-[#b7b7a4]">Echoes remaining: {deck.length}</span>
         {message && (
           <span
-            className={`font-semibold transition-opacity ${
-              message === 'Set!' ? 'accent-text' : 'text-red-500 dark:text-red-400'
+            className={`font-semibold animate-pulse ${
+              message === 'Convergence!' ? 'text-[#b5838d]' : 'text-red-400'
             }`}
           >
             {message}
@@ -274,8 +269,7 @@ export default function SetGame() {
         )}
       </div>
 
-      {/* Card grid */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-4 gap-4">
         {tableau.map((card, i) => {
           const sel = selected.includes(i)
           const matched = matchedIndices.includes(i)
@@ -283,7 +277,6 @@ export default function SetGame() {
             <button
               key={`${card.number}-${card.color}-${card.shading}-${card.shape}`}
               type="button"
-              data-testid={`set-card-${i}`}
               aria-pressed={sel}
               onClick={() => toggle(i)}
               disabled={isAnimating && !matched}

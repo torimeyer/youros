@@ -18,18 +18,11 @@ function randomFood(snake: Pt[]): Pt {
   }
 }
 
-function fillRoundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-) {
-  ctx.beginPath()
-  ctx.roundRect(x, y, w, h, r)
-  ctx.fill()
-}
+// Kusama palette
+const CLR_SNAKE = '#facc15' // Kusama Yellow
+const CLR_DOT = '#000000'
+const CLR_FOOD = '#ea580c' // Pumpkin Orange
+const CLR_VOID = '#000000'
 
 export default function Snake() {
   const { confirm, confirmProps } = useConfirm()
@@ -45,23 +38,19 @@ export default function Snake() {
   const dir = useRef<Pt>({ x: 1, y: 0 })
   const nextDir = useRef<Pt>({ x: 1, y: 0 })
 
-  // Refs for RAF renderer: synced from state each render
   const snakeRef = useRef<Pt[]>(snake)
   const foodRef = useRef<Pt>(food)
 
   useEffect(() => { snakeRef.current = snake }, [snake])
   useEffect(() => { foodRef.current = food }, [food])
 
-  // Compute cell size from container width and height cap, then resize canvas
   const resizeCanvas = useCallback(() => {
     const el = containerRef.current
     const canvas = canvasRef.current
     if (!el || !canvas) return
     const w = el.getBoundingClientRect().width
     const maxH = window.innerHeight * MAX_H_RATIO
-    const byW = Math.floor(w / COLS)
-    const byH = Math.floor(maxH / ROWS)
-    const cs = Math.max(MIN_CELL, Math.min(byW, byH))
+    const cs = Math.max(MIN_CELL, Math.min(Math.floor(w / COLS), Math.floor(maxH / ROWS)))
     cellRef.current = cs
     const dpr = window.devicePixelRatio || 1
     canvas.width = Math.round(COLS * cs * dpr)
@@ -70,35 +59,22 @@ export default function Snake() {
     canvas.style.height = `${ROWS * cs}px`
   }, [])
 
-  // Run synchronously before first paint so canvas has correct size right away
-  useLayoutEffect(() => {
-    resizeCanvas()
-  }, [resizeCanvas])
-
-  // Track container width changes and window height changes
+  useLayoutEffect(() => { resizeCanvas() }, [resizeCanvas])
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
     const obs = new ResizeObserver(resizeCanvas)
     obs.observe(el)
     window.addEventListener('resize', resizeCanvas)
-    return () => {
-      obs.disconnect()
-      window.removeEventListener('resize', resizeCanvas)
-    }
+    return () => { obs.disconnect(); window.removeEventListener('resize', resizeCanvas) }
   }, [resizeCanvas])
 
   const reset = useCallback(() => {
     const start = [{ x: 10, y: 10 }]
-    setSnake(start)
-    setFood(randomFood(start))
-    setScore(0)
-    setDead(false)
-    dir.current = { x: 1, y: 0 }
-    nextDir.current = { x: 1, y: 0 }
+    setSnake(start); setFood(randomFood(start)); setScore(0); setDead(false)
+    dir.current = { x: 1, y: 0 }; nextDir.current = { x: 1, y: 0 }
   }, [])
 
-  // Arrow key input: cannot reverse directly into the snake
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const d = dir.current
@@ -113,177 +89,111 @@ export default function Snake() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Game tick: advances snake every TICK ms
   useEffect(() => {
     if (dead) return
     const id = setInterval(() => {
       dir.current = nextDir.current
       setSnake((prev) => {
         const r = step(prev, dir.current, food, COLS, ROWS)
-        if (r.dead) {
-          setDead(true)
-          return prev
-        }
-        if (r.ate) {
-          setScore((sc) => sc + 1)
-          setFood(randomFood(r.snake))
-        }
+        if (r.dead) { setDead(true); return prev }
+        if (r.ate) { setScore((sc) => sc + 1); setFood(randomFood(r.snake)) }
         return r.snake
       })
     }, TICK)
     return () => clearInterval(id)
   }, [dead, food])
 
-  // Game-over dialog
   useEffect(() => {
     if (!dead) return
     const isBest = recordHighScore(GAME_ID, score)
     if (isBest) setBest(score)
     void confirm({
-      title: 'Game over',
-      message: `Score ${score}.${isBest ? ' New best!' : ''} Play again?`,
-      confirmLabel: 'Play again',
-      cancelLabel: 'Done',
-    }).then((a) => {
-      if (a) reset()
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      title: 'Cosmic Dissolution',
+      message: `Your pattern reached a depth of ${score}.${isBest ? ' A new infinity!' : ''} Expand again?`,
+      confirmLabel: 'Expand',
+      cancelLabel: 'Dissolve',
+    }).then((a) => { if (a) reset() })
   }, [dead])
 
-  // Neon arcade renderer: RAF loop, scales to devicePixelRatio for crispness
   useEffect(() => {
     let animId: number
-
     const render = () => {
       const canvas = canvasRef.current
       const ctx = canvas?.getContext('2d')
-      if (!ctx) {
-        animId = requestAnimationFrame(render)
-        return
-      }
+      if (!ctx) { animId = requestAnimationFrame(render); return }
 
       const CELL = cellRef.current
       const W = COLS * CELL
       const H = ROWS * CELL
       const dpr = window.devicePixelRatio || 1
       const now = Date.now()
-
-      // Apply DPR scale once per frame so all coordinates stay in logical pixels
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-      // Background
-      const bg = ctx.createLinearGradient(0, 0, W, H)
-      bg.addColorStop(0, '#050d1f')
-      bg.addColorStop(1, '#0d1b35')
-      ctx.fillStyle = bg
-      ctx.fillRect(0, 0, W, H)
+      // 1. Background (The Void)
+      ctx.fillStyle = CLR_VOID; ctx.fillRect(0, 0, W, H)
 
-      // Subtle dot grid
-      ctx.fillStyle = 'rgba(255,255,255,0.06)'
-      for (let cx = 0; cx < COLS; cx++) {
-        for (let cy = 0; cy < ROWS; cy++) {
-          ctx.fillRect(cx * CELL + CELL / 2 - 0.5, cy * CELL + CELL / 2 - 0.5, 1, 1)
-        }
+      // 2. Cosmic Polka Dots (Pulse with score)
+      ctx.fillStyle = '#f8edeb'
+      for (let i = 0; i < 50; i++) {
+        const x = ((Math.sin(i * 1234.5) + 1) / 2) * W
+        const y = ((Math.cos(i * 5432.1) + 1) / 2) * H
+        const r = (1 + Math.sin(now / 1000 + i)) * (2 + score/2)
+        ctx.globalAlpha = 0.1 + 0.1 * Math.sin(now / 500 + i)
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill()
       }
+      ctx.globalAlpha = 1
 
-      // Food: glowing pulsing crimson orb
-      const pulse = 0.78 + 0.22 * Math.sin(now / 480)
+      // 3. The Hallucinatory Pumpkin (Food)
       const fx = foodRef.current.x * CELL + CELL / 2
       const fy = foodRef.current.y * CELL + CELL / 2
-      const foodR = (CELL / 2 - 0.5) * pulse
-      const foodGrad = ctx.createRadialGradient(fx - 1, fy - 1.5, 0, fx, fy, foodR + 3)
-      foodGrad.addColorStop(0, '#ffb3c1')
-      foodGrad.addColorStop(0.35, '#ff3a5c')
-      foodGrad.addColorStop(0.75, '#c0113a')
-      foodGrad.addColorStop(1, 'rgba(100,0,20,0)')
-      ctx.shadowBlur = 18 * pulse
-      ctx.shadowColor = '#ff2244'
-      ctx.fillStyle = foodGrad
-      ctx.beginPath()
-      ctx.arc(fx, fy, foodR, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.shadowBlur = 0
-
-      // Snake segments (tail to head so head renders on top)
-      const snakeArr = snakeRef.current
-      const len = snakeArr.length
-
-      for (let i = len - 1; i >= 0; i--) {
-        const seg = snakeArr[i]
-        const t = len > 1 ? i / (len - 1) : 0 // 0 = head, 1 = tail
-        const isHead = i === 0
-
-        const rx = seg.x * CELL + 1
-        const ry = seg.y * CELL + 1
-        const rw = CELL - 2
-        const rh = CELL - 2
-
-        if (isHead) {
-          // Bright neon-green head with strong glow
-          ctx.shadowBlur = 20
-          ctx.shadowColor = '#39ff14'
-          ctx.fillStyle = 'rgba(57, 255, 20, 0.95)'
-          fillRoundRect(ctx, rx, ry, rw, rh, 5)
-
-          // Eyes: positioned toward the direction of travel
-          ctx.shadowBlur = 0
-          ctx.fillStyle = 'rgba(5, 20, 5, 0.9)'
-          const d = dir.current
-          let ex1: number, ey1: number, ex2: number, ey2: number
-          if (d.x === 1) {
-            // Moving right: eyes on right side, stacked vertically
-            ex1 = rx + rw * 0.68; ey1 = ry + rh * 0.28
-            ex2 = rx + rw * 0.68; ey2 = ry + rh * 0.68
-          } else if (d.x === -1) {
-            // Moving left: eyes on left side
-            ex1 = rx + rw * 0.28; ey1 = ry + rh * 0.28
-            ex2 = rx + rw * 0.28; ey2 = ry + rh * 0.68
-          } else if (d.y === -1) {
-            // Moving up: eyes on top, side by side
-            ex1 = rx + rw * 0.28; ey1 = ry + rh * 0.28
-            ex2 = rx + rw * 0.68; ey2 = ry + rh * 0.28
-          } else {
-            // Moving down: eyes on bottom
-            ex1 = rx + rw * 0.28; ey1 = ry + rh * 0.72
-            ex2 = rx + rw * 0.68; ey2 = ry + rh * 0.72
-          }
-          ctx.beginPath()
-          ctx.arc(ex1, ey1, 1.5, 0, Math.PI * 2)
-          ctx.fill()
-          ctx.beginPath()
-          ctx.arc(ex2, ey2, 1.5, 0, Math.PI * 2)
-          ctx.fill()
-        } else {
-          // Body: green fading to teal-dim toward tail
-          const brightness = Math.round(195 - t * 120) // 195 near head, 75 at tail
-          const alpha = (0.92 - t * 0.38).toFixed(2)   // 0.92 near head, 0.54 at tail
-          ctx.shadowBlur = Math.round(10 - t * 6)       // 10 near head, 4 at tail
-          ctx.shadowColor = '#22c55e'
-          ctx.fillStyle = `rgba(0, ${brightness}, 45, ${alpha})`
-          fillRoundRect(ctx, rx, ry, rw, rh, 3)
-        }
+      const pulse = 0.8 + 0.2 * Math.sin(now / 300)
+      ctx.fillStyle = CLR_FOOD
+      ctx.beginPath(); ctx.arc(fx, fy, (CELL / 2.2) * pulse, 0, Math.PI * 2); ctx.fill()
+      // Pumpkin dots
+      ctx.fillStyle = CLR_DOT
+      for(let i=0; i<5; i++) {
+        const dx = Math.sin(i * 2) * 3; const dy = Math.cos(i * 2) * 3
+        ctx.beginPath(); ctx.arc(fx + dx, fy + dy, 1.5, 0, Math.PI*2); ctx.fill()
       }
 
-      ctx.shadowBlur = 0
+      // 4. The Cosmic Serpent (Snake)
+      const snakeArr = snakeRef.current
+      snakeArr.forEach((seg, i) => {
+        const rx = seg.x * CELL; const ry = seg.y * CELL
+        ctx.fillStyle = CLR_SNAKE
+        ctx.beginPath(); ctx.arc(rx + CELL/2, ry + CELL/2, CELL/2 - 1, 0, Math.PI*2); ctx.fill()
+        
+        // Polka dots on segments
+        ctx.fillStyle = CLR_DOT
+        const dotR = i === 0 ? 3 : 2
+        ctx.beginPath(); ctx.arc(rx + CELL/2, ry + CELL/2, dotR, 0, Math.PI*2); ctx.fill()
+        if (i === 0) { // Eyes on head
+          ctx.fillStyle = '#fff'
+          ctx.beginPath(); ctx.arc(rx + CELL/4, ry + CELL/3, 2, 0, Math.PI*2); ctx.fill()
+          ctx.beginPath(); ctx.arc(rx + 3*CELL/4, ry + CELL/3, 2, 0, Math.PI*2); ctx.fill()
+        }
+      })
+
       animId = requestAnimationFrame(render)
     }
-
     animId = requestAnimationFrame(render)
     return () => cancelAnimationFrame(animId)
-  }, []) // empty deps: runs for the lifetime of the component
+  }, [score])
 
   return (
-    <div ref={containerRef} className="flex w-full flex-col items-center gap-3">
-      <div className="flex flex-wrap gap-4 text-sm text-slate-600 dark:text-slate-400">
-        <span className="font-medium">Score: {score}</span>
-        {best != null && <span>Best: {best}</span>}
-        <span>Arrow keys to steer.</span>
+    <div ref={containerRef} className="flex w-full flex-col items-center gap-4 font-serif">
+      <div className="flex flex-col gap-1 items-center italic self-start">
+        <h2 className="text-3xl text-[#facc15] drop-shadow-lg font-black uppercase">The Cosmic Serpent</h2>
+        <p className="text-[10px] text-slate-500 tracking-[0.3em] uppercase">Expand your pattern into the infinite void.</p>
       </div>
-      <canvas
-        ref={canvasRef}
-        data-testid="snake-canvas"
-        className="max-w-full rounded-lg border border-slate-300 dark:border-slate-700"
-      />
+
+      <div className="flex flex-wrap gap-4 text-xs text-[#facc15] self-start border-l-2 border-[#facc15] pl-3 py-1 bg-black/40">
+        <span className="font-bold uppercase tracking-widest">Self-Obliteration: {score}</span>
+        {best != null && <span className="font-bold uppercase tracking-widest opacity-70">Best: {best}</span>}
+        <span className="italic uppercase">Consume the pumpkins. Become the pattern.</span>
+      </div>
+
+      <canvas ref={canvasRef} data-testid="snake-canvas" className="max-w-full border-2 border-[#facc15] shadow-[0_0_20px_rgba(250,204,21,0.3)]" />
       <ConfirmModal {...confirmProps} />
     </div>
   )

@@ -4,12 +4,12 @@ import { useConfirm } from '../../../hooks/useConfirm'
 import ConfirmModal from '../../ConfirmModal'
 
 const COLORS = [
-  { key: 'red',    hex: '#ef4444', light: '#fca5a5', shadow: '#991b1b' },
-  { key: 'orange', hex: '#f97316', light: '#fdba74', shadow: '#9a3412' },
-  { key: 'yellow', hex: '#eab308', light: '#fde047', shadow: '#854d0e' },
-  { key: 'green',  hex: '#22c55e', light: '#86efac', shadow: '#166534' },
-  { key: 'blue',   hex: '#3b82f6', light: '#93c5fd', shadow: '#1e3a8a' },
-  { key: 'purple', hex: '#a855f7', light: '#d8b4fe', shadow: '#581c87' },
+  { key: 'red',    name: 'Burning Giraffe', hex: '#ef4444', emoji: '🦒' },
+  { key: 'orange', name: 'Melting Clock',  hex: '#f97316', emoji: '🫠' },
+  { key: 'yellow', name: 'Floating Egg',   hex: '#eab308', emoji: '🥚' },
+  { key: 'green',  name: 'Grasshopper',    hex: '#22c55e', emoji: '🦗' },
+  { key: 'blue',   name: 'Subconscious',   hex: '#3b82f6', emoji: '🌌' },
+  { key: 'purple', name: 'Alchemist Cloud',hex: '#a855f7', emoji: '☁️' },
 ]
 const KEYS = COLORS.map((c) => c.key)
 const LEN = 4
@@ -17,43 +17,58 @@ const MAX = 10
 
 const colorOf = (k: string) => COLORS.find((c) => c.key === k)
 
-/** A glossy 3D peg using radial-gradient for the highlight. */
-function GlossyPeg({ colorKey, size = 26 }: { colorKey?: string; size?: number }) {
+/** A surreal, dream-like object replacing the standard peg. */
+function SurrealObject({ colorKey, size = 30 }: { colorKey?: string; size?: number }) {
   const c = colorKey ? colorOf(colorKey) : null
   if (!c) {
     return (
       <span
         style={{
-          display: 'inline-block',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
           width: size,
           height: size,
           borderRadius: '50%',
-          background:
-            'radial-gradient(circle at 40% 35%, rgba(255,255,255,0.12) 0%, rgba(0,0,0,0.25) 100%)',
-          border: '1.5px solid rgba(255,255,255,0.12)',
-          boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)',
-          flexShrink: 0,
+          background: 'rgba(255,255,255,0.05)',
+          border: '1px dashed rgba(255,255,255,0.1)',
+          fontSize: size * 0.5,
+          color: 'rgba(255,255,255,0.1)',
         }}
-      />
+      >
+        ?
+      </span>
     )
   }
   return (
     <span
+      title={c.name}
       style={{
-        display: 'inline-block',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         width: size,
         height: size,
-        borderRadius: '50%',
-        background: `radial-gradient(circle at 35% 28%, ${c.light} 0%, ${c.hex} 48%, ${c.shadow} 100%)`,
-        boxShadow: `0 2px 6px rgba(0,0,0,0.55), inset 0 1px 3px rgba(255,255,255,0.45), 0 0 0 1.5px ${c.shadow}`,
-        flexShrink: 0,
+        fontSize: size * 0.8,
+        filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))',
+        cursor: 'default',
+        animation: 'float 3s ease-in-out infinite'
       }}
-    />
+    >
+      {c.emoji}
+      <style>{`
+        @keyframes float {
+          0% { transform: translateY(0px) rotate(0deg); }
+          50% { transform: translateY(-3px) rotate(5deg); }
+          100% { transform: translateY(0px) rotate(0deg); }
+        }
+      `}</style>
+    </span>
   )
 }
 
-/** 2x2 grid of small feedback pegs: black = exact, white = partial, empty = miss. */
-function FeedbackPegs({ score }: { score: PegScore }) {
+/** 2x2 grid of feedback eyes: Open Eye = exact, Squinting Eye = partial, Empty = miss. */
+function FeedbackEyes({ score }: { score: PegScore }) {
   const marks = [
     ...Array(score.exact).fill('exact'),
     ...Array(score.partial).fill('partial'),
@@ -71,30 +86,24 @@ function FeedbackPegs({ score }: { score: PegScore }) {
         <span
           key={i}
           style={{
-            width: 10,
-            height: 10,
-            borderRadius: '50%',
-            background:
-              m === 'exact'
-                ? 'radial-gradient(circle at 35% 30%, #555 0%, #000 100%)'
-                : m === 'partial'
-                  ? 'radial-gradient(circle at 35% 30%, #fff 0%, #d1d5db 100%)'
-                  : 'rgba(255,255,255,0.06)',
-            border:
-              m === 'partial'
-                ? '1px solid #9ca3af'
-                : m === 'none'
-                  ? '1px solid rgba(255,255,255,0.1)'
-                  : 'none',
-            boxShadow: m !== 'none' ? '0 1px 3px rgba(0,0,0,0.6)' : 'none',
+            width: 14,
+            height: 14,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 10,
+            opacity: m === 'none' ? 0.1 : 0.8,
+            filter: m === 'none' ? 'grayscale(1)' : 'none'
           }}
-        />
+        >
+          {m === 'exact' ? '👁️' : m === 'partial' ? '😑' : '⚪'}
+        </span>
       ))}
     </span>
   )
 }
 
-/** Empty 2x2 placeholder when a row has not been guessed yet. */
+/** Empty 2x2 placeholder eyes. */
 function EmptyFeedback() {
   return (
     <span
@@ -108,11 +117,11 @@ function EmptyFeedback() {
         <span
           key={i}
           style={{
-            width: 10,
-            height: 10,
+            width: 14,
+            height: 14,
             borderRadius: '50%',
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.07)',
+            background: 'rgba(0,0,0,0.1)',
+            border: '1px solid rgba(255,255,255,0.05)',
           }}
         />
       ))}
@@ -148,20 +157,20 @@ export default function Mastermind() {
     if (isWin(score, LEN)) {
       setStatus('won')
       void confirm({
-        title: 'Cracked it',
-        message: `Solved in ${ng.length} guess${ng.length === 1 ? '' : 'es'}. Play again?`,
-        confirmLabel: 'Play again',
-        cancelLabel: 'Done',
+        title: 'Awakened',
+        message: 'The subconscious code is broken. You have escaped the alchemist’s dream. Re-enter the dream?',
+        confirmLabel: 'Dream Again',
+        cancelLabel: 'Stay Awake',
       }).then((a) => {
         if (a) reset()
       })
     } else if (ng.length >= MAX) {
       setStatus('lost')
       void confirm({
-        title: 'Out of guesses',
-        message: 'The code is revealed below. Play again?',
-        confirmLabel: 'Play again',
-        cancelLabel: 'Done',
+        title: 'Trapped in the Void',
+        message: 'The code remains hidden. The dream deepens. Try to wake up again?',
+        confirmLabel: 'Escape Again',
+        cancelLabel: 'Succumb',
       }).then((a) => {
         if (a) reset()
       })
@@ -169,67 +178,77 @@ export default function Mastermind() {
   }
 
   return (
-    <div className="flex flex-col items-center gap-4 select-none max-h-[75vh] overflow-y-auto pb-2">
-      {/* Board frame */}
+    <div className="flex flex-col items-center gap-6 select-none max-h-[75vh] overflow-y-auto pb-4 px-2">
+      <div className="flex flex-col gap-1 items-center italic">
+        <h2 className="text-3xl font-serif text-[#eab308] drop-shadow-lg">The Alchemist's Dream</h2>
+        <p className="text-xs text-slate-400">Decipher the mad alchemist's neuroses.</p>
+      </div>
+
+      {/* Board frame - Barren Desert Plain */}
       <div
-        className="rounded-xl overflow-hidden"
+        className="rounded-lg relative overflow-hidden"
         style={{
-          background:
-            'linear-gradient(160deg, #5c2f0a 0%, #3d1a00 40%, #2a1000 100%)',
-          padding: 3,
-          boxShadow:
-            '0 8px 28px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,200,100,0.15)',
+          background: 'linear-gradient(180deg, #d4a373 0%, #faedcd 60%, #e9edc9 100%)',
+          padding: 8,
+          boxShadow: '0 20px 50px rgba(0,0,0,0.3), inset 0 -10px 30px rgba(0,0,0,0.1)',
           width: '100%',
-          maxWidth: 340,
+          maxWidth: 360,
+          border: '1px solid #bc6c25'
         }}
       >
+        {/* Distant horizon line */}
+        <div className="absolute top-[40%] left-0 right-0 h-[1px] bg-[#bc6c25]/30 pointer-events-none" />
+
         {/* Board body */}
         <div
-          className="rounded-xl"
+          className="rounded-md"
           style={{
-            background: 'linear-gradient(180deg, #1a1a2e 0%, #12122a 100%)',
-            padding: '10px 14px',
+            background: 'rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(4px)',
+            padding: '12px',
+            border: '1px solid rgba(255,255,255,0.2)'
           }}
         >
-          {/* Secret code slot */}
+          {/* Secret code slot - Floating Eyes */}
           <div
-            className="flex items-center justify-between rounded-lg px-3 py-2 mb-3"
+            className="flex items-center justify-between rounded-md px-4 py-2 mb-6"
             style={{
-              background:
-                'linear-gradient(90deg, rgba(92,47,10,0.8) 0%, rgba(61,26,0,0.9) 100%)',
-              border: '1px solid rgba(255,180,0,0.18)',
+              background: 'rgba(0,0,0,0.05)',
+              border: '1px solid rgba(0,0,0,0.1)',
             }}
           >
-            <span className="text-xs font-semibold tracking-widest uppercase text-amber-400/60">
-              Code
+            <span className="text-[10px] font-serif uppercase tracking-[0.2em] text-[#bc6c25]">
+              Subconscious
             </span>
-            <div className="flex gap-1.5">
+            <div className="flex gap-2">
               {status === 'playing'
                 ? Array.from({ length: LEN }).map((_, i) => (
                     <span
                       key={i}
                       style={{
-                        width: 22,
-                        height: 22,
-                        borderRadius: '50%',
-                        display: 'inline-block',
-                        background:
-                          'radial-gradient(circle at 40% 35%, rgba(255,200,80,0.2), rgba(150,80,0,0.4))',
-                        border: '1px solid rgba(255,180,0,0.25)',
+                        width: 24,
+                        height: 24,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 16,
+                        opacity: 0.2
                       }}
-                    />
+                    >
+                      ❓
+                    </span>
                   ))
-                : secret.map((k, i) => <GlossyPeg key={i} colorKey={k} size={22} />)}
+                : secret.map((k, i) => <SurrealObject key={i} colorKey={k} size={24} />)}
             </div>
           </div>
 
           {/* Guess rows */}
-          <div className="flex flex-col gap-1">
-            {Array.from({ length: MAX }).map((_, rowIdx) => {
+          <div className="flex flex-col gap-2">
+            {[...Array(MAX)].map((_, i) => MAX - 1 - i).map((rowIdx) => {
               const guess = guesses[rowIdx]
               const isActive =
                 !guess && rowIdx === guesses.length && status === 'playing'
-              const pegsToShow: (string | undefined)[] = guess
+              const objectsToShow: (string | undefined)[] = guess
                 ? guess.pegs
                 : isActive
                   ? Array.from({ length: LEN }, (_, i) => current[i])
@@ -238,34 +257,27 @@ export default function Mastermind() {
               return (
                 <div
                   key={rowIdx}
-                  className="flex items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200"
+                  className="flex items-center gap-4 rounded px-3 py-2 transition-all duration-500"
                   style={{
                     background: isActive
-                      ? 'linear-gradient(90deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.04) 100%)'
-                      : 'rgba(255,255,255,0.025)',
-                    border: isActive
-                      ? '1px solid rgba(255,255,255,0.13)'
-                      : '1px solid rgba(255,255,255,0.04)',
-                    boxShadow: isActive
-                      ? '0 0 14px rgba(139,92,246,0.12)'
-                      : 'none',
+                      ? 'rgba(255,255,255,0.3)'
+                      : 'rgba(255,255,255,0.05)',
+                    borderBottom: '1px solid rgba(188, 108, 37, 0.2)',
+                    transform: isActive ? 'scale(1.02)' : 'none'
                   }}
                 >
-                  {/* Row number */}
-                  <span className="w-5 shrink-0 text-right text-xs font-mono text-slate-600">
-                    {MAX - rowIdx}
+                  <span className="w-6 shrink-0 text-right text-[10px] font-serif text-[#bc6c25]/60 italic">
+                    {rowIdx + 1}
                   </span>
 
-                  {/* Peg slots - tight group, no flex-1 */}
-                  <div className="flex gap-1.5 shrink-0">
-                    {pegsToShow.map((k, pegIdx) => (
-                      <GlossyPeg key={pegIdx} colorKey={k} size={30} />
+                  <div className="flex gap-3 shrink-0">
+                    {objectsToShow.map((k, pegIdx) => (
+                      <SurrealObject key={pegIdx} colorKey={k} size={32} />
                     ))}
                   </div>
 
-                  {/* Feedback peg grid - sits right next to pegs */}
-                  <div className="flex items-center justify-center shrink-0 ml-2">
-                    {guess ? <FeedbackPegs score={guess.score} /> : <EmptyFeedback />}
+                  <div className="flex items-center justify-center shrink-0 ml-auto">
+                    {guess ? <FeedbackEyes score={guess.score} /> : <EmptyFeedback />}
                   </div>
                 </div>
               )
@@ -276,50 +288,42 @@ export default function Mastermind() {
 
       {/* Controls */}
       {status === 'playing' && (
-        <div className="flex flex-col gap-3 w-full" style={{ maxWidth: 340 }}>
-          {/* Action row */}
-          <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex flex-col gap-4 w-full" style={{ maxWidth: 360 }}>
+          <div className="flex items-center gap-4">
             <button
               type="button"
               onClick={() => setCurrent(current.slice(0, -1))}
               disabled={!current.length}
-              className="rounded px-2 py-1 text-sm text-slate-400 hover:text-slate-200 disabled:opacity-30 transition-colors"
+              className="font-serif text-sm text-[#bc6c25] hover:text-[#d4a373] disabled:opacity-30 transition-colors underline decoration-dotted"
             >
-              Undo
+              Recall
             </button>
             <button
               type="button"
               data-testid="mm-submit"
               onClick={submit}
               disabled={current.length !== LEN}
-              className="rounded-lg accent-highlight px-4 py-1.5 text-sm font-semibold disabled:opacity-40 transition-all hover:scale-105 active:scale-95"
+              className="rounded-full bg-[#bc6c25] text-[#faedcd] px-6 py-2 text-sm font-serif shadow-lg disabled:opacity-40 transition-all hover:bg-[#d4a373] hover:translate-y-[-2px] active:translate-y-[0px]"
             >
-              Guess
+              Manifest
             </button>
-            <span className="text-xs text-slate-600 ml-auto">
-              {guesses.length} / {MAX}
+            <span className="text-[10px] font-serif text-[#bc6c25] ml-auto uppercase tracking-widest">
+              Depth: {guesses.length} / {MAX}
             </span>
           </div>
 
-          {/* Color palette */}
-          <div className="flex flex-wrap gap-2 pt-1">
+          <div className="flex flex-wrap gap-3 justify-center pt-2">
             {COLORS.map((c) => (
               <button
                 key={c.key}
                 type="button"
                 data-testid={`mm-color-${c.key}`}
                 onClick={() => pick(c.key)}
-                aria-label={c.key}
-                className="rounded-full transition-transform duration-100 hover:scale-110 active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-                style={{
-                  width: 36,
-                  height: 36,
-                  background: `radial-gradient(circle at 35% 28%, ${c.light} 0%, ${c.hex} 48%, ${c.shadow} 100%)`,
-                  boxShadow: `0 3px 9px rgba(0,0,0,0.45), inset 0 1px 3px rgba(255,255,255,0.4), 0 0 0 2px ${c.shadow}`,
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              />
+                aria-label={c.name}
+                className="w-12 h-12 flex items-center justify-center rounded-xl bg-[#faedcd]/80 border border-[#bc6c25]/30 shadow-md transition-all duration-300 hover:scale-125 hover:shadow-xl hover:bg-white active:scale-95"
+              >
+                <span className="text-2xl">{c.emoji}</span>
+              </button>
             ))}
           </div>
         </div>
@@ -327,11 +331,14 @@ export default function Mastermind() {
 
       {/* Game over: show code */}
       {status !== 'playing' && (
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-slate-500 dark:text-slate-400">Code:</span>
-          <div className="flex gap-1.5">
+        <div className="flex flex-col items-center gap-3">
+          <span className="text-xs font-serif uppercase tracking-widest text-[#bc6c25]">Subconscious Reality:</span>
+          <div className="flex gap-4">
             {secret.map((k, i) => (
-              <GlossyPeg key={i} colorKey={k} size={26} />
+              <div key={i} className="flex flex-col items-center gap-1">
+                <SurrealObject colorKey={k} size={40} />
+                <span className="text-[8px] uppercase text-[#bc6c25]">{colorOf(k)?.name}</span>
+              </div>
             ))}
           </div>
         </div>

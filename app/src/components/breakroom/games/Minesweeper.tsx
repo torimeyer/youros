@@ -18,24 +18,17 @@ const COLS = 30
 const MINES = 99
 const GAME_ID = 'minesweeper'
 
-// Classic Minesweeper digit colors (index = adjacent mine count)
 const NUM_COLOR = [
   '',
-  'text-blue-600 dark:text-blue-400',       // 1 - blue
-  'text-green-600 dark:text-green-400',     // 2 - green
-  'text-red-600 dark:text-red-400',         // 3 - red
-  'text-indigo-800 dark:text-indigo-400',   // 4 - navy
-  'text-rose-800 dark:text-rose-400',       // 5 - maroon
-  'text-teal-600 dark:text-teal-400',       // 6 - teal
-  'text-slate-800 dark:text-slate-200',     // 7 - black
-  'text-slate-500 dark:text-slate-400',     // 8 - grey
+  'text-[#0a3055]', // 1
+  'text-[#166534]', // 2
+  'text-[#9d2424]', // 3
+  'text-[#581c87]', // 4
+  'text-[#9a3412]', // 5
+  'text-[#1e3a8a]', // 6
+  'text-[#1a1c1e]', // 7
+  'text-[#64748b]', // 8
 ]
-
-// Inline-style for the raised bevel effect on unrevealed tiles
-const BEVEL_STYLE = {
-  boxShadow:
-    'inset 2px 2px 0 rgba(255,255,255,0.65), inset -2px -2px 0 rgba(0,0,0,0.28)',
-}
 
 const blank = () => createBoard(ROWS, COLS, [])
 
@@ -70,10 +63,10 @@ export default function Minesweeper() {
       setBoard(b.map((row) => row.map((cell) => (cell.mine ? { ...cell, revealed: true } : cell))))
       setStatus('lost')
       void confirm({
-        title: 'Boom 💥',
-        message: 'You hit a mine. Play again?',
-        confirmLabel: 'Play again',
-        cancelLabel: 'Done',
+        title: 'The Dragon Awakens 🐉',
+        message: 'You have disturbed the dragon\'s slumber. The seas are no longer safe. Try again?',
+        confirmLabel: 'Set Sail Again',
+        cancelLabel: 'Stay on Shore',
       }).then((again) => {
         if (again) reset()
       })
@@ -87,10 +80,10 @@ export default function Minesweeper() {
       const isBest = recordBestTime(GAME_ID, ms)
       if (isBest) setBest(ms)
       void confirm({
-        title: '🎉 Cleared!',
-        message: `Solved in ${Math.round(ms / 1000)}s.${isBest ? ' New best!' : ''} Play again?`,
-        confirmLabel: 'Play again',
-        cancelLabel: 'Done',
+        title: '🌊 Safe Passage',
+        message: `You have navigated the archipelago in ${Math.round(ms / 1000)}s. The dragons sleep on. New voyage?`,
+        confirmLabel: 'Begin Voyage',
+        cancelLabel: 'Rest',
       }).then((again) => {
         if (again) reset()
       })
@@ -104,64 +97,74 @@ export default function Minesweeper() {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4 font-serif">
+      <div className="flex flex-col gap-1 items-center italic">
+        <h2 className="text-3xl text-[#0a3055] drop-shadow-sm">The Dragon's Breath</h2>
+        <p className="text-[10px] text-slate-500 uppercase tracking-widest">Navigate the archipelago without waking the sea dragons.</p>
+      </div>
+
       {/* Status bar */}
-      <div className="flex items-center justify-between rounded border border-slate-200 bg-slate-100 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800">
-        <span className="flex min-w-[3.5rem] items-center gap-1 font-mono font-bold tabular-nums text-slate-700 dark:text-slate-200">
-          💣 {String(minesLeft).padStart(3, '0')}
+      <div className="flex items-center justify-between border-b border-[#0a3055]/20 bg-[#f8f8f0] px-4 py-2 text-sm shadow-sm">
+        <span className="flex items-center gap-2 font-bold text-[#9d2424]">
+          <span className="text-xl">🐉</span> {String(minesLeft).padStart(3, '0')}
         </span>
-        <span className="text-xs text-slate-500 dark:text-slate-400">
+        <span className="text-[10px] uppercase tracking-tighter text-slate-400">
           {status === 'playing'
-            ? 'Left-click reveal · right-click flag'
+            ? 'Read the ripples · Mark the beasts'
             : status === 'won'
-              ? '🎉 Board cleared!'
-              : '💥 Better luck next time'}
+              ? 'Board cleared'
+              : 'The beast is awake'}
         </span>
-        <div className="flex min-w-[3.5rem] items-center justify-end gap-2">
+        <div className="flex items-center justify-end gap-3">
           {best != null && (
-            <span className="text-xs text-slate-400 dark:text-slate-500">
-              {Math.round(best / 1000)}s
+            <span className="text-xs text-[#0a3055]/60">
+              Record: {Math.round(best / 1000)}s
             </span>
           )}
           <button
             type="button"
             onClick={reset}
-            aria-label="New game"
-            className="rounded px-1.5 py-0.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-700"
+            className="text-xs font-bold text-[#0a3055] hover:underline"
           >
-            ▶ New
+            Reset
           </button>
         </div>
       </div>
 
-      {/* Board frame: full container width, cells fill available space */}
+      {/* Board frame */}
       <div
-        className="w-full rounded border-2 border-slate-400 bg-slate-400 p-0.5 dark:border-slate-600 dark:bg-slate-600"
-        style={{ boxShadow: 'inset 2px 2px 0 rgba(255,255,255,0.4), inset -2px -2px 0 rgba(0,0,0,0.3)' }}
+        className="w-full bg-[#0a3055] p-1 shadow-2xl"
+        style={{ backgroundImage: 'radial-gradient(circle at center, #0a3055 0%, #051a2e 100%)' }}
       >
         <div
-          className="grid gap-px"
+          className="grid gap-[1px]"
           style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}
         >
           {board.map((row, r) =>
             row.map((cell, c) => {
-              // Revealed cell: flat, shows number or mine
               if (cell.revealed) {
                 return (
                   <div
                     key={`${r}-${c}`}
                     className={[
                       'flex aspect-square w-full select-none items-center justify-center text-xs font-bold',
-                      'border border-slate-400 bg-slate-200 dark:border-slate-600 dark:bg-slate-800',
+                      'bg-[#cbd5e0] relative overflow-hidden',
                       cell.adj && !cell.mine ? NUM_COLOR[cell.adj] : '',
                     ].join(' ')}
+                    style={{
+                      backgroundImage: 'linear-gradient(rgba(255,255,255,0.2) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.2) 1px, transparent 1px)',
+                      backgroundSize: '4px 4px'
+                    }}
                   >
-                    {cell.mine ? '💣' : cell.adj ? cell.adj : ''}
+                    {cell.mine ? '🐉' : cell.adj ? (
+                       <span className="relative z-10 drop-shadow-sm scale-125">{cell.adj}</span>
+                    ) : ''}
+                    {/* Water ripple effect */}
+                    {!cell.mine && !cell.adj && <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle,transparent_40%,rgba(255,255,255,0.5)_100%)]" />}
                   </div>
                 )
               }
 
-              // Unrevealed cell: raised bevel, clickable
               return (
                 <button
                   key={`${r}-${c}`}
@@ -169,16 +172,23 @@ export default function Minesweeper() {
                   data-testid={`mine-${r}-${c}`}
                   onClick={() => clickCell(r, c)}
                   onContextMenu={(e) => rightClick(e, r, c)}
-                  style={BEVEL_STYLE}
                   className={[
-                    'flex aspect-square w-full select-none items-center justify-center rounded-sm text-xs',
-                    'bg-slate-300 transition-[filter] duration-75 dark:bg-slate-600',
-                    status === 'playing' && !cell.flagged
-                      ? 'hover:brightness-110 active:brightness-90 active:[box-shadow:inset_-2px_-2px_0_rgba(255,255,255,0.65),inset_2px_2px_0_rgba(0,0,0,0.28)]'
-                      : '',
+                    'flex aspect-square w-full select-none items-center justify-center relative overflow-hidden',
+                    'bg-[#f8f8f0] transition-all duration-300',
+                    status === 'playing' && !cell.flagged ? 'hover:bg-white' : '',
                   ].join(' ')}
                 >
-                  {cell.flagged ? '🚩' : ''}
+                  {/* Stylized wave pattern for unrevealed cells */}
+                  <div className="absolute inset-0 opacity-20 pointer-events-none" style={{
+                    background: 'radial-gradient(circle at 100% 100%, #0a3055 0%, transparent 70%)'
+                  }} />
+                  {cell.flagged ? (
+                    <span className="text-sm z-10 drop-shadow-md">🏮</span>
+                  ) : (
+                    <div className="w-full h-full opacity-10 hover:opacity-20 transition-opacity" style={{
+                      background: 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M0 10c5-5 5 5 10 0s5-5 10 0\' fill=\'none\' stroke=\'%230a3055\' stroke-width=\'1\'/%3E%3C/svg%3E") repeat-x bottom'
+                    }} />
+                  )}
                 </button>
               )
             }),
