@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 def test_calendar_events_name_in_router_module_is_bus_not_function():
     """The name `calendar_events` in the calendar router must be the bus, not a function."""
-    import importlib, api.routers.calendar as cal_mod
+    import importlib, routers.calendar as cal_mod
     # Re-import to get fresh module state
     importlib.reload(cal_mod)
 

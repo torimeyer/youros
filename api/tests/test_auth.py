@@ -583,7 +583,9 @@ class TestSlackWorkspaceFields:
             "workspace_name": "Flat Workspace",
         }))
 
-        with __import__("unittest.mock", fromlist=["patch"]).patch("services.slack.TOKEN_PATH", token_path):
+        _patch = __import__("unittest.mock", fromlist=["patch"]).patch
+        with _patch("services.slack.TOKEN_PATH", token_path), \
+             _patch("services.slack.WORKSPACES_DIR", tmp_path / "workspaces"):
             from services.slack import get_team_info
             info = get_team_info()
 
@@ -599,7 +601,9 @@ class TestSlackWorkspaceFields:
             "team": {"id": "T-old", "name": "Old Workspace"},
         }))
 
-        with __import__("unittest.mock", fromlist=["patch"]).patch("services.slack.TOKEN_PATH", token_path):
+        _patch = __import__("unittest.mock", fromlist=["patch"]).patch
+        with _patch("services.slack.TOKEN_PATH", token_path), \
+             _patch("services.slack.WORKSPACES_DIR", tmp_path / "workspaces"):
             from services.slack import get_team_info
             info = get_team_info()
 
