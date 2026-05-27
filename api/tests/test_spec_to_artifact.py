@@ -190,3 +190,13 @@ def test_build_spec_code_uses_existing_flow():
 
     # Code path must use _resolve_task_configs
     mock_resolve.assert_called_once()
+
+    # Regression guard (→1652): build_spec must not leak docs/spec/code-spec.md to disk.
+    # _set_spec_status writes the status flip; without write_text mocked it lands on the
+    # real filesystem and the placeholder card appears in the live Specs view.
+    from pathlib import Path as _Path
+    assert not _Path("docs/spec/code-spec.md").exists(), (
+        "build_spec leaked docs/spec/code-spec.md to disk — "
+        "pathlib.Path.write_text must be patched in this test to prevent _set_spec_status "
+        "from writing to the real repo and leaking placeholder content into the Specs view"
+    )
