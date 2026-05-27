@@ -257,6 +257,67 @@ async def _coalesce_call(key: tuple, coro_factory):
         _inflight_calls.pop(key, None)
 
 
+
+
+def _spec_audit_enrich_sync(
+    docs: list,
+    repo_root: "Path",
+    task_status_map: dict,
+) -> None:
+    """Synchronous spec_audit enrichment pass.  MUST run off the event loop.
+
+    Calls compute_shipped() and compute_husk_status() per doc, both of which
+    do filesystem I/O (Path.read_text + Path.exists).  Moving this work to a
+    worker thread via asyncio.to_thread() releases the event loop to keep
+    serving other requests (WS feeds, health, /api/agents/spawn) during the
+    scan (fix for →1739 / →1738).
+    """
+    try:
+        from services.spec_audit import (  # type: ignore[import]
+            compute_shipped,
+            compute_husk_status,
+            compute_stage,
+            ShippedResult,
+            HuskResult,
+        )
+        for doc in docs:
+            raw_path = doc.get("path", "")
+            if not raw_path or doc.get("status") == "plan":
+                doc.setdefault("stage", "draft")
+                doc.setdefault("husk", False)
+                doc.setdefault("missing_files", [])
+                doc.setdefault("open_linked_needles", [])
+                continue
+            if raw_path.startswith("/") or raw_path.startswith("~"):
+                abs_path = Path(raw_path).expanduser()
+            else:
+                abs_path = repo_root / raw_path
+            needle_statuses = dict(task_status_map)
+            try:
+                shipped = compute_shipped(
+                    abs_path, repo_root=repo_root, needle_statuses=needle_statuses
+                )
+            except Exception:
+                shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
+            try:
+                husk = compute_husk_status(abs_path)
+            except Exception:
+                husk = HuskResult(is_husk=False, reason="")
+            stage = compute_stage(doc, husk=husk, shipped=shipped)
+            doc["stage"] = stage
+            doc["husk"] = husk.is_husk
+            doc["husk_reason"] = husk.reason
+            doc["missing_files"] = shipped.missing_files
+            doc["open_linked_needles"] = shipped.open_needles
+    except Exception:
+        for doc in docs:
+            doc.setdefault("stage", "draft")
+            doc.setdefault("husk", False)
+            doc.setdefault("husk_reason", "")
+            doc.setdefault("missing_files", [])
+            doc.setdefault("open_linked_needles", [])
+
+
 class OstkService:
     def __init__(self, cwd: str = None):
         self.cwd = cwd if cwd is not None else str(get_effective_root())
@@ -2473,46 +2534,16 @@ class OstkService:
                     except Exception:
                         pass  # best effort; stale state better than a 500
 
-        # Stage enrichment (→1512): compute shipped/husk/stage per doc
-        try:
-            from services.spec_audit import compute_shipped, compute_husk_status, compute_stage, ShippedResult, HuskResult
-            repo_root = Path(self.cwd)
-            for doc in results:
-                raw_path = doc.get("path", "")
-                if not raw_path or doc.get("status") == "plan":
-                    doc.setdefault("stage", "draft")
-                    doc.setdefault("husk", False)
-                    doc.setdefault("missing_files", [])
-                    doc.setdefault("open_linked_needles", [])
-                    continue
-                # Resolve absolute path
-                if raw_path.startswith("/") or raw_path.startswith("~"):
-                    abs_path = Path(raw_path).expanduser()
-                else:
-                    abs_path = repo_root / raw_path
-                # Build needle_statuses from task_status_map for this doc
-                needle_statuses = dict(task_status_map)
-                try:
-                    shipped = compute_shipped(abs_path, repo_root=repo_root, needle_statuses=needle_statuses)
-                except Exception:
-                    shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
-                try:
-                    husk = compute_husk_status(abs_path)
-                except Exception:
-                    husk = HuskResult(is_husk=False, reason="")
-                stage = compute_stage(doc, husk=husk, shipped=shipped)
-                doc["stage"] = stage
-                doc["husk"] = husk.is_husk
-                doc["husk_reason"] = husk.reason
-                doc["missing_files"] = shipped.missing_files
-                doc["open_linked_needles"] = shipped.open_needles
-        except Exception:
-            for doc in results:
-                doc.setdefault("stage", "draft")
-                doc.setdefault("husk", False)
-                doc.setdefault("husk_reason", "")
-                doc.setdefault("missing_files", [])
-                doc.setdefault("open_linked_needles", [])
+        # Stage enrichment (→1512 / →1739): compute shipped/husk/stage per doc.
+        # compute_shipped() and compute_husk_status() do synchronous filesystem I/O
+        # (Path.read_text + Path.exists per file ref).  Running them on the event
+        # loop would block all other requests for the full scan duration.  Offload
+        # to a worker thread so the loop stays responsive.  GIL is released during
+        # the actual os.stat / read syscalls so to_thread is effective here.
+        repo_root = Path(self.cwd)
+        await asyncio.to_thread(
+            _spec_audit_enrich_sync, results, repo_root, task_status_map
+        )
 
         # Deduplicate: hide empty husk drafts in docs/draft/ when a promoted
         # version already exists in ~/.myos/specs/ for the same slug. This
