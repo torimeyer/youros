@@ -1,13 +1,21 @@
-import { useEffect, useRef, useState } from 'react'
-import { paddleHit, reflectX, spinFromPaddle } from './pongLogic'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { paddleHit, spinFromPaddle } from './pongLogic'
 import { useConfirm } from '../../../hooks/useConfirm'
 import ConfirmModal from '../../ConfirmModal'
 
+// Logical game dimensions. All physics live in this space; canvas scales up.
 const W = 480
 const H = 300
 const PADDLE_H = 60
 const PADDLE_W = 10
 const BALL_R = 6
+const PLAYER_SPEED = 6
+const CPU_SPEED = 3.8
+const SPIN_MAX = 5
+const BASE_VX = 4.5
+const MAX_VX = 8
+const VX_ACCEL = 1.04   // speed boost per paddle hit (caps at MAX_VX)
+const MAX_H_RATIO = 0.75
 const WIN = 5
 
 // Neon arcade palette
@@ -21,31 +29,71 @@ const CLR_SCORE = '#00ffee'
 export default function Pong() {
   const { confirm, confirmProps } = useConfirm()
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const scaleRef = useRef(1)
   const [score, setScore] = useState({ you: 0, cpu: 0 })
   const scoreRef = useRef({ you: 0, cpu: 0 })
 
   const s = useRef({
     bx: W / 2,
     by: H / 2,
-    vx: 4,
+    vx: BASE_VX,
     vy: 2,
     py: H / 2 - PADDLE_H / 2,
     cy: H / 2 - PADDLE_H / 2,
     up: false,
     down: false,
     paused: false,
+    mouseY: -1,  // -1 means mouse not in use
   }).current
 
-  // Keep score ref in sync so canvas loop can read it
   useEffect(() => {
     scoreRef.current = score
   }, [score])
 
+  // Resize canvas to fill container, capped at 75 vh height
+  const resizeCanvas = useCallback(() => {
+    const el = containerRef.current
+    const canvas = canvasRef.current
+    if (!el || !canvas) return
+    const containerW = el.getBoundingClientRect().width
+    const maxH = window.innerHeight * MAX_H_RATIO
+    const scaleByW = containerW / W
+    const scaleByH = maxH / H
+    const scale = Math.min(scaleByW, scaleByH)
+    scaleRef.current = scale
+    const dpr = window.devicePixelRatio || 1
+    const displayW = Math.round(W * scale)
+    const displayH = Math.round(H * scale)
+    canvas.width = displayW * dpr
+    canvas.height = displayH * dpr
+    canvas.style.width = `${displayW}px`
+    canvas.style.height = `${displayH}px`
+  }, [])
+
+  // Run synchronously before first paint so the canvas has the correct size immediately
+  useLayoutEffect(() => {
+    resizeCanvas()
+  }, [resizeCanvas])
+
+  // Track container and window resize
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const obs = new ResizeObserver(resizeCanvas)
+    obs.observe(el)
+    window.addEventListener('resize', resizeCanvas)
+    return () => {
+      obs.disconnect()
+      window.removeEventListener('resize', resizeCanvas)
+    }
+  }, [resizeCanvas])
+
   function resetMatch() {
     s.bx = W / 2
     s.by = H / 2
-    s.vx = 4
-    s.vy = 2
+    s.vx = (Math.random() > 0.5 ? 1 : -1) * BASE_VX
+    s.vy = (Math.random() > 0.5 ? 1 : -1) * 2
     s.py = H / 2 - PADDLE_H / 2
     s.cy = H / 2 - PADDLE_H / 2
     s.paused = false
@@ -68,63 +116,90 @@ export default function Pong() {
     const ku = (e: KeyboardEvent) => key(e, false)
     window.addEventListener('keydown', kd)
     window.addEventListener('keyup', ku)
-    const ctx = canvasRef.current?.getContext('2d') ?? null
+
+    // Mouse tracks paddle position relative to canvas logical space
+    function onMouseMove(e: MouseEvent) {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      s.mouseY = (e.clientY - rect.top) / scaleRef.current
+    }
+    function onMouseLeave() {
+      s.mouseY = -1
+    }
+    const cvs = canvasRef.current
+    cvs?.addEventListener('mousemove', onMouseMove)
+    cvs?.addEventListener('mouseleave', onMouseLeave)
+
     let raf = 0
 
     function frame() {
       if (!s.paused) {
-        // --- player movement ---
-        if (s.up) s.py = Math.max(0, s.py - 5)
-        if (s.down) s.py = Math.min(H - PADDLE_H, s.py + 5)
+        // Player movement: mouse overrides keys when active
+        if (s.mouseY >= 0) {
+          const target = s.mouseY - PADDLE_H / 2
+          s.py = Math.max(0, Math.min(H - PADDLE_H, target))
+        } else {
+          if (s.up) s.py = Math.max(0, s.py - PLAYER_SPEED)
+          if (s.down) s.py = Math.min(H - PADDLE_H, s.py + PLAYER_SPEED)
+        }
 
-        // --- CPU AI ---
+        // CPU AI tracks ball center with limited speed
         const cc = s.cy + PADDLE_H / 2
-        if (cc < s.by - 6) s.cy = Math.min(H - PADDLE_H, s.cy + 3.5)
-        else if (cc > s.by + 6) s.cy = Math.max(0, s.cy - 3.5)
+        if (cc < s.by - 4) s.cy = Math.min(H - PADDLE_H, s.cy + CPU_SPEED)
+        else if (cc > s.by + 4) s.cy = Math.max(0, s.cy - CPU_SPEED)
 
-        // --- ball movement ---
+        // Ball movement
         s.bx += s.vx
         s.by += s.vy
 
-        // top/bottom wall bounce
-        if (s.by < BALL_R) { s.by = BALL_R; s.vy = -s.vy }
-        if (s.by > H - BALL_R) { s.by = H - BALL_R; s.vy = -s.vy }
+        // Top/bottom wall bounce. Use abs to prevent sticking.
+        if (s.by < BALL_R) { s.by = BALL_R; s.vy = Math.abs(s.vy) }
+        if (s.by > H - BALL_R) { s.by = H - BALL_R; s.vy = -Math.abs(s.vy) }
 
-        // player paddle bounce
+        // Player paddle bounce (left side)
         if (s.bx - BALL_R <= 10 + PADDLE_W && s.vx < 0 && paddleHit(s.by, s.py, PADDLE_H)) {
-          s.vx = reflectX(s.vx)
-          s.vy = spinFromPaddle(s.by, s.py, PADDLE_H, 5)
+          s.vx = Math.min(MAX_VX, Math.abs(s.vx) * VX_ACCEL)
+          s.vy = spinFromPaddle(s.by, s.py, PADDLE_H, SPIN_MAX)
           s.bx = 10 + PADDLE_W + BALL_R
         }
 
-        // CPU paddle bounce
+        // CPU paddle bounce (right side)
         const cpuX = W - 10 - PADDLE_W
         if (s.bx + BALL_R >= cpuX && s.vx > 0 && paddleHit(s.by, s.cy, PADDLE_H)) {
-          s.vx = reflectX(s.vx)
-          s.vy = spinFromPaddle(s.by, s.cy, PADDLE_H, 5)
+          s.vx = -Math.min(MAX_VX, Math.abs(s.vx) * VX_ACCEL)
+          s.vy = spinFromPaddle(s.by, s.cy, PADDLE_H, SPIN_MAX)
           s.bx = cpuX - BALL_R
         }
 
-        // scoring
+        // Scoring: reset ball to center after a point
         if (s.bx < -BALL_R) {
           setScore((p) => {
             const next = { ...p, cpu: p.cpu + 1 }
             scoreRef.current = next
             return next
           })
-          s.bx = W / 2; s.by = H / 2; s.vx = 4; s.vy = 2
+          s.bx = W / 2; s.by = H / 2
+          s.vx = BASE_VX; s.vy = (Math.random() > 0.5 ? 1 : -1) * 2
         } else if (s.bx > W + BALL_R) {
           setScore((p) => {
             const next = { ...p, you: p.you + 1 }
             scoreRef.current = next
             return next
           })
-          s.bx = W / 2; s.by = H / 2; s.vx = -4; s.vy = 2
+          s.bx = W / 2; s.by = H / 2
+          s.vx = -BASE_VX; s.vy = (Math.random() > 0.5 ? 1 : -1) * 2
         }
       }
 
-      // ===================== DRAW =====================
-      if (ctx) {
+      // Draw, scaling all logical coordinates to canvas display size
+      const canvas = canvasRef.current
+      const ctx = canvas?.getContext('2d')
+      if (ctx && canvas) {
+        const scale = scaleRef.current
+        const dpr = window.devicePixelRatio || 1
+        ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0)
+
         // 1. Background
         ctx.fillStyle = CLR_BG
         ctx.fillRect(0, 0, W, H)
@@ -143,7 +218,7 @@ export default function Pong() {
         ctx.setLineDash([])
         ctx.restore()
 
-        // 3. Score on canvas, large retro digits
+        // 3. Score on canvas
         const sc = scoreRef.current
         ctx.save()
         ctx.shadowColor = CLR_SCORE
@@ -195,7 +270,6 @@ export default function Pong() {
         ctx.fillStyle = vig
         ctx.fillRect(0, 0, W, H)
       }
-      // ===================== /DRAW =====================
 
       raf = requestAnimationFrame(frame)
     }
@@ -205,6 +279,8 @@ export default function Pong() {
       cancelAnimationFrame(raf)
       window.removeEventListener('keydown', kd)
       window.removeEventListener('keyup', ku)
+      cvs?.removeEventListener('mousemove', onMouseMove)
+      cvs?.removeEventListener('mouseleave', onMouseLeave)
     }
   }, [s])
 
@@ -225,17 +301,15 @@ export default function Pong() {
   }, [score])
 
   return (
-    <div className="flex flex-col items-start gap-3">
+    <div ref={containerRef} className="flex w-full flex-col items-center gap-3">
       <div className="flex flex-wrap gap-4 text-sm text-slate-600 dark:text-slate-400">
         <span className="font-medium">
           You {score.you} : {score.cpu} CPU
         </span>
-        <span>Arrow keys or W / S to move. First to {WIN}.</span>
+        <span>Arrow keys, W/S, or mouse to move. First to {WIN}.</span>
       </div>
       <canvas
         ref={canvasRef}
-        width={W}
-        height={H}
         data-testid="pong-canvas"
         className="max-w-full rounded-lg border border-slate-300 dark:border-slate-700"
       />
