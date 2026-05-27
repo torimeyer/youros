@@ -1,10 +1,32 @@
 """Tests for GET /api/sessions/coordination."""
 
+import asyncio
 import json
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, AsyncMock
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_coord_cache():
+    """Reset the module-level coordination snapshot cache between tests.
+
+    _coord_cache and _coord_cache_ts survive across tests (3-second TTL).
+    Without resetting them, test 1's cached sessions/events/locks leak
+    into all subsequent tests that patch SESSIONS_DIR or nudge_history.
+    _coord_refresh_lock is also replaced: asyncio.Lock binds to the first
+    event loop that acquires it, and pytest-asyncio gives each test a fresh
+    loop — a stale lock raises 'bound to a different event loop' on any
+    cache miss in tests 2+.
+    """
+    import routers.sessions as _sm
+    _sm._coord_cache = None
+    _sm._coord_cache_ts = 0.0
+    _sm._coord_refresh_lock = asyncio.Lock()
+    yield
+    _sm._coord_cache = None
+    _sm._coord_cache_ts = 0.0
 
 
 def _make_event(ts_iso, tool="shell", kind="tool_call", seq=1):
@@ -59,7 +81,8 @@ async def test_coordination_session_has_required_fields(client, tmp_path):
 
     data = resp.json()
     assert len(data["sessions"]) >= 1
-    session = next(s for s in data["sessions"] if s["id"] == "claude-code-xyz789")
+    session = next((s for s in data["sessions"] if s["id"] == "claude-code-xyz789"), None)
+    assert session is not None, f"'claude-code-xyz789' not in sessions: {data['sessions']}"
     assert session["id"] == "claude-code-xyz789"
     assert session["type"] == "claude-code"
     assert session["status"] == "active"
