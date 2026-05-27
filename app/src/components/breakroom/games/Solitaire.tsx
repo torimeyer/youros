@@ -20,6 +20,15 @@ const rankLabel = (r: number) =>
   r === 1 ? 'A' : r === 11 ? 'J' : r === 12 ? 'Q' : r === 13 ? 'K' : String(r)
 const isRed = (s: Suit) => s === 'hearts' || s === 'diamonds'
 
+// Hopper-esque muted cinematic palette
+const COLORS = {
+  red: '#9d2424',      // Brick red
+  black: '#1a1c1e',    // Deep charcoal
+  parchment: '#e2e2d5', // Muted, dusty paper
+  shadow: '#2a2d34',   // Cool shadow
+  highlight: '#f4f4eb' // Stark artificial light
+}
+
 /* -- types ---------------------------------------------------------------- */
 interface Game {
   stock: Card[]
@@ -107,13 +116,16 @@ function CardBack({ d }: { d: Dims }) {
         width: d.w,
         height: d.h,
         flexShrink: 0,
-        backgroundColor: '#312e81',
+        backgroundColor: '#16302b', // Deep night green
         backgroundImage: [
-          'repeating-linear-gradient(45deg,rgba(255,255,255,.12) 0,rgba(255,255,255,.12) 1px,transparent 1px,transparent 7px)',
-          'repeating-linear-gradient(-45deg,rgba(255,255,255,.12) 0,rgba(255,255,255,.12) 1px,transparent 1px,transparent 7px)',
+          'linear-gradient(135deg, rgba(255,255,255,0.05) 25%, transparent 25%)',
+          'linear-gradient(225deg, rgba(255,255,255,0.05) 25%, transparent 25%)',
+          'linear-gradient(45deg, rgba(255,255,255,0.05) 25%, transparent 25%)',
+          'linear-gradient(315deg, rgba(255,255,255,0.05) 25%, transparent 25%)',
         ].join(','),
+        backgroundSize: '20px 20px',
       }}
-      className="rounded-md border border-indigo-400 shadow-md"
+      className="rounded border border-[#2d4f48] shadow-[2px_2px_10px_rgba(0,0,0,0.5)]"
     />
   )
 }
@@ -130,35 +142,52 @@ function CardFace({
   const red = isRed(card.suit)
   const rank = rankLabel(card.rank)
   const suit = SUIT_SYMBOL[card.suit]
+  
+  // Lore-driven face card descriptions (placeholders for portraits)
+  const isFaceCard = card.rank > 10 || card.rank === 1
+  
   return (
     <div
       style={{
         width: d.w,
         height: d.h,
         flexShrink: 0,
-        color: red ? '#dc2626' : '#111827',
-        background: 'linear-gradient(160deg,#ffffff 0%,#f3f4f6 100%)',
+        color: red ? COLORS.red : COLORS.black,
+        background: `linear-gradient(165deg, ${COLORS.highlight} 0%, ${COLORS.parchment} 100%)`,
         position: 'relative',
+        overflow: 'hidden'
       }}
-      className={`select-none rounded-md border shadow-sm transition-all duration-100 ${
-        selected ? 'accent-border ring-2 shadow-lg -translate-y-1' : 'border-slate-200'
+      className={`select-none rounded border transition-all duration-200 ${
+        selected ? 'border-yellow-400 ring-2 ring-yellow-400/50 shadow-2xl -translate-y-2' : 'border-[#bcbbb0]'
       }`}
     >
+      {/* Cinematic shadow overlay */}
+      <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/10 pointer-events-none" />
+      
       <div
-        className="absolute left-0.5 top-0.5 flex flex-col items-center"
+        className="absolute left-1 top-1 flex flex-col items-center"
         style={{ lineHeight: 1 }}
       >
-        <span style={{ fontSize: d.cornerPx, fontWeight: 700, lineHeight: 1 }}>{rank}</span>
+        <span style={{ fontSize: d.cornerPx, fontWeight: 800, lineHeight: 1 }}>{rank}</span>
         <span style={{ fontSize: d.cornerPx * 0.9, lineHeight: 1 }}>{suit}</span>
       </div>
-      <div className="flex h-full items-center justify-center">
-        <span style={{ fontSize: d.centerPx, lineHeight: 1 }}>{suit}</span>
+
+      <div className="flex h-full items-center justify-center opacity-80">
+        {isFaceCard ? (
+          <div className="flex flex-col items-center gap-1">
+             <span style={{ fontSize: d.centerPx * 1.2, lineHeight: 1 }}>{suit}</span>
+             <div className="h-0.5 w-8 bg-current opacity-20" />
+          </div>
+        ) : (
+          <span style={{ fontSize: d.centerPx, lineHeight: 1 }}>{suit}</span>
+        )}
       </div>
+
       <div
-        className="absolute bottom-0.5 right-0.5 flex flex-col items-center"
+        className="absolute bottom-1 right-1 flex flex-col items-center"
         style={{ transform: 'rotate(180deg)', lineHeight: 1 }}
       >
-        <span style={{ fontSize: d.cornerPx, fontWeight: 700, lineHeight: 1 }}>{rank}</span>
+        <span style={{ fontSize: d.cornerPx, fontWeight: 800, lineHeight: 1 }}>{rank}</span>
         <span style={{ fontSize: d.cornerPx * 0.9, lineHeight: 1 }}>{suit}</span>
       </div>
     </div>
@@ -173,10 +202,10 @@ function EmptySlot({ ghost, d }: { ghost?: string; d: Dims }) {
   return (
     <div
       style={{ width: d.w, height: d.h, flexShrink: 0 }}
-      className="flex flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-white/20"
+      className="flex flex-col items-center justify-center gap-0.5 rounded border border-[#bcbbb0]/30 bg-black/10"
     >
       {ghost && (
-        <span style={{ fontSize: d.centerPx, lineHeight: 1, color: 'rgba(255,255,255,0.2)' }}>
+        <span style={{ fontSize: d.centerPx, lineHeight: 1, color: 'rgba(255,255,255,0.1)' }}>
           {ghost}
         </span>
       )}
@@ -221,10 +250,10 @@ export default function Solitaire() {
     if (isWin(game.foundations.map(topOf))) {
       void (async () => {
         const again = await confirm({
-          title: 'You won',
-          message: 'Nicely done. Play again?',
-          confirmLabel: 'Play again',
-          cancelLabel: 'Done',
+          title: 'Closing Time',
+          message: 'The patrons have all gone home. The city is quiet. Seek another night?',
+          confirmLabel: 'Open the Diner',
+          cancelLabel: 'Walk Home',
         })
         if (again) reset()
       })()
@@ -362,15 +391,20 @@ export default function Solitaire() {
   return (
     <div
       ref={boardRef}
-      className="flex w-full flex-col rounded-xl shadow-inner"
+      className="flex w-full flex-col rounded shadow-2xl overflow-hidden"
       style={{
-        background: 'linear-gradient(150deg,#14532d 0%,#166534 60%,#15803d 100%)',
-        padding: 16,
-        gap: 12,
+        background: '#1a1c1e', // Dark night city background
+        padding: 24,
+        gap: 20,
       }}
     >
-      <p className="text-xs text-green-100/60">
-        Click to select, click destination to move. Double-click to auto-move. Drag cards between piles.
+      <div className="flex flex-col gap-1 border-b border-white/10 pb-4">
+        <h2 className="text-2xl font-bold tracking-tight text-[#f4f4eb] uppercase">The Midnight Diner</h2>
+        <p className="text-xs text-slate-500 font-medium">Find order in the urban isolation.</p>
+      </div>
+
+      <p className="text-[10px] uppercase tracking-widest text-slate-400/50">
+        Shift patrons to their seats. Double-click to send them home.
       </p>
 
       {/* top row: stock, waste, spacer, 4 foundations */}
@@ -381,7 +415,7 @@ export default function Solitaire() {
           onClick={drawStock}
           aria-label="Draw from stock"
           data-testid="sol-stock"
-          className="flex items-center justify-center rounded-md border border-white/20 bg-black/20 text-white/60 shadow-inner transition-colors hover:bg-black/30 flex-shrink-0"
+          className="flex items-center justify-center rounded border border-white/5 bg-black/40 text-white/20 shadow-inner transition-colors hover:bg-black/60 flex-shrink-0"
           style={{ width: dims.w, height: dims.h, fontSize: dims.centerPx }}
         >
           {game.stock.length ? '↻' : '⟳'}
@@ -443,22 +477,22 @@ export default function Solitaire() {
               ) : (
                 <div
                   style={{ width: dims.w, height: dims.h }}
-                  className="flex flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-white/20"
+                  className="flex flex-col items-center justify-center gap-0.5 rounded border border-[#bcbbb0]/10 bg-black/20"
                 >
                   <span
                     style={{
                       fontSize: dims.centerPx,
                       lineHeight: 1,
                       color: isRed(gs)
-                        ? 'rgba(252,165,165,0.25)'
-                        : 'rgba(255,255,255,0.2)',
+                        ? 'rgba(157,36,36,0.2)'
+                        : 'rgba(255,255,255,0.05)',
                     }}
                   >
                     {SUIT_SYMBOL[gs]}
                   </span>
                   <span
                     style={{ fontSize: dims.cornerPx, lineHeight: 1 }}
-                    className="font-semibold text-white/20"
+                    className="font-bold text-white/5"
                   >
                     A
                   </span>
