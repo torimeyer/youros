@@ -35,7 +35,7 @@ describe('useAppStore', () => {
       customAgentTemplates: [],
       features: [
         { label: 'Chat', enabled: true },
-        { label: 'Break Room', enabled: true },
+        { label: 'The Arcade', enabled: true },
         { label: 'Tasks', enabled: true },
         { label: 'Agents', enabled: true },
         { label: 'Activity', enabled: true },

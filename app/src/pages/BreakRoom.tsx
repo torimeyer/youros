@@ -12,7 +12,7 @@ export default function BreakRoom() {
 
   return (
     <div className="min-h-dvh bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-white">
-      <TopBar title="Break Room" />
+      <TopBar title="The Arcade" />
       <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         <div className="mx-auto max-w-6xl">
           {!active || !Active ? (

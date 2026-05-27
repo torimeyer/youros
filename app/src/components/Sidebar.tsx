@@ -82,7 +82,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/specs', icon: 'article', label: 'Specs', featureLabel: 'Specs', specsBadge: true },
   { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
   { to: '/backlog', icon: 'inventory_2', label: 'Kanban view', featureLabel: 'Backlog' },
-  { to: '/break', icon: 'sports_esports', label: 'Break Room', featureLabel: 'Break Room' },
+  { to: '/break', icon: 'sports_esports', label: 'The Arcade', featureLabel: 'The Arcade' },
   ...NAV_GROUPS.flatMap((g) => g.items),
 ]
 
