@@ -57,6 +57,9 @@ def _fire_delta(name: str, status: str) -> None:
 # list_agents reads directly from it so every GET /agents completes in <10 ms.
 _cached_snapshot: dict = {"agents": [], "computed_at": None, "daemon_running": False}
 _snapshot_lock: asyncio.Lock = asyncio.Lock()
+# Single-flights the cold-cache snapshot compute so a polling storm can't
+# stampede _compute_agents_snapshot_async() and wedge the loop (→1687/→1738).
+_snapshot_compute_lock: asyncio.Lock = asyncio.Lock()
 
 # Merge-debt cache (→1555): the merge_debt_tick_loop refreshes every 60 s.
 _cached_merge_debt: dict = {"count": 0, "items": []}
@@ -4203,9 +4206,19 @@ async def list_agents(
     async with _snapshot_lock:
         snapshot = dict(_cached_snapshot)
     if snapshot.get("computed_at") is None:
-        snapshot = await _compute_agents_snapshot_async()
-        async with _snapshot_lock:
-            _cached_snapshot.update(snapshot)
+        # Cold cache: single-flight the compute so concurrent cold-cache polls
+        # (dashboard storm at startup) collapse into ONE compute instead of
+        # each running its own, exhausting the thread pool and wedging the
+        # event loop (→1687/→1738). Double-checked: a prior holder may have
+        # filled the cache while we waited on the compute lock.
+        async with _snapshot_compute_lock:
+            async with _snapshot_lock:
+                snapshot = dict(_cached_snapshot)
+            if snapshot.get("computed_at") is None:
+                computed = await _compute_agents_snapshot_async()
+                async with _snapshot_lock:
+                    _cached_snapshot.update(computed)
+                    snapshot = dict(_cached_snapshot)
     all_agents = list(snapshot.get("agents", []))
     # Overlay live statuses from agent_metadata (snapshot is up to 500ms stale).
     # This ensures /complete and other status mutations are immediately visible.
