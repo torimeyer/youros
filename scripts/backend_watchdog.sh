@@ -46,7 +46,9 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEV_BACKEND="$SCRIPT_DIR/dev-backend.sh"
+# DEV_BACKEND is overridable so tests (and future supervisors) can point the
+# watchdog at a stub instead of the real launcher that binds port 8000.
+DEV_BACKEND="${MYOS_WATCHDOG_DEV_BACKEND:-$SCRIPT_DIR/dev-backend.sh}"
 PIDFILE="${MYOS_WATCHDOG_PIDFILE:-/tmp/myos-backend-watchdog.pid}"
 LOGFILE="${MYOS_WATCHDOG_LOGFILE:-/tmp/myos-backend-watchdog.log}"
 INTERVAL="${MYOS_WATCHDOG_INTERVAL:-30}"
@@ -286,7 +288,22 @@ restart_backend() {
         fi
         rm -f "$BACKEND_PIDFILE" 2>/dev/null || true
         consecutive_pid_alive_failures=0
+        # Kill-only mode: launchd (KeepAlive=true) owns the respawn. We SIGKILLed
+        # the wedged uvicorn above; do NOT launch dev-backend.sh, or we would race
+        # launchd for port 8000 -- the exact double-bind the locking below guards
+        # against. launchd sees the process exit and respawns it in ~1s.
+        if [ "${MYOS_WATCHDOG_KILL_ONLY:-0}" = "1" ]; then
+            log "INFO kill-only mode: wedged backend SIGKILLed, leaving respawn to launchd"
+            return 0
+        fi
         # Fall through to the normal restart path below.
+    fi
+    # Kill-only mode, crash path: the pid is dead (process already exited). launchd
+    # respawns on exit, so the watchdog must do nothing here -- launching
+    # dev-backend.sh would create a second uvicorn racing launchd's respawn.
+    if [ "${MYOS_WATCHDOG_KILL_ONLY:-0}" = "1" ]; then
+        log "INFO kill-only mode: backend down and pid dead, leaving respawn to launchd"
+        return 0
     fi
     # Acquire restart lock atomically before spawning. When two watchdog
     # instances run simultaneously both can pass backend_pid_alive (both
@@ -369,9 +386,9 @@ while :; do
     # for up to 10 seconds). Only after three consecutive misses
     # spaced 5 seconds apart do we consider the backend actually down.
     # This removes most of the restart thrash caused by MCP flapping.
-    sleep 5 && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
-    sleep 5 && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
-    sleep 5 && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
+    sleep "${MYOS_WATCHDOG_TRANSIENT_RETRY_SLEEP:-5}" && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
+    sleep "${MYOS_WATCHDOG_TRANSIENT_RETRY_SLEEP:-5}" && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
+    sleep "${MYOS_WATCHDOG_TRANSIENT_RETRY_SLEEP:-5}" && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
     restarts=$((restarts + 1))
     if [ "$restarts" -gt "$MAX_RESTARTS" ]; then
         log "ERROR exceeded max restarts ($MAX_RESTARTS), exiting"
