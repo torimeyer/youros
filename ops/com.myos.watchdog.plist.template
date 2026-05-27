@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.myos.watchdog.plist.template
+  Rendered by install.sh into ~/Library/LaunchAgents/com.myos.watchdog.plist.
+  Placeholders: __INSTALL_DIR__ __HOME__ __HEALTH_URL__
+
+  Runs the watchdog in KILL_ONLY mode: if the backend's event loop is
+  deadlocked (PID alive but /api/health fails repeatedly), the watchdog
+  sends SIGKILL. launchd (com.myos.backend, KeepAlive=true) then restarts
+  uvicorn sub-second. The watchdog never starts uvicorn itself.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.myos.watchdog</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__INSTALL_DIR__/scripts/backend_watchdog.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__INSTALL_DIR__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>__HOME__</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+        <key>MYOS_WATCHDOG_KILL_ONLY</key>
+        <string>1</string>
+        <key>MYOS_WATCHDOG_HEALTH_URL</key>
+        <string>__HEALTH_URL__</string>
+        <key>MYOS_WATCHDOG_LOGFILE</key>
+        <string>__HOME__/.myos/logs/watchdog.log</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/.myos/logs/watchdog.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.myos/logs/watchdog.err.log</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>1</integer>
+</dict>
+</plist>

@@ -546,7 +546,7 @@ export function Sidebar() {
       return `Backend slow to respond. Checking...${ostkKernel ? ` (${ostkKernel})` : ''}`
     }
     const t = lastHealthyAt ? new Date(lastHealthyAt).toLocaleTimeString() : 'unknown'
-    return `Backend not responding. Last healthy at ${t}. To restart: bash scripts/restart-backend.sh`
+    return `Backend not responding. Last healthy at ${t}. Reconnecting… this recovers automatically.`
   })()
 
   // Build feature-filtered view of all nav items

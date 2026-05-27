@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.myos.backend.plist.template
+  Rendered by install.sh into ~/Library/LaunchAgents/com.myos.backend.plist.
+  Placeholders: __INSTALL_DIR__ __HOME__ __HEALTH_URL__
+
+  launchd owns backend restarts (KeepAlive=true, ThrottleInterval=1s).
+  The watchdog runs in KILL_ONLY mode and handles deadlocked event loops;
+  launchd does the actual restart.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.myos.backend</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__INSTALL_DIR__/api/.venv/bin/uvicorn</string>
+        <string>main:app</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8000</string>
+        <string>--reload</string>
+        <string>--reload-dir</string>
+        <string>__INSTALL_DIR__/api</string>
+        <string>--reload-exclude</string>
+        <string>api/tests/*</string>
+        <string>--reload-exclude</string>
+        <string>**/__pycache__/*</string>
+        <string>--reload-exclude</string>
+        <string>**/*.pyc</string>
+        <string>--reload-delay</string>
+        <string>10.0</string>
+        <string>--no-access-log</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__INSTALL_DIR__/api</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>__HOME__</string>
+        <key>PATH</key>
+        <string>__INSTALL_DIR__/api/.venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>MYOS_NO_WATCHDOG</key>
+        <string>1</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/.myos/logs/backend.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.myos/logs/backend.err.log</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>1</integer>
+</dict>
+</plist>

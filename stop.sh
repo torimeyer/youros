@@ -31,8 +31,23 @@ pids_on_port() {
     lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true
 }
 
-# 1. Watchdog first. It traps SIGTERM and respawns uvicorn, so we
-#    send SIGKILL. pkill with -f matches the full command line.
+# On macOS after install, the backend and watchdog are launchd agents
+# (com.myos.backend + com.myos.watchdog). KeepAlive=true means a plain
+# kill will cause launchd to respawn them immediately. Use launchctl
+# bootout first so launchd knows we want them stopped.
+if [ "$(uname)" = "Darwin" ]; then
+    USER_UID=$(id -u)
+    for label in com.myos.watchdog com.myos.backend; do
+        if launchctl print "gui/${USER_UID}/${label}" >/dev/null 2>&1; then
+            echo "Stopping launchd agent: $label"
+            launchctl bootout "gui/${USER_UID}/${label}" 2>/dev/null || true
+            sleep 0.3
+        fi
+    done
+fi
+
+# 1. Watchdog (dev mode or non-launchd). It traps SIGTERM and respawns
+#    uvicorn, so send SIGKILL. pkill -f matches the full command line.
 watchdog_pids=$(pgrep -f 'backend_watchdog\.sh' 2>/dev/null || true)
 if [ -n "$watchdog_pids" ]; then
     echo "Stopping backend watchdog: $watchdog_pids"
