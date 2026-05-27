@@ -270,6 +270,45 @@ def _is_test_artifact_spec(path: str, title: str) -> bool:
     return False
 
 
+# Patterns for detecting subagent scratch notes (→1749).
+# Signal 1: explicit scratch/diagnostic keywords in path or title.
+_SCRATCH_NOTE_KEYWORDS = re.compile(
+    r"\b(?:diagnosis|scratch[-_ ]?note|debug[-_ ]?notes?|findings|investigation[-_ ]?notes?)\b",
+    re.IGNORECASE,
+)
+# Signal 2: filename starts with a needle ID (3+ digits) in docs/draft/.
+# Subagents write scratch notes as NNNN-description.md; real user specs use
+# descriptive names without numeric prefixes.  Group 1 captures the numeric ID.
+_SCRATCH_NOTE_NEEDLE_PREFIX = re.compile(r"(?:^|/)(\d{3,})[-_]")
+
+
+def _is_scratch_note(path: str, title: str, doc: dict | None = None) -> bool:
+    """True when a docs/draft file is a subagent scratch note, not a real spec.
+
+    Two independent signals:
+    1. Scratch keywords in path or title ("diagnosis", "scratch-note", etc.).
+    2. Needle-ID filename prefix (subagent convention) combined with absent
+       frontmatter — real specs from `ostk doc draft` always carry created_at.
+
+    Precedent: mirrors _is_test_artifact_spec which excludes smoke-test leaks.
+    """
+    # Signal 1: explicit scratch keywords in path or title.
+    for val in (path or "", title or ""):
+        if _SCRATCH_NOTE_KEYWORDS.search(val):
+            return True
+    # Signal 2: needle-ID prefix in docs/draft/ + no frontmatter.
+    # created_at is written by the ostk doc draft pipeline; its absence means
+    # the file was dropped directly (no pipeline), which is the scratch-note pattern.
+    if (
+        (path or "").startswith("docs/draft/")
+        and _SCRATCH_NOTE_NEEDLE_PREFIX.search(path or "")
+        and doc is not None
+        and not (doc.get("created_at") or doc.get("acceptance_criteria"))
+    ):
+        return True
+    return False
+
+
 def _validate_doc_path(path: str) -> None:
     """Reject path traversal and paths outside docs/draft/, docs/spec/, or ~/.myos/specs/."""
     from services.ostk import USER_SPECS_DIR
@@ -377,6 +416,17 @@ async def list_specs(clear_to_build: Optional[bool] = None):
     try:
         docs = await ostk.list_docs()
         docs = [d for d in docs if d.get("status") != "plan"]
+        # Exclude subagent scratch notes (→1749): files in docs/draft/ that are
+        # diagnosis/debug notes, not real specs with Problem/Goals/ACs.
+        # Collect filtered-out scratch notes for lifecycle cleanup below.
+        _scratch_notes: list[dict] = []
+        _filtered_docs: list[dict] = []
+        for _d in docs:
+            if _is_scratch_note(_d.get("path", ""), _d.get("title", ""), _d):
+                _scratch_notes.append(_d)
+            else:
+                _filtered_docs.append(_d)
+        docs = _filtered_docs
 
         # Re-apply compute_spec_status with active claims from _spec_claims.
         # list_docs() calls compute_spec_status without claims so its returned
@@ -448,6 +498,30 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                 else:
                     surviving.append(d)
             docs = surviving
+
+            # Lifecycle cleanup (→1749-b): delete scratch notes whose originating
+            # needle is now closed. They linger in docs/draft/ after needle close
+            # because nothing else removes them.
+            for _sn in _scratch_notes:
+                _sn_path = _sn.get("path", "")
+                if not _sn_path.startswith("docs/draft/"):
+                    continue
+                _needle_match = _SCRATCH_NOTE_NEEDLE_PREFIX.search(_sn_path)
+                if not _needle_match:
+                    continue
+                # Extract the numeric needle ID from the capturing group.
+                _nid = _needle_match.group(1)
+                _needle_status = needle_statuses.get(_nid, "open")
+                if _needle_status in ("open",):
+                    continue
+                _abs_sn = Path(PROJECT_ROOT) / _sn_path
+                try:
+                    if _abs_sn.exists():
+                        _abs_sn.unlink()
+                        trace_event("scratch_note_auto_cleanup", path=_sn_path, needle_id=_nid)
+                        logger.info("auto-cleaned scratch note %s (needle →%s closed)", _sn_path, _nid)
+                except OSError as _sn_err:
+                    logger.warning("scratch note cleanup failed for %s: %s", _sn_path, _sn_err)
         except Exception as arch_err:
             logger.warning("auto-archive scan failed: %s", arch_err)
 

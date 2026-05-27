@@ -1426,3 +1426,38 @@ def test_spec_artifact_pattern_unit_matches_and_misses():
     )
     # An empty title with a clean path stays clean.
     assert not _is_test_artifact_spec("docs/spec/notes.md", "")
+
+
+def test_scratch_note_pattern_unit_matches_and_misses():
+    """Unit check on _is_scratch_note for →1749.
+
+    A scratch note is a file dropped into docs/draft/ by a subagent that is
+    NOT a spec: no Problem/Goals/ACs, just raw diagnosis or debug text.
+    Two detection signals: scratch keywords in path/title, or a needle-ID
+    filename prefix combined with missing frontmatter.
+    """
+    from routers.specs import _is_scratch_note
+
+    no_fm = {"created_at": "", "acceptance_criteria": []}
+    has_fm = {"created_at": "2026-01-01", "acceptance_criteria": [{"text": "x", "checked": False}]}
+
+    # Confirmed scratch note (the actual file from →1749): keyword in path + no frontmatter
+    assert _is_scratch_note("docs/draft/1652-diagnosis.md", "1652 diagnosis", no_fm)
+    # Keyword in title is enough on its own
+    assert _is_scratch_note("docs/draft/whatever.md", "diagnosis notes", {})
+    # Scratch-note keyword in the filename itself
+    assert _is_scratch_note("docs/draft/1749-scratch-note.md", "1749 scratch note", no_fm)
+    # Debug-notes keyword
+    assert _is_scratch_note("docs/draft/900-debug-notes.md", "900 debug notes", no_fm)
+    # Findings keyword
+    assert _is_scratch_note("docs/draft/800-findings.md", "Findings so far", no_fm)
+    # Needle-ID prefix + no frontmatter (catches future scratch notes with arbitrary names)
+    assert _is_scratch_note("docs/draft/1234-analysis.md", "1234 analysis", no_fm)
+
+    # Real user specs: must NOT match
+    assert not _is_scratch_note("docs/draft/my-feature.md", "My Feature", no_fm)
+    assert not _is_scratch_note("docs/spec/improve-onboarding.md", "Improve onboarding", has_fm)
+    # Real spec with frontmatter + needle-ID-looking name: frontmatter protects it
+    assert not _is_scratch_note("docs/draft/1234-real-spec.md", "My Real Spec", has_fm)
+    # User-local specs never in docs/draft/
+    assert not _is_scratch_note("~/.myos/specs/my-spec.md", "My Spec", {})

@@ -3557,3 +3557,109 @@ def test_missing_solution_fails_clarity_gate(tmp_path):
     assert not r.ready, "Spec with no AC checkboxes should fail clarity gate"
     failing_names = [c.name for c in r.checks if not c.passed]
     assert "has_ac_checkboxes" in failing_names
+
+
+# ---------------------------------------------------------------------------
+# →1749: scratch notes must not appear in the Specs view
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_specs_excludes_scratch_notes(client, monkeypatch):
+    """GET /specs must not return subagent scratch notes from docs/draft/.
+
+    Subagents write diagnosis/debug notes to docs/draft/ that are not specs
+    (no Problem/Goals/ACs). Before →1749 fix these rendered as bogus Draft
+    specs. The fix filters them using _is_scratch_note.
+    """
+    from services import ostk as ostk_module
+
+    async def fake_list_docs():
+        return [
+            # Scratch note: needle-ID prefix, no frontmatter, diagnosis keyword
+            {
+                "path": "docs/draft/1652-diagnosis.md",
+                "filename": "1652-diagnosis.md",
+                "title": "1652 diagnosis",
+                "status": "draft",
+                "created_at": "",
+                "promoted_at": "",
+                "updated_at_ms": 0,
+                "task_ids": [],
+                "acceptance_criteria": [],
+                "task_summary": {"total": 0, "open": 0, "closed": 0},
+            },
+            # Real spec with frontmatter: must appear
+            {
+                "path": "docs/draft/improve-onboarding.md",
+                "filename": "improve-onboarding.md",
+                "title": "Improve Onboarding",
+                "status": "draft",
+                "created_at": "2026-01-01T00:00:00",
+                "promoted_at": "",
+                "updated_at_ms": 0,
+                "task_ids": [],
+                "acceptance_criteria": [{"text": "User can sign up", "checked": False}],
+                "task_summary": {"total": 0, "open": 0, "closed": 0},
+            },
+        ]
+
+    monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
+
+    res = await client.get("/api/specs")
+    assert res.status_code == 200
+    docs = res.json()["docs"]
+    paths = [d["path"] for d in docs]
+
+    assert not any("1652-diagnosis" in p for p in paths), (
+        f"Scratch note leaked into /specs: {paths}"
+    )
+    assert any("improve-onboarding" in p for p in paths), (
+        f"Real spec missing from /specs: {paths}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_specs_excludes_scratch_note_keyword_in_title(client, monkeypatch):
+    """Scratch notes with keyword in title are excluded even with frontmatter."""
+    from services import ostk as ostk_module
+
+    async def fake_list_docs():
+        return [
+            {
+                "path": "docs/draft/some-note.md",
+                "filename": "some-note.md",
+                "title": "diagnosis notes for the auth issue",
+                "status": "draft",
+                "created_at": "2026-01-01T00:00:00",
+                "promoted_at": "",
+                "updated_at_ms": 0,
+                "task_ids": [],
+                "acceptance_criteria": [],
+                "task_summary": {"total": 0, "open": 0, "closed": 0},
+            },
+            {
+                "path": "docs/draft/real-feature.md",
+                "filename": "real-feature.md",
+                "title": "Real Feature",
+                "status": "draft",
+                "created_at": "2026-01-01T00:00:00",
+                "promoted_at": "",
+                "updated_at_ms": 0,
+                "task_ids": [],
+                "acceptance_criteria": [{"text": "Works", "checked": False}],
+                "task_summary": {"total": 0, "open": 0, "closed": 0},
+            },
+        ]
+
+    monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
+
+    res = await client.get("/api/specs")
+    assert res.status_code == 200
+    docs = res.json()["docs"]
+    paths = [d["path"] for d in docs]
+
+    assert not any("some-note" in p for p in paths), (
+        f"Scratch-title note leaked into /specs: {paths}"
+    )
+    assert any("real-feature" in p for p in paths)
