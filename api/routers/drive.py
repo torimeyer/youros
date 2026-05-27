@@ -70,6 +70,15 @@ _CACHE_TTL_SECONDS = 6 * 3600
 # Maximum files returned by the list endpoint.
 _MAX_FILES = 100
 
+# Allowed sort values and their Google Drive orderBy strings.
+# Default is "opened" (viewedByMeTime desc) — the gap that prompted →1752.
+_SORT_ORDER_BY: dict[str, str] = {
+    "edited": "modifiedTime desc",
+    "opened": "viewedByMeTime desc",
+    "created": "createdTime desc",
+}
+_SORT_DEFAULT = "opened"
+
 
 # ---------------------------------------------------------------------------
 # Auth endpoints
@@ -367,21 +376,32 @@ def _build_drive_service():
 async def drive_files(
     q: Optional[str] = Query(None, description="Search query"),
     folder_id: Optional[str] = Query(None, description="Folder ID to list"),
+    sort: Optional[str] = Query(None, description="Sort order: edited, opened, created"),
 ):
-    """List Drive files sorted by last modified time (most recent first).
+    """List Drive files with configurable sort order.
+
+    sort=edited  → most recently modified first (modifiedTime desc)
+    sort=opened  → most recently opened first (viewedByMeTime desc) [default]
+    sort=created → newest first by creation date (createdTime desc)
 
     Cold path wraps the Drive API call in an 8 second timeout and
     falls back to any existing stale cache if the call hangs or
     fails, so the UI never spins for 30 seconds or lands on an empty
     list on a transient error. Regression guard for needle 285.
+    Cache is only used for the default sort (opened) to avoid serving
+    differently-ordered data to the wrong sort request.
     """
     import asyncio
 
     if not is_authenticated():
         raise HTTPException(status_code=401, detail="Not connected to Google Drive.")
 
-    # Try the cache first if no filters are applied.
-    if not q and not folder_id:
+    sort_key = sort if sort in _SORT_ORDER_BY else _SORT_DEFAULT
+    order_by = _SORT_ORDER_BY[sort_key]
+    use_cache = not q and not folder_id and sort_key == _SORT_DEFAULT
+
+    # Try the cache first if no filters are applied and using default sort.
+    if use_cache:
         cached = _load_file_list_cache()
         if cached is not None:
             last_synced_at = _INDEX_PATH.stat().st_mtime if _INDEX_PATH.exists() else None
@@ -389,15 +409,15 @@ async def drive_files(
 
     try:
         files = await asyncio.wait_for(
-            _fetch_drive_files(q=q, folder_id=folder_id),
+            _fetch_drive_files(q=q, folder_id=folder_id, order_by=order_by),
             timeout=8.0,
         )
     except HTTPException:
         raise
     except asyncio.TimeoutError:
         # Drive API hung. Fall back to stale cache (if any) for
-        # unfiltered requests so the UI still shows something.
-        if not q and not folder_id:
+        # unfiltered default-sort requests so the UI still shows something.
+        if use_cache:
             stale = _load_file_list_cache(allow_stale=True)
             if stale is not None:
                 last_synced_at = _INDEX_PATH.stat().st_mtime if _INDEX_PATH.exists() else None
@@ -422,7 +442,7 @@ async def drive_files(
             ) from exc
         # Any other failure: serve stale cache if we have one so the
         # UI does not lose state on a transient 5xx from Google.
-        if not q and not folder_id:
+        if use_cache:
             stale = _load_file_list_cache(allow_stale=True)
             if stale is not None:
                 last_synced_at = _INDEX_PATH.stat().st_mtime if _INDEX_PATH.exists() else None
@@ -432,8 +452,8 @@ async def drive_files(
             detail=f"Could not load files from Google Drive: {exc}",
         ) from exc
 
-    # Cache unfiltered results.
-    if not q and not folder_id:
+    # Cache unfiltered default-sort results.
+    if use_cache:
         _save_file_list_cache(files)
 
     return {"files": files, "cached": False, "last_synced_at": time.time()}
@@ -442,6 +462,7 @@ async def drive_files(
 async def _fetch_drive_files(
     q: Optional[str] = None,
     folder_id: Optional[str] = None,
+    order_by: str = "viewedByMeTime desc",
 ) -> list[dict]:
     """Hit the Drive API and return a clean list of file dicts."""
     import asyncio
@@ -460,9 +481,9 @@ async def _fetch_drive_files(
             .list(
                 q=query,
                 pageSize=_MAX_FILES,
-                orderBy="modifiedTime desc",
+                orderBy=order_by,
                 fields=(
-                    "files(id,name,mimeType,modifiedTime,"
+                    "files(id,name,mimeType,modifiedTime,viewedByMeTime,createdTime,"
                     "iconLink,webViewLink,size,parents,thumbnailLink)"
                 ),
             )

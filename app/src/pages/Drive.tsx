@@ -23,6 +23,8 @@ interface DriveFile {
   name: string;
   mimeType: string;
   modifiedTime: string;
+  viewedByMeTime?: string | null;
+  createdTime?: string | null;
   iconLink: string;
   webViewLink: string;
   size: string | null;
@@ -118,11 +120,20 @@ function isInlinePreviewable(mimeType: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Filter types and helpers
+// Filter and sort types / helpers
 // ---------------------------------------------------------------------------
 
+type DriveSort = 'opened' | 'edited' | 'created';
 type FileTypeFilter = 'all' | 'docs' | 'slides' | 'sheets' | 'pdfs' | 'images' | 'folders';
 type ModifiedFilter = 'all' | 'today' | 'week' | 'month';
+
+const SORT_OPTIONS: { value: DriveSort; label: string }[] = [
+  { value: 'opened', label: 'Last opened' },
+  { value: 'edited', label: 'Last edited' },
+  { value: 'created', label: 'Date created' },
+];
+
+const DRIVE_SORT_KEY = 'myos.driveSort.v1';
 
 const FILE_TYPE_OPTIONS: { value: FileTypeFilter; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -440,6 +451,15 @@ export default function Drive() {
   const [search, setSearch] = useState('');
   const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilter>('all');
   const [modifiedFilter, setModifiedFilter] = useState<ModifiedFilter>('all');
+  const [sortBy, setSortBy] = useState<DriveSort>(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? window.localStorage.getItem(DRIVE_SORT_KEY) : null;
+      return (saved && ['opened', 'edited', 'created'].includes(saved) ? saved : 'opened') as DriveSort;
+    } catch {
+      return 'opened';
+    }
+  });
+  const sortByRef = useRef<DriveSort>('opened');
   const [previewFile, setPreviewFile] = useState<DriveFile | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
@@ -521,11 +541,17 @@ export default function Drive() {
     }
   }, []);
 
+  // Keep ref in sync so fetchFiles always reads the current sort without needing it in deps.
+  sortByRef.current = sortBy;
+
   const fetchFiles = useCallback(async (q?: string): Promise<number | null> => {
     setFilesLoading(true);
     setFilesError(null);
     try {
-      const path = q ? `/drive/files?q=${encodeURIComponent(q)}` : '/drive/files';
+      const params = new URLSearchParams();
+      if (q) params.set('q', q);
+      params.set('sort', sortByRef.current);
+      const path = `/drive/files?${params.toString()}`;
       const res = await api.get<FilesResponse>(path);
       const list = res.files ?? [];
       setFiles(list);
@@ -630,6 +656,19 @@ export default function Drive() {
       if (searchTimeout.current) clearTimeout(searchTimeout.current);
     };
   }, [search, authStatus, fetchFiles]);
+
+  // Persist sort preference and re-fetch when it changes.
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') window.localStorage.setItem(DRIVE_SORT_KEY, sortBy);
+    } catch {
+      // Ignore storage errors.
+    }
+    if (!authStatus?.authenticated) return;
+    fetchFiles(search || undefined);
+    // Intentionally omit `search` from deps. The search effect handles search changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortBy, authStatus, fetchFiles]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -922,8 +961,29 @@ export default function Drive() {
               </div>
             </div>
 
-            {/* Filter bar: file type pills, modified dropdown, search input */}
+            {/* Filter bar: sort control, file type pills, modified dropdown, search input */}
             <div className="flex items-center gap-3 mb-4 flex-wrap">
+              {/* Sort segmented control */}
+              <div className="flex items-center gap-1 bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg p-1">
+                {SORT_OPTIONS.map((opt) => {
+                  const active = sortBy === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      data-testid={`drive-sort-${opt.value}`}
+                      onClick={() => setSortBy(opt.value)}
+                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                        active
+                          ? 'bg-blue-600 text-white'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+
               {/* File type pills */}
               <div className="flex items-center gap-1 bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg p-1 flex-wrap">
                 {FILE_TYPE_OPTIONS.map((opt) => {
@@ -1035,7 +1095,9 @@ export default function Drive() {
                   <span>Name</span>
                   <span>Type</span>
                   <span></span>
-                  <span className="text-right">Modified</span>
+                  <span className="text-right">
+                    {sortBy === 'opened' ? 'Opened' : sortBy === 'created' ? 'Created' : 'Modified'}
+                  </span>
                   <span></span>
                 </div>
 
@@ -1084,7 +1146,13 @@ export default function Drive() {
                         <span />
                       )}
                       <span className="text-xs text-slate-500 text-right">
-                        {formatRelative(file.modifiedTime)}
+                        {formatRelative(
+                          sortBy === 'opened'
+                            ? (file.viewedByMeTime ?? file.modifiedTime)
+                            : sortBy === 'created'
+                            ? (file.createdTime ?? file.modifiedTime)
+                            : file.modifiedTime
+                        )}
                       </span>
                       <button
                         onClick={(e) => {
