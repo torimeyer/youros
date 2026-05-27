@@ -302,45 +302,39 @@ def _render_briefing_from_facts(facts: dict) -> str:
     """
     paragraphs: list[str] = []
 
-    # Paragraph 1: calendar + yesterday recap.
-    p1_parts: list[str] = []
+    # Calendar block: one bullet per event so each entry is easy to scan.
     events = facts.get("events") or []
     if events:
-        pieces = []
+        count_word = "one event" if len(events) == 1 else f"{len(events)} events"
+        bullet_lines = []
         for ev in events:
             if ev.get("time"):
-                pieces.append(f"{ev['time']}: {ev['title']}")
+                bullet_lines.append(f"- {ev['time']}: {ev['title']}")
             else:
-                pieces.append(ev["title"])
-        if len(pieces) == 1:
-            p1_parts.append(f"You have one event on the calendar today. {pieces[0]}.")
-        else:
-            p1_parts.append(
-                f"You have {len(pieces)} events on the calendar today. "
-                + "; ".join(pieces) + "."
-            )
+                bullet_lines.append(f"- {ev['title']}")
+        paragraphs.append(
+            f"You have {count_word} on the calendar today:\n" + "\n".join(bullet_lines)
+        )
     else:
-        p1_parts.append("Your calendar is clear today.")
+        paragraphs.append("Your calendar is clear today.")
 
+    # Yesterday recap: its own paragraph, each title on its own bullet.
     closed = facts.get("closed_yesterday") or []
     if closed:
         if len(closed) == 1:
-            p1_parts.append(f"One task closed yesterday: **{closed[0]}**.")
+            paragraphs.append(f"One task closed yesterday: **{closed[0]}**.")
         else:
             shown = closed[:3]
             rest = len(closed) - len(shown)
-            title_list = ", ".join(f"**{t}**" for t in shown)
+            bullet_lines = "\n".join(f"- **{t}**" for t in shown)
             if rest > 0:
-                p1_parts.append(
-                    f"{len(closed)} tasks closed yesterday, including {title_list}, "
-                    f"and {rest} more."
+                paragraphs.append(
+                    f"{len(closed)} tasks closed yesterday:\n{bullet_lines}\n- and {rest} more."
                 )
             else:
-                p1_parts.append(f"{len(closed)} tasks closed yesterday: {title_list}.")
+                paragraphs.append(f"{len(closed)} tasks closed yesterday:\n{bullet_lines}")
     else:
-        p1_parts.append("No tasks closed yesterday.")
-
-    paragraphs.append(" ".join(p1_parts))
+        paragraphs.append("No tasks closed yesterday.")
 
     # Paragraph 2: top task to work on.
     p2_parts: list[str] = []
