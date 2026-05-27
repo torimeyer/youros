@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { step, type Pt } from './snakeLogic'
 import { recordHighScore, loadBest } from '../storage'
 import { useConfirm } from '../../../hooks/useConfirm'
@@ -6,9 +6,10 @@ import ConfirmModal from '../../ConfirmModal'
 
 const COLS = 20
 const ROWS = 20
-const CELL = 16
 const GAME_ID = 'snake'
 const TICK = 130
+const MIN_CELL = 8
+const MAX_H_RATIO = 0.75
 
 function randomFood(snake: Pt[]): Pt {
   for (;;) {
@@ -17,7 +18,6 @@ function randomFood(snake: Pt[]): Pt {
   }
 }
 
-/** Draw a rounded rectangle and fill it. Falls back to fillRect if roundRect is unavailable. */
 function fillRoundRect(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -34,6 +34,9 @@ function fillRoundRect(
 export default function Snake() {
   const { confirm, confirmProps } = useConfirm()
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const cellRef = useRef<number>(16)
+
   const [snake, setSnake] = useState<Pt[]>([{ x: 10, y: 10 }])
   const [food, setFood] = useState<Pt>(() => ({ x: 5, y: 10 }))
   const [score, setScore] = useState(0)
@@ -46,12 +49,44 @@ export default function Snake() {
   const snakeRef = useRef<Pt[]>(snake)
   const foodRef = useRef<Pt>(food)
 
+  useEffect(() => { snakeRef.current = snake }, [snake])
+  useEffect(() => { foodRef.current = food }, [food])
+
+  // Compute cell size from container width and height cap, then resize canvas
+  const resizeCanvas = useCallback(() => {
+    const el = containerRef.current
+    const canvas = canvasRef.current
+    if (!el || !canvas) return
+    const w = el.getBoundingClientRect().width
+    const maxH = window.innerHeight * MAX_H_RATIO
+    const byW = Math.floor(w / COLS)
+    const byH = Math.floor(maxH / ROWS)
+    const cs = Math.max(MIN_CELL, Math.min(byW, byH))
+    cellRef.current = cs
+    const dpr = window.devicePixelRatio || 1
+    canvas.width = Math.round(COLS * cs * dpr)
+    canvas.height = Math.round(ROWS * cs * dpr)
+    canvas.style.width = `${COLS * cs}px`
+    canvas.style.height = `${ROWS * cs}px`
+  }, [])
+
+  // Run synchronously before first paint so canvas has correct size right away
+  useLayoutEffect(() => {
+    resizeCanvas()
+  }, [resizeCanvas])
+
+  // Track container width changes and window height changes
   useEffect(() => {
-    snakeRef.current = snake
-  }, [snake])
-  useEffect(() => {
-    foodRef.current = food
-  }, [food])
+    const el = containerRef.current
+    if (!el) return
+    const obs = new ResizeObserver(resizeCanvas)
+    obs.observe(el)
+    window.addEventListener('resize', resizeCanvas)
+    return () => {
+      obs.disconnect()
+      window.removeEventListener('resize', resizeCanvas)
+    }
+  }, [resizeCanvas])
 
   const reset = useCallback(() => {
     const start = [{ x: 10, y: 10 }]
@@ -63,7 +98,7 @@ export default function Snake() {
     nextDir.current = { x: 1, y: 0 }
   }, [])
 
-  // Arrow key handler: attaches once, reads dir.current at event time
+  // Arrow key input: cannot reverse directly into the snake
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const d = dir.current
@@ -115,7 +150,7 @@ export default function Snake() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dead])
 
-  // Neon arcade renderer: RAF loop for smooth food pulse
+  // Neon arcade renderer: RAF loop, scales to devicePixelRatio for crispness
   useEffect(() => {
     let animId: number
 
@@ -127,11 +162,16 @@ export default function Snake() {
         return
       }
 
+      const CELL = cellRef.current
       const W = COLS * CELL
       const H = ROWS * CELL
+      const dpr = window.devicePixelRatio || 1
       const now = Date.now()
 
-      // ── Background ──────────────────────────────────────────
+      // Apply DPR scale once per frame so all coordinates stay in logical pixels
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+      // Background
       const bg = ctx.createLinearGradient(0, 0, W, H)
       bg.addColorStop(0, '#050d1f')
       bg.addColorStop(1, '#0d1b35')
@@ -146,7 +186,7 @@ export default function Snake() {
         }
       }
 
-      // ── Food: glowing pulsing crimson orb ─────────────────────
+      // Food: glowing pulsing crimson orb
       const pulse = 0.78 + 0.22 * Math.sin(now / 480)
       const fx = foodRef.current.x * CELL + CELL / 2
       const fy = foodRef.current.y * CELL + CELL / 2
@@ -164,7 +204,7 @@ export default function Snake() {
       ctx.fill()
       ctx.shadowBlur = 0
 
-      // ── Snake ────────────────────────────────────────────────
+      // Snake segments (tail to head so head renders on top)
       const snakeArr = snakeRef.current
       const len = snakeArr.length
 
@@ -191,19 +231,19 @@ export default function Snake() {
           const d = dir.current
           let ex1: number, ey1: number, ex2: number, ey2: number
           if (d.x === 1) {
-            // moving right: eyes on right side, stacked vertically
+            // Moving right: eyes on right side, stacked vertically
             ex1 = rx + rw * 0.68; ey1 = ry + rh * 0.28
             ex2 = rx + rw * 0.68; ey2 = ry + rh * 0.68
           } else if (d.x === -1) {
-            // moving left: eyes on left side
+            // Moving left: eyes on left side
             ex1 = rx + rw * 0.28; ey1 = ry + rh * 0.28
             ex2 = rx + rw * 0.28; ey2 = ry + rh * 0.68
           } else if (d.y === -1) {
-            // moving up: eyes on top, side by side
+            // Moving up: eyes on top, side by side
             ex1 = rx + rw * 0.28; ey1 = ry + rh * 0.28
             ex2 = rx + rw * 0.68; ey2 = ry + rh * 0.28
           } else {
-            // moving down: eyes on bottom
+            // Moving down: eyes on bottom
             ex1 = rx + rw * 0.28; ey1 = ry + rh * 0.72
             ex2 = rx + rw * 0.68; ey2 = ry + rh * 0.72
           }
@@ -215,9 +255,9 @@ export default function Snake() {
           ctx.fill()
         } else {
           // Body: green fading to teal-dim toward tail
-          const brightness = Math.round(195 - t * 120) // 195 → 75
-          const alpha = (0.92 - t * 0.38).toFixed(2)   // 0.92 → 0.54
-          ctx.shadowBlur = Math.round(10 - t * 6)       // 10 → 4
+          const brightness = Math.round(195 - t * 120) // 195 near head, 75 at tail
+          const alpha = (0.92 - t * 0.38).toFixed(2)   // 0.92 near head, 0.54 at tail
+          ctx.shadowBlur = Math.round(10 - t * 6)       // 10 near head, 4 at tail
           ctx.shadowColor = '#22c55e'
           ctx.fillStyle = `rgba(0, ${brightness}, 45, ${alpha})`
           fillRoundRect(ctx, rx, ry, rw, rh, 3)
@@ -233,7 +273,7 @@ export default function Snake() {
   }, []) // empty deps: runs for the lifetime of the component
 
   return (
-    <div className="flex flex-col items-start gap-3">
+    <div ref={containerRef} className="flex w-full flex-col items-center gap-3">
       <div className="flex flex-wrap gap-4 text-sm text-slate-600 dark:text-slate-400">
         <span className="font-medium">Score: {score}</span>
         {best != null && <span>Best: {best}</span>}
@@ -241,8 +281,6 @@ export default function Snake() {
       </div>
       <canvas
         ref={canvasRef}
-        width={COLS * CELL}
-        height={ROWS * CELL}
         data-testid="snake-canvas"
         className="max-w-full rounded-lg border border-slate-300 dark:border-slate-700"
       />
