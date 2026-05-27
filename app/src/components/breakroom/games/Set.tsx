@@ -35,13 +35,12 @@ function GlobalPatternDefs() {
             key={color}
             id={`set-hatch-${color}`}
             patternUnits="userSpaceOnUse"
-            width="6"
-            height="6"
+            width="10"
+            height="10"
             patternTransform="rotate(45 0 0)"
           >
-            {/* Two parallel lines per tile give dense, even hatching */}
-            <line x1="0" y1="0" x2="0" y2="6" stroke={COLOR[color]} strokeWidth="1.5" />
-            <line x1="3" y1="0" x2="3" y2="6" stroke={COLOR[color]} strokeWidth="1.5" />
+            {/* Single line per 10-unit tile: generous gap so stripes read clearly at any size */}
+            <line x1="0" y1="0" x2="0" y2="10" stroke={COLOR[color]} strokeWidth="3" />
           </pattern>
         ))}
       </defs>
@@ -68,7 +67,7 @@ function Shape({ card }: { card: SetCard }) {
   }
 
   return (
-    <svg viewBox="0 0 40 80" width="24" height="48" aria-hidden="true">
+    <svg viewBox="0 0 40 80" width="52" height="104" aria-hidden="true">
       {card.shape === 'oval' && (
         // Rounded rectangle, clean oval proportions
         <rect x="6" y="8" width="28" height="64" rx="14" {...shapeProps} />
@@ -110,7 +109,7 @@ function CardFace({ card }: { card: SetCard }) {
 
 function cardClass(sel: boolean, matched: boolean, disabled: boolean): string {
   const base = [
-    'relative flex h-28 items-center justify-center rounded-2xl border-2',
+    'relative flex min-h-[9rem] items-center justify-center rounded-2xl border-2',
     'transition-all duration-150',
     // Soft base shadow for a lifted-card feel
     'shadow-[0_2px_8px_rgba(0,0,0,0.07)]',
@@ -276,7 +275,7 @@ export default function SetGame() {
       </div>
 
       {/* Card grid */}
-      <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-4 gap-3">
         {tableau.map((card, i) => {
           const sel = selected.includes(i)
           const matched = matchedIndices.includes(i)
