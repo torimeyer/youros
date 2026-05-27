@@ -313,6 +313,70 @@ else
     echo ""
 fi
 
+# --- Set up launchd agents (macOS only) ---
+# Renders the plist templates in ops/ into ~/Library/LaunchAgents/ and
+# bootstraps both agents so they start immediately and at every login.
+# Guarded to macOS; Linux installs skip this block entirely.
+
+if [ "$(uname)" = "Darwin" ]; then
+    echo "Setting up launchd agents for auto-start..."
+
+    # Ensure cert setup has run (idempotent). This creates ~/.myos/localhost.{key,crt}
+    # if mkcert or the security add-trusted-cert path succeeds. We need the result
+    # before computing the health URL for the watchdog plist.
+    if [ -x "$INSTALL_DIR/scripts/setup-localhost-cert.sh" ]; then
+        bash "$INSTALL_DIR/scripts/setup-localhost-cert.sh" 2>/dev/null \
+            || echo -e "${YELLOW}Localhost cert setup skipped (non-fatal). Backend will use http.${NC}"
+    fi
+
+    # Compute the health probe URL that the watchdog plist will use.
+    if [ -f "$HOME/.myos/localhost.key" ] && [ -f "$HOME/.myos/localhost.crt" ]; then
+        HEALTH_URL="https://127.0.0.1:8000/api/health"
+    else
+        HEALTH_URL="http://127.0.0.1:8000/api/health"
+    fi
+
+    # Create the log directory launchd will write to.
+    mkdir -p "$HOME/.myos/logs"
+
+    LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
+    mkdir -p "$LAUNCH_AGENTS_DIR"
+
+    # Render each plist template: substitute __INSTALL_DIR__, __HOME__, __HEALTH_URL__.
+    for tmpl in com.myos.backend com.myos.watchdog; do
+        SRC="$INSTALL_DIR/ops/${tmpl}.plist.template"
+        DEST="$LAUNCH_AGENTS_DIR/${tmpl}.plist"
+        if [ ! -f "$SRC" ]; then
+            echo -e "${YELLOW}Warning: $SRC not found; skipping ${tmpl} agent.${NC}"
+            continue
+        fi
+        sed \
+            -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
+            -e "s|__HOME__|$HOME|g" \
+            -e "s|__HEALTH_URL__|$HEALTH_URL|g" \
+            "$SRC" > "$DEST"
+        echo "  Rendered $DEST"
+    done
+
+    # Bootstrap (or reload) both agents. launchctl bootstrap is idempotent
+    # on 10.15+; if the agent is already loaded we bootout first.
+    USER_UID=$(id -u)
+    for label in com.myos.backend com.myos.watchdog; do
+        plist="$LAUNCH_AGENTS_DIR/${label}.plist"
+        [ -f "$plist" ] || continue
+        # Unload if already running so we pick up any plist changes.
+        launchctl bootout "gui/${USER_UID}/${label}" 2>/dev/null || true
+        if launchctl bootstrap "gui/${USER_UID}" "$plist" 2>/dev/null; then
+            echo -e "  ${GREEN}${label} bootstrapped.${NC}"
+        else
+            echo -e "  ${YELLOW}${label}: bootstrap returned non-zero (may already be registered).${NC}"
+        fi
+    done
+
+    echo -e "${GREEN}launchd agents installed. Backend starts at login and recovers automatically.${NC}"
+    echo ""
+fi
+
 # --- Create startup shortcut ---
 
 chmod +x "$INSTALL_DIR/start.sh"

@@ -116,6 +116,21 @@ myos
 
 Your browser will open to https://localhost:8000.
 
+### Auto-start on macOS (after install)
+
+`install.sh` registers two launchd agents that start at login and restart automatically:
+
+| Agent | What it runs |
+|---|---|
+| `com.myos.backend` | uvicorn backend on port 8000. launchd restarts it within ~1s if it crashes. |
+| `com.myos.watchdog` | Kill-only watchdog. If the event loop deadlocks (port alive but health probe fails), the watchdog SIGKILLs uvicorn; launchd then does the restart. |
+
+The frontend is managed by PM2 via `ecosystem.config.js` (frontend only; backend is owned by launchd). To start the frontend manually:
+
+```bash
+pm2 start ecosystem.config.js
+```
+
 For development (Vite hot reload on `app/` source), use the two-terminal setup instead:
 
 ```bash
@@ -129,12 +144,13 @@ scripts/dev-frontend.sh     # Vite on https://localhost:3010
 ./stop.sh
 ```
 
-`./start.sh` and `scripts/dev-backend.sh` both run a watchdog that restarts uvicorn on crash, so `Ctrl+C` alone can leave myOS running in the background. `stop.sh` kills the watchdog first, then uvicorn on port 8000 and Vite on port 3010.
+On macOS after install, the backend is managed by launchd (KeepAlive). `stop.sh` uses `launchctl bootout` to unload the agents cleanly so launchd does not immediately restart them. For the watchdog and uvicorn, `Ctrl+C` or a plain `kill` will cause launchd to respawn; always use `stop.sh` or `launchctl bootout gui/$UID com.myos.backend` to stop for real.
 
 If `stop.sh` isn't available, the manual equivalent is:
 
 ```bash
-pkill -9 -f backend_watchdog.sh
+launchctl bootout gui/$UID com.myos.backend 2>/dev/null || true
+launchctl bootout gui/$UID com.myos.watchdog 2>/dev/null || true
 lsof -ti tcp:8000 | xargs kill 2>/dev/null
 lsof -ti tcp:3010 | xargs kill 2>/dev/null
 ```

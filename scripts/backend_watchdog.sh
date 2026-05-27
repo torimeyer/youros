@@ -52,7 +52,20 @@ DEV_BACKEND="${MYOS_WATCHDOG_DEV_BACKEND:-$SCRIPT_DIR/dev-backend.sh}"
 PIDFILE="${MYOS_WATCHDOG_PIDFILE:-/tmp/myos-backend-watchdog.pid}"
 LOGFILE="${MYOS_WATCHDOG_LOGFILE:-/tmp/myos-backend-watchdog.log}"
 INTERVAL="${MYOS_WATCHDOG_INTERVAL:-30}"
-HEALTH_URL="${MYOS_WATCHDOG_HEALTH_URL:-https://127.0.0.1:8000/api/health}"
+# Auto-detect scheme: use https only when the localhost cert files exist.
+# This matches the logic in scripts/dev-backend.sh (lines 300-305) so the
+# watchdog never probes https when uvicorn is serving http (which would always
+# return curl error 000 and trigger spurious restarts). The launchd plist sets
+# MYOS_WATCHDOG_HEALTH_URL explicitly so this auto-detect only affects dev mode.
+if [ -z "${MYOS_WATCHDOG_HEALTH_URL:-}" ]; then
+    if [ -f "${HOME:-}/.myos/localhost.key" ] && [ -f "${HOME:-}/.myos/localhost.crt" ]; then
+        HEALTH_URL="https://127.0.0.1:8000/api/health"
+    else
+        HEALTH_URL="http://127.0.0.1:8000/api/health"
+    fi
+else
+    HEALTH_URL="$MYOS_WATCHDOG_HEALTH_URL"
+fi
 MAX_RESTARTS="${MYOS_WATCHDOG_MAX_RESTARTS:-50}"
 # Seconds to sleep between retries inside probe_once (default 5; tests set to 0
 # so the inner retry loop completes in milliseconds instead of 10 seconds).

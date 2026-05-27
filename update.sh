@@ -219,10 +219,13 @@ echo ""
 
 # --- Re-run the installer to refresh dependencies ---
 
+# Capture the commit we started from so we can roll back on smoke failure.
+LOCAL_BEFORE=$(git rev-parse HEAD 2>/dev/null || echo "")
+
 echo "Refreshing the program (this will not touch your settings)..."
 echo ""
 if bash "$SCRIPT_DIR/install.sh"; then
-    echo -e "${GREEN}=== Update complete! ===${NC}"
+    echo -e "${GREEN}Install step complete.${NC}"
 else
     echo -e "${RED}The installer reported an error. Your data is still safe in ~/.myos/.${NC}"
     if [ "$STASHED" -eq 1 ]; then
@@ -230,6 +233,34 @@ else
     fi
     exit 1
 fi
+
+# --- Run smoke test (skipped unless RELEASE_MODE=1 or e2e_smoke.sh exists) ---
+
+if [ "${RELEASE_MODE:-0}" = "1" ] && [ -x "$SCRIPT_DIR/scripts/e2e_smoke.sh" ]; then
+    echo ""
+    echo "Running smoke test..."
+    if RELEASE_MODE=1 bash "$SCRIPT_DIR/scripts/e2e_smoke.sh"; then
+        echo -e "${GREEN}Smoke test passed.${NC}"
+    else
+        echo -e "${RED}Smoke test failed. Rolling back to $LOCAL_BEFORE...${NC}"
+        if [ -n "$LOCAL_BEFORE" ]; then
+            git reset --hard "$LOCAL_BEFORE" 2>/dev/null || true
+            echo "Reinstalling previous version..."
+            bash "$SCRIPT_DIR/install.sh" 2>/dev/null || true
+            # Restart launchd agents so they pick up the rolled-back code.
+            if [ "$(uname)" = "Darwin" ]; then
+                _uid=$(id -u)
+                for label in com.myos.backend com.myos.watchdog; do
+                    launchctl kickstart -k "gui/${_uid}/${label}" 2>/dev/null || true
+                done
+            fi
+        fi
+        echo -e "${RED}Update rolled back. Run 'myos' to start the previous version.${NC}"
+        exit 1
+    fi
+fi
+
+echo -e "${GREEN}=== Update complete! ===${NC}"
 
 # --- Remind the user about the stash ---
 
