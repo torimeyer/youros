@@ -3350,7 +3350,7 @@ class TestSlashCommands:
 
         assert handled is True
         texts = ws.get_messages_of_type("text")
-        assert "No open tasks" in texts[0]["data"]
+        assert "No open needles" in texts[0]["data"]
 
     @pytest.mark.asyncio
     async def test_commit_command(self, ws):
