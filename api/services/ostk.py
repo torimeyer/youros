@@ -563,32 +563,37 @@ class OstkService:
         norm_id = self._normalize_task_id(needle_id)
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        lines = issues_path.read_text().strip().splitlines()
-        found = False
-        changed = False
-        updated: list[str] = []
-        for line in lines:
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                updated.append(line)
-                continue
-            raw_id = str(entry.get("id", ""))
-            if self._normalize_task_id(raw_id) == norm_id:
-                found = True
-                if entry.get("status") == "open":
-                    entry["status"] = "in_progress"
-                    entry["in_progress_at"] = now_iso
-                    changed = True
-            updated.append(json.dumps(entry, ensure_ascii=False))
+        def _sync_update() -> bool:
+            # All file I/O is in this sync helper so the async caller
+            # can delegate via asyncio.to_thread and never block the loop.
+            lines = issues_path.read_text().strip().splitlines()
+            found = False
+            changed = False
+            updated: list[str] = []
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    updated.append(line)
+                    continue
+                raw_id = str(entry.get("id", ""))
+                if self._normalize_task_id(raw_id) == norm_id:
+                    found = True
+                    if entry.get("status") == "open":
+                        entry["status"] = "in_progress"
+                        entry["in_progress_at"] = now_iso
+                        changed = True
+                updated.append(json.dumps(entry, ensure_ascii=False))
 
-        if not found or not changed:
-            return False
+            if not found or not changed:
+                return False
 
-        issues_path.write_text("\n".join(updated) + "\n")
-        return True
+            issues_path.write_text("\n".join(updated) + "\n")
+            return True
+
+        return await asyncio.to_thread(_sync_update)
 
     async def delete_task(self, task_id: str) -> str:
         """Permanently remove a task from issues.jsonl.
