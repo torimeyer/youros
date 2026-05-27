@@ -52,7 +52,7 @@ function GlossyPeg({ colorKey, size = 26 }: { colorKey?: string; size?: number }
   )
 }
 
-/** 2×2 grid of small feedback pegs: black = exact, white = partial, empty = miss. */
+/** 2x2 grid of small feedback pegs: black = exact, white = partial, empty = miss. */
 function FeedbackPegs({ score }: { score: PegScore }) {
   const marks = [
     ...Array(score.exact).fill('exact'),
@@ -71,8 +71,8 @@ function FeedbackPegs({ score }: { score: PegScore }) {
         <span
           key={i}
           style={{
-            width: 9,
-            height: 9,
+            width: 10,
+            height: 10,
             borderRadius: '50%',
             background:
               m === 'exact'
@@ -94,7 +94,7 @@ function FeedbackPegs({ score }: { score: PegScore }) {
   )
 }
 
-/** Empty 2×2 placeholder when a row hasn't been guessed yet. */
+/** Empty 2x2 placeholder when a row has not been guessed yet. */
 function EmptyFeedback() {
   return (
     <span
@@ -108,8 +108,8 @@ function EmptyFeedback() {
         <span
           key={i}
           style={{
-            width: 9,
-            height: 9,
+            width: 10,
+            height: 10,
             borderRadius: '50%',
             background: 'rgba(255,255,255,0.04)',
             border: '1px solid rgba(255,255,255,0.07)',
@@ -169,8 +169,8 @@ export default function Mastermind() {
   }
 
   return (
-    <div className="flex flex-col gap-4 select-none">
-      {/* ── Board frame ── */}
+    <div className="flex flex-col items-center gap-4 select-none max-h-[75vh] overflow-y-auto pb-2">
+      {/* Board frame */}
       <div
         className="rounded-xl overflow-hidden"
         style={{
@@ -179,6 +179,8 @@ export default function Mastermind() {
           padding: 3,
           boxShadow:
             '0 8px 28px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,200,100,0.15)',
+          width: '100%',
+          maxWidth: 340,
         }}
       >
         {/* Board body */}
@@ -186,7 +188,7 @@ export default function Mastermind() {
           className="rounded-xl"
           style={{
             background: 'linear-gradient(180deg, #1a1a2e 0%, #12122a 100%)',
-            padding: '10px 12px',
+            padding: '10px 14px',
           }}
         >
           {/* Secret code slot */}
@@ -207,8 +209,8 @@ export default function Mastermind() {
                     <span
                       key={i}
                       style={{
-                        width: 18,
-                        height: 18,
+                        width: 22,
+                        height: 22,
                         borderRadius: '50%',
                         display: 'inline-block',
                         background:
@@ -217,7 +219,7 @@ export default function Mastermind() {
                       }}
                     />
                   ))
-                : secret.map((k, i) => <GlossyPeg key={i} colorKey={k} size={18} />)}
+                : secret.map((k, i) => <GlossyPeg key={i} colorKey={k} size={22} />)}
             </div>
           </div>
 
@@ -236,7 +238,7 @@ export default function Mastermind() {
               return (
                 <div
                   key={rowIdx}
-                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-all duration-200"
+                  className="flex items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200"
                   style={{
                     background: isActive
                       ? 'linear-gradient(90deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.04) 100%)'
@@ -250,19 +252,19 @@ export default function Mastermind() {
                   }}
                 >
                   {/* Row number */}
-                  <span className="w-4 shrink-0 text-right text-xs font-mono text-slate-600">
+                  <span className="w-5 shrink-0 text-right text-xs font-mono text-slate-600">
                     {MAX - rowIdx}
                   </span>
 
-                  {/* Peg slots */}
-                  <div className="flex gap-1.5 flex-1">
+                  {/* Peg slots - tight group, no flex-1 */}
+                  <div className="flex gap-1.5 shrink-0">
                     {pegsToShow.map((k, pegIdx) => (
-                      <GlossyPeg key={pegIdx} colorKey={k} size={24} />
+                      <GlossyPeg key={pegIdx} colorKey={k} size={30} />
                     ))}
                   </div>
 
-                  {/* Feedback peg grid */}
-                  <div className="flex items-center justify-center w-8 h-8">
+                  {/* Feedback peg grid - sits right next to pegs */}
+                  <div className="flex items-center justify-center shrink-0 ml-2">
                     {guess ? <FeedbackPegs score={guess.score} /> : <EmptyFeedback />}
                   </div>
                 </div>
@@ -272,9 +274,9 @@ export default function Mastermind() {
         </div>
       </div>
 
-      {/* ── Controls ── */}
+      {/* Controls */}
       {status === 'playing' && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 w-full" style={{ maxWidth: 340 }}>
           {/* Action row */}
           <div className="flex items-center gap-3 flex-wrap">
             <button
@@ -323,13 +325,13 @@ export default function Mastermind() {
         </div>
       )}
 
-      {/* ── Game over: show code ── */}
+      {/* Game over: show code */}
       {status !== 'playing' && (
         <div className="flex items-center gap-2 text-sm">
           <span className="text-slate-500 dark:text-slate-400">Code:</span>
           <div className="flex gap-1.5">
             {secret.map((k, i) => (
-              <GlossyPeg key={i} colorKey={k} size={22} />
+              <GlossyPeg key={i} colorKey={k} size={26} />
             ))}
           </div>
         </div>
