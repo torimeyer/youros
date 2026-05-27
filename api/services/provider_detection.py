@@ -3,11 +3,30 @@ from __future__ import annotations
 import asyncio
 import os
 import subprocess
+import time
 from pathlib import Path
 
 from services.settings_store import settings_store
 from services.claude_code_provider import is_claude_code_available
 from services.gemini_cli_provider import is_gemini_cli_available
+
+# ---------------------------------------------------------------------------
+# TTL single-flight cache for detect_providers()
+# Prevents N concurrent page-load requests from each spawning a full detection
+# run (gemini ping + gcloud + aws). TTL of 30 s is fine because provider
+# availability rarely changes within a session.
+# ---------------------------------------------------------------------------
+_PROVIDERS_CACHE_TTL: float = 30.0
+_providers_cache_value: dict | None = None
+_providers_cache_ts: float = 0.0
+_providers_lock: asyncio.Lock | None = None  # lazy-init to avoid import-time loop issues
+
+
+def _get_providers_lock() -> asyncio.Lock:
+    global _providers_lock
+    if _providers_lock is None:
+        _providers_lock = asyncio.Lock()
+    return _providers_lock
 
 
 async def detect_vertex_ai() -> bool:
@@ -74,8 +93,14 @@ async def detect_vertex_gemini() -> dict:
         return {"available": False}
     try:
         import google.auth
-        creds, project = google.auth.default(
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+
+        # google.auth.default() does synchronous file I/O (reads ADC json, keyfile,
+        # or calls gcloud) and can block for hundreds of milliseconds on cold caches.
+        # Offload it to a thread so the event loop stays responsive during concurrent
+        # page-load requests.  →1738
+        creds, project = await asyncio.to_thread(
+            google.auth.default,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
         )
         if not project:
             project = await _resolve_gcloud_default_project()
@@ -115,12 +140,8 @@ async def detect_bedrock() -> bool:
     return False
 
 
-async def detect_providers() -> dict[str, bool]:
-    """Return availability of known AI providers.
-
-    Checks Claude Code subscription login, ANTHROPIC_API_KEY, GEMINI_API_KEY,
-    Google Vertex AI ADC, and AWS Bedrock credentials. No secrets are returned.
-    """
+async def _run_full_detection() -> dict[str, bool]:
+    """Run a full provider scan (no cache). Called only by detect_providers()."""
     from services.ostk_secrets import get_anthropic_key, get_gemini_key
 
     claude_code = await is_claude_code_available()
@@ -139,3 +160,32 @@ async def detect_providers() -> dict[str, bool]:
         "vertex_ai_project": vx.get("project"),
         "bedrock": await detect_bedrock(),
     }
+
+
+async def detect_providers() -> dict[str, bool]:
+    """Return availability of known AI providers.
+
+    Checks Claude Code subscription login, ANTHROPIC_API_KEY, GEMINI_API_KEY,
+    Google Vertex AI ADC, and AWS Bedrock credentials. No secrets are returned.
+
+    Results are cached for _PROVIDERS_CACHE_TTL seconds and protected by a
+    single-flight lock so N concurrent page-load requests trigger at most one
+    full detection run.  →1738
+    """
+    global _providers_cache_value, _providers_cache_ts
+
+    now = time.monotonic()
+    if _providers_cache_value is not None and now < _providers_cache_ts + _PROVIDERS_CACHE_TTL:
+        return _providers_cache_value
+
+    lock = _get_providers_lock()
+    async with lock:
+        # Re-check inside the lock — another waiter may have populated the cache.
+        now = time.monotonic()
+        if _providers_cache_value is not None and now < _providers_cache_ts + _PROVIDERS_CACHE_TTL:
+            return _providers_cache_value
+
+        result = await _run_full_detection()
+        _providers_cache_value = result
+        _providers_cache_ts = time.monotonic()
+        return result
