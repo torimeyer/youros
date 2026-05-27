@@ -176,7 +176,7 @@ async def test_coordination_locks_from_ostk(client, tmp_path):
 
     with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
          patch("routers.agents.nudge_history", {}), \
-         patch("services.ostk.OstkService.list_locks", mock_list_locks):
+         patch("services.ostk.ostk.list_locks", mock_list_locks):  # patch singleton attr (robust if an earlier test leaked the ostk singleton as a mock)
         resp = await client.get("/api/sessions/coordination")
 
     data = resp.json()

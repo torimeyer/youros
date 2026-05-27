@@ -198,7 +198,10 @@ def _make_issues_jsonl(tmp_path: Path, entries: list[dict]) -> Path:
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    # asyncio.run() creates a fresh loop per call, so this stays hermetic in
+    # full-suite runs where an earlier async test has cleared the current loop
+    # (get_event_loop() raises "no current event loop" in that case on 3.11).
+    return asyncio.run(coro)
 
 
 def test_set_needle_in_progress_open_to_in_progress(tmp_path):
