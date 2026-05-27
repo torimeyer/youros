@@ -172,8 +172,14 @@ try:
     d = json.load(sys.stdin)
     rows = d.get("agents", d) if isinstance(d, dict) else d
     for a in rows:
-        if a.get("status") in ("running", "queued"):
-            print("  - %s (%s) worktree=%s" % (a.get("name", "?"), a.get("status", "?"), a.get("worktree_path", "-")))
+        # Only worktree-isolated spawned agents represent at-risk work: a bounce
+        # orphans their uncommitted worktree. Bare session rows (the operating
+        # Claude session, the api backend itself) have no worktree_path and
+        # survive a restart, so they must NOT block it or every restart during a
+        # live session would be refused.
+        wt = a.get("worktree_path")
+        if a.get("status") in ("running", "queued") and wt and wt not in ("", "-"):
+            print("  - %s (%s) worktree=%s" % (a.get("name", "?"), a.get("status", "?"), wt))
 except Exception:
     pass
 ' 2>/dev/null || true)
