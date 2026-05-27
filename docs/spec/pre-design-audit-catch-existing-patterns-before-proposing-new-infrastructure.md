@@ -82,7 +82,7 @@ The audit produces a short table before any design work starts. The script outpu
 | Git log  | none |
 | Needles/Specs | none |
 
-POSSIBLE MATCH — a different-named component may serve the same purpose.
+POSSIBLE MATCH: a different-named component may serve the same purpose.
 Review the semantic hits above and choose before proceeding:
 - [ ] Reuse the existing component (state which file and how)
 - [ ] Confirm these are genuinely different (state the distinction)
@@ -92,7 +92,7 @@ Three possible outcomes:
 
 - **`MATCH FOUND`**: a literal match exists. Hard block. Reuse/justify checkbox must be resolved before any design work.
 - **`POSSIBLE MATCH`**: only semantic hits exist. Soft block. Each semantic hit must be reviewed and resolved in writing before file-structure decisions or code.
-- **`CLEAR — no existing equivalent found`**: no signals fired. Continue the normal workflow.
+- **`CLEAR: no existing equivalent found`**: no signals fired. Continue the normal workflow.
 
 ### Hard gate
 
@@ -109,7 +109,7 @@ Three touch points, each catching a different stage of the pipeline:
 Replace Step 1 of the brainstorming SKILL.md checklist:
 
 **Before:**
-> 1. Explore project context — check files, docs, recent commits
+> 1. Explore project context, check files, docs, recent commits
 
 **After:**
 > 1. Run pre-design audit: extract component/service/feature names from the request. Run the four-signal check (codebase literal, codebase semantic, git log, needles/specs). Produce the clearance report. Resolve any MATCH FOUND or POSSIBLE MATCH before asking clarifying questions.
