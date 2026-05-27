@@ -97,12 +97,14 @@ async def test_coalesce_propagates_exception_to_all_waiters():
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_coalesces_concurrent_calls(monkeypatch):
+async def test_list_tasks_coalesces_concurrent_calls(monkeypatch, tmp_path):
     """Two concurrent list_tasks() calls on the same OstkService must
     result in exactly ONE call to the underlying _run_json subprocess
     wrapper.
     """
-    svc = OstkService()
+    # Isolate from the real .ostk/needles/issues.jsonl: list_tasks filters its
+    # results against the active store, which would drop these fake ids.
+    svc = OstkService(cwd=str(tmp_path))
     run_count = {"n": 0}
 
     async def fake_run_json(*args: str):
@@ -123,12 +125,14 @@ async def test_list_tasks_coalesces_concurrent_calls(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_returns_independent_copies(monkeypatch):
+async def test_list_tasks_returns_independent_copies(monkeypatch, tmp_path):
     """If one caller mutates the returned list, the other caller's
     copy must not see the mutation. Protects against the coalesced
     callers accidentally sharing mutable state.
     """
-    svc = OstkService()
+    # Isolate from the real .ostk/needles/issues.jsonl: list_tasks filters its
+    # results against the active store, which would drop these fake ids.
+    svc = OstkService(cwd=str(tmp_path))
 
     async def fake_run_json(*args: str):
         return [{"id": "a"}, {"id": "b"}]
