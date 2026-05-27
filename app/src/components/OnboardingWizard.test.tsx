@@ -302,7 +302,7 @@ describe('OnboardingWizard', () => {
     expect(screen.getByText(/Paste AI Studio key \(for personal use\)/i)).toBeInTheDocument()
   })
 
-  it('Connect step sections show Anthropic, Google, Confluence, GitHub headings', () => {
+  it('Connect step sections show Anthropic, Google, Confluence, GitHub headings', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(8)
@@ -310,7 +310,12 @@ describe('OnboardingWizard', () => {
     expect(connectEl).toHaveTextContent(/Anthropic/i)
     expect(connectEl).toHaveTextContent(/Google/i)
     expect(connectEl).toHaveTextContent(/Confluence/i)
-    expect(connectEl).toHaveTextContent(/GitHub/i)
+    // GitHub heading lives inside GithubSetupCard, which gates on an async
+    // status check (connected !== null && connected !== true). Wait for the
+    // mock api.get('/github/status') to resolve before asserting.
+    await waitFor(() => {
+      expect(connectEl).toHaveTextContent(/GitHub/i)
+    })
   })
 
   it('advances to Ready step with summary', () => {

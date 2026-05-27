@@ -1429,10 +1429,7 @@ function ConnectStep({
       </div>
 
       {/* ── GitHub ────────────────────────────────────────── */}
-      <div>
-        <p className={sectionDivider}>GitHub</p>
-        <GithubSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} stepIndex={stepIndex} />
-      </div>
+      <GithubSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} stepIndex={stepIndex} sectionDivider={sectionDivider} />
     </div>
   )
 }
@@ -1615,11 +1612,13 @@ export function GithubSetupCard({
   inputCls,
   subtextCls,
   stepIndex,
+  sectionDivider,
 }: {
   darkMode: boolean
   inputCls: string
   subtextCls: string
   stepIndex?: number
+  sectionDivider?: string
 }) {
   const [connected, setConnected] = useState<boolean | null>(null)
   const [expanded, setExpanded] = useState(false)
@@ -1657,9 +1656,12 @@ export function GithubSetupCard({
   if (connected === null || connected === true) return null
 
   const cardBase = `mt-4 p-3 rounded-lg border ${darkMode ? 'border-slate-200 dark:border-slate-700' : 'border-gray-200'}`
+  const header = sectionDivider ? <p className={sectionDivider}>GitHub</p> : null
 
   if (!expanded) {
     return (
+      <>
+        {header}
       <div data-testid="onboarding-github-card" className={cardBase}>
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium">Connect GitHub (optional)</p>
@@ -1672,11 +1674,14 @@ export function GithubSetupCard({
           </button>
         </div>
       </div>
+      </>
     )
   }
 
   if (oauthAvailable && !forceTokenForm) {
     return (
+      <>
+        {header}
       <div data-testid="onboarding-github-card" className={cardBase}>
         <p className="text-sm font-semibold mb-3">Connect GitHub (optional)</p>
         <p className={`text-xs mb-3 ${subtextCls}`}>
@@ -1709,10 +1714,13 @@ export function GithubSetupCard({
           </button>
         </div>
       </div>
+      </>
     )
   }
 
   return (
+    <>
+      {header}
     <div data-testid="onboarding-github-card" className={cardBase}>
       <p className="text-sm font-semibold mb-3">Connect GitHub (optional)</p>
       <div className="space-y-2">
@@ -1762,6 +1770,7 @@ export function GithubSetupCard({
         </div>
       </div>
     </div>
+    </>
   )
 }
 

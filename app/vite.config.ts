@@ -68,6 +68,25 @@ export default defineConfig({
   // same bug under concurrent Playwright workers (vite 5.4.21); same fix.
   optimizeDeps: {
     holdUntilCrawlEnd: false,
+    // Every breakroom game is lazy()-loaded. Without React pinned into the
+    // initial pre-bundle, the first lazy game chunk can trigger a fresh dep
+    // re-optimization that gives `react` a new browserHash while the already
+    // loaded `react-dom` keeps the old one. Two React instances in one page
+    // means the hook dispatcher is null, so the game crashes on its first
+    // hook with "Cannot read properties of null (reading 'useState')".
+    // Pinning these (plus resolve.dedupe below) keeps one React per session.
+    include: [
+      'react',
+      'react-dom',
+      'react-dom/client',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+    ],
+  },
+  // Force a single physical copy of React to resolve regardless of how a
+  // module imports it. Belt-and-suspenders with optimizeDeps.include above.
+  resolve: {
+    dedupe: ['react', 'react-dom'],
   },
   server: {
     port: 3010,

@@ -153,6 +153,45 @@ if [ -n "$existing_pids" ]; then
     # plus any orphan listener pid before proceeding. free_port_or_die below
     # handles the hard-kill escalation if SIGTERM is not enough.
     if [ -n "$live_uvicorn_pids" ]; then
+        # IN-FLIGHT AGENT GUARD: refuse to kill a healthy backend while agents
+        # are still running. Backend-managed agent workers die with the backend;
+        # their uncommitted work survives in their worktrees but is orphaned and
+        # the rows show as "abandoned" on restart. We only block when the live
+        # backend can still answer /api/agents AND reports running/queued agents.
+        # If the backend is wedged or down, the curl fails, _agents_json is empty,
+        # and the guard falls through so watchdog recovery still works. Override
+        # with MYOS_FORCE_RESTART=1 to bounce anyway.
+        if [ "${MYOS_FORCE_RESTART:-0}" != "1" ]; then
+            _agents_json=$(curl -sf --connect-timeout 3 -m 5 -k "https://127.0.0.1:$UVICORN_PORT/api/agents" 2>/dev/null \
+                || curl -sf --connect-timeout 3 -m 5 "http://127.0.0.1:$UVICORN_PORT/api/agents" 2>/dev/null \
+                || true)
+            if [ -n "$_agents_json" ]; then
+                _running=$(printf '%s' "$_agents_json" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    rows = d.get("agents", d) if isinstance(d, dict) else d
+    for a in rows:
+        # Only worktree-isolated spawned agents represent at-risk work: a bounce
+        # orphans their uncommitted worktree. Bare session rows (the operating
+        # Claude session, the api backend itself) have no worktree_path and
+        # survive a restart, so they must NOT block it or every restart during a
+        # live session would be refused.
+        wt = a.get("worktree_path")
+        if a.get("status") in ("running", "queued") and wt and wt not in ("", "-"):
+            print("  - %s (%s) worktree=%s" % (a.get("name", "?"), a.get("status", "?"), wt))
+except Exception:
+    pass
+' 2>/dev/null || true)
+                if [ -n "$_running" ]; then
+                    echo "REFUSING to restart backend on port $UVICORN_PORT: agents are still running." >&2
+                    echo "$_running" >&2
+                    echo "Their work lives in the worktrees above and will be orphaned if the backend dies." >&2
+                    echo "Wait for them to finish, or set MYOS_FORCE_RESTART=1 to bounce anyway." >&2
+                    exit 1
+                fi
+            fi
+        fi
         echo "Existing uvicorn(s) on port $UVICORN_PORT (PID(s): $live_uvicorn_pids). Killing to reclaim socket and avoid double-bind."
         kill $live_uvicorn_pids 2>/dev/null || true
         # Give them up to 3 seconds to release the port gracefully. If the
