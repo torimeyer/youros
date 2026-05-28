@@ -833,11 +833,12 @@ async def _resolve_api_key(settings_key: str) -> str:
 
 MAX_AGENT_TURNS = 40
 
-# Tighter cap for read-only discovery loops (→1699). When the model has burned
-# MAX_TOOL_ROUNDS turns making only read/search calls with no file edits, we
-# force a text-only synthesis response instead of allowing it to keep
-# rediscovering the same facts across expensive subscription round-trips.
-MAX_TOOL_ROUNDS = 6
+# Cap for read-only discovery loops (→1699, raised 6→15 in →1785). When the
+# model has burned MAX_TOOL_ROUNDS turns making only read/search calls with no
+# file edits, we force a text-only synthesis response. 15 matches Claude Code's
+# parent-session tool budget; 6 caused depth-first investigations to dead-end
+# before synthesizing a useful answer.
+MAX_TOOL_ROUNDS = 15
 
 
 # --- Anthropic transient-error retry policy ---
