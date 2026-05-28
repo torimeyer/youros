@@ -134,7 +134,7 @@ function DayView({
         return (
           <div
             key={ev.id}
-            className="mb-1 flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium text-white truncate"
+            className="mb-1 flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium text-white truncate"
             style={{ backgroundColor: color + 'cc' }}
             data-testid={`cal-grid-event-${ev.id}`}
           >
@@ -151,7 +151,7 @@ function DayView({
             style={{ top: i * HOUR_HEIGHT }}
             data-testid={`cal-day-hour-${startH + i}`}
           >
-            <span className="absolute -left-9 -top-2.5 text-[9px] text-slate-600 w-8 text-right leading-none">
+            <span className="absolute -left-9 -top-2.5 text-[11px] text-slate-600 w-8 text-right leading-none">
               {formatHour(startH + i)}
             </span>
           </div>
@@ -177,7 +177,7 @@ function DayView({
               data-testid={`cal-grid-event-${ev.id}`}
             >
               <span aria-hidden="true" className="sr-only" style={{ backgroundColor: color }} />
-              <p className="text-[9px] font-semibold leading-tight px-1 py-0.5 truncate">
+              <p className="text-[11px] font-semibold leading-tight px-1 py-0.5 truncate">
                 {ev.summary || 'Untitled'}
               </p>
             </div>
@@ -276,10 +276,10 @@ function WeekView({
             }`}
             data-testid={`cal-week-col-${i}`}
           >
-            <p className={`text-[9px] font-medium uppercase leading-none mb-0.5 ${isToday ? 'text-blue-300' : 'text-slate-500'}`}>
+            <p className={`text-xs font-medium uppercase leading-none mb-0.5 ${isToday ? 'text-blue-300' : 'text-slate-500'}`}>
               {DAY_SHORT[i]}
             </p>
-            <p className={`text-xs font-bold leading-none mb-1 ${isToday ? 'text-blue-200' : 'text-slate-300'}`}>
+            <p className={`text-sm font-bold leading-none mb-1 ${isToday ? 'text-blue-200' : 'text-slate-300'}`}>
               {d.getDate()}
             </p>
             <div className="space-y-0.5 flex-1 min-w-0">
@@ -288,7 +288,7 @@ function WeekView({
                 return (
                   <div
                     key={ev.id}
-                    className="flex items-center gap-0.5 rounded px-0.5 py-px text-[8px] text-white truncate"
+                    className="flex items-center gap-0.5 rounded px-0.5 py-px text-[10px] text-white truncate"
                     style={{ backgroundColor: color + 'bb' }}
                     data-testid={`cal-grid-event-${ev.id}`}
                   >
@@ -302,7 +302,7 @@ function WeekView({
                 )
               })}
               {extra > 0 && (
-                <p className="text-[8px] text-slate-500 leading-none">+{extra} more</p>
+                <p className="text-[10px] text-slate-500 leading-none">+{extra} more</p>
               )}
             </div>
           </div>
@@ -351,7 +351,7 @@ function MonthView({
     <div data-testid="cal-grid-month">
       <div className="grid grid-cols-7 mb-px">
         {DAY_LETTERS.map((n, i) => (
-          <div key={i} className="text-center text-[9px] font-medium text-slate-600 py-0.5">
+          <div key={i} className="text-center text-xs font-medium text-slate-600 py-0.5">
             {n}
           </div>
         ))}
@@ -369,7 +369,7 @@ function MonthView({
           return (
             <div
               key={i}
-              className={`min-h-[40px] p-px text-[8px] rounded ${
+              className={`min-h-[40px] p-px text-[9px] rounded ${
                 !isCurrentMonth
                   ? 'opacity-0 pointer-events-none'
                   : isToday
@@ -380,7 +380,7 @@ function MonthView({
             >
               {isCurrentMonth && (
                 <>
-                  <p className={`text-[9px] font-medium leading-tight mb-px ${isToday ? 'text-blue-300 font-bold' : 'text-slate-400'}`}>
+                  <p className={`text-xs font-medium leading-tight mb-px ${isToday ? 'text-blue-300 font-bold' : 'text-slate-400'}`}>
                     {dayNum}
                   </p>
                   {shown.map(ev => {
