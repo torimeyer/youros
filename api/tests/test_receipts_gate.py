@@ -94,6 +94,27 @@ class TestCheckReceipts:
     def test_done_with_long_hash_no_warning(self):
         assert self.check("fixed — commit a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2") is None
 
+    # --- →1765: backtick-wrapped hashes must NOT count as evidence ---
+
+    def test_backtick_direct_hash_returns_warning(self):
+        # `abc1234` directly after backtick — should not satisfy receipt gate.
+        warning = self.check("done. see `abc1234def5`")
+        assert warning is not None, "backtick-direct hash must not count as receipt evidence"
+
+    def test_backtick_mid_span_hash_returns_warning(self):
+        # Hash mid-span (not immediately after opening backtick) — was the bug.
+        warning = self.check("done. `commit abc1234def5` in the log")
+        assert warning is not None, "hash inside backtick span must not count as receipt evidence"
+
+    def test_code_fence_hash_returns_warning(self):
+        # Hash inside a triple-backtick fence.
+        warning = self.check("done.\n```\nabc1234def5\n```\n see `api/foo.py`")
+        assert warning is not None, "hash inside code fence must not count as receipt evidence"
+
+    def test_bare_hash_still_accepted(self):
+        # A bare (non-backtick-wrapped) hash must still clear the gate.
+        assert self.check("done. commit abc1234def5 landed") is None
+
     def test_done_with_file_reference_no_warning(self):
         assert self.check("fixed — see api/services/chat.py:42") is None
 

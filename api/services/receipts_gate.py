@@ -25,7 +25,18 @@ _TRIGGER_RE = re.compile(
 # Evidence patterns — any one of these clears the warning.
 
 # 7-to-40 hex char commit hash (standalone word boundary).
+# NOTE: single-char lookbehind covers `abc1234` (direct) but not mid-span cases
+# like `commit abc1234`. Pre-strip code spans via _strip_code_spans before matching.
 _COMMIT_RE = re.compile(r"(?<![`'\"])(?<!\w)[a-f0-9]{7,40}(?!\w)", re.IGNORECASE)
+
+# Matches markdown inline-code (`...`) and fenced code blocks (```...```).
+# Used to strip code spans before hash searching so hashes inside spans
+# (e.g. `run abc1234`) are never counted as receipt evidence.
+_CODE_SPAN_RE = re.compile(r"```.*?```|`[^`\n]*`", re.DOTALL)
+
+
+def _strip_code_spans(text: str) -> str:
+    return _CODE_SPAN_RE.sub("", text)
 
 # file/path:linenumber  e.g.  api/services/chat.py:42
 _FILE_LINE_RE = re.compile(
@@ -63,8 +74,9 @@ def check_receipts(reply_text: str) -> Optional[ReceiptsWarning]:
     if not m:
         return None
 
+    bare_text = _strip_code_spans(reply_text)
     if (
-        _COMMIT_RE.search(reply_text)
+        _COMMIT_RE.search(bare_text)
         or _FILE_LINE_RE.search(reply_text)
         or _TEST_OUTPUT_RE.search(reply_text)
         or _TESTID_RE.search(reply_text)
@@ -92,8 +104,9 @@ def check_brief_receipts(brief_text: str) -> Optional[ReceiptsWarning]:
     m = _TRIGGER_RE.search(brief_text)
     if not m:
         return None
+    bare_text = _strip_code_spans(brief_text)
     if (
-        _COMMIT_RE.search(brief_text)
+        _COMMIT_RE.search(bare_text)
         or _FILE_LINE_RE.search(brief_text)
         or _TEST_OUTPUT_RE.search(brief_text)
         or _TESTID_RE.search(brief_text)
