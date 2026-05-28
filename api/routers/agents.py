@@ -2126,12 +2126,13 @@ def _recover_stale_agents():
         # The Case 2b multi-signal check above only runs for source=="claude-code",
         # so backend-managed spawns (ui/api/chat) fell straight through to Case 3
         # and got marked abandoned even when their PID was still alive and working.
-        # That false-abandon is what triggers the respawn cascade: the auto-
-        # respawner re-launches "abandoned" agents, multiplying processes until
-        # the 500ms snapshot loop starves and the event loop wedges. If the PID
-        # is alive (even orphaned/reparented), keep the agent running and only
-        # flag a stale heartbeat — never abandon a live process.
-        if pid and _is_pid_alive(pid):
+        # Differentiate by source (→1453 vs →1678 conflict):
+        # - source="api"/"chat": autonomous backend processes that may survive
+        #   restart reparented to init. Keep them alive even if not our child.
+        # - source="ui": orphan PIDs from old backend run — reparented to init
+        #   but their drain/heartbeat tasks are gone. Let these fall to Case 3.
+        _is_api_autonomous = source in ("api", "chat")
+        if pid and _is_pid_alive(pid) and (_is_pid_my_child(pid) or _is_api_autonomous):
             meta["stale_heartbeat"] = True
             changed = True
             continue
@@ -3517,6 +3518,15 @@ def _get_per_agent_transcript_bytes_cached(name: str) -> int:
     return value
 
 
+def _fill_transcript_bytes(agents: list) -> None:
+    """Populate per_agent_transcript_bytes for rows missing it (sync, safe to thread)."""
+    for _ar in agents:
+        if "per_agent_transcript_bytes" not in _ar:
+            _ar_name = _ar.get("name", "")
+            _ar["kernel_event_index"] = _ar.get("transcript_bytes") or 0
+            _ar["per_agent_transcript_bytes"] = _get_per_agent_transcript_bytes_cached(_ar_name)
+
+
 def _format_jsonl_transcript(jsonl_path: Path) -> str:
     """Parse a Claude Code agent JSONL output file into a readable transcript.
 
@@ -4231,7 +4241,7 @@ async def list_agents(
                     _row[_f] = sanitize_for_json(_v)
             all_agents.append(_row)
     daemon_running = snapshot.get("daemon_running", False)
-    deleted_names = _load_deleted_agents()
+    deleted_names = await asyncio.to_thread(_load_deleted_agents)
     agents = [a for a in all_agents if a.get("name") not in deleted_names]
     if user_spawned_only:
         from services.agent_filters import is_user_spawned_agent
@@ -4252,11 +4262,7 @@ async def list_agents(
     # →1702: snapshot agents already have both fields from _run_enrich_pipeline.
     # Only compute here for rows added since the last snapshot (registered after
     # the last 500ms background cycle) — typically 0-1 rows per request.
-    for _ar in agents:
-        if "per_agent_transcript_bytes" not in _ar:
-            _ar_name = _ar.get("name", "")
-            _ar["kernel_event_index"] = _ar.get("transcript_bytes") or 0
-            _ar["per_agent_transcript_bytes"] = _get_per_agent_transcript_bytes_cached(_ar_name)
+    await asyncio.to_thread(_fill_transcript_bytes, agents)
     if summary:
         compact_keys = ("name", "source", "status", "spawned_at", "transcript_bytes",
                         "kernel_event_index", "per_agent_transcript_bytes",

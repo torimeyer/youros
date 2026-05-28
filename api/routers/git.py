@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from typing import Annotated
 
@@ -34,7 +35,8 @@ async def get_recent_commits(
         return {"commits": []}
 
     try:
-        root_result = subprocess.run(
+        root_result = await asyncio.to_thread(
+            subprocess.run,
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
@@ -49,7 +51,8 @@ async def get_recent_commits(
         raise HTTPException(status_code=500, detail="git timed out resolving repo root")
 
     try:
-        log_result = subprocess.run(
+        log_result = await asyncio.to_thread(
+            subprocess.run,
             [
                 "git", "log",
                 f"-n{limit}",
