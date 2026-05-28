@@ -562,6 +562,39 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["label", "command", "pattern"],
         },
     },
+    {
+        "name": "semantic_search",
+        "description": (
+            "Search the codebase, tasks, decisions, or history by meaning rather than exact text. "
+            "Use this when search_files would miss results because the user's words don't literally "
+            "appear in the code (e.g. 'how does auth work', 'where is the login flow', "
+            "'find where we handle errors'). Falls back gracefully if ostk is unavailable. "
+            "Use search_files for exact pattern/regex matches; use semantic_search for concept-level exploration."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural language description of what you are looking for.",
+                },
+                "scope": {
+                    "type": "string",
+                    "description": (
+                        "Where to search. Options: 'code' (default, source files), "
+                        "'work' (tasks/needles), 'decisions' (past decisions log), "
+                        "'history' (git/audit history), 'transcripts' (past sessions), 'all'."
+                    ),
+                    "enum": ["code", "work", "decisions", "history", "transcripts", "all"],
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return (default 20).",
+                },
+            },
+            "required": ["query"],
+        },
+    },
 ]
 
 
@@ -651,6 +684,12 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
             return await _chat_schedule_wakeup(input_data)
         elif name == "chat_monitor":
             return await _chat_monitor(input_data)
+        elif name == "semantic_search":
+            return await _semantic_search(
+                input_data["query"],
+                scope=input_data.get("scope", "code"),
+                limit=int(input_data.get("limit", 20)),
+            )
         else:
             return f"Unknown tool: {name}"
     except Exception as e:
@@ -793,6 +832,25 @@ async def _search_files(
         return result
     except asyncio.TimeoutError:
         return f"Search timed out after {COMMAND_TIMEOUT} seconds"
+
+
+async def _semantic_search(query: str, scope: str = "code", limit: int = 20) -> str:
+    """Search by meaning via the ostk MCP search tool (mode=semantic).
+
+    Falls back to a plain grep-style search if ostk is unavailable so
+    the chat agent always gets some result.
+    """
+    try:
+        from services.ostk_socket import call_tool, OstkSocketError
+        raw = await call_tool(
+            "search",
+            {"query": query, "mode": "semantic", "scope": scope, "limit": limit},
+            timeout=10.0,
+        )
+        return raw or f"No semantic search results for: {query}"
+    except Exception:
+        # ostk unavailable — fall back to literal grep so the tool still works
+        return await _search_files(query, "")
 
 
 async def _list_tasks() -> str:
