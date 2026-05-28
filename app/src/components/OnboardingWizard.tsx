@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useAppStore, TEAM_MODE_VISIBLE } from '../stores/app'
 import Icon from './Icon'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { reportError } from '../lib/reportError'
 import { AGENT_MARKETPLACE, PERSONA_ICONS, type MarketplaceCategory } from '../data/agentMarketplace'
 import { GoogleWorkspaceSetupCard } from './GoogleWorkspaceSetupCard'
@@ -821,8 +821,13 @@ function CustomizeStep({
           setChecked(new Set(resp.starter_pack.filter((i) => i.default_selected).map((i) => i.id)))
         }
       })
-      .catch(() => {
-        // API unavailable. Fallback already shown, nothing to do.
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setStarterPack([])
+        const detail = err instanceof ApiError
+          ? (typeof err.response.data.detail === 'string' ? err.response.data.detail : '')
+          : ''
+        setError(detail || "Couldn't load your starter agents. Please try again.")
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
