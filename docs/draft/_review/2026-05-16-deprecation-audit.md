@@ -9,13 +9,13 @@ Safety constraint: HIGH PRECISION. Each candidate has at least one strong, verif
 - 3 MEDIUM-confidence candidates
 - 1 LOW-confidence (manual review)
 - Total files scanned: 545 Python, 331 TypeScript
-- Total closed-needle references inspected: 50+, explicit deprecated markers: 4 files, orphan import check: all api/services/*.py
+- Total closed-Task references inspected: 50+, explicit deprecated markers: 4 files, orphan import check: all api/services/*.py
 
 ---
 
 ## HIGH-confidence candidates
 
-None found. The codebase has no cases where multiple converging signals (closed needle + explicit deprecated marker + zero callers) all align.
+None found. The codebase has no cases where multiple converging signals (closed Task + explicit deprecated marker + zero callers) all align.
 
 ---
 
@@ -75,7 +75,7 @@ None found. The codebase has no cases where multiple converging signals (closed 
   # api/routers/agents.py:5127
   from services.build_queue import finish_build as _finish_build
   ```
-  The triage doc at `docs/worktree-triage-2026-05-05.md:70` confirms both modules were scaffolded together under needle →970, but `comprehensive_build.py` was never wired up.
+  The triage doc at `docs/worktree-triage-2026-05-05.md:70` confirms both modules were scaffolded together under Task →970, but `comprehensive_build.py` was never wired up.
 - **Recommendation:** Remove `api/services/comprehensive_build.py`. No callers to update. Verify by running `grep -r "comprehensive_build" api/` before deleting.
 
 ---
@@ -100,7 +100,7 @@ None found. The codebase has no cases where multiple converging signals (closed 
 
 - **Naming-pattern matches** (`_old`, `_legacy`, `_v1`, etc.): 12 found, skipped per spec (too many false positives in variable names and log strings)
 - **Aged TODO/FIXME/HACK:** 6 found, skipped per spec (intentional reminders, not dead code)
-- **Closed-needle references as traceability annotations:** ~50 inspected. All needle references in `agents.py` are traceability comments explaining *why* a line exists, not workarounds awaiting removal. The referenced needles are closed because their fixes are already in the code.
+- **Closed-Task references as traceability annotations:** ~50 inspected. All Task references in `agents.py` are traceability comments explaining *why* a line exists, not workarounds awaiting removal. The referenced Tasks are closed because their fixes are already in the code.
 
 ---
 
@@ -108,7 +108,7 @@ None found. The codebase has no cases where multiple converging signals (closed 
 
 **What I searched:**
 
-1. Needle references (`→NNNN` pattern) in comments across `api/` and `app/src/` — confirmed all referenced needles are closed, then checked whether surrounding code looked like a surviving workaround. Found none: all are traceability annotations.
+1. Task references (`→NNNN` pattern) in comments across `api/` and `app/src/` — confirmed all referenced Tasks are closed, then checked whether surrounding code looked like a surviving workaround. Found none: all are traceability annotations.
 
 2. Explicit deprecated/superseded/replaced markers — searched for `deprecated`, `superseded by`, `replaced by`, `obsoleted by` in comments and docstrings. Found 4 relevant hits (onboarding, agents fleet, atlassian scope note, model deprecation handler). Atlassian and model-deprecation hits are about external API changes, not internal code.
 

@@ -100,7 +100,7 @@ This fires for any command mentioning these phrases in any position, including:
 
 ```
 ostk work add --description "fix git stash label-audit bug"
-ostk needle add "document git stash drop workaround"
+ostk Task add "document git stash drop workaround"
 ```
 
 Neither command mutates git state, but both get blocked.

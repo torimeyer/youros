@@ -1,7 +1,7 @@
 # Diagnosis: user-memory v1 dormant — trigger never fires on real user turns
 
 **Date:** 2026-05-20
-**Needle:** →1536
+**Task:** →1536
 **Investigator:** agent-1536-verify-user-memory-v1-e2e-retry-001
 
 ## Symptom

@@ -1,7 +1,7 @@
 ---
 title: Diagnose AC generation hang (→1598)
 date: 2026-05-22
-needle: "→1598"
+Task: "→1598"
 ---
 
 ## Symptom

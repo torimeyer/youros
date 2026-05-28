@@ -1,7 +1,7 @@
 # Fix →1463: Write Placeholder AC When No API Key (Subscription Auth)
 
 **Date:** 2026-05-17
-**Needle:** →1463
+**Task:** →1463
 **Status:** Complete
 
 ## Problem

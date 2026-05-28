@@ -888,7 +888,7 @@ git commit -m "feat(→1241): add follow_on_actions to all builtin templates"
 
 ---
 
-## Task 9: Smoke test + close needle
+## Task 9: Smoke test + close Task
 
 - [ ] **Step 1: Start the backend and frontend**
 
@@ -915,7 +915,7 @@ Expected: all checks pass. Fix any failures before proceeding.
 6. Verify follow-on action buttons appear below the row (at least 2, from the template's `follow_on_actions`).
 7. Click a follow-on action → a new agent spawns with the transcript injected into its prompt.
 
-- [ ] **Step 4: Close the needle**
+- [ ] **Step 4: Close the Task**
 
 ```bash
 ostk work close "→1241"

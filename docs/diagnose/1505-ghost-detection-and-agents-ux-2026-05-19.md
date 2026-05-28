@@ -19,7 +19,7 @@ Agents →1490, →1497, →1500, →1502 were marked `abandoned`/`failed` while
 ### Problem
 Agents view shows transient `Claude · Chat · <time>` agents mixed with real work agents.
 
-## Part C — Richer status badges (WIP / may become follow-up needle)
+## Part C — Richer status badges (WIP / may become follow-up Task)
 
 ---
 

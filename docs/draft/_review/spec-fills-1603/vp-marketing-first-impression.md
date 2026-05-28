@@ -2,7 +2,7 @@
 
 ## Provenance
 
-Created 2026-05-14 by promoting plan `~/.claude/plans/my-vp-of-marketing-majestic-pony.md` (written 2026-05-01). The plan was a gap analysis for a VP of marketing meeting. The spec was written to close three concrete gaps before that meeting: source grounding for creative agents, spec-to-artifact choices beyond code, and per-agent MCP/skill visibility. Blocks 1, 2, 3 map directly to those three gaps. Build work landed across needles →1228, →291, →1531, →1532.
+Created 2026-05-14 by promoting plan `~/.claude/plans/my-vp-of-marketing-majestic-pony.md` (written 2026-05-01). The plan was a gap analysis for a VP of marketing meeting. The spec was written to close three concrete gaps before that meeting: source grounding for creative agents, spec-to-artifact choices beyond code, and per-agent MCP/skill visibility. Blocks 1, 2, 3 map directly to those three gaps. Build work landed across Tasks →1228, →291, →1531, →1532.
 
 ## What's missing
 

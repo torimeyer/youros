@@ -2,7 +2,7 @@
 
 Backend-only implementation of the AI-suggest clarification flow.
 
-## What ships in this needle
+## What ships in this Task
 
 - `api/services/clarity_suggest.py` — `suggest_clarification(check_name, context)` using Claude
 - `POST /api/tasks/{task_id}/clarify/suggest` — returns `{proposed_fix, rationale}`, no persist

@@ -6,7 +6,7 @@
 
 ## Root cause
 
-`_find_freshest_matching_jsonl` (agents.py ~line 2688) is called once per agent during every `GET /api/agents` enrichment pass. Each call linearly scans `_load_candidates` — up to 826 candidate JSONL files — calling `_first_line_matches_needle` (12 string comparisons each) against every candidate.
+`_find_freshest_matching_jsonl` (agents.py ~line 2688) is called once per agent during every `GET /api/agents` enrichment pass. Each call linearly scans `_load_candidates` — up to 826 candidate JSONL files — calling `_first_line_matches_Task` (12 string comparisons each) against every candidate.
 
 When `_resolve_cache` expires (TTL = 30 s), the next request resolves every agent in the 24-hour enrichment window. With ~162 agents and 826 candidates:
 

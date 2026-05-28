@@ -1,4 +1,4 @@
-# needle-1217-diagnose: silent-fail root cause for first attempt
+# Task-1217-diagnose: silent-fail root cause for first attempt
 
 **Agent:** `1217-mcp-transport-repro-02a0e3`
 **Spawned:** 2026-05-12T22:05:37 UTC
@@ -9,7 +9,7 @@
 
 ## Verdict: not a true silent fail — work landed, but via wrong target
 
-`docs/needle-1217-repro.md` exists at commit `9ea72e2` on main
+`docs/Task-1217-repro.md` exists at commit `9ea72e2` on main
 (`2026-05-12 17:18:12 -0500` = 22:18 UTC), 10 minutes after the agent's
 last heartbeat. The worktree branch has zero commits because the commit
 went directly to main instead of the worktree branch.
@@ -98,7 +98,7 @@ connection. Pattern:
 5. Update the doc with repro result + commit again
 ```
 
-The 1217 brief said "write docs/needle-1217-repro.md" but did not require a
+The 1217 brief said "write docs/Task-1217-repro.md" but did not require a
 commit before the large-output repro test.
 
 ### Fix B — Brief template: always pass cwd to bash for git ops
@@ -121,13 +121,13 @@ but the 1217 brief did not enforce it.
 
 **No respawn needed.** The work landed:
 
-- `docs/needle-1217-repro.md` committed at `9ea72e2` on main
+- `docs/Task-1217-repro.md` committed at `9ea72e2` on main
 - Full findings: architecture analysis, repro attempts, OOM hypothesis,
   workaround (spawn+interact+tee), proposed fix (wire `_timeout_secs` in
   `sh_run.rs:19`)
 
-Recommended next step: **close →1217** (the needle is done; the findings
-doc is on main). Then file a separate P1 or sub-needle for the two
+Recommended next step: **close →1217** (the Task is done; the findings
+doc is on main). Then file a separate P1 or sub-Task for the two
 `sh_run.rs` fixes if those haven't been tracked yet.
 
 ---
@@ -138,7 +138,7 @@ doc is on main). Then file a separate P1 or sub-needle for the two
 |------|----------|
 | Transcript (heartbeats) | `/Users/torimeyer/claude/torios/transcripts/1217-mcp-transport-repro-02a0e3.md` |
 | Claude Code session jsonl | `/Users/torimeyer/.claude/projects/-Users-torimeyer-claude-torios/815d55b1-7dab-4eed-a318-57b1217b8c3e.jsonl` |
-| Repro doc (landed) | `docs/needle-1217-repro.md` @ `9ea72e2` |
+| Repro doc (landed) | `docs/Task-1217-repro.md` @ `9ea72e2` |
 | Hook denies | `~/.claude/logs/hook-denies.log` lines `22:04:50`, `22:05:41`, `22:06:50`, `22:07:13` |
 | agents.jsonl API row | `GET /api/agents` → `1217-mcp-transport-repro-02a0e3` |
 | cwd bug reference | `feedback_subagent_cwd_must_be_worktree.md` |

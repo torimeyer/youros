@@ -57,7 +57,7 @@ The chat layer is already multi-vendor. The subagent layer is hard-coded to `cla
 | Worktree isolation per subagent | ✅ at `.claude/worktrees/` | Move to `.myos/worktrees/`; abstract path |
 | Subagent tool ACL (`tools` whitelist) | 🟡 via Agentfile `TOOL` directive | Already vendor-neutral in Agentfile; surface in spawn API |
 | Subagent isolation modes (none/worktree/forked) | 🟡 worktree only | Add "forked" mode (inherit parent context) and "none" |
-| **Agent Teams** (shared task list, mailbox, TeammateIdle, roles) | 🟡 **half-built.** Have mailbox/nudge ([agents.py:6124](/Users/torimeyer/claude/torios/api/routers/agents.py)) + parallel spawn + heartbeat. Missing: shared task list visible to all teammates, role-based teammate identity, TeammateIdle quality gate, direct teammate-to-teammate messaging. | **"Team" primitive in myOS**: parent needle + N child needles + shared task graph + inter-agent inbox. Coordination lives in myOS, not in the runtime. See AC5. |
+| **Agent Teams** (shared task list, mailbox, TeammateIdle, roles) | 🟡 **half-built.** Have mailbox/nudge ([agents.py:6124](/Users/torimeyer/claude/torios/api/routers/agents.py)) + parallel spawn + heartbeat. Missing: shared task list visible to all teammates, role-based teammate identity, TeammateIdle quality gate, direct teammate-to-teammate messaging. | **"Team" primitive in myOS**: parent Task + N child Tasks + shared task graph + inter-agent inbox. Coordination lives in myOS, not in the runtime. See AC5. |
 | Background agents view (`claude agents`) | ✅ Running Agents panel + WS delta bus | Already vendor-neutral |
 
 ### Skills & invocation
@@ -77,7 +77,7 @@ Claude Code has ~30 hook events. myOS uses 5 (`SessionStart`, `PreToolUse:Agent`
 
 | Hook event | Vendor-neutral abstraction |
 |---|---|
-| `TeammateIdle` | Needle-idle event when a teammate subagent exits with team still open. Re-prompt team lead via mailbox. |
+| `TeammateIdle` | Task-idle event when a teammate subagent exits with team still open. Re-prompt team lead via mailbox. |
 | `ConfigChange`, `FileChanged`, `CwdChanged` | Filesystem watch publisher. ostk already audits gen_table; expose as SSE stream. |
 | `PreCompact` / `PostCompact` | ostk context compaction is implicit; add hook surface around it. |
 | `WorktreeCreate` / `WorktreeRemove` | Publish from [spawn_isolation.py](/Users/torimeyer/claude/torios/api/services/spawn_isolation.py). |
@@ -97,7 +97,7 @@ Claude Code has ~30 hook events. myOS uses 5 (`SessionStart`, `PreToolUse:Agent`
 |---|---|---|
 | MCP servers (stdio/HTTP/SSE) | ✅ ostk MCP wires this | Already standard |
 | Tool search / deferral | ✅ used | Already standard |
-| Resources (`@server:protocol://path/resource`) | ❌ not used | Expose ostk audit logs, needles, decisions as MCP resources |
+| Resources (`@server:protocol://path/resource`) | ❌ not used | Expose ostk audit logs, Tasks, decisions as MCP resources |
 | Prompts (`/mcp__server__prompt`) | ❌ not used | ostk verbs could ship as MCP prompts |
 | `headersHelper` (dynamic auth) | ❌ not used | Per-server token-refresh script; standard MCP pattern |
 
@@ -143,15 +143,15 @@ Claude Code has ~30 hook events. myOS uses 5 (`SessionStart`, `PreToolUse:Agent`
 
 | Claude Code feature | myOS today | Vendor-neutral abstraction (if gap) |
 |---|---|---|
-| Channels: push events into a running session (Telegram/Discord/iMessage/webhook) | 🟡 **half-built.** Integration pages for Gmail, iMessage, Slack, Jira read data, but they don't push events to a running agent session. | **myOS Channel primitive**: incoming source (iMessage row, Slack message, webhook POST) → routing rule (which agent/skill/needle handles it) → response delivered back through the same channel. See AC1. |
+| Channels: push events into a running session (Telegram/Discord/iMessage/webhook) | 🟡 **half-built.** Integration pages for Gmail, iMessage, Slack, Jira read data, but they don't push events to a running agent session. | **myOS Channel primitive**: incoming source (iMessage row, Slack message, webhook POST) → routing rule (which agent/skill/Task handles it) → response delivered back through the same channel. See AC1. |
 | Two-way reply through same channel | ❌ not used | Same primitive; response goes back via channel adapter |
 
 ### Tasks & scheduling
 
 | Claude Code feature | myOS today | Vendor-neutral abstraction (if gap) |
 |---|---|---|
-| TaskCreate / TaskList | ✅ ostk needles | Already vendor-neutral |
-| `blockedBy` dependencies | 🟡 memory rule says we should, wiring unclear | Add `blocked_by` field to needle schema; auto-spawn on resolution |
+| TaskCreate / TaskList | ✅ ostk Tasks | Already vendor-neutral |
+| `blockedBy` dependencies | 🟡 memory rule says we should, wiring unclear | Add `blocked_by` field to Task schema; auto-spawn on resolution |
 | Background tasks | ✅ mcp__ostk__spawn | Already vendor-neutral |
 | Monitor tool (mid-session event stream) | ✅ mcp__ostk__monitor | Already vendor-neutral |
 | CronCreate / scheduled tasks | 🟡 schedule_auto_labels only | Generalize to "scheduled prompt" primitive |
@@ -226,7 +226,7 @@ After drafting the gap analysis, Scott pointed at [os-tack/prism](https://github
 - Heartbeat tracking, ghost reaping, status updates to the Agents page.
 - Channel adapters (iMessage/Slack/Gmail/webhook two-way I/O at runtime).
 - Runtime event bus (UI live updates from running agents).
-- Needle / task tracking (ostk owns this).
+- Task / task tracking (ostk owns this).
 - Output styles applied at chat send time (prism handles compile-time context; styles are runtime injection).
 - Session continuity (fork/rewind via ostk gen_table).
 - The `RuntimeProvider` abstraction for spawning across providers (Claude CLI vs Gemini CLI vs Anthropic API).
@@ -257,7 +257,7 @@ class RuntimeProvider(Protocol):
     def subscribe(event: Event, handler: Callable) -> None: ...
 ```
 
-The myOS layer above this owns the **vendor-neutral primitives**: needles, memory, the event bus, the worktree convention, the permissions store. Each provider lights up what it can.
+The myOS layer above this owns the **vendor-neutral primitives**: Tasks, memory, the event bus, the worktree convention, the permissions store. Each provider lights up what it can.
 
 ## Acceptance criteria
 
@@ -271,7 +271,7 @@ Ship this first; requires NONE of AC2-AC6. All pieces already exist: `POST /api/
 - [ ] Intent parser supports "spawn X to do Y" / "nudge Z" / "status"
 - [ ] Routing rules table in new [api/routers/channel_routing.py](/Users/torimeyer/claude/torios/api/routers/channel_routing.py)
 - [ ] Agent reply sent back via existing `POST /api/imessage/send` on completion
-- [ ] Smoke test: text "spawn diagnose for needle 1654", agent spawns, completion reply lands in iMessage
+- [ ] Smoke test: text "spawn diagnose for Task 1654", agent spawns, completion reply lands in iMessage
 - [ ] Settings page has Channel Routing Rules panel
 
 ### AC2: Adopt prism for the config layer, with a boundary table FIRST
@@ -312,9 +312,9 @@ Renamed from "v2" since there's no formal v1. Today `provider_detection.py` does
 
 Substrate already there: parallel spawn ([agents.py:5055](/Users/torimeyer/claude/torios/api/routers/agents.py)), nudge ([agents.py:8229](/Users/torimeyer/claude/torios/api/routers/agents.py)), reply ([agents.py:8401](/Users/torimeyer/claude/torios/api/routers/agents.py)), `agent_mailbox_instruction()` at [:764](/Users/torimeyer/claude/torios/api/routers/agents.py), heartbeat, ack-bot. Synergy with AC1: "spawn a team to review PR #123" from your phone.
 
-- [ ] New [api/services/teams.py](/Users/torimeyer/claude/torios/api/services/teams.py) with Team primitive (parent needle + child teammates + shared task graph)
+- [ ] New [api/services/teams.py](/Users/torimeyer/claude/torios/api/services/teams.py) with Team primitive (parent Task + child teammates + shared task graph)
 - [ ] Role-based teammate identity (`security_reviewer`, `frontend_lead`, etc.)
-- [ ] TeammateIdle quality gate: teammate cannot exit while team's parent needle is open
+- [ ] TeammateIdle quality gate: teammate cannot exit while team's parent Task is open
 - [ ] `agent_mailbox_instruction()` extended with team-shared section
 - [ ] UI panel showing team membership + per-teammate status on Agents page
 - [ ] Smoke test: spawn 3-teammate team via "spawn a team to review PR #X" from iMessage, observe all 3 register, work in parallel, complete
@@ -324,7 +324,7 @@ Substrate already there: parallel spawn ([agents.py:5055](/Users/torimeyer/claud
 myOS already has `agent_events`, `session_events`, `workflow_events`, `dashboard_events`, `notifications_events`, `locks_events`, `grants_events`, `calendar_events`. Adding a 9th silo is negative work. Gate: this item ships only if it replaces ≥2 existing buses. Ships LAST.
 
 - [ ] At least 2 of the 8 existing buses migrated to consolidated [api/services/event_bus.py](/Users/torimeyer/claude/torios/api/services/event_bus.py)
-- [ ] New event types added: `agent.spawned`, `agent.completed`, `channel.message_received`, `needle.created`, `needle.closed`, `team.member_idle`
+- [ ] New event types added: `agent.spawned`, `agent.completed`, `channel.message_received`, `Task.created`, `Task.closed`, `team.member_idle`
 - [ ] SSE stream exposed at `GET /api/events`
 - [ ] Running Agents panel subscribes to consolidated bus
 - [ ] `ls api/services/*_events.py` shows ≤6 buses (down from 8)
@@ -349,7 +349,7 @@ myOS already has `agent_events`, `session_events`, `workflow_events`, `dashboard
 - **Memory in `~/.myos/memory/`, mirrored to Claude.** Auto-memory becomes a myOS-owned directory, written by any runtime, read by all. ostk already audits file writes, so attribution is free.
 - **Permissions as a runtime-neutral API.** ostk's `trust`/`grant` already exists; surface it through `GET /api/permissions` and a `Permission` field that providers consult before invoking tools.
 - **Plan mode as a workflow primitive, not a runtime feature.** myOS gates a "planning" session state; the runtime is told "you are planning, write to this path, don't modify files." Works in Gemini CLI the same way.
-- **Task graph with `blockedBy`.** Add `blocked_by` field to needles; auto-spawn when blockers resolve. Memory rule `feedback_autospawn_unblocked_queue.md` already says we should be doing this.
+- **Task graph with `blockedBy`.** Add `blocked_by` field to Tasks; auto-spawn when blockers resolve. Memory rule `feedback_autospawn_unblocked_queue.md` already says we should be doing this.
 - **Output styles.** "torios voice" already encoded in CLAUDE.md; ship as a prompt-prefix file in `~/.myos/styles/`.
 
 ### Tier 3: defer further
@@ -395,7 +395,7 @@ myOS already has `agent_events`, `session_events`, `workflow_events`, `dashboard
 
 **Reused from existing code:**
 - [agents/*.agent](/Users/torimeyer/claude/torios/agents): Agentfile format already provider-neutral
-- ostk substrate: needles, audit, gen_table, locks, sessions, trust/grant
+- ostk substrate: Tasks, audit, gen_table, locks, sessions, trust/grant
 - [api/services/gemini_cli_provider.py](/Users/torimeyer/claude/torios/api/services/gemini_cli_provider.py): template for new providers
 
 ## References

@@ -61,27 +61,27 @@ Error text: `"Couldn't load suggestions. Skip this step or try again."` — "Ski
 ### U1 — Connect step is silently skipped when a provider is detected, hiding Atlassian/GitHub
 **File:** `OnboardingWizard.tsx:143–148`  
 When `/providers/detect` returns a hit (e.g., Claude Code is set up), the Connect step index is skipped entirely. Atlassian and GitHub setup cards live only in Connect. So a Claude Code user never sees them during onboarding. This is probably the largest discoverability gap in the current flow.  
-**Child needle filed:** see →1492.
+**Child Task filed:** see →1492.
 
 ### U2 — No step persistence across reload
 **File:** `OnboardingWizard.tsx` overall  
 If the user reloads mid-onboarding (e.g., page crashes, network hiccup, Cmd+R out of habit), `stepIndex` resets to 0 and they start over. The OAuth redirect path does save/restore step (via `PATCH /settings onboarding_step`), but normal navigation doesn't.  
-**Child needle filed:** see →1493.
+**Child Task filed:** see →1493.
 
 ### U3 — No exit hatch from the wizard
 **File:** `OnboardingWizard.tsx:329–336`  
 The wizard is `fixed inset-0 z-50` with no close button and no Escape key handler. A user who accidentally triggers a fresh-install state (e.g., reset their localStorage but has a working backend) is stuck — they must complete the full flow to get back to the app.  
-**Child needle filed:** see →1494.
+**Child Task filed:** see →1494.
 
 ### U4 — Tracking repo path captured as folder name, not full path
 **File:** `OnboardingWizard.tsx:1103`  
 When a user picks the "repo" tracking option and selects a folder, the path stored is `rel.split('/')[0]` — just the top-level folder name (e.g., "myproject"), not an absolute path. The `/onboarding/enable-myos-hooks` endpoint likely needs an absolute path to install the hook in the right place. This looks like a functional bug.  
-**Child needle filed:** see →1495.
+**Child Task filed:** see →1495.
 
 ### U5 — Persona install fires on card click, not on Next — no undo
 **File:** `OnboardingWizard.tsx:162`  
 `api.post('/agents/pm-templates/install-persona', ...)` fires immediately when a persona card is clicked, before the user confirms by clicking Next. If the user changes their mind and picks a different persona, the old persona's templates may already be installed. There's no rollback.  
-**Child needle filed:** see →1496.
+**Child Task filed:** see →1496.
 
 ### U6 — Atlassian/GitHub cards are invisible while status loads
 **File:** `OnboardingWizard.tsx:1416, 1581`  
@@ -135,9 +135,9 @@ The global Enter handler excludes `INPUT`, `TEXTAREA`, `BUTTON`, and `contentEdi
 | C2 | `OnboardingWizard.tsx` | 396 | Profile heading: `{osName}` → `{osName \|\| 'your OS'}` |
 | C3 | `OnboardingWizard.tsx` | 1052 | Tracking label 1: awkward statement → "Track everything — yourOS is my main dashboard." |
 
-## Summary of child needles filed
+## Summary of child Tasks filed
 
-| Needle | Title | Priority |
+| Task | Title | Priority |
 |--------|-------|----------|
 | →1492 | Connect step skipped when provider detected — Atlassian/GitHub not shown | P2 |
 | →1493 | Onboarding: persist step index on reload | P3 |

@@ -1,6 +1,6 @@
 # Anthropic Files API — Auth Investigation
 
-**Needle:** →1339
+**Task:** →1339
 **Date:** 2026-05-14
 **Verdict:** Path B — Files API requires an API key. Subscription OAuth is not supported.
 

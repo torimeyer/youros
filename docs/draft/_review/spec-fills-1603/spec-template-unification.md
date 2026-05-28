@@ -2,7 +2,7 @@
 
 ## Provenance
 
-Created 2026-05-22 by agent 1599 (`1599-specs-template-needs-clari-40cb2e`) as the output of needle →1599 (spec template unification research). Commits: `771fe4c scaffold(→1599)` then `30c1419 docs(→1599): unification proposal ready for review`. The doc is a thorough research report on three problems: the broken AI suggest button in `NeedsClarityChip.tsx`, generic textarea placeholders, and the structural gap between the 5-check clarity badge and the 10-section audit tool. It uses numbered sections (1–7) and an executive summary rather than canonical spec headings.
+Created 2026-05-22 by agent 1599 (`1599-specs-template-needs-clari-40cb2e`) as the output of Task →1599 (spec template unification research). Commits: `771fe4c scaffold(→1599)` then `30c1419 docs(→1599): unification proposal ready for review`. The doc is a thorough research report on three problems: the broken AI suggest button in `NeedsClarityChip.tsx`, generic textarea placeholders, and the structural gap between the 5-check clarity badge and the 10-section audit tool. It uses numbered sections (1–7) and an executive summary rather than canonical spec headings.
 
 This is a hybrid: part research doc, part feature spec. The Phase 3 work items at the bottom are the real spec content. The numbered sections 1–5 are background that informs the spec.
 
@@ -24,7 +24,7 @@ title: Spec template unification (→1599)
 status: draft
 created_at: 2026-05-22
 promoted_at: 2026-05-22
-needle: →1599
+Task: →1599
 ---
 
 # Spec template unification (→1599)
@@ -81,12 +81,12 @@ Three independent fixes, each in one or two files:
 
 ## DECISION
 
-TBD (needs tori) — proposal not yet reviewed. Open: (1) whether stage-aware clarity checks are in scope for Phase 3 or a separate needle; (2) whether the spec_templates.py file already covers the scaffolding use case.
+TBD (needs tori) — proposal not yet reviewed. Open: (1) whether stage-aware clarity checks are in scope for Phase 3 or a separate Task; (2) whether the spec_templates.py file already covers the scaffolding use case.
 
 ## References
 
 - Agent 1599 research: `docs/draft/spec-template-unification.md` (this spec converted from)
-- Needle →1599
+- Task →1599
 - `app/src/components/NeedsClarityChip.tsx` — primary file for Fixes 1 and 2
 - `api/services/clarity_suggest.py` — backend AI suggest endpoint (working correctly)
 - `api/routers/specs.py:1070` — `/clarity-suggest` endpoint (working)
@@ -98,4 +98,4 @@ TBD (needs tori) — proposal not yet reviewed. Open: (1) whether stage-aware cl
 ## Items that couldn't be recovered
 
 - **DECISION**: empty — proposal not yet reviewed by tori. Marked TBD.
-- **Stage-aware checks** (from section 3 of the original doc): unclear whether this is in scope for this spec or a separate needle. Left out of AC — mark as TBD for tori.
+- **Stage-aware checks** (from section 3 of the original doc): unclear whether this is in scope for this spec or a separate Task. Left out of AC — mark as TBD for tori.

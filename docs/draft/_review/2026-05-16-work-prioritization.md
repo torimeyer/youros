@@ -7,9 +7,9 @@ Framework: conflicting first, compounding next (per Scott via tori)
 
 ## Inventory
 
-**23 open needles** across P1/P2/P3. **4 active specs** (all in `~/.myos/specs/`, none in archive).
+**23 open Tasks** across P1/P2/P3. **4 active specs** (all in `~/.myos/specs/`, none in archive).
 
-### Open needles
+### Open Tasks
 
 | ID | Priority | Title (short) | Status |
 |----|----------|---------------|--------|
@@ -34,19 +34,19 @@ Framework: conflicting first, compounding next (per Scott via tori)
 | →1425 | P2 | Spec-auto-status Phase 2b: agent self-register claim via preamble | open, blocked by →1422 |
 | →1426 | P2 | Spec-auto-status Phase 2c: in-chat slash /build-spec | open, blocked by →1422 |
 | →1427 | P2 | Spec-auto-status Phase 3: passive git-commit detection watcher | open, blocked by →1422 |
-| →1428 | P2 | Plan-waves: add specs alongside needles in the UI candidate list | open |
+| →1428 | P2 | Plan-waves: add specs alongside Tasks in the UI candidate list | open |
 | →1399 | P3 | mychat: background work (ScheduleWakeup/Monitor from chat) | open |
 | →1400 | P3 | mychat: ostk audit/undo trail in chat (collapsible diffs + undo) | open |
 | →1410 | P3 | Audit ~/.myos/users/<uid>/ directory strategy for future multi-user | open |
 
 ### Active specs
 
-| Spec | Status | Linked needles | Notes |
+| Spec | Status | Linked Tasks | Notes |
 |------|--------|----------------|-------|
-| `left-nav-consolidation-plan.md` | Option B decided (2026-05-15 USER FEEDBACK) | →1421 | Plan written at `~/.claude/plans/needle-1421-left-nav-consolidation.md`. Ready to build. |
+| `left-nav-consolidation-plan.md` | Option B decided (2026-05-15 USER FEEDBACK) | →1421 | Plan written at `~/.claude/plans/Task-1421-left-nav-consolidation.md`. Ready to build. |
 | `pattern-watcher.md` | Full spec, all decisions resolved | None filed yet | Blocked: `mem.fault_recall` is inactive (listed in `services_inactive` at boot). ostk-recall not wired. |
 | `spec-auto-status.md` | Phase 1 committed in worktree | →1422 →1423 →1424 →1425 →1426 →1427 | Worktree `agent-implement-1420-spec-b-d757339c` has 2 commits including `feat(specs): auto-promote ready specs to building`. Needs merge review. |
-| `vp-marketing-first-impression.md` | Spec written, build order defined | None filed yet | ~9 days of work across 3 blocks. No needles, no agent started. |
+| `vp-marketing-first-impression.md` | Spec written, build order defined | None filed yet | ~9 days of work across 3 blocks. No Tasks, no agent started. |
 
 ---
 
@@ -64,22 +64,22 @@ Framework: conflicting first, compounding next (per Scott via tori)
 
 **What I found:**
 
-"Sphere" is an ostk concept for a **cluster of related needles**. In ostk's data model:
+"Sphere" is an ostk concept for a **cluster of related Tasks**. In ostk's data model:
 
-- A sphere is a group of needles that are semantically or structurally connected.
-- `ostk work sphere <ID>` shows the sphere digest for a needle: its cluster members, joints (connections), and nearby hay (ideas not yet turned into needles).
+- A sphere is a group of Tasks that are semantically or structurally connected.
+- `ostk work sphere <ID>` shows the sphere digest for a Task: its cluster members, joints (connections), and nearby hay (ideas not yet turned into Tasks).
 - `ostk work activate <ID>` returns a briefing with sphere details, neighbors, blockers.
 - `ostk work refine` parses spheres, degree (connection count), and joints.
-- The "sphere-radius-aware" pull logic is how ostk selects the highest-priority task (it prefers needles in active spheres).
+- The "sphere-radius-aware" pull logic is how ostk selects the highest-priority task (it prefers Tasks in active spheres).
 - There was a UI section called "WHERE THIS TASK SITS" in Tasks.tsx that showed sphere info — it was removed (commit 5ef6451, agent memory dated 2026-04-28).
 
 **My reading of what Scott said:**
 
-Scott almost certainly meant `ostk work sphere` — the command that shows sphere/cluster context for a needle. This is the tool for understanding which needles are clustered together before deciding what to work on. The phrase "command works sphere" is likely "the `ostk work sphere` command."
+Scott almost certainly meant `ostk work sphere` — the command that shows sphere/cluster context for a Task. This is the tool for understanding which Tasks are clustered together before deciding what to work on. The phrase "command works sphere" is likely "the `ostk work sphere` command."
 
 If Scott meant something broader — a prioritization *framework* built around spheres — that framework is not documented anywhere I could find. The commands `ostk work sphere`, `ostk work compounds`, `ostk work radiate`, and `ostk work refine` together form ostk's native work-prioritization surface.
 
-**Action for tori:** If Scott meant `ostk work sphere` as a tool to use during this analysis, I can run `ostk work sphere <needle-id>` on any specific needle to show its cluster. If he meant a different concept, please clarify and I will re-run.
+**Action for tori:** If Scott meant `ostk work sphere` as a tool to use during this analysis, I can run `ostk work sphere <Task-id>` on any specific Task to show its cluster. If he meant a different concept, please clarify and I will re-run.
 
 ---
 
@@ -100,11 +100,11 @@ If Scott meant something broader — a prioritization *framework* built around s
 
 | Item | Leverage (1-5) | What it unlocks | Why this score |
 |------|----------------|-----------------|----------------|
-| →1422 Spec-auto-status Phase 1 (already in worktree) | 5 | Unblocks →1423, →1424, →1425, →1426, →1427 — the entire rest of the spec-auto-status spec | One backend merge frees 5 downstream needles simultaneously |
+| →1422 Spec-auto-status Phase 1 (already in worktree) | 5 | Unblocks →1423, →1424, →1425, →1426, →1427 — the entire rest of the spec-auto-status spec | One backend merge frees 5 downstream Tasks simultaneously |
 | VP marketing Block 1 (source library + KNOWLEDGE directive) | 4 | Unlocks VP marketing Blocks 2 and 3. Unblocks the demo moment (brand-voice in agent output). Makes the spec viable for the VP meeting. | First block is the gating dependency for the full spec. Without it, Blocks 2 and 3 are empty shells. |
-| →1403 BDD invariant test in saa briefs | 3 | Every future bug-fix spawn automatically gets a regression test. Better quality on all future agents. | Cheap process change that applies to every future spawn, not just today's needles. |
+| →1403 BDD invariant test in saa briefs | 3 | Every future bug-fix spawn automatically gets a regression test. Better quality on all future agents. | Cheap process change that applies to every future spawn, not just today's Tasks. |
 | →1411 doc promote routing fix | 3 | Unblocks proper spec routing for all future `ostk doc promote` calls. Clears the root cause behind →1404's quality gaps. | Every new spec added after this fix lands in the right place automatically. |
-| →1421 Left-nav consolidation | 2 | Closes the left-nav-consolidation spec. Sets the sidebar layout that pattern-watcher's panel needs to reference. | Self-contained, high visible impact, quick (2-file change, plan already written), but doesn't unlock other needles. |
+| →1421 Left-nav consolidation | 2 | Closes the left-nav-consolidation spec. Sets the sidebar layout that pattern-watcher's panel needs to reference. | Self-contained, high visible impact, quick (2-file change, plan already written), but doesn't unlock other Tasks. |
 | →1397 mychat receipts gate | 2 | Makes the "receipts" standing rule a product feature, not just a prompt rule. Every chat session enforces it automatically. | Standing rule becomes durable. Moderate unlock: doesn't open new capabilities, hardens existing ones. |
 | Pattern-watcher spec | 2 | Long-term: MEMORY.md replacement, emergent learning. | Currently blocked on `mem.fault_recall` being inactive. Cannot start until ostk-recall is wired and running. Score reflects post-unlock potential, not current actionability. |
 | →1395 mychat plan mode toggle | 1 | Adds confirmable banner before tool calls. UX improvement, not a blocker for anything else. | Independent feature, low leverage on other work. |
@@ -128,8 +128,8 @@ If Scott meant something broader — a prioritization *framework* built around s
 4. **→1403 BDD invariant test requirement** — Process change, high future leverage.
    Update the saa brief template to require a BDD invariant test (not just a unit test) for bug-fix spawns. Cheap to implement (probably a template edit + CLAUDE.md or MEMORY.md update). Every future bug-fix spawn gets the benefit automatically.
 
-5. **File VP marketing Block 1 as needles and start it** — Compounding, external deadline.
-   No needles exist yet for the VP marketing spec. Block 1 (source library, KNOWLEDGE directive, agent grounding) is the foundation for Blocks 2 and 3. With ~9 days of work and an upcoming VP meeting, the clock is ticking. File needles for Block 1, saa Block 1. Blocks 2 and 3 follow after Block 1 commits.
+5. **File VP marketing Block 1 as Tasks and start it** — Compounding, external deadline.
+   No Tasks exist yet for the VP marketing spec. Block 1 (source library, KNOWLEDGE directive, agent grounding) is the foundation for Blocks 2 and 3. With ~9 days of work and an upcoming VP meeting, the clock is ticking. File Tasks for Block 1, saa Block 1. Blocks 2 and 3 follow after Block 1 commits.
 
 6. **→1422 aftermath: spawn →1423 (Phase 4 UI)** — After the merge in step 1.
    Phase 4 (Building badge in Specs page UI) is the most user-visible part of spec-auto-status. Once Phase 1 is in main, Phase 4 can be built cleanly against the real API contract.
@@ -154,7 +154,7 @@ If Scott meant something broader — a prioritization *framework* built around s
 
 ## Open questions for tori
 
-1. **"Command works sphere" clarification.** My best reading is that Scott meant `ostk work sphere <needle-id>` — the ostk command that shows which needles cluster together. If so: do you want me to run `ostk work sphere` on specific needles (e.g., the spec-auto-status cluster) and include that output in the prioritization? Or did Scott mean something else entirely?
+1. **"Command works sphere" clarification.** My best reading is that Scott meant `ostk work sphere <Task-id>` — the ostk command that shows which Tasks cluster together. If so: do you want me to run `ostk work sphere` on specific Tasks (e.g., the spec-auto-status cluster) and include that output in the prioritization? Or did Scott mean something else entirely?
 
 2. **Spec-auto-status worktree review.** The worktree `agent-implement-1420-spec-b-d757339c` has Phase 1 committed but is "locked" in `git worktree list`. Is there an active session still working on it, or is it done and ready to review/merge?
 

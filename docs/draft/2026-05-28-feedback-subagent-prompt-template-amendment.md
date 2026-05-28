@@ -1,6 +1,6 @@
 # Amendment: feedback_subagent_prompt_template.md Rule 6
 
-**Needle**: →1792  
+**Task**: →1792  
 **Date**: 2026-05-28  
 **File amended**: `/Users/torimeyer/.claude/projects/-Users-torimeyer-claude-torios/memory/feedback_subagent_prompt_template.md`
 

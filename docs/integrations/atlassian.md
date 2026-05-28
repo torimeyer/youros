@@ -10,7 +10,7 @@ Once connected, yourOS can:
 
 - Show your open Jira issues and let you comment, transition, or reassign them without leaving yourOS.
 - Browse recent Confluence pages and pull their content into context.
-- Promote a Jira issue into a tracked task (needle) in one click.
+- Promote a Jira issue into a tracked task (Task) in one click.
 
 ---
 

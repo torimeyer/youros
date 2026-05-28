@@ -1,7 +1,7 @@
 ---
 title: Discord as a connected service
 status: draft
-needle: →1706
+Task: →1706
 created_at: 2026-05-28
 ---
 
@@ -18,7 +18,7 @@ Concretely:
   gets lost in the channel or requires a manual copy-paste into a task.
 - Tori can't see Discord messages alongside her Gmail and Slack feeds without
   context-switching to the Discord app.
-- There's no way to turn a Discord message into a tracked task (needle) from
+- There's no way to turn a Discord message into a tracked task (Task) from
   inside yourOS.
 
 The user need is the same one Slack already solves: read messages where work
@@ -33,7 +33,7 @@ the tool.
       and read recent messages in any channel.
 - [ ] She can flag a Discord message as a follow-up, storing it in a
       persistent list the same way Slack follow-ups work.
-- [ ] She can promote a Discord message to a tracked task (needle), pre-filled
+- [ ] She can promote a Discord message to a tracked task (Task), pre-filled
       with the message text and a link back to the original.
 - [ ] Connection status (connected / disconnected, guild name) is visible on
       the Settings page and reflected immediately after connect or disconnect.
@@ -88,7 +88,7 @@ Discord's authorization model differs from Slack's:
 GET /discord/channels              → lists text channels the bot can see
 GET /discord/messages/{channel_id} → fetches recent messages (REST, paginated)
 POST /discord/followups            → stores a flagged message in ~/.myos/discord_followups.json
-POST /discord/triage/promote       → creates a task (needle) from a message
+POST /discord/triage/promote       → creates a task (Task) from a message
 ```
 
 All reads are REST pull. No Gateway connection in v1. The frontend polls
@@ -101,7 +101,7 @@ existing `connections_cache` TTL layer.
 |---|---|---|
 | Bot token | `~/.myos/discord_token.json` | Outside the repo, never committed |
 | Follow-ups | `~/.myos/discord_followups.json` | Survives `git pull`; matches the location pattern for other user data |
-| Tasks/needles | Written via `routers/tasks.py:create_task` | No new storage; same path as Slack promotes |
+| Tasks/Tasks | Written via `routers/tasks.py:create_task` | No new storage; same path as Slack promotes |
 
 ## Key surfaces
 
@@ -148,7 +148,7 @@ is the right place to emit a `discord.followup_added` event.
       message appears in a follow-up list; `DELETE /discord/followups/{id}`
       removes it.
 - [ ] Clicking "Promote to task" calls `POST /discord/triage/promote`, creates
-      a needle, and the frontend shows a confirmation with the new task title
+      a Task, and the frontend shows a confirmation with the new task title
       and a link to the task.
 - [ ] `DELETE /discord/disconnect` removes `~/.myos/discord_token.json` and
       `GET /discord/status` returns `{ connected: false }`.

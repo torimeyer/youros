@@ -1,6 +1,6 @@
-# needle-1217: MCP -32000 "Connection closed" on large recursive grep
+# Task-1217: MCP -32000 "Connection closed" on large recursive grep
 
-**Needle:** →1217 | **Date:** 2026-05-12 | **Agent:** 1217-mcp-transport-repro-02a0e3
+**Task:** →1217 | **Date:** 2026-05-12 | **Agent:** 1217-mcp-transport-repro-02a0e3
 
 ## Summary
 
@@ -11,7 +11,7 @@ timeout at any layer. Two real failure modes were found and documented below.
 
 ## Repro attempts
 
-### Command 1 (from needle spec)
+### Command 1 (from Task spec)
 ```
 grep -rln 'fn\|struct\|impl' /Users/torimeyer/claude/torios/haystack-main \
   --include='*.rs' 2>/dev/null | head -50

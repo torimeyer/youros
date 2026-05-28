@@ -1,9 +1,9 @@
 # ToriChat Depth vs Claude Code: Root Cause Audit
 
-**Needle:** →1781  
+**Task:** →1781  
 **Date:** 2026-05-28  
 **Investigator:** diagnose-torichat-depth-1781  
-**Trigger:** ToriChat said "I have used 6 search rounds on this and I am not yet done. Tell me the specific file, doc, or needle to look at and I will go straight there." — after a sidebar overlay question that the Claude Code parent solved inline in 3 reads.
+**Trigger:** ToriChat said "I have used 6 search rounds on this and I am not yet done. Tell me the specific file, doc, or Task to look at and I will go straight there." — after a sidebar overlay question that the Claude Code parent solved inline in 3 reads.
 
 ---
 
@@ -39,7 +39,7 @@ When this triggers, the system:
 
 ```python
 f"I've used {MAX_TOOL_ROUNDS} search rounds on this and I'm not yet done. "
-"Tell me the specific file, doc, or needle to look at and I'll go straight there."
+"Tell me the specific file, doc, or Task to look at and I'll go straight there."
 ```
 
 Tori saw a slight paraphrase of this — the model itself produced the message in the forced text-only call, drawing on conversation context that showed it had run 6 rounds.
@@ -127,7 +127,7 @@ MAX_TOOL_ROUNDS = 15  # was 6 (→1699); raised because 6 fires on genuine multi
 
 Tradeoff: up to 15 Anthropic API calls per pure-discovery turn instead of 6. At cached prompt rates the cost increase is small. The existing `MAX_AGENT_TURNS = 40` outer cap prevents runaway loops.
 
-**Filed as needle →1782.**
+**Filed as Task →1782.**
 
 ### Fix B — Add context lines to `search_files` (`tool_executor.py:747–773`)
 
@@ -135,7 +135,7 @@ Tradeoff: up to 15 Anthropic API calls per pure-discovery turn instead of 6. At 
 
 Change grep to include `-A 3 -B 3` (3 context lines per match) and raise the result limit from 100 to 250 lines. More information per round means fewer rounds needed. A single `search_files("MAX_TOOL_ROUNDS")` with context would show the constant AND the comment explaining it — cutting the first two steps to one call.
 
-**Filed as needle →1783.**
+**Filed as Task →1783.**
 
 ### Fix C — Expose `mcp__ostk__search` as a ToriChat tool when ostk is available (`chat_providers.py`, `tool_executor.py`)
 
@@ -143,7 +143,7 @@ Change grep to include `-A 3 -B 3` (3 context lines per match) and raise the res
 
 Add a `semantic_search` tool to `TOOL_DEFINITIONS` that calls `mcp__ostk__search` via the ostk socket when available. A single `semantic_search("read-only discovery cap")` would surface `chat_providers.py:840` directly with full context — collapsing 6 rounds to 1. Highest leverage but requires the ostk socket to be alive in the API process.
 
-**Filed as needle →1784.**
+**Filed as Task →1784.**
 
 ---
 

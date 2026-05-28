@@ -1,4 +1,4 @@
-# Needle 1290: Chat connection error "Connection dropped before the response finished" recurring
+# Task 1290: Chat connection error "Connection dropped before the response finished" recurring
 
 ## Symptom
 

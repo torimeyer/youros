@@ -2,7 +2,7 @@
 
 ## Provenance
 
-Created 2026-05-18. Originated from needle →1433 (team mode multi-user design) and the NR partnership CTO meeting that surfaced the need for multiple people to work in the same yourOS workspace. Agent `plan-1433-team-mode-27ee10` wrote the spec. Commit `112a7bd` on main: "→1433 plan: team mode — multi-user, shared workspace, roles, billing, surface migration". The spec also absorbed →1434 (Cost/Permission primitive promotion), which was closed 2026-05-17.
+Created 2026-05-18. Originated from Task →1433 (team mode multi-user design) and the NR partnership CTO meeting that surfaced the need for multiple people to work in the same yourOS workspace. Agent `plan-1433-team-mode-27ee10` wrote the spec. Commit `112a7bd` on main: "→1433 plan: team mode — multi-user, shared workspace, roles, billing, surface migration". The spec also absorbed →1434 (Cost/Permission primitive promotion), which was closed 2026-05-17.
 
 ## What's missing
 
@@ -10,7 +10,7 @@ Four canonical sections:
 1. **Non-goals** — content exists but is embedded inside the Goals section as "Not in v1". Needs its own heading.
 2. **USER FEEDBACK** — no section exists. Design phase, so empty is correct, but the heading should be there.
 3. **DECISION** — no section. Architecture decisions ARE recorded in the spec body, just not under this heading.
-4. **References** — no section. Referenced needles and files exist in the body.
+4. **References** — no section. Referenced Tasks and files exist in the body.
 
 ## Confidence: HIGH
 
@@ -68,9 +68,9 @@ Core architecture decisions made 2026-05-18:
 ```markdown
 ## References
 
-- Needle →1433 (team mode design)
-- Needle →1434 (cost/permission primitive promotion — absorbed, deferred to v2)
-- Needle →1410 (users/ directory migration strategy)
+- Task →1433 (team mode design)
+- Task →1434 (cost/permission primitive promotion — absorbed, deferred to v2)
+- Task →1410 (users/ directory migration strategy)
 - `~/.myos/enterprise.json` — identity source of truth
 - `api/services/enterprise_store.py` — member store (398 lines, no live callers as of 2026-05-17)
 - NR-enterprise branch (separate; nothing NR ever in main per memory rule)

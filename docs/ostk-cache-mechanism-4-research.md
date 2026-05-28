@@ -1,6 +1,6 @@
 # ostk-cache Mechanism 4: File-Handle Rewrite — Research Findings
 
-**Needle:** →1336  
+**Task:** →1336  
 **Date:** 2026-05-14  
 **Status:** Blocked on auth — requires Anthropic Files API access
 
@@ -108,7 +108,7 @@ Run a script that:
    Anthropic-issued file_id
 
 A template populate script is at: `scripts/populate-ostk-file-cache.py`
-(created as part of this needle — see companion commit).
+(created as part of this Task — see companion commit).
 
 ### Step 3: Keep entries fresh
 
@@ -148,16 +148,16 @@ From the savings projection (5-session baseline):
 
 ## Estimated savings once unblocked
 
-From the 5-session retro (needle →1335):
+From the 5-session retro (Task →1335):
 - **~21% additional token savings** on top of native Anthropic prompt cache
 - Equivalent to fitting roughly one more full working session inside a 5-hour
   Max subscription cap
 
 ---
 
-## Recommended follow-up needle
+## Recommended follow-up Task
 
-File a new needle with:
+File a new Task with:
 - **Goal:** Obtain an API key (or confirm OAuth works) for the Anthropic Files API
 - **Steps:** (1) Test subscription OAuth against `POST /v1/files`, (2) if yes,
   run `scripts/populate-ostk-file-cache.py` on the candidate files, (3) verify

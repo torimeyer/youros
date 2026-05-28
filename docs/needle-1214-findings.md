@@ -74,7 +74,7 @@ Source version label (2.3.0) does not match installed binary (6.0.5). The gate c
 present in the local source tree and matches the installed behavior. The Cargo.toml version
 is not being bumped with each release cycle.
 
-## Next Steps (separate needle pass)
+## Next Steps (separate Task pass)
 
 1. Implement the three-part change above in `~/claude/torios/haystack-main/`
 2. Build with `cargo build --release` and install to `~/.local/bin/ostk`

@@ -20,7 +20,7 @@ Tools used: ostk MCP (read, bash, search) — no native fallback.
 | 5 | Spec Auto-Status & Terminal-Agent Detection | `~/.myos/specs/spec-auto-status.md` | ready | 9,088 bytes |
 | 6 | VP Marketing First Impression | `~/.myos/specs/vp-marketing-first-impression.md` | ready | 8,398 bytes |
 
-Open needles for context: 19 open (P1: 8, P2: 6, P3: 3).
+Open Tasks for context: 19 open (P1: 8, P2: 6, P3: 3).
 Recent commits reviewed: 50 (back to `23cfcb0` feat: Atlassian integration).
 
 ---
@@ -65,11 +65,11 @@ The work described in this spec has shipped. All three components it called for 
 
 The design work is done. The spec evaluated four options, and you left USER FEEDBACK selecting **Option B** on 2026-05-15: "Move Tour, Activity, and Rules out of the bottom rail into Settings, keep the rail tight." No further design is needed.
 
-What remains is a focused implementation: remove three items from `app/src/components/Sidebar.tsx`, add them inside the Settings page. That's 2 files, no new architecture, no Problem-Goals-Non-goals to resolve. It qualifies as a needle, not a spec.
+What remains is a focused implementation: remove three items from `app/src/components/Sidebar.tsx`, add them inside the Settings page. That's 2 files, no new architecture, no Problem-Goals-Non-goals to resolve. It qualifies as a Task, not a spec.
 
 **Receipt:** Inspected `app/src/components/Sidebar.tsx` — Tour button, Activity NavLink, and Rules NavLink are still in the sidebar, confirming this is unbuilt. Commit `d55ed9f refactor(ui): move activity + transcripts out of main nav into settings` moved Transcripts (not Tour/Activity/Rules), so there's prior art for this pattern.
 
-**Suggested needle text:**
+**Suggested Task text:**
 ```
 ostk work add "Move Tour, Activity, and Rules from sidebar bottom rail into Settings — Option B from left-nav-consolidation-plan spec. Remove Tour button, Activity NavLink, and Rules NavLink from Sidebar.tsx; add them as links/buttons inside the Settings page. 2 files: Sidebar.tsx + Settings area." --priority P2
 ```
@@ -94,13 +94,13 @@ Nothing has shipped. The observations directory (`~/myos/observations/`) doesn't
 ### Spec Auto-Status & Terminal-Agent Detection ([~/.myos/specs/spec-auto-status.md](file:///Users/torimeyer/.myos/specs/spec-auto-status.md))
 
 - **Status:** ready
-- **Verdict: KEEP AS SPEC — but needle →1420 is a duplicate and should be closed**
+- **Verdict: KEEP AS SPEC — but Task →1420 is a duplicate and should be closed**
 
 The spec is well-designed. It covers four implementation phases: a claims registry in the API, lazy spec decomposition, three active claim paths (wrapper CLI, agent self-register, slash command), and a passive git-commit watcher. It has clear AC and tradeoff tables. Nothing has been built yet (confirmed: `compute_spec_status` and `_spec_claims` don't exist in the codebase).
 
-The problem: open needle **→1420** ("Auto-promote specs to 'build' state when implementation begins") describes the same feature at a coarser level. It was filed 2026-05-15, the same day this spec was promoted. The needle has more limited scope (just the status flip) while the spec has the full design. They are the same work.
+The problem: open Task **→1420** ("Auto-promote specs to 'build' state when implementation begins") describes the same feature at a coarser level. It was filed 2026-05-15, the same day this spec was promoted. The Task has more limited scope (just the status flip) while the spec has the full design. They are the same work.
 
-**Recommended action:** Close →1420 with a note pointing to this spec. The spec is the authoritative design; the needle is a duplicate at lower resolution.
+**Recommended action:** Close →1420 with a note pointing to this spec. The spec is the authoritative design; the Task is a duplicate at lower resolution.
 
 ---
 
@@ -123,12 +123,12 @@ The estimate is 9 days of work. This warrants remaining a spec (7+ files, 3 dist
 
 ## Cross-cutting findings
 
-### Specs overlapping with open needles
+### Specs overlapping with open Tasks
 
-| Spec | Overlapping needle | Relationship |
+| Spec | Overlapping Task | Relationship |
 |------|--------------------|--------------|
-| Spec Auto-Status | →1420 | Exact duplicate. Needle is a coarser version of the spec. Close →1420. |
-| Left Nav Consolidation | →1369, →1363 | Referenced inside the spec as "already planned." →1363 (iMessage/Contacts merge) is called out as a follow-on, not a blocker. →1369 was the needle that prompted the spec draft (commit `e87dab2 →1369 draft left nav consolidation plan for review`). Both can stay open until the needle for Option B is filed. |
+| Spec Auto-Status | →1420 | Exact duplicate. Task is a coarser version of the spec. Close →1420. |
+| Left Nav Consolidation | →1369, →1363 | Referenced inside the spec as "already planned." →1363 (iMessage/Contacts merge) is called out as a follow-on, not a blocker. →1369 was the Task that prompted the spec draft (commit `e87dab2 →1369 draft left nav consolidation plan for review`). Both can stay open until the Task for Option B is filed. |
 
 ### Recurring themes
 
@@ -153,9 +153,9 @@ The estimate is 9 days of work. This warrants remaining a spec (7+ files, 3 dist
 |--------|------|-------|
 | **Archive** | Hook System Review | Completed review, not a spec. Move to `docs/reference/hooks.md`. |
 | **Archive** | Gemini CLI Integration | All three spec objectives shipped. Mark as archived. |
-| **Convert to needle** | Left Nav Consolidation Plan | Decision made (Option B). File 1 needle, archive the spec. |
+| **Convert to Task** | Left Nav Consolidation Plan | Decision made (Option B). File 1 Task, archive the spec. |
 | **Keep as spec** | Pattern Watcher | Large unbuilt feature. Resolve open questions before `saa`-ing. |
-| **Keep as spec** | Spec Auto-Status | Well-designed, unbuilt. Close needle →1420 as duplicate. |
+| **Keep as spec** | Spec Auto-Status | Well-designed, unbuilt. Close Task →1420 as duplicate. |
 | **Keep as spec** | VP Marketing First Impression | 9 days of work, 3 blocks, fully unbuilt. Confirm meeting status first. |
 
-**Summary counts:** 3 keep / 1 needle / 0 combine / 2 archive.
+**Summary counts:** 3 keep / 1 Task / 0 combine / 2 archive.

@@ -5,7 +5,7 @@
 
 ## Summary
 
-User clicks delete on a needle/task in the kanban or backlog UI. The row disappears optimistically but reappears on next refresh. `ostk work list --status open` still shows the needle.
+User clicks delete on a Task/task in the kanban or backlog UI. The row disappears optimistically but reappears on next refresh. `ostk work list --status open` still shows the Task.
 
 ## Reproduction
 
@@ -19,7 +19,7 @@ User clicks delete on a needle/task in the kanban or backlog UI. The row disappe
 
 Two different data stores, one write, one read:
 
-1. **`delete_task` in `api/services/ostk.py`** reads and edits `issues.jsonl` — the local JSONL file at `.ostk/needles/issues.jsonl`. This file only holds the ~22 most recently created tasks (it is written by the local daemon session, not the full historical store).
+1. **`delete_task` in `api/services/ostk.py`** reads and edits `issues.jsonl` — the local JSONL file at `.ostk/Tasks/issues.jsonl`. This file only holds the ~22 most recently created tasks (it is written by the local daemon session, not the full historical store).
 
 2. **`list_tasks`** calls `ostk work list --json` via socket/CLI, which reads the full daemon store — currently 1245 tasks spanning all of project history.
 
@@ -62,7 +62,7 @@ BEFORE: →1477 in open list: True
 DELETE result: deleted →1477
 ```
 
-The `_run("work", "close", "→1477")` path successfully closed the needle in the daemon store.
+The `_run("work", "close", "→1477")` path successfully closed the Task in the daemon store.
 
 ## Tests
 

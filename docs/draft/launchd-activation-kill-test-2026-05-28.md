@@ -1,6 +1,6 @@
 # launchd Activation + Kill-Test Verification
 **Date**: 2026-05-28  
-**Needle**: →1744  
+**Task**: →1744  
 **Branch**: worktree-agent-activate-launchd-back-35a488d0
 
 ---

@@ -25,7 +25,7 @@ Added `embedded?: boolean` prop to `Specs` and `Tasks`. When `embedded` is true,
 
 - `app/src/pages/Specs.tsx` — add `embedded` prop, conditional TopBar + padding
 - `app/src/pages/Tasks.tsx` — add `embedded` prop, conditional TopBar + padding
-- `app/src/pages/Backlog.tsx` — pass `embedded` to `<Specs>` and `<Tasks>`
+- `app/src/pages/Backlog.tsx` — pass `embedded` to `<Specs>` and `Tasks`
 
 ## Regression test
 

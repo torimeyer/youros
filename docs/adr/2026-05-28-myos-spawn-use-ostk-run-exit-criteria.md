@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-28
 **Status:** Accepted
-**Needle:** →1794
+**Task:** →1794
 **Spec:** docs/spec/adopt-claude-code-s-good-ideas-into-myos-as-vendor-agnostic-abstractions.md (AC3)
 
 ## Context
@@ -74,7 +74,7 @@ When all four criteria hold:
 ## References
 
 - Spec: `docs/spec/adopt-claude-code-s-good-ideas-into-myos-as-vendor-agnostic-abstractions.md` AC3
-- Needle: →1794 (this documentation task)
+- Task: →1794 (this documentation task)
 - Escape hatch introduction: →1305
 - Pre-flight status comment: `api/routers/agents.py` lines ~4607-4618 (at time of writing)
 - `ostk.run_agentfile()`: `api/services/ostk.py` around line 3723

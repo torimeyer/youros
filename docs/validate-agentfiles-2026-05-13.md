@@ -1,10 +1,10 @@
 # Agentfile Validation Report — 2026-05-13
 
-> Needle →1300 | `ostk agentfile validate` (ostk 6.0.5) against all 52 files in `agents/` and `agents/marketplace/`
+> Task →1300 | `ostk agentfile validate` (ostk 6.0.5) against all 52 files in `agents/` and `agents/marketplace/`
 
 ## Summary
 
-**52/52 pass. 0 failures. No child needles required.**
+**52/52 pass. 0 failures. No child Tasks required.**
 
 - Exit code histogram: 52× exit 0
 - Status histogram: 52× `ok`
@@ -76,4 +76,4 @@
 - **Verb form confirmed**: `ostk agentfile validate <path>` accepts relative paths (`agents/foo.agent`). Passing just the basename (`builder`) fails with "agentfile not found". Plan note about this was accurate; full path used for all runs.
 - **FROM-PROFILE-MISSING** (warn, not error): All 12 `agents/*.agent` files reference `FROM-PROFILE coder`. The `.ostk/profiles/coder.Agentfile` does not exist in this worktree. The validator treats this as a warning, not a failure — resolution happens at runtime via fleet seed. No fix needed unless the profile should be committed to the repo.
 - **All marketplace agents** (40 files): parse clean, no diagnostics.
-- **No child needles filed**: 0 failures.
+- **No child Tasks filed**: 0 failures.

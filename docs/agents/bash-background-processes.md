@@ -56,7 +56,7 @@ nohup long-running-server > /tmp/log 2>&1 &
 5. The orchestrator pipe write-end has zero remaining holders in the background process
 6. When the shell exits, `communicate()` gets EOF immediately
 
-## Lab Results (2026-05-14, needle 1350)
+## Lab Results (2026-05-14, Task 1350)
 
 | Pattern | Outer call time | Blocks? |
 |---------|----------------|---------|

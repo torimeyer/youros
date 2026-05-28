@@ -1,6 +1,6 @@
 # Vite Wedge Regression Audit — May 2026
 
-**Needle:** →1435 (P2)
+**Task:** →1435 (P2)
 **Audit date:** 2026-05-17
 **Status of current `app/vite.config.ts`:** 3 of 4 fixes present. One fix
 (proxyTimeout on backend restart) was applied to a worktree branch and never
@@ -143,7 +143,7 @@ requests that hang for up to 75 seconds.
 
 ### Agent 5 — diagnose-card-compass-vite-wedge-91ad77-fix (second pass)
 
-This agent name appears in the needle history but produced `601be6e` — a
+This agent name appears in the Task history but produced `601be6e` — a
 duplicate of `7575f8f` (the IPv4 fix) on the `worktree-agent-fix-vite-wedge-tight-scope-retry-549cbe`
 branch. It was a re-attempt at mode 1 after the wedge reappeared, likely
 because mode 2 was still active at that time. The commit never merged to main.

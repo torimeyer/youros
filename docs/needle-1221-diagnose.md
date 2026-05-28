@@ -103,11 +103,11 @@ Memory entry: `feedback_claude_code_nnnn_not_peer_session.md`
 
 ---
 
-## Failure #2: Needle auto-closed by scaffold commit
+## Failure #2: Task auto-closed by scaffold commit
 
 ### What happened
 
-Needle →1219 ("Cache /api/agents snapshot…") was filed. A worktree was created
+Task →1219 ("Cache /api/agents snapshot…") was filed. A worktree was created
 at `.claude/worktrees/agent-1219-backend-snapshot-beb78562/`. The subagent
 committed a placeholder:
 
@@ -121,7 +121,7 @@ The real implementation — 282 deletions + 133 insertions in
 `api/routers/agents.py`, +8 lines in `api/main.py`, 159-line real test file —
 was **uncommitted in the worktree**.
 
-Yet the needle was closed. The user said: "1219 and 1220 are closed tasks".
+Yet the Task was closed. The user said: "1219 and 1220 are closed tasks".
 
 ### Root cause: explicit close triggered by the session, not by a hook
 
@@ -129,15 +129,15 @@ Investigation showed **no automatic close-on-commit mechanism exists** in this
 codebase:
 
 - `haystack-main/src/commands/commit.rs` (`ostk :ship`): appends `commit_refs`
-  to the needle and emits a `bead.committed` audit event. Does NOT close.
+  to the Task and emits a `bead.committed` audit event. Does NOT close.
 - `.ostk/gen_table` writer (`haystack-main/src/kernel/gen_table.rs` line 62–65):
-  reads `OSTK_AGENT` env var. No needle logic.
-- `complete-agent.sh`: closes the API agent row (HTTP), does NOT touch needles.
+  reads `OSTK_AGENT` env var. No Task logic.
+- `complete-agent.sh`: closes the API agent row (HTTP), does NOT touch Tasks.
 - `bash-postwatch.sh`, `scaffold-commit-watcher.sh`, `scaffold-commit-alert.sh`:
-  advisory/informational only, no needle mutations.
+  advisory/informational only, no Task mutations.
 - `/api/agents/{name}/complete` endpoint (`api/routers/agents.py` line 6862):
   only auto-closes spec-builder tasks via `close_spec_builder_task`. Does NOT
-  run `ostk work close` for regular needles.
+  run `ostk work close` for regular Tasks.
 
 The audit log in the **worktree's** `.ostk/journal.jsonl` shows two explicit
 close events:
@@ -148,12 +148,12 @@ close events:
 ```
 
 `reason: "none"` matches `run_close_verb` in
-`haystack-main/src/commands/work.rs` line 493–495 — the needle was closed via
+`haystack-main/src/commands/work.rs` line 493–495 — the Task was closed via
 an explicit `ostk work close →1219` call with no reason argument.
 
 The close call was made by the parent session after seeing the commit
 `73d36e2 feat(→1219):…` appear in `git log`. The session read `feat(→1219):`
-as "this needle is implemented", then called `ostk work close →1219`. But the
+as "this Task is implemented", then called `ostk work close →1219`. But the
 commit was a placeholder stub.
 
 ### The actual close path (work.rs lines 435–517)
@@ -168,21 +168,21 @@ pub fn run_close_verb(ctx: &mut VerbCtx, id: &str, reason: Option<&str>) -> Resu
 }
 ```
 
-There is no WIP guard, no "check that committed files match the needle scope",
+There is no WIP guard, no "check that committed files match the Task scope",
 no diff-size check. `ostk work close` closes immediately when called.
 
 ### Fix / rule
 
 Two complementary rules:
 
-1. **Never close a needle based on a commit subject alone.** A commit with
+1. **Never close a Task based on a commit subject alone.** A commit with
    `→NNNN` in the subject adds evidence; it is not completion. Close only when
    real work is tested and merged (or the agent explicitly calls
    `ostk work close` as its final step after verifying tests pass).
 
-2. **Scaffold commits must not reference the needle in a way that signals
+2. **Scaffold commits must not reference the Task in a way that signals
    completion.** Prefer `chore(test-stub): add placeholder for snapshotter tests`
-   (no needle reference) for pure scaffolds. If the needle reference is
+   (no Task reference) for pure scaffolds. If the Task reference is
    necessary for traceability, use a WIP marker that the session can recognise:
    `chore(→NNNN-scaffold):`. The final real commit should be the one that
    triggers `ostk work close`.
@@ -193,7 +193,7 @@ final commit. The agent deliberately makes both scaffold and final commits in
 the same session, so the scaffold commit is safe. See the memory entry for
 the full rule.
 
-Memory entry: `feedback_scaffold_commits_dont_close_needles.md`
+Memory entry: `feedback_scaffold_commits_dont_close_Tasks.md`
 
 ---
 
@@ -202,8 +202,8 @@ Memory entry: `feedback_scaffold_commits_dont_close_needles.md`
 - **Actor names:** `ostk gen list | grep claude-code` shows all writers.
   Confirm they are subagent worktrees, not peer sessions, by checking
   `/api/agents` for matching names.
-- **Needle state:** `ostk work list --status open` is authoritative. The boot
-  loadavg needle count can lie (see `feedback_boot_loadavg_needles_unreliable.md`).
+- **Task state:** `ostk work list --status open` is authoritative. The boot
+  loadavg Task count can lie (see `feedback_boot_loadavg_Tasks_unreliable.md`).
 - **Scaffold vs final commit:** look at the diff size and whether the test file
   has real assertions. A 3-line placeholder file with `# Placeholder` is not a
   final commit regardless of what the subject says.

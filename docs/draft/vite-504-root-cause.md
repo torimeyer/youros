@@ -1,6 +1,6 @@
 # Vite 504 on Optimized Deps — Root Cause Report
 
-**Needle**: →1777  
+**Task**: →1777  
 **Date**: 2026-05-28  
 **Scope**: diagnose-only, no code changes  
 **Vite version**: 8.0.3  

@@ -72,7 +72,7 @@ Two specs have the "Acceptance criteria" heading (or are supposed to) but contai
 - Score: 0/10 (no template sections present at all)
 - Uses entirely non-standard headings: "Objective", "Background & Motivation", "Proposed Solution", "Open Decisions"
 - Contains a full design writeup but zero `- [ ]` lines
-- No traceability references (no needle numbers, no commit hashes)
+- No traceability references (no Task numbers, no commit hashes)
 - **P0 finding:** This is a complete spec in substance but invisible to the audit tool and to the Build pipeline because none of its headings match the template. It cannot be decomposed or built.
 - **Recommended action:** Convert headings to the 10-section template and extract existing prose into `- [ ]` AC items.
 
@@ -84,9 +84,9 @@ Two specs have the "Acceptance criteria" heading (or are supposed to) but contai
 
 ---
 
-### Unreferenced (no needle or commit numbers in the spec body)
+### Unreferenced (no Task or commit numbers in the spec body)
 
-6 of 11 specs have zero traceability anchors — no `→NNN` needle references and no commit hashes. This makes it impossible to trace what work implemented them or which open needle backs them.
+6 of 11 specs have zero traceability anchors — no `→NNN` Task references and no commit hashes. This makes it impossible to trace what work implemented them or which open Task backs them.
 
 | Spec | Notes |
 |---|---|
@@ -97,7 +97,7 @@ Two specs have the "Acceptance criteria" heading (or are supposed to) but contai
 | `narrative-coordination-intel-themes-main-only.md` | 22 checkboxes, 0 refs. |
 | `per-user-memory-md.md` | 12 checkboxes, 0 refs. |
 
-**P2 recommended action (batch):** Add a `→NNN` reference to each spec — either the needle that spawned it or the one tracking its completion. This is a one-line frontmatter or body edit per spec.
+**P2 recommended action (batch):** Add a `→NNN` reference to each spec — either the Task that spawned it or the one tracking its completion. This is a one-line frontmatter or body edit per spec.
 
 ---
 
@@ -135,9 +135,9 @@ Root cause: `api/services/spec_audit.py` uses `Path("docs") / "spec"` as a relat
 
 ---
 
-## Sub-needles filed
+## Sub-Tasks filed
 
-| Needle | Title |
+| Task | Title |
 |---|---|
 | →1494 | backfill template headings in spec-auto-status.md |
 | →1495 | rename non-standard headings in vp-marketing-first-impression.md |

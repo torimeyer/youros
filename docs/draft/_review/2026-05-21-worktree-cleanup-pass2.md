@@ -2,7 +2,7 @@
 
 **Agent**: pass-2-worktree-cleanup-179-bran-281384  
 **Source**: Pass-1 audit at `docs/draft/_review/2026-05-21-worktree-cleanup.md`  
-**Scope**: `closed-needle-stale` (92) + `no-needle-orphan` (87) = 179 branches
+**Scope**: `closed-Task-stale` (92) + `no-Task-orphan` (87) = 179 branches
 
 ---
 
@@ -35,9 +35,9 @@
 | `worktree-agent-pass-2-worktree-clean-0f5b9e89` | this agent's branch |
 | `worktree-agent-worktree-cleanup-pass-1-536094` | explicitly excluded |
 | `worktree-agent-diagnose-tool-calls-c-c8d4043b` | explicitly excluded |
-| `worktree-agent-1525-*` | open needle →1525 |
-| `worktree-agent-1586-*` | open needle →1586 |
-| `worktree-agent-1590-*` | open needle →1590 |
+| `worktree-agent-1525-*` | open Task →1525 |
+| `worktree-agent-1586-*` | open Task →1586 |
+| `worktree-agent-1590-*` | open Task →1590 |
 | `worktree-agent-1338-*`, `worktree-agent-1345-*`, `worktree-agent-1531-*` | not in pass-1 target lists |
 | remaining 18 | active worktrees with unmerged commits (reaper refused, correct) |
 

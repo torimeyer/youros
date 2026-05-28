@@ -72,7 +72,7 @@ Keep the installed binary as-is and apply workarounds inside the yourOS Python l
 Does not fix the root cause; tech debt that blocks clean operation.
 
 **Recommended**: Option A. The repo is private-but-accessible to org members. One access grant
-unblocks all three dependent needles.
+unblocks all three dependent Tasks.
 
 ---
 

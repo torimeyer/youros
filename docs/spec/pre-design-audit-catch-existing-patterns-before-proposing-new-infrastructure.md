@@ -2,7 +2,7 @@
 title: 'Pre-design audit: catch existing patterns before proposing new infrastructure'
 created_at: 2026-05-24T03:17:14Z
 status: building
-needle: →1663
+Task: →1663
 promoted_at: 2026-05-24T03:18:12Z
 tasks:
   - "1715"
@@ -20,7 +20,7 @@ tasks:
 
 Agents proposing new files, components, or features without checking whether an equivalent already exists on `main`. Two confirmed incidents:
 
-1. An agent working needle →1662 in a worktree created `app/src/components/ClaimSourceChip.tsx` (gen 1 / initial). The file had already been committed on `main` in a4faaca (2026-05-22, →1630).
+1. An agent working Task →1662 in a worktree created `app/src/components/ClaimSourceChip.tsx` (gen 1 / initial). The file had already been committed on `main` in a4faaca (2026-05-22, →1630).
 2. The same agent re-proposed FR-013 and FR-014 work that was already shipped in commits on `main`.
 
 The result is wasted implementation effort and spec drift (the plan describes something that already exists).
@@ -35,8 +35,8 @@ The brainstorming skill's Step 1 says "check files, docs, recent commits" but pr
 **Gap 2: Worktree isolation hides recent merges.**
 When a worktree is branched before a relevant commit lands on `main`, the component doesn't appear in the worktree's file tree at all. Without an explicit `git log origin/main` check, the agent has no reason to suspect the thing it's about to build already exists.
 
-**Gap 3: No cross-reference between proposed features and the needle/spec ledger.**
-Agents know the needle they're working but don't check whether the work they're about to propose overlaps with other recently-closed needles or promoted specs.
+**Gap 3: No cross-reference between proposed features and the Task/spec ledger.**
+Agents know the Task they're working but don't check whether the work they're about to propose overlaps with other recently-closed Tasks or promoted specs.
 
 ## Proposed solution: pre-design audit
 
@@ -59,14 +59,14 @@ git log --oneline -30 origin/main
 ```
 Flag any commit subject mentioning the proposed concept.
 
-**4. Needle and spec ledger**: search open and recently-closed needles plus promoted specs:
+**4. Task and spec ledger**: search open and recently-closed Tasks plus promoted specs:
 ```
 ostk work list --status open
 ostk work list --status closed --limit 20
 ls docs/spec/
 grep -l "<concept>" docs/spec/*.md
 ```
-Flag any needle or spec that references the proposed thing.
+Flag any Task or spec that references the proposed thing.
 
 ### Clearance report format
 
@@ -80,7 +80,7 @@ The audit produces a short table before any design work starts. The script outpu
 | Codebase (literal) | none |
 | Codebase (semantic) | app/src/components/ClaimSourceChip.tsx [claim, chip, source] |
 | Git log  | none |
-| Needles/Specs | none |
+| Tasks/Specs | none |
 
 POSSIBLE MATCH: a different-named component may serve the same purpose.
 Review the semantic hits above and choose before proceeding:
@@ -112,7 +112,7 @@ Replace Step 1 of the brainstorming SKILL.md checklist:
 > 1. Explore project context, check files, docs, recent commits
 
 **After:**
-> 1. Run pre-design audit: extract component/service/feature names from the request. Run the four-signal check (codebase literal, codebase semantic, git log, needles/specs). Produce the clearance report. Resolve any MATCH FOUND or POSSIBLE MATCH before asking clarifying questions.
+> 1. Run pre-design audit: extract component/service/feature names from the request. Run the four-signal check (codebase literal, codebase semantic, git log, Tasks/specs). Produce the clearance report. Resolve any MATCH FOUND or POSSIBLE MATCH before asking clarifying questions.
 
 This is the most important hook because it intercepts proposals at the earliest possible point, before the design conversation even starts.
 
@@ -158,7 +158,7 @@ The writing-plans amendment (Hook 2) can be done as a note in the CLAUDE.md `## 
 ## Acceptance criteria
 
 - [ ] A `superpowers:pre-design-audit` skill file exists at `.claude/skills/pre-design-audit/SKILL.md` and can be invoked via the `Skill` tool.
-- [ ] The skill runs the four-signal check (codebase literal, codebase semantic, git log, needles/specs) and produces a clearance report in the defined format.
+- [ ] The skill runs the four-signal check (codebase literal, codebase semantic, git log, Tasks/specs) and produces a clearance report in the defined format.
 - [ ] The brainstorming skill's Step 1 (in the project-local override or upstream) mandates invoking pre-design-audit before asking clarifying questions.
 - [ ] `feedback_subagent_prompt_template.md` includes the pre-file-create check with the exact search commands.
 - [ ] When a proposed component name matches an existing file on `main` (literal), the audit returns `MATCH FOUND` and blocks all design work until the reuse/justify checkbox is resolved.

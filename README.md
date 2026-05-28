@@ -184,7 +184,7 @@ yourOS covers the full ostk surface area:
 | os diff | "What Changed" on Dashboard |
 | os clock | System status endpoint |
 | doc draft/promote/decompose | Document planning (API ready) |
-| commit --needle | Attributed commits on Tasks |
+|  commit --task | Attributed commits on Tasks |
 | trace | Attribution history on Tasks |
 | secret set/get/list | Keychain-based key management in Settings |
 | grant list/approve/deny | Permissions tab on Agents page |

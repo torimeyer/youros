@@ -31,7 +31,7 @@ INFO:     Stopping reloader process [1111]
 slow request GET /api/agents/diagnose-1453-backend-block-973fd7/nudges 5002ms
 ```
 
-The `1453ms` slowness is itself the event-loop block that needle →1453 was sent to diagnose. Every call to `/api/agents` was blocking the uvicorn event loop for 1.4+ seconds. This caused repeated backend instability and restarts.
+The `1453ms` slowness is itself the event-loop block that Task →1453 was sent to diagnose. Every call to `/api/agents` was blocking the uvicorn event loop for 1.4+ seconds. This caused repeated backend instability and restarts.
 
 ### 2. PID 3131's parent was already dead at investigation time
 
@@ -81,11 +81,11 @@ Both `/tmp/dev-backend.log` and the transcript were last written at **May 17 19:
 
 - PID 3131 is **dead** (confirmed `ps -p 3131` returns empty after investigation)
 - Agent `diagnose-1453-backend-block-973fd7` status is now **cancelled** (confirmed via `/api/agents`)
-- No respawn needed for this agent — the stall itself was caused by the event-loop block (the subject of needle →1453). Respawning the same agent into the same broken backend would reproduce the stall.
+- No respawn needed for this agent — the stall itself was caused by the event-loop block (the subject of Task →1453). Respawning the same agent into the same broken backend would reproduce the stall.
 
 ---
 
-## What needs fixing (needle →1453 scope, not this agent's scope)
+## What needs fixing (Task →1453 scope, not this agent's scope)
 
 The `/api/agents` endpoint consistently takes **1453ms**. This is the GIL-heavy sync work in `_run_enrich_pipeline` / `to_thread` calls that blocks the uvicorn event loop. The backend is so slow it triggers repeated reloader restarts, which orphan running subprocesses. Fix the `to_thread` block first (per `feedback_concurrent_to_thread_amplifies_gil.md`).
 

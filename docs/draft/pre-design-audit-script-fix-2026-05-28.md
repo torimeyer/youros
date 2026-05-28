@@ -4,7 +4,7 @@ Fixes →1795, →1796, →1797 in `/Users/torimeyer/.myos/pre-design-audit.py`.
 
 ## Bugs fixed
 
-### →1795 — Needles/Specs false-positive on spec content
+### →1795 — Tasks/Specs false-positive on spec content
 
 **Problem**: `search_specs` searched the full *content* of every spec `.md` file for
 the concept string. A spec that uses the concept name as an example inside its body
@@ -66,7 +66,7 @@ whose `parts` contain `.venv`, `node_modules`, or `__pycache__`.
                          api/.venv/lib/python3.11/site-packages/pygments/lexers/_sourcemod_builtins.py [origin, source, tag];
                          api/services/source_library.py [source, tag] (+3 more) |
 | Git log             | none |
-| Needles/Specs       | docs/spec/pre-design-audit-catch-existing-patterns-before-proposing-new-infrastructure.md |
+| Tasks/Specs       | docs/spec/pre-design-audit-catch-existing-patterns-before-proposing-new-infrastructure.md |
 → MATCH FOUND  (wrong — both →1795 and →1797 triggered)
 
 # ChatPanel
@@ -87,7 +87,7 @@ whose `parts` contain `.venv`, `node_modules`, or `__pycache__`.
 | Codebase (semantic) | app/src/components/ClaimSourceChip.tsx [chip, claim, source];
                          api/services/source_library.py [source, tag] |
 | Git log             | none |
-| Needles/Specs       | none |
+| Tasks/Specs       | none |
 → POSSIBLE MATCH  ✓ (semantic only, no false literal match)
 
 # ChatPanel
@@ -95,7 +95,7 @@ whose `parts` contain `.venv`, `node_modules`, or `__pycache__`.
                          app/src/stores/notifications.ts (+9 more) |
 | Codebase (semantic) | app/src/components/AgentChatThread.tsx [card, chat, panel]; … |
 | Git log             | none |
-| Needles/Specs       | none |
+| Tasks/Specs       | none |
 → MATCH FOUND  ✓ (source files only, no transcripts)
 
 # ZxqfQuantumWidget

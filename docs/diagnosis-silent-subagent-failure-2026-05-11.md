@@ -14,9 +14,9 @@ and fixes implemented or filed.
 
 | Agent name | Transcript | Runtime | Outcome |
 |---|---|---|---|
-| `fix-loadavg-needle-count-46639c` | 816 B | ~4 min | Analysis done, no commit, no needle |
-| `fix-loadavg-needle-count-46639c-r2` | 0 B | ~0 min | Never started; gone from list |
-| `diagnose-stale-specs-in-list-doc-8e1bfb` | 475 B | ~4 min | Reading code, no commit, no needle |
+| `fix-loadavg-Task-count-46639c` | 816 B | ~4 min | Analysis done, no commit, no Task |
+| `fix-loadavg-Task-count-46639c-r2` | 0 B | ~0 min | Never started; gone from list |
+| `diagnose-stale-specs-in-list-doc-8e1bfb` | 475 B | ~4 min | Reading code, no commit, no Task |
 | `diagnose-backend-http-500-on-api-cfa194` | 3 788 B | ~22 min | Did edit files, never committed |
 | `diagnose-1144-backend-wedge-f7f902` | 4 282 B | ~23 min | Committed `a3cc902`, but to **main** not its worktree branch |
 
@@ -50,7 +50,7 @@ but the first `mcp__ostk__fs_ops` or `mcp__ostk__bash` call returns
 stale-specs agents appear to have stopped at exactly this point.
 
 **Fix location**: `haystack-main/src/serve/server.rs` — out of scope for this
-agent (scope pin). Filed as P0 needle →NNNN (see below).
+agent (scope pin). Filed as P0 Task →NNNN (see below).
 
 ---
 
@@ -75,17 +75,17 @@ HEAD — the same branch the parent session is on.
 wrong branch, defeating isolation.
 
 **Fix location**: `haystack-main/src/serve/dispatch.rs` — out of scope. Filed
-with RC1 needle.
+with RC1 Task.
 
 ---
 
-### RC3 — Brief does not require commit-or-needle before exit (fixable)
+### RC3 — Brief does not require commit-or-Task before exit (fixable)
 
 **Evidence**: Loadavg transcript ends mid-analysis after discovering the
-`count_active_needles` vs `count_open_needles` discrepancy. The model wrote
+`count_active_Tasks` vs `count_open_Tasks` discrepancy. The model wrote
 a substantive analysis in 816 B of transcript, then exited cleanly. No tool
 call failed — the process exited normally. The brief said "find root cause and
-fix" but did not say "you must commit or file a needle before exiting."
+fix" but did not say "you must commit or file a Task before exiting."
 Stale-specs shows the same pattern (475 B, reading `list_docs`, then stops).
 
 The `scaffold-commit-watcher.sh` PostToolUse hook never fires for bridge-spawned
@@ -114,10 +114,10 @@ bridge itself.
 ### RC5 — Transcript API returns 0 bytes when name prefix mismatches
 
 **Evidence**: REST spawn stores name without "agent-" prefix
-(`fix-loadavg-needle-count-46639c`). Transcript at
-`transcripts/fix-loadavg-needle-count-46639c.md`. If `_resolve_transcript_source_uncached`
-is called with `"agent-fix-loadavg-needle-count-46639c"` (with prefix), step 1
-looks for `transcripts/agent-fix-loadavg-needle-count-46639c.md` which does not
+(`fix-loadavg-Task-count-46639c`). Transcript at
+`transcripts/fix-loadavg-Task-count-46639c.md`. If `_resolve_transcript_source_uncached`
+is called with `"agent-fix-loadavg-Task-count-46639c"` (with prefix), step 1
+looks for `transcripts/agent-fix-loadavg-Task-count-46639c.md` which does not
 exist. The metadata step 2 should catch it (transcript_path is recorded at
 spawn time), but any caller that skips the metadata path returns 0 bytes.
 
@@ -135,8 +135,8 @@ Added a completion clause to every REST-spawned prompt:
 ```
 COMPLETION REQUIREMENT: Before your process exits you MUST do one of:
   (a) git commit -m "..." (commit all file changes), OR
-  (b) ostk work add "..." --priority P0 (file a needle with evidence).
-Exiting after analysis only, with no commit and no needle, is a failed run.
+  (b) ostk work add "..." --priority P0 (file a Task with evidence).
+Exiting after analysis only, with no commit and no Task, is a failed run.
 If running tests, run targeted tests first (e.g. pytest path/to/test.py -x -q),
 commit, then optionally run the full suite. Do not block a commit on full-suite pass.
 ```
@@ -154,7 +154,7 @@ commit, then optionally run the full suite. Do not block a commit on full-suite 
 
 ---
 
-## Needles Filed
+## Tasks Filed
 
 - **P0 →1152**: MCP tools missing from worktree ostk sessions (RC1 + RC2)
   — fix requires changes to `haystack-main/src/serve/server.rs` and `dispatch.rs`
