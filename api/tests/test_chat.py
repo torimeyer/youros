@@ -3094,11 +3094,8 @@ class TestGetPriorMessages:
             "active_tab_id": "tab-current",
         })
         result = store.get_prior_messages(current_tab_id="tab-current", limit=10)
-        assert len(result) == 2
-        assert result[0]["role"] == "user"
-        assert result[0]["content"] == "Hello from old tab"
-        assert result[1]["role"] == "assistant"
-        assert result[1]["content"] == "Hi there!"
+        # Tab isolation: must never return messages from another tab
+        assert result == []
 
     def test_skips_current_tab(self, tmp_path):
         from services.chat_history_store import ChatHistoryStore
@@ -3132,10 +3129,8 @@ class TestGetPriorMessages:
             "active_tab_id": "tab-new",
         })
         result = store.get_prior_messages(current_tab_id="tab-new", limit=5)
-        assert len(result) == 5
-        # Should be the LAST 5 messages
-        assert result[0]["content"] == "msg 15"
-        assert result[4]["content"] == "msg 19"
+        # Tab isolation: always empty regardless of limit parameter
+        assert result == []
 
     def test_empty_history_returns_empty(self, tmp_path):
         from services.chat_history_store import ChatHistoryStore
@@ -3170,9 +3165,8 @@ class TestGetPriorMessages:
             "active_tab_id": "tab-current",
         })
         result = store.get_prior_messages(current_tab_id="tab-current", limit=10)
-        # Should pick tab-2 (the last non-current tab with messages)
-        assert len(result) == 1
-        assert result[0]["content"] == "from second"
+        # Tab isolation: no cross-tab messages regardless of how many tabs exist
+        assert result == []
 
     def test_skips_empty_tabs(self, tmp_path):
         """Tabs with no messages are skipped."""
@@ -3200,9 +3194,8 @@ class TestGetPriorMessages:
             "active_tab_id": "tab-current",
         })
         result = store.get_prior_messages(current_tab_id="tab-current", limit=10)
-        # Should skip tab-2 (empty) and pick tab-1
-        assert len(result) == 1
-        assert result[0]["content"] == "hello"
+        # Tab isolation: always empty, never crosses tab boundary
+        assert result == []
 
 
 # --- build_memory_context ---
@@ -3238,12 +3231,8 @@ class TestBuildMemoryContext:
             mock_settings.get.return_value = True
             result = build_memory_context(current_tab_id="tab-new")
 
-        assert len(result) == 1
-        assert result[0]["role"] == "user"
-        assert "[Prior conversation for context]" in result[0]["content"]
-        assert "User: What is 2+2?" in result[0]["content"]
-        assert "Assistant: 4" in result[0]["content"]
-        assert "[End of prior conversation]" in result[0]["content"]
+        # Tab isolation: build_memory_context must never inject cross-tab messages
+        assert result == []
 
     def test_returns_empty_when_disabled(self, tmp_path):
         with patch("routers.chat.settings_store") as mock_settings:
