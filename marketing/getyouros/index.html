@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>youros — an OS that knows you</title>
+<meta name="description" content="youros is a personal operating system. An OS that knows you.">
+<link rel="canonical" href="https://getyouros.com/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta property="og:title" content="youros — an OS that knows you">
+<meta property="og:description" content="A personal operating system that knows you.">
+<meta property="og:url" content="https://getyouros.com/">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#020617">
+
+<style>
+  :root {
+    --bg: #020617;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --accent-pink: #ec4899;
+    --accent-purple: #8b5cf6;
+    --accent-orange: #f97316;
+    --accent-amber: #fbbf24;
+    --shadow-pink: 0 8px 24px -8px rgba(236, 72, 153, 0.5);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 4rem 1.5rem 6rem;
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  /* Ambient sunset glow */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 50% at 50% 38%, rgba(236, 72, 153, 0.20), transparent 60%),
+      radial-gradient(ellipse 70% 60% at 50% 72%, rgba(139, 92, 246, 0.16), transparent 70%),
+      radial-gradient(ellipse 90% 40% at 50% 100%, rgba(249, 115, 22, 0.13), transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  main {
+    position: relative;
+    z-index: 1;
+    max-width: 36rem;
+    width: 100%;
+    text-align: center;
+  }
+
+  .logo {
+    width: min(28rem, 100%);
+    height: auto;
+    margin: 0 auto 1.25rem;
+    display: block;
+    filter: drop-shadow(0 8px 28px rgba(236, 72, 153, 0.15));
+  }
+
+  .tagline {
+    font-size: clamp(1.1rem, 2.4vw, 1.35rem);
+    font-style: italic;
+    color: var(--text-muted);
+    margin: 0 0 2.75rem;
+    line-height: 1.5;
+    letter-spacing: 0.005em;
+  }
+  .tagline em {
+    font-style: normal;
+    color: var(--accent-amber);
+    font-weight: 500;
+  }
+
+  .cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.95rem 1.85rem;
+    background: var(--accent-pink);
+    color: #fff;
+    border: none;
+    border-radius: 999px;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-decoration: none;
+    letter-spacing: 0.01em;
+    box-shadow: var(--shadow-pink);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  }
+  .cta:hover {
+    transform: translateY(-1px);
+    background: #f06aaa;
+    box-shadow: 0 14px 36px -8px rgba(236, 72, 153, 0.6);
+  }
+  .cta:active { transform: translateY(0); }
+  .cta svg { width: 1.05em; height: 1.05em; }
+
+  .platforms {
+    margin: 1rem 0 0;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  footer {
+    position: absolute;
+    bottom: 1.5rem;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+    opacity: 0.5;
+    z-index: 1;
+    letter-spacing: 0.04em;
+  }
+
+  @media (max-width: 520px) {
+    footer { position: static; margin-top: 3rem; }
+    body { padding-bottom: 2rem; }
+  }
+</style>
+</head>
+
+<body>
+
+<main>
+  <svg class="logo" viewBox="0 0 480 210" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="youros">
+    <defs>
+      <linearGradient id="vG" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#fbbf24"/>
+        <stop offset="38%" stop-color="#ec4899"/>
+        <stop offset="100%" stop-color="#8b5cf6"/>
+      </linearGradient>
+      <linearGradient id="sky" x1="50%" y1="0%" x2="50%" y2="100%">
+        <stop offset="0%" stop-color="#5b21b6"/>
+        <stop offset="38%" stop-color="#be185d"/>
+        <stop offset="70%" stop-color="#f97316"/>
+        <stop offset="100%" stop-color="#fed7aa"/>
+      </linearGradient>
+      <radialGradient id="sun" cx="50%" cy="50%" r="60%">
+        <stop offset="0%" stop-color="#fff3c4"/>
+        <stop offset="55%" stop-color="#fbbf24"/>
+        <stop offset="100%" stop-color="#ef6b4f"/>
+      </radialGradient>
+      <clipPath id="discClip"><circle cx="138" cy="94" r="38"/></clipPath>
+    </defs>
+
+    <g transform="rotate(-2 240 105)">
+      <!-- y -->
+      <text x="95" y="128" text-anchor="end"
+            font-family="'Marker Felt','Caveat','Bradley Hand','Comic Sans MS',cursive"
+            font-size="118" font-weight="700" fill="url(#vG)"
+            style="letter-spacing:-2px;">y</text>
+
+      <!-- sunset-disc O -->
+      <circle cx="138" cy="94" r="38" fill="url(#sky)" stroke="#3b0764" stroke-width="3.5"/>
+      <g clip-path="url(#discClip)">
+        <line x1="100" y1="104" x2="176" y2="104" stroke="#3b0764" stroke-width="1.6" opacity="0.85"/>
+        <line x1="100" y1="105.5" x2="176" y2="105.5" stroke="#fed7aa" stroke-width="0.8" opacity="0.9"/>
+        <circle cx="138" cy="98" r="14" fill="url(#sun)"/>
+        <ellipse cx="138" cy="104" rx="26" ry="2.8" fill="#fcd34d" opacity="0.55"/>
+      </g>
+
+      <!-- uros -->
+      <text x="181" y="128" text-anchor="start"
+            font-family="'Marker Felt','Caveat','Bradley Hand','Comic Sans MS',cursive"
+            font-size="118" font-weight="700" fill="url(#vG)"
+            style="letter-spacing:-2px;">uros</text>
+
+      <!-- hand-drawn underline -->
+      <path d="M52 168 Q 240 184, 432 160"
+            stroke="url(#vG)" stroke-width="4"
+            stroke-linecap="round" fill="none" opacity="0.85"/>
+    </g>
+  </svg>
+
+  <p class="tagline">an OS that <em>knows you</em>.</p>
+
+  <!-- TODO: swap href to dedicated /install page once it exists.
+       For now points at the canonical GitHub releases page. -->
+  <a class="cta" href="https://github.com/torimeyer/youros/releases/latest">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="7 10 12 15 17 10"/>
+      <line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
+    Download youros
+  </a>
+
+  <p class="platforms">for macOS · Linux</p>
+</main>
+
+<footer>getyouros.com</footer>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "youros",
+  "applicationCategory": "DesktopApplication",
+  "operatingSystem": "macOS, Linux",
+  "url": "https://getyouros.com/",
+  "description": "youros — an operating system that knows you."
+}
+</script>
+
+</body>
+</html>
