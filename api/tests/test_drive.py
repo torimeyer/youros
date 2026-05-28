@@ -1758,3 +1758,85 @@ async def test_drive_structured_preview_sheet_truncates_large_data(client, tmp_p
     sheet = data["sample"]["sheets"][0]
     assert sheet["truncated"] is True
     assert len(sheet["rows"]) <= 20
+
+
+# ---------------------------------------------------------------------------
+# B8: Drive folder migration — yourOS / myOS fallback
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_or_create_myos_folder_youros_found(tmp_path):
+    """Finds the yourOS folder first (new brand) and returns its ID."""
+    from routers.drive import _get_or_create_myos_folder, _YOUROS_FOLDER_NAME
+
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text('{"access_token": "ya29.test"}')
+
+    fake_service = MagicMock()
+    fake_service.files().list().execute.return_value = {
+        "files": [{"id": "folder-youros-id", "name": _YOUROS_FOLDER_NAME}]
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._build_drive_service", return_value=fake_service),
+    ):
+        result = await _get_or_create_myos_folder()
+
+    assert result == "folder-youros-id"
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_myos_folder_legacy_myos_found(tmp_path):
+    """Falls back to the legacy myOS folder when yourOS folder is absent."""
+    from routers.drive import _get_or_create_myos_folder
+
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text('{"access_token": "ya29.test"}')
+
+    def _list_side_effect(**kwargs):
+        q = kwargs.get("q", "")
+        if "yourOS" in q:
+            return MagicMock(**{"execute.return_value": {"files": []}})
+        return MagicMock(**{"execute.return_value": {"files": [{"id": "folder-myos-id", "name": "myOS"}]}})
+
+    fake_service = MagicMock()
+    fake_service.files().list.side_effect = _list_side_effect
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._build_drive_service", return_value=fake_service),
+    ):
+        result = await _get_or_create_myos_folder()
+
+    assert result == "folder-myos-id"
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_myos_folder_creates_youros(tmp_path):
+    """Creates a yourOS folder when neither yourOS nor myOS exists."""
+    from routers.drive import _get_or_create_myos_folder, _YOUROS_FOLDER_NAME
+
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text('{"access_token": "ya29.test"}')
+
+    fake_service = MagicMock()
+    fake_service.files().list().execute.return_value = {"files": []}
+    fake_service.files().create().execute.return_value = {"id": "new-youros-folder-id"}
+
+    created_name = []
+
+    def _create_side_effect(body, fields):
+        created_name.append(body.get("name"))
+        return MagicMock(**{"execute.return_value": {"id": "new-youros-folder-id"}})
+
+    fake_service.files().create.side_effect = _create_side_effect
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._build_drive_service", return_value=fake_service),
+    ):
+        result = await _get_or_create_myos_folder()
+
+    assert result == "new-youros-folder-id"
+    assert _YOUROS_FOLDER_NAME in created_name
