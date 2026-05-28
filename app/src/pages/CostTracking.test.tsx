@@ -1200,6 +1200,54 @@ describe('CostTracking page', () => {
     expect(popover).toHaveTextContent(/4,992,110,291/)
   })
 
+  // Regression (→20): second open of the same popover must NOT show
+  // "Loading the math.". The stale value should appear immediately while
+  // the background refresh runs.
+  it('explain popover shows cached data immediately on second open (no loading flash)', async () => {
+    const mockExplainReuse = {
+      metric: 'context_reuse_pct',
+      formula: 'cache read tokens divided by total input tokens',
+      numerator: { value: 100, label: 'Cache read', source: 'audit.jsonl' },
+      denominator: { value: 200, label: 'Total input', source: 'audit.jsonl' },
+      result: 50.0,
+      result_label: '50.0%',
+      window: 'This Week (rolling 7 days)',
+      note: null,
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.startsWith('/costs/savings')) return Promise.resolve(mockSavingsData)
+      if (path.startsWith('/costs/explain/context_reuse_pct')) return Promise.resolve(mockExplainReuse)
+      if (path.startsWith('/costs')) return Promise.resolve({ ...mockCostData, context_reuse_pct: 50.0 })
+      return Promise.resolve({})
+    })
+
+    renderCostTracking()
+    await waitFor(() => {
+      expect(screen.getByTestId('explain-trigger-context_reuse_pct')).toBeInTheDocument()
+    })
+
+    // First open: fetch runs, data appears.
+    fireEvent.click(screen.getByTestId('explain-trigger-context_reuse_pct'))
+    await waitFor(() => {
+      expect(screen.getByTestId('explain-result-context_reuse_pct')).toHaveTextContent('50.0%')
+    })
+
+    // Close the popover.
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    await waitFor(() => {
+      expect(screen.queryByTestId('explain-popover-context_reuse_pct')).not.toBeInTheDocument()
+    })
+
+    // Second open: must show data immediately, never "Loading the math."
+    fireEvent.click(screen.getByTestId('explain-trigger-context_reuse_pct'))
+    await waitFor(() => {
+      expect(screen.getByTestId('explain-popover-context_reuse_pct')).toBeInTheDocument()
+    })
+    // "Loading the math." must never appear. The stale payload is shown right away.
+    expect(screen.queryByText('Loading the math.')).not.toBeInTheDocument()
+    expect(screen.getByTestId('explain-result-context_reuse_pct')).toHaveTextContent('50.0%')
+  })
+
   // Regression (tooltip viewport clip): when the explain-popover trigger is
   // near the top of the viewport (i.e. not enough room above for the ~420px
   // popover), the popover must flip BELOW the trigger. Otherwise its top

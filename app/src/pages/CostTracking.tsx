@@ -326,13 +326,20 @@ function ExplainPopover({ metric, period, label }: { metric: string; period: str
   const [position, setPosition] = useState<'above' | 'below'>('above')
   const triggerRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
+  // Track the last fetched (metric, period) key. If the same key opens again,
+  // we show the existing data immediately and refresh silently in the background
+  // so the popover never shows "Loading the math." on repeat opens.
+  const fetchKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!open) return
-    // Fetch fresh every time it opens so the numbers stay in sync with the
-    // period pill the user chose.
-    setLoading(true)
-    setError(null)
+    const key = `${metric}:${period}`
+    // Only show the loading state when we have no data yet for this key.
+    if (fetchKeyRef.current !== key) {
+      setLoading(true)
+      setError(null)
+    }
+    fetchKeyRef.current = key
     api.get<ExplainPayload>(`/costs/explain/${metric}?period=${period}`)
       .then((res) => {
         setPayload(res)

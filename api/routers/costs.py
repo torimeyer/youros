@@ -114,7 +114,7 @@ _cli_cache: dict[str, tuple[int, int, list[dict]]] = {}
 # entirely and reuse the previous (total_bytes, max_mtime_ns) tuple.
 import time as _time_mod
 _transcript_stat_cache: Optional[tuple[float, tuple[int, int]]] = None
-_TRANSCRIPT_STAT_TTL = 5.0  # seconds
+_TRANSCRIPT_STAT_TTL = 30.0  # seconds — must exceed the time to read 900+ transcript files
 
 
 def _transcript_dir_stat() -> tuple[int, int]:
@@ -1401,7 +1401,7 @@ async def get_costs_explain(
                 + ", ".join(sorted(SUPPORTED_EXPLAIN_METRICS))
             ),
         )
-    return _build_explain(metric, period)
+    return await asyncio.to_thread(_build_explain, metric, period)
 
 
 # ---------------------------------------------------------------------------
