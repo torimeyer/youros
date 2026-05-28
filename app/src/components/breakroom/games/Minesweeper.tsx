@@ -99,7 +99,7 @@ export default function Minesweeper() {
   return (
     <div className="flex flex-col gap-4 font-serif">
       <div className="flex flex-col gap-1 items-center italic">
-        <h2 className="text-3xl text-[#0a3055] drop-shadow-sm">The Dragon's Breath</h2>
+        <h2 className="text-3xl text-[#0a3055] drop-shadow-sm">Minesweeper</h2>
         <p className="text-[10px] text-slate-500 uppercase tracking-widest">Navigate the archipelago without waking the sea dragons.</p>
       </div>
 

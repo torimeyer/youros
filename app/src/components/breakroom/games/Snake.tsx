@@ -132,7 +132,7 @@ export default function Snake() {
       // 1. Background (The Void)
       ctx.fillStyle = CLR_VOID; ctx.fillRect(0, 0, W, H)
 
-      // 2. Cosmic Polka Dots (Pulse with score)
+      // 2. Polka Dots (Pulse with score)
       ctx.fillStyle = '#f8edeb'
       for (let i = 0; i < 50; i++) {
         const x = ((Math.sin(i * 1234.5) + 1) / 2) * W
@@ -156,7 +156,7 @@ export default function Snake() {
         ctx.beginPath(); ctx.arc(fx + dx, fy + dy, 1.5, 0, Math.PI*2); ctx.fill()
       }
 
-      // 4. The Cosmic Serpent (Snake)
+      // 4. The Snake
       const snakeArr = snakeRef.current
       snakeArr.forEach((seg, i) => {
         const rx = seg.x * CELL; const ry = seg.y * CELL
@@ -183,7 +183,7 @@ export default function Snake() {
   return (
     <div ref={containerRef} className="flex w-full flex-col items-center gap-4 font-serif">
       <div className="flex flex-col gap-1 items-center italic self-start">
-        <h2 className="text-3xl text-[#facc15] drop-shadow-lg font-black uppercase">The Cosmic Serpent</h2>
+        <h2 className="text-3xl text-[#facc15] drop-shadow-lg font-black uppercase">Snake</h2>
         <p className="text-[10px] text-slate-500 tracking-[0.3em] uppercase">Expand your pattern into the infinite void.</p>
       </div>
 

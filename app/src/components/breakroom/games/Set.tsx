@@ -20,7 +20,7 @@ const COLOR: Record<SetCard['color'], string> = {
   purple: '#2563eb',
 }
 
-// Global SVG patterns for spiritualist shading
+// Global SVG patterns for card shading
 function GlobalPatternDefs() {
   return (
     <svg
@@ -38,7 +38,7 @@ function GlobalPatternDefs() {
             height="8"
             patternTransform="rotate(15 0 0)"
           >
-            {/* Soft, organic dots for spiritual "vibration" */}
+            {/* Soft dots for striped shading */}
             <circle cx="2" cy="2" r="1.2" fill={COLOR[color]} fillOpacity="0.6" />
           </pattern>
         ))}
@@ -47,7 +47,7 @@ function GlobalPatternDefs() {
   )
 }
 
-// Organic, botanical shapes for the "Seer's Convergence"
+// Card shapes
 function Shape({ card }: { card: SetCard }) {
   const c = COLOR[card.color]
   const fill =
