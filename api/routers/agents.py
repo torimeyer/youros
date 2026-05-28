@@ -2129,11 +2129,8 @@ def _recover_stale_agents():
         # The Case 2b multi-signal check above only runs for source=="claude-code",
         # so backend-managed spawns (api/chat) fell straight through to Case 3
         # and got marked abandoned even when their PID was still alive and working.
-<<<<<<< HEAD
         # That false-abandon is what triggers the respawn cascade.
         #
-=======
->>>>>>> worktree-agent-fix-event-loop-blockers-1778
         # Differentiate by source (→1453 vs →1678 conflict):
         # - source="api"/"chat": autonomous backend processes that may survive
         #   restart reparented to init. Keep them alive even if not our child.
