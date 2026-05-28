@@ -163,7 +163,7 @@ describe('TopBar badge and dropdown invariant', () => {
     useNotificationStore.setState({ notifications: [], toastIds: [] })
     useNotificationsStore.setState({ notifications: [], wsConnected: false })
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       chatOpen: false,
       chatWidth: 400,
     })
@@ -364,7 +364,7 @@ describe('TopBar notifications drawer', () => {
     useNotificationStore.setState({ notifications: [], toastIds: [] })
     useNotificationsStore.setState({ notifications: [], wsConnected: false })
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       chatOpen: false,
       chatWidth: 400,
     })
@@ -517,7 +517,7 @@ describe('TopBar What\'s New button', () => {
     useNotificationStore.setState({ notifications: [], toastIds: [] })
     useNotificationsStore.setState({ notifications: [], wsConnected: false })
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       chatOpen: false,
       chatWidth: 400,
       whatsNewLastSeen: '',
@@ -545,7 +545,7 @@ describe('TopBar keyboard modifier key by platform', () => {
     vi.clearAllMocks()
     useNotificationStore.setState({ notifications: [], toastIds: [] })
     useNotificationsStore.setState({ notifications: [], wsConnected: false })
-    useAppStore.setState({ osName: 'myOS', chatOpen: false, chatWidth: 400 })
+    useAppStore.setState({ osName: 'yourOS', chatOpen: false, chatWidth: 400 })
   })
 
   it('shows Ctrl+ on a non-Mac platform (Win32)', async () => {
@@ -597,7 +597,7 @@ describe('TopBar persistent-notification toast', () => {
     })
     useNotificationsStore.setState({ notifications: [], wsConnected: false, snapshotReceived: false })
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       chatOpen: false,
       chatWidth: 400,
     })

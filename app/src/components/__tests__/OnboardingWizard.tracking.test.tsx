@@ -42,13 +42,13 @@ describe('OnboardingWizard - Tracking step', () => {
     localStorageMock.clear()
     useAppStore.setState({
       onboarded: false,
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: false,
       defaultChatModel: 'claude',
       instanceMode: 'personal',
       orgName: '',
       teamAccentColor: '#6366f1',
-      displayOsName: () => 'myOS',
+      displayOsName: () => 'yourOS',
       setInstanceMode: vi.fn() as unknown as (mode: 'personal' | 'team') => void,
       setOrgName: vi.fn(),
       setAgentsLastViewed: vi.fn() as unknown as (v: string) => void,
@@ -78,8 +78,8 @@ describe('OnboardingWizard - Tracking step', () => {
     render(<OnboardingWizard />)
     goToTrackingStep()
     const opt = screen.getByTestId('tracking-option-everywhere')
-    expect(opt).toHaveTextContent('Track everything — myOS is my main dashboard.')
-    expect(opt).toHaveTextContent("Every Claude Code conversation on this computer shows up in myOS, no matter which folder you're in.")
+    expect(opt).toHaveTextContent('Track everything: yourOS is my main dashboard.')
+    expect(opt).toHaveTextContent("Every Claude Code conversation on this computer shows up in yourOS, no matter which folder you're in.")
   })
 
   it('shows exact copy for option 2', () => {
@@ -87,15 +87,15 @@ describe('OnboardingWizard - Tracking step', () => {
     goToTrackingStep()
     const opt = screen.getByTestId('tracking-option-repo')
     expect(opt).toHaveTextContent("I always want tracking when I'm in my work repo.")
-    expect(opt).toHaveTextContent('Only conversations inside your work project show up in myOS. Other projects stay untouched.')
+    expect(opt).toHaveTextContent('Only conversations inside your work project show up in yourOS. Other projects stay untouched.')
   })
 
   it('shows exact copy for option 3', () => {
     render(<OnboardingWizard />)
     goToTrackingStep()
     const opt = screen.getByTestId('tracking-option-myos-only')
-    expect(opt).toHaveTextContent('I just want to try myOS without touching anything else.')
-    expect(opt).toHaveTextContent('Only conversations inside the myOS folder show up. Nothing else on your computer changes.')
+    expect(opt).toHaveTextContent('I just want to try yourOS without touching anything else.')
+    expect(opt).toHaveTextContent('Only conversations inside the yourOS folder show up. Nothing else on your computer changes.')
   })
 
   it('folder picker is hidden until option 2 is selected', () => {

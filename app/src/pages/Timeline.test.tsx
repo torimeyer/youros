@@ -44,7 +44,7 @@ function renderTimeline() {
 describe('Timeline page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
   })
 
   it('groups tasks by goal, not by raw tags', async () => {

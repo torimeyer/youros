@@ -125,7 +125,7 @@ describe('CostTracking page', () => {
     vi.clearAllMocks()
     // Clear localStorage cache between tests to avoid cross-test pollution.
     localStorage.clear()
-    useAppStore.setState({ chatOpen: false, osName: 'myOS', darkMode: true, showBudgetCaps: false })
+    useAppStore.setState({ chatOpen: false, osName: 'yourOS', darkMode: true, showBudgetCaps: false })
     mockedApiGet.mockImplementation(routedApiGet() as never)
   })
 
@@ -266,9 +266,9 @@ describe('CostTracking page', () => {
     // Old juvenile label must be gone
     expect(screen.queryByText('How much smaller your context is')).not.toBeInTheDocument()
     // Removed stats must not appear
-    expect(screen.queryByText('myOS savings')).not.toBeInTheDocument()
+    expect(screen.queryByText('yourOS savings')).not.toBeInTheDocument()
     expect(screen.queryByText('ostk token savings')).not.toBeInTheDocument()
-    expect(screen.queryByText('myOS saved you this session')).not.toBeInTheDocument()
+    expect(screen.queryByText('yourOS saved you this session')).not.toBeInTheDocument()
     expect(screen.queryByText('Space saved on stored information')).not.toBeInTheDocument()
     expect(screen.queryByText('Anthropic prompt cache')).not.toBeInTheDocument()
     expect(screen.queryByText('Tokens read from cache')).not.toBeInTheDocument()
@@ -306,7 +306,7 @@ describe('CostTracking page', () => {
       expect(screen.getByText('Savings data not available yet.')).toBeInTheDocument()
     })
     // Should not show any of the live labels
-    expect(screen.queryByText('myOS saved you this session')).not.toBeInTheDocument()
+    expect(screen.queryByText('yourOS saved you this session')).not.toBeInTheDocument()
     expect(screen.queryByText('Requests reused from memory')).not.toBeInTheDocument()
   })
 
@@ -1294,7 +1294,7 @@ describe('CostTracking — Subscription tab (→1299)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
-    useAppStore.setState({ chatOpen: false, osName: 'myOS', darkMode: true, showBudgetCaps: false })
+    useAppStore.setState({ chatOpen: false, osName: 'yourOS', darkMode: true, showBudgetCaps: false })
     mockedApiGet.mockImplementation((path: string) => {
       if (path.startsWith('/costs/savings')) return Promise.resolve(mockSavingsData)
       if (path.startsWith('/costs')) return Promise.resolve(mockCostData)

@@ -1574,7 +1574,7 @@ describe('claims: Building badge + inline note', () => {
       if (path.includes('auth-system') && path.includes('/tasks')) {
         return Promise.resolve({
           tasks: [],
-          claims: [{ agent: 'myOS', source: 'wrapper', started_at: startedAt, task_ids: [] }],
+          claims: [{ agent: 'yourOS', source: 'wrapper', started_at: startedAt, task_ids: [] }],
         })
       }
       if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
@@ -1596,7 +1596,7 @@ describe('claims: Building badge + inline note', () => {
     })
 
     expect(screen.getByTestId('claim-source-chip').textContent).toContain('in wrapper')
-    expect(screen.getByTestId('claim-source-chip').textContent).toContain('myOS')
+    expect(screen.getByTestId('claim-source-chip').textContent).toContain('yourOS')
   })
 
   it('does not show claims-note when claims is empty', async () => {

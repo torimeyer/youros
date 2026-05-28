@@ -61,7 +61,7 @@ describe('Settings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       accentColor: 'blue',
       features: [
@@ -131,20 +131,20 @@ describe('Settings', () => {
   describe('OS Identifier', () => {
     it('reads osName from the store', () => {
       renderSettings()
-      const input = screen.getByDisplayValue('myOS')
+      const input = screen.getByDisplayValue('yourOS')
       expect(input).toBeInTheDocument()
     })
 
     it('updates osName in the store on change', () => {
       renderSettings()
-      const input = screen.getByDisplayValue('myOS')
+      const input = screen.getByDisplayValue('yourOS')
       fireEvent.change(input, { target: { value: 'MyOS' } })
       expect(useAppStore.getState().osName).toBe('MyOS')
     })
 
     it('persists osName to API on blur', () => {
       renderSettings()
-      const input = screen.getByDisplayValue('myOS')
+      const input = screen.getByDisplayValue('yourOS')
       fireEvent.change(input, { target: { value: 'MyOS' } })
       fireEvent.blur(input)
       expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { os_name: 'MyOS' })
@@ -872,7 +872,7 @@ describe('Settings - Enter key submit', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.get).mockResolvedValue({})
-    useAppStore.setState({ osName: 'myOS', darkMode: false })
+    useAppStore.setState({ osName: 'yourOS', darkMode: false })
   })
 
   it('Enter on the OS Identifier field saves the name', async () => {
@@ -883,7 +883,7 @@ describe('Settings - Enter key submit', () => {
       expect(screen.getAllByText('Appearance').length).toBeGreaterThan(0)
     })
 
-    const osInput = await screen.findByDisplayValue('myOS')
+    const osInput = await screen.findByDisplayValue('yourOS')
     fireEvent.change(osInput, { target: { value: 'ToriOS' } })
     fireEvent.keyDown(osInput, { key: 'Enter' })
 
@@ -1127,7 +1127,7 @@ describe('Settings page — Developer section', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       accentColor: 'blue',
       features: [
@@ -1181,7 +1181,7 @@ describe('Settings page — Push notifications toggle', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       accentColor: 'blue',
       features: [
@@ -1367,7 +1367,7 @@ describe('Settings — Memory provenance (F4)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       accentColor: 'blue',
       features: [

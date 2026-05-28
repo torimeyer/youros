@@ -1631,7 +1631,7 @@ class TestGeminiSystemInstruction:
             result = _gemini_system_instruction()
 
         assert "toriOS" in result
-        # The frozen constant alias uses the default "myOS", not the custom name.
+        # The frozen constant alias uses the default "yourOS", not the custom name.
         from services.chat_providers import GEMINI_SYSTEM_INSTRUCTION
         assert "toriOS" not in GEMINI_SYSTEM_INSTRUCTION
 
@@ -3912,7 +3912,7 @@ class TestGeminiPmContextInjection:
              _patch("services.chat_providers.settings_store") as mock_store, \
              _patch.dict(sys.modules, {"google": google_stub, "google.genai": genai_stub}):
             mock_store.get.side_effect = lambda k, default=None: (
-                "myOS" if k in ("os_name", "instance_name")
+                "yourOS" if k in ("os_name", "instance_name")
                 else False if k == "use_gemini_cli"
                 else default
             )

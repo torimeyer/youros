@@ -435,7 +435,7 @@ def test_settings_migrates_morning_briefing_time(tmp_path):
     fake_path.write_text(json.dumps({
         "morning_briefing_enabled": False,
         "dashboard_widgets": ["morning_briefing", "quick_launch", "day_summary"],
-        "os_name": "myOS",
+        "os_name": "yourOS",
     }))
 
     with patch.object(settings_store_module, "SETTINGS_PATH", fake_path):

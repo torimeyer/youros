@@ -25,7 +25,7 @@ describe('useAppStore', () => {
       chatOpen: true,
       chatWidth: 380,
       isResizing: false,
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       accentColor: 'blue',
       defaultChatModel: 'claude',
@@ -57,7 +57,7 @@ describe('useAppStore', () => {
   it('has correct initial state', () => {
     const state = useAppStore.getState()
     expect(state.chatOpen).toBe(true)
-    expect(state.osName).toBe('myOS')
+    expect(state.osName).toBe('yourOS')
     expect(state.darkMode).toBe(true)
     expect(state.accentColor).toBe('blue')
     expect(state.features).toHaveLength(14)
@@ -227,7 +227,7 @@ describe('useAppStore', () => {
       useAppStore.getState().setDefaultChatModel('gemini')
       const state = useAppStore.getState()
       expect(state.defaultChatModel).toBe('gemini')
-      expect(state.osName).toBe('myOS')
+      expect(state.osName).toBe('yourOS')
       expect(state.darkMode).toBe(true)
       expect(state.chatOpen).toBe(true)
     })
@@ -445,11 +445,11 @@ describe('useAppStore — team mode gate (TEAM_MODE_VISIBLE=false)', () => {
   })
 
   it('displayOsName returns osName even when orgName is set and server had team mode', async () => {
-    useAppStore.setState({ osName: 'myOS', orgName: 'Meyer', instanceMode: 'personal' })
+    useAppStore.setState({ osName: 'yourOS', orgName: 'Meyer', instanceMode: 'personal' })
     // Simulate stale server returning team mode — hydration should neutralise it
     vi.mocked(api.get).mockResolvedValueOnce({ instance_mode: 'team', onboarded: true })
     await useAppStore.getState().hydrateFromServer()
-    expect(useAppStore.getState().displayOsName()).toBe('myOS')
+    expect(useAppStore.getState().displayOsName()).toBe('yourOS')
   })
 
   it('enterprise auto-migration does not switch to team when TEAM_MODE_VISIBLE=false', async () => {

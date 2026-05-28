@@ -3,7 +3,7 @@
 Bug 1: recent activity context block injected into system prompt.
 Bug 2: file:// and absolute path hints used directly, not searched first.
 Bug 3: _check_agents retries on transient errors; _spawn_agent validates inputs.
-Bug 4: myOS vocabulary (spec = Specs page entry) present in system prompt.
+Bug 4: yourOS vocabulary (spec = Specs page entry) present in system prompt.
 """
 
 import asyncio
@@ -345,7 +345,7 @@ class TestSpawnAgentValidation:
 
 
 # ---------------------------------------------------------------------------
-# Bug 4: myOS vocabulary in system prompt
+# Bug 4: yourOS vocabulary in system prompt
 # ---------------------------------------------------------------------------
 
 
@@ -363,13 +363,13 @@ class TestMyOSVocabulary:
         assert "spec" in prompt.lower()
 
     def test_vocabulary_section_present(self):
-        """The myOS VOCABULARY section must exist in the system prompt."""
+        """The yourOS VOCABULARY section must exist in the system prompt."""
         from services import chat_providers
         with patch("services.chat_providers.settings_store") as ms:
             ms.get.side_effect = lambda k, d=None: d
             prompt = chat_providers._system_prompt()
 
-        assert "myOS VOCABULARY" in prompt or "VOCABULARY" in prompt
+        assert "yourOS VOCABULARY" in prompt or "VOCABULARY" in prompt
 
     def test_path_hint_instruction_present(self):
         """The PATH HINTS section must instruct to use file:// paths directly."""
@@ -405,7 +405,7 @@ class TestProjectClaudeMd:
         chat_providers._clear_project_claude_md_cache()
 
     def test_returns_empty_when_no_claude_md(self, tmp_path):
-        """Non-myOS projects (no CLAUDE.md) get an empty block."""
+        """Non-yourOS projects (no CLAUDE.md) get an empty block."""
         from services import chat_providers
 
         with patch("services.chat_providers.PROJECT_ROOT", tmp_path):
@@ -418,7 +418,7 @@ class TestProjectClaudeMd:
         from services import chat_providers
 
         (tmp_path / "CLAUDE.md").write_text(
-            "# myOS\n\nYou are myOS, built on ostk.\n\n"
+            "# yourOS\n\nYou are yourOS, built on ostk.\n\n"
             "- **saa**: spawn agent(s).\n"
         )
 
@@ -426,7 +426,7 @@ class TestProjectClaudeMd:
             result = chat_providers._project_claude_md_context()
 
         assert "PROJECT CLAUDE.md" in result
-        assert "You are myOS, built on ostk." in result
+        assert "You are yourOS, built on ostk." in result
         assert "saa" in result
 
     def test_caches_by_mtime(self, tmp_path):
@@ -434,7 +434,7 @@ class TestProjectClaudeMd:
         from services import chat_providers
 
         path = tmp_path / "CLAUDE.md"
-        path.write_text("# myOS\n")
+        path.write_text("# yourOS\n")
 
         with patch("services.chat_providers.PROJECT_ROOT", tmp_path):
             first = chat_providers._project_claude_md_context()
@@ -447,7 +447,7 @@ class TestProjectClaudeMd:
             # the file is gone, stat() raises and we return "".
             second = chat_providers._project_claude_md_context()
 
-        assert "myOS" in first
+        assert "yourOS" in first
         # After unlink the stat fails and we get the empty string back.
         # This also proves we are NOT serving stale content silently.
         assert second == ""
@@ -471,7 +471,7 @@ class TestProjectClaudeMd:
         from services import chat_providers
 
         (tmp_path / "CLAUDE.md").write_text(
-            "# myOS\n\nYou are myOS, built on ostk.\n"
+            "# yourOS\n\nYou are yourOS, built on ostk.\n"
         )
 
         with patch("services.chat_providers.PROJECT_ROOT", tmp_path), \
@@ -482,14 +482,14 @@ class TestProjectClaudeMd:
             result = chat_providers._compose_system_prompt(None)
 
         assert "PROJECT CLAUDE.md" in result
-        assert "You are myOS, built on ostk." in result
+        assert "You are yourOS, built on ostk." in result
 
     def test_injected_into_cached_system_blocks(self, tmp_path):
         """_build_cached_system_blocks must embed CLAUDE.md in the static block."""
         from services import chat_providers
 
         (tmp_path / "CLAUDE.md").write_text(
-            "# myOS\n\nVocabulary: saa, diagnose, elit, nvrfgt, tack.\n"
+            "# yourOS\n\nVocabulary: saa, diagnose, elit, nvrfgt, tack.\n"
         )
 
         with patch("services.chat_providers.PROJECT_ROOT", tmp_path), \
@@ -507,7 +507,7 @@ class TestProjectClaudeMd:
         assert "diagnose" in static_text
 
     def test_noop_when_claude_md_missing(self, tmp_path):
-        """Non-myOS projects get the original prompt unchanged."""
+        """Non-yourOS projects get the original prompt unchanged."""
         from services import chat_providers
 
         with patch("services.chat_providers.PROJECT_ROOT", tmp_path), \

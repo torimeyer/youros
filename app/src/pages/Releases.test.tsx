@@ -63,7 +63,7 @@ describe('Releases page', () => {
 
   it('renders the page heading', () => {
     renderReleases()
-    expect(screen.getByText("What's New in myOS")).toBeInTheDocument()
+    expect(screen.getByText("What's New in yourOS")).toBeInTheDocument()
   })
 
   it('renders every release group label', () => {

@@ -122,7 +122,7 @@ async def test_callback_success_stores_tokens(client, tmp_path):
     }
 
     settings_file = tmp_path / "settings.json"
-    settings_file.write_text(json.dumps({"os_name": "myOS"}))
+    settings_file.write_text(json.dumps({"os_name": "yourOS"}))
 
     with (
         patch("routers.auth._google_client_id", return_value="test-client-id"),
@@ -630,7 +630,7 @@ async def test_callback_success_redirect_uses_frontend_url(client, tmp_path):
     }
 
     settings_file = tmp_path / "settings.json"
-    settings_file.write_text('{"os_name": "myOS"}')
+    settings_file.write_text('{"os_name": "yourOS"}')
 
     with (
         patch("routers.auth._google_client_id", return_value="test-client-id"),

@@ -37,7 +37,7 @@ vi.mock('../../stores/app', () => {
     setIsResizing: vi.fn(),
     defaultChatModel: 'claude',
     setDefaultChatModel: vi.fn(),
-    displayOsName: () => 'myOS',
+    displayOsName: () => 'yourOS',
   }
   return {
     useAppStore: (selector?: (s: typeof store) => unknown) => selector ? selector(store) : store,

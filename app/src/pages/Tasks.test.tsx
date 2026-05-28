@@ -70,7 +70,7 @@ describe('Tasks page', () => {
     // Clear the first-paint tasks cache between tests so state does
     // not leak from one test to the next. Needle 299.
     window.localStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
@@ -2163,7 +2163,7 @@ describe('Tasks page - first-paint budget (needle 299)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiPost.mockResolvedValue({})
   })
 
@@ -2306,7 +2306,7 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
@@ -2540,7 +2540,7 @@ describe('Tasks page - null-priority render fix', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiPost.mockResolvedValue({})
   })
 
@@ -2601,7 +2601,7 @@ describe('Tasks page - status filter and All toggle', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiPost.mockResolvedValue({})
   })
 
@@ -2658,7 +2658,7 @@ describe('Tasks page - live updates (bus + 3s poll)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiPost.mockResolvedValue({})
   })
 
@@ -2814,7 +2814,7 @@ describe('Tasks page - 2026-04-23 regression set', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiPost.mockResolvedValue({})
   })
 
@@ -3072,7 +3072,7 @@ describe('task title truncation (→1060)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
   })
 
   it('task title span has line-clamp-2 to prevent multi-paragraph overflow', async () => {
@@ -3276,7 +3276,7 @@ describe('inline title editing (→1195)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
@@ -3386,7 +3386,7 @@ describe('Plan waves button (→1370)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiPost.mockResolvedValue({})
   })
 
@@ -3442,7 +3442,7 @@ describe('Sort by wave (→1523)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiPost.mockResolvedValue({})
   })
 

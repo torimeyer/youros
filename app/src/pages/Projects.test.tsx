@@ -73,7 +73,7 @@ function renderProjects() {
 describe('Projects page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ chatOpen: false, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: false, osName: 'yourOS', darkMode: true })
     mockedApiGet.mockResolvedValue(mockProjectsResponse)
   })
 
@@ -85,7 +85,7 @@ describe('Projects page', () => {
   it('renders subtitle text', async () => {
     renderProjects()
     expect(
-      screen.getByText('All directories in the myOS workspace.')
+      screen.getByText('All directories in the yourOS workspace.')
     ).toBeInTheDocument()
   })
 
@@ -173,7 +173,7 @@ describe('Projects page', () => {
       expect(screen.getByTestId('error-banner')).toBeInTheDocument()
     })
     expect(
-      screen.getByText('Could not load your projects. Check that myOS is running and try again.')
+      screen.getByText('Could not load your projects. Check that yourOS is running and try again.')
     ).toBeInTheDocument()
   })
 

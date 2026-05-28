@@ -3770,7 +3770,7 @@ class TestBuildBaselineContext:
             patch("routers.chat.ostk") as mock_ostk,
         ):
             mock_settings.get.side_effect = lambda key, default=None: {
-                "os_name": "myOS",
+                "os_name": "yourOS",
                 "user_name": "",
                 "standing_instructions": "",
             }.get(key, default)
@@ -3790,7 +3790,7 @@ class TestBuildBaselineContext:
             patch("routers.chat.ostk") as mock_ostk,
         ):
             mock_settings.get.side_effect = lambda key, default=None: {
-                "os_name": "myOS",
+                "os_name": "yourOS",
                 "user_name": "",
                 "standing_instructions": "",
             }.get(key, default)
@@ -3810,7 +3810,7 @@ class TestBuildBaselineContext:
             patch("routers.chat.ostk") as mock_ostk,
         ):
             mock_settings.get.side_effect = lambda key, default=None: {
-                "os_name": "myOS",
+                "os_name": "yourOS",
                 "user_name": "",
                 "standing_instructions": "Always reply in plain English.",
             }.get(key, default)

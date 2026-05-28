@@ -621,7 +621,7 @@ describe('Calendar countdown badge (pretty pill with clock icon)', () => {
   // must render as a rounded pill with a clock icon (or pulsing dot
   // when the event is in progress) and pick an accent color based on
   // how close the event is. The plain gray "Coming up in 1 hour" line
-  // is replaced by a styled chip that matches the rest of myOS.
+  // is replaced by a styled chip that matches the rest of yourOS.
 
   beforeEach(() => {
     vi.clearAllMocks()

@@ -130,7 +130,7 @@ const MIXED_EVENTS = [
 describe('Activity page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
   })
 
   it('renders the page title', async () => {
@@ -576,7 +576,7 @@ function rawAgentCancelled(iso: string): any {
 describe('Activity page - bundling', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
   })
 
   it('collapses 53 consecutive same-minute "Stopped" events into one row with a count badge', async () => {

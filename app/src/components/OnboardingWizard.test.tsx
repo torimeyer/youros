@@ -89,13 +89,13 @@ describe('OnboardingWizard', () => {
     localStorageMock.clear()
     useAppStore.setState({
       onboarded: false,
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       defaultChatModel: 'claude',
       instanceMode: 'personal',
       orgName: '',
       teamAccentColor: '#6366f1',
-      displayOsName: () => 'myOS',
+      displayOsName: () => 'yourOS',
       setInstanceMode: vi.fn() as unknown as (mode: 'personal' | 'team') => void,
       setOrgName: vi.fn(),
       setAgentsLastViewed: vi.fn() as unknown as (v: string) => void,
@@ -324,7 +324,7 @@ describe('OnboardingWizard', () => {
     clickNext(9) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize -> Theme -> Tracking -> Connect -> Ready
 
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
-    expect(screen.getByTestId('summary-os-name')).toHaveTextContent('myOS')
+    expect(screen.getByTestId('summary-os-name')).toHaveTextContent('yourOS')
     expect(screen.getByTestId('summary-theme')).toHaveTextContent('Dark')
     expect(screen.getByTestId('summary-provider')).toHaveTextContent('Anthropic')
   })
@@ -332,7 +332,7 @@ describe('OnboardingWizard', () => {
   it('theme summary reflects store darkMode even when the user never visits Theme step', () => {
     // Store darkMode=true but user navigates straight through without interacting with Theme step.
     // The pickedDarkRef must be initialized from the store, not hard-coded to false.
-    useAppStore.setState({ onboarded: false, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ onboarded: false, osName: 'yourOS', darkMode: true })
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(9) // skip through all steps including Theme and Tracking without touching them
@@ -340,7 +340,7 @@ describe('OnboardingWizard', () => {
   })
 
   it('theme summary shows Light when store darkMode is false and Theme step not interacted', () => {
-    useAppStore.setState({ onboarded: false, osName: 'myOS', darkMode: false })
+    useAppStore.setState({ onboarded: false, osName: 'yourOS', darkMode: false })
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(9)
@@ -638,7 +638,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     vi.mocked(api.post).mockResolvedValue({})
     useAppStore.setState({
       onboarded: false,
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: false,
     })
   })
@@ -845,7 +845,7 @@ describe('OnboardingWizard — Customize step starter pack', () => {
     vi.mocked(api.post).mockResolvedValue({})
     useAppStore.setState({
       onboarded: false,
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       defaultChatModel: 'claude',
       instanceMode: 'personal',
@@ -1479,7 +1479,7 @@ describe('OnboardingWizard — FilesLocation step', () => {
     render(<OnboardingWizard />)
     clickNext(3)
     expect(screen.getByTestId('step-files-location')).toHaveTextContent(
-      'This is the folder on your computer where myOS saves your files'
+      'This is the folder on your computer where yourOS saves your files'
     )
   })
 
@@ -1554,13 +1554,13 @@ describe('OnboardingWizard — TrackingStep repo path (→1520)', () => {
     localStorageMock.clear()
     useAppStore.setState({
       onboarded: false,
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       defaultChatModel: 'claude',
       instanceMode: 'personal',
       orgName: '',
       teamAccentColor: '#6366f1',
-      displayOsName: () => 'myOS',
+      displayOsName: () => 'yourOS',
       setInstanceMode: vi.fn() as unknown as (mode: 'personal' | 'team') => void,
       setOrgName: vi.fn(),
       setAgentsLastViewed: vi.fn() as unknown as (v: string) => void,

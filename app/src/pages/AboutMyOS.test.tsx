@@ -76,10 +76,10 @@ describe('AboutMyOS page', () => {
     }
   })
 
-  it('renders hero with myOS title and tagline', () => {
+  it('renders hero with yourOS title and tagline', () => {
     renderPage()
     expect(screen.getByTestId('about-hero')).toBeTruthy()
-    expect(screen.getByTestId('about-hero').textContent).toMatch(/myOS/)
+    expect(screen.getByTestId('about-hero').textContent).toMatch(/yourOS/)
   })
 
   it('describes ostk as an independent project, not by author name', () => {
@@ -138,7 +138,7 @@ describe('AboutMyOS page', () => {
 
   it('renders section headings with correct text', () => {
     renderPage()
-    expect(screen.getByTestId('about-heading-what-myos-is').textContent).toContain('What myOS is')
+    expect(screen.getByTestId('about-heading-what-myos-is').textContent).toContain('What yourOS is')
     expect(screen.getByTestId('about-heading-kernel-underneath').textContent).toContain(
       'kernel underneath'
     )

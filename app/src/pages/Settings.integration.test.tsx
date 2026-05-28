@@ -135,7 +135,7 @@ describe('Settings integration: Accent color', () => {
 describe('Settings integration: Feature toggles in Sidebar', () => {
   beforeEach(() => {
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Backlog', enabled: true },
@@ -236,7 +236,7 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
 describe('Settings integration: OS name in Sidebar', () => {
   beforeEach(() => {
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Backlog', enabled: true },
@@ -256,7 +256,7 @@ describe('Settings integration: OS name in Sidebar', () => {
 
   it('Sidebar displays the osName from the store', () => {
     renderSidebar()
-    expect(screen.getByText('myOS')).toBeInTheDocument()
+    expect(screen.getByText('yourOS')).toBeInTheDocument()
   })
 
   it('Sidebar updates when osName changes', () => {

@@ -117,13 +117,13 @@ const CONNECT_STEP_IDX = 8
 function setupWizardStore() {
   useAppStore.setState({
     onboarded: false,
-    osName: 'myOS',
+    osName: 'yourOS',
     darkMode: false,
     defaultChatModel: 'claude',
     instanceMode: 'personal',
     orgName: '',
     teamAccentColor: '#6366f1',
-    displayOsName: () => 'myOS',
+    displayOsName: () => 'yourOS',
     setInstanceMode: vi.fn() as unknown as (mode: 'personal' | 'team') => void,
     setOrgName: vi.fn(),
     setAgentsLastViewed: vi.fn() as unknown as (v: string) => void,

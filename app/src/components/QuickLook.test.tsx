@@ -391,7 +391,7 @@ describe('QuickLook - Drive mode', () => {
     expect(screen.getByText('Body text here.')).toBeInTheDocument()
   })
 
-  it('shows Save to myOS button in drive mode', () => {
+  it('shows Save to yourOS button in drive mode', () => {
     render(<QuickLook {...driveBase} driveData={makeDriveData()} />)
     expect(screen.getByTestId('drive-preview-save-to-myos')).toBeInTheDocument()
     expect(screen.getByText(/save to myos/i)).toBeInTheDocument()

@@ -63,7 +63,7 @@ describe('Sidebar', () => {
     _resetSidebarBus()
     useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       features: DEFAULT_FEATURES,
     })
     mockedApiGet.mockImplementation((url: string) => {
@@ -106,7 +106,7 @@ describe('Sidebar', () => {
 
   it('renders the OS name from the store', () => {
     renderSidebar()
-    expect(screen.getByText('myOS')).toBeInTheDocument()
+    expect(screen.getByText('yourOS')).toBeInTheDocument()
   })
 
   it('renders a custom OS name when store is updated', () => {
@@ -710,7 +710,7 @@ describe('Sidebar grouped nav', () => {
     localStorage.clear()
     _resetSidebarBus()
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       features: DEFAULT_FEATURES,
     })
     mockedApiGet.mockImplementation((url: string) => {
@@ -979,7 +979,7 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
     localStorage.clear()
     _resetSidebarBus()
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       features: DEFAULT_FEATURES,
     })
   })
@@ -1115,7 +1115,7 @@ describe('Sidebar backend status dot (→1229)', () => {
     localStorage.clear()
     _resetSidebarBus()
     useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
-    useAppStore.setState({ osName: 'myOS', features: DEFAULT_FEATURES })
+    useAppStore.setState({ osName: 'yourOS', features: DEFAULT_FEATURES })
   })
 
   it('dot starts green when /api/status/clock returns 200', async () => {
@@ -1253,7 +1253,7 @@ describe('Sidebar status panel does not expose Claude indicator', () => {
     localStorage.clear()
     _resetSidebarBus()
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       features: DEFAULT_FEATURES,
       defaultChatModel: 'claude',
     })
@@ -1318,7 +1318,7 @@ describe('Sidebar status panel never shows a sessions count (regression)', () =>
     localStorage.clear()
     _resetSidebarBus()
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       features: DEFAULT_FEATURES,
     })
   })
@@ -1372,7 +1372,7 @@ describe('Jira and Confluence sidebar entries', () => {
     vi.clearAllMocks()
     localStorage.clear()
     _resetSidebarBus()
-    useAppStore.setState({ osName: 'myOS', features: DEFAULT_FEATURES })
+    useAppStore.setState({ osName: 'yourOS', features: DEFAULT_FEATURES })
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
@@ -1451,7 +1451,7 @@ describe('Sidebar — nav restructure (→1489)', () => {
     _resetSidebarBus()
     useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
     useAppStore.setState({
-      osName: 'myOS',
+      osName: 'yourOS',
       features: DEFAULT_FEATURES,
     })
     mockedApiGet.mockImplementation((url: string) => {
@@ -1521,7 +1521,7 @@ describe('nav rename and reorder', () => {
     localStorage.clear()
     _resetSidebarBus()
     useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
-    useAppStore.setState({ osName: 'myOS', features: DEFAULT_FEATURES })
+    useAppStore.setState({ osName: 'yourOS', features: DEFAULT_FEATURES })
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })

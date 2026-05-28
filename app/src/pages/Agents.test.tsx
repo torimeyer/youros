@@ -135,7 +135,7 @@ describe('Agents page - Nudge feature', () => {
     // state never leaks from one test run to the next. Needle 299.
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -584,7 +584,7 @@ describe('Agents page - Send button stuck state (needle 237)', () => {
     // state never leaks from one test run to the next. Needle 299.
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -793,7 +793,7 @@ describe('Agents page - page-level subtitle', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/agents') return mockAgentsResponse
       if (path === '/agents/templates') return mockTemplatesResponse
@@ -835,7 +835,7 @@ describe('Agents page - Status bar', () => {
     // state never leaks from one test run to the next. Needle 299.
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -1027,7 +1027,7 @@ describe('Agents page - active card collapse/expand default', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -1211,7 +1211,7 @@ describe('Agents page - tabs', () => {
     // state never leaks from one test run to the next. Needle 299.
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
   })
 
@@ -1257,7 +1257,7 @@ describe('Agents page - Recent tab filtering', () => {
     // state never leaks from one test run to the next. Needle 299.
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
   })
 
@@ -1675,7 +1675,7 @@ describe('Agents page - Templates tab', () => {
     window.sessionStorage.clear()
     useAppStore.setState({
       chatOpen: true,
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       customAgentTemplates: [],
     })
@@ -1719,7 +1719,7 @@ describe('Agents page - Templates tab', () => {
   it('two-section layout: persona built-ins + user templates under Agent Templates, marketplace separate', async () => {
     useAppStore.setState({
       chatOpen: true,
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       customAgentTemplates: mockUserTemplates,
     })
@@ -1807,7 +1807,7 @@ describe('Agents page - Templates tab', () => {
   it('shows installed-templates-grid (with fallback items) when templates API returns empty', async () => {
     // When /agents/templates returns empty, the code uses a built-in fallback list.
     // The installed grid should render those fallback items and never show blank.
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true, customAgentTemplates: [] })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true, customAgentTemplates: [] })
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
       if (path === '/agents/templates') return { templates: [] }
@@ -1936,7 +1936,7 @@ describe('Agents page - Templates tab instant cache', () => {
     window.sessionStorage.clear()
     useAppStore.setState({
       chatOpen: true,
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       customAgentTemplates: [],
     })
@@ -2094,7 +2094,7 @@ describe('Agents page - first-load state', () => {
     // state never leaks from one test run to the next. Needle 299.
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
   })
 
@@ -2535,7 +2535,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
     // state never leaks from one test run to the next. Needle 299.
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
   })
 
@@ -2982,7 +2982,7 @@ describe('Agents page - Template capabilities panel', () => {
     // state never leaks from one test run to the next. Needle 299.
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
   })
 
@@ -3088,7 +3088,7 @@ describe('Agents page - Templates description hygiene (regression)', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
   })
 
@@ -3219,7 +3219,7 @@ describe('Agents page - first-paint budget (needle 299)', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
     mockedApiPost.mockResolvedValue({})
   })
@@ -3371,7 +3371,7 @@ describe('Icon Picker in Template Editor', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -3530,7 +3530,7 @@ describe('Agents page - Fleets panel removed', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -3583,7 +3583,7 @@ describe('Agents page - Template detail view', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -3791,7 +3791,7 @@ describe('friendlyAgentName', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/agents') return {
@@ -3965,7 +3965,7 @@ describe('agentTitleParts', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/agents') return {
@@ -4006,7 +4006,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/agents') return {
@@ -4307,7 +4307,7 @@ describe('Transcript viewer', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
     vi.mocked(api.get).mockImplementation(async (path: string) => {
       if (path === '/agents') return {
@@ -4813,7 +4813,7 @@ describe('Agents page - live Active-to-Recent move (30s safety-net poll)', () =>
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
   })
 
@@ -4965,7 +4965,7 @@ describe('Agents page - Enter key submit', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -5035,7 +5035,7 @@ describe('Agents page - Cancel all agents', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -5272,7 +5272,7 @@ describe('Agent Templates source attribution', () => {
     window.sessionStorage.clear()
     useAppStore.setState({
       chatOpen: true,
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       customAgentTemplates: [],
     })
@@ -5409,7 +5409,7 @@ describe('Agent Templates source attribution', () => {
     // so the user stops seeing duplicate cards with the "custom" badge.
     useAppStore.setState({
       chatOpen: true,
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       customAgentTemplates: [
         { name: 'PRD', description: 'stale', icon: 'article', model: 'sonnet', budget: 3 },
@@ -5468,7 +5468,7 @@ describe('Agent Templates source attribution', () => {
     // passes the right value to TemplateCard.
     useAppStore.setState({
       chatOpen: true,
-      osName: 'myOS',
+      osName: 'yourOS',
       darkMode: true,
       customAgentTemplates: [
         { name: 'Summarizer', description: 'Summarize docs.', icon: 'summarize', model: 'sonnet', budget: 2, source: 'marketplace' },
@@ -5502,7 +5502,7 @@ describe('Agents page - Phase 2 enterprise consistency', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -5569,7 +5569,7 @@ describe('Agents page - Template detail alias feature', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -5771,7 +5771,7 @@ describe('Agents page - optimistic spawn insert + agents bus', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: false, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: false, osName: 'yourOS', darkMode: true })
   })
 
   it('optimistic insert: clicking spawn shows the new row before the spawn POST resolves', async () => {
@@ -5928,7 +5928,7 @@ describe('Agents page - Roadmap card opens modal (no direct-spawn, no suffix)', 
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: false, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: false, osName: 'yourOS', darkMode: true })
     spawnedAgentName = null
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -5991,7 +5991,7 @@ describe('Agents page - Roadmap card opens modal (no direct-spawn, no suffix)', 
 
     // Type a prompt into the modal and click Spawn.
     const input = await screen.findByTestId('template-user-message-input')
-    fireEvent.change(input, { target: { value: 'build me a 3 year roadmap for myOS' } })
+    fireEvent.change(input, { target: { value: 'build me a 3 year roadmap for yourOS' } })
 
     const spawnBtn = await screen.findByTestId('template-spawn-button')
     fireEvent.click(spawnBtn)
@@ -6016,7 +6016,7 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(
       'summary-runner',
       'summary-ghost',
@@ -6177,7 +6177,7 @@ describe('Agents page - chat session isolation (→1095)', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
   })
 
   it('clears prior-session messages when the same agent name is respawned', async () => {
@@ -6258,7 +6258,7 @@ describe('Agents page - WS realtime fast path (→1220)', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
   })
 
@@ -6369,7 +6369,7 @@ describe('Agents page - template-spawned agent visibility (→1266 →1271)', ()
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
   })
 
   it('shows template-spawned running agent in Active list when WS has another agent (hasSummary=true)', async () => {
@@ -6536,7 +6536,7 @@ describe('Agents page - ghost/alive badge, progress, and step display (→1490)'
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
   })
 
   it('shows alive badge for running agent with pid and recent heartbeat', async () => {
@@ -6669,7 +6669,7 @@ describe('Agents page - AgentStatusBadge (→1510)', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/agents/templates') return mockTemplatesResponse
@@ -6815,7 +6815,7 @@ describe('Agents page - Template MCP/Skill visibility (→1532)', () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
-    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
 
     mockedApiGet.mockImplementation(async (path: string) => {
