@@ -233,8 +233,8 @@ class TestListDirectory:
 class TestSearchFiles:
     @pytest.mark.asyncio
     async def test_search_finds_pattern(self):
-        # Search for a string that only appears in main.py
-        result = await execute_tool("search_files", {"pattern": "myOS API", "path": str(WORKSPACE / "api")})
+        # Search for a string that only appears in main.py (updated from myOS → yourOS in v4.0.0)
+        result = await execute_tool("search_files", {"pattern": "yourOS API", "path": str(WORKSPACE / "api")})
         assert "main.py" in result
 
     @pytest.mark.asyncio
