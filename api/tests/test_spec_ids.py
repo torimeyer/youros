@@ -197,8 +197,20 @@ class TestDocPromoteSpecId:
 # backfill script — unit test
 # ---------------------------------------------------------------------------
 
+def _load_backfill():
+    """Import backfill_spec_ids from scripts/ (one level above api/)."""
+    import importlib.util
+    scripts_dir = Path(__file__).resolve().parent.parent.parent / "scripts"
+    spec = importlib.util.spec_from_file_location(
+        "backfill_spec_ids", scripts_dir / "backfill_spec_ids.py"
+    )
+    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
+
+
 class TestBackfillScript:
-    def test_assigns_ids_alphabetically(self, tmp_path, monkeypatch):
+    def test_assigns_ids_alphabetically(self, tmp_path):
         spec_dir = tmp_path / "specs"
         spec_dir.mkdir()
 
@@ -207,17 +219,8 @@ class TestBackfillScript:
                 "---\ntitle: test\nstatus: spec\n---\n\nbody\n"
             )
 
-        import scripts.backfill_spec_ids as backfill  # noqa: PLC0415
+        backfill = _load_backfill()
 
-        monkeypatch.setattr(backfill, "PROJECT_ROOT", tmp_path)
-        monkeypatch.setattr(backfill, "USER_SPECS_DIR", tmp_path / "no_user_specs")
-
-        # Monkey-patch scan_dirs used internally
-        original_main = backfill.main
-
-        import sys as _sys
-        _sys.argv = ["backfill_spec_ids.py", "--apply"]
-        # We call it via direct function to avoid sys.exit
         needs = [p for p in sorted(spec_dir.glob("*.md")) if backfill._needs_id(p)]
         used = backfill._existing_ids([spec_dir])
         next_num = max(used, default=0) + 1
@@ -235,7 +238,7 @@ class TestBackfillScript:
         path = _write_spec(spec_dir, "already.md", "S005")
         original_text = path.read_text()
 
-        import scripts.backfill_spec_ids as backfill  # noqa: PLC0415
+        backfill = _load_backfill()
 
         assert not backfill._needs_id(path), "File with spec_id should not need backfill"
         assert path.read_text() == original_text
