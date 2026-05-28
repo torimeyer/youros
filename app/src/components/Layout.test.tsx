@@ -166,13 +166,16 @@ describe('Layout', () => {
       useAppStore.setState({ chatOpen: true, chatWidth })
       renderLayout()
       const main = document.querySelector('main') as HTMLElement
-      // ml-56 = 14rem = 224px sidebar reservation on the left.
-      // marginRight = chatWidth reservation on the right.
+      // Left margin = SIDEBAR_WIDTH_DEFAULT (224px) reservation on the left.
+      // Right margin = chatWidth reservation on the right.
+      // The push-aside layout uses inline style.marginLeft/marginRight
+      // (Layout.tsx line ~194) instead of Tailwind ml-* classes so the
+      // values can be driven by the resizable sidebar store.
       // Left + right reservations must never exceed the viewport.
       const sidebarWidth = 224
       expect(sidebarWidth + chatWidth).toBeLessThanOrEqual(viewport)
       expect(main.style.marginRight).toBe(`${chatWidth}px`)
-      expect(main.className).toContain('ml-56')
+      expect(main.style.marginLeft).toBe(`${sidebarWidth}px`)
     })
 
     it('main content has min-w-0 and overflow-x-hidden so narrow grids do not overflow the page', () => {
