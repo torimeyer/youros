@@ -28,7 +28,7 @@
     "feedback_dont_stall_waiting_for_subagents.md",
     "feedback_dont_defer_when_time_available.md"
   ],
-  "needle_hygiene": [
+  "task_hygiene": [
     "feedback_needles_are_backlog_not_cleanup.md",
     "feedback_every_commit_needs_a_needle.md"
   ],

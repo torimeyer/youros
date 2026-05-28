@@ -3,23 +3,23 @@
 # Created: →1381
 # Called from: pre-tool-guard.sh (Bash|mcp__ostk__bash section)
 # Purpose: Block `ostk work close →NNN` when no commit on main references
-#          that needle ID. Prevents agents from closing needles they haven't
+#          that task ID. Prevents agents from closing tasks they haven't
 #          actually fixed.
 #
 # Background: →1365 and →1374 were closed overnight by agents that had zero
-#             commits on main referencing those needle IDs. The kernel accepted
+#             commits on main referencing those task IDs. The kernel accepted
 #             the close with no verification. The work was never done.
 #
 # Trigger: Bash/mcp__ostk__bash command matches `ostk work close`
-# Guard:   Parses the needle ID, runs git log main --oneline, greps for →ID.
+# Guard:   Parses the task ID, runs git log main --oneline, greps for →ID.
 #          Denies if no match found.
 #
 # --no-verify: pass to bypass the check for legitimate edge cases:
-#   - Work landed without the needle ID in the commit subject
+#   - Work landed without the task ID in the commit subject
 #   - Fix is in a different repo
 #   - Close is administrative (duplicate / won't-fix)
 #
-# Fail-open: if the needle ID cannot be parsed, or git log fails, the check
+# Fail-open: if the task ID cannot be parsed, or git log fails, the check
 #            is skipped and the close proceeds. This avoids blocking legitimate
 #            closes due to tooling issues.
 
@@ -56,11 +56,11 @@ except ValueError:
         return 0
     fi
 
-    # Extract the numeric needle ID.
+    # Extract the numeric task ID.
     # Handles all of: →1374, 1374, "→1374", '→1374'
     # Uses env var to avoid the heredoc+pipe stdin conflict.
-    local needle_id
-    needle_id=$(WCG_CMD="$cmd" python3 -c "
+    local task_id
+    task_id=$(WCG_CMD="$cmd" python3 -c "
 import sys, re, os
 cmd = os.environ.get('WCG_CMD', '')
 # Strip everything before 'close' so we don't match numbers in flags
@@ -68,15 +68,15 @@ m = re.search(r'ostk\s+work\s+close\s+(.*)', cmd)
 if not m:
     sys.exit(0)
 after = m.group(1).strip()
-# Find first run of digits (the needle ID)
+# Find first run of digits (the task ID)
 n = re.search(r'(\d+)', after)
 if n:
     print(n.group(1))
 " 2>/dev/null)
 
-    if [ -z "$needle_id" ]; then
+    if [ -z "$task_id" ]; then
         # Cannot parse — fail-open so valid closes aren't blocked
-        log_rule_fire "work_close_guard" "$tool" "allow" "could not parse needle ID from: ${cmd}, fail-open"
+        log_rule_fire "work_close_guard" "$tool" "allow" "could not parse task ID from: ${cmd}, fail-open"
         return 0
     fi
 
@@ -95,16 +95,16 @@ if n:
     # git log main — check both → and -> arrow styles
     local match
     match=$(git -C "$repo_root" log main --oneline 2>/dev/null \
-            | grep -E "(→|->)${needle_id}([^0-9]|$)" \
+            | grep -E "(→|->)${task_id}([^0-9]|$)" \
             | head -1 || true)
 
     if [ -z "$match" ]; then
         log_rule_fire "work_close_guard" "$tool" "block" \
-            "no commit on main references →${needle_id}"
-        deny "work_close_guard: no commit on main references →${needle_id}. The work may not be done yet. If the fix landed without the needle ID in the commit subject, or the close is administrative, prefix the command with OSTK_WORK_CLOSE_NO_VERIFY=1 to override."
+            "no commit on main references →${task_id}"
+        deny "work_close_guard: no commit on main references →${task_id}. The work may not be done yet. If the fix landed without the task ID in the commit subject, or the close is administrative, prefix the command with OSTK_WORK_CLOSE_NO_VERIFY=1 to override."
     fi
 
     log_rule_fire "work_close_guard" "$tool" "allow" \
-        "commit on main references →${needle_id}: ${match}"
+        "commit on main references →${task_id}: ${match}"
     return 0
 }
