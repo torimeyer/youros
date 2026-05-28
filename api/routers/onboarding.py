@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import subprocess
@@ -347,7 +348,8 @@ async def enable_myos_hooks(body: EnableHooksRequest = EnableHooksRequest()):
             return {"enabled": False, "error": "path is required when scope is 'repo'"}
 
     try:
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             cmd,
             cwd=cwd,
             capture_output=True,
