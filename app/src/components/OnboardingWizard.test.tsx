@@ -125,7 +125,7 @@ describe('OnboardingWizard', () => {
   it('starts on the Welcome step', () => {
     render(<OnboardingWizard />)
     expect(screen.getByTestId('step-welcome')).toBeInTheDocument()
-    expect(screen.getByText('Welcome!')).toBeInTheDocument()
+    expect(screen.getByText('this is your OS.')).toBeInTheDocument()
   })
 
   it('shows progress dots equal to the number of steps', () => {

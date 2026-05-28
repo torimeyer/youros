@@ -429,7 +429,7 @@ export default function OnboardingWizard() {
         {/* Step content */}
         <div className="min-h-[320px]">
           {step === 'Fork' && <ForkStep onChoose={handleForkChoice} subtextCls={subtextCls} cardCls={cardCls} darkMode={effectiveDark} />}
-          {step === 'Welcome' && <WelcomeStep subtextCls={subtextCls} />}
+          {step === 'Welcome' && <WelcomeStep />}
           {step === 'You' && (
             <YouStep
               userName={userName}
@@ -667,7 +667,7 @@ export default function OnboardingWizard() {
             ) : (
               <button
                 onClick={step === 'FilesLocation' ? handleFilesLocationNext : step === 'Profile' ? handleProfileNext : next}
-                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
+                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-semibold text-white transition-colors"
                 data-testid="next-button"
               >
                 Next
@@ -756,16 +756,6 @@ type StarterPackItem = {
   default_selected: boolean
 }
 
-// Fallback pack shown immediately when a persona is selected.
-// The API response replaces it when the call succeeds; if the API is
-// unavailable, this stays on screen so the demo never shows an error state.
-const STATIC_FALLBACK: StarterPackItem[] = [
-  { kind: 'agent', id: 'builtin-builder', name: 'Builder', description: 'From task description to working, tested code. Plans, builds, and verifies against your criteria before calling it done.', default_selected: true },
-  { kind: 'agent', id: 'builtin-research', name: 'Research', description: 'Takes a question, searches real sources, and delivers a structured summary with citations and one recommended next step.', default_selected: true },
-  { kind: 'agent', id: 'builtin-brainstorm', name: 'Brainstorm', description: 'Turns a problem into 5-8 structured options with tradeoffs and a recommendation. Good for when you are stuck on approach.', default_selected: true },
-  { kind: 'agent', id: 'builtin-explain-plain', name: 'Explain Plain', description: 'Explain anything in plain language so someone with no background can follow. No jargon, no metaphors, no skipped steps.', default_selected: false },
-]
-
 // Maps persona IDs (from agentMarketplace) to the intent key used by /onboarding/intent
 const PERSONA_TO_INTENT: Record<string, string> = {
   everyone: 'general',
@@ -808,7 +798,7 @@ function CustomizeStep({
     let cancelled = false
     let timeoutId: ReturnType<typeof setTimeout> | undefined
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error('timeout')), 10_000)
+      timeoutId = setTimeout(() => reject(new Error('timeout')), 30_000)
     })
     Promise.race([
       api.post<{ starter_pack: StarterPackItem[] }>('/onboarding/intent', { intent: intentId }),
@@ -900,17 +890,16 @@ function CustomizeStep({
   )
 }
 
-function WelcomeStep({ subtextCls }: { subtextCls: string }) {
+function WelcomeStep() {
   return (
     <div className="text-center" data-testid="step-welcome">
       <div className="mb-6">
-        <img src="/youros-logo-hero.jpeg" alt="yourOS" className="mx-auto w-64 h-auto" style={{ mixBlendMode: 'multiply' }} />
+        <img src="/youros-logo-hero.png" alt="yourOS" className="mx-auto h-auto w-[368px]" />
       </div>
-      <p className="text-base font-bold text-center mb-1">an operating system for how you operate.</p>
-      <p className="text-base font-bold text-center mb-4">this is your OS.</p>
-      <p className={`${subtextCls} text-lg leading-relaxed`}>
-        Let's set up your personal OS. This will only take a minute, and you can
-        change everything later in settings.
+      <p className="text-[23px] italic font-medium text-center tracking-wide whitespace-nowrap text-slate-700 dark:text-slate-300">an operating system for how <span className="font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-orange-500 bg-clip-text text-transparent">you</span> operate.</p>
+      <p className="text-[28px] italic font-bold text-center mb-6 bg-gradient-to-r from-pink-500 via-purple-500 to-orange-500 bg-clip-text text-transparent">this is your OS.</p>
+      <p className="text-sm italic text-slate-500 dark:text-slate-400 leading-relaxed mt-2">
+        Let's get you set up. It takes about two minutes, and you can change anything later.
       </p>
     </div>
   )
