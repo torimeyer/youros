@@ -675,19 +675,19 @@ export default function OnboardingWizard() {
             )}
           </div>
         </div>
+      </div>
 
-        {/* Privacy footer, shown beneath every step */}
-        <p className="mt-6 text-center text-xs opacity-40">
-          <a
-            href="/privacy"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline hover:opacity-100"
-            data-testid="onboarding-privacy-link"
-          >
-            Privacy policy
-          </a>
-        </p>
+      {/* Privacy footer: fixed to page bottom, visible on every step */}
+      <div className="fixed bottom-0 left-0 right-0 pb-3 flex justify-center pointer-events-none">
+        <a
+          href="/privacy"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs opacity-50 hover:opacity-80 underline pointer-events-auto"
+          data-testid="onboarding-privacy-link"
+        >
+          Privacy policy
+        </a>
       </div>
     </div>
   )
@@ -884,10 +884,10 @@ function WelcomeStep({ subtextCls }: { subtextCls: string }) {
   return (
     <div className="text-center" data-testid="step-welcome">
       <div className="mb-6">
-        <img src="/youros-logo-hero.jpeg" alt="yourOS" className="w-32 h-32 object-contain mx-auto rounded-2xl" />
+        <img src="/youros-logo-hero.jpeg" alt="yourOS" className="mx-auto max-h-48 w-auto object-contain rounded-xl" />
       </div>
       <h1 className="text-3xl font-bold mb-1">Welcome!</h1>
-      <p className="text-xs italic text-slate-500 mb-4">an OS that knows you.</p>
+      <p className="text-xs italic text-slate-500 mb-4">an operating system for how you operate. this is your os.</p>
       <p className={`${subtextCls} text-lg leading-relaxed`}>
         Let's set up your personal OS. This will only take a minute, and you can
         change everything later in settings.
@@ -998,6 +998,13 @@ function FilesLocationStep({
           className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
         />
       </div>
+      <button
+        onClick={() => setFilesDir(defaultPath)}
+        data-testid="files-location-use-default"
+        className={`text-xs ${subtextCls} hover:opacity-80 underline`}
+      >
+        Use default ({defaultPath})
+      </button>
     </div>
   )
 }
