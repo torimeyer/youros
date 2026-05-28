@@ -902,10 +902,10 @@ class SpeckitImport(BaseModel):
 
 @router.post("/specs/import")
 async def import_spec(body: SpeckitImport):
-    """Import a spec from spec-kit YAML, or create a needle when kind='needle'.
+    """Import a spec from spec-kit YAML, or create a task when kind='task'.
 
-    When kind='needle' (default): parses the YAML and creates a single
-    needle from the spec name and description.
+    When kind='task' (default): parses the YAML and creates a single
+    task from the spec name and description.
 
     When kind='spec': parses the YAML, creates a spec draft via ostk,
     writes the body, and creates tasks for each entry in the tasks list.
@@ -1505,10 +1505,10 @@ class SpecFromRoadmapLine(BaseModel):
 
 @router.post("/specs/from-roadmap-line")
 async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
-    """Create a needle or a ready plan from a single roadmap initiative line.
+    """Create a task or a ready plan from a single roadmap initiative line.
 
-    When kind='needle' (default): validates the roadmap file exists, then
-    adds a needle using the initiative text as the title. Fast path.
+    When kind='task' (default): validates the roadmap file exists, then
+    adds a task using the initiative text as the title. Fast path.
 
     When kind='spec': drafts a plan whose goal is the initiative text,
     lets acceptance criteria generation run in the background, and
@@ -2873,9 +2873,9 @@ async def wizard_suggest(body: WizardSuggestRequest):
 
 @router.post("/specs/wizard/create")
 async def wizard_create(body: WizardCreateRequest):
-    """Create a needle or a rich SDD spec from wizard inputs.
+    """Create a task or a rich SDD spec from wizard inputs.
 
-    When kind='needle' (default): creates a needle from the title and
+    When kind='task' (default): creates a task from the title and
     optional description. No spec file is written.
 
     When kind='spec': assembles a structured markdown spec from the wizard
