@@ -906,8 +906,8 @@ function WelcomeStep({ subtextCls }: { subtextCls: string }) {
       <div className="mb-6">
         <img src="/youros-logo-hero.jpeg" alt="yourOS" className="mx-auto w-64 h-auto" style={{ mixBlendMode: 'multiply' }} />
       </div>
-      <h1 className="text-3xl font-bold mb-1">Welcome!</h1>
-      <p className="text-xs italic text-slate-500 mb-4">an OS that knows you.</p>
+      <p className="text-base font-bold text-center mb-1">an operating system for how you operate.</p>
+      <p className="text-base font-bold text-center mb-4">this is your OS.</p>
       <p className={`${subtextCls} text-lg leading-relaxed`}>
         Let's set up your personal OS. This will only take a minute, and you can
         change everything later in settings.
