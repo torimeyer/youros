@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -53,10 +54,44 @@ _spec_task_origin: dict[str, str] = {}
 # In-memory registry: spec_path -> list of claim records.
 # Each claim record: {agent: str, source: str, started_at: str, task_ids: [str]}.
 # Source values: "build" | "wrapper" | "agent" | "slash" | "passive".
-# Process-local and best-effort: a server restart drops all claims and
-# status falls back to the existing tasks-driven logic.  Consistent with
-# the sibling _task_assignments / _spec_task_origin pattern.  See →1422.
+# Persisted to SPEC_ASSIGNMENTS_PATH on write; loaded at startup.  See →22.
 _spec_claims: dict[str, list[dict]] = {}
+
+SPEC_ASSIGNMENTS_PATH = Path.home() / ".myos" / "spec_assignments.json"
+
+
+def _save_assignments() -> None:
+    """Atomically persist _spec_task_origin and _spec_claims to disk."""
+    data = {
+        "spec_task_origin": dict(_spec_task_origin),
+        "spec_claims": dict(_spec_claims),
+    }
+    tmp = SPEC_ASSIGNMENTS_PATH.with_suffix(".tmp")
+    try:
+        SPEC_ASSIGNMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        tmp.rename(SPEC_ASSIGNMENTS_PATH)
+    except Exception as exc:
+        logger.warning("spec_assignments persist failed: %s", exc)
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _load_assignments() -> None:
+    """Load persisted assignments from disk into the in-memory maps."""
+    if not SPEC_ASSIGNMENTS_PATH.exists():
+        return
+    try:
+        data = json.loads(SPEC_ASSIGNMENTS_PATH.read_text(encoding="utf-8"))
+        _spec_task_origin.update(data.get("spec_task_origin", {}))
+        _spec_claims.update(data.get("spec_claims", {}))
+    except Exception as exc:
+        logger.warning("spec_assignments load failed: %s", exc)
+
+
+_load_assignments()
 
 
 async def _ensure_decomposed(spec_path: str) -> list[dict]:
@@ -128,6 +163,7 @@ async def _delete_builder_task(task_id: str) -> bool:
     # not re-attempt the deletion and log a spurious warning.
     _task_assignments.pop(task_id, None)
     _spec_task_origin.pop(task_id, None)
+    _save_assignments()
     return True
 
 
@@ -1726,6 +1762,7 @@ async def claim_spec(spec_path: str, body: _ClaimBody):
     if spec_path not in _spec_claims:
         _spec_claims[spec_path] = []
     _spec_claims[spec_path].append(claim)
+    _save_assignments()
 
     return {"task_ids": task_ids, "claim": claim}
 
@@ -2522,6 +2559,7 @@ async def build_spec(spec_path: str, model: Optional[str] = None):
         if norm_tid:
             _task_assignments[norm_tid] = name
             _spec_task_origin[norm_tid] = spec_path
+            _save_assignments()
         try:
             await spawn_agent(body)
             return (name, None)

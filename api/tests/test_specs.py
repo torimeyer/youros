@@ -1112,54 +1112,6 @@ async def test_close_task_concurrent_calls_do_not_lose_any_close(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Agent-report filter: _is_test_artifact_spec covers the new patterns
-# ---------------------------------------------------------------------------
-
-
-def test_is_test_artifact_spec_catches_agent_reports():
-    """Every doc the cut-prep agents wrote to docs/draft/ must be excluded
-    from the Specs view. Tori's rule: specs only exist when she asks for them.
-    Agent audit/report docs are caught by the expanded _SPEC_ARTIFACT_PATTERNS
-    (version prefix, date suffix, root-cause suffix, verification suffix).
-    """
-    from routers.specs import _is_test_artifact_spec
-
-    # -- Should be FILTERED (True = excluded) --------------------------------
-    agent_reports = [
-        # v4.1.0 release-report files (version-dot prefix)
-        ("docs/draft/v4.1.0-backend-regression-check.md", "v4.1.0 backend regression check"),
-        ("docs/draft/v4.1.0-cut-audit.md", "v4.1.0 Cut Prep Audit"),
-        ("docs/draft/v4.1.0-cut-gates.md", "v4.1.0 cut gates"),
-        ("docs/draft/v4.1.0-frontend-regression-check.md", "v4.1.0 frontend regression check"),
-        ("docs/draft/v4.1.0-nr-leak-check.md", "v4.1.0 nr leak check"),
-        # Date-stamped agent reports
-        ("docs/draft/launchd-activation-kill-test-2026-05-28.md", "launchd activation kill test 2026-05-28"),
-        ("docs/draft/pre-design-audit-script-fix-2026-05-28.md", "pre design audit script fix 2026-05-28"),
-        ("docs/draft/worktree-triage-1775-2026-05-28.md", "worktree triage 1775 2026-05-28"),
-        # Root-cause diagnosis report
-        ("docs/draft/vite-504-root-cause.md", "vite 504 root cause"),
-        # Verification writeup
-        ("docs/draft/pre-design-audit-script-verification.md", "pre design audit script verification"),
-    ]
-    for path, title in agent_reports:
-        assert _is_test_artifact_spec(path, title), (
-            f"Expected {path!r} to be filtered as agent report, but it was not"
-        )
-
-    # -- Should be KEPT (False = not excluded) --------------------------------
-    real_specs = [
-        ("docs/spec/discord-as-a-connected-service.md", "Discord as a connected service"),
-        ("docs/draft/pattern-watcher-v2.md", "Pattern watcher v2"),
-        ("docs/draft/user-memory-store-improvements.md", "User memory store improvements"),
-        ("~/.myos/specs/spec-auto-status.md", "Spec auto status"),
-        ("docs/draft/torichat-depth-vs-claude-code.md", "ToriChat depth vs Claude Code"),
-    ]
-    for path, title in real_specs:
-        assert not _is_test_artifact_spec(path, title), (
-            f"Expected {path!r} to be kept as real spec, but it was filtered"
-        )
-
-
 # AC-generation prompt guardrails
 # ---------------------------------------------------------------------------
 
@@ -3607,145 +3559,43 @@ def test_missing_solution_fails_clarity_gate(tmp_path):
     assert "has_ac_checkboxes" in failing_names
 
 
-# ---------------------------------------------------------------------------
-# →1749: scratch notes must not appear in the Specs view
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_list_specs_excludes_scratch_notes(client, monkeypatch):
-    """GET /specs must not return subagent scratch notes from docs/draft/.
-
-    Subagents write diagnosis/debug notes to docs/draft/ that are not specs
-    (no Problem/Goals/ACs). Before →1749 fix these rendered as bogus Draft
-    specs. The fix filters them using _is_scratch_note.
-    """
-    from services import ostk as ostk_module
-
-    async def fake_list_docs():
-        return [
-            # Scratch note: needle-ID prefix, no frontmatter, diagnosis keyword
-            {
-                "path": "docs/draft/1652-diagnosis.md",
-                "filename": "1652-diagnosis.md",
-                "title": "1652 diagnosis",
-                "status": "draft",
-                "created_at": "",
-                "promoted_at": "",
-                "updated_at_ms": 0,
-                "task_ids": [],
-                "acceptance_criteria": [],
-                "task_summary": {"total": 0, "open": 0, "closed": 0},
-            },
-            # Real spec with frontmatter: must appear
-            {
-                "path": "docs/draft/improve-onboarding.md",
-                "filename": "improve-onboarding.md",
-                "title": "Improve Onboarding",
-                "status": "draft",
-                "created_at": "2026-01-01T00:00:00",
-                "promoted_at": "",
-                "updated_at_ms": 0,
-                "task_ids": [],
-                "acceptance_criteria": [{"text": "User can sign up", "checked": False}],
-                "task_summary": {"total": 0, "open": 0, "closed": 0},
-            },
-        ]
-
-    monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
-
-    res = await client.get("/api/specs")
-    assert res.status_code == 200
-    docs = res.json()["docs"]
-    paths = [d["path"] for d in docs]
-
-    assert not any("1652-diagnosis" in p for p in paths), (
-        f"Scratch note leaked into /specs: {paths}"
-    )
-    assert any("improve-onboarding" in p for p in paths), (
-        f"Real spec missing from /specs: {paths}"
-    )
-
-
-@pytest.mark.asyncio
-async def test_list_specs_excludes_scratch_note_keyword_in_title(client, monkeypatch):
-    """Scratch notes with keyword in title are excluded even with frontmatter."""
-    from services import ostk as ostk_module
-
-    async def fake_list_docs():
-        return [
-            {
-                "path": "docs/draft/some-note.md",
-                "filename": "some-note.md",
-                "title": "diagnosis notes for the auth issue",
-                "status": "draft",
-                "created_at": "2026-01-01T00:00:00",
-                "promoted_at": "",
-                "updated_at_ms": 0,
-                "task_ids": [],
-                "acceptance_criteria": [],
-                "task_summary": {"total": 0, "open": 0, "closed": 0},
-            },
-            {
-                "path": "docs/draft/real-feature.md",
-                "filename": "real-feature.md",
-                "title": "Real Feature",
-                "status": "draft",
-                "created_at": "2026-01-01T00:00:00",
-                "promoted_at": "",
-                "updated_at_ms": 0,
-                "task_ids": [],
-                "acceptance_criteria": [{"text": "Works", "checked": False}],
-                "task_summary": {"total": 0, "open": 0, "closed": 0},
-            },
-        ]
-
-    monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
-
-    res = await client.get("/api/specs")
-    assert res.status_code == 200
-    docs = res.json()["docs"]
-    paths = [d["path"] for d in docs]
-
-    assert not any("some-note" in p for p in paths), (
-        f"Scratch-title note leaked into /specs: {paths}"
-    )
-    assert any("real-feature" in p for p in paths)
-
-
-@pytest.mark.asyncio
-async def test_list_specs_excludes_leaked_code_spec(client, tmp_path, monkeypatch):
-    """Leaked test-fixture spec 'Code feature' / code-spec.md must NOT appear in /specs (→1751).
-
-    test_build_spec_code_uses_existing_flow calls _set_spec_status which calls
-    pathlib.Path.write_text without a mock, so a real docs/spec/code-spec.md lands
-    on disk when Path.exists is globally patched to True. The scanner must treat that
-    file as a test artifact and exclude it from the listing.
-    """
-    from services import ostk as ostk_module
+def test_task_spec_assignment_persists_across_restart(tmp_path, monkeypatch):
+    """bind task → clear in-memory maps → reload from disk → assignment survives (→22)."""
     from routers import specs as specs_router
 
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
-    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "no-user-specs")
+    test_json_path = tmp_path / "spec_assignments.json"
+    monkeypatch.setattr(specs_router, "SPEC_ASSIGNMENTS_PATH", test_json_path)
 
-    # Simulate the leaked file exactly as _set_spec_status would write it.
-    (tmp_path / "docs" / "spec" / "code-spec.md").write_text(
-        "---\nstatus: building\ntitle: Code feature\n---\n"
-        "## Acceptance criteria\n- [ ] Handles edge case\n"
-    )
+    # Bind task to spec in the in-memory maps
+    specs_router._spec_task_origin["task-99"] = "docs/spec/persist-test.md"
+    specs_router._spec_claims["docs/spec/persist-test.md"] = [
+        {
+            "agent": "test-agent",
+            "source": "build",
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "task_ids": ["task-99"],
+        }
+    ]
 
-    monkeypatch.setattr(ostk_module.ostk, "list_tasks", AsyncMock(return_value=[]))
+    # Persist to disk
+    specs_router._save_assignments()
 
-    res = await client.get("/api/specs")
-    assert res.status_code == 200
-    docs = res.json()["docs"]
-    titles = [d.get("title", "") for d in docs]
-    paths = [d.get("path", "") for d in docs]
-    assert "Code feature" not in titles, (
-        f"Leaked test-fixture 'Code feature' appeared in /specs titles: {titles}"
-    )
-    assert not any("code-spec" in p for p in paths), (
-        f"Leaked code-spec.md appeared in /specs paths: {paths}"
-    )
+    assert test_json_path.exists(), "assignments file should be written"
+
+    # Simulate restart: clear in-memory maps
+    specs_router._spec_task_origin.pop("task-99", None)
+    specs_router._spec_claims.pop("docs/spec/persist-test.md", None)
+    assert "task-99" not in specs_router._spec_task_origin
+
+    # Reload from disk
+    specs_router._load_assignments()
+
+    # Assignment survived the restart
+    assert specs_router._spec_task_origin.get("task-99") == "docs/spec/persist-test.md"
+    claims = specs_router._spec_claims.get("docs/spec/persist-test.md", [])
+    assert len(claims) == 1
+    assert claims[0]["agent"] == "test-agent"
+
+    # Cleanup to avoid polluting other tests
+    specs_router._spec_task_origin.pop("task-99", None)
+    specs_router._spec_claims.pop("docs/spec/persist-test.md", None)

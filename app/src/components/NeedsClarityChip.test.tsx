@@ -45,17 +45,19 @@ const allPassingChecks: ReadinessCheck[] = [
 // ---------------------------------------------------------------------------
 
 describe('Chip wording and stage', () => {
-  it('shows "Add detail?" not "Needs clarity"', () => {
+  it('shows "Needs detail" not "Needs clarity" or "Add detail?"', () => {
     render(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" />)
     const chip = screen.getByTestId('needs-clarity-chip')
-    expect(chip).toHaveTextContent('Add detail?')
+    expect(chip).toHaveTextContent('Needs detail')
     expect(screen.queryByText('Needs clarity')).not.toBeInTheDocument()
+    expect(screen.queryByText('Add detail?')).not.toBeInTheDocument()
   })
 
-  it('when stage=ready shows icon-only chip with no "Add detail?" text', () => {
+  it('when stage=ready shows "Enhance" chip with no "Needs detail" text', () => {
     render(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" stage="ready" />)
     const chip = screen.getByTestId('needs-clarity-chip')
-    expect(chip).toBeInTheDocument()
+    expect(chip).toHaveTextContent('Enhance')
+    expect(screen.queryByText('Needs detail')).not.toBeInTheDocument()
     expect(screen.queryByText('Add detail?')).not.toBeInTheDocument()
   })
 
@@ -66,9 +68,59 @@ describe('Chip wording and stage', () => {
     expect(screen.getByTestId('needs-clarity-modal')).toBeInTheDocument()
   })
 
-  it('when no stage (default) chip shows "Add detail?" text', () => {
+  it('when no stage (default) chip shows "Needs detail" text', () => {
     render(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" />)
-    expect(screen.getByTestId('needs-clarity-chip')).toHaveTextContent('Add detail?')
+    expect(screen.getByTestId('needs-clarity-chip')).toHaveTextContent('Needs detail')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// NEW: →1708 badge redesign. Almost ready / Enhance
+// ---------------------------------------------------------------------------
+
+describe('→1708 badge redesign', () => {
+  it('required state shows "Needs detail" not "Add detail?"', () => {
+    render(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" />)
+    const chip = screen.getByTestId('needs-clarity-chip')
+    expect(chip).toHaveTextContent('Needs detail')
+    expect(screen.queryByText('Add detail?')).not.toBeInTheDocument()
+  })
+
+  it('required state has no question mark in visible text', () => {
+    render(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" />)
+    const chip = screen.getByTestId('needs-clarity-chip')
+    expect(chip.textContent).not.toMatch(/\?/)
+  })
+
+  it('optional state (stage=ready) shows "Enhance" badge with visible text', () => {
+    render(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" stage="ready" />)
+    const chip = screen.getByTestId('needs-clarity-chip')
+    expect(chip).toHaveTextContent('Enhance')
+  })
+
+  it('optional state (stage=ready) does NOT show lightbulb icon only, has text', () => {
+    render(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" stage="ready" />)
+    const chip = screen.getByTestId('needs-clarity-chip')
+    // Should have visible text content, not just sr-only
+    const visibleText = Array.from(chip.childNodes)
+      .filter((n) => !(n instanceof Element && n.classList.contains('sr-only')))
+      .map((n) => n.textContent)
+      .join('')
+    expect(visibleText).toMatch(/Enhance/)
+  })
+
+  it('optional badge and required badge share the same data-testid shape', () => {
+    const { rerender } = render(
+      <NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" />
+    )
+    const requiredChip = screen.getByTestId('needs-clarity-chip')
+    const requiredTag = requiredChip.tagName
+
+    rerender(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" stage="ready" />)
+    const optionalChip = screen.getByTestId('needs-clarity-chip')
+    const optionalTag = optionalChip.tagName
+
+    expect(requiredTag).toBe(optionalTag)
   })
 })
 
