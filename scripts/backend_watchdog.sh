@@ -36,6 +36,11 @@
 #   MYOS_WATCHDOG_PYSPY_TIMEOUT seconds to wait for py-spy to capture a stack
 #                              dump before proceeding to SIGKILL (default 5;
 #                              tests use a smaller value)
+#   MYOS_WATCHDOG_KILL_ONLY    set to 1 to disable the self-restart capability
+#                              and rely on launchd KeepAlive for respawn. In
+#                              kill-only mode, a wedged backend is still
+#                              SIGKILLed but dev-backend.sh is never spawned
+#                              by the watchdog; launchd owns the restart.
 #   MYOS_WATCHDOG_PIDFILE      path to the watchdog pidfile (default
 #                              /tmp/myos-backend-watchdog.pid; tests use a
 #                              temp path to avoid dedup-guard conflicts with
@@ -348,6 +353,11 @@ restart_backend() {
     if launcher_lock_held; then
         rm -f "$RESTART_LOCK" 2>/dev/null || true
         log "INFO dev-backend.sh launcher lock held by pid $(cat "$LAUNCHER_LOCK" 2>/dev/null); skipping restart"
+        return 0
+    fi
+    if [ "${MYOS_WATCHDOG_KILL_ONLY:-0}" = "1" ]; then
+        log "INFO kill-only mode: backend down; launchd owns respawn, not launching dev-backend.sh"
+        rm -f "$RESTART_LOCK" 2>/dev/null || true
         return 0
     fi
     log "WARNING backend unreachable and pid dead, restarting via $DEV_BACKEND"

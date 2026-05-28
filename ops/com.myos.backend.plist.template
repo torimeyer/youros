@@ -3,11 +3,15 @@
 <!--
   com.myos.backend.plist.template
   Rendered by install.sh into ~/Library/LaunchAgents/com.myos.backend.plist.
-  Placeholders: __INSTALL_DIR__ __HOME__ __HEALTH_URL__
+  Placeholders: __REPO__ __HOME__ __HEALTH_URL__
 
   launchd owns backend restarts (KeepAlive=true, ThrottleInterval=1s).
   The watchdog runs in KILL_ONLY mode and handles deadlocked event loops;
   launchd does the actual restart.
+
+  MYOS_FORCE_RESTART=1 lets launchd-managed restarts bypass the agent-guard
+  in dev-backend.sh that would otherwise refuse restart while spawn agents
+  are still in flight.
 -->
 <plist version="1.0">
 <dict>
@@ -16,43 +20,24 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>__INSTALL_DIR__/api/.venv/bin/uvicorn</string>
-        <string>main:app</string>
-        <string>--host</string>
-        <string>127.0.0.1</string>
-        <string>--port</string>
-        <string>8000</string>
-        <string>--reload</string>
-        <string>--reload-dir</string>
-        <string>__INSTALL_DIR__/api</string>
-        <string>--reload-exclude</string>
-        <string>api/tests/*</string>
-        <string>--reload-exclude</string>
-        <string>**/__pycache__/*</string>
-        <string>--reload-exclude</string>
-        <string>**/*.pyc</string>
-        <string>--reload-delay</string>
-        <string>10.0</string>
-        <string>--no-access-log</string>
+        <string>/bin/bash</string>
+        <string>__REPO__/scripts/dev-backend.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>__INSTALL_DIR__/api</string>
+    <string>__REPO__</string>
 
     <key>EnvironmentVariables</key>
     <dict>
-        <key>HOME</key>
-        <string>__HOME__</string>
-        <key>PATH</key>
-        <string>__INSTALL_DIR__/api/.venv/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>MYOS_NO_WATCHDOG</key>
         <string>1</string>
+        <key>MYOS_FORCE_RESTART</key>
+        <string>1</string>
+        <key>RELEASE_MODE</key>
+        <string>1</string>
+        <key>PORT</key>
+        <string>8000</string>
     </dict>
-
-    <key>StandardOutPath</key>
-    <string>__HOME__/.myos/logs/backend.log</string>
-    <key>StandardErrorPath</key>
-    <string>__HOME__/.myos/logs/backend.err.log</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -62,5 +47,11 @@
 
     <key>ThrottleInterval</key>
     <integer>1</integer>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/.myos/logs/backend.out</string>
+
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.myos/logs/backend.err</string>
 </dict>
 </plist>

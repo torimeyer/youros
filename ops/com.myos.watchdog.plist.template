@@ -3,7 +3,7 @@
 <!--
   com.myos.watchdog.plist.template
   Rendered by install.sh into ~/Library/LaunchAgents/com.myos.watchdog.plist.
-  Placeholders: __INSTALL_DIR__ __HOME__ __HEALTH_URL__
+  Placeholders: __REPO__ __HOME__ __HEALTH_URL__
 
   Runs the watchdog in KILL_ONLY mode: if the backend's event loop is
   deadlocked (PID alive but /api/health fails repeatedly), the watchdog
@@ -17,30 +17,22 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>__INSTALL_DIR__/scripts/backend_watchdog.sh</string>
+        <string>/bin/bash</string>
+        <string>__REPO__/scripts/backend_watchdog.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>__INSTALL_DIR__</string>
+    <string>__REPO__</string>
 
     <key>EnvironmentVariables</key>
     <dict>
-        <key>HOME</key>
-        <string>__HOME__</string>
-        <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin</string>
         <key>MYOS_WATCHDOG_KILL_ONLY</key>
         <string>1</string>
+        <key>MYOS_WATCHDOG_INTERVAL</key>
+        <string>5</string>
         <key>MYOS_WATCHDOG_HEALTH_URL</key>
         <string>__HEALTH_URL__</string>
-        <key>MYOS_WATCHDOG_LOGFILE</key>
-        <string>__HOME__/.myos/logs/watchdog.log</string>
     </dict>
-
-    <key>StandardOutPath</key>
-    <string>__HOME__/.myos/logs/watchdog.out.log</string>
-    <key>StandardErrorPath</key>
-    <string>__HOME__/.myos/logs/watchdog.err.log</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -48,7 +40,10 @@
     <key>KeepAlive</key>
     <true/>
 
-    <key>ThrottleInterval</key>
-    <integer>1</integer>
+    <key>StandardOutPath</key>
+    <string>__HOME__/.myos/logs/watchdog.out</string>
+
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.myos/logs/watchdog.err</string>
 </dict>
 </plist>
