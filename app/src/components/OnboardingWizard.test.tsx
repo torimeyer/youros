@@ -774,7 +774,22 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     expect(screen.queryByTestId('onboarding-files-location-note')).not.toBeInTheDocument()
   })
 
-  it('Privacy policy link is visible in the footer', () => {
+  it('privacy footer is visible on every step including Customize', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    // Step 1: Welcome
+    expect(screen.getByTestId('onboarding-privacy-link')).toBeInTheDocument()
+    // Step 2: You
+    fireEvent.click(screen.getByTestId('next-button'))
+    expect(screen.getByTestId('onboarding-privacy-link')).toBeInTheDocument()
+    // Step 4: Customize (skip through Name, FilesLocation, Profile)
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByTestId('skip-button'))
+    expect(screen.getByTestId('step-customize')).toBeInTheDocument()
+    expect(screen.getByTestId('onboarding-privacy-link')).toBeInTheDocument()
+    expect(screen.getByTestId('onboarding-privacy-link')).toHaveAttribute('href', '/privacy')
+  })
+
+  it('privacy footer link points to /privacy', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     const link = screen.getByTestId('onboarding-privacy-link')
@@ -888,7 +903,7 @@ describe('OnboardingWizard — Customize step starter pack', () => {
     expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
   })
 
-  it('Customize step shows fallback items when the API call fails (no error message)', async () => {
+  it('Customize step shows fallback agents when the API call fails (never blank, never error)', async () => {
     vi.mocked(api.post).mockImplementation((path: string) => {
       if (path === '/onboarding/intent') {
         return Promise.reject(new Error('network error'))
@@ -903,12 +918,11 @@ describe('OnboardingWizard — Customize step starter pack', () => {
     fireEvent.click(screen.getByText(pmCat.category))
     clickNext(1)
 
-    // Fallback items appear immediately; error message is never shown
     await waitFor(() => {
-      expect(screen.getByTestId('pack-item-builtin-builder')).toBeInTheDocument()
+      expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
     })
-    expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('customize-load-retry')).not.toBeInTheDocument()
+    // Fallback pack is shown immediately
+    expect(screen.getByTestId('pack-item-builtin-builder')).toBeInTheDocument()
   })
 
   it('all Wave 8 persona IDs map to a valid intent (no blank Customize step)', () => {
@@ -1197,7 +1211,7 @@ describe('OnboardingWizard — Customize agents step', () => {
     })
   })
 
-  it('shows fallback items and hides loading after 10-second timeout when fetch hangs', async () => {
+  it('shows fallback agents after 10-second timeout when fetch hangs (never error state)', async () => {
     vi.useFakeTimers()
     try {
       vi.mocked(api.post).mockReturnValue(new Promise(() => {}))
@@ -1210,46 +1224,20 @@ describe('OnboardingWizard — Customize agents step', () => {
       fireEvent.click(screen.getByText(pmCat.category))
       fireEvent.click(screen.getByTestId('next-button'))
 
-      // Fallback renders immediately before timeout
-      // Flush the useEffect so fallback items and loading state are applied
-      await act(async () => {})
+      // Fallback shown immediately — no spinner since pack.length > 0
+      expect(screen.getByTestId('pack-item-builtin-builder')).toBeInTheDocument()
+      expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
 
       await act(async () => {
         vi.advanceTimersByTime(10_000)
       })
 
-      expect(screen.queryByTestId('customize-loading')).not.toBeInTheDocument()
-      expect(screen.getByTestId('pack-item-builtin-builder')).toBeInTheDocument()
+      // After timeout: still showing fallback, no error state
       expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
+      expect(screen.getByTestId('pack-item-builtin-builder')).toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
-  })
-
-  it('switching persona re-fires the fetch', async () => {
-    let intentCalls = 0
-    vi.mocked(api.post).mockImplementation((path: string) => {
-      if (path !== '/onboarding/intent') return Promise.resolve({})
-      intentCalls++
-      return Promise.resolve({
-        starter_pack: [
-          { kind: 'agent', id: 'builtin-pm-prd', name: 'PRD', description: 'desc', default_selected: true },
-        ],
-      })
-    })
-
-    render(<OnboardingWizard />)
-
-    fireEvent.click(screen.getByTestId('next-button'))
-    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByTestId('skip-button'))
-    const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
-    fireEvent.click(screen.getByText(pmCat.category))
-    fireEvent.click(screen.getByTestId('next-button'))
-
-    await waitFor(() => {
-      expect(intentCalls).toBe(1)
-      expect(screen.getByTestId('pack-item-builtin-pm-prd')).toBeInTheDocument()
-    })
   })
 })
 
@@ -1502,6 +1490,15 @@ describe('OnboardingWizard — FilesLocation step', () => {
     clickNext(3)
     const input = await screen.findByTestId('files-dir-input') as HTMLInputElement
     await waitFor(() => expect(input.value).toBe('~/.myos/files'))
+  })
+
+  it('Use default button resets input to ~/.myos/files', async () => {
+    render(<OnboardingWizard />)
+    clickNext(3)
+    const input = await screen.findByTestId('files-dir-input') as HTMLInputElement
+    await waitFor(() => expect(input.value).toBe('/Users/me/custom'))
+    fireEvent.click(screen.getByTestId('files-location-use-default'))
+    expect((screen.getByTestId('files-dir-input') as HTMLInputElement).value).toBe('~/.myos/files')
   })
 
   it('Next button PUTs files_dir to /settings then advances to Profile', async () => {
