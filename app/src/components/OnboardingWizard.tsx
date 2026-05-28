@@ -768,6 +768,16 @@ const PERSONA_TO_INTENT: Record<string, string> = {
   designer: 'designer',
 }
 
+// Fallback pack shown immediately when a persona is selected.
+// The API response replaces it when the call succeeds; if the API is
+// unavailable, this stays on screen so the demo never shows an error state.
+const STATIC_FALLBACK: StarterPackItem[] = [
+  { kind: 'agent', id: 'builtin-builder', name: 'Builder', description: 'From task description to working, tested code. Plans, builds, and verifies against your criteria before calling it done.', default_selected: true },
+  { kind: 'agent', id: 'builtin-research', name: 'Research', description: 'Takes a question, searches real sources, and delivers a structured summary with citations and one recommended next step.', default_selected: true },
+  { kind: 'agent', id: 'builtin-brainstorm', name: 'Brainstorm', description: 'Turns a problem into 5-8 structured options with tradeoffs and a recommendation. Good for when you are stuck on approach.', default_selected: true },
+  { kind: 'agent', id: 'builtin-explain-plain', name: 'Explain Plain', description: 'Explain anything in plain language so someone with no background can follow. No jargon, no metaphors, no skipped steps.', default_selected: false },
+]
+
 function CustomizeStep({
   selectedPersonaId,
   subtextCls,
@@ -780,14 +790,18 @@ function CustomizeStep({
   const [starterPack, setStarterPack] = useState<StarterPackItem[]>([])
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     const intentId = selectedPersonaId ? PERSONA_TO_INTENT[selectedPersonaId] : null
-    if (!intentId) return
+    if (!intentId) {
+      setStarterPack([])
+      setChecked(new Set())
+      return
+    }
+    // Seed fallback immediately so something always renders
+    setStarterPack(STATIC_FALLBACK)
+    setChecked(new Set(STATIC_FALLBACK.filter((i) => i.default_selected).map((i) => i.id)))
     setLoading(true)
-    setError(null)
     let cancelled = false
     let timeoutId: ReturnType<typeof setTimeout> | undefined
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -799,13 +813,13 @@ function CustomizeStep({
     ])
       .then((resp) => {
         if (cancelled) return
-        setStarterPack(resp.starter_pack)
-        setChecked(new Set(resp.starter_pack.filter((i) => i.default_selected).map((i) => i.id)))
+        if (resp.starter_pack.length > 0) {
+          setStarterPack(resp.starter_pack)
+          setChecked(new Set(resp.starter_pack.filter((i) => i.default_selected).map((i) => i.id)))
+        }
       })
       .catch(() => {
-        if (cancelled) return
-        setStarterPack([])
-        setError("Couldn't load suggestions. Skip this step or try again.")
+        // API unavailable. Fallback already shown, nothing to do.
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -814,7 +828,7 @@ function CustomizeStep({
       cancelled = true
       clearTimeout(timeoutId)
     }
-  }, [selectedPersonaId, retryCount])
+  }, [selectedPersonaId])
 
   const toggleItem = (id: string) => {
     setChecked((prev) => {
@@ -834,19 +848,7 @@ function CustomizeStep({
       {loading && (
         <p className={`text-sm ${subtextCls}`} data-testid="customize-loading">Loading...</p>
       )}
-      {!loading && error && (
-        <div data-testid="customize-load-error" className={`text-sm ${subtextCls}`}>
-          <p className="mb-2">{error}</p>
-          <button
-            data-testid="customize-load-retry"
-            onClick={() => setRetryCount((c) => c + 1)}
-            className="px-3 py-1.5 text-xs rounded border border-current hover:opacity-80 transition-opacity"
-          >
-            Try again
-          </button>
-        </div>
-      )}
-      {!loading && !error && starterPack.length > 0 && (
+      {!loading && starterPack.length > 0 && (
         <div className="space-y-1.5">
           {starterPack.map((item) => (
             <label
@@ -871,7 +873,7 @@ function CustomizeStep({
           ))}
         </div>
       )}
-      {!loading && !error && starterPack.length === 0 && !selectedPersonaId && (
+      {!loading && starterPack.length === 0 && !selectedPersonaId && (
         <p className={`text-sm ${subtextCls}`} data-testid="customize-no-persona">
           Pick a profile on the previous step to see suggested agents here.
         </p>
