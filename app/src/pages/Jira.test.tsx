@@ -287,6 +287,45 @@ describe('Jira page', () => {
     })
   })
 
+  it('clicking Comment button on detail view shows JiraCommentComposer', async () => {
+    const detail = {
+      key: 'PROJ-99',
+      summary: 'Test issue',
+      description_html: '<p>Desc</p>',
+      status: 'In Progress',
+      priority: 'Medium',
+      type: 'Story',
+      assignee: 'Tori',
+      reporter: 'Alice',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-04-29T00:00:00Z',
+      url: 'https://example.atlassian.net/browse/PROJ-99',
+      comments: [],
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/atlassian/status')) {
+        return Promise.resolve({ connected: true, email: 'user@example.com', site: 'example.atlassian.net' })
+      }
+      if (path.includes('/atlassian/jira/issue/PROJ-99')) {
+        return Promise.resolve(detail)
+      }
+      return Promise.resolve({})
+    })
+
+    renderJira('/jira/PROJ-99')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('jira-comment-button-PROJ-99')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId('jira-comment-composer')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('jira-comment-button-PROJ-99'))
+
+    expect(screen.getByTestId('jira-comment-composer')).toBeInTheDocument()
+    expect(screen.getByTestId('jira-comment-textarea')).toBeInTheDocument()
+  })
+
   it('forceTokenForm is false at mount even after a prior mount-cycle set it true', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path.includes('/atlassian/defaults')) {

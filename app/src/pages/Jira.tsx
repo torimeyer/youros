@@ -5,6 +5,7 @@ import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
 import { ConnectCard, LoadingState, EmptyState, ErrorBanner } from '../components/ui'
 import { api } from '../lib/api'
+import JiraCommentComposer from '../components/JiraCommentComposer'
 
 interface AtlassianStatus {
   connected: boolean
@@ -71,6 +72,7 @@ export default function Jira() {
   const [needledKeys, setNeedledKeys] = useState<Set<string>>(new Set())
   const [oauthAvailable, setOauthAvailable] = useState(false)
   const [forceTokenForm, setForceTokenForm] = useState(false)
+  const [showCommentComposer, setShowCommentComposer] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -119,6 +121,7 @@ export default function Jira() {
   }, [])
 
   useEffect(() => {
+    setShowCommentComposer(false)
     ;(async () => {
       setLoading(true)
       const s = await fetchStatus()
@@ -327,6 +330,18 @@ export default function Jira() {
                       className={needledKeys.has(detail.key) ? 'text-green-400' : 'text-slate-400'}
                     />
                   </button>
+                  <button
+                    data-testid={`jira-comment-button-${detail.key}`}
+                    onClick={() => setShowCommentComposer((v) => !v)}
+                    title="Leave a comment"
+                    className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                  >
+                    <Icon
+                      name="comment"
+                      size={16}
+                      className={showCommentComposer ? 'text-blue-400' : 'text-slate-400'}
+                    />
+                  </button>
                   <a
                     href={detail.url}
                     target="_blank"
@@ -396,6 +411,17 @@ export default function Jira() {
                     ))}
                   </div>
                 </div>
+              )}
+
+              {showCommentComposer && (
+                <JiraCommentComposer
+                  issueKey={detail.key}
+                  onCancel={() => setShowCommentComposer(false)}
+                  onSent={() => {
+                    setShowCommentComposer(false)
+                    void fetchDetail(detail.key)
+                  }}
+                />
               )}
             </div>
           )}
