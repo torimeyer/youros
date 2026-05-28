@@ -1087,7 +1087,16 @@ async def notify_chat_clients_on_shutdown():
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "service": "myos-api"}
+    import shutil
+    data_dir = Path.home() / ".myos"
+    return {
+        "status": "ok",
+        "service": "myos-api",
+        "checks": {
+            "data_dir": data_dir.exists(),
+            "ostk": shutil.which("ostk") is not None,
+        },
+    }
 
 
 # Serve the built frontend in production mode. When the app/dist directory

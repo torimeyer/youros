@@ -21,7 +21,7 @@ export default function ConnectCard({
   return (
     <div
       data-testid="connect-card"
-      className="max-w-md mx-auto bg-slate-900/40 border border-slate-800 p-5 sm:p-8 rounded-2xl flex flex-col items-center gap-6 text-center"
+      className="max-w-md mx-auto bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-5 sm:p-8 rounded-2xl flex flex-col items-center gap-6 text-center"
     >
       <div
         className="p-4 rounded-2xl"
@@ -36,7 +36,7 @@ export default function ConnectCard({
       </div>
       <div className="flex flex-col gap-2">
         <h2 className="text-xl font-bold text-white">{title}</h2>
-        <p className="text-sm text-slate-400 max-w-xs">{description}</p>
+        <p className="text-sm text-slate-600 dark:text-slate-400 max-w-xs">{description}</p>
       </div>
       {error && (
         <div className="w-full">

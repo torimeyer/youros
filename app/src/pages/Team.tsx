@@ -37,17 +37,17 @@ const CATEGORY_FILTERS = ["All", "Decisions", "Needles", "Notes"] as const;
 type CategoryFilter = (typeof CATEGORY_FILTERS)[number];
 
 const CATEGORY_COLORS: Record<string, string> = {
-  decisions: "bg-blue-500/20 text-blue-300",
-  tasks: "bg-green-500/20 text-green-300",
-  notes: "bg-yellow-500/20 text-yellow-300",
-  transcripts: "bg-purple-500/20 text-purple-300",
+  decisions: "bg-blue-500/20 text-blue-700 dark:text-blue-300",
+  tasks: "bg-green-500/20 text-green-700 dark:text-green-300",
+  notes: "bg-yellow-500/20 text-yellow-700 dark:text-yellow-300",
+  transcripts: "bg-purple-500/20 text-purple-700 dark:text-purple-300",
 };
 
 
 
 function CategoryBadge({ category }: { category: string }) {
   const colorClass =
-    CATEGORY_COLORS[category.toLowerCase()] ?? "bg-slate-500/20 text-slate-300";
+    CATEGORY_COLORS[category.toLowerCase()] ?? "bg-slate-500/20 text-slate-700 dark:text-slate-300";
   return (
     <span
       className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${colorClass}`}
@@ -63,7 +63,7 @@ function ResultItem({ result }: { result: TeamResult }) {
   const body = item.reason ?? item.content ?? item.value ?? "";
   const ts = item.timestamp ?? item.created_at;
   return (
-    <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800 hover:border-slate-700 transition-colors">
+    <div className="bg-white dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700 transition-colors">
       <div className="flex items-center gap-2 mb-1.5">
         <span className="text-sm font-semibold text-white">{display_name}</span>
         <CategoryBadge category={category} />
@@ -73,9 +73,9 @@ function ResultItem({ result }: { result: TeamResult }) {
           </span>
         )}
       </div>
-      {title && <p className="text-sm text-slate-200 mb-0.5">{title}</p>}
+      {title && <p className="text-sm text-slate-800 dark:text-slate-200 mb-0.5">{title}</p>}
       {body && (
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-slate-600 dark:text-slate-400">
           {body.slice(0, 120)}
         </p>
       )}
@@ -153,18 +153,17 @@ export default function Team() {
 
   if (status === null) {
     return (
-      <div className="min-h-screen bg-slate-950">
+      <div className="min-h-screen bg-white dark:bg-slate-950">
         <TopBar title="Team" />
-        <div className="pt-16 sm:pt-20" />
       </div>
     );
   }
 
   if (!status.configured) {
     return (
-      <div className="min-h-screen bg-slate-950">
+      <div className="min-h-screen bg-white dark:bg-slate-950">
         <TopBar title="Team" />
-        <div className="pt-16 sm:pt-20 px-4 sm:px-8 max-w-2xl mx-auto mt-16">
+        <div className="px-4 sm:px-8 max-w-2xl mx-auto mt-16">
           <EmptyState
             icon="group"
             title="Team mode isn't set up yet"
@@ -182,10 +181,10 @@ export default function Team() {
   const showResults = query.trim().length > 0;
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-screen bg-white dark:bg-slate-950">
       <TopBar title="Team" />
-      <div className="pt-16 sm:pt-20 px-4 sm:px-8 max-w-4xl mx-auto py-6">
-        <div className="mb-4 px-3 py-2 rounded-lg bg-amber-500/10 text-amber-400 text-sm">
+      <div className="px-4 sm:px-8 max-w-4xl mx-auto py-6">
+        <div className="mb-4 px-3 py-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 text-sm">
           Team features are in beta. Some things may change.
         </div>
         <div className="flex items-center justify-between mb-6">
@@ -193,7 +192,7 @@ export default function Team() {
           <button
             onClick={handleSync}
             disabled={syncing}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium rounded-lg border border-slate-700 transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 transition-colors disabled:opacity-50"
             data-testid="sync-now-button"
           >
             {syncedMsg ? "Synced" : syncing ? "Syncing..." : "Sync now"}
@@ -212,7 +211,7 @@ export default function Team() {
               }
             }}
             placeholder="Search your team's knowledge..."
-            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
             data-testid="team-search-input"
           />
         </div>
@@ -225,7 +224,7 @@ export default function Team() {
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                 activeFilter === f
                   ? "bg-blue-600 text-white"
-                  : "bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700"
               }`}
               data-testid={`filter-${f.toLowerCase()}`}
             >

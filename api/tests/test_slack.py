@@ -142,6 +142,32 @@ async def test_slack_status_cache_invalidates_on_connect_and_disconnect():
     assert connections_cache.get("slack_status") is None
 
 
+# --- GET /api/slack/workspaces ---
+
+@pytest.mark.asyncio
+async def test_slack_workspaces_empty(client):
+    with patch("routers.slack.slack_service") as mock_svc:
+        mock_svc.list_workspaces.return_value = []
+        resp = await client.get("/api/slack/workspaces")
+    assert resp.status_code == 200
+    assert resp.json() == {"workspaces": []}
+
+
+@pytest.mark.asyncio
+async def test_slack_workspaces_returns_list(client):
+    workspaces = [
+        {"team_id": "T1", "team_name": "Acme"},
+        {"team_id": "T2", "team_name": "Beta Corp"},
+    ]
+    with patch("routers.slack.slack_service") as mock_svc:
+        mock_svc.list_workspaces.return_value = workspaces
+        resp = await client.get("/api/slack/workspaces")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["workspaces"]) == 2
+    assert data["workspaces"][0]["team_name"] == "Acme"
+
+
 # --- GET /api/slack/channels ---
 
 @pytest.mark.asyncio
@@ -262,6 +288,60 @@ class TestSlackService:
             from services.slack import disconnect, is_connected
             disconnect()
             assert is_connected() is False
+
+    def test_add_workspace_stores_by_team_id(self, tmp_path):
+        workspaces_dir = tmp_path / "slack_workspaces"
+        with patch("services.slack.WORKSPACES_DIR", workspaces_dir), \
+             patch("services.slack.TOKEN_PATH", tmp_path / "slack_token.json"), \
+             patch("services.slack.MYOS_DIR", tmp_path):
+            from services.slack import add_workspace, list_workspaces
+            add_workspace({
+                "access_token": "xoxb-ws1",
+                "workspace_id": "T1",
+                "workspace_name": "Acme",
+            })
+            add_workspace({
+                "access_token": "xoxb-ws2",
+                "workspace_id": "T2",
+                "workspace_name": "Beta Corp",
+            })
+            wss = list_workspaces()
+        assert len(wss) == 2
+        team_ids = {w["team_id"] for w in wss}
+        assert "T1" in team_ids
+        assert "T2" in team_ids
+
+    def test_disconnect_specific_workspace(self, tmp_path):
+        workspaces_dir = tmp_path / "slack_workspaces"
+        workspaces_dir.mkdir(parents=True)
+        import json as _json
+        (workspaces_dir / "T1.json").write_text(_json.dumps({"workspace_id": "T1", "workspace_name": "Acme", "access_token": "tok1"}))
+        (workspaces_dir / "T2.json").write_text(_json.dumps({"workspace_id": "T2", "workspace_name": "Beta", "access_token": "tok2"}))
+        with patch("services.slack.WORKSPACES_DIR", workspaces_dir), \
+             patch("services.slack.TOKEN_PATH", tmp_path / "slack_token.json"):
+            from services.slack import disconnect, list_workspaces
+            disconnect(team_id="T1")
+            remaining = list_workspaces()
+        assert len(remaining) == 1
+        assert remaining[0]["team_id"] == "T2"
+
+    def test_list_workspaces_migrates_legacy_token(self, tmp_path):
+        workspaces_dir = tmp_path / "slack_workspaces"
+        legacy_token = tmp_path / "slack_token.json"
+        import json as _json
+        legacy_token.write_text(_json.dumps({
+            "access_token": "xoxb-legacy",
+            "workspace_id": "T_OLD",
+            "workspace_name": "Legacy",
+        }))
+        with patch("services.slack.WORKSPACES_DIR", workspaces_dir), \
+             patch("services.slack.TOKEN_PATH", legacy_token), \
+             patch("services.slack.MYOS_DIR", tmp_path):
+            from services.slack import list_workspaces
+            wss = list_workspaces()
+        assert len(wss) == 1
+        assert wss[0]["team_id"] == "T_OLD"
+        assert not legacy_token.exists(), "legacy TOKEN_PATH should be removed after migration"
 
     @pytest.mark.asyncio
     async def test_list_channels_returns_all_api_visible_channels(self):

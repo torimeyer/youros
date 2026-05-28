@@ -105,7 +105,7 @@ function Toggle({
       disabled={disabled}
       onClick={onChange}
       className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
-        checked ? "bg-blue-500" : "bg-slate-700"
+        checked ? "bg-blue-500" : "bg-slate-200 dark:bg-slate-700"
       } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
     >
       <span
@@ -162,13 +162,13 @@ function ParamField({ ruleKey, paramKey, meta, value, onCommit }: ParamFieldProp
   if (meta.type === "bool") {
     const checked = Boolean(value);
     return (
-      <label className="flex items-center gap-2 text-sm text-slate-300">
+      <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
         <input
           type="checkbox"
           data-testid={testIdBase}
           checked={checked}
           onChange={() => onCommit(paramKey, !checked)}
-          className="w-4 h-4 rounded border-slate-600 bg-slate-800"
+          className="w-4 h-4 rounded border-slate-600 bg-slate-100 dark:bg-slate-800"
         />
         <span>{meta.label}</span>
         {meta.help && (
@@ -231,7 +231,7 @@ function ParamTextLikeField({
 
   return (
     <label className="flex flex-col gap-1 text-sm">
-      <span className="text-slate-300">{meta.label}</span>
+      <span className="text-slate-700 dark:text-slate-300">{meta.label}</span>
       {meta.help && <span className="text-slate-500 text-xs">{meta.help}</span>}
       <input
         type={inputType}
@@ -239,7 +239,7 @@ function ParamTextLikeField({
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
-        className="bg-slate-800 border border-slate-700 text-white text-sm rounded px-2 py-1.5 focus:outline-none focus:border-blue-500"
+        className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-white text-sm rounded px-2 py-1.5 focus:outline-none focus:border-blue-500"
       />
     </label>
   );
@@ -266,7 +266,7 @@ function RuleCard({
   return (
     <div
       data-testid={`rule-card-${rule.key}`}
-      className="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-4"
+      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 mb-4"
     >
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex-1 min-w-0">
@@ -277,15 +277,15 @@ function RuleCard({
             <span
               className={`text-xs px-2 py-0.5 rounded-full ${
                 rule.source === "user"
-                  ? "bg-blue-900/60 text-blue-300 border border-blue-800"
-                  : "bg-slate-800 text-slate-400 border border-slate-700"
+                  ? "bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-800"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
               }`}
               data-testid={`rule-source-${rule.key}`}
             >
               {rule.source === "user" ? "user override" : "default"}
             </span>
           </div>
-          <p className="text-slate-400 text-sm mt-1">{rule.meta.description}</p>
+          <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">{rule.meta.description}</p>
         </div>
         <Toggle
           checked={rule.enabled}
@@ -315,7 +315,7 @@ function RuleCard({
           type="button"
           data-testid={`rule-reset-${rule.key}`}
           onClick={() => onReset(rule)}
-          className="text-slate-400 hover:text-white transition-colors"
+          className="text-slate-600 dark:text-slate-400 hover:text-white transition-colors"
         >
           Reset to default
         </button>
@@ -323,7 +323,7 @@ function RuleCard({
           type="button"
           data-testid={`rule-activity-link-${rule.key}`}
           onClick={() => onOpenActivity(rule)}
-          className="text-blue-400 hover:text-blue-300 transition-colors"
+          className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
         >
           Recent activity
         </button>
@@ -474,7 +474,7 @@ export default function SettingsRules() {
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <TopBar title="Rules" />
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto px-6 pb-6">
         <PageHeader
           title="Rules"
           subtitle="Turn each rule on or off, tweak its settings, or see when it last fired."
@@ -483,7 +483,7 @@ export default function SettingsRules() {
               type="button"
               data-testid="reset-all-rules"
               onClick={() => setResetAllOpen(true)}
-              className="px-3 py-1.5 text-sm border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white rounded-lg transition-colors"
+              className="px-3 py-1.5 text-sm border border-slate-200 dark:border-slate-700 hover:border-slate-500 text-slate-700 dark:text-slate-300 hover:text-white rounded-lg transition-colors"
             >
               Reset all rules
             </button>
@@ -523,8 +523,8 @@ export default function SettingsRules() {
                         onClick={() => setActiveCategory(g.key)}
                         className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
                           active
-                            ? "bg-slate-800 text-white"
-                            : "text-slate-400 hover:text-white hover:bg-slate-900"
+                            ? "bg-slate-100 dark:bg-slate-800 text-white"
+                            : "text-slate-600 dark:text-slate-400 hover:text-white hover:bg-white dark:hover:bg-slate-900"
                         }`}
                         aria-current={active ? "page" : undefined}
                       >

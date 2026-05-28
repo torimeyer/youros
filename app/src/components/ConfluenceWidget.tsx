@@ -80,7 +80,7 @@ export default function ConfluenceWidget() {
                   e.stopPropagation();
                   navigate(`/confluence/${page.id}`);
                 }}
-                className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-800/50 transition-colors cursor-pointer"
+                className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
               >
                 <Icon name="article" size={14} className="text-slate-500 shrink-0" />
                 <span className="flex-1 text-sm font-medium text-white truncate">

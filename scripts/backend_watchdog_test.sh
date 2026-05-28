@@ -31,6 +31,19 @@ _test_failures=()
 pass() { echo "[PASS] $1"; PASS=$((PASS + 1)); }
 fail() { echo "[FAIL] $1"; FAIL=$((FAIL + 1)); _test_failures+=("$1"); }
 
+# Safe stub dev-backend: records that it was invoked (marker file) instead of
+# starting a real uvicorn on port 8000. The restart-path test (4) and the
+# kill-only test (6) point MYOS_WATCHDOG_DEV_BACKEND at this so running the suite
+# on a live machine can never kill the real :8000 backend.
+_stub_dir=$(mktemp -d)
+_stub_marker="$_stub_dir/dev_backend_invoked"
+_stub_dev_backend="$_stub_dir/dev-backend.sh"
+cat > "$_stub_dev_backend" <<STUB_EOF
+#!/usr/bin/env bash
+echo "invoked \$(date -u +%s)" >> "$_stub_marker"
+STUB_EOF
+chmod +x "$_stub_dev_backend"
+
 # ---------------------------------------------------------------------------
 # Test 1: HEALTH_URL default is /api/health
 # ---------------------------------------------------------------------------
@@ -167,6 +180,7 @@ MYOS_WATCHDOG_HEALTH_URL="https://127.0.0.1:${_be_port}/api/health" \
 MYOS_WATCHDOG_RESTART_WAIT=1 \
 MYOS_WATCHDOG_PYSPY_TIMEOUT=1 \
 MYOS_WATCHDOG_PROBE_RETRY_SLEEP=0 \
+MYOS_WATCHDOG_DEV_BACKEND="$_stub_dev_backend" \
 bash "$WATCHDOG" &
 _wd_pid2=$!
 
@@ -243,6 +257,68 @@ else
 fi
 
 rm -rf "$_p5_dir"
+
+# ---------------------------------------------------------------------------
+# Test 6: kill-only mode SIGKILLs a wedged backend but NEVER launches dev-backend
+#
+# In production, launchd (KeepAlive=true) owns respawning uvicorn. The watchdog
+# runs with MYOS_WATCHDOG_KILL_ONLY=1: it SIGKILLs a wedged-but-alive backend and
+# then must do NOTHING else -- launching dev-backend.sh would race launchd for the
+# port (the double-bind the restart locking exists to prevent). Assert the stub
+# dev-backend is never invoked (no marker file) even though SIGKILL fired.
+# ---------------------------------------------------------------------------
+_tmpdir6=$(mktemp -d)
+_wd_pidfile6="$_tmpdir6/watchdog.pid"
+_wd_logfile6="$_tmpdir6/watchdog.log"
+_be_port6=19877
+_be_pidfile6="/tmp/myos-backend-${_be_port6}.pid"
+rm -f "$_stub_marker"
+
+sleep 3600 &
+_fake_pid6=$!
+echo "$_fake_pid6" > "$_be_pidfile6"
+
+_threshold6=2
+# With all sleeps set to 0 a cycle is ~1s, so SIGKILL fires within a few seconds.
+_run_for6=$((_threshold6 * 3 + 6))
+
+MYOS_WATCHDOG_PIDFILE="$_wd_pidfile6" \
+MYOS_WATCHDOG_LOGFILE="$_wd_logfile6" \
+MYOS_WATCHDOG_BACKEND_PORT="$_be_port6" \
+MYOS_WATCHDOG_INTERVAL=1 \
+MYOS_WATCHDOG_DEADLOCK_THRESHOLD="$_threshold6" \
+MYOS_WATCHDOG_HEALTH_URL="https://127.0.0.1:${_be_port6}/api/health" \
+MYOS_WATCHDOG_RESTART_WAIT=1 \
+MYOS_WATCHDOG_PYSPY_TIMEOUT=1 \
+MYOS_WATCHDOG_PROBE_RETRY_SLEEP=0 \
+MYOS_WATCHDOG_TRANSIENT_RETRY_SLEEP=0 \
+MYOS_WATCHDOG_KILL_ONLY=1 \
+MYOS_WATCHDOG_DEV_BACKEND="$_stub_dev_backend" \
+bash "$WATCHDOG" &
+_wd_pid6=$!
+
+sleep "$_run_for6"
+
+kill "$_wd_pid6" 2>/dev/null || true
+wait "$_wd_pid6" 2>/dev/null || true
+
+if [ -f "$_wd_logfile6" ] && grep -q "SIGKILL" "$_wd_logfile6"; then
+    pass "kill-only: watchdog SIGKILLed the wedged backend"
+else
+    fail "kill-only: watchdog did NOT SIGKILL the wedged backend (threshold not reached?)"
+fi
+
+if [ -f "$_stub_marker" ]; then
+    fail "kill-only: dev-backend WAS invoked (marker exists) -- watchdog must leave respawn to launchd"
+else
+    pass "kill-only: dev-backend was NOT invoked (launchd owns respawn)"
+fi
+
+kill "$_fake_pid6" 2>/dev/null || true
+wait "$_fake_pid6" 2>/dev/null || true
+rm -f "$_be_pidfile6" 2>/dev/null || true
+rm -rf "$_tmpdir6"
+rm -rf "$_stub_dir"
 
 # ---------------------------------------------------------------------------
 # Summary

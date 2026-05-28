@@ -17,32 +17,46 @@ YELLOW='\033[1;33m'
 echo -e "${BLUE}Starting myOS...${NC}"
 
 # Check for updates
-echo "Checking for updates..."
-CURRENT=$(git rev-parse HEAD 2>/dev/null)
-git fetch --quiet origin main 2>/dev/null || true
-LATEST=$(git rev-parse origin/main 2>/dev/null || echo "$CURRENT")
+# Detect whether launchd is managing the backend (macOS after install).
+# When it is, skip the auto git pull (update.sh handles that safely).
+LAUNCHD_MANAGED=0
+if [ "$(uname)" = "Darwin" ]; then
+    _uid=$(id -u)
+    if [ -f "$HOME/Library/LaunchAgents/com.myos.backend.plist" ]; then
+        LAUNCHD_MANAGED=1
+    fi
+fi
 
-if [ "$CURRENT" != "$LATEST" ]; then
-    echo -e "${YELLOW}Update available. Updating...${NC}"
-    git pull --ff-only 2>/dev/null && {
-        # Reinstall backend deps if requirements changed
-        cd "$DIR/api"
-        source .venv/bin/activate
-        pip install -q --upgrade pip
-        pip install -q -r requirements.txt
-        deactivate 2>/dev/null || true
-        cd "$DIR"
+if [ "$LAUNCHD_MANAGED" = "0" ]; then
+    echo "Checking for updates..."
+    CURRENT=$(git rev-parse HEAD 2>/dev/null)
+    git fetch --quiet origin main 2>/dev/null || true
+    LATEST=$(git rev-parse origin/main 2>/dev/null || echo "$CURRENT")
 
-        # Rebuild frontend
-        cd "$DIR/app"
-        npm install --silent
-        npm run build
-        cd "$DIR"
+    if [ "$CURRENT" != "$LATEST" ]; then
+        echo -e "${YELLOW}Update available. Updating...${NC}"
+        git pull --ff-only 2>/dev/null && {
+            # Reinstall backend deps if requirements changed
+            cd "$DIR/api"
+            source .venv/bin/activate
+            pip install -q --upgrade pip
+            pip install -q -r requirements.txt
+            deactivate 2>/dev/null || true
+            cd "$DIR"
 
-        echo -e "${GREEN}Updated to latest version.${NC}"
-    } || echo -e "${YELLOW}Could not auto-update. Continuing with current version.${NC}"
+            # Rebuild frontend
+            cd "$DIR/app"
+            npm install --silent
+            npm run build
+            cd "$DIR"
+
+            echo -e "${GREEN}Updated to latest version.${NC}"
+        } || echo -e "${YELLOW}Could not auto-update. Continuing with current version.${NC}"
+    else
+        echo -e "${GREEN}Already up to date.${NC}"
+    fi
 else
-    echo -e "${GREEN}Already up to date.${NC}"
+    echo "Updates are handled by 'myos-update'. Skipping auto pull."
 fi
 
 # Update ostk if a newer version is available (best-effort, 5s timeout)
@@ -138,6 +152,24 @@ else
 fi
 
 echo -e "${GREEN}myOS is starting at ${LAUNCH_URL}${NC}"
+
+if [ "$LAUNCHD_MANAGED" = "1" ]; then
+    # launchd owns the backend. Kickstart both agents so they come up
+    # immediately without waiting for the next login, then open the browser.
+    echo "Backend is managed by launchd (auto-restart on crash)."
+    _uid=$(id -u)
+    launchctl kickstart -k "gui/${_uid}/com.myos.backend" 2>/dev/null || \
+        launchctl start com.myos.backend 2>/dev/null || true
+    launchctl kickstart "gui/${_uid}/com.myos.watchdog" 2>/dev/null || \
+        launchctl start com.myos.watchdog 2>/dev/null || true
+
+    # Give uvicorn a moment to bind before opening the browser.
+    sleep 2
+    open "${LAUNCH_URL}" 2>/dev/null || xdg-open "${LAUNCH_URL}" 2>/dev/null || true
+    echo "Browser opened. myOS is running. Use 'myos-update' to update."
+    exit 0
+fi
+
 echo "Keep this window open while using myOS. Press Ctrl+C to stop."
 
 # Open the browser after a brief delay
@@ -160,9 +192,6 @@ fi
 # in-flight chat WebSocket. Routers and services SHOULD still reload so real
 # code changes are picked up. Reload-delay batches back-to-back writes into
 # a single reload instead of many.
-#
-# Note: cwd here is $DIR/api, so --reload-dir api uses the absolute path to
-# keep the intent obvious in the command line.
 exec uvicorn main:app \
     --host 127.0.0.1 \
     --port 8000 \

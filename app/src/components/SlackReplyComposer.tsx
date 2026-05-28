@@ -99,16 +99,16 @@ export default function SlackReplyComposer({
   }
 
   return (
-    <div data-testid="slack-reply-composer" className="mt-3 bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+    <div data-testid="slack-reply-composer" className="mt-3 bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
       <div className="flex items-center gap-2 mb-3">
-        <Icon name="reply" size={16} className="text-purple-400" />
-        <span className="text-sm font-medium text-slate-200">Reply</span>
+        <Icon name="reply" size={16} className="text-purple-600 dark:text-purple-400" />
+        <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Reply</span>
       </div>
 
       {needsGemini && (
         <div
           data-testid="slack-needs-gemini-message"
-          className="mb-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-sm text-amber-300"
+          className="mb-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-sm text-amber-700 dark:text-amber-300"
         >
           Connect Gemini Enterprise in Settings to enable Slack drafts.{' '}
           <Link to="/settings" className="underline hover:text-amber-100">
@@ -118,7 +118,7 @@ export default function SlackReplyComposer({
       )}
 
       {errorMessage && (
-        <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
+        <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-700 dark:text-red-300">
           <p>{errorMessage}</p>
         </div>
       )}
@@ -131,7 +131,7 @@ export default function SlackReplyComposer({
         placeholder="Write your reply, or let yourOS draft one for you."
         rows={6}
         aria-label="Reply body"
-        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-slate-600 disabled:opacity-50 resize-y"
+        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-3 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-500 focus:outline-none focus:border-slate-600 disabled:opacity-50 resize-y"
       />
 
       <div className="flex items-center justify-between mt-3 gap-2 flex-wrap">
@@ -156,7 +156,7 @@ export default function SlackReplyComposer({
             data-testid="slack-cancel-button"
             onClick={onCancel}
             disabled={busy}
-            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition-colors disabled:opacity-50"
+            className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm transition-colors disabled:opacity-50"
           >
             Cancel
           </button>

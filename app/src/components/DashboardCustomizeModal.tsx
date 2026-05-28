@@ -82,18 +82,18 @@ function SortableRow({ row, onToggle }: SortableRowProps) {
       ref={setNodeRef}
       style={style}
       data-testid={`widget-row-${row.id}`}
-      className="flex items-center gap-3 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5"
+      className="flex items-center gap-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5"
     >
       <button
         type="button"
         aria-label={`Drag ${label}`}
         {...attributes}
         {...listeners}
-        className="text-slate-500 hover:text-slate-300 cursor-grab active:cursor-grabbing touch-none"
+        className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-grab active:cursor-grabbing touch-none"
       >
         <Icon name="drag_indicator" size={20} />
       </button>
-      <span className="flex-1 text-sm text-slate-200">{label}</span>
+      <span className="flex-1 text-sm text-slate-800 dark:text-slate-200">{label}</span>
       <button
         type="button"
         role="switch"
@@ -183,10 +183,10 @@ export default function DashboardCustomizeModal({
       data-testid="customize-dashboard-backdrop"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
     >
-      <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md p-6 shadow-2xl">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full max-w-md p-6 shadow-2xl">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Icon name="dashboard_customize" className="text-blue-400" size={22} />
+            <Icon name="dashboard_customize" className="text-blue-600 dark:text-blue-400" size={22} />
             <h2 className="text-white font-semibold text-lg">Customize dashboard</h2>
           </div>
           <button
@@ -198,7 +198,7 @@ export default function DashboardCustomizeModal({
           </button>
         </div>
 
-        <p className="text-xs text-slate-400 mb-4">
+        <p className="text-xs text-slate-600 dark:text-slate-400 mb-4">
           Show or hide cards on your home dashboard. Drag to reorder.
         </p>
 
@@ -222,14 +222,14 @@ export default function DashboardCustomizeModal({
         <div className="flex items-center justify-between gap-2 mt-6">
           <button
             onClick={handleReset}
-            className="px-3 py-2 text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
+            className="px-3 py-2 text-slate-600 dark:text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
           >
             Reset to default
           </button>
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
+              className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-white text-sm rounded-lg transition-colors"
             >
               Cancel
             </button>

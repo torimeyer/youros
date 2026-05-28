@@ -68,7 +68,7 @@ const AttachmentImage = memo(function AttachmentImage({ src, alt }: { src: strin
     return (
       <div
         data-testid="attachment-placeholder"
-        className="bg-slate-700/60 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-400 flex items-center gap-2 mb-1"
+        className="bg-slate-100/60 dark:bg-slate-700/60 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-600 dark:text-slate-400 flex items-center gap-2 mb-1"
       >
         <Icon name="image" size={14} />
         <span className="truncate">{alt}</span>
@@ -268,7 +268,7 @@ function ContactPicker({
       {open && hasResults && (
         <ul
           role="listbox"
-          className="absolute z-10 left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden"
+          className="absolute z-10 left-0 right-0 top-full mt-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg overflow-hidden"
         >
           {localResults.contacts.map((c, i) => (
             <li key={`lc-${i}`}>
@@ -278,15 +278,15 @@ function ContactPicker({
                 aria-selected={false}
                 data-testid="contact-picker-contact-row"
                 onClick={() => handleSelectLocalContact(c)}
-                className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm transition-colors flex items-center gap-2"
+                className="w-full text-left px-3 py-2 hover:bg-slate-200 dark:hover:bg-slate-700 text-sm transition-colors flex items-center gap-2"
               >
-                <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center shrink-0">
-                  <span className="text-xs font-medium text-slate-300">
+                <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0">
+                  <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
                     {(c.name || '?').charAt(0).toUpperCase()}
                   </span>
                 </div>
                 <span className="font-medium text-white">{c.name}</span>
-                <span className="text-slate-400 text-xs truncate">
+                <span className="text-slate-600 dark:text-slate-400 text-xs truncate">
                   {c.phone_numbers[0] || c.emails[0] || ''}
                 </span>
               </button>
@@ -300,15 +300,15 @@ function ContactPicker({
                 aria-selected={false}
                 data-testid="contact-picker-convo-row"
                 onClick={() => handleSelectConversation(c)}
-                className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm transition-colors flex items-center gap-2"
+                className="w-full text-left px-3 py-2 hover:bg-slate-200 dark:hover:bg-slate-700 text-sm transition-colors flex items-center gap-2"
               >
                 <div className="w-6 h-6 rounded-full bg-blue-900/40 flex items-center justify-center shrink-0">
-                  <Icon name="chat_bubble" size={12} className="text-blue-400" />
+                  <Icon name="chat_bubble" size={12} className="text-blue-600 dark:text-blue-400" />
                 </div>
                 <span className="font-medium text-white truncate">
                   {c.display_name || c.identifier}
                 </span>
-                <span className="text-slate-400 text-xs truncate">{c.last_message_preview}</span>
+                <span className="text-slate-600 dark:text-slate-400 text-xs truncate">{c.last_message_preview}</span>
               </button>
             </li>
           ))}
@@ -319,10 +319,10 @@ function ContactPicker({
                 role="option"
                 aria-selected={false}
                 onClick={() => handleSelectApiSuggestion(s)}
-                className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm transition-colors flex items-center gap-2"
+                className="w-full text-left px-3 py-2 hover:bg-slate-200 dark:hover:bg-slate-700 text-sm transition-colors flex items-center gap-2"
               >
                 <span className="font-medium text-white">{s.name}</span>
-                <span className="text-slate-400 text-xs truncate">{s.identifier}</span>
+                <span className="text-slate-600 dark:text-slate-400 text-xs truncate">{s.identifier}</span>
               </button>
             </li>
           ))}
@@ -503,13 +503,13 @@ export default function IMessage() {
       .catch(() => {})
   }, [])
 
-  const cardClass = 'bg-slate-900/40 border border-slate-800 p-3 sm:p-4 rounded-xl'
+  const cardClass = 'bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-3 sm:p-4 rounded-xl'
 
   if (connectionState === 'loading' && conversations.length === 0) {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="People" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
         </div>
       </div>
@@ -518,9 +518,9 @@ export default function IMessage() {
 
   if (connectionState === 'not_connected') {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="People" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
             icon="chat_bubble"
             accentColor="#22c55e"
@@ -528,9 +528,9 @@ export default function IMessage() {
             description={statusReason || 'iMessage integration requires macOS with Full Disk Access enabled.'}
             primaryAction={
               statusReason?.includes('Full Disk Access') ? (
-                <div className="bg-slate-800/50 p-4 rounded-xl text-sm text-slate-300 text-left w-full">
+                <div className="bg-slate-100 dark:bg-slate-800/50 p-4 rounded-xl text-sm text-slate-700 dark:text-slate-300 text-left w-full">
                   <p className="font-medium mb-2">How to enable:</p>
-                  <ol className="list-decimal list-inside space-y-1 text-slate-400">
+                  <ol className="list-decimal list-inside space-y-1 text-slate-600 dark:text-slate-400">
                     <li>Open System Settings</li>
                     <li>Go to Privacy &amp; Security</li>
                     <li>Click Full Disk Access</li>
@@ -547,14 +547,14 @@ export default function IMessage() {
   }
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="People" />
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold">People</h1>
-            <p className="text-sm text-slate-400 mt-0.5">
+            <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
               {conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
               {contacts.length > 0 && ` · ${contacts.length} contact${contacts.length !== 1 ? 's' : ''}`}
             </p>
@@ -565,7 +565,7 @@ export default function IMessage() {
         {searchResults !== null && (
           <div className={`${cardClass} mb-4`}>
             <div className="flex items-center gap-2 mb-3">
-              <Icon name="search" className="text-blue-400" size={18} />
+              <Icon name="search" className="text-blue-600 dark:text-blue-400" size={18} />
               <h2 className="text-base font-semibold">
                 Search results ({searchResults.length})
               </h2>
@@ -573,22 +573,22 @@ export default function IMessage() {
             {searchResults.length === 0 ? (
               <p className="text-sm text-slate-500 py-4 text-center">No messages found</p>
             ) : (
-              <div className="divide-y divide-slate-800/60">
+              <div className="divide-y divide-slate-200/60 dark:divide-slate-800/60">
                 {searchResults.map((r) => (
                   <button
                     key={r.message_id}
                     onClick={() => handleSelectChat(r.chat_id)}
-                    className="w-full text-left px-3 py-3 rounded-lg hover:bg-slate-800/40 transition-colors"
+                    className="w-full text-left px-3 py-3 rounded-lg hover:bg-slate-50/40 dark:hover:bg-slate-800/40 transition-colors"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-slate-200 truncate">
+                      <span className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">
                         {r.chat_display_name}
                       </span>
                       <span className="text-xs text-slate-500 shrink-0">
                         {formatSmartDate(r.date)}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5 truncate">{r.text}</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 truncate">{r.text}</p>
                   </button>
                 ))}
               </div>
@@ -599,7 +599,7 @@ export default function IMessage() {
         {/* New message composer */}
         <div className={`${cardClass} mb-4`}>
           <div className="flex items-center gap-2 mb-3">
-            <Icon name="edit" className="text-blue-400" size={18} />
+            <Icon name="edit" className="text-blue-600 dark:text-blue-400" size={18} />
             <h2 className="text-base font-semibold">Send a message</h2>
           </div>
           <div className="space-y-2">
@@ -609,7 +609,7 @@ export default function IMessage() {
               onSelectConversation={handleSelectChat}
               contacts={contacts}
               conversations={conversations}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
             <div className="flex gap-2">
               <input
@@ -623,7 +623,7 @@ export default function IMessage() {
                     handleSend(sendRecipient, sendText)
                   }
                 }}
-                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
               <button
                 onClick={() => handleSend(sendRecipient, sendText)}
@@ -652,7 +652,7 @@ export default function IMessage() {
         {/* Conversations list */}
         <div className={cardClass}>
           <div className="flex items-center gap-2 mb-4">
-            <Icon name="chat_bubble" className="text-blue-400" size={18} />
+            <Icon name="chat_bubble" className="text-blue-600 dark:text-blue-400" size={18} />
             <h2 className="text-base font-semibold">Conversations</h2>
           </div>
 
@@ -661,7 +661,7 @@ export default function IMessage() {
           ) : conversations.length === 0 ? (
             <EmptyState icon="chat_bubble_outline" title="No conversations here yet." />
           ) : (
-            <div className="divide-y divide-slate-800/60">
+            <div className="divide-y divide-slate-200/60 dark:divide-slate-800/60">
               {conversations.map((convo) => {
                 const isSelected = selectedChat === convo.id
                 return (
@@ -669,7 +669,7 @@ export default function IMessage() {
                     <button
                       onClick={() => handleSelectChat(convo.id)}
                       aria-expanded={isSelected}
-                      className="w-full text-left px-3 py-3 rounded-lg transition-colors hover:bg-slate-800/40"
+                      className="w-full text-left px-3 py-3 rounded-lg transition-colors hover:bg-slate-50/40 dark:hover:bg-slate-800/40"
                     >
                       <div className="flex items-start gap-3">
                         <div className="mt-1.5 shrink-0">
@@ -681,7 +681,7 @@ export default function IMessage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
-                            <p className={`text-sm truncate ${convo.unread_count > 0 ? 'font-semibold text-white' : 'text-slate-300'}`}>
+                            <p className={`text-sm truncate ${convo.unread_count > 0 ? 'font-semibold text-white' : 'text-slate-700 dark:text-slate-300'}`}>
                               {convo.display_name || convo.identifier}
                             </p>
                             <span className="text-xs text-slate-500 shrink-0">
@@ -694,7 +694,7 @@ export default function IMessage() {
                         </div>
                         <div className="shrink-0 mt-1 flex items-center gap-2">
                           {convo.unread_count > 0 && (
-                            <span className="bg-blue-500/20 text-blue-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                            <span className="bg-blue-500/20 text-blue-600 dark:text-blue-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                               {convo.unread_count}
                             </span>
                           )}
@@ -711,10 +711,10 @@ export default function IMessage() {
                       <div className="px-3 pb-3">
                         {/* Save to Contacts — shown only when no contact name is known */}
                         {!convo.has_contact_name && (
-                          <div className="mb-3 p-2.5 bg-slate-800/60 border border-slate-700 rounded-xl">
+                          <div className="mb-3 p-2.5 bg-slate-50/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl">
                             {saveContactChatId === convo.id ? (
                               <div className="flex flex-col gap-2">
-                                <p className="text-xs text-slate-400">What name should we use for {convo.identifier}?</p>
+                                <p className="text-xs text-slate-600 dark:text-slate-400">What name should we use for {convo.identifier}?</p>
                                 <div className="flex gap-2">
                                   <input
                                     data-testid="save-contact-name-input"
@@ -727,7 +727,7 @@ export default function IMessage() {
                                       if (e.key === 'Escape') { setSaveContactChatId(null); setSaveContactName('') }
                                     }}
                                     autoFocus
-                                    className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                                    className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                                   />
                                   <button
                                     data-testid="save-contact-submit"
@@ -741,20 +741,20 @@ export default function IMessage() {
                                   </button>
                                   <button
                                     onClick={() => { setSaveContactChatId(null); setSaveContactName('') }}
-                                    className="px-2 py-1.5 text-slate-400 hover:text-slate-200 rounded-lg text-sm transition-colors"
+                                    className="px-2 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg text-sm transition-colors"
                                   >
                                     <Icon name="close" size={14} />
                                   </button>
                                 </div>
                                 {saveContactError && (
-                                  <p className="text-xs text-red-400">{saveContactError}</p>
+                                  <p className="text-xs text-red-600 dark:text-red-400">{saveContactError}</p>
                                 )}
                               </div>
                             ) : (
                               <button
                                 data-testid="save-to-contacts-btn"
                                 onClick={() => { setSaveContactChatId(convo.id); setSaveContactName(''); setSaveContactError(null) }}
-                                className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                                className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
                               >
                                 <Icon name="person_add" size={14} />
                                 Save to Contacts
@@ -765,7 +765,7 @@ export default function IMessage() {
 
                         <div
                           ref={messagesScrollRef}
-                          className="bg-slate-900 border border-slate-800 rounded-xl p-4 max-h-96 overflow-y-auto"
+                          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 max-h-96 overflow-y-auto"
                         >
                           {messagesLoading ? (
                             <LoadingState variant="spinner" message="Loading messages..." />
@@ -782,7 +782,7 @@ export default function IMessage() {
                                     className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm ${
                                       msg.is_from_me
                                         ? 'bg-blue-600 text-white'
-                                        : 'bg-slate-800 text-slate-200'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
                                     }`}
                                   >
                                     {msg.attachments?.filter(a => a.mime_type?.startsWith('image/')).map((att, i) => (
@@ -820,7 +820,7 @@ export default function IMessage() {
                                   handleReply(convo.id, replyText)
                                 }
                               }}
-                              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                              className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                             />
                             <button
                               aria-label="Send reply"

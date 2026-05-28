@@ -125,6 +125,15 @@ if [ -n "$_SA_BRANCH" ] && [ -n "$_SA_GIT_COMMON" ]; then
                                 "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_SA_BRANCH" "${AGENT_NAME:-unknown}" "$_SA_TIP" \
                                 >> "$_SA_DEBT_LOG" 2>/dev/null || true
                             echo "ostk-agent-stop: auto-merged $_SA_BRANCH onto main (HEAD $_SA_TIP)" >&2
+                            # Close the needle associated with this agent on merge (→1714).
+                            _SA_AGENT_NAME="${_SA_BRANCH#worktree-agent-}"
+                            _SA_API="${API_BASE:-https://127.0.0.1:8000}/api/agents"
+                            _SA_NID=$(curl -sk --connect-timeout 3 -m 5 "${_SA_API}/${_SA_AGENT_NAME}" \
+                                | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('metadata',{}).get('needle_id',''))" 2>/dev/null || true)
+                            if [ -n "$_SA_NID" ]; then
+                                ostk work close "→${_SA_NID}" 2>/dev/null || true
+                                echo "ostk-agent-stop: closed needle →${_SA_NID} after merge" >&2
+                            fi
                         fi
                     else
                         printf '%s\tATTN-NOT-FF\t%s\t%s\n' \

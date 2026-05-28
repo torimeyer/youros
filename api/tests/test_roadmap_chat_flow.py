@@ -495,7 +495,7 @@ async def test_chat_create_tasks_from_roadmap_parses_and_creates(tmp_path):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "ok"
-    assert "Created 3 tasks" in body["reply"]
+    assert "Created 3 needles" in body["reply"]
     assert body["roadmap_path"].endswith("roadmap.md")
     assert captured["kind"] == "roadmap_from_chat"
     assert captured["priority"] == "P2"
@@ -727,19 +727,19 @@ def test_parse_roadmap_items_empty_content_returns_empty():
 
 
 def test_roadmap_template_writes_to_myos_files_not_documents():
-    """The roadmap.agent template must direct the agent to write files to
-    ~/.myos/files/, which is scanned by /api/docs/recent. Writing to
-    ~/Documents/ (old behavior) causes outputs to be invisible in the UI.
+    """The roadmap.agent template must NOT direct the agent to write to
+    ~/Documents/ (old behavior that caused outputs to be invisible in the UI).
+    The backend saves roadmap output to ~/.myos/files/ automatically via
+    _save_agent_output_to_files when the agent calls /complete; the template
+    does not need to reference that path directly.
+    See also: test_roadmap_completion_md_appears_in_recent_docs.
     """
     template_path = Path(__file__).parents[2] / "agents" / "marketplace" / "roadmap.agent"
     content = template_path.read_text()
     assert "~/Documents/" not in content, (
-        "roadmap.agent still writes to ~/Documents/ — change to ~/.myos/files/ "
-        "so outputs appear in Recent Documents on the Files page"
-    )
-    assert "~/.myos/files/" in content, (
-        "roadmap.agent must explicitly write to ~/.myos/files/ so /api/docs/recent "
-        "picks up the output"
+        "roadmap.agent still references ~/Documents/ — remove it so outputs "
+        "appear in Recent Documents on the Files page (backend saves to "
+        "~/.myos/files/ automatically via _save_agent_output_to_files)"
     )
 
 

@@ -181,12 +181,12 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
     return (
       <>
         {!embedded && <TopBar title="Conversations" />}
-        <div className={embedded ? "" : "pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8"}>
+        <div className={embedded ? "" : "px-4 pb-4 sm:px-8 sm:pb-8"}>
           {/* Back button and header */}
           <div className="flex items-center gap-4 mb-6">
             <button
               onClick={goBack}
-              className="p-2 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-slate-800"
+              className="p-2 text-slate-600 dark:text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <Icon name="arrow_back" size={20} />
             </button>
@@ -194,7 +194,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
               <h1 className="text-xl font-bold text-white">
                 {summary?.name || detail?.name || "Loading..."}
               </h1>
-              <div className="flex items-center gap-4 text-sm text-slate-400 mt-1">
+              <div className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-400 mt-1">
                 {(detail?.started_at || summary?.started_at) && (
                   <span>{detail?.started_at || summary?.started_at}</span>
                 )}
@@ -209,7 +209,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
             <div className="relative">
               <button
                 onClick={() => setShowTranscriptShare((v) => !v)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 dark:text-slate-400 hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
                 title="Share this transcript"
               >
                 <Icon name="share" size={16} />
@@ -231,7 +231,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
           )}
 
           {!detailLoading && detail && detail.messages.length === 0 && (
-            <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400">
+            <div className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center text-slate-600 dark:text-slate-400">
               This transcript has no readable messages. It may contain only system or tool data.
             </div>
           )}
@@ -244,18 +244,18 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
                   className={`rounded-xl p-4 ${
                     msg.role === "user"
                       ? "bg-blue-500/10 border border-blue-500/20"
-                      : "bg-slate-900/40 border border-slate-800"
+                      : "bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800"
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <Icon
                       name={msg.role === "user" ? "person" : "smart_toy"}
-                      className={`text-sm ${msg.role === "user" ? "text-blue-400" : "text-purple-400"}`}
+                      className={`text-sm ${msg.role === "user" ? "text-blue-600 dark:text-blue-400" : "text-purple-600 dark:text-purple-400"}`}
                       size={16}
                     />
                     <span
                       className={`text-xs font-semibold uppercase ${
-                        msg.role === "user" ? "text-blue-400" : "text-purple-400"
+                        msg.role === "user" ? "text-blue-600 dark:text-blue-400" : "text-purple-600 dark:text-purple-400"
                       }`}
                     >
                       {msg.role === "user" ? "You" : instanceName}
@@ -266,7 +266,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
                   </div>
 
                   {msg.text && (
-                    <div className="chat-bubble-content text-slate-200 text-sm leading-relaxed">
+                    <div className="chat-bubble-content text-slate-800 dark:text-slate-200 text-sm leading-relaxed">
                       {renderMarkdown(msg.text)}
                     </div>
                   )}
@@ -276,7 +276,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
                       {msg.tool_uses.map((tool, j) => (
                         <div
                           key={j}
-                          className="text-xs text-slate-400 bg-slate-800/60 rounded px-3 py-1.5 font-mono"
+                          className="text-xs text-slate-600 dark:text-slate-400 bg-slate-50/60 dark:bg-slate-800/60 rounded px-3 py-1.5 font-mono"
                         >
                           {tool}
                         </div>
@@ -304,15 +304,15 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
   return (
     <>
       {!embedded && <TopBar title="Conversations" />}
-      <div className={embedded ? "" : "pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8"}>
+      <div className={embedded ? "" : "px-4 pb-4 sm:px-8 sm:pb-8"}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-white">Transcripts</h1>
-            <p className="text-slate-400 text-sm mt-1">
+            <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">
               Conversation history from your AI sessions
             </p>
           </div>
-          <div className="text-sm text-slate-400">
+          <div className="text-sm text-slate-600 dark:text-slate-400">
             {hasActiveFilters
               ? `${resultCount} result${resultCount !== 1 ? "s" : ""} found`
               : `${transcripts.length} session${transcripts.length !== 1 ? "s" : ""}`}
@@ -334,7 +334,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
               onChange={(e) => setSearchInput(e.target.value)}
               onKeyDown={handleSearchKeyDown}
               placeholder="Search messages..."
-              className="w-full bg-slate-900/60 border border-slate-700 rounded-lg pl-10 pr-10 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 transition-colors"
+              className="w-full bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-lg pl-10 pr-10 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 transition-colors"
             />
             {searchInput && (
               <button
@@ -367,7 +367,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
             <select
               value={kindFilter}
               onChange={(e) => setKindFilter(e.target.value)}
-              className="bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors appearance-none cursor-pointer"
+              className="bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors appearance-none cursor-pointer"
             >
               <option value="all">All types</option>
               {allKnownKinds.map((k) => (
@@ -389,7 +389,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
                 setKindFilter("all");
                 fetchTranscripts("", "all", "all");
               }}
-              className="text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-1"
+              className="text-sm text-slate-600 dark:text-slate-400 hover:text-white transition-colors flex items-center gap-1"
             >
               <Icon name="filter_list_off" size={16} />
               Clear filters
@@ -429,25 +429,25 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
               <button
                 key={t.session_id}
                 onClick={() => openTranscript(t.session_id)}
-                className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 text-left hover:border-blue-500/40 transition-colors group w-full"
+                className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-5 text-left hover:border-blue-500/40 transition-colors group w-full"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-2">
                       <Icon
                         name="description"
-                        className="text-slate-500 group-hover:text-blue-400 transition-colors"
+                        className="text-slate-500 group-hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                         size={20}
                       />
                       <span className="text-white font-semibold truncate">{t.name}</span>
                       {t.kind && t.kind !== "unknown" && (
-                        <span className="text-xs bg-slate-700/50 text-slate-400 px-2 py-0.5 rounded">
+                        <span className="text-xs bg-slate-200 dark:bg-slate-700/50 text-slate-600 dark:text-slate-400 px-2 py-0.5 rounded">
                           {t.kind === "interactive" ? "conversation" : t.kind === "task" ? "agent" : t.kind}
                         </span>
                       )}
                     </div>
                     {t.first_message && t.first_message !== t.name && (
-                      <p className="text-slate-400 text-sm truncate ml-8">{t.first_message}</p>
+                      <p className="text-slate-600 dark:text-slate-400 text-sm truncate ml-8">{t.first_message}</p>
                     )}
                   </div>
 

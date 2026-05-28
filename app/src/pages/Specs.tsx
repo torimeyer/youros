@@ -134,9 +134,9 @@ function getDocStage(doc: Spec): string {
 }
 
 const STAGE_CHIP_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  draft:       { bg: "bg-slate-500/20",  text: "text-slate-400",  label: "Draft" },
-  ready:       { bg: "bg-blue-500/20",   text: "text-blue-400",   label: "Ready" },
-  in_progress: { bg: "bg-yellow-500/20", text: "text-yellow-400", label: "In Progress" },
+  draft:       { bg: "bg-slate-500/20",  text: "text-slate-600 dark:text-slate-400",  label: "Draft" },
+  ready:       { bg: "bg-blue-500/20",   text: "text-blue-600 dark:text-blue-400",   label: "Ready" },
+  in_progress: { bg: "bg-yellow-500/20", text: "text-yellow-600 dark:text-yellow-400", label: "In Progress" },
 };
 
 function StageChip({ stage, title }: { stage: string; title?: string }) {
@@ -161,13 +161,13 @@ function TaskProgressBar({ summary }: { summary: TaskSummary }) {
   const pct = Math.round((closed / total) * 100);
   return (
     <div className="flex items-center gap-2" data-testid="task-progress">
-      <div className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden max-w-[120px]">
+      <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden max-w-[120px]">
         <div
           className="h-full bg-blue-500 rounded-full transition-all"
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-xs text-slate-400 whitespace-nowrap">
+      <span className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
         {closed}/{total} tasks
       </span>
     </div>
@@ -190,7 +190,7 @@ export function SpecBody({ body }: { body: string }) {
     elements.push(
       <pre
         key={key++}
-        className="bg-slate-900 border border-slate-700 rounded p-3 my-2 overflow-x-auto font-mono text-xs text-slate-200 whitespace-pre"
+        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded p-3 my-2 overflow-x-auto font-mono text-xs text-slate-800 dark:text-slate-200 whitespace-pre"
       >
         <code>{codeLines.join("\n")}</code>
       </pre>
@@ -275,7 +275,7 @@ export function SpecBody({ body }: { body: string }) {
 
     if (trimmed.startsWith("### ")) {
       elements.push(
-        <h4 key={key++} className="text-xs font-semibold text-slate-200 mt-2 mb-0.5">
+        <h4 key={key++} className="text-xs font-semibold text-slate-800 dark:text-slate-200 mt-2 mb-0.5">
           {trimmed.slice(4)}
         </h4>
       );
@@ -296,7 +296,7 @@ export function SpecBody({ body }: { body: string }) {
       continue;
     } else if (trimmed.startsWith("- ")) {
       elements.push(
-        <li key={key++} className="text-sm text-slate-300 ml-4 list-disc">
+        <li key={key++} className="text-sm text-slate-700 dark:text-slate-300 ml-4 list-disc">
           {renderInline(trimmed.slice(2))}
         </li>
       );
@@ -304,7 +304,7 @@ export function SpecBody({ body }: { body: string }) {
       elements.push(<div key={key++} className="h-2" />);
     } else {
       elements.push(
-        <p key={key++} className="text-sm text-slate-300">
+        <p key={key++} className="text-sm text-slate-700 dark:text-slate-300">
           {renderInline(trimmed)}
         </p>
       );
@@ -333,7 +333,7 @@ function renderInline(text: string): React.ReactNode {
     }
     if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
       return (
-        <code key={i} className="bg-slate-800 px-1 py-0.5 rounded text-[11px] font-mono text-amber-300">
+        <code key={i} className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px] font-mono text-amber-700 dark:text-amber-300">
           {part.slice(1, -1)}
         </code>
       );
@@ -373,7 +373,7 @@ function AcceptanceCriteria({ criteria }: { criteria: AcceptanceCriterion[] }) {
                   : "bg-transparent border border-slate-500"
               }`}
             />
-            <span className={c.checked ? "text-slate-500 line-through" : "text-slate-300"}>
+            <span className={c.checked ? "text-slate-500 line-through" : "text-slate-700 dark:text-slate-300"}>
               {c.text}
             </span>
           </li>
@@ -404,7 +404,7 @@ function LinkedTasksList({
         </h4>
         {building && (
           <span
-            className="text-xs text-blue-300 font-medium"
+            className="text-xs text-blue-700 dark:text-blue-300 font-medium"
             data-testid="build-progress-count"
           >
             {closedCount} of {tasks.length} tasks built
@@ -427,7 +427,7 @@ function LinkedTasksList({
                   className="w-4 h-4 rounded-full bg-green-500/20 border border-green-500 flex items-center justify-center flex-shrink-0"
                   data-testid="task-done-check"
                 >
-                  <Icon name="check" className="text-green-400" size={12} />
+                  <Icon name="check" className="text-green-600 dark:text-green-400" size={12} />
                 </span>
               ) : building && agent ? (
                 <span
@@ -443,17 +443,17 @@ function LinkedTasksList({
                   }`}
                 />
               )}
-              <span className="text-slate-400 font-mono text-xs">{t.id}</span>
+              <span className="text-slate-600 dark:text-slate-400 font-mono text-xs">{t.id}</span>
               <span
                 className={
-                  isDone ? "text-slate-500 line-through" : "text-slate-300"
+                  isDone ? "text-slate-500 line-through" : "text-slate-700 dark:text-slate-300"
                 }
               >
                 {t.title}
               </span>
               {building && !isDone && agent && (
                 <span
-                  className="text-xs text-blue-300"
+                  className="text-xs text-blue-700 dark:text-blue-300"
                   data-testid="task-building-label"
                 >
                   Building...
@@ -466,7 +466,7 @@ function LinkedTasksList({
                     e.stopPropagation();
                     onOpenAgent(agent);
                   }}
-                  className="ml-auto text-[11px] font-mono text-blue-400 hover:text-blue-300 hover:underline"
+                  className="ml-auto text-[11px] font-mono text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
                   data-testid="task-agent-link"
                   title={`Open ${agent} in Agents tab`}
                 >
@@ -504,7 +504,7 @@ function SpecsOnboarding() {
     <div className="bg-slate-100 border border-slate-200 dark:bg-slate-800/40 dark:border-slate-700/50 rounded-xl px-5 py-4 mb-6 relative">
       <button
         onClick={handleDismiss}
-        className="absolute top-3 right-3 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+        className="absolute top-3 right-3 text-slate-500 hover:text-slate-700 dark:hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
         aria-label="Dismiss"
       >
         <Icon name="close" size={16} />
@@ -586,8 +586,9 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   // the doc we just optimistically removed and the spec reappears for
   // the full ~5s window before the real DELETE finally removes it.
   const pendingDeleteSpecPathsRef = useRef<Set<string>>(new Set());
-  const [openMenuPath, setOpenMenuPath] = useState<string | null>(null);
   const [showWizard, setShowWizard] = useState(false);
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editBody, setEditBody] = useState("");
   const [editSaving, setEditSaving] = useState(false);
@@ -621,6 +622,20 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
       setMessageType("error");
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const handleRename = async (doc: Spec) => {
+    const trimmed = renameTitle.trim();
+    setRenamingPath(null);
+    if (!trimmed || trimmed === doc.title) return;
+    try {
+      await api.patch(`/specs/${encodeDocPath(doc.path)}/title`, { title: trimmed });
+      setDocs((prev) =>
+        prev.map((d) => (d.path === doc.path ? { ...d, title: trimmed } : d))
+      );
+    } catch (e) {
+      reportError('Failed to rename spec', e);
     }
   };
 
@@ -1083,7 +1098,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
         />
       )}
       {!embedded && <TopBar title="Specs" />}
-      <div data-tour="specs" className={`${embedded ? '' : 'pt-16 sm:pt-20 '}px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
+      <div data-tour="specs" className={`px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
 
         <SpecsOnboarding />
         {/* Header */}
@@ -1097,7 +1112,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
         </div>
 
         {/* Stage filter pills */}
-        <div className="flex gap-1 mb-4 bg-slate-900/60 rounded-lg p-1 w-fit flex-wrap">
+        <div className="flex gap-1 mb-4 bg-white/60 dark:bg-slate-900/60 rounded-lg p-1 w-fit flex-wrap">
           {stagePills.map((p) => {
             const count = stageCountByKey(p.key);
             return (
@@ -1108,7 +1123,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   stageFilter === p.key
                     ? "bg-blue-500 text-white"
-                    : "text-slate-400 hover:text-white"
+                    : "text-slate-600 dark:text-slate-400 hover:text-white"
                 }`}
               >
                 {p.label}
@@ -1122,15 +1137,15 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
 
         {/* Bulk empty-draft delete — appears when 2+ empty drafts are visible */}
         {visibleHusks.length >= 2 && (
-          <div className="flex items-center gap-3 mb-4 px-3 py-2 bg-slate-800/40 border border-slate-700/50 rounded-lg w-fit">
-            <span className="text-xs text-slate-400">
+          <div className="flex items-center gap-3 mb-4 px-3 py-2 bg-slate-50/40 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/50 rounded-lg w-fit">
+            <span className="text-xs text-slate-600 dark:text-slate-400">
               {visibleHusks.length} empty drafts detected
             </span>
             <button
               type="button"
               data-testid="delete-all-husks-button"
               onClick={handleDeleteOldHusks}
-              className="text-xs text-red-400 hover:text-red-300 font-medium"
+              className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 font-medium"
             >
               Delete empty drafts older than 7 days
             </button>
@@ -1171,8 +1186,8 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
           <div
             className={`text-sm rounded-lg px-4 py-2 mb-4 ${
               messageType === "success"
-                ? "bg-green-500/20 text-green-400"
-                : "bg-red-500/20 text-red-400"
+                ? "bg-green-500/20 text-green-600 dark:text-green-400"
+                : "bg-red-500/20 text-red-600 dark:text-red-400"
             }`}
           >
             {message}
@@ -1197,7 +1212,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
             {pendingList.map((p) => (
               <div
                 key={p.tempId}
-                className="bg-slate-900/40 border border-slate-800 rounded-xl p-5"
+                className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-5"
                 data-testid="pending-spec-card"
                 data-status={p.status}
               >
@@ -1210,26 +1225,26 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                     />
                   )}
                   {p.status === "error" && (
-                    <Icon name="error" className="text-red-400" size={18} />
+                    <Icon name="error" className="text-red-600 dark:text-red-400" size={18} />
                   )}
                   <div className="flex-1 min-w-0">
                     <p className="text-white text-base font-medium truncate">
                       {p.title}
                     </p>
                     {p.status === "generating" && (
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
                         Generating acceptance criteria...
                       </p>
                     )}
                     {p.status === "error" && (
-                      <p className="text-xs text-red-300 mt-1">
+                      <p className="text-xs text-red-700 dark:text-red-300 mt-1">
                         {p.errorMsg || "Could not create the spec. Try again."}
                       </p>
                     )}
                   </div>
                   {p.status === "generating" && (
                     <span
-                      className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/20 text-slate-300"
+                      className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/20 text-slate-700 dark:text-slate-300"
                       data-testid="pending-spec-status"
                     >
                       Generating...
@@ -1239,7 +1254,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                     <button
                       type="button"
                       onClick={() => removePendingSpec(p.tempId)}
-                      className="text-xs text-slate-400 hover:text-slate-200 underline"
+                      className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 underline"
                       data-testid="dismiss-pending-spec"
                     >
                       Dismiss
@@ -1270,11 +1285,11 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                 <div
                   key={doc.path}
                   ref={(el) => { specRowRefs.current[doc.path] = el; }}
-                  className="bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden"
+                  className="bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden"
                 >
                   {/* Card header (always visible, clickable) */}
                   <div
-                    className="p-5 cursor-pointer hover:bg-slate-800/30 transition-colors"
+                    className="p-5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors"
                     onClick={() => handleToggleExpand(doc.path)}
                     data-testid="spec-card"
                   >
@@ -1285,9 +1300,25 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                           className="text-slate-500 flex-shrink-0"
                           size={20}
                         />
-                        <p className="text-white text-lg font-medium truncate">
-                          {doc.title}
-                        </p>
+                        {renamingPath === doc.path ? (
+                          <input
+                            autoFocus
+                            data-testid="rename-spec-input"
+                            className="text-white text-lg font-medium bg-transparent border-b border-blue-400 focus:outline-none min-w-0 flex-1"
+                            value={renameTitle}
+                            onChange={(e) => setRenameTitle(e.target.value)}
+                            onBlur={(e) => { e.stopPropagation(); handleRename(doc); }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); handleRename(doc); }
+                              if (e.key === "Escape") { e.stopPropagation(); setRenamingPath(null); }
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          <p className="text-white text-lg font-medium truncate">
+                            {doc.title}
+                          </p>
+                        )}
                         <StageChip
                           stage={getDocStage(doc)}
                           title={(() => {
@@ -1313,7 +1344,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                         )}
                         {doc.husk && (
                           <span
-                            className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/20 text-amber-400"
+                            className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/20 text-amber-600 dark:text-amber-400"
                             data-testid="husk-tag"
                             title={doc.husk_reason ?? "empty or placeholder draft"}
                           >
@@ -1334,52 +1365,37 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                             })()}
                           </span>
                         )}
-                        {/* Overflow menu: Delete lives here so it's findable but hard to hit by accident. */}
-                        <div className="relative">
-                          <button
-                            type="button"
-                            aria-label="More actions"
-                            aria-haspopup="menu"
-                            aria-expanded={openMenuPath === doc.path}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenMenuPath(openMenuPath === doc.path ? null : doc.path);
-                            }}
-                            data-testid="plan-overflow-button"
-                            className="text-slate-500 hover:text-white rounded-lg p-1 transition-colors"
-                          >
-                            <Icon name="more_horiz" size={18} />
-                          </button>
-                          {openMenuPath === doc.path && (
-                            <div
-                              role="menu"
-                              data-testid="plan-overflow-menu"
-                              onClick={(e) => e.stopPropagation()}
-                              className="absolute right-0 top-7 z-10 min-w-[160px] rounded-lg border border-slate-700 bg-slate-800 py-1 shadow-lg"
-                            >
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuPath(null);
-                                  deleteSpec(doc);
-                                }}
-                                data-testid="delete-spec-button"
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700"
-                              >
-                                <Icon name="delete" size={16} className="text-red-400" />
-                                Delete spec
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                        <button
+                          type="button"
+                          aria-label="Rename spec"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRenamingPath(doc.path);
+                            setRenameTitle(doc.title);
+                          }}
+                          data-testid="rename-spec-button"
+                          className="text-slate-500 hover:text-white rounded-lg p-1 transition-colors"
+                        >
+                          <Icon name="edit" size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Delete spec"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteSpec(doc);
+                          }}
+                          data-testid="delete-spec-button"
+                          className="text-slate-500 hover:text-red-400 rounded-lg p-1 transition-colors"
+                        >
+                          <Icon name="delete" size={18} />
+                        </button>
                       </div>
                     </div>
 
                     {/* Collapsed preview */}
                     {!isExpanded && doc.body && (
-                      <p className="text-slate-400 text-sm mt-2 ml-8 line-clamp-1">
+                      <p className="text-slate-600 dark:text-slate-400 text-sm mt-2 ml-8 line-clamp-1">
                         {doc.body.split("\n").find((l) => l.trim() && !l.trim().startsWith("#") && !l.trim().startsWith("- [")) || ""}
                       </p>
                     )}
@@ -1387,14 +1403,14 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
 
                   {/* Expanded detail view */}
                   {isExpanded && (
-                    <div className="border-t border-slate-800 px-5 pb-5" data-testid="spec-detail">
+                    <div className="border-t border-slate-200 dark:border-slate-800 px-5 pb-5" data-testid="spec-detail">
                       {/* Spec body — read mode or inline editor */}
                       <div className="mt-4">
                         {editingPath === doc.path ? (
                           <div className="space-y-2">
                             <textarea
                               data-testid="spec-body-textarea"
-                              className="w-full h-64 bg-slate-800 border border-slate-600 rounded-lg p-3 text-sm text-slate-200 font-mono resize-y focus:outline-none focus:border-blue-500"
+                              className="w-full h-64 bg-slate-100 dark:bg-slate-800 border border-slate-600 rounded-lg p-3 text-sm text-slate-800 dark:text-slate-200 font-mono resize-y focus:outline-none focus:border-blue-500"
                               value={editBody}
                               onChange={(e) => setEditBody(e.target.value)}
                               onClick={(e) => e.stopPropagation()}
@@ -1413,7 +1429,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                                 type="button"
                                 data-testid="cancel-spec-body-button"
                                 onClick={(e) => { e.stopPropagation(); setEditingPath(null); }}
-                                className="border border-slate-600 text-slate-400 hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                                className="border border-slate-600 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
                               >
                                 Cancel
                               </button>
@@ -1430,7 +1446,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                                 setEditBody(doc.body || "");
                                 setEditingPath(doc.path);
                               }}
-                              className="mt-2 flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                              className="mt-2 flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                             >
                               <Icon name="edit" size={14} />
                               Edit
@@ -1464,43 +1480,43 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                         {/* Step guidance */}
                         {doc.status === "draft" && ((doc.acceptance_criteria?.length ?? 0) > 0 || criteria.length > 0) && (
                           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/20">
-                            <Icon name="arrow_forward" size={16} className="text-green-400" />
-                            <p className="text-xs text-green-300">
+                            <Icon name="arrow_forward" size={16} className="text-green-600 dark:text-green-400" />
+                            <p className="text-xs text-green-700 dark:text-green-300">
                               <span className="font-bold">Next step:</span> {(doc.acceptance_criteria?.length ?? 0) > 0 ? doc.acceptance_criteria!.length : criteria.length} acceptance criteria defined. Promote this draft to lock it in as a spec.
                             </p>
                           </div>
                         )}
                         {doc.status === "draft" && (doc.acceptance_criteria?.length ?? 0) === 0 && criteria.length === 0 && (
                           <div
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/40 border border-slate-700/50"
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50/40 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/50"
                             data-testid="no-criteria-indicator"
                           >
-                            <Icon name="edit_note" size={14} className="text-slate-400 flex-shrink-0" />
-                            <p className="text-xs text-slate-400">
-                              No acceptance criteria yet. Add checklist items (<code className="text-slate-300">- [ ] ...</code>) to this draft to unlock promoting.
+                            <Icon name="edit_note" size={14} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
+                            <p className="text-xs text-slate-600 dark:text-slate-400">
+                              No acceptance criteria yet. Add checklist items (<code className="text-slate-700 dark:text-slate-300">- [ ] ...</code>) to this draft to unlock promoting.
                             </p>
                           </div>
                         )}
                         {(doc.status === "ready" || doc.status === "spec" as string) && (
                           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                            <Icon name="arrow_forward" size={16} className="text-blue-400" />
-                            <p className="text-xs text-blue-300">
+                            <Icon name="arrow_forward" size={16} className="text-blue-600 dark:text-blue-400" />
+                            <p className="text-xs text-blue-700 dark:text-blue-300">
                               <span className="font-bold">Next step:</span> Click "Build it" to turn this spec into tasks and spawn a builder agent for each one.
                             </p>
                           </div>
                         )}
                         {doc.status === "in-progress" && (
                           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-                            <Icon name="arrow_forward" size={16} className="text-yellow-400" />
-                            <p className="text-xs text-yellow-300">
+                            <Icon name="arrow_forward" size={16} className="text-yellow-600 dark:text-yellow-400" />
+                            <p className="text-xs text-yellow-700 dark:text-yellow-300">
                               <span className="font-bold">In progress:</span> Agents are working. The spec flips to Done automatically when every task closes.
                             </p>
                           </div>
                         )}
                         {doc.status === "complete" && (
                           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/20">
-                            <Icon name="check_circle" size={16} className="text-green-400" />
-                            <p className="text-xs text-green-300">
+                            <Icon name="check_circle" size={16} className="text-green-600 dark:text-green-400" />
+                            <p className="text-xs text-green-700 dark:text-green-300">
                               <span className="font-bold">Done.</span> Every task closed and the feature is live.
                             </p>
                           </div>
@@ -1541,7 +1557,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                                 <button
                                   onClick={(e) => { e.stopPropagation(); handlePromote(doc.path); }}
                                   disabled={loading || !hasAc}
-                                  className="bg-green-500/20 text-green-400 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-green-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                  className="bg-green-500/20 text-green-600 dark:text-green-400 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-green-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                                   data-testid="promote-button"
                                   title={hasAc ? "Promote this draft to a spec." : "Waiting for acceptance criteria. This button unlocks once at least one checklist item appears."}
                                 >
@@ -1577,7 +1593,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                                 <button
                                   onClick={(e) => { e.stopPropagation(); handleUnlock(doc.path); }}
                                   disabled={loading}
-                                  className="border border-slate-600 text-slate-400 hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                  className="border border-slate-600 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                                   data-testid="unlock-spec-button"
                                   title="Reopen this spec so you can change the acceptance criteria."
                                 >
@@ -1591,7 +1607,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                                   e.stopPropagation();
                                   window.open(`/api/specs/${doc.path}/export?format=speckit`);
                                 }}
-                                className="border border-slate-600 text-slate-400 hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+                                className="border border-slate-600 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
                                 data-testid="export-spec-button"
                                 title="Download this spec as a YAML file you can share or reimport."
                               >
@@ -1605,10 +1621,10 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
 
                         {buildResult[doc.path] && buildResult[doc.path].agents.length > 0 && (
                           <div
-                            className="mt-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-slate-200"
+                            className="mt-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-slate-800 dark:text-slate-200"
                             data-testid="build-result"
                           >
-                            <div className="mb-1 font-semibold text-blue-300">
+                            <div className="mb-1 font-semibold text-blue-700 dark:text-blue-300">
                               Started {buildResult[doc.path].agents.length} agent
                               {buildResult[doc.path].agents.length === 1 ? "" : "s"}.
                             </div>
@@ -1616,7 +1632,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                               {buildResult[doc.path].agents.map((name) => (
                                 <span
                                   key={name}
-                                  className="rounded bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-slate-300"
+                                  className="rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-slate-700 dark:text-slate-300"
                                   data-testid="build-agent-name"
                                 >
                                   {name}
@@ -1628,7 +1644,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                                 e.stopPropagation();
                                 navigate("/agents");
                               }}
-                              className="font-semibold text-blue-400 hover:text-blue-300"
+                              className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
                               data-testid="build-agents-link"
                             >
                               Watch in the Agents tab -&gt;
@@ -1639,7 +1655,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                           buildResult[doc.path].agents.length === 0 &&
                           buildResult[doc.path].has_unchecked_acs === false && (
                             <div
-                              className="mt-3 rounded-lg border border-slate-700 bg-slate-800/40 p-3 text-xs text-slate-300"
+                              className="mt-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/40 p-3 text-xs text-slate-700 dark:text-slate-300"
                               data-testid="build-no-acs-info"
                             >
                               This spec has no unchecked acceptance criteria. Add at least one and click Build.
@@ -1660,7 +1676,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
             new one from scratch. */}
         {templates.length > 0 && (
           <div className="mt-8 mb-6" data-testid="plan-templates">
-            <h2 className="text-sm font-semibold text-slate-300 mb-3">
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">
               Start from a template
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1673,19 +1689,19 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                     onClick={() => handleOpenTemplateDetails(t)}
                     disabled={loading}
                     data-testid={`plan-template-${t.id}`}
-                    className="flex items-start gap-3 text-left bg-slate-900/40 border border-slate-800 rounded-xl p-4 hover:border-blue-500 hover:bg-slate-800/40 transition-colors disabled:opacity-60 disabled:cursor-wait"
+                    className="flex items-start gap-3 text-left bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-4 hover:border-blue-500 hover:bg-slate-50/40 dark:hover:bg-slate-800/40 transition-colors disabled:opacity-60 disabled:cursor-wait"
                   >
                     <Icon
                       name={t.icon || "description"}
-                      className="text-2xl text-blue-400 mt-0.5 shrink-0"
+                      className="text-2xl text-blue-600 dark:text-blue-400 mt-0.5 shrink-0"
                     />
                     <div className="flex-1 min-w-0">
                       <p className="text-white text-sm font-medium">{t.name}</p>
-                      <p className="text-slate-400 text-xs mt-0.5 line-clamp-2">
+                      <p className="text-slate-600 dark:text-slate-400 text-xs mt-0.5 line-clamp-2">
                         {t.description}
                       </p>
                       {loading && (
-                        <p className="text-xs text-blue-300 mt-2">Creating spec...</p>
+                        <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">Creating spec...</p>
                       )}
                     </div>
                   </button>
@@ -1698,13 +1714,13 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
 
       {undoDelete && (
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 text-sm text-slate-200 px-4 py-3 rounded-xl shadow-lg"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-800 dark:text-slate-200 px-4 py-3 rounded-xl shadow-lg"
           data-testid="undo-delete-spec-toast"
         >
           <span>Spec deleted.</span>
           <button
             onClick={handleUndoDeleteSpec}
-            className="font-medium text-blue-400 hover:text-blue-300"
+            className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
             data-testid="undo-delete-spec-button"
           >
             Undo
@@ -1714,16 +1730,16 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
 
       {decomposeToast && (
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 text-sm text-slate-200 px-4 py-3 rounded-xl shadow-lg"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-800 dark:text-slate-200 px-4 py-3 rounded-xl shadow-lg"
           data-testid="decompose-success-toast"
         >
-          <Icon name="check_circle" className="text-green-400" size={18} />
+          <Icon name="check_circle" className="text-green-600 dark:text-green-400" size={18} />
           <span>
             Created {decomposeToast.count} {decomposeToast.count === 1 ? "task" : "tasks"}.
           </span>
           <button
             onClick={() => { setDecomposeToast(null); navigate("/tasks"); }}
-            className="font-medium text-blue-400 hover:text-blue-300"
+            className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
             data-testid="decompose-view-tasks-link"
           >
             View them →

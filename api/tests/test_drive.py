@@ -1730,6 +1730,98 @@ async def test_drive_structured_preview_other(client, tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "sort_param,expected_order_by",
+    [
+        ("opened", "viewedByMeTime desc"),
+        ("edited", "modifiedTime desc"),
+        ("created", "createdTime desc"),
+    ],
+)
+async def test_drive_files_sort_param_maps_to_correct_order_by(
+    client, tmp_path, sort_param, expected_order_by
+):
+    """Each ?sort= value must call _fetch_drive_files with the right orderBy. →1752"""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_files = _make_drive_files(2)
+    mock_fetch = AsyncMock(return_value=fake_files)
+
+    # Point _INDEX_PATH at a non-existent file so the cache is always cold
+    # and _fetch_drive_files is always called (regardless of sort value).
+    missing_index = tmp_path / "no_index.json"
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._INDEX_PATH", missing_index),
+        patch("routers.drive._fetch_drive_files", new=mock_fetch),
+    ):
+        resp = await client.get(f"/api/drive/files?sort={sort_param}")
+
+    assert resp.status_code == 200
+    mock_fetch.assert_called_once()
+    _, kwargs = mock_fetch.call_args
+    assert kwargs.get("order_by") == expected_order_by, (
+        f"sort={sort_param!r} should produce order_by={expected_order_by!r}, "
+        f"got {kwargs.get('order_by')!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_drive_files_unknown_sort_falls_back_to_opened(client, tmp_path):
+    """An unrecognised ?sort= value must silently fall back to the default (opened). →1752"""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_files = _make_drive_files(1)
+    mock_fetch = AsyncMock(return_value=fake_files)
+
+    missing_index = tmp_path / "no_index.json"
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._INDEX_PATH", missing_index),
+        patch("routers.drive._fetch_drive_files", new=mock_fetch),
+    ):
+        resp = await client.get("/api/drive/files?sort=invalid_value")
+
+    assert resp.status_code == 200
+    mock_fetch.assert_called_once()
+    _, kwargs = mock_fetch.call_args
+    assert kwargs.get("order_by") == "viewedByMeTime desc"
+
+
+@pytest.mark.asyncio
+async def test_drive_files_non_default_sort_skips_cache(client, tmp_path):
+    """sort=edited and sort=created must bypass the file-list cache. →1752"""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    cache_dir = tmp_path / "drive_cache"
+    cache_dir.mkdir()
+    index_path = cache_dir / "index.json"
+    index_path.write_text(json.dumps(_make_drive_files(5)))
+
+    fresh = _make_drive_files(1)
+    mock_fetch = AsyncMock(return_value=fresh)
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive.DRIVE_CACHE_DIR", cache_dir),
+        patch("routers.drive._INDEX_PATH", index_path),
+        patch("routers.drive._fetch_drive_files", new=mock_fetch),
+    ):
+        resp = await client.get("/api/drive/files?sort=edited")
+
+    assert resp.status_code == 200
+    # Must have called Drive, not served the 5-file cache.
+    mock_fetch.assert_called_once()
+    assert len(resp.json()["files"]) == 1
+    assert resp.json()["cached"] is False
+
+
+@pytest.mark.asyncio
 async def test_drive_structured_preview_sheet_truncates_large_data(client, tmp_path):
     """Sheets with more than 20 rows or 10 cols report truncated=True."""
     token_path = tmp_path / "google_token.json"

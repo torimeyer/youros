@@ -363,11 +363,11 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
     >
       <div
-        className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl flex flex-col w-full max-w-4xl max-h-[90vh]"
+        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl flex flex-col w-full max-w-4xl max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700 shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
           <span className="text-white font-medium text-sm truncate">{name}</span>
           <div className="flex items-center gap-2 ml-4 shrink-0">
             {isDriveMode ? (
@@ -378,9 +378,9 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                   disabled={driveSaveStatus === 'saving' || driveSaveStatus === 'success'}
                   className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
                     driveSaveStatus === 'success'
-                      ? 'bg-green-500/20 border-green-500/40 text-green-300 cursor-default'
+                      ? 'bg-green-500/20 border-green-500/40 text-green-700 dark:text-green-300 cursor-default'
                       : driveSaveStatus === 'error'
-                      ? 'bg-red-500/20 border-red-500/40 text-red-300 hover:bg-red-500/30'
+                      ? 'bg-red-500/20 border-red-500/40 text-red-700 dark:text-red-300 hover:bg-red-500/30'
                       : 'bg-blue-600/80 hover:bg-blue-600 border-blue-500/50 text-white disabled:opacity-50 disabled:cursor-not-allowed'
                   }`}
                 >
@@ -391,7 +391,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                     href={drivePreviewData.web_view_link}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-xs text-slate-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500"
+                    className="text-xs text-slate-600 dark:text-slate-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-slate-500"
                   >
                     Open in Drive
                   </a>
@@ -402,7 +402,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                 data-testid="quicklook-open-native"
                 onClick={handleOpenNative}
                 disabled={openingNative}
-                className="text-xs text-slate-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 disabled:opacity-50"
+                className="text-xs text-slate-600 dark:text-slate-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-slate-500 disabled:opacity-50"
               >
                 {openingNative ? 'Opening…' : 'Open in app'}
               </button>
@@ -410,7 +410,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
             <button
               data-testid="quicklook-close"
               onClick={onClose}
-              className="text-slate-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-slate-800"
+              className="text-slate-600 dark:text-slate-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
               aria-label="Close preview"
             >
               ✕
@@ -420,7 +420,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
 
         {/* Drive mode save error banner */}
         {isDriveMode && driveSaveStatus === 'error' && driveSaveMessage && (
-          <div className="px-4 py-2 bg-red-500/10 border-b border-red-500/20 text-xs text-red-300">
+          <div className="px-4 py-2 bg-red-500/10 border-b border-red-500/20 text-xs text-red-700 dark:text-red-300">
             {driveSaveMessage}
           </div>
         )}
@@ -434,9 +434,9 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
               )}
               {!driveLoading && driveError && (
                 <div className="flex flex-col items-center gap-3 py-12 text-center">
-                  <p className="text-red-400 text-sm">{driveError}</p>
+                  <p className="text-red-600 dark:text-red-400 text-sm">{driveError}</p>
                   {webViewLink && (
-                    <a href={webViewLink} target="_blank" rel="noreferrer" className="text-xs text-slate-400 hover:text-white underline">
+                    <a href={webViewLink} target="_blank" rel="noreferrer" className="text-xs text-slate-600 dark:text-slate-400 hover:text-white underline">
                       Open in Google Drive
                     </a>
                   )}
@@ -495,8 +495,8 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                                 onClick={() => setActiveSheet(i)}
                                 className={`text-xs px-3 py-1.5 rounded border shrink-0 transition-colors ${
                                   i === activeSheet
-                                    ? 'bg-slate-700 border-slate-500 text-white'
-                                    : 'border-slate-700 text-slate-400 hover:text-white'
+                                    ? 'bg-slate-200 dark:bg-slate-700 border-slate-500 text-white'
+                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-white'
                                 }`}
                               >
                                 {s.name}
@@ -505,13 +505,13 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                           </div>
                         )}
                         {sheet && (
-                          <div className="overflow-auto rounded border border-slate-700">
-                            <table className="text-xs text-slate-300 w-full border-collapse">
+                          <div className="overflow-auto rounded border border-slate-200 dark:border-slate-700">
+                            <table className="text-xs text-slate-700 dark:text-slate-300 w-full border-collapse">
                               {sheet.headers.length > 0 && (
                                 <thead>
-                                  <tr className="bg-slate-800">
+                                  <tr className="bg-slate-100 dark:bg-slate-800">
                                     {sheet.headers.map((h, ci) => (
-                                      <th key={ci} className="px-3 py-2 text-left font-medium text-slate-200 border-b border-slate-700 whitespace-nowrap">
+                                      <th key={ci} className="px-3 py-2 text-left font-medium text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 whitespace-nowrap">
                                         {h || `Column ${ci + 1}`}
                                       </th>
                                     ))}
@@ -520,7 +520,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                               )}
                               <tbody>
                                 {sheet.rows.map((row, ri) => (
-                                  <tr key={ri} className="border-b border-slate-800 hover:bg-slate-800/50">
+                                  <tr key={ri} className="border-b border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/50">
                                     {row.map((cell, ci) => (
                                       <td key={ci} className="px-3 py-1.5 whitespace-nowrap max-w-[200px] truncate">
                                         {String(cell ?? '')}
@@ -548,13 +548,13 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                     if (slides.length === 0) {
                       return (
                         <div className="flex flex-col items-center gap-3 py-12 text-center">
-                          <p className="text-slate-400 text-sm">Slide preview is not available.</p>
+                          <p className="text-slate-600 dark:text-slate-400 text-sm">Slide preview is not available.</p>
                           {(drivePreviewData.web_view_link || webViewLink) && (
                             <a
                               href={drivePreviewData.web_view_link || webViewLink}
                               target="_blank"
                               rel="noreferrer"
-                              className="text-xs text-slate-400 hover:text-white underline"
+                              className="text-xs text-slate-600 dark:text-slate-400 hover:text-white underline"
                             >
                               Open in Google Slides
                             </a>
@@ -569,7 +569,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                             data-testid="slide-prev"
                             onClick={() => setActiveSlide((i) => Math.max(0, i - 1))}
                             disabled={activeSlide === 0}
-                            className="p-1 text-slate-400 hover:text-white disabled:opacity-30 transition-opacity"
+                            className="p-1 text-slate-600 dark:text-slate-400 hover:text-white disabled:opacity-30 transition-opacity"
                           >
                             <span className="material-symbols-outlined text-[20px]">chevron_left</span>
                           </button>
@@ -578,13 +578,13 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                             data-testid="slide-next"
                             onClick={() => setActiveSlide((i) => Math.min(slides.length - 1, i + 1))}
                             disabled={activeSlide === slides.length - 1}
-                            className="p-1 text-slate-400 hover:text-white disabled:opacity-30 transition-opacity"
+                            className="p-1 text-slate-600 dark:text-slate-400 hover:text-white disabled:opacity-30 transition-opacity"
                           >
                             <span className="material-symbols-outlined text-[20px]">chevron_right</span>
                           </button>
                         </div>
                         {current && (
-                          <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden shadow">
+                          <div className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden shadow">
                             <img
                               src={current.thumbnail_url}
                               alt={`Slide ${activeSlide + 1}`}
@@ -606,9 +606,9 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                     if (!sample) {
                       return (
                         <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-                          <p className="text-slate-400 text-sm">This doc is empty.</p>
+                          <p className="text-slate-600 dark:text-slate-400 text-sm">This doc is empty.</p>
                           {drivePreviewData.web_view_link && (
-                            <a href={drivePreviewData.web_view_link} target="_blank" rel="noreferrer" className="text-xs text-slate-400 hover:text-white underline">
+                            <a href={drivePreviewData.web_view_link} target="_blank" rel="noreferrer" className="text-xs text-slate-600 dark:text-slate-400 hover:text-white underline">
                               Open in Drive
                             </a>
                           )}
@@ -629,9 +629,9 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                     if (blocks.length === 0) {
                       return (
                         <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-                          <p className="text-slate-400 text-sm">This doc is empty.</p>
+                          <p className="text-slate-600 dark:text-slate-400 text-sm">This doc is empty.</p>
                           {drivePreviewData.web_view_link && (
-                            <a href={drivePreviewData.web_view_link} target="_blank" rel="noreferrer" className="text-xs text-slate-400 hover:text-white underline">
+                            <a href={drivePreviewData.web_view_link} target="_blank" rel="noreferrer" className="text-xs text-slate-600 dark:text-slate-400 hover:text-white underline">
                               Open in Drive
                             </a>
                           )}
@@ -639,17 +639,17 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                       )
                     }
                     return (
-                      <div data-testid="quicklook-doc" className="p-4 text-slate-200 max-w-3xl mx-auto">
+                      <div data-testid="quicklook-doc" className="p-4 text-slate-800 dark:text-slate-200 max-w-3xl mx-auto">
                         {blocks.map((b, i) => {
                           if (b.type === 'heading') {
                             return (
-                              <h2 key={i} className="text-lg font-bold text-slate-100 mt-4 mb-2 first:mt-0">
+                              <h2 key={i} className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-4 mb-2 first:mt-0">
                                 {b.text}
                               </h2>
                             )
                           }
                           return (
-                            <p key={i} className="text-sm leading-relaxed text-slate-300 mb-3 whitespace-pre-wrap">
+                            <p key={i} className="text-sm leading-relaxed text-slate-700 dark:text-slate-300 mb-3 whitespace-pre-wrap">
                               {b.text}
                             </p>
                           )
@@ -663,13 +663,13 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                       className="flex flex-col items-center justify-center gap-4 py-12 text-center"
                       data-testid="quicklook-unknown"
                     >
-                      <p className="text-slate-400 text-sm">This file type cannot be previewed here.</p>
+                      <p className="text-slate-600 dark:text-slate-400 text-sm">This file type cannot be previewed here.</p>
                       {drivePreviewData.web_view_link && (
                         <a
                           href={drivePreviewData.web_view_link}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-xs text-slate-400 hover:text-white underline"
+                          className="text-xs text-slate-600 dark:text-slate-400 hover:text-white underline"
                         >
                           Open in Google Drive
                         </a>
@@ -687,7 +687,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                     <p className="text-slate-500 text-sm">Loading…</p>
                   )}
                   {fetchError && (
-                    <p className="text-red-400 text-sm">Could not load this image.</p>
+                    <p className="text-red-600 dark:text-red-400 text-sm">Could not load this image.</p>
                   )}
                   {imageBlobUrl !== null && (
                     <img
@@ -703,8 +703,8 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
               {kind === 'pdf' && (
                 pdfLoadError ? (
                   <div className="flex flex-col items-center gap-3 py-12 text-center">
-                    <p className="text-slate-400 text-sm">Could not load PDF in browser.</p>
-                    <button onClick={handleOpenNative} className="text-xs text-slate-400 hover:text-white underline">
+                    <p className="text-slate-600 dark:text-slate-400 text-sm">Could not load PDF in browser.</p>
+                    <button onClick={handleOpenNative} className="text-xs text-slate-600 dark:text-slate-400 hover:text-white underline">
                       Open in native app
                     </button>
                   </div>
@@ -723,11 +723,11 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
 
               {kind === 'markdown' && (
                 <div
-                  className="prose prose-invert max-w-none text-sm text-slate-300"
+                  className="prose prose-invert max-w-none text-sm text-slate-700 dark:text-slate-300"
                   data-testid="quicklook-markdown"
                 >
                   {textContent === null && !fetchError && <p className="text-slate-500">Loading…</p>}
-                  {fetchError && <p className="text-red-400">Could not load this file.</p>}
+                  {fetchError && <p className="text-red-600 dark:text-red-400">Could not load this file.</p>}
                   {textContent !== null && renderMarkdown(textContent)}
                 </div>
               )}
@@ -735,9 +735,9 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
               {kind === 'code' && (
                 <div data-testid="quicklook-code">
                   {textContent === null && !fetchError && <p className="text-slate-500 text-sm">Loading…</p>}
-                  {fetchError && <p className="text-red-400 text-sm">Could not load this file.</p>}
+                  {fetchError && <p className="text-red-600 dark:text-red-400 text-sm">Could not load this file.</p>}
                   {textContent !== null && (
-                    <pre className="text-sm font-mono text-slate-300 whitespace-pre overflow-x-auto bg-slate-950 rounded-lg p-4">
+                    <pre className="text-sm font-mono text-slate-700 dark:text-slate-300 whitespace-pre overflow-x-auto bg-white dark:bg-slate-950 rounded-lg p-4">
                       <code>{textContent}</code>
                     </pre>
                   )}
@@ -749,8 +749,8 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                   {previewData === null && !fetchError && <p className="text-slate-500 text-sm">Loading…</p>}
                   {fetchError && (
                     <div className="flex flex-col items-center gap-3 py-12 text-center">
-                      <p className="text-red-400 text-sm">Could not load preview.</p>
-                      <button onClick={handleOpenNative} className="text-xs text-slate-400 hover:text-white underline">
+                      <p className="text-red-600 dark:text-red-400 text-sm">Could not load preview.</p>
+                      <button onClick={handleOpenNative} className="text-xs text-slate-600 dark:text-slate-400 hover:text-white underline">
                         Open in native app
                       </button>
                     </div>
@@ -771,8 +771,8 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                                 onClick={() => setActiveSheet(i)}
                                 className={`text-xs px-3 py-1.5 rounded border shrink-0 transition-colors ${
                                   i === activeSheet
-                                    ? 'bg-slate-700 border-slate-500 text-white'
-                                    : 'border-slate-700 text-slate-400 hover:text-white'
+                                    ? 'bg-slate-200 dark:bg-slate-700 border-slate-500 text-white'
+                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-white'
                                 }`}
                               >
                                 {s.name}
@@ -780,13 +780,13 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                             ))}
                           </div>
                         )}
-                        <div className="overflow-auto rounded border border-slate-700">
-                          <table className="text-xs text-slate-300 w-full border-collapse">
+                        <div className="overflow-auto rounded border border-slate-200 dark:border-slate-700">
+                          <table className="text-xs text-slate-700 dark:text-slate-300 w-full border-collapse">
                             {headers.length > 0 && (
                               <thead>
-                                <tr className="bg-slate-800">
+                                <tr className="bg-slate-100 dark:bg-slate-800">
                                   {headers.map((h, ci) => (
-                                    <th key={ci} className="px-3 py-2 text-left font-medium text-slate-200 border-b border-slate-700 whitespace-nowrap">
+                                    <th key={ci} className="px-3 py-2 text-left font-medium text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 whitespace-nowrap">
                                       {String(h ?? '')}
                                     </th>
                                   ))}
@@ -795,7 +795,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                             )}
                             <tbody>
                               {dataRows.map((row, ri) => (
-                                <tr key={ri} className="border-b border-slate-800 hover:bg-slate-800/50">
+                                <tr key={ri} className="border-b border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/50">
                                   {row.map((cell, ci) => (
                                     <td key={ci} className="px-3 py-1.5 whitespace-nowrap max-w-[200px] truncate">
                                       {String(cell ?? '')}
@@ -822,8 +822,8 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                   {previewData === null && !fetchError && <p className="text-slate-500 text-sm">Loading…</p>}
                   {fetchError && (
                     <div className="flex flex-col items-center gap-3 py-12 text-center">
-                      <p className="text-red-400 text-sm">Could not load preview.</p>
-                      <button onClick={handleOpenNative} className="text-xs text-slate-400 hover:text-white underline">
+                      <p className="text-red-600 dark:text-red-400 text-sm">Could not load preview.</p>
+                      <button onClick={handleOpenNative} className="text-xs text-slate-600 dark:text-slate-400 hover:text-white underline">
                         Open in native app
                       </button>
                     </div>
@@ -838,7 +838,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                             data-testid="slide-prev"
                             onClick={() => setActiveSlide((i) => Math.max(0, i - 1))}
                             disabled={activeSlide === 0}
-                            className="p-1 text-slate-400 hover:text-white disabled:opacity-30 transition-opacity"
+                            className="p-1 text-slate-600 dark:text-slate-400 hover:text-white disabled:opacity-30 transition-opacity"
                           >
                             <span className="material-symbols-outlined text-[20px]">chevron_left</span>
                           </button>
@@ -847,18 +847,18 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                             data-testid="slide-next"
                             onClick={() => setActiveSlide((i) => Math.min(slides.length - 1, i + 1))}
                             disabled={activeSlide === slides.length - 1}
-                            className="p-1 text-slate-400 hover:text-white disabled:opacity-30 transition-opacity"
+                            className="p-1 text-slate-600 dark:text-slate-400 hover:text-white disabled:opacity-30 transition-opacity"
                           >
                             <span className="material-symbols-outlined text-[20px]">chevron_right</span>
                           </button>
                         </div>
                         {current && (
-                          <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4 min-h-[120px]">
+                          <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/50 p-4 min-h-[120px]">
                             {current.title && (
                               <div className="text-sm font-semibold text-white mb-2">{current.title}</div>
                             )}
                             {current.body && (
-                              <div className="text-xs text-slate-400 whitespace-pre-wrap">{current.body}</div>
+                              <div className="text-xs text-slate-600 dark:text-slate-400 whitespace-pre-wrap">{current.body}</div>
                             )}
                             {!current.title && !current.body && (
                               <div className="text-xs text-slate-600 italic">No text on this slide</div>
@@ -876,15 +876,15 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                   {previewData === null && !fetchError && <p className="text-slate-500 text-sm">Loading…</p>}
                   {fetchError && (
                     <div className="flex flex-col items-center gap-3 py-12 text-center">
-                      <p className="text-red-400 text-sm">Could not load preview.</p>
-                      <button onClick={handleOpenNative} className="text-xs text-slate-400 hover:text-white underline">
+                      <p className="text-red-600 dark:text-red-400 text-sm">Could not load preview.</p>
+                      <button onClick={handleOpenNative} className="text-xs text-slate-600 dark:text-slate-400 hover:text-white underline">
                         Open in native app
                       </button>
                     </div>
                   )}
                   {previewData?.kind === 'docx' && (
                     <div
-                      className="prose prose-invert max-w-none text-sm text-slate-300"
+                      className="prose prose-invert max-w-none text-sm text-slate-700 dark:text-slate-300"
                       dangerouslySetInnerHTML={{ __html: previewData.html }}
                     />
                   )}
@@ -896,12 +896,12 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                   className="flex flex-col items-center justify-center gap-4 py-12 text-center"
                   data-testid="quicklook-unknown"
                 >
-                  <p className="text-slate-400 text-sm">Preview not available for this file type.</p>
+                  <p className="text-slate-600 dark:text-slate-400 text-sm">Preview not available for this file type.</p>
                   <button
                     onClick={handleOpenNative}
                     disabled={openingNative}
                     data-testid="quicklook-open-native-fallback"
-                    className="text-xs text-slate-400 hover:text-white underline disabled:opacity-50"
+                    className="text-xs text-slate-600 dark:text-slate-400 hover:text-white underline disabled:opacity-50"
                   >
                     {openingNative ? 'Opening…' : 'Open in native app'}
                   </button>
@@ -928,7 +928,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
           />
           <button
             onClick={(e) => { e.stopPropagation(); setDriveFullImage(false) }}
-            className="absolute top-6 right-6 w-10 h-10 rounded-full bg-slate-800/80 text-white hover:bg-slate-700 flex items-center justify-center"
+            className="absolute top-6 right-6 w-10 h-10 rounded-full bg-slate-50/80 dark:bg-slate-800/80 text-white hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center"
             aria-label="Close full image"
           >
             ✕

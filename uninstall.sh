@@ -81,8 +81,28 @@ echo "Repo: $SCRIPT_DIR"
 echo ""
 
 # 1. Stop any running servers so we don't delete files out from under them.
+# On macOS, bootout the launchd agents first (KeepAlive means kill alone
+# causes launchd to respawn them; bootout tells launchd we want them gone).
+if [ "$(uname)" = "Darwin" ]; then
+    _uid=$(id -u)
+    for label in com.myos.watchdog com.myos.backend; do
+        if launchctl print "gui/${_uid}/${label}" >/dev/null 2>&1; then
+            echo "-> Stopping launchd agent: $label"
+            launchctl bootout "gui/${_uid}/${label}" 2>/dev/null || true
+            sleep 0.2
+        fi
+    done
+    # Remove rendered plists from ~/Library/LaunchAgents/
+    for label in com.myos.backend com.myos.watchdog; do
+        plist="$HOME/Library/LaunchAgents/${label}.plist"
+        if [ -f "$plist" ]; then
+            echo "-> Removing $plist"
+            rm -f "$plist"
+        fi
+    done
+fi
 if [ -x "$SCRIPT_DIR/stop.sh" ]; then
-    echo "-> Stopping running myOS processes..."
+    echo "-> Stopping remaining myOS processes..."
     "$SCRIPT_DIR/stop.sh" >/dev/null 2>&1 || true
 fi
 

@@ -29,6 +29,11 @@ interface SlackStatus {
   configured: boolean
 }
 
+interface SlackWorkspace {
+  team_id: string
+  team_name: string
+}
+
 // Seed from localStorage for instant paint — keyed by team_id to prevent
 // stale channels from a prior workspace showing after reconnect (→1063).
 const SLACK_CHANNELS_CACHE_KEY = 'myos.slackChannels.v2'
@@ -92,6 +97,8 @@ export default function Slack() {
   const [configuring, setConfiguring] = useState(false)
   const [configureError, setConfigureError] = useState<string | null>(null)
   const [showCredForm, setShowCredForm] = useState(false)
+  const [workspaces, setWorkspaces] = useState<SlackWorkspace[]>([])
+  const [activeTeamId, setActiveTeamId] = useState<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -102,15 +109,29 @@ export default function Slack() {
     }
   }, [])
 
-  const fetchChannels = useCallback(async (teamId?: string) => {
+  const fetchWorkspaces = useCallback(async () => {
     try {
-      const res = await api.get<{ channels: SlackChannel[] }>('/slack/channels')
+      const res = await api.get<{ workspaces: SlackWorkspace[] }>('/slack/workspaces')
+      setWorkspaces(res.workspaces || [])
+      if (res.workspaces?.length > 0 && !activeTeamId) {
+        setActiveTeamId(res.workspaces[0].team_id)
+      }
+    } catch {
+      // ignore
+    }
+  }, [activeTeamId])
+
+  const fetchChannels = useCallback(async (teamId?: string) => {
+    const tid = teamId ?? activeTeamId ?? undefined
+    try {
+      const url = tid ? `/slack/channels?team_id=${encodeURIComponent(tid)}` : '/slack/channels'
+      const res = await api.get<{ channels: SlackChannel[] }>(url)
       setChannels(res.channels || [])
       writeChannelCache(teamId ?? '', res.channels || [])
     } catch {
       setChannels((prev) => (prev.length > 0 ? prev : []))
     }
-  }, [])
+  }, [activeTeamId])
 
   const fetchMessages = useCallback(async (channelId: string) => {
     setMessagesLoading(true)
@@ -138,6 +159,7 @@ export default function Slack() {
             setChannels([])
             clearChannelCache()
           }
+          await fetchWorkspaces()
           await fetchChannels(s.team_id)
         } else {
           setChannels([])
@@ -148,10 +170,9 @@ export default function Slack() {
       }
       setLoading(false)
     })()
-  }, [fetchChannels])
+  }, [fetchChannels, fetchWorkspaces])
 
-  // Handle ?connected=true redirect — re-fetch status to get the new team_id
-  // so we can validate the cache and write channels under the correct workspace.
+  // Handle ?connected=true redirect: re-fetch status and workspaces.
   useEffect(() => {
     if (searchParams.get('connected') === 'true') {
       ;(async () => {
@@ -163,13 +184,14 @@ export default function Slack() {
             setChannels([])
             clearChannelCache()
           }
+          await fetchWorkspaces()
           await fetchChannels(s.team_id)
         } catch {
           // ignore
         }
       })()
     }
-  }, [searchParams, fetchChannels])
+  }, [searchParams, fetchChannels, fetchWorkspaces])
 
   const handleConnect = async () => {
     setConnectError(null)
@@ -187,7 +209,7 @@ export default function Slack() {
     setConfiguring(true)
     setConfigureError(null)
     try {
-      await api.post('/slack/configure', { client_id: clientId.trim(), client_secret: clientSecret.trim() })
+      await api.post('/slack/credentials', { client_id: clientId.trim(), client_secret: clientSecret.trim() })
       await fetchStatus()
     } catch {
       setConfigureError('Could not save Slack credentials. Check that they are correct and try again.')
@@ -196,17 +218,46 @@ export default function Slack() {
     }
   }
 
-  const handleDisconnect = async () => {
+  const handleDisconnect = async (teamId?: string) => {
     try {
-      await api.delete('/slack/disconnect')
-      setStatus({ connected: false, team_name: '', team_id: '', configured: false })
-      setChannels([])
-      clearChannelCache()
-      setSelectedChannel(null)
-      setMessages([])
+      const url = teamId ? `/slack/disconnect?team_id=${encodeURIComponent(teamId)}` : '/slack/disconnect'
+      await api.delete(url)
+      if (teamId) {
+        // Remove just this workspace from the list
+        const remaining = workspaces.filter((w) => w.team_id !== teamId)
+        setWorkspaces(remaining)
+        if (activeTeamId === teamId) {
+          const next = remaining[0]?.team_id ?? null
+          setActiveTeamId(next)
+          if (next) {
+            await fetchChannels(next)
+          } else {
+            setStatus({ connected: false, team_name: '', team_id: '', configured: false })
+            setChannels([])
+            clearChannelCache()
+            setSelectedChannel(null)
+            setMessages([])
+          }
+        }
+      } else {
+        setStatus({ connected: false, team_name: '', team_id: '', configured: false })
+        setWorkspaces([])
+        setChannels([])
+        clearChannelCache()
+        setSelectedChannel(null)
+        setMessages([])
+      }
     } catch {
       // ignore
     }
+  }
+
+  const handleSwitchWorkspace = async (teamId: string) => {
+    setActiveTeamId(teamId)
+    setSelectedChannel(null)
+    setMessages([])
+    setChannels([])
+    await fetchChannels(teamId)
   }
 
   const handleSelectChannel = (channelId: string) => {
@@ -259,13 +310,13 @@ export default function Slack() {
     }
   }
 
-  const cardClass = 'bg-slate-900/40 border border-slate-800 p-4 rounded-xl'
+  const cardClass = 'bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-4 rounded-xl'
 
   if (loading) {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="Slack" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
         </div>
       </div>
@@ -274,9 +325,9 @@ export default function Slack() {
 
   if (!status?.connected) {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="Slack" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
             icon="chat"
             accentColor="#a855f7"
@@ -292,14 +343,14 @@ export default function Slack() {
                   >
                     Connect Slack workspace
                   </button>
-                  <p className="text-xs text-slate-400 text-center">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 text-center">
                     One click. Slack will ask for permission, then bring you back.
                   </p>
                   <button
                     type="button"
                     onClick={() => setShowCredForm(true)}
                     data-testid="slack-enter-credentials-link"
-                    className="text-xs text-slate-500 hover:text-slate-300 underline w-full text-center"
+                    className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline w-full text-center"
                   >
                     Enter credentials manually
                   </button>
@@ -311,35 +362,35 @@ export default function Slack() {
                       type="button"
                       onClick={() => setShowCredForm(false)}
                       data-testid="slack-back-to-connect"
-                      className="text-xs text-slate-500 hover:text-slate-300 underline"
+                      className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline"
                     >
                       ← Back to Connect
                     </button>
                   )}
                   <div>
-                    <label htmlFor="slack-client-id" className="block text-slate-400 mb-1">Client ID</label>
+                    <label htmlFor="slack-client-id" className="block text-slate-600 dark:text-slate-400 mb-1">Client ID</label>
                     <input
                       id="slack-client-id"
                       type="text"
                       value={clientId}
                       onChange={(e) => setClientId(e.target.value)}
                       placeholder="Your Slack app client ID"
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
                     />
                   </div>
                   <div>
-                    <label htmlFor="slack-client-secret" className="block text-slate-400 mb-1">Client Secret</label>
+                    <label htmlFor="slack-client-secret" className="block text-slate-600 dark:text-slate-400 mb-1">Client Secret</label>
                     <input
                       id="slack-client-secret"
                       type="password"
                       value={clientSecret}
                       onChange={(e) => setClientSecret(e.target.value)}
                       placeholder="Your Slack app client secret"
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
                     />
                   </div>
                   {configureError && (
-                    <p className="text-red-400 text-xs">{configureError}</p>
+                    <p className="text-red-600 dark:text-red-400 text-xs">{configureError}</p>
                   )}
                   <button
                     type="submit"
@@ -350,7 +401,7 @@ export default function Slack() {
                   </button>
                   <p className="text-slate-500 text-xs">
                     Create a Slack app at{' '}
-                    <a href="https://api.slack.com/apps" target="_blank" rel="noreferrer" className="text-purple-400 hover:text-purple-300">
+                    <a href="https://api.slack.com/apps" target="_blank" rel="noreferrer" className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300">
                       api.slack.com/apps
                     </a>
                   </p>
@@ -365,35 +416,59 @@ export default function Slack() {
   }
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="Slack" />
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl sm:text-2xl font-bold">Slack</h1>
-              {status.team_name && (
-                <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-sm font-semibold rounded-full">
-                  {status.team_name}
-                </span>
-              )}
-            </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-xl sm:text-2xl font-bold">Slack</h1>
+            {/* Workspace pills: click to switch, or show single badge */}
+            {workspaces.length > 1 ? (
+              workspaces.map((ws) => (
+                <button
+                  key={ws.team_id}
+                  data-testid={`slack-workspace-${ws.team_id}`}
+                  onClick={() => handleSwitchWorkspace(ws.team_id)}
+                  className={`px-2 py-0.5 text-sm font-semibold rounded-full transition-colors ${
+                    activeTeamId === ws.team_id
+                      ? 'bg-purple-500/30 text-purple-700 dark:text-purple-300 ring-1 ring-purple-500/50'
+                      : 'bg-slate-200/60 dark:bg-slate-700/60 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {ws.team_name || ws.team_id}
+                </button>
+              ))
+            ) : status.team_name ? (
+              <span className="px-2 py-0.5 bg-purple-500/20 text-purple-600 dark:text-purple-400 text-sm font-semibold rounded-full">
+                {status.team_name}
+              </span>
+            ) : null}
           </div>
-          <button
-            onClick={handleDisconnect}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition-colors text-slate-400"
-          >
-            <Icon name="link_off" size={16} />
-            Disconnect
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleConnect}
+              data-testid="slack-add-workspace-btn"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 rounded-lg text-sm transition-colors text-purple-700 dark:text-purple-400"
+            >
+              <Icon name="add" size={16} />
+              Add workspace
+            </button>
+            <button
+              onClick={() => handleDisconnect(activeTeamId ?? undefined)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm transition-colors text-slate-600 dark:text-slate-400"
+            >
+              <Icon name="link_off" size={16} />
+              {workspaces.length > 1 ? 'Disconnect this' : 'Disconnect'}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Channel list */}
           <div className={cardClass}>
             <div className="flex items-center gap-2 mb-4">
-              <Icon name="tag" className="text-purple-400" size={18} />
+              <Icon name="tag" className="text-purple-600 dark:text-purple-400" size={18} />
               <h2 className="text-base font-semibold">Channels</h2>
             </div>
             {channels.length === 0 ? (
@@ -406,8 +481,8 @@ export default function Slack() {
                     onClick={() => handleSelectChannel(ch.id)}
                     className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
                       selectedChannel === ch.id
-                        ? 'bg-purple-500/20 text-purple-300'
-                        : 'text-slate-300 hover:bg-slate-800/60'
+                        ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50/60 dark:hover:bg-slate-800/60'
                     }`}
                   >
                     <span className="flex items-center gap-2">
@@ -426,7 +501,7 @@ export default function Slack() {
           {/* Messages */}
           <div className={`${cardClass} lg:col-span-2`}>
             <div className="flex items-center gap-2 mb-4">
-              <Icon name="forum" className="text-purple-400" size={18} />
+              <Icon name="forum" className="text-purple-600 dark:text-purple-400" size={18} />
               <h2 className="text-base font-semibold">
                 {selectedChannel
                   ? `#${channels.find((c) => c.id === selectedChannel)?.name || ''}`
@@ -445,27 +520,27 @@ export default function Slack() {
                 <div className="space-y-3 max-h-[50vh] overflow-y-auto mb-4">
                   {[...messages].reverse().map((msg) => (
                     <div key={msg.ts}>
-                      <div className="group flex items-start gap-3 px-2 py-2 rounded-lg hover:bg-slate-800/40">
+                      <div className="group flex items-start gap-3 px-2 py-2 rounded-lg hover:bg-slate-50/40 dark:hover:bg-slate-800/40">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-0.5">
-                            <span className="text-sm font-medium text-slate-200">{msg.user || 'Unknown'}</span>
+                            <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{msg.user || 'Unknown'}</span>
                             <span className="text-xs text-slate-500">
                               {new Date(parseFloat(msg.ts) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                             </span>
                           </div>
-                          <p className="text-sm text-slate-300 whitespace-pre-wrap">{msg.text}</p>
+                          <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{msg.text}</p>
                         </div>
                         <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                           <button
                             data-testid={`slack-flag-${msg.ts}`}
                             onClick={() => handleFlag(msg)}
                             title="Flag for follow-up"
-                            className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                           >
                             <Icon
                               name={flaggedTs.has(msg.ts) ? 'flag' : 'flag'}
                               size={16}
-                              className={flaggedTs.has(msg.ts) ? 'text-amber-400' : 'text-slate-400'}
+                              className={flaggedTs.has(msg.ts) ? 'text-amber-600 dark:text-amber-400' : 'text-slate-600 dark:text-slate-400'}
                             />
                           </button>
                           <button
@@ -474,20 +549,20 @@ export default function Slack() {
                               setReplyOpenTs((prev) => (prev === msg.ts ? null : msg.ts))
                             }
                             title="Reply"
-                            className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                           >
-                            <Icon name="reply" size={16} className="text-slate-400" />
+                            <Icon name="reply" size={16} className="text-slate-600 dark:text-slate-400" />
                           </button>
                           <button
                             data-testid={`slack-needle-${msg.ts}`}
                             onClick={() => handleCreateTask(msg)}
                             title="make a needle out of this"
-                            className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                           >
                             <Icon
                               name="add_task"
                               size={16}
-                              className={needledTs.has(msg.ts) ? 'text-green-400' : 'text-slate-400'}
+                              className={needledTs.has(msg.ts) ? 'text-green-600 dark:text-green-400' : 'text-slate-600 dark:text-slate-400'}
                             />
                           </button>
                         </div>
@@ -508,7 +583,7 @@ export default function Slack() {
                 </div>
 
                 {/* Compose */}
-                <div className="flex items-center gap-2 pt-3 border-t border-slate-800">
+                <div className="flex items-center gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                   <input
                     type="text"
                     value={newMessage}
@@ -520,7 +595,7 @@ export default function Slack() {
                       }
                     }}
                     placeholder="Type a message..."
-                    className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                    className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
                   />
                   <button
                     onClick={handleSend}

@@ -6,6 +6,8 @@ import {
   formatDateTime,
   formatTimestamp,
   formatSmartDate,
+  formatElapsed,
+  formatTokenCount,
 } from './time'
 
 const FIXED_NOW = new Date('2026-05-22T14:30:00.000Z')
@@ -161,5 +163,34 @@ describe('formatSmartDate', () => {
 
   it('returns empty string for null', () => {
     expect(formatSmartDate(null)).toBe('')
+  })
+})
+
+// →1733 helpers
+describe('formatElapsed', () => {
+  it('formats seconds under a minute', () => {
+    expect(formatElapsed(0)).toBe('0s')
+    expect(formatElapsed(5)).toBe('5s')
+    expect(formatElapsed(59)).toBe('59s')
+  })
+
+  it('formats minutes and seconds', () => {
+    expect(formatElapsed(60)).toBe('1m 0s')
+    expect(formatElapsed(90)).toBe('1m 30s')
+    expect(formatElapsed(434)).toBe('7m 14s')
+  })
+})
+
+describe('formatTokenCount', () => {
+  it('shows raw count for small numbers', () => {
+    expect(formatTokenCount(0)).toBe('↓ 0 tokens')
+    expect(formatTokenCount(42)).toBe('↓ 42 tokens')
+    expect(formatTokenCount(999)).toBe('↓ 999 tokens')
+  })
+
+  it('formats thousands with one decimal k suffix', () => {
+    expect(formatTokenCount(1000)).toBe('↓ 1.0k tokens')
+    expect(formatTokenCount(24600)).toBe('↓ 24.6k tokens')
+    expect(formatTokenCount(100000)).toBe('↓ 100.0k tokens')
   })
 })

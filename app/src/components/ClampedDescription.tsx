@@ -23,7 +23,7 @@ interface Props {
 export function ClampedDescription({
   text,
   lines = 2,
-  textClassName = 'text-xs text-slate-400',
+  textClassName = 'text-xs text-slate-600 dark:text-slate-400',
   testId = 'card-expand',
 }: Props) {
   const [expanded, setExpanded] = useState(false)
@@ -45,7 +45,7 @@ export function ClampedDescription({
           e.stopPropagation()
           setExpanded((v) => !v)
         }}
-        className="text-xs text-slate-500 hover:text-slate-300 self-start"
+        className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 self-start"
       >
         {expanded ? 'Show less' : 'Show more'}
       </button>

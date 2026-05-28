@@ -10,6 +10,7 @@ import { useRunningAgentsStore } from '../stores/runningAgents'
 import { useMemoryToastStore } from '../stores/memoryToast'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { renderMarkdown, renderTextWithMarkdown } from '../lib/markdown'
+import { formatTime, formatElapsed, formatTokenCount } from '../lib/time'
 import { api } from '../lib/api'
 import { bumpAgents, bumpCalendar } from '../lib/sidebarBus'
 import {
@@ -53,7 +54,7 @@ interface ChatHistoryPayload {
 }
 
 const MODEL_COLORS: Record<string, string> = {
-  claude: 'text-blue-400',
+  claude: 'text-blue-600 dark:text-blue-400',
   gemini: 'text-emerald-400',
 }
 
@@ -150,6 +151,8 @@ interface Message {
   /** File changes recorded during this turn. Non-empty only on turns where the
    *  model wrote files tracked by the ostk gen_table. */
   fileChanges?: FileChange[]
+  /** ISO timestamp of when this message was created, used for →1734 bubble timestamps. */
+  timestamp?: string
 }
 
 interface GiphyResult {
@@ -220,7 +223,7 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
   else if (resolvedInput.title) summary = String(resolvedInput.title)
   else if (resolvedInput.task_id) summary = String(resolvedInput.task_id)
 
-  const labelColor = call.isMcp ? 'text-purple-400' : 'text-amber-400'
+  const labelColor = call.isMcp ? 'text-purple-600 dark:text-purple-400' : 'text-amber-600 dark:text-amber-400'
 
   // Pretty-print the assembled arguments for the expanded view so power
   // users can inspect what the tool was called with. Prefer the parsed
@@ -239,10 +242,10 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
   }
 
   return (
-    <div className="my-1.5 border border-slate-700 rounded-lg overflow-hidden bg-slate-900/50">
+    <div className="my-1.5 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-900/50">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-300 hover:bg-slate-800/50 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors"
         data-testid="tool-call-pill"
       >
         <Icon name={expanded ? 'expand_more' : 'chevron_right'} className="text-sm" />
@@ -258,11 +261,11 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
         )}
       </button>
       {expanded && (
-        <div className="border-t border-slate-700 px-3 py-2 max-h-64 overflow-y-auto">
+        <div className="border-t border-slate-200 dark:border-slate-700 px-3 py-2 max-h-64 overflow-y-auto">
           {prettyArgs && (
             <div className="mb-2" data-testid="tool-call-args">
               <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Arguments</div>
-              <pre className="text-[11px] text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
+              <pre className="text-[11px] text-slate-700 dark:text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
                 {prettyArgs}
               </pre>
             </div>
@@ -270,7 +273,7 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
           {call.result !== undefined && (
             <div data-testid="tool-call-result">
               <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Result</div>
-              <pre className="text-[11px] text-slate-400 whitespace-pre-wrap font-mono leading-relaxed">
+              <pre className="text-[11px] text-slate-600 dark:text-slate-400 whitespace-pre-wrap font-mono leading-relaxed">
                 {call.result}
               </pre>
             </div>
@@ -285,7 +288,7 @@ function ThinkingDots({ etaSeconds }: { etaSeconds?: number | null } = {}) {
   return (
     <span
       data-testid="thinking-dots"
-      className="inline-flex items-center gap-2 py-1 text-slate-400 text-xs"
+      className="inline-flex items-center gap-2 py-1 text-slate-600 dark:text-slate-400 text-xs"
     >
       <span className="inline-flex items-center gap-1">
         <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -356,7 +359,7 @@ export function CollapsibleText({ text, isLast, streaming }: { text: string; isL
     return (
       <div>
         <div className={`chat-bubble-content ${fadeClass}`}>{renderMarkdown(text.slice(0, 300))}...</div>
-        <button onClick={() => setExpanded(true)} className="text-[10px] text-blue-400 hover:text-blue-300 mt-1">
+        <button onClick={() => setExpanded(true)} className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 mt-1">
           Show more
         </button>
       </div>
@@ -366,7 +369,7 @@ export function CollapsibleText({ text, isLast, streaming }: { text: string; isL
     <div className={`chat-bubble-content ${fadeClass}`}>
       <MemoMarkdown text={text} />
       {isLong && expanded && (
-        <button onClick={() => setExpanded(false)} className="block text-[10px] text-blue-400 hover:text-blue-300 mt-1">
+        <button onClick={() => setExpanded(false)} className="block text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 mt-1">
           Show less
         </button>
       )}
@@ -395,7 +398,7 @@ function ReplyPreview({ message, onClick }: { message: Message | undefined; onCl
       onClick={onClick}
       className="flex items-center gap-1.5 mb-1 pl-2 border-l-2 border-blue-500/50 text-left w-full"
     >
-      <span className="text-[10px] font-medium text-blue-400">{sender}</span>
+      <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400">{sender}</span>
       <span className="text-[10px] text-slate-500 truncate">{preview}</span>
     </button>
   )
@@ -432,17 +435,17 @@ function GiphyPicker({ initialSearch, onSelect, onClose }: {
   }, [search])
 
   return (
-    <div className="border-t border-slate-800 bg-slate-900/95 p-3">
+    <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/95 p-3">
       <div className="flex items-center gap-2 mb-2">
         <input
           ref={inputRef}
           value={search}
           onChange={e => setSearch(e.target.value)}
           onKeyDown={e => { if (e.key === 'Escape') onClose() }}
-          className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/50"
+          className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/50"
           placeholder="Search GIFs..."
         />
-        <button onClick={onClose} className="p-1 text-slate-400 hover:text-white transition-colors">
+        <button onClick={onClose} className="p-1 text-slate-600 dark:text-slate-400 hover:text-white transition-colors">
           <Icon name="close" className="text-sm" />
         </button>
       </div>
@@ -739,6 +742,9 @@ export function ChatPanel() {
   const [trackedAgents, setTrackedAgents] = useState<TrackedAgent[]>([])
   const [stepProgress, setStepProgress] = useState<{ step: number; maxSteps: number } | null>(null)
   const [parkedTasks, setParkedTasks] = useState<ParkedTask[]>([])
+  // →1733: live status during streaming
+  const [liveElapsedSec, setLiveElapsedSec] = useState<number | null>(null)
+  const [liveStreamedChars, setLiveStreamedChars] = useState(0)
 
   // Push-fed running set from useRunningAgentsStore. When a tracked
   // agent disappears from this set, the banner hides instantly.
@@ -836,6 +842,8 @@ export function ChatPanel() {
         setStepProgress({ step: data.step, maxSteps: data.max_steps })
       }
     } else if (lastMessage.type === 'token') {
+      // Accumulate streamed char count for →1733 live token estimate.
+      setLiveStreamedChars(c => c + ((lastMessage.data as string)?.length ?? 0))
       // Model-tagged tokens (sent by parallel broadcast) must route to
       // the bubble for that specific model, not the most recently
       // opened bubble. Without this, two parallel streams collide
@@ -1376,6 +1384,9 @@ export function ChatPanel() {
       setEtaMs(null)
       setCurrentModel(null)
       setStepProgress(null)
+      // →1733: clear live status
+      setLiveElapsedSec(null)
+      setLiveStreamedChars(0)
       // Defensive cleanup. The complete phase usually arrives just
       // before done, but if the backend ever drops it the pill must
       // still go away when the stream ends.
@@ -1552,6 +1563,18 @@ export function ChatPanel() {
     }, 250)
     return () => clearInterval(id)
   }, [etaMs, isStreaming, placeholderAwaitingServer])
+
+  // →1733: elapsed time ticker. Counts up every second while a turn is in flight.
+  useEffect(() => {
+    if (!isStreaming && !placeholderAwaitingServer) return
+    const id = setInterval(() => {
+      const start = turnStartRef.current
+      if (start !== null) {
+        setLiveElapsedSec(Math.floor((Date.now() - start) / 1000))
+      }
+    }, 1000)
+    return () => clearInterval(id)
+  }, [isStreaming, placeholderAwaitingServer])
 
   // Reset all per-turn streaming state when the active tab changes.
   // Without this, switching tabs carries over multiAiStatus ("Claude is
@@ -1939,6 +1962,7 @@ export function ChatPanel() {
     }
 
     const userMsgId = genId()
+    const nowIso = new Date().toISOString()
     const userMessage: Message = {
       id: userMsgId,
       role: 'user',
@@ -1946,6 +1970,7 @@ export function ChatPanel() {
       replyTo: replyingTo || undefined,
       thread_id: replyThreadId,
       imageUrl: pendingImage || undefined,
+      timestamp: nowIso,
     }
 
     const mentionMatch = text.match(/@(\w+)/i)
@@ -1958,10 +1983,14 @@ export function ChatPanel() {
       content: '',
       model: detectedModel,
       thread_id: replyThreadId,
+      timestamp: nowIso,
     }
     setMessages([...updatedMessages, assistantMessage])
     setIsStreaming(true)
     setPlaceholderAwaitingServer(true)
+    // →1733: reset live status for new turn
+    setLiveElapsedSec(0)
+    setLiveStreamedChars(0)
     setCurrentModel(detectedModel)
     setReplyingTo(null)
     setPendingImage(null)
@@ -2158,14 +2187,16 @@ export function ChatPanel() {
   }
 
   const sendGif = (gifUrl: string) => {
+    const gifNowIso = new Date().toISOString()
     const userMessage: Message = {
       id: genId(),
       role: 'user',
       content: '',
       gifUrl,
       replyTo: replyingTo || undefined,
+      timestamp: gifNowIso,
     }
-    const assistantMessage: Message = { id: genId(), role: 'assistant', content: '', model: defaultChatModel }
+    const assistantMessage: Message = { id: genId(), role: 'assistant', content: '', model: defaultChatModel, timestamp: gifNowIso }
     const updatedMessages = [...messages, userMessage]
     setMessages([...updatedMessages, assistantMessage])
     setIsStreaming(true)
@@ -2176,6 +2207,9 @@ export function ChatPanel() {
     receivedAnyServerEventRef.current = false
     turnStartRef.current = Date.now()
     setEtaMs(computeEta())
+    // →1733: reset live status for new turn
+    setLiveElapsedSec(0)
+    setLiveStreamedChars(0)
 
     // Send messages with GIF URLs so the AI can see them
     const apiMessages = updatedMessages.map(m => ({
@@ -2538,7 +2572,7 @@ export function ChatPanel() {
   return (
     <div
       data-tour="chat"
-      className="fixed inset-0 lg:inset-auto lg:top-0 lg:right-0 lg:h-dvh bg-slate-950 lg:border-l border-slate-800 z-50 flex flex-col"
+      className="fixed inset-0 lg:inset-auto lg:top-0 lg:right-0 lg:h-dvh bg-white dark:bg-slate-950 lg:border-l border-slate-200 dark:border-slate-800 z-50 flex flex-col"
       style={{ ['--chat-w' as string]: `${chatWidth}px` }}
     >
       <style>{`@media (min-width: 1024px) { [data-tour="chat"] { width: var(--chat-w) !important; } }`}</style>
@@ -2548,9 +2582,9 @@ export function ChatPanel() {
         className="hidden lg:block absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/30 transition-colors z-10"
       />
 
-      <div className="flex items-center justify-between p-4 border-b border-slate-800">
+      <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-2">
-          <Icon name="chat" className="text-blue-400" />
+          <Icon name="chat" className="text-blue-600 dark:text-blue-400" />
           <span className="font-bold text-white">{displayOsName} Chat</span>
           {isConnected && (
             <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
@@ -2559,13 +2593,13 @@ export function ChatPanel() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleClearHistory}
-            className="p-1 text-slate-500 hover:text-red-400 transition-colors"
+            className="p-1 text-slate-500 hover:text-red-600 dark:hover:text-red-400 transition-colors"
             title="Clear all chat history"
             data-testid="clear-history-button"
           >
             <Icon name="delete_sweep" />
           </button>
-          <button onClick={toggleChat} className="p-1 text-slate-400 hover:text-white transition-colors">
+          <button onClick={toggleChat} className="p-1 text-slate-600 dark:text-slate-400 hover:text-white transition-colors">
             <Icon name="close" />
           </button>
         </div>
@@ -2577,15 +2611,15 @@ export function ChatPanel() {
       />
 
       {/* Tab bar */}
-      <div className="flex items-center gap-0.5 px-2 pt-1 pb-0 border-b border-slate-800 overflow-x-auto" data-testid="tab-bar">
+      <div className="flex items-center gap-0.5 px-2 pt-1 pb-0 border-b border-slate-200 dark:border-slate-800 overflow-x-auto" data-testid="tab-bar">
         {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => handleSwitchTab(tab.id)}
             className={`group/tab flex items-center gap-1 px-3 py-1.5 text-xs rounded-t-lg transition-colors max-w-[160px] ${
               tab.id === activeTabId
-                ? 'bg-slate-900 text-white border-t border-x border-slate-700'
-                : 'text-slate-500 hover:text-slate-300 hover:bg-slate-900/50'
+                ? 'bg-white dark:bg-slate-900 text-white border-t border-x border-slate-200 dark:border-slate-700'
+                : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-white dark:hover:bg-slate-900/50'
             }`}
             title={tab.name}
             data-testid={`tab-${tab.id}`}
@@ -2595,7 +2629,7 @@ export function ChatPanel() {
               <span
                 role="button"
                 onClick={(e) => { e.stopPropagation(); handleCloseTab(tab.id) }}
-                className="ml-0.5 p-0.5 rounded hover:bg-slate-700 opacity-0 group-hover/tab:opacity-100 transition-opacity"
+                className="ml-0.5 p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 opacity-0 group-hover/tab:opacity-100 transition-opacity"
                 data-testid={`close-tab-${tab.id}`}
                 title="Close tab"
               >
@@ -2618,8 +2652,8 @@ export function ChatPanel() {
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 px-6">
             <Icon name="chat" className="text-5xl text-slate-700 mb-3" />
-            <p className="text-slate-400 text-sm mb-1">
-              Talking to <span className={MODEL_COLORS[defaultChatModel] ?? 'text-blue-400'}>{defaultChatModel}</span>.
+            <p className="text-slate-600 dark:text-slate-400 text-sm mb-1">
+              Talking to <span className={MODEL_COLORS[defaultChatModel] ?? 'text-blue-600 dark:text-blue-400'}>{defaultChatModel}</span>.
             </p>
             <p className="text-slate-600 text-xs mb-6">Type / for commands, or just start chatting.</p>
             <div className="flex flex-wrap justify-center gap-2 max-w-sm">
@@ -2638,9 +2672,9 @@ export function ChatPanel() {
                       setInlinePrompt({ label: s.label!, placeholder: s.placeholder!, prefix: s.prefix! })
                     }
                   }}
-                  className="flex items-center gap-2 px-3 py-2 bg-slate-800/60 hover:bg-slate-700/80 border border-slate-700 rounded-lg text-xs text-slate-300 hover:text-white transition-colors"
+                  className="flex items-center gap-2 px-3 py-2 bg-slate-50/60 dark:bg-slate-800/60 hover:bg-slate-100/80 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-300 hover:text-white transition-colors"
                 >
-                  <Icon name={s.icon} className="text-sm text-blue-400" />
+                  <Icon name={s.icon} className="text-sm text-blue-600 dark:text-blue-400" />
                   {s.text}
                 </button>
               ))}
@@ -2720,13 +2754,13 @@ export function ChatPanel() {
                     {globalIdx === messages.length - 1 && activeTemplate && msg.content?.trim() && (
                       <span
                         data-testid="template-badge"
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-[10px] text-blue-300"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-[10px] text-blue-700 dark:text-blue-300"
                         title={activeTemplate.description || `Using helper: ${activeTemplate.name}`}
                       >
                         Using: {activeTemplate.name}
                         <button
                           onClick={() => setActiveTemplate(null)}
-                          className="ml-0.5 text-blue-400 hover:text-blue-200"
+                          className="ml-0.5 text-blue-600 dark:text-blue-400 hover:text-blue-200"
                           aria-label="Dismiss helper badge"
                         >
                           <Icon name="close" className="text-[10px]" />
@@ -2741,8 +2775,8 @@ export function ChatPanel() {
                     className={
                       msg.role === 'user'
                         ? 'inline-block bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm text-sm break-words overflow-hidden'
-                        : `${inBroadcastColumn ? 'block w-full' : 'block w-fit max-w-full'} border px-4 py-3 rounded-xl text-sm text-slate-300 overflow-hidden break-words ${
-                            msg.model ? MODEL_BG[msg.model] ?? 'bg-slate-900 border-slate-800' : 'bg-slate-900 border-slate-800'
+                        : `${inBroadcastColumn ? 'block w-full' : 'block w-fit max-w-full'} border px-4 py-3 rounded-xl text-sm text-slate-700 dark:text-slate-300 overflow-hidden break-words ${
+                            msg.model ? MODEL_BG[msg.model] ?? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
                           }`
                     }
                   >
@@ -2833,7 +2867,7 @@ export function ChatPanel() {
                           <ThinkingDots />
                         )}
                         {isStreaming && globalIdx === messages.length - 1 && stepProgress && (
-                          <div className="text-xs text-slate-400 mt-1">
+                          <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
                             Step {stepProgress.step} of {stepProgress.maxSteps}...
                           </div>
                         )}
@@ -2889,13 +2923,23 @@ export function ChatPanel() {
                         <button
                           key={emoji}
                           onClick={() => toggleReaction(msg.id, emoji)}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-xs transition-colors"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500/50 text-xs transition-colors"
                           title={`${emoji} ${count}`}
                         >
                           <span>{emoji}</span>
-                          <span className="text-slate-400">{count}</span>
+                          <span className="text-slate-600 dark:text-slate-400">{count}</span>
                         </button>
                       ))}
+                    </div>
+                  )}
+
+                  {/* →1734 per-message timestamp */}
+                  {msg.timestamp && (
+                    <div
+                      data-testid={`msg-timestamp-${msg.id}`}
+                      className={`text-[10px] text-slate-400 dark:text-slate-600 mt-0.5 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}
+                    >
+                      {formatTime(msg.timestamp)}
                     </div>
                   )}
 
@@ -2904,19 +2948,19 @@ export function ChatPanel() {
                     <div className="flex items-center gap-0.5 z-10">
                       <button
                         onClick={() => handleReply(msg.id)}
-                        className="p-1 text-slate-600 hover:text-blue-400 transition-colors"
+                        className="p-1 text-slate-600 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                         title="Reply"
                         data-testid={`reply-btn-${msg.id}`}
                       >
                         <Icon name="reply" className="text-sm" />
                       </button>
                       {/* Reaction picker */}
-                      <div className="flex items-center gap-0.5 bg-slate-800 border border-slate-700 rounded-lg p-0.5" data-testid={`reaction-bar-${msg.id}`}>
+                      <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-0.5" data-testid={`reaction-bar-${msg.id}`}>
                         {REACTION_EMOJIS.map(emoji => (
                           <button
                             key={emoji}
                             onClick={() => toggleReaction(msg.id, emoji)}
-                            className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-700 transition-colors text-sm"
+                            className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-sm"
                             title={`React with ${emoji}`}
                           >
                             {emoji}
@@ -2965,10 +3009,10 @@ export function ChatPanel() {
               const isGeminiCollapsed = collapsedThreads.has(geminiMsg.id)
               const renderThreadBlock = (bubbleMsg: Message, children: Message[], isCollapsed: boolean) => (
                 children.length > 0 && (
-                  <div className="mt-1 ml-3 border-l-2 border-slate-700 pl-3" data-testid={`thread-block-${bubbleMsg.id}`}>
+                  <div className="mt-1 ml-3 border-l-2 border-slate-200 dark:border-slate-700 pl-3" data-testid={`thread-block-${bubbleMsg.id}`}>
                     <button
                       onClick={() => toggleThread(bubbleMsg.id)}
-                      className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-blue-400 transition-colors mb-1"
+                      className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors mb-1"
                       data-testid={`thread-toggle-${bubbleMsg.id}`}
                       aria-expanded={!isCollapsed}
                     >
@@ -3017,10 +3061,10 @@ export function ChatPanel() {
 
                 {/* Thread block */}
                 {threadChildren.length > 0 && (
-                  <div className="mt-1 ml-3 border-l-2 border-slate-700 pl-3" data-testid={`thread-block-${msg.id}`}>
+                  <div className="mt-1 ml-3 border-l-2 border-slate-200 dark:border-slate-700 pl-3" data-testid={`thread-block-${msg.id}`}>
                     <button
                       onClick={() => toggleThread(msg.id)}
-                      className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-blue-400 transition-colors mb-1"
+                      className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors mb-1"
                       data-testid={`thread-toggle-${msg.id}`}
                       aria-expanded={!isCollapsed}
                     >
@@ -3052,7 +3096,7 @@ export function ChatPanel() {
         {multiAiPillText && (
           <div
             data-testid="multi-ai-status-pill"
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-xs text-blue-300"
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-xs text-blue-700 dark:text-blue-300"
           >
             <span className="inline-flex items-center gap-1">
               <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -3147,7 +3191,7 @@ export function ChatPanel() {
       {trackedAgents.length > 0 && (
         <div
           data-testid="agent-running-banner"
-          className="mx-3 mt-2 mb-1 flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/25 text-xs text-blue-300"
+          className="mx-3 mt-2 mb-1 flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/25 text-xs text-blue-700 dark:text-blue-300"
         >
           <span className="inline-flex items-center gap-1 shrink-0">
             <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -3166,7 +3210,7 @@ export function ChatPanel() {
         {/* Reply preview bar */}
         {replyingTo && (
           <div className="flex items-center gap-2 mb-2 px-2">
-            <Icon name="reply" className="text-blue-400 text-sm" />
+            <Icon name="reply" className="text-blue-600 dark:text-blue-400 text-sm" />
             <div className="flex-1 min-w-0">
               <ReplyPreview message={findMessage(replyingTo)} />
             </div>
@@ -3182,10 +3226,10 @@ export function ChatPanel() {
         {/* Pasted image preview */}
         {pendingImage && (
           <div className="mb-2 relative inline-block">
-            <img src={pendingImage} alt="Pasted" className="max-h-32 rounded-lg border border-slate-700" />
+            <img src={pendingImage} alt="Pasted" className="max-h-32 rounded-lg border border-slate-200 dark:border-slate-700" />
             <button
               onClick={() => setPendingImage(null)}
-              className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-slate-700 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors"
+              className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-slate-200 dark:bg-slate-700 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors"
             >
               <Icon name="close" className="text-xs text-white" />
             </button>
@@ -3194,9 +3238,9 @@ export function ChatPanel() {
 
         {/* Pending attachment chip */}
         {pendingAttachment && (
-          <div className="mb-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700" data-testid="pending-attachment-chip">
-            <Icon name="attach_file" className="text-slate-400 text-sm" />
-            <span className="text-xs text-slate-300 truncate max-w-[200px]">{pendingAttachment.name}</span>
+          <div className="mb-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" data-testid="pending-attachment-chip">
+            <Icon name="attach_file" className="text-slate-600 dark:text-slate-400 text-sm" />
+            <span className="text-xs text-slate-700 dark:text-slate-300 truncate max-w-[200px]">{pendingAttachment.name}</span>
             <button
               onClick={() => setPendingAttachment(null)}
               className="p-0.5 text-slate-500 hover:text-white transition-colors"
@@ -3215,8 +3259,8 @@ export function ChatPanel() {
               onClick={() => { setSideBySideEnabled(false); setDefaultChatModel('claude'); }}
               className={`shrink-0 px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer hover:scale-105 ${
                 !sideBySideEnabled && defaultChatModel === 'claude'
-                  ? 'bg-blue-500/15 border-blue-500/40 text-blue-300'
-                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+                  ? 'bg-blue-500/15 border-blue-500/40 text-blue-700 dark:text-blue-300'
+                  : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
               }`}
               title="Chat with Claude only"
               data-testid="chat-pill-claude"
@@ -3228,7 +3272,7 @@ export function ChatPanel() {
               className={`shrink-0 px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer hover:scale-105 ${
                 !sideBySideEnabled && defaultChatModel === 'gemini'
                   ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+                  : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
               }`}
               title="Chat with Gemini only"
               data-testid="chat-pill-gemini"
@@ -3239,8 +3283,8 @@ export function ChatPanel() {
               onClick={() => setSideBySideEnabled(true)}
               className={`shrink-0 relative px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer hover:scale-105 ${
                 sideBySideEnabled
-                  ? 'bg-purple-500/15 border-purple-500/40 text-purple-300'
-                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+                  ? 'bg-purple-500/15 border-purple-500/40 text-purple-700 dark:text-purple-300'
+                  : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
               } ${allPillPulse ? 'ring-2 ring-purple-400/70 animate-pulse' : ''}`}
               title="Send to Claude and Gemini side by side"
               data-testid="chat-pill-all"
@@ -3266,8 +3310,8 @@ export function ChatPanel() {
                     data-testid={`claude-tier-${tier}`}
                     className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
                       claudeTier === tier
-                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
-                        : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                        ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/40'
+                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent'
                     }`}
                     title={`Use Claude ${label}`}
                   >
@@ -3301,20 +3345,20 @@ export function ChatPanel() {
                 onChange={(e) => handleInputChange(e.target.value)}
                 onKeyDown={handleInputKeyDown}
                 onPaste={handlePaste}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-4 py-3 min-h-[48px] text-sm text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/50"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-4 py-3 min-h-[48px] text-sm text-slate-700 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/50"
                 placeholder={replyingTo ? 'Type your reply...' : 'Type / for commands, or just start chatting.'}
               />
             </div>
             <button
               onClick={() => { setShowGiphy(!showGiphy); setGiphyInitialSearch('') }}
-              className={`hidden sm:block p-2 transition-colors rounded-lg ${showGiphy ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
+              className={`hidden sm:block p-2 transition-colors rounded-lg ${showGiphy ? 'text-blue-600 dark:text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
               title="Search GIFs"
             >
               <Icon name="gif_box" className="text-lg" />
             </button>
             <button
               onClick={() => setShowAttachmentPicker(true)}
-              className={`p-2 transition-colors rounded-lg ${pendingAttachment ? 'text-pink-400 bg-pink-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
+              className={`p-2 transition-colors rounded-lg ${pendingAttachment ? 'text-pink-600 dark:text-pink-400 bg-pink-500/10' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
               title="Attach a file"
               data-testid="attach-btn"
             >
@@ -3323,7 +3367,7 @@ export function ChatPanel() {
             {speechSupported && (
               <button
                 onClick={toggleSpeech}
-                className={`p-2 transition-colors rounded-lg ${isListening ? 'text-red-400 bg-red-500/10 animate-pulse' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
+                className={`p-2 transition-colors rounded-lg ${isListening ? 'text-red-600 dark:text-red-400 bg-red-500/10 animate-pulse' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                 title={isListening ? 'Stop listening' : 'Voice input'}
               >
                 <Icon name="mic" className="text-lg" />
@@ -3353,6 +3397,16 @@ export function ChatPanel() {
             </button>
           </div>
         </div>
+        {/* →1733 Live status: elapsed time + running token count while streaming */}
+        {(isStreaming || placeholderAwaitingServer) && liveElapsedSec !== null && (
+          <div
+            data-testid="chat-live-status"
+            className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums"
+          >
+            {formatElapsed(liveElapsedSec)}{liveStreamedChars > 0 ? ` · ${formatTokenCount(Math.ceil(liveStreamedChars / 4))}` : ''}
+          </div>
+        )}
+
         {/* Tiny indicator showing which pathway is powering the response.
             Uses plain language so a non-engineer sees at a glance whether
             the chat is using the Claude subscription or the Anthropic key. */}
@@ -3370,7 +3424,7 @@ export function ChatPanel() {
         {lastCacheRatio !== null && (
           <div
             data-testid="chat-cache-ratio"
-            className="mt-0.5 text-[11px] text-slate-400"
+            className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400"
           >
             Reused {lastCacheRatio}% from memory
           </div>
@@ -3382,7 +3436,7 @@ export function ChatPanel() {
       {/* Spec wizard modal triggered by /spec slash command */}
       {showSpecWizard && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-2xl shadow-2xl overflow-y-auto max-h-[90vh]">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full max-w-2xl shadow-2xl overflow-y-auto max-h-[90vh]">
             <SpecWizard
               onComplete={(path) => {
                 setShowSpecWizard(false)

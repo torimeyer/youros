@@ -15,21 +15,21 @@ function SuggestionTips({ savings, totalTokens }: { savings: SavingsData; totalT
   if (totalTokens === 0) {
     suggestions.push({
       icon: 'tips_and_updates',
-      color: 'text-slate-400',
+      color: 'text-slate-600 dark:text-slate-400',
       text: 'No usage yet. Spawn an agent or open chat to see stats.',
     })
   } else {
     if (cacheRate < 40) {
       suggestions.push({
         icon: 'warning',
-        color: 'text-yellow-400',
+        color: 'text-yellow-600 dark:text-yellow-400',
         text: 'Low cache reuse. The AI is re-reading the same setup every turn. Save your standing instructions in Settings so it remembers between messages.',
       })
     }
     if (cacheRate >= 40) {
       suggestions.push({
         icon: 'check_circle',
-        color: 'text-green-400',
+        color: 'text-green-600 dark:text-green-400',
         text: 'Cache reuse is healthy. Keep having longer multi-turn conversations to hold the rate high.',
       })
     }
@@ -39,11 +39,11 @@ function SuggestionTips({ savings, totalTokens }: { savings: SavingsData; totalT
   const shown = suggestions.slice(0, 3)
 
   return (
-    <div data-testid="suggestions-section" className="mt-5 pt-4 border-t border-slate-800">
-      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Suggestions</p>
+    <div data-testid="suggestions-section" className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800">
+      <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-3">Suggestions</p>
       <div className="space-y-2">
         {shown.map((s, i) => (
-          <div key={i} className="flex items-start gap-2 text-sm text-slate-300">
+          <div key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
             <Icon name={s.icon} size={16} className={`${s.color} mt-0.5 shrink-0`} />
             <p>{s.text}</p>
           </div>
@@ -80,13 +80,13 @@ interface WhatsWorkingData {
 
 function wwSkillDelta(skill: WhatsWorkingSkill): { label: string; color: string } | null {
   if (skill.prev_week_uses === 0 && skill.uses_this_week > 0) {
-    return { label: 'new', color: 'text-slate-400' }
+    return { label: 'new', color: 'text-slate-600 dark:text-slate-400' }
   }
   if (skill.prev_week_uses > 0) {
     const pct = Math.round(((skill.uses_this_week - skill.prev_week_uses) / skill.prev_week_uses) * 100)
     return {
       label: pct >= 0 ? `+${pct}%` : `${pct}%`,
-      color: pct > 0 ? 'text-green-400' : pct < 0 ? 'text-red-400' : 'text-slate-400',
+      color: pct > 0 ? 'text-green-600 dark:text-green-400' : pct < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-400',
     }
   }
   return null
@@ -115,11 +115,11 @@ function WhatsWorkingPanel({
   return (
     <div className={cardClass} data-testid="whats-working-section">
       <h2 className="text-lg font-semibold text-white mb-2">What's working</h2>
-      <p className="text-slate-400 text-sm mb-6">A quick look at what you've been running this week and what to try next.</p>
+      <p className="text-slate-600 dark:text-slate-400 text-sm mb-6">A quick look at what you've been running this week and what to try next.</p>
       {loading ? (
-        <p className="text-slate-400 text-sm">Loading...</p>
+        <p className="text-slate-600 dark:text-slate-400 text-sm">Loading...</p>
       ) : error || !data?.top_skills ? (
-        <p className="text-slate-400 text-sm">Couldn't load your activity right now. Try refreshing.</p>
+        <p className="text-slate-600 dark:text-slate-400 text-sm">Couldn't load your activity right now. Try refreshing.</p>
       ) : (
         <div className="space-y-8">
           <section aria-labelledby="ww-top-skills-heading">
@@ -132,22 +132,22 @@ function WhatsWorkingPanel({
                   <div
                     key={skill.id}
                     data-testid="ww-skill-card"
-                    className="flex items-center justify-between bg-slate-800/50 border border-slate-700/50 rounded-lg px-4 py-3"
+                    className="flex items-center justify-between bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg px-4 py-3"
                   >
                     <div className="flex items-center gap-3">
-                      <Icon name="bolt" className="text-amber-400 text-lg" />
-                      <span className="text-sm font-medium text-slate-100">{skill.name}</span>
+                      <Icon name="bolt" className="text-amber-600 dark:text-amber-400 text-lg" />
+                      <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{skill.name}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {(() => {
                         const delta = wwSkillDelta(skill)
                         return delta ? (
-                          <span className={`text-xs ${delta.color} bg-slate-700/50 px-2 py-0.5 rounded-full`}>
+                          <span className={`text-xs ${delta.color} bg-slate-200 dark:bg-slate-700/50 px-2 py-0.5 rounded-full`}>
                             {delta.label}
                           </span>
                         ) : null
                       })()}
-                      <span className="text-xs text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded-full">
+                      <span className="text-xs text-slate-600 dark:text-slate-400 bg-slate-200 dark:bg-slate-700/50 px-2 py-0.5 rounded-full">
                         {skill.uses_this_week}x this week
                       </span>
                     </div>
@@ -166,12 +166,12 @@ function WhatsWorkingPanel({
                     type="button"
                     aria-label={`Start a ${card.name} agent`}
                     onClick={() => navigate(`/agents?template=${card.id}`)}
-                    className="w-full text-left flex items-start gap-3 bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
+                    className="w-full text-left flex items-start gap-3 bg-slate-100 dark:bg-slate-800/30 border border-slate-200/40 dark:border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-50/60 dark:hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
                   >
                     <Icon name={card.icon} className="text-sky-400 text-lg mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-sm font-medium text-slate-100">{card.name}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{card.desc}</p>
+                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{card.name}</p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{card.desc}</p>
                     </div>
                   </button>
                 ))}
@@ -191,12 +191,12 @@ function WhatsWorkingPanel({
                     type="button"
                     aria-label={`Start a ${rec.name} agent`}
                     onClick={() => navigate(`/agents?template=${rec.id}`)}
-                    className="w-full text-left flex items-start gap-3 bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
+                    className="w-full text-left flex items-start gap-3 bg-slate-100 dark:bg-slate-800/30 border border-slate-200/40 dark:border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-50/60 dark:hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
                   >
                     <Icon name="lightbulb" className="text-sky-400 text-lg mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-sm font-medium text-slate-100">{rec.name}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">Because {rec.why}</p>
+                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{rec.name}</p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">Because {rec.why}</p>
                     </div>
                   </button>
                 ))}
@@ -208,10 +208,10 @@ function WhatsWorkingPanel({
             <h3 id="ww-week-heading" className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
               This week
             </h3>
-            <div className="bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-4 space-y-3">
+            <div className="bg-slate-100 dark:bg-slate-800/30 border border-slate-200/40 dark:border-slate-700/40 rounded-lg px-4 py-4 space-y-3">
               <div className="flex items-center gap-3">
-                <Icon name="check_circle" className="text-green-400 text-lg shrink-0" />
-                <span className="text-sm text-slate-300">
+                <Icon name="check_circle" className="text-green-600 dark:text-green-400 text-lg shrink-0" />
+                <span className="text-sm text-slate-700 dark:text-slate-300">
                   {data.this_week.agent_runs_completed === 0
                     ? 'No agent runs finished this week yet.'
                     : `${data.this_week.agent_runs_completed} agent run${data.this_week.agent_runs_completed === 1 ? '' : 's'} finished${(data.this_week.agent_runs_failed ?? 0) > 0 ? `, ${data.this_week.agent_runs_failed} failed` : ''}`}
@@ -219,8 +219,8 @@ function WhatsWorkingPanel({
               </div>
               {data.this_week.top_spec_or_task && (
                 <div className="flex items-center gap-3">
-                  <Icon name="flag" className="text-amber-400 text-lg shrink-0" />
-                  <span className="text-sm text-slate-300">
+                  <Icon name="flag" className="text-amber-600 dark:text-amber-400 text-lg shrink-0" />
+                  <span className="text-sm text-slate-700 dark:text-slate-300">
                     Top priority: {wwTruncatePriority(data.this_week.top_spec_or_task)}
                   </span>
                 </div>
@@ -265,7 +265,7 @@ function OptimizationTips({ savings }: { savings: SavingsData }) {
     <div className="mt-4">
       <button
         onClick={() => setShowTips(!showTips)}
-        className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+        className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors flex items-center gap-1"
       >
         <Icon name={showTips ? 'expand_less' : 'lightbulb'} size={16} />
         {showTips ? 'Hide tips' : 'How to save more tokens'}
@@ -273,8 +273,8 @@ function OptimizationTips({ savings }: { savings: SavingsData }) {
       {showTips && (
         <div className="mt-3 space-y-2">
           {tips.map((tip, i) => (
-            <div key={i} className="flex items-start gap-2 text-sm text-slate-300">
-              <Icon name="check_circle" size={16} className="text-green-400 mt-0.5 shrink-0" />
+            <div key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <Icon name="check_circle" size={16} className="text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
               <p>{tip}</p>
             </div>
           ))}
@@ -431,17 +431,17 @@ function ExplainPopover({ metric, period, label }: { metric: string; period: str
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label={`Show how ${label} is calculated`}
-        className="inline-flex items-center cursor-help rounded-full hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="inline-flex items-center cursor-help rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
         data-testid={`explain-trigger-${metric}`}
       >
-        <Icon name="help_outline" size={14} className="text-slate-500 hover:text-slate-300 transition-colors" />
+        <Icon name="help_outline" size={14} className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors" />
       </button>
       {open && (
         <div
           ref={popoverRef}
           role="dialog"
           aria-label={`How ${label} is calculated`}
-          className="fixed z-[9999] px-4 py-3 text-sm text-slate-200 bg-slate-800 border border-slate-700 rounded-lg shadow-xl"
+          className="fixed z-[9999] px-4 py-3 text-sm text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl"
           style={popoverStyle}
           data-testid={`explain-popover-${metric}`}
         >
@@ -451,52 +451,52 @@ function ExplainPopover({ metric, period, label }: { metric: string; period: str
               type="button"
               onClick={() => { setOpen(false); triggerRef.current?.focus() }}
               aria-label="Close"
-              className="text-slate-400 hover:text-white -mt-0.5 -mr-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="text-slate-600 dark:text-slate-400 hover:text-white -mt-0.5 -mr-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <Icon name="close" size={16} />
             </button>
           </div>
-          {loading && <p className="text-xs text-slate-400">Loading the math.</p>}
-          {error && <p className="text-xs text-red-300">{error}</p>}
+          {loading && <p className="text-xs text-slate-600 dark:text-slate-400">Loading the math.</p>}
+          {error && <p className="text-xs text-red-700 dark:text-red-300">{error}</p>}
           {payload && (
             <div className="space-y-2">
               <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wide">Formula</p>
-                <p className="text-xs text-slate-200 leading-relaxed">{payload.formula}</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wide">Formula</p>
+                <p className="text-xs text-slate-800 dark:text-slate-200 leading-relaxed">{payload.formula}</p>
               </div>
               <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wide">Result</p>
-                <p className="text-lg font-bold text-blue-300" data-testid={`explain-result-${metric}`}>
+                <p className="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wide">Result</p>
+                <p className="text-lg font-bold text-blue-700 dark:text-blue-300" data-testid={`explain-result-${metric}`}>
                   {payload.result_label}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wide">
+                <p className="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wide">
                   {payload.denominator ? 'Numerator' : 'Count'}
                 </p>
-                <p className="text-xs text-slate-200">
+                <p className="text-xs text-slate-800 dark:text-slate-200">
                   <span className="font-medium">{formatExplainValue(payload.numerator.value)}</span>
-                  <span className="text-slate-400"> ({payload.numerator.label})</span>
+                  <span className="text-slate-600 dark:text-slate-400"> ({payload.numerator.label})</span>
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">Source: {payload.numerator.source}</p>
               </div>
               {payload.denominator && (
                 <div>
-                  <p className="text-xs text-slate-400 uppercase tracking-wide">Denominator</p>
-                  <p className="text-xs text-slate-200">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wide">Denominator</p>
+                  <p className="text-xs text-slate-800 dark:text-slate-200">
                     <span className="font-medium">{formatExplainValue(payload.denominator.value)}</span>
-                    <span className="text-slate-400"> ({payload.denominator.label})</span>
+                    <span className="text-slate-600 dark:text-slate-400"> ({payload.denominator.label})</span>
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">Source: {payload.denominator.source}</p>
                 </div>
               )}
               <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wide">Window</p>
-                <p className="text-xs text-slate-200">{payload.window}</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wide">Window</p>
+                <p className="text-xs text-slate-800 dark:text-slate-200">{payload.window}</p>
               </div>
               {payload.note && (
-                <div className="pt-2 border-t border-slate-700">
-                  <p className="text-xs text-slate-400 italic leading-relaxed">{payload.note}</p>
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 italic leading-relaxed">{payload.note}</p>
                 </div>
               )}
             </div>
@@ -552,10 +552,10 @@ function InfoTooltip({ text }: { text: string }) {
       role="button"
       aria-label={text}
     >
-      <Icon name="help_outline" size={14} className="text-slate-500 hover:text-slate-300 transition-colors" />
+      <Icon name="help_outline" size={14} className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors" />
       {visible && (
         <span
-          className={`fixed z-[9999] w-56 px-3 py-2 text-xs leading-relaxed text-slate-200 bg-slate-800 border border-slate-700 rounded-lg shadow-lg pointer-events-none`}
+          className={`fixed z-[9999] w-56 px-3 py-2 text-xs leading-relaxed text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg pointer-events-none`}
           style={{
             ...(iconRef.current ? (() => {
               const r = iconRef.current.getBoundingClientRect()
@@ -855,30 +855,30 @@ function ProviderUsageCard({
   const maxMessages = Math.max(...data.recent_daily.map((d) => d.messages), 1)
 
   return (
-    <div data-testid={`provider-card-${name.toLowerCase()}`} className="bg-slate-800/50 rounded-xl p-5 border border-slate-700">
+    <div data-testid={`provider-card-${name.toLowerCase()}`} className="bg-slate-100 dark:bg-slate-800/50 rounded-xl p-5 border border-slate-200 dark:border-slate-700">
       <div className="flex items-center gap-3 mb-4">
         <div className={`w-10 h-10 rounded-full ${color} flex items-center justify-center`}>
           <Icon name={icon} size={20} className="text-white" />
         </div>
         <div>
           <h3 className="font-semibold text-base">{name}</h3>
-          <p className="text-xs text-slate-400 capitalize">{data.auth_source.replace(/_/g, ' ')}</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 capitalize">{data.auth_source.replace(/_/g, ' ')}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <div className="bg-slate-900/60 rounded-lg p-3">
-          <p className="text-xs text-slate-400 mb-1">Messages today</p>
+        <div className="bg-white/60 dark:bg-slate-900/60 rounded-lg p-3">
+          <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Messages today</p>
           <p className="text-xl font-bold">{data.messages_today.toLocaleString()}</p>
         </div>
-        <div className="bg-slate-900/60 rounded-lg p-3">
-          <p className="text-xs text-slate-400 mb-1">Tokens today</p>
+        <div className="bg-white/60 dark:bg-slate-900/60 rounded-lg p-3">
+          <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Tokens today</p>
           <p className="text-xl font-bold">{todayTokens > 0 ? fmtTokens(todayTokens) : '—'}</p>
         </div>
       </div>
 
       <div className="mb-4">
-        <p className="text-xs text-slate-400 mb-2">Messages — last 5 days</p>
+        <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">Messages, last 5 days</p>
         <div className="flex items-end gap-1 h-12">
           {data.recent_daily.map((d) => {
             const pct = maxMessages > 0 ? (d.messages / maxMessages) * 100 : 0
@@ -1034,7 +1034,7 @@ export default function CostTracking() {
   )
 
   const cardClass =
-    'bg-slate-900/40 border border-slate-800 p-6 rounded-xl hover:border-slate-700 transition-colors'
+    'bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-6 rounded-xl hover:border-slate-200 dark:hover:border-slate-700 transition-colors'
 
   // Compute total tokens for the summary card. Use the combined input total
   // (raw input + cache creation + cache reads) so the output percentage in
@@ -1092,47 +1092,47 @@ export default function CostTracking() {
   }
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="Usage" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4 sm:mb-6">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold mb-1">Usage</h1>
-            <p className="text-slate-400">
+            <p className="text-slate-600 dark:text-slate-400">
               Track usage across agents and chat
             </p>
           </div>
           <button
             onClick={() => fetchData()}
             disabled={refreshing}
-            className="text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-1 disabled:opacity-50"
+            className="text-sm text-slate-600 dark:text-slate-400 hover:text-white transition-colors flex items-center gap-1 disabled:opacity-50"
           >
             <Icon name="refresh" size={16} className={refreshing ? 'animate-spin' : ''} />
             {refreshing ? 'Updating...' : 'Refresh'}
           </button>
         </div>
         {/* Tabs */}
-        <div className="flex gap-1 border-b border-slate-800 mb-6 sm:mb-8">
+        <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800 mb-6 sm:mb-8">
           <button
             data-testid="tab-spending"
             onClick={() => setActiveTab('spending')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'spending' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white'}`}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'spending' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-400' : 'text-slate-600 dark:text-slate-400 hover:text-white'}`}
           >
             Spending
           </button>
           <button
             data-testid="tab-whats-working"
             onClick={() => setActiveTab('whats-working')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'whats-working' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white'}`}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'whats-working' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-400' : 'text-slate-600 dark:text-slate-400 hover:text-white'}`}
           >
             What's Working
           </button>
           <button
             data-testid="tab-subscription"
             onClick={() => setActiveTab('subscription')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'subscription' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-white'}`}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'subscription' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-400' : 'text-slate-600 dark:text-slate-400 hover:text-white'}`}
           >
             Subscription
           </button>
@@ -1143,9 +1143,9 @@ export default function CostTracking() {
         {data && data.event_count > 0 && (
           <div className={`${cardClass} mb-6 border-l-4 border-blue-500`}>
             <div className="flex items-start gap-3">
-              <Icon name="auto_awesome" className="text-blue-400 mt-0.5" size={20} />
+              <Icon name="auto_awesome" className="text-blue-600 dark:text-blue-400 mt-0.5" size={20} />
               <div>
-                <p className="text-sm text-slate-300 leading-relaxed">
+                <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
                   {`You've used ${data.agent_count} agents across ${data.event_count.toLocaleString()} events. `}
                   {totalTokens > 1_000_000
                     ? `That's ${formattedTokens} tokens of work done for you.`
@@ -1171,11 +1171,11 @@ export default function CostTracking() {
           >
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
-                <Icon name="savings" className="text-green-400" size={28} />
+                <Icon name="savings" className="text-green-600 dark:text-green-400" size={28} />
               </div>
               <div>
                 <h2 className="text-lg font-semibold">ostk savings</h2>
-                <p className="text-sm text-slate-400">
+                <p className="text-sm text-slate-600 dark:text-slate-400">
                   Tokens saved through ostk's context compression and reuse.
                 </p>
               </div>
@@ -1183,7 +1183,7 @@ export default function CostTracking() {
             {savings === null ? (
               <p className="text-sm text-slate-500">Loading savings data...</p>
             ) : !savings.available ? (
-              <p className="text-sm text-slate-400">Savings data not available yet.</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400">Savings data not available yet.</p>
             ) : (() => {
               const compressionPct = savings.compression_pct ?? 0
               // needle recall and hay hit are always n/a for now (no real data)
@@ -1204,7 +1204,7 @@ export default function CostTracking() {
               if (!hasCompression && !hasTokensSaved) {
                 return (
                   <div data-testid="savings-no-data">
-                    <p className="text-sm text-slate-400">
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
                       Savings will appear here as ostk compresses your context.
                     </p>
                   </div>
@@ -1221,33 +1221,33 @@ export default function CostTracking() {
                 <div className={gridClass}>
                   {hasCompression && (
                     <div data-testid="stat-compression">
-                      <p className="text-sm text-slate-400 mb-1">
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">
                         Context compression
                         <ExplainPopover metric="context_compression" period={period} label="Context compression" />
                       </p>
-                      <p className="text-3xl font-bold text-purple-400">
+                      <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">
                         {compressionPct.toFixed(1)}%
                       </p>
                     </div>
                   )}
                   {hasTokensSaved && (
                     <div data-testid="stat-tokens-saved">
-                      <p className="text-sm text-slate-400 mb-1">
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">
                         Tokens saved
                         <ExplainPopover metric="tokens_saved" period={period} label="Tokens saved" />
                       </p>
-                      <p className="text-3xl font-bold text-green-400">
+                      <p className="text-3xl font-bold text-green-600 dark:text-green-400">
                         {formatTokens(rawTokensSaved)}
                       </p>
                     </div>
                   )}
                   {hasTimeSaved && (
                     <div data-testid="stat-time-saved">
-                      <p className="text-sm text-slate-400 mb-1">
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">
                         Time saved
                         <ExplainPopover metric="time_saved" period={period} label="Time saved" />
                       </p>
-                      <p className="text-3xl font-bold text-blue-400">
+                      <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
                         {formatTimeSaved(secondsSaved)}
                       </p>
                     </div>
@@ -1278,7 +1278,7 @@ export default function CostTracking() {
         ) : !data || data.event_count === 0 ? (
           <div className={`${cardClass} text-center py-12`}>
             <Icon name="payments" className="text-slate-600 mx-auto mb-3" size={48} />
-            <p className="text-slate-400 text-lg mb-1">No spending data yet</p>
+            <p className="text-slate-600 dark:text-slate-400 text-lg mb-1">No spending data yet</p>
             <p className="text-slate-500 text-sm">
               Agent runs and chat messages will show up here.
             </p>
@@ -1289,11 +1289,11 @@ export default function CostTracking() {
             <div data-testid="summary-card" className={`${cardClass} mb-8`}>
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
-                  <Icon name="insights" className="text-blue-400" size={20} />
+                  <Icon name="insights" className="text-blue-600 dark:text-blue-400" size={20} />
                 </div>
                 <h2 className="text-lg font-semibold">
                   Summary
-                  <span className="ml-2 text-sm font-normal text-slate-400">
+                  <span className="ml-2 text-sm font-normal text-slate-600 dark:text-slate-400">
                     {periodLabels[period]}
                   </span>
                 </h2>
@@ -1301,11 +1301,11 @@ export default function CostTracking() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6">
                 {/* Agents */}
                 <div>
-                  <p className="text-sm text-slate-400 mb-2">
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                     Agents spawned
                     <ExplainPopover metric="agents_spawned" period={period} label="Agents spawned" />
                   </p>
-                  <p className="text-3xl font-bold text-purple-400">
+                  <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">
                     {data.agent_count}
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
@@ -1315,10 +1315,10 @@ export default function CostTracking() {
 
                 {/* Input tokens */}
                 <div data-testid="input-tokens-tile">
-                  <p className="text-sm text-slate-400 mb-2">
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                     Input tokens used<ExplainPopover metric="input_tokens" period={period} label="Input tokens used" />
                   </p>
-                  <p className="text-3xl font-bold text-blue-400">
+                  <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
                     {formatTokenCount(
                       data.total_input_tokens_with_cache
                         ?? ((data.total_input_tokens ?? 0)
@@ -1338,10 +1338,10 @@ export default function CostTracking() {
 
                 {/* Output tokens */}
                 <div data-testid="output-tokens-tile">
-                  <p className="text-sm text-slate-400 mb-2">
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                     Output tokens used<ExplainPopover metric="output_tokens" period={period} label="Output tokens used" />
                   </p>
-                  <p className="text-3xl font-bold text-cyan-400">
+                  <p className="text-3xl font-bold text-cyan-600 dark:text-cyan-400">
                     {formatTokenCount(data.total_output_tokens ?? 0)}
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
@@ -1371,15 +1371,15 @@ export default function CostTracking() {
                   const isHealthy = cacheHitPct >= 50
                   return (
                     <div>
-                      <p className="text-sm text-slate-400 mb-2">
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                         Context reuse rate<ExplainPopover metric="context_reuse_pct" period={period} label="Context reuse rate" />
                       </p>
-                      <p className={`text-3xl font-bold ${isHealthy ? 'text-green-400' : 'text-yellow-400'}`}>
+                      <p className={`text-3xl font-bold ${isHealthy ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
                         {cacheHitPct.toFixed(1)}%
                       </p>
                       <p className="text-xs text-slate-500 mt-1">
                         {isHealthy ? 'Good reuse' : (
-                          <Link to="/settings#standing-instructions-suggest" className="underline decoration-dotted hover:text-yellow-300">
+                          <Link to="/settings#standing-instructions-suggest" className="underline decoration-dotted hover:text-yellow-700 dark:hover:text-yellow-300">
                             Save standing instructions to raise this
                           </Link>
                         )}
@@ -1391,7 +1391,7 @@ export default function CostTracking() {
                 {/* Budget caps section - only when showBudgetCaps is on */}
                 {showBudgetCaps && (
                   <div data-testid="budget-caps-stat">
-                    <p className="text-sm text-slate-400 mb-2">
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                       Budget caps set<InfoTooltip text="Total spending limits set when each agent was spawned. This is the cap, not actual money spent." />
                     </p>
                     <p className="text-3xl font-bold">
@@ -1418,10 +1418,10 @@ export default function CostTracking() {
                       const dayTokens = (day.input_tokens || 0) + (day.output_tokens || 0)
                       return (
                         <div key={day.date} className="flex items-center gap-3">
-                          <span className="text-xs text-slate-400 w-16 shrink-0">
+                          <span className="text-xs text-slate-600 dark:text-slate-400 w-16 shrink-0">
                             {formatDate(day.date)}
                           </span>
-                          <div className="flex-1 h-8 bg-slate-800 rounded-lg overflow-hidden relative">
+                          <div className="flex-1 h-8 bg-slate-100 dark:bg-slate-800 rounded-lg overflow-hidden relative">
                             <div
                               className="h-full bg-blue-500 rounded-lg transition-all duration-500"
                               style={{
@@ -1462,11 +1462,11 @@ export default function CostTracking() {
                           <div key={m.model}>
                             <div className="flex items-center justify-between mb-1.5">
                               <span className="text-sm font-medium">{shortModelName(m.model)}</span>
-                              <span className="text-sm text-slate-400">
+                              <span className="text-sm text-slate-600 dark:text-slate-400">
                                 {formattedModelTokens} tokens ({pct}%)
                               </span>
                             </div>
-                            <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                               <div
                                 className={`h-full rounded-full ${getModelColor(m.model)} transition-all duration-500`}
                                 style={{ width: `${pct}%`, minWidth: Number(pct) > 0 ? '4px' : '0' }}
@@ -1489,16 +1489,16 @@ export default function CostTracking() {
               <h2 className="text-lg font-semibold mb-4">Usage History</h2>
               <div className="overflow-x-auto" style={{ maxHeight: '500px', overflowY: 'auto' }}>
                 <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-slate-900">
-                    <tr className="border-b border-slate-800">
-                      <th className="text-left py-2 px-3 text-slate-400 font-medium">Name</th>
-                      <th className="text-left py-2 px-3 text-slate-400 font-medium">Type</th>
-                      <th className="text-left py-2 px-3 text-slate-400 font-medium">Model</th>
-                      <th className="text-right py-2 px-3 text-slate-400 font-medium">Token Usage</th>
+                  <thead className="sticky top-0 bg-white dark:bg-slate-900">
+                    <tr className="border-b border-slate-200 dark:border-slate-800">
+                      <th className="text-left py-2 px-3 text-slate-600 dark:text-slate-400 font-medium">Name</th>
+                      <th className="text-left py-2 px-3 text-slate-600 dark:text-slate-400 font-medium">Type</th>
+                      <th className="text-left py-2 px-3 text-slate-600 dark:text-slate-400 font-medium">Model</th>
+                      <th className="text-right py-2 px-3 text-slate-600 dark:text-slate-400 font-medium">Token Usage</th>
                       {showBudgetCaps && (
-                        <th className="text-right py-2 px-3 text-slate-400 font-medium" data-testid="budget-col-header">Budget</th>
+                        <th className="text-right py-2 px-3 text-slate-600 dark:text-slate-400 font-medium" data-testid="budget-col-header">Budget</th>
                       )}
-                      <th className="text-right py-2 px-3 text-slate-400 font-medium">When</th>
+                      <th className="text-right py-2 px-3 text-slate-600 dark:text-slate-400 font-medium">When</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1508,13 +1508,13 @@ export default function CostTracking() {
                       return (
                         <tr
                           key={`${entry.name}-${entry.timestamp}-${i}`}
-                          className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
+                          className="border-b border-slate-200 dark:border-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors"
                         >
                           <td className="py-2.5 px-3">
                             <div className="flex items-center gap-2">
                               <Icon
                                 name={isAgent ? 'smart_toy' : 'chat'}
-                                className={isAgent ? 'text-purple-400' : 'text-blue-400'}
+                                className={isAgent ? 'text-purple-600 dark:text-purple-400' : 'text-blue-600 dark:text-blue-400'}
                                 size={16}
                               />
                               <span className="font-medium">{entry.name}</span>
@@ -1528,8 +1528,8 @@ export default function CostTracking() {
                           <td className="py-2.5 px-3">
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                               isAgent
-                                ? 'bg-purple-500/20 text-purple-400'
-                                : 'bg-blue-500/20 text-blue-400'
+                                ? 'bg-purple-500/20 text-purple-600 dark:text-purple-400'
+                                : 'bg-blue-500/20 text-blue-600 dark:text-blue-400'
                             }`}>
                               {isAgent ? 'Agent' : 'Chat'}
                             </span>
@@ -1541,7 +1541,7 @@ export default function CostTracking() {
                               {shortModelName(entry.model)}
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 text-right font-mono text-slate-400">
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-600 dark:text-slate-400">
                             {totalEntryTokens > 0
                               ? totalEntryTokens >= 1000
                                 ? `${(totalEntryTokens / 1000).toFixed(0)}K`
@@ -1553,7 +1553,7 @@ export default function CostTracking() {
                               {entry.budget > 0 ? `$${entry.budget.toFixed(2)}` : '-'}
                             </td>
                           )}
-                          <td className="py-2.5 px-3 text-right text-slate-400">
+                          <td className="py-2.5 px-3 text-right text-slate-600 dark:text-slate-400">
                             {formatTimestamp(entry.timestamp)}
                           </td>
                         </tr>
@@ -1578,14 +1578,14 @@ export default function CostTracking() {
         {activeTab === 'subscription' && (
           <div data-testid="subscription-panel">
             {subLoading && !subData ? (
-              <p className="text-sm text-slate-400">Loading subscription data...</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400">Loading subscription data...</p>
             ) : !subData ? (
-              <p className="text-sm text-slate-400">Subscription data unavailable.</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400">Subscription data unavailable.</p>
             ) : (
               <>
                 <div className="mb-6">
                   <h2 className="text-lg font-semibold mb-1">Subscription usage</h2>
-                  <p className="text-sm text-slate-400">Messages and tokens sent today and over the last 5 days, from your local activity log.</p>
+                  <p className="text-sm text-slate-600 dark:text-slate-400">Messages and tokens sent today and over the last 5 days, from your local activity log.</p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <ProviderUsageCard
@@ -1603,13 +1603,13 @@ export default function CostTracking() {
                 </div>
                 {subData.claude.session_tokens && Object.keys(subData.claude.session_tokens).length > 0 && (
                   <div className={`${cardClass} mt-4`}>
-                    <h3 className="text-sm font-semibold mb-3 text-slate-300">Current session — Claude token snapshot</h3>
+                    <h3 className="text-sm font-semibold mb-3 text-slate-700 dark:text-slate-300">Current session: Claude token snapshot</h3>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                       {(['cache_read', 'cache_create', 'output', 'billed'] as const).map((k) => {
                         const v = subData.claude.session_tokens?.[k] ?? 0
                         return v > 0 ? (
-                          <div key={k} className="bg-slate-800 rounded-lg p-3">
-                            <p className="text-xs text-slate-400 mb-1 capitalize">{k.replace(/_/g, ' ')}</p>
+                          <div key={k} className="bg-slate-100 dark:bg-slate-800 rounded-lg p-3">
+                            <p className="text-xs text-slate-600 dark:text-slate-400 mb-1 capitalize">{k.replace(/_/g, ' ')}</p>
                             <p className="font-bold">{fmtTokens(v)}</p>
                           </div>
                         ) : null

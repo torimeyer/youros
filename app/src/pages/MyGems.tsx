@@ -170,15 +170,15 @@ export default function MyGems() {
   };
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="My Gems" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 max-w-4xl mx-auto">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8 max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold">My Gems</h1>
-            <p data-testid="gems-page-subtitle" className="text-sm text-slate-400 mt-2">
+            <p data-testid="gems-page-subtitle" className="text-sm text-slate-600 dark:text-slate-400 mt-2">
               Personas you chat with. Each Gem has its own instructions and knowledge files. They answer questions, they don't run jobs.
             </p>
           </div>
@@ -203,14 +203,14 @@ export default function MyGems() {
         {error && (
           <div
             data-testid="gems-error"
-            className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm mb-4"
+            className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-600 dark:text-red-400 text-sm mb-4"
           >
             <Icon name="error" className="text-lg flex-shrink-0" />
             <span className="flex-1">{error}</span>
             <button
               data-testid="gems-retry"
               onClick={fetchGems}
-              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-red-300 hover:text-white border border-red-500/40 hover:border-red-400 rounded-lg transition-colors"
+              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-300 hover:text-white border border-red-500/40 hover:border-red-400 rounded-lg transition-colors"
             >
               Try again
             </button>
@@ -224,7 +224,7 @@ export default function MyGems() {
             className="text-center py-16 text-slate-500"
           >
             <Icon name="auto_awesome" className="text-5xl mb-3 text-slate-600" />
-            <p className="text-slate-300 font-medium mb-1">No Gems yet</p>
+            <p className="text-slate-700 dark:text-slate-300 font-medium mb-1">No Gems yet</p>
             <p className="text-sm">
               Create your first Gem to give Gemini a custom persona and knowledge base.
             </p>
@@ -238,16 +238,16 @@ export default function MyGems() {
               <div
                 key={gem.id}
                 data-testid={`gem-card-${gem.id}`}
-                className="flex items-center justify-between gap-4 bg-slate-900/60 border border-slate-800 rounded-xl px-5 py-4 hover:border-slate-700 transition-colors"
+                className="flex items-center justify-between gap-4 bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl px-5 py-4 hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <Icon name="auto_awesome" className="text-base text-blue-400 flex-shrink-0" />
-                    <span className="font-medium text-slate-100 truncate" data-testid={`gem-name-${gem.id}`}>
+                    <Icon name="auto_awesome" className="text-base text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                    <span className="font-medium text-slate-900 dark:text-slate-100 truncate" data-testid={`gem-name-${gem.id}`}>
                       {gem.name}
                     </span>
                     {gem.knowledge_files.length > 0 && (
-                      <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded flex-shrink-0">
+                      <span className="text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded flex-shrink-0">
                         {gem.knowledge_files.length} file{gem.knowledge_files.length !== 1 ? 's' : ''}
                       </span>
                     )}
@@ -266,7 +266,7 @@ export default function MyGems() {
                   <button
                     data-testid={`gem-history-${gem.id}`}
                     onClick={() => handleChat(gem)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
                     title="View past chats with this Gem"
                   >
                     <Icon name="history" className="text-base" />
@@ -275,7 +275,7 @@ export default function MyGems() {
                   <button
                     data-testid={`gem-chat-${gem.id}`}
                     onClick={() => handleChat(gem)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
                     title="Chat with this Gem"
                   >
                     <Icon name="chat" className="text-base" />
@@ -284,7 +284,7 @@ export default function MyGems() {
                   <button
                     data-testid={`gem-edit-${gem.id}`}
                     onClick={() => openEdit(gem)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
                     title="Edit Gem"
                   >
                     <Icon name="edit" className="text-base" />
@@ -293,7 +293,7 @@ export default function MyGems() {
                   <button
                     data-testid={`gem-delete-${gem.id}`}
                     onClick={() => handleDelete(gem)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
                     title="Delete Gem"
                   >
                     <Icon name="delete" className="text-base" />
@@ -315,11 +315,11 @@ export default function MyGems() {
           >
             <Icon
               name={capturesExpanded ? 'expand_less' : 'expand_more'}
-              className="text-slate-400 text-base"
+              className="text-slate-600 dark:text-slate-400 text-base"
             />
-            <h2 className="text-base font-semibold text-slate-200">Gemini Captures</h2>
+            <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">Gemini Captures</h2>
             {captures.length > 0 && (
-              <span className="text-xs text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded ml-1">
+              <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded ml-1">
                 {captures.length}
               </span>
             )}
@@ -336,30 +336,30 @@ export default function MyGems() {
               {!capturesLoading && captures.length === 0 && (
                 <div
                   data-testid="captures-empty-state"
-                  className="text-sm py-4 border border-slate-800 rounded-xl px-5"
+                  className="text-sm py-4 border border-slate-200 dark:border-slate-800 rounded-xl px-5"
                 >
-                  <p className="mb-3 font-medium text-slate-300">No captures yet</p>
-                  <p className="mb-3 text-slate-400">To start capturing your Gemini chats, follow these steps:</p>
-                  <ol className="list-decimal list-inside space-y-2 text-slate-400">
+                  <p className="mb-3 font-medium text-slate-700 dark:text-slate-300">No captures yet</p>
+                  <p className="mb-3 text-slate-600 dark:text-slate-400">To start capturing your Gemini chats, follow these steps:</p>
+                  <ol className="list-decimal list-inside space-y-2 text-slate-600 dark:text-slate-400">
                     <li>
                       Open Chrome and go to{' '}
-                      <code className="text-slate-300 bg-slate-800/60 px-1 rounded text-xs">chrome://extensions</code>.
-                      Turn on <strong className="text-slate-300">Developer mode</strong> (toggle in the top right corner).
+                      <code className="text-slate-700 dark:text-slate-300 bg-slate-50/60 dark:bg-slate-800/60 px-1 rounded text-xs">chrome://extensions</code>.
+                      Turn on <strong className="text-slate-700 dark:text-slate-300">Developer mode</strong> (toggle in the top right corner).
                     </li>
                     <li>
-                      Click <strong className="text-slate-300">Load unpacked</strong> and select the{' '}
-                      <code className="text-slate-300 bg-slate-800/60 px-1 rounded text-xs">extension</code>{' '}
+                      Click <strong className="text-slate-700 dark:text-slate-300">Load unpacked</strong> and select the{' '}
+                      <code className="text-slate-700 dark:text-slate-300 bg-slate-50/60 dark:bg-slate-800/60 px-1 rounded text-xs">extension</code>{' '}
                       folder inside your yourOS installation.
                     </li>
                     <li>
                       Click the yourOS icon in your Chrome toolbar, then open{' '}
-                      <strong className="text-slate-300">Settings</strong>. Paste your auth token — find it
+                      <strong className="text-slate-700 dark:text-slate-300">Settings</strong>. Paste your auth token. Find it
                       by opening a terminal and running{' '}
-                      <code className="text-slate-300 bg-slate-800/60 px-1 rounded text-xs">cat ~/.myos/extension_token</code>.
+                      <code className="text-slate-700 dark:text-slate-300 bg-slate-50/60 dark:bg-slate-800/60 px-1 rounded text-xs">cat ~/.myos/extension_token</code>.
                     </li>
                     <li>
-                      Toggle <strong className="text-slate-300">Capture conversations</strong> on, then open{' '}
-                      <strong className="text-slate-300">gemini.google.com</strong>. Your chats will appear here automatically.
+                      Toggle <strong className="text-slate-700 dark:text-slate-300">Capture conversations</strong> on, then open{' '}
+                      <strong className="text-slate-700 dark:text-slate-300">gemini.google.com</strong>. Your chats will appear here automatically.
                     </li>
                   </ol>
                 </div>
@@ -372,15 +372,15 @@ export default function MyGems() {
                       key={conv.conversation_id}
                       data-testid={`capture-conversation-row-${conv.conversation_id}`}
                       onClick={() => openCaptureDrawer(conv.conversation_id)}
-                      className="flex items-center justify-between gap-4 bg-slate-900/60 border border-slate-800 rounded-xl px-5 py-3 hover:border-slate-700 transition-colors text-left w-full"
+                      className="flex items-center justify-between gap-4 bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl px-5 py-3 hover:border-slate-200 dark:hover:border-slate-700 transition-colors text-left w-full"
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <Icon name="chat" className="text-sm text-purple-400 flex-shrink-0" />
-                          <span className="font-medium text-slate-200 text-sm truncate">
+                          <Icon name="chat" className="text-sm text-purple-600 dark:text-purple-400 flex-shrink-0" />
+                          <span className="font-medium text-slate-800 dark:text-slate-200 text-sm truncate">
                             {conv.gem_name || conv.conversation_id}
                           </span>
-                          <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded flex-shrink-0">
+                          <span className="text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded flex-shrink-0">
                             {conv.turn_count} turn{conv.turn_count !== 1 ? 's' : ''}
                           </span>
                         </div>
@@ -407,14 +407,14 @@ export default function MyGems() {
         >
           <div className="flex-1" />
           <div
-            className="w-full max-w-lg bg-slate-900 border-l border-slate-800 flex flex-col overflow-hidden"
+            className="w-full max-w-lg bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
-              <h3 className="font-semibold text-slate-100 text-sm">Conversation</h3>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Conversation</h3>
               <button
                 onClick={() => setCaptureDrawer(null)}
-                className="text-slate-500 hover:text-slate-300"
+                className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                 aria-label="Close"
                 data-testid="capture-drawer-close"
               >
@@ -434,8 +434,8 @@ export default function MyGems() {
                   <div
                     className={`rounded-xl px-4 py-2.5 text-sm max-w-[85%] whitespace-pre-wrap ${
                       turn.role === 'user'
-                        ? 'bg-blue-600/30 text-slate-100'
-                        : 'bg-slate-800 text-slate-200'
+                        ? 'bg-blue-600/30 text-slate-900 dark:text-slate-100'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
                     }`}
                   >
                     {turn.text}
@@ -476,23 +476,23 @@ export default function MyGems() {
             toast.kind === 'error'
               ? 'bg-red-950 border-red-800 text-red-200'
               : toast.kind === 'info'
-              ? 'bg-slate-800 border-slate-700 text-slate-300'
-              : 'bg-slate-800 border-slate-700 text-slate-200'
+              ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+              : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
           }`}
         >
           <Icon
             name={toast.kind === 'error' ? 'error' : toast.kind === 'info' ? 'info' : 'check_circle'}
             size={18}
             className={
-              toast.kind === 'error' ? 'text-red-400' :
-              toast.kind === 'info' ? 'text-blue-400' :
-              'text-green-400'
+              toast.kind === 'error' ? 'text-red-600 dark:text-red-400' :
+              toast.kind === 'info' ? 'text-blue-600 dark:text-blue-400' :
+              'text-green-600 dark:text-green-400'
             }
           />
           <span>{toast.message}</span>
           <button
             onClick={() => setToast(null)}
-            className="text-slate-500 hover:text-slate-300"
+            className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
             aria-label="Dismiss"
           >
             <Icon name="close" size={14} />

@@ -233,15 +233,19 @@ def _ac_generation_user(subject: str, *, from_roadmap: bool = False) -> str:
 # prefixes, not on the word "spec" alone.
 _SPEC_ARTIFACT_PATTERNS: tuple[re.Pattern[str], ...] = (
     # Smoke prefixes that lead a path/filename or a title.
+    # NOTE: the "test" prefix uses [-_] (no space): "test-foo" is a fixture
+    # but a real spec titled "Test spec" must NOT be hidden. The bare "e2e"
+    # prefix was dropped on purpose: "e2e-http-journey" is a legitimate spec
+    # name, while real e2e fixtures carry a trailing id (caught by \d{4,}).
     re.compile(
-        r"^(?:demo[-_ ]smoke[-_ ]?|smoke[-_ ]|e2e[-_ ]|test[-_ ]"
+        r"^(?:demo[-_ ]smoke[-_ ]?|smoke[-_ ]|test[-_]"
         r"|v\d+[-_ ]verify[-_ ]?|morning[-_ ]verify[-_ ]?)",
         re.IGNORECASE,
     ),
     # The same prefix sitting after a directory segment, so the match
     # holds for "docs/draft/demo-smoke-spec-87311.md" and friends.
     re.compile(
-        r"/(?:demo[-_ ]smoke[-_ ]?|smoke[-_ ]|e2e[-_ ]|test[-_ ]"
+        r"/(?:demo[-_ ]smoke[-_ ]?|smoke[-_ ]|test[-_]"
         r"|v\d+[-_ ]verify[-_ ]?|morning[-_ ]verify[-_ ]?)",
         re.IGNORECASE,
     ),
@@ -249,6 +253,10 @@ _SPEC_ARTIFACT_PATTERNS: tuple[re.Pattern[str], ...] = (
     # "Demo Smoke Spec 87311" or "spec-87311.md". Real user titles do
     # not end in a long numeric run.
     re.compile(r"[-_ ]\d{4,}(?:\.md)?$", re.IGNORECASE),
+    # Known test-fixture stub injected by test_spec_to_artifact.py via
+    # the /build endpoint path docs/spec/code-spec.md.  Kept as an
+    # explicit slug so the filter is self-documenting (→1751).
+    re.compile(r"(?:^|/)code[-_]spec(?:\.md)?$", re.IGNORECASE),
 )
 
 
@@ -267,6 +275,45 @@ def _is_test_artifact_spec(path: str, title: str) -> bool:
         for pat in _SPEC_ARTIFACT_PATTERNS:
             if pat.search(value):
                 return True
+    return False
+
+
+# Patterns for detecting subagent scratch notes (→1749).
+# Signal 1: explicit scratch/diagnostic keywords in path or title.
+_SCRATCH_NOTE_KEYWORDS = re.compile(
+    r"\b(?:diagnosis|scratch[-_ ]?note|debug[-_ ]?notes?|findings|investigation[-_ ]?notes?)\b",
+    re.IGNORECASE,
+)
+# Signal 2: filename starts with a needle ID (3+ digits) in docs/draft/.
+# Subagents write scratch notes as NNNN-description.md; real user specs use
+# descriptive names without numeric prefixes.  Group 1 captures the numeric ID.
+_SCRATCH_NOTE_NEEDLE_PREFIX = re.compile(r"(?:^|/)(\d{3,})[-_]")
+
+
+def _is_scratch_note(path: str, title: str, doc: dict | None = None) -> bool:
+    """True when a docs/draft file is a subagent scratch note, not a real spec.
+
+    Two independent signals:
+    1. Scratch keywords in path or title ("diagnosis", "scratch-note", etc.).
+    2. Needle-ID filename prefix (subagent convention) combined with absent
+       frontmatter — real specs from `ostk doc draft` always carry created_at.
+
+    Precedent: mirrors _is_test_artifact_spec which excludes smoke-test leaks.
+    """
+    # Signal 1: explicit scratch keywords in path or title.
+    for val in (path or "", title or ""):
+        if _SCRATCH_NOTE_KEYWORDS.search(val):
+            return True
+    # Signal 2: needle-ID prefix in docs/draft/ + no frontmatter.
+    # created_at is written by the ostk doc draft pipeline; its absence means
+    # the file was dropped directly (no pipeline), which is the scratch-note pattern.
+    if (
+        (path or "").startswith("docs/draft/")
+        and _SCRATCH_NOTE_NEEDLE_PREFIX.search(path or "")
+        and doc is not None
+        and not (doc.get("created_at") or doc.get("acceptance_criteria"))
+    ):
+        return True
     return False
 
 
@@ -377,6 +424,23 @@ async def list_specs(clear_to_build: Optional[bool] = None):
     try:
         docs = await ostk.list_docs()
         docs = [d for d in docs if d.get("status") != "plan"]
+        # Exclude subagent scratch notes (→1749): files in docs/draft/ that are
+        # diagnosis/debug notes, not real specs with Problem/Goals/ACs.
+        # Collect filtered-out scratch notes for lifecycle cleanup below.
+        _scratch_notes: list[dict] = []
+        _filtered_docs: list[dict] = []
+        for _d in docs:
+            if _is_scratch_note(_d.get("path", ""), _d.get("title", ""), _d):
+                _scratch_notes.append(_d)
+            else:
+                _filtered_docs.append(_d)
+        docs = _filtered_docs
+        # Also exclude test-artifact specs from docs/draft/ and docs/spec/ so
+        # leaked fixtures (e.g. code-spec.md) never appear in the Specs view (→1751).
+        docs = [
+            d for d in docs
+            if not _is_test_artifact_spec(d.get("path", ""), d.get("title", ""))
+        ]
 
         # Re-apply compute_spec_status with active claims from _spec_claims.
         # list_docs() calls compute_spec_status without claims so its returned
@@ -448,6 +512,30 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                 else:
                     surviving.append(d)
             docs = surviving
+
+            # Lifecycle cleanup (→1749-b): delete scratch notes whose originating
+            # needle is now closed. They linger in docs/draft/ after needle close
+            # because nothing else removes them.
+            for _sn in _scratch_notes:
+                _sn_path = _sn.get("path", "")
+                if not _sn_path.startswith("docs/draft/"):
+                    continue
+                _needle_match = _SCRATCH_NOTE_NEEDLE_PREFIX.search(_sn_path)
+                if not _needle_match:
+                    continue
+                # Extract the numeric needle ID from the capturing group.
+                _nid = _needle_match.group(1)
+                _needle_status = needle_statuses.get(_nid, "open")
+                if _needle_status in ("open",):
+                    continue
+                _abs_sn = Path(PROJECT_ROOT) / _sn_path
+                try:
+                    if _abs_sn.exists():
+                        _abs_sn.unlink()
+                        trace_event("scratch_note_auto_cleanup", path=_sn_path, needle_id=_nid)
+                        logger.info("auto-cleaned scratch note %s (needle →%s closed)", _sn_path, _nid)
+                except OSError as _sn_err:
+                    logger.warning("scratch note cleanup failed for %s: %s", _sn_path, _sn_err)
         except Exception as arch_err:
             logger.warning("auto-archive scan failed: %s", arch_err)
 
@@ -1145,6 +1233,56 @@ async def patch_spec_body(spec_path: str, body: SpecBodyUpdate):
 
     Path(abs_path).write_text(new_text, encoding="utf-8")
     return {"ok": True}
+
+
+class SpecTitleUpdate(BaseModel):
+    title: str
+
+
+@router.patch("/specs/{spec_path:path}/title")
+async def patch_spec_title(spec_path: str, body: SpecTitleUpdate):
+    """Update the title field in a spec's YAML frontmatter and its H1 heading."""
+    _validate_doc_path(spec_path)
+
+    new_title = body.title.strip()
+    if not new_title:
+        raise HTTPException(status_code=422, detail="Title cannot be empty")
+
+    abs_path = (
+        spec_path
+        if spec_path.startswith("/") or spec_path.startswith("~")
+        else str(Path(PROJECT_ROOT) / spec_path)
+    )
+    abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
+
+    if not Path(abs_path).exists():
+        raise HTTPException(status_code=404, detail="Spec file not found")
+
+    text = Path(abs_path).read_text(encoding="utf-8")
+    lines = text.split("\n")
+    new_lines: list[str] = []
+    in_fm = bool(lines and lines[0].strip() == "---")
+    saw_fm_end = False
+    h1_updated = False
+
+    for i, line in enumerate(lines):
+        if in_fm and not saw_fm_end:
+            stripped = line.strip()
+            if stripped.startswith("title:"):
+                indent = line[: len(line) - len(line.lstrip())]
+                new_lines.append(f"{indent}title: {new_title}")
+                continue
+            if stripped == "---" and new_lines:
+                saw_fm_end = True
+                in_fm = False
+        elif saw_fm_end and not h1_updated and line.startswith("# "):
+            new_lines.append(f"# {new_title}")
+            h1_updated = True
+            continue
+        new_lines.append(line)
+
+    Path(abs_path).write_text("\n".join(new_lines), encoding="utf-8")
+    return {"ok": True, "title": new_title}
 
 
 class SpecClarifySuggestBody(BaseModel):

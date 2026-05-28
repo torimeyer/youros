@@ -83,16 +83,16 @@ export default function Library() {
         </div>
 
         {loading ? (
-          <p className="text-sm text-gray-500">Loading…</p>
+          <p className="text-sm text-gray-600">Loading…</p>
         ) : sources.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">
+          <div className="text-center py-16 text-gray-600">
             <p className="text-base font-medium mb-1">No sources yet</p>
             <p className="text-sm">Upload a brand guide, ICP doc, or past posts and your agents will read them automatically.</p>
           </div>
         ) : (
           <table className="w-full text-sm border-collapse">
             <thead>
-              <tr className="border-b text-left text-gray-500 text-xs uppercase tracking-wide">
+              <tr className="border-b text-left text-gray-600 text-xs uppercase tracking-wide">
                 <th className="pb-2 pr-4 font-medium">Name</th>
                 <th className="pb-2 pr-4 font-medium">Type</th>
                 <th className="pb-2 pr-4 font-medium">Size</th>
@@ -105,8 +105,8 @@ export default function Library() {
               {sources.map(s => (
                 <tr key={s.id} className="border-b hover:bg-gray-50">
                   <td className="py-3 pr-4 font-medium text-gray-800 max-w-xs truncate">{s.title}</td>
-                  <td className="py-3 pr-4 text-gray-500">{typeLabel(s.type)}</td>
-                  <td className="py-3 pr-4 text-gray-500">{formatSize(s.size)}</td>
+                  <td className="py-3 pr-4 text-gray-600">{typeLabel(s.type)}</td>
+                  <td className="py-3 pr-4 text-gray-600">{formatSize(s.size)}</td>
                   <td className="py-3 pr-4">
                     <div className="flex flex-wrap gap-1">
                       {(s.tags ?? []).map(t => (
@@ -114,7 +114,7 @@ export default function Library() {
                       ))}
                     </div>
                   </td>
-                  <td className="py-3 text-gray-400 text-xs whitespace-nowrap">
+                  <td className="py-3 text-gray-600 text-xs whitespace-nowrap">
                     {new Date(s.upload_time).toLocaleDateString()}
                   </td>
                   <td className="py-3 pl-2">
@@ -127,12 +127,12 @@ export default function Library() {
                         >
                           {deleting ? 'Removing…' : 'Confirm'}
                         </button>
-                        <button onClick={() => setDeleteId(null)} className="text-gray-400 hover:underline">Cancel</button>
+                        <button onClick={() => setDeleteId(null)} className="text-gray-600 hover:underline">Cancel</button>
                       </span>
                     ) : (
                       <button
                         onClick={() => setDeleteId(s.id)}
-                        className="text-gray-400 hover:text-red-500 text-xs"
+                        className="text-gray-600 hover:text-red-500 text-xs"
                         aria-label="Delete source"
                       >
                         Remove
@@ -247,7 +247,7 @@ function UploadModal({ onClose, onUploaded }: UploadModalProps) {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Tags <span className="text-gray-400 font-normal">(comma-separated — agents use these to find the right files)</span>
+              Tags <span className="text-gray-600 font-normal">(comma-separated, used by agents to find the right files)</span>
             </label>
             <input
               type="text"

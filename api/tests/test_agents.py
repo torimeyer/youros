@@ -4477,14 +4477,14 @@ async def test_spawn_build_agent_includes_display_name_with_task_title(tmp_path,
 @pytest.mark.asyncio
 async def test_spawn_with_task_id_records_link_in_agent_metadata(tmp_path, monkeypatch):
     """POST /agents/spawn with a task_id records the task link in
-    ``agent_metadata[name]["task_id"]`` so the Tasks list endpoint can
-    derive ``in_progress`` while the agent is still running.
+    ``agent_metadata[name]["task_id"]``. When a needle_id is also provided
+    the spawn path fires set_needle_in_progress so the needle persists as
+    in_progress in issues.jsonl (→1714 new contract).
 
-    We no longer write the transition into issues.jsonl at spawn time
-    because the derived overlay in ``routers.tasks.list_tasks`` handles
-    both directions: on when an agent is live, off when the last one
-    finishes. A stored write would stick forever and defeat the
-    "flip back when no agents remain" requirement.
+    update_task_status must NOT be called — the derived overlay in
+    ``routers.tasks.list_tasks`` handles the live-agent label from task_id.
+    The needle in_progress write is fire-and-forget via create_task; the
+    test flushes the event loop to make the assertion deterministic.
     """
     from routers import agents as agents_module
     from routers.agents import active_agents, agent_metadata
@@ -4534,6 +4534,15 @@ async def test_spawn_with_task_id_records_link_in_agent_metadata(tmp_path, monke
 
     monkeypatch.setattr(agents_module.ostk, "update_task_status", _capture_update)
 
+    # Capture set_needle_in_progress calls (→1714: called at spawn time).
+    needle_calls: list = []
+
+    async def _capture_needle(needle_id: str) -> bool:
+        needle_calls.append(needle_id)
+        return True
+
+    monkeypatch.setattr(agents_module.ostk, "set_needle_in_progress", _capture_needle)
+
     agent_name = "spawn-with-task-id-test"
     agent_metadata.pop(agent_name, None)
     active_agents.pop(agent_name, None)
@@ -4549,11 +4558,17 @@ async def test_spawn_with_task_id_records_link_in_agent_metadata(tmp_path, monke
                     "model": "sonnet",
                     "budget": 2.0,
                     "task_id": "→123",
+                    "needle_id": "→123",
                 },
             )
         assert resp.status_code == 200, resp.text
-        # Stored write must be skipped. The derivation lives on read.
+        # update_task_status must never be called by the spawn path.
         assert update_calls == []
+        # Flush the event loop so the fire-and-forget create_task runs.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        # set_needle_in_progress must be called with the needle_id (→1714).
+        assert needle_calls == ["→123"]
         # The spawn must persist the task linkage so the overlay can
         # find it. Without this key the derived status cannot follow
         # the live-agent signal.

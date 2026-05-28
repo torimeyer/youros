@@ -3138,7 +3138,7 @@ describe('Agents page - Templates description hygiene (regression)', () => {
     // The card's description paragraph must hold the full text and
     // must NOT start with "#" (the comment header leak).
     const card = await screen.findByTestId('template-card-Builder')
-    const paragraph = card.querySelector('p.text-slate-400') as HTMLElement
+    const paragraph = card.querySelector('p.text-slate-600') as HTMLElement
     expect(paragraph).not.toBeNull()
     expect(paragraph.textContent).toBe(fullDesc)
     expect(paragraph.textContent?.startsWith('#')).toBe(false)
@@ -3189,7 +3189,7 @@ describe('Agents page - Templates description hygiene (regression)', () => {
     fireEvent.click(screen.getByText('Templates'))
 
     const card = await screen.findByTestId('template-card-Mystery')
-    const paragraph = card.querySelector('p.text-slate-400') as HTMLElement
+    const paragraph = card.querySelector('p.text-slate-600') as HTMLElement
     expect(paragraph).not.toBeNull()
     // Must NOT leak the raw body: no leading "#", no mid-word slice.
     expect(paragraph.textContent?.startsWith('#')).toBe(false)
@@ -6712,7 +6712,7 @@ describe('Agents page - AgentStatusBadge (→1510)', () => {
     const badges = screen.getAllByTestId('agent-status-badge')
     const cleanBadge = badges.find(b => b.textContent === 'CLEAN')
     expect(cleanBadge).toBeDefined()
-    expect(cleanBadge).toHaveClass('text-green-400')
+    expect(cleanBadge).toHaveClass('text-green-600')
   })
 
   it('shows SALVAGED badge for a rescued agent with badge=salvaged', async () => {
@@ -6734,7 +6734,7 @@ describe('Agents page - AgentStatusBadge (→1510)', () => {
     const badges = screen.getAllByTestId('agent-status-badge')
     const salvagedBadge = badges.find(b => b.textContent === 'SALVAGED')
     expect(salvagedBadge).toBeDefined()
-    expect(salvagedBadge).toHaveClass('text-blue-400')
+    expect(salvagedBadge).toHaveClass('text-blue-600')
   })
 
   it('shows FAILED badge for a non-completed agent with badge=failed', async () => {
@@ -6753,7 +6753,7 @@ describe('Agents page - AgentStatusBadge (→1510)', () => {
     const badges = screen.getAllByTestId('agent-status-badge')
     const failedBadge = badges.find(b => b.textContent === 'FAILED')
     expect(failedBadge).toBeDefined()
-    expect(failedBadge).toHaveClass('text-red-400')
+    expect(failedBadge).toHaveClass('text-red-600')
   })
 
   it('shows NO WORK badge for an agent with badge=abandoned-no-work', async () => {
@@ -6772,7 +6772,7 @@ describe('Agents page - AgentStatusBadge (→1510)', () => {
     const badges = screen.getAllByTestId('agent-status-badge')
     const noWorkBadge = badges.find(b => b.textContent === 'NO WORK')
     expect(noWorkBadge).toBeDefined()
-    expect(noWorkBadge).toHaveClass('text-slate-400')
+    expect(noWorkBadge).toHaveClass('text-slate-600')
   })
 
   it('shows no AgentStatusBadge when badge field is absent', async () => {

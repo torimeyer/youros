@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -112,14 +113,20 @@ async def slack_status():
     )
 
 
+@router.get("/slack/workspaces")
+async def slack_workspaces():
+    """List all connected Slack workspaces."""
+    return {"workspaces": slack_service.list_workspaces()}
+
+
 @router.get("/slack/channels")
-async def slack_channels():
-    """List available Slack channels."""
+async def slack_channels(team_id: Optional[str] = None):
+    """List available Slack channels. Pass team_id to target a specific workspace."""
     if not slack_service.is_connected():
         raise HTTPException(status_code=401, detail="Not connected to Slack.")
 
     try:
-        channels = await slack_service.list_channels()
+        channels = await slack_service.list_channels(team_id=team_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -127,13 +134,13 @@ async def slack_channels():
 
 
 @router.get("/slack/messages/{channel_id}")
-async def slack_messages(channel_id: str, limit: int = 50):
+async def slack_messages(channel_id: str, limit: int = 50, team_id: Optional[str] = None):
     """Fetch recent messages from a Slack channel."""
     if not slack_service.is_connected():
         raise HTTPException(status_code=401, detail="Not connected to Slack.")
 
     try:
-        messages = await slack_service.fetch_messages(channel_id, limit=limit)
+        messages = await slack_service.fetch_messages(channel_id, limit=limit, team_id=team_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -143,6 +150,7 @@ async def slack_messages(channel_id: str, limit: int = 50):
 class SlackSendRequest(BaseModel):
     channel_id: str
     text: str
+    team_id: Optional[str] = None
 
 
 @router.post("/slack/send")
@@ -155,7 +163,7 @@ async def slack_send(req: SlackSendRequest):
         raise HTTPException(status_code=400, detail="Message text cannot be empty.")
 
     try:
-        result = await slack_service.post_message(req.channel_id, req.text)
+        result = await slack_service.post_message(req.channel_id, req.text, team_id=req.team_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -183,9 +191,9 @@ async def save_slack_credentials(body: SlackCredentials):
 
 
 @router.delete("/slack/disconnect")
-async def slack_disconnect():
-    """Remove Slack tokens and disconnect."""
-    slack_service.disconnect()
+async def slack_disconnect(team_id: Optional[str] = None):
+    """Remove Slack tokens and disconnect. Pass team_id to disconnect a specific workspace."""
+    slack_service.disconnect(team_id=team_id)
     recent_deletes.record_id("slack-connection")
     return {"ok": True}
 

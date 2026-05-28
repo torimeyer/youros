@@ -92,8 +92,8 @@ export default function RuleActivityModal({
       onClick={handleBackdropClick}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
     >
-      <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-2xl shadow-2xl">
-        <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-800">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full max-w-2xl shadow-2xl">
+        <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-200 dark:border-slate-800">
           <div>
             <h2
               id="rule-activity-modal-title"
@@ -101,16 +101,16 @@ export default function RuleActivityModal({
             >
               Recent activity
             </h2>
-            <p className="text-slate-400 text-sm mt-1">{ruleTitle}</p>
+            <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">{ruleTitle}</p>
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-slate-400 text-sm">
+            <label className="text-slate-600 dark:text-slate-400 text-sm">
               Show
               <select
                 data-testid="rule-activity-filter"
                 value={filter}
                 onChange={(e) => setFilter(e.target.value as DecisionFilter)}
-                className="ml-2 bg-slate-800 border border-slate-700 text-white text-sm rounded px-2 py-1"
+                className="ml-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-white text-sm rounded px-2 py-1"
               >
                 <option value="all">All</option>
                 <option value="block">Blocks only</option>
@@ -120,7 +120,7 @@ export default function RuleActivityModal({
             <button
               data-testid="rule-activity-close"
               onClick={onClose}
-              className="text-slate-400 hover:text-white text-sm px-2 py-1 rounded transition-colors"
+              className="text-slate-600 dark:text-slate-400 hover:text-white text-sm px-2 py-1 rounded transition-colors"
               aria-label="Close"
             >
               Close
@@ -135,7 +135,7 @@ export default function RuleActivityModal({
             </div>
           )}
           {error && (
-            <div className="text-red-400 text-sm" data-testid="rule-activity-error">
+            <div className="text-red-600 dark:text-red-400 text-sm" data-testid="rule-activity-error">
               {error}
             </div>
           )}
@@ -161,23 +161,23 @@ export default function RuleActivityModal({
                 {filtered.map((f, idx) => (
                   <tr
                     key={`${f.ts}-${idx}`}
-                    className="border-t border-slate-800 align-top"
+                    className="border-t border-slate-200 dark:border-slate-800 align-top"
                     data-testid={`rule-activity-row-${idx}`}
                   >
-                    <td className="text-slate-300 py-2 pr-3 whitespace-nowrap">
+                    <td className="text-slate-700 dark:text-slate-300 py-2 pr-3 whitespace-nowrap">
                       {formatTimestamp(f.ts)}
                     </td>
-                    <td className="text-slate-300 py-2 pr-3 whitespace-nowrap">
+                    <td className="text-slate-700 dark:text-slate-300 py-2 pr-3 whitespace-nowrap">
                       {f.tool}
                     </td>
                     <td className="py-2 pr-3 whitespace-nowrap">
                       <span
                         className={`inline-flex items-center gap-1.5 text-xs ${
                           f.decision === "block"
-                            ? "text-red-400"
+                            ? "text-red-600 dark:text-red-400"
                             : f.decision === "allow"
-                              ? "text-green-400"
-                              : "text-slate-400"
+                              ? "text-green-600 dark:text-green-400"
+                              : "text-slate-600 dark:text-slate-400"
                         }`}
                       >
                         <span
@@ -192,7 +192,7 @@ export default function RuleActivityModal({
                         {f.decision}
                       </span>
                     </td>
-                    <td className="text-slate-400 py-2">{f.reason}</td>
+                    <td className="text-slate-600 dark:text-slate-400 py-2">{f.reason}</td>
                   </tr>
                 ))}
               </tbody>

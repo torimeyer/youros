@@ -1,7 +1,9 @@
 """Slack integration service.
 
 OAuth2 flow for bot + user tokens, message fetching, posting, and search.
-Tokens are stored in ~/.myos/slack_token.json (outside the repo).
+Workspaces are stored in ~/.myos/slack_workspaces/{team_id}.json (outside the
+repo). The legacy single-workspace token at ~/.myos/slack_token.json is
+migrated to the workspaces directory on first use.
 """
 
 from __future__ import annotations
@@ -16,7 +18,8 @@ import httpx
 from services.atomic_io import atomic_write_json
 
 MYOS_DIR = Path.home() / ".myos"
-TOKEN_PATH = MYOS_DIR / "slack_token.json"
+TOKEN_PATH = MYOS_DIR / "slack_token.json"  # legacy single-workspace path
+WORKSPACES_DIR = MYOS_DIR / "slack_workspaces"  # multi-workspace directory
 
 SLACK_API_BASE = "https://slack.com/api"
 
@@ -51,18 +54,71 @@ def _breaker_record_success() -> None:
 
 def _ensure_dirs() -> None:
     MYOS_DIR.mkdir(parents=True, exist_ok=True)
+    WORKSPACES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _migrate_legacy_token() -> None:
+    """Move the old single-workspace token into the workspaces directory."""
+    if not TOKEN_PATH.exists():
+        return
+    if WORKSPACES_DIR.exists() and any(WORKSPACES_DIR.glob("*.json")):
+        return
+    try:
+        tokens = json.loads(TOKEN_PATH.read_text())
+        team_obj = tokens.get("team") or {}
+        team_id = tokens.get("workspace_id") or team_obj.get("id", "")
+        if team_id:
+            _ensure_dirs()
+            workspace_path = WORKSPACES_DIR / f"{team_id}.json"
+            if not workspace_path.exists():
+                atomic_write_json(workspace_path, tokens)
+            TOKEN_PATH.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def list_workspaces() -> list[dict]:
+    """Return all connected workspaces as [{team_id, team_name}]."""
+    _migrate_legacy_token()
+    workspaces = []
+    if WORKSPACES_DIR.exists():
+        for path in sorted(WORKSPACES_DIR.glob("*.json")):
+            try:
+                tokens = json.loads(path.read_text())
+                team_obj = tokens.get("team") or {}
+                team_name = tokens.get("workspace_name") or team_obj.get("name", "")
+                team_id = tokens.get("workspace_id") or team_obj.get("id", "") or path.stem
+                workspaces.append({"team_id": team_id, "team_name": team_name})
+            except Exception:
+                continue
+    return workspaces
 
 
 def is_connected() -> bool:
-    """Return True if we have saved Slack tokens."""
+    """Return True if at least one workspace is connected."""
+    if WORKSPACES_DIR.exists() and any(WORKSPACES_DIR.glob("*.json")):
+        return True
     return TOKEN_PATH.exists()
 
 
-def get_tokens() -> dict:
-    """Return saved tokens. Raises RuntimeError if not connected."""
-    if not TOKEN_PATH.exists():
-        raise RuntimeError("Not connected to Slack.")
-    return json.loads(TOKEN_PATH.read_text())
+def get_workspace_tokens(team_id: str) -> dict:
+    """Return tokens for a specific workspace. Raises RuntimeError if not found."""
+    workspace_path = WORKSPACES_DIR / f"{team_id}.json"
+    if not workspace_path.exists():
+        raise RuntimeError(f"Workspace {team_id} not connected.")
+    return json.loads(workspace_path.read_text())
+
+
+def get_tokens(team_id: Optional[str] = None) -> dict:
+    """Return tokens for the given workspace, or the first available workspace."""
+    if team_id:
+        return get_workspace_tokens(team_id)
+    workspaces = list_workspaces()
+    if workspaces:
+        return get_workspace_tokens(workspaces[0]["team_id"])
+    if TOKEN_PATH.exists():
+        return json.loads(TOKEN_PATH.read_text())
+    raise RuntimeError("Not connected to Slack.")
 
 
 def _invalidate_slack_status_cache() -> None:
@@ -79,52 +135,72 @@ def _invalidate_slack_status_cache() -> None:
         pass
 
 
-def save_tokens(tokens: dict) -> None:
-    """Persist tokens to disk."""
+def add_workspace(tokens: dict) -> None:
+    """Add or update a workspace by team_id. Invalidates the status cache."""
     _ensure_dirs()
-    atomic_write_json(TOKEN_PATH, tokens)
-    # Connection state changed: drop cached status so next poll is fresh.
+    team_obj = tokens.get("team") or {}
+    team_id = tokens.get("workspace_id") or team_obj.get("id", "")
+    if team_id:
+        atomic_write_json(WORKSPACES_DIR / f"{team_id}.json", tokens)
+    else:
+        atomic_write_json(TOKEN_PATH, tokens)
     _invalidate_slack_status_cache()
 
 
-def disconnect() -> None:
-    """Remove saved tokens."""
-    if TOKEN_PATH.exists():
+def save_tokens(tokens: dict) -> None:
+    """Backward-compat shim: persist tokens, routing to workspaces dir when possible."""
+    add_workspace(tokens)
+
+
+def disconnect(team_id: Optional[str] = None) -> None:
+    """Remove Slack tokens.
+
+    If team_id is given, remove only that workspace. Otherwise remove all
+    workspace files and the legacy TOKEN_PATH.
+    """
+    if team_id:
+        workspace_path = WORKSPACES_DIR / f"{team_id}.json"
+        workspace_path.unlink(missing_ok=True)
+    else:
+        if WORKSPACES_DIR.exists():
+            for path in list(WORKSPACES_DIR.glob("*.json")):
+                path.unlink(missing_ok=True)
         TOKEN_PATH.unlink(missing_ok=True)
     _invalidate_slack_status_cache()
 
 
 def get_team_info() -> Optional[dict]:
-    """Return workspace name and team id if connected."""
-    if not TOKEN_PATH.exists():
-        return None
-    try:
-        tokens = json.loads(TOKEN_PATH.read_text())
-        # Flat fields (written by exchange_code) take priority; fall back to
-        # nested team object from the raw Slack OAuth response.
-        team_obj = tokens.get("team") or {}
-        return {
-            "team_name": tokens.get("workspace_name") or team_obj.get("name", ""),
-            "team_id": tokens.get("workspace_id") or team_obj.get("id", ""),
-        }
-    except Exception:
-        return None
+    """Return the first connected workspace's name and team id."""
+    workspaces = list_workspaces()
+    if workspaces:
+        return {"team_name": workspaces[0]["team_name"], "team_id": workspaces[0]["team_id"]}
+    if TOKEN_PATH.exists():
+        try:
+            tokens = json.loads(TOKEN_PATH.read_text())
+            team_obj = tokens.get("team") or {}
+            return {
+                "team_name": tokens.get("workspace_name") or team_obj.get("name", ""),
+                "team_id": tokens.get("workspace_id") or team_obj.get("id", ""),
+            }
+        except Exception:
+            return None
+    return None
 
 
-def _bot_token() -> str:
-    tokens = get_tokens()
+def _bot_token(team_id: Optional[str] = None) -> str:
+    tokens = get_tokens(team_id)
     token = tokens.get("access_token") or tokens.get("bot_access_token", "")
     if not token:
         raise RuntimeError("No Slack bot token found. Reconnect your workspace.")
     return token
 
 
-async def _slack_get(method: str, params: Optional[dict] = None) -> dict:
+async def _slack_get(method: str, params: Optional[dict] = None, team_id: Optional[str] = None) -> dict:
     """Make an authenticated GET request to the Slack API."""
     if _breaker_is_open():
         raise RuntimeError("Slack API is temporarily unavailable. Try again in a few minutes.")
 
-    token = _bot_token()
+    token = _bot_token(team_id)
     headers = {"Authorization": f"Bearer {token}"}
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -144,12 +220,12 @@ async def _slack_get(method: str, params: Optional[dict] = None) -> dict:
         raise RuntimeError(f"Could not reach Slack: {exc}") from exc
 
 
-async def _slack_post(method: str, body: Optional[dict] = None) -> dict:
+async def _slack_post(method: str, body: Optional[dict] = None, team_id: Optional[str] = None) -> dict:
     """Make an authenticated POST request to the Slack API."""
     if _breaker_is_open():
         raise RuntimeError("Slack API is temporarily unavailable. Try again in a few minutes.")
 
-    token = _bot_token()
+    token = _bot_token(team_id)
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -172,13 +248,13 @@ async def _slack_post(method: str, body: Optional[dict] = None) -> dict:
         raise RuntimeError(f"Could not reach Slack: {exc}") from exc
 
 
-async def list_channels(limit: int = 100) -> list[dict]:
+async def list_channels(limit: int = 100, team_id: Optional[str] = None) -> list[dict]:
     """Return a list of channels the bot can see."""
     data = await _slack_get("conversations.list", {
         "types": "public_channel,private_channel",
         "exclude_archived": "true",
         "limit": str(limit),
-    })
+    }, team_id=team_id)
     channels = data.get("channels", [])
     return [
         {
@@ -192,12 +268,12 @@ async def list_channels(limit: int = 100) -> list[dict]:
     ]
 
 
-async def fetch_messages(channel_id: str, limit: int = 50) -> list[dict]:
+async def fetch_messages(channel_id: str, limit: int = 50, team_id: Optional[str] = None) -> list[dict]:
     """Fetch recent messages from a channel."""
     data = await _slack_get("conversations.history", {
         "channel": channel_id,
         "limit": str(limit),
-    })
+    }, team_id=team_id)
     messages = data.get("messages", [])
     return [
         {
@@ -210,12 +286,12 @@ async def fetch_messages(channel_id: str, limit: int = 50) -> list[dict]:
     ]
 
 
-async def post_message(channel_id: str, text: str) -> dict:
+async def post_message(channel_id: str, text: str, team_id: Optional[str] = None) -> dict:
     """Post a message to a channel."""
     data = await _slack_post("chat.postMessage", {
         "channel": channel_id,
         "text": text,
-    })
+    }, team_id=team_id)
     return {
         "ok": True,
         "ts": data.get("ts", ""),
@@ -258,14 +334,14 @@ async def search_messages(query: str, count: int = 20) -> list[dict]:
         return []
 
 
-async def get_message_permalink(channel_id: str, ts: str) -> str:
+async def get_message_permalink(channel_id: str, ts: str, team_id: Optional[str] = None) -> str:
     """Return the permalink URL for a Slack message.
 
     Calls chat.getPermalink with the bot token. Returns an empty string
     if the call fails so callers can store the followup anyway.
     """
     try:
-        data = await _slack_get("chat.getPermalink", {"channel": channel_id, "message_ts": ts})
+        data = await _slack_get("chat.getPermalink", {"channel": channel_id, "message_ts": ts}, team_id=team_id)
         return data.get("permalink", "")
     except Exception:
         return ""
@@ -277,7 +353,7 @@ async def exchange_code(
     client_secret: str,
     redirect_uri: str,
 ) -> dict:
-    """Exchange an OAuth authorization code for tokens."""
+    """Exchange an OAuth authorization code for tokens and add the workspace."""
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
             "https://slack.com/api/oauth.v2.access",
@@ -291,13 +367,11 @@ async def exchange_code(
         data = resp.json()
         if not data.get("ok"):
             raise RuntimeError(f"Slack OAuth failed: {data.get('error', 'unknown')}")
-        # Extract workspace fields from the nested team object and save them
-        # flat so get_team_info() can read them without parsing the raw Slack shape.
         team_obj = data.get("team") or {}
         enriched = {
             **data,
             "workspace_id": team_obj.get("id", ""),
             "workspace_name": team_obj.get("name", ""),
         }
-        save_tokens(enriched)
+        add_workspace(enriched)
         return enriched

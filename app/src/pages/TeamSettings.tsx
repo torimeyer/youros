@@ -92,13 +92,13 @@ export default function TeamSettings() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-screen bg-white dark:bg-slate-950">
       <TopBar title="Team Settings" />
-      <div className="pt-16 sm:pt-20 px-4 sm:px-8 max-w-2xl mx-auto py-8">
+      <div className="px-4 sm:px-8 max-w-2xl mx-auto py-8">
         <div className="flex items-center gap-3 mb-8">
           <Link
             to="/team"
-            className="text-sm text-slate-400 hover:text-white transition-colors"
+            className="text-sm text-slate-600 dark:text-slate-400 hover:text-white transition-colors"
             data-testid="back-to-team"
           >
             ← Back to Team
@@ -107,7 +107,7 @@ export default function TeamSettings() {
 
         <form onSubmit={handleSave} className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               Team folder path
             </label>
             <input
@@ -115,13 +115,13 @@ export default function TeamSettings() {
               value={teamRepo}
               onChange={(e) => setTeamRepo(e.target.value)}
               placeholder="/path/to/shared/team-folder"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
               data-testid="field-team-repo"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               Your display name
             </label>
             <input
@@ -129,13 +129,13 @@ export default function TeamSettings() {
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="Alex"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
               data-testid="field-display-name"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
               Your email / member ID
             </label>
             <input
@@ -143,22 +143,22 @@ export default function TeamSettings() {
               value={memberId}
               onChange={(e) => setMemberId(e.target.value)}
               placeholder="alex@example.com"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
               data-testid="field-member-id"
             />
           </div>
 
           <div>
-            <h3 className="text-sm font-medium text-slate-300 mb-3">
+            <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
               Category defaults
             </h3>
             <div className="space-y-2">
               {CATEGORIES.map((cat) => (
                 <div
                   key={cat}
-                  className="flex items-center justify-between bg-slate-900 rounded-xl px-4 py-2.5 border border-slate-800"
+                  className="flex items-center justify-between bg-white dark:bg-slate-900 rounded-xl px-4 py-2.5 border border-slate-200 dark:border-slate-800"
                 >
-                  <span className="text-sm text-slate-300">
+                  <span className="text-sm text-slate-700 dark:text-slate-300">
                     {CATEGORY_LABELS[cat]}
                   </span>
                   <select
@@ -169,7 +169,7 @@ export default function TeamSettings() {
                         [cat]: e.target.value,
                       }))
                     }
-                    className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1 text-sm text-white focus:outline-none focus:border-blue-500"
+                    className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1 text-sm text-white focus:outline-none focus:border-blue-500"
                     data-testid={`category-default-${cat}`}
                   >
                     <option value="shared">Shared with team</option>
@@ -180,9 +180,9 @@ export default function TeamSettings() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between bg-slate-900 rounded-xl px-4 py-3 border border-slate-800">
+          <div className="flex items-center justify-between bg-white dark:bg-slate-900 rounded-xl px-4 py-3 border border-slate-200 dark:border-slate-800">
             <div>
-              <p className="text-sm font-medium text-slate-300">
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
                 Auto-sync on decisions
               </p>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -200,7 +200,7 @@ export default function TeamSettings() {
 
           {success && (
             <div
-              className="rounded-xl px-4 py-3 bg-green-500/10 border border-green-500/30 text-green-400 text-sm"
+              className="rounded-xl px-4 py-3 bg-green-500/10 border border-green-500/30 text-green-600 dark:text-green-400 text-sm"
               data-testid="success-banner"
             >
               Settings saved.
@@ -208,7 +208,7 @@ export default function TeamSettings() {
           )}
           {error && (
             <div
-              className="rounded-xl px-4 py-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm"
+              className="rounded-xl px-4 py-3 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-sm"
               data-testid="error-banner"
             >
               {error}

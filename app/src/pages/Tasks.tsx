@@ -157,7 +157,7 @@ const priorityStyles: Record<string, string> = {
   P0: "bg-pink-500/20 text-pink-500",
   P1: "bg-orange-500/20 text-orange-500",
   P2: "bg-blue-500/20 text-blue-500",
-  P3: "bg-slate-500/20 text-slate-400",
+  P3: "bg-slate-500/20 text-slate-600 dark:text-slate-400",
 };
 
 const priorityDotColors: Record<string, string> = {
@@ -299,9 +299,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   // string is still used for shelved/week/recurring views triggered by code
   // paths that call setStatusFilter directly.
   const [selectedStatus, setSelectedStatus] = useState<StatusPill>("all");
-  // Closed tasks are fetched on demand when the user clicks the "closed" tab.
-  // The default /api/tasks response omits them (→1694) so we keep them here.
-  const [closedTasks, setClosedTasks] = useState<Task[]>([]);
   const [closedSortOrder] = useState<ClosedSortOrder>("newest");
   const [sortBy, setSortBy] = useState<SortBy>("date-desc");
   // Agents currently running or queued. Keyed by task_id.
@@ -413,17 +410,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     }
   }, []);
 
-  // Fetch closed tasks on demand (→1694). The default /tasks response is
-  // active-only so we request ?status=closed when the user opens that tab.
-  const fetchClosedTasks = useCallback(async () => {
-    try {
-      const res = await api.get<TasksResponse>("/tasks?status=closed");
-      setClosedTasks(res.tasks ?? []);
-    } catch {
-      // silent; closed list is non-critical
-    }
-  }, []);
-
   const fetchLabels = useCallback(async () => {
     try {
       const res = await api.get<LabelsResponse>("/labels");
@@ -505,13 +491,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       .then((res) => setWaveAssignments(res.assignments ?? {}))
       .catch(() => { /* silent — no assignments yet */ });
   }, [fetchTasks, fetchLabels]);
-
-  // Fetch closed tasks when the user switches to the "closed" tab (→1694).
-  useEffect(() => {
-    if (selectedStatus === "closed") {
-      fetchClosedTasks();
-    }
-  }, [selectedStatus, fetchClosedTasks]);
 
   // Poll running agents every 3s to drive the per-row in-progress indicator
   // (needle: no live feedback that the agent is working on a task). The
@@ -606,8 +585,21 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         nextBuildStates.set(a.task_id, a.build_state);
       }
     }
-    setRunningAgentTaskIds(next);
-    setBuildStateByTaskId(nextBuildStates);
+    // Functional updater: return prev when contents are identical so React
+    // skips the re-render. Without this guard, every storeAgents reference
+    // change (e.g. the 2s fallback poll in useRunningAgentsFeed) produces a
+    // new Set/Map object → Object.is fails → infinite render loop (→1730).
+    setRunningAgentTaskIds(prev => {
+      if (prev.size === next.size && [...next].every(id => prev.has(id))) return prev;
+      return next;
+    });
+    setBuildStateByTaskId(prev => {
+      if (
+        prev.size === nextBuildStates.size &&
+        [...nextBuildStates.entries()].every(([k, v]) => prev.get(k) === v)
+      ) return prev;
+      return nextBuildStates;
+    });
   }, [storeAgents]);
 
   // Live updates for new tasks. Two channels:
@@ -1320,10 +1312,8 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   // Build a lookup map: task id -> Task (for showing dependency titles)
   const tasksById = new Map(tasks.map((t) => [t.id, t]));
 
-  // Filtering logic. Closed tasks come from their own state (fetched lazily
-  // via ?status=closed when the tab is opened). Active tasks come from the
-  // main `tasks` state which is the default /api/tasks response (→1694).
-  let filteredTasks = selectedStatus === "closed" ? closedTasks : tasks;
+  // Filtering logic
+  let filteredTasks = tasks;
 
   // Determine whether we're in a tri-state pill view (Open/InProgress/Closed)
   // or a legacy single-select view (all/shelved/week/recurring). Legacy
@@ -1480,7 +1470,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   const inProgressCount = tasks.filter(
     (t) => runningAgentTaskIds.has(t.id) && t.status !== "closed"
   ).length;
-  const closedCount = closedTasks.length;
+  const closedCount = tasks.filter((t) => t.status === "closed").length;
   const filterCounts: Partial<Record<StatusPill, number>> = {
     open: openCount,
     in_progress: inProgressCount,
@@ -1510,7 +1500,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
           return (
             <span
               key={`dep-${depId}`}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium cursor-pointer hover:opacity-80 bg-amber-500/15 text-amber-400 border border-amber-500/30"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium cursor-pointer hover:opacity-80 bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30"
               onClick={(e) => {
                 e.stopPropagation();
                 unlinkTask(task.id, "depends-on", depId);
@@ -1528,7 +1518,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
           return (
             <span
               key={`blk-${blockId}`}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium cursor-pointer hover:opacity-80 bg-blue-500/15 text-blue-400 border border-blue-500/30"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium cursor-pointer hover:opacity-80 bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30"
               onClick={(e) => {
                 e.stopPropagation();
                 unlinkTask(task.id, "blocks", blockId);
@@ -1597,13 +1587,13 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             e.stopPropagation();
             setOpenLabelDropdown(openLabelDropdown === task.id ? null : task.id);
           }}
-          className="p-1 text-slate-600 hover:text-slate-400 transition-colors"
+          className="p-1 text-slate-600 hover:text-slate-600 dark:hover:text-slate-400 transition-colors"
           title="Add a label"
         >
           <Icon name="label" className="text-sm" />
         </button>
         {openLabelDropdown === task.id && (
-          <div className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[140px]">
+          <div className="absolute right-0 top-full mt-1 z-50 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-1 min-w-[140px]">
             {availableLabels.length === 0 ? (
               <p className="px-3 py-2 text-xs text-slate-500">
                 {labels.length === 0 ? "No labels created yet" : "All labels assigned"}
@@ -1616,13 +1606,13 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                     e.stopPropagation();
                     assignLabel(task.id, label.id);
                   }}
-                  className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors"
+                  className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                 >
                   <span
                     className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                     style={{ backgroundColor: label.color }}
                   />
-                  <span className="text-slate-300">{label.name}</span>
+                  <span className="text-slate-700 dark:text-slate-300">{label.name}</span>
                 </button>
               ))
             )}
@@ -1650,14 +1640,14 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             setOpenLinkDropdown(openLinkDropdown === task.id ? null : task.id);
             setLinkTarget("");
           }}
-          className="p-1 text-slate-600 hover:text-slate-400 transition-colors"
+          className="p-1 text-slate-600 hover:text-slate-600 dark:hover:text-slate-400 transition-colors"
           title="Add a dependency"
         >
           <Icon name="account_tree" className="text-sm" />
         </button>
         {openLinkDropdown === task.id && (
           <div
-            className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-2 min-w-[240px]"
+            className="absolute right-0 top-full mt-1 z-50 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-2 min-w-[240px]"
             onClick={(e) => e.stopPropagation()}
           >
             <p className="px-3 pb-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
@@ -1669,12 +1659,12 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                 value={linkTarget}
                 onChange={(e) => setLinkTarget(e.target.value)}
                 placeholder="Type a task ID..."
-                className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-slate-500"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-slate-700 dark:text-slate-300 placeholder-slate-600 focus:outline-none focus:border-slate-500"
                 autoFocus
               />
             </div>
             {linkTarget.trim() && (
-              <div className="border-t border-slate-700 pt-1">
+              <div className="border-t border-slate-200 dark:border-slate-700 pt-1">
                 {(() => {
                   const targetId = linkTarget.trim().replace(/^#/, "");
                   const normalizedTarget = targetId.startsWith("→") ? targetId : `→${targetId.replace(/^0+/, "").padStart(3, "0")}`;
@@ -1688,14 +1678,14 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                       )}
                       <button
                         onClick={() => linkTask(task.id, "blocks", normalizedTarget)}
-                        className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-blue-400"
+                        className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-blue-600 dark:text-blue-400"
                       >
                         <Icon name="lock" className="text-sm" />
                         This task blocks {normalizedTarget}
                       </button>
                       <button
                         onClick={() => linkTask(task.id, "depends-on", normalizedTarget)}
-                        className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-amber-400"
+                        className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-amber-600 dark:text-amber-400"
                       >
                         <Icon name="block" className="text-sm" />
                         This task needs {normalizedTarget} first
@@ -1711,10 +1701,10 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                   <button
                     key={t.id}
                     onClick={() => setLinkTarget(t.id)}
-                    className="w-full text-left px-3 py-1 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors"
+                    className="w-full text-left px-3 py-1 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                   >
                     <span className="text-slate-500 font-mono">{t.id}</span>
-                    <span className="text-slate-300 truncate">{t.title}</span>
+                    <span className="text-slate-700 dark:text-slate-300 truncate">{t.title}</span>
                   </button>
                 ))}
               </div>
@@ -1726,15 +1716,15 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   };
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       {!embedded && <TopBar title="Needles" />}
 
-      <div data-tour="tasks" className={`${embedded ? '' : 'pt-16 sm:pt-20 '}px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
+      <div data-tour="tasks" className={`px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
         {/* Banner */}
         {banner && banner.trim() && (
           <div className="mb-4 px-4 py-3 bg-purple-500/20 border border-purple-500/40 rounded-lg text-sm text-purple-200 flex items-center justify-between">
             <span>{banner}</span>
-            <button onClick={() => setBanner(null)} className="text-purple-400 hover:text-white ml-4">
+            <button onClick={() => setBanner(null)} className="text-purple-600 dark:text-purple-400 hover:text-white ml-4">
               <Icon name="close" className="text-base" />
             </button>
           </div>
@@ -1744,16 +1734,16 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         <div className="flex items-center gap-2 mb-3 flex-wrap" data-testid="primary-toolbar">
           {/* Title + LIVE */}
           <h1 data-testid="page-header" className="text-xl sm:text-2xl font-bold">Needles</h1>
-          <span className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full" data-testid="live-badge">
+          <span className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full" data-testid="live-badge">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
             LIVE
           </span>
 
           {/* View tabs */}
           <div className="flex items-center gap-3 text-sm ml-2 mr-auto">
-            <button onClick={() => setActiveTab("tasks")} className={activeTab === "tasks" ? "text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-400 pb-0.5 hover:text-slate-300"}>Needles</button>
-            <button onClick={() => setActiveTab("labels")} className={activeTab === "labels" ? "text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-400 pb-0.5 hover:text-slate-300"}>Labels</button>
-            <button onClick={() => setActiveTab("health")} className={activeTab === "health" ? "text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-400 pb-0.5 hover:text-slate-300"}>Health</button>
+            <button onClick={() => setActiveTab("tasks")} className={activeTab === "tasks" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Needles</button>
+            <button onClick={() => setActiveTab("labels")} className={activeTab === "labels" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Labels</button>
+            <button onClick={() => setActiveTab("health")} className={activeTab === "health" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Health</button>
           </div>
 
           {/* Primary AI action */}
@@ -1765,17 +1755,17 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                   .then((res) => setBanner(res.message))
                   .catch(() => setBanner('Could not get a suggestion right now.'));
               }}
-              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300"
+              className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
             >
-              <Icon name="psychology" className="text-blue-400 text-base" />
+              <Icon name="psychology" className="text-blue-600 dark:text-blue-400 text-base" />
               <span className="hidden sm:inline">What should I do next?</span>
             </button>
             <button
               onClick={() => setWavesModalOpen(true)}
               data-testid="plan-waves-btn"
-              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-700"
+              className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700"
             >
-              <Icon name="account_tree" className="text-purple-400 text-base" />
+              <Icon name="account_tree" className="text-purple-600 dark:text-purple-400 text-base" />
               <span className="hidden sm:inline">
                 {Object.keys(waveAssignments).length > 0 ? "Update waves" : "Plan waves"}
               </span>
@@ -1784,14 +1774,14 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             <div className="relative group/wavesinfo">
               <button
                 data-testid="plan-waves-info"
-                className="p-1.5 text-slate-500 hover:text-slate-300 transition-colors"
+                className="p-1.5 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                 aria-label="What are waves?"
                 tabIndex={0}
               >
                 <Icon name="info" className="text-sm" />
               </button>
-              <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover/wavesinfo:block group-focus-within/wavesinfo:block w-72 bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-3 text-xs text-slate-300 leading-relaxed pointer-events-none">
-                <p className="font-semibold text-slate-100 mb-1">What are waves?</p>
+              <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover/wavesinfo:block group-focus-within/wavesinfo:block w-72 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-3 text-xs text-slate-700 dark:text-slate-300 leading-relaxed pointer-events-none">
+                <p className="font-semibold text-slate-900 dark:text-slate-100 mb-1">What are waves?</p>
                 <p>Waves group your tasks into batches. Tasks in the same wave can run at the same time. Each wave waits for the one before it to finish — so you always know what to start next.</p>
               </div>
             </div>
@@ -1802,7 +1792,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             <button
               onClick={() => setShowOverflowMenu((v) => !v)}
               data-testid="overflow-menu-trigger"
-              className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 text-slate-400"
+              className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
               title="More actions"
             >
               <Icon name="more_horiz" className="text-base" />
@@ -1810,32 +1800,32 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             {showOverflowMenu && (
               <div
                 data-testid="overflow-menu"
-                className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-1 min-w-[180px]"
+                className="absolute right-0 top-full mt-1 z-50 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1 min-w-[180px]"
                 onClick={(e) => e.stopPropagation()}
               >
                 <button
                   data-testid="label-all-btn"
                   onClick={() => { setShowOverflowMenu(false); labelAllTasks(); }}
                   disabled={labelAllLoading}
-                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300 disabled:opacity-50"
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300 disabled:opacity-50"
                 >
-                  {labelAllLoading ? <Icon name="hourglass_empty" className="text-purple-400 text-sm animate-spin" /> : <Icon name="label" className="text-purple-400 text-sm" />}
+                  {labelAllLoading ? <Icon name="hourglass_empty" className="text-purple-600 dark:text-purple-400 text-sm animate-spin" /> : <Icon name="label" className="text-purple-600 dark:text-purple-400 text-sm" />}
                   {labelAllLoading ? "Labeling..." : "Label all"}
                 </button>
                 <button
                   onClick={() => { setShowOverflowMenu(false); setImportModalOpen(true); setImportResult(null); setImportFields({}); }}
-                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
                   data-testid="overflow-import"
                 >
-                  <Icon name="download" className="text-slate-400 text-sm" />
+                  <Icon name="download" className="text-slate-600 dark:text-slate-400 text-sm" />
                   Import
                 </button>
                 <button
                   onClick={() => { setShowOverflowMenu(false); setShowTaskSharePopover((v) => !v); }}
-                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
                   data-testid="overflow-share"
                 >
-                  <Icon name="share" className="text-slate-400 text-sm" />
+                  <Icon name="share" className="text-slate-600 dark:text-slate-400 text-sm" />
                   Share
                 </button>
                 <ExportButton
@@ -1847,37 +1837,37 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                   />
                 <button
                   onClick={() => { setShowOverflowMenu(false); copyTaskList(); }}
-                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
                   data-testid="overflow-copy"
                 >
-                  <Icon name="content_copy" className="text-slate-400 text-sm" />
+                  <Icon name="content_copy" className="text-slate-600 dark:text-slate-400 text-sm" />
                   Copy list
                 </button>
                 <button
                   data-testid="plan-waves-button"
                   onClick={() => { setShowOverflowMenu(false); setWavesModalOpen(true); }}
-                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
                 >
-                  <Icon name="account_tree" className="text-purple-400 text-sm" />
+                  <Icon name="account_tree" className="text-purple-600 dark:text-purple-400 text-sm" />
                   Plan waves
                 </button>
-                <div className="border-t border-slate-700 my-1" />
+                <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                 <button
                   onClick={() => { setShowOverflowMenu(false); setAuditModalOpen(true); }}
                   data-testid="tasks-audit-button"
-                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-blue-300"
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-blue-700 dark:text-blue-300"
                 >
-                  <Icon name="fact_check" className="text-blue-400 text-sm" />
+                  <Icon name="fact_check" className="text-blue-600 dark:text-blue-400 text-sm" />
                   Audit for review
                 </button>
-                <div className="border-t border-slate-700 my-1" />
+                <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                 <button
                   onClick={() => { setShowOverflowMenu(false); setDeleteAllConfirmOpen(true); }}
                   data-testid="overflow-delete-all"
                   disabled={deleteAllLoading || filteredTasks.length === 0}
-                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-red-900/40 transition-colors text-red-400 disabled:opacity-40"
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-red-900/40 transition-colors text-red-600 dark:text-red-400 disabled:opacity-40"
                 >
-                  <Icon name="delete_sweep" className="text-red-400 text-sm" />
+                  <Icon name="delete_sweep" className="text-red-600 dark:text-red-400 text-sm" />
                   {deleteAllLoading ? "Deleting..." : "Delete all"}
                 </button>
               </div>
@@ -1895,7 +1885,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
         {/* Label all result toast */}
         {labelAllResult && (
-          <div className="mb-2 text-xs text-purple-300 bg-purple-500/10 px-3 py-1.5 rounded-md border border-purple-500/30 inline-block">
+          <div className="mb-2 text-xs text-purple-700 dark:text-purple-300 bg-purple-500/10 px-3 py-1.5 rounded-md border border-purple-500/30 inline-block">
             {labelAllResult}
           </div>
         )}
@@ -1925,7 +1915,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                   onChange={(e) => setNewTaskTitle(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="What needs to be done?"
-                  className="w-full bg-slate-900/60 border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-slate-300 placeholder-slate-600 focus:outline-none focus:border-slate-600"
+                  className="w-full bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg px-4 py-2.5 text-sm text-slate-700 dark:text-slate-300 placeholder-slate-600 focus:outline-none focus:border-slate-600"
                 />
               </div>
               <button
@@ -1961,13 +1951,13 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                     onClick={() => setShowNeedsClarity((v) => !v)}
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
                       showNeedsClarity
-                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
-                        : "text-slate-500 hover:text-slate-300 border border-transparent hover:border-slate-700"
+                        ? "bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40"
+                        : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
                     }`}
                   >
                     ⚠ Draft
                     <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                      showNeedsClarity ? "bg-amber-500/30 text-amber-300" : "bg-slate-700 text-slate-400"
+                      showNeedsClarity ? "bg-amber-500/30 text-amber-700 dark:text-amber-300" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"
                     }`}>{count}</span>
                   </button>
                 </div>
@@ -1977,14 +1967,14 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             {/* Bulk action bar */}
             {selectedTaskIds.size > 0 && (
               <div className="flex items-center gap-3 mb-4 px-4 py-2.5 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                <span className="text-sm text-blue-300 font-medium">
+                <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">
                   {selectedTaskIds.size} selected
                 </span>
                 <div className="flex items-center gap-2 ml-auto">
                   <button
                     onClick={() => bulkAction("plan")}
                     disabled={actionLoading === "bulk"}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs rounded-lg border border-purple-500/30 disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 text-xs rounded-lg border border-purple-500/30 disabled:opacity-50"
                   >
                     <Icon name="description" className="text-sm" />
                     Plan all
@@ -1992,14 +1982,14 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                   <button
                     onClick={() => bulkAction("implement")}
                     disabled={actionLoading === "bulk"}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-green-500/20 hover:bg-green-500/30 text-green-300 text-xs rounded-lg border border-green-500/30 disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1 bg-green-500/20 hover:bg-green-500/30 text-green-700 dark:text-green-300 text-xs rounded-lg border border-green-500/30 disabled:opacity-50"
                   >
                     <Icon name="code" className="text-sm" />
                     Implement all
                   </button>
                   <button
                     onClick={() => setSelectedTaskIds(new Set())}
-                    className="p-1 text-slate-400 hover:text-slate-200"
+                    className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
                     title="Clear selection"
                   >
                     <Icon name="close" className="text-sm" />
@@ -2022,7 +2012,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             >
             <div className="flex flex-col gap-2">
               {fetchError && (
-                <div className="flex items-center justify-between gap-3 rounded-lg bg-red-950 border border-red-800 px-4 py-3 text-sm text-red-300" data-testid="tasks-fetch-error">
+                <div className="flex items-center justify-between gap-3 rounded-lg bg-red-950 border border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300" data-testid="tasks-fetch-error">
                   <span>{fetchError}</span>
                   <button
                     onClick={fetchTasks}
@@ -2052,8 +2042,8 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         data-testid={`wave-group-${priority.replace("wave-", "")}`}
                         className="flex items-center gap-2 px-1 pt-3 pb-1 first:pt-0"
                       >
-                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{label}</span>
-                        <span className="flex-1 h-px bg-slate-800" />
+                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">{label}</span>
+                        <span className="flex-1 h-px bg-slate-100 dark:bg-slate-800" />
                       </div>
                     )}
                   <SortableContext
@@ -2075,10 +2065,10 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                       (runningAgentTaskIds.has(task.id) && task.status !== "closed")
                         ? "ring-1 ring-blue-400/60 "
                         : ""
-                    }bg-slate-900/60 border rounded-lg px-4 py-3 flex items-center gap-3 cursor-pointer transition-colors ${
+                    }bg-white/60 dark:bg-slate-900/60 border rounded-lg px-4 py-3 flex items-center gap-3 cursor-pointer transition-colors ${
                       selectedTaskId === task.id
                         ? "border-blue-500/60 bg-blue-500/5"
-                        : "border-slate-800 hover:border-slate-700"
+                        : "border-slate-200 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700"
                     }`}
                   >
                     <input
@@ -2086,13 +2076,13 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                       checked={selectedTaskIds.has(task.id)}
                       onClick={(e) => e.stopPropagation()}
                       onChange={() => toggleTaskSelection(task.id)}
-                      className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-0 flex-shrink-0 cursor-pointer"
+                      className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-100 dark:bg-slate-800 text-blue-500 focus:ring-0 flex-shrink-0 cursor-pointer"
                       aria-label={`select ${task.title}`}
                     />
                     {runningAgentTaskIds.has(task.id) && task.status !== "closed" && (
                       <span
                         data-testid={`task-in-progress-indicator-${task.id}`}
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/40"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/40"
                         title="Agent is working on this task"
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-blue-300 animate-pulse" />
@@ -2117,7 +2107,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                       }`}
                     >
                       {task.status === "closed" && (
-                        <Icon name="check" className="text-green-400 text-xs" />
+                        <Icon name="check" className="text-green-600 dark:text-green-400 text-xs" />
                       )}
                     </button>
                     <span className="text-slate-500 text-sm font-mono">
@@ -2148,7 +2138,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                               titleEditCancelledRef.current = false;
                             }}
                             onClick={(e) => e.stopPropagation()}
-                            className="text-sm bg-slate-800 border border-blue-500 rounded px-1.5 py-0.5 w-full focus:outline-none text-slate-200 min-w-0"
+                            className="text-sm bg-slate-100 dark:bg-slate-800 border border-blue-500 rounded px-1.5 py-0.5 w-full focus:outline-none text-slate-800 dark:text-slate-200 min-w-0"
                           />
                         ) : (
                           <>
@@ -2173,7 +2163,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                                 setEditingTaskId(task.id);
                                 setEditingTitleDraft(task.title);
                               }}
-                              className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-slate-300 transition-opacity flex-shrink-0"
+                              className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-opacity flex-shrink-0"
                               title="Edit title"
                               aria-label={`edit title of ${task.title}`}
                             >
@@ -2183,7 +2173,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         )}
                         {task.status === "shelved" && (
                           <span
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-500/15 text-slate-400 border border-slate-500/30"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-500/15 text-slate-600 dark:text-slate-400 border border-slate-500/30"
                           >
                             <Icon name="pause" className="text-[10px]" />
                             Paused
@@ -2205,15 +2195,15 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         {task.status === "closed" && task.closed_reason === "completed" && (
                           <span
                             data-testid={`closed-badge-${task.id}`}
-                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-400 border border-green-500/30"
+                            className="needle-snap inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/30"
                           >
-                            Done
+                            Threaded
                           </span>
                         )}
                         {task.status === "closed" && task.closed_reason === "duplicate" && (
                           <span
                             data-testid={`closed-badge-${task.id}`}
-                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-500/15 text-slate-400 border border-slate-500/30"
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-500/15 text-slate-600 dark:text-slate-400 border border-slate-500/30"
                           >
                             Duplicate
                           </span>
@@ -2221,7 +2211,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         {task.status === "closed" && task.closed_reason === "archived" && (
                           <span
                             data-testid={`closed-badge-${task.id}`}
-                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30"
                           >
                             Archived
                           </span>
@@ -2243,7 +2233,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         {waveAssignments[task.id] != null && (
                           <span
                             data-testid={`wave-badge-${task.id}`}
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/25"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/25"
                           >
                             W{waveAssignments[task.id]}
                           </span>
@@ -2263,7 +2253,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                       {task.notes && (
                         <p
                           data-testid={`task-notes-${task.id}`}
-                          className="text-xs text-amber-400/70 truncate mt-0.5"
+                          className="text-xs text-amber-600 dark:text-amber-400/70 truncate mt-0.5"
                           title={task.notes}
                         >
                           <span className="font-medium">Note:</span> {task.notes}
@@ -2281,7 +2271,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                           autoLabelTask(task.id);
                         }}
                         disabled={autoLabelingTaskId === task.id}
-                        className="p-1 text-slate-600 hover:text-purple-400 disabled:opacity-50 transition-colors"
+                        className="p-1 text-slate-600 hover:text-purple-600 dark:hover:text-purple-400 disabled:opacity-50 transition-colors"
                         title="Auto-label this needle"
                       >
                         {autoLabelingTaskId === task.id ? (
@@ -2296,7 +2286,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         e.stopPropagation();
                         deleteTask(task.id);
                       }}
-                      className="p-1 text-slate-700 hover:text-red-400 transition-colors"
+                      className="p-1 text-slate-700 hover:text-red-600 dark:hover:text-red-400 transition-colors"
                       title="Delete needle permanently"
                     >
                       <Icon name="delete" className="text-sm" />
@@ -2308,32 +2298,32 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                           e.stopPropagation();
                           setOpenActionMenu(openActionMenu === task.id ? null : task.id);
                         }}
-                        className="p-1 text-slate-600 hover:text-slate-400 transition-colors"
+                        className="p-1 text-slate-600 hover:text-slate-600 dark:hover:text-slate-400 transition-colors"
                         title="Actions"
                       >
                         <Icon name="more_vert" className="text-sm" />
                       </button>
                       {openActionMenu === task.id && (
                         <div
-                          className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[180px]"
+                          className="absolute right-0 top-full mt-1 z-50 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-1 min-w-[180px]"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <button
                             onClick={() => handleSpawnWithGate(task.id, "plan")}
                             disabled={actionLoading === task.id}
-                            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
                           >
-                            <Icon name="description" className="text-sm text-purple-400" />
+                            <Icon name="description" className="text-sm text-purple-600 dark:text-purple-400" />
                             Plan
                           </button>
                           {/* Comprehensive build (default) plus quick escape hatch. */}
-                          <div className="flex items-center w-full hover:bg-slate-700 transition-colors">
+                          <div className="flex items-center w-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
                             <button
                               onClick={() => handleSpawnWithGate(task.id, "comprehensive")}
                               disabled={actionLoading === task.id}
-                              className="flex-1 text-left px-3 py-1.5 text-xs flex items-center gap-2 text-slate-300"
+                              className="flex-1 text-left px-3 py-1.5 text-xs flex items-center gap-2 text-slate-700 dark:text-slate-300"
                             >
-                              <Icon name="code" className="text-sm text-green-400" />
+                              <Icon name="code" className="text-sm text-green-600 dark:text-green-400" />
                               Comprehensive build
                             </button>
                             <button
@@ -2341,7 +2331,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                                 e.stopPropagation();
                                 setOpenBuildHelp(openBuildHelp === task.id ? null : task.id);
                               }}
-                              className="px-2 py-1.5 text-slate-500 hover:text-slate-200"
+                              className="px-2 py-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
                               title="What does this do?"
                               aria-label="What does this do?"
                             >
@@ -2351,9 +2341,9 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                           <button
                             onClick={() => handleSpawnWithGate(task.id, "quick")}
                             disabled={actionLoading === task.id}
-                            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
                           >
-                            <Icon name="bolt" className="text-sm text-yellow-400" />
+                            <Icon name="bolt" className="text-sm text-yellow-600 dark:text-yellow-400" />
                             Quick build
                           </button>
                           {openBuildHelp === task.id && (
@@ -2361,10 +2351,10 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                               ref={buildHelpRef}
                               role="dialog"
                               aria-label="What does this do?"
-                              className="absolute right-full top-0 mr-2 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-xl z-50 p-4 text-xs text-slate-300 space-y-2"
+                              className="absolute right-full top-0 mr-2 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50 p-4 text-xs text-slate-700 dark:text-slate-300 space-y-2"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <div className="font-semibold text-slate-100 text-sm">What does this do?</div>
+                              <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm">What does this do?</div>
                               <p>Comprehensive build spawns an agent that works the way you would want it to:</p>
                               <ol className="list-decimal list-inside space-y-0.5">
                                 <li>Loads workspace context.</li>
@@ -2392,28 +2382,28 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                                 // silently fail if specs endpoint isn't ready
                               }
                             }}
-                            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
                           >
-                            <Icon name="article" className="text-sm text-blue-400" />
+                            <Icon name="article" className="text-sm text-blue-600 dark:text-blue-400" />
                             Create Spec
                           </button>
-                          <div className="border-t border-slate-700 my-1" />
+                          <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                           {task.status === "shelved" ? (
                             <button
                               data-testid="task-action-resume"
                               onClick={() => unshelveTask(task.id)}
-                              className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                              className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
                             >
-                              <Icon name="play_arrow" className="text-sm text-green-400" />
+                              <Icon name="play_arrow" className="text-sm text-green-600 dark:text-green-400" />
                               Resume
                             </button>
                           ) : task.status === "in_progress" ? (
                             <button
                               data-testid="task-action-pause"
                               onClick={() => shelveTask(task.id)}
-                              className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                              className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
                             >
-                              <Icon name="pause" className="text-sm text-slate-400" />
+                              <Icon name="pause" className="text-sm text-slate-600 dark:text-slate-400" />
                               Pause
                             </button>
                           ) : null}
@@ -2434,21 +2424,21 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                             openPriorityDropdown === task.id ? null : task.id
                           );
                         }}
-                        className={`text-xs font-medium px-2 py-0.5 rounded cursor-pointer hover:ring-1 hover:ring-white/30 transition-all ${priorityStyles[task.priority] ?? "bg-slate-500/20 text-slate-400"}`}
+                        className={`text-xs font-medium px-2 py-0.5 rounded cursor-pointer hover:ring-1 hover:ring-white/30 transition-all ${priorityStyles[task.priority] ?? "bg-slate-500/20 text-slate-600 dark:text-slate-400"}`}
                         title="Change priority"
                       >
                         {task.priority}
                       </button>
                       {task.unblocks && task.unblocks > 0 && (
                         <span
-                          className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                          className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30"
                           title={`Completing this needle unblocks ${task.unblocks} other needles`}
                         >
                           unblocks {task.unblocks}
                         </span>
                       )}
                       {openPriorityDropdown === task.id && (
-                        <div className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[80px]">
+                        <div className="absolute right-0 top-full mt-1 z-50 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-1 min-w-[80px]">
                           {PRIORITIES.map((p) => (
                             <button
                               key={p}
@@ -2456,7 +2446,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                                 e.stopPropagation();
                                 updatePriority(task.id, p);
                               }}
-                              className={`w-full text-left px-3 py-1.5 text-xs font-medium flex items-center gap-2 hover:bg-slate-700 transition-colors ${
+                              className={`w-full text-left px-3 py-1.5 text-xs font-medium flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors ${
                                 task.priority === p ? "opacity-50" : ""
                               }`}
                             >
@@ -2477,7 +2467,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         <button
                           onClick={() => handleSpawnWithGate(task.id, "comprehensive")}
                           disabled={actionLoading === task.id}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-50"
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-500/20 text-green-600 dark:text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-50"
                         >
                           <Icon name="code" className="text-sm" />
                           Comprehensive build
@@ -2485,7 +2475,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         <button
                           onClick={() => handleSpawnWithGate(task.id, "plan")}
                           disabled={actionLoading === task.id}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors disabled:opacity-50"
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-500/20 text-purple-600 dark:text-purple-400 hover:bg-purple-500/30 transition-colors disabled:opacity-50"
                         >
                           <Icon name="description" className="text-sm" />
                           Plan
@@ -2493,20 +2483,20 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         <button
                           onClick={() => handleSpawnWithGate(task.id, "quick")}
                           disabled={actionLoading === task.id}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
                         >
                           <Icon name="bolt" className="text-sm" />
                           Quick build
                         </button>
                       </div>
                       {/* Tab bar */}
-                      <div className="flex items-center gap-4 mb-3 border-b border-slate-800 pb-2">
+                      <div className="flex items-center gap-4 mb-3 border-b border-slate-200 dark:border-slate-800 pb-2">
                         <button
                           onClick={() => setDetailTab("context")}
                           className={`text-xs font-medium pb-1 ${
                             detailTab === "context"
-                              ? "text-blue-400 border-b-2 border-blue-400"
-                              : "text-slate-500 hover:text-slate-300"
+                              ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400"
+                              : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                           }`}
                         >
                           Context
@@ -2516,8 +2506,8 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                           onClick={() => setDetailTab("history")}
                           className={`text-xs font-medium pb-1 ${
                             detailTab === "history"
-                              ? "text-blue-400 border-b-2 border-blue-400"
-                              : "text-slate-500 hover:text-slate-300"
+                              ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400"
+                              : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                           }`}
                         >
                           Changelog
@@ -2527,8 +2517,8 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                           onClick={() => setDetailTab("related")}
                           className={`text-xs font-medium pb-1 ${
                             detailTab === "related"
-                              ? "text-blue-400 border-b-2 border-blue-400"
-                              : "text-slate-500 hover:text-slate-300"
+                              ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400"
+                              : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                           }`}
                         >
                           Related
@@ -2539,7 +2529,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                       {detailTab === "context" && (
                         <>
                           {briefingLoading && (
-                            <div className="flex items-center gap-2 text-slate-400">
+                            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
                               <Icon name="hourglass_empty" className="text-base animate-spin" />
                               Loading context...
                             </div>
@@ -2548,7 +2538,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                             <div className="space-y-3">
                               {task.description && (
                                 <div data-testid={`task-summary-${task.id}`}>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Summary</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">Summary</h4>
                                   <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{task.description}</p>
                                 </div>
                               )}
@@ -2561,13 +2551,13 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                             <div className="space-y-3">
                               {task.description && (
                                 <div data-testid={`task-summary-${task.id}`}>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Summary</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">Summary</h4>
                                   <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{task.description}</p>
                                 </div>
                               )}
                               {briefing.blocked_by.length > 0 && (
                                 <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Waiting on</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">Waiting on</h4>
                                   <div className="space-y-2">
                                     {briefing.blocked_by.map((b, i) => {
                                       const blockerTask = b.blocker_task ?? null;
@@ -2577,7 +2567,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                                       const status = blockerTask?.status ?? "";
                                       const blockerId = b.blocker_id ?? "";
                                       const idLabel = blockerId ? `\u2192${blockerId}` : "";
-                                      const priorityClass = priority && priorityStyles[priority] ? priorityStyles[priority] : "bg-slate-700 text-slate-300";
+                                      const priorityClass = priority && priorityStyles[priority] ? priorityStyles[priority] : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300";
                                       const statusLabel = status === "open" ? "Open" : status === "closed" ? "Closed" : status;
                                       const isClickable = Boolean(blockerId);
                                       return (
@@ -2596,10 +2586,10 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                                           <div className="flex items-center gap-2 text-xs">
                                             <Icon
                                               name={b.resolved ? "check_circle" : "block"}
-                                              className={`text-sm ${b.resolved ? "text-green-400" : "text-amber-400"}`}
+                                              className={`text-sm ${b.resolved ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}
                                             />
                                             {idLabel && (
-                                              <span className="font-mono text-slate-400">Blocked by {idLabel}</span>
+                                              <span className="font-mono text-slate-600 dark:text-slate-400">Blocked by {idLabel}</span>
                                             )}
                                             {priority && (
                                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${priorityClass}`}>
@@ -2607,7 +2597,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                                               </span>
                                             )}
                                             {statusLabel && (
-                                              <span className="text-slate-400">{statusLabel}</span>
+                                              <span className="text-slate-600 dark:text-slate-400">{statusLabel}</span>
                                             )}
                                           </div>
                                           <div className={`mt-1 text-sm font-medium ${b.resolved ? "text-slate-500 line-through" : "text-slate-700 dark:text-slate-200"}`}>
@@ -2628,7 +2618,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                                     })}
                                   </div>
                                   {briefing.all_blockers_resolved && (
-                                    <p className="mt-2 text-green-400 text-xs flex items-center gap-1">
+                                    <p className="mt-2 text-green-600 dark:text-green-400 text-xs flex items-center gap-1">
                                       <Icon name="check_circle" className="text-sm" />
                                       All blockers resolved. Ready to go.
                                     </p>
@@ -2638,11 +2628,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
                               {briefing.unblocks.length > 0 && (
                                 <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Finishing this unblocks</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">Finishing this unblocks</h4>
                                   <ul className="space-y-1">
                                     {briefing.unblocks.map((u, i) => (
-                                      <li key={i} className="flex items-center gap-2 text-slate-300">
-                                        <Icon name="lock_open" className="text-sm text-blue-400" />
+                                      <li key={i} className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                                        <Icon name="lock_open" className="text-sm text-blue-600 dark:text-blue-400" />
                                         {u}
                                       </li>
                                     ))}
@@ -2652,10 +2642,10 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
                               {briefing.neighbors.length > 0 && (
                                 <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Related needles</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">Related needles</h4>
                                   <ul className="space-y-1">
                                     {briefing.neighbors.map((n, i) => (
-                                      <li key={i} className="flex items-center gap-2 text-slate-300">
+                                      <li key={i} className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
                                         <Icon name="link" className="text-sm text-slate-500" />
                                         {n}
                                       </li>
@@ -2675,7 +2665,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                       {/* Plan attachment link */}
                       {detailTab === "context" && task.plan_path && (
                         <div className="mt-3 flex items-center gap-2 text-xs">
-                          <Icon name="task_alt" className="text-blue-400 text-sm" />
+                          <Icon name="task_alt" className="text-blue-600 dark:text-blue-400 text-sm" />
                           <a
                             data-testid={`task-plan-${task.id}`}
                             href={`/specs?highlight=${encodeURIComponent(task.plan_path)}`}
@@ -2683,7 +2673,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                               e.preventDefault();
                               navigate(`/specs?highlight=${encodeURIComponent(task.plan_path!)}`);
                             }}
-                            className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                            className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline underline-offset-2"
                           >
                             Plan attached
                           </a>
@@ -2692,11 +2682,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
                       {/* Notes editor — shown at the bottom of the context tab */}
                       {detailTab === "context" && (
-                        <div className="mt-4 border-t border-slate-700 pt-4">
-                          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Notes</h4>
+                        <div className="mt-4 border-t border-slate-200 dark:border-slate-700 pt-4">
+                          <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-2">Notes</h4>
                           <textarea
                             data-testid="task-notes-editor"
-                            className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
                             rows={4}
                             placeholder="Add a note..."
                             value={notesValue}
@@ -2721,7 +2711,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                             >
                               {notesSaving ? "Saving…" : "Save"}
                             </button>
-                            {notesSaved && <span className="text-xs text-green-400">Saved</span>}
+                            {notesSaved && <span className="text-xs text-green-600 dark:text-green-400">Saved</span>}
                           </div>
                         </div>
                       )}
@@ -2730,7 +2720,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                       {detailTab === "history" && (
                         <div data-testid="trace-panel">
                           {traceLoading && (
-                            <div className="flex items-center gap-2 text-slate-400">
+                            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
                               <Icon name="hourglass_empty" className="text-base animate-spin" />
                               Loading history...
                             </div>
@@ -2742,11 +2732,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                             <div className="space-y-3">
                               {trace.specs.length > 0 && (
                                 <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Specs</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">Specs</h4>
                                   <ul className="space-y-1">
                                     {trace.specs.map((s, i) => (
-                                      <li key={i} className="flex items-center gap-2 text-slate-300">
-                                        <Icon name="description" className="text-sm text-purple-400" />
+                                      <li key={i} className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                                        <Icon name="description" className="text-sm text-purple-600 dark:text-purple-400" />
                                         {s}
                                       </li>
                                     ))}
@@ -2756,11 +2746,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
                               {trace.drafts.length > 0 && (
                                 <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Drafts</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">Drafts</h4>
                                   <ul className="space-y-1">
                                     {trace.drafts.map((d, i) => (
-                                      <li key={i} className="flex items-center gap-2 text-slate-300">
-                                        <Icon name="edit_note" className="text-sm text-amber-400" />
+                                      <li key={i} className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                                        <Icon name="edit_note" className="text-sm text-amber-600 dark:text-amber-400" />
                                         {d}
                                       </li>
                                     ))}
@@ -2770,11 +2760,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
                               {trace.agentfiles.length > 0 && (
                                 <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Agent work</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">Agent work</h4>
                                   <ul className="space-y-1">
                                     {trace.agentfiles.map((a, i) => (
-                                      <li key={i} className="flex items-center gap-2 text-slate-300">
-                                        <Icon name="smart_toy" className="text-sm text-cyan-400" />
+                                      <li key={i} className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                                        <Icon name="smart_toy" className="text-sm text-cyan-600 dark:text-cyan-400" />
                                         {a}
                                       </li>
                                     ))}
@@ -2784,11 +2774,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
                               {trace.depends_on.length > 0 && (
                                 <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Depends on</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">Depends on</h4>
                                   <ul className="space-y-1">
                                     {trace.depends_on.map((dep, i) => (
-                                      <li key={i} className="flex items-center gap-2 text-slate-300">
-                                        <Icon name="arrow_back" className="text-sm text-orange-400" />
+                                      <li key={i} className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                                        <Icon name="arrow_back" className="text-sm text-orange-600 dark:text-orange-400" />
                                         {dep}
                                       </li>
                                     ))}
@@ -2798,11 +2788,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
                               {trace.blocks.length > 0 && (
                                 <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Blocks</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">Blocks</h4>
                                   <ul className="space-y-1">
                                     {trace.blocks.map((b, i) => (
-                                      <li key={i} className="flex items-center gap-2 text-slate-300">
-                                        <Icon name="arrow_forward" className="text-sm text-blue-400" />
+                                      <li key={i} className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                                        <Icon name="arrow_forward" className="text-sm text-blue-600 dark:text-blue-400" />
                                         {b}
                                       </li>
                                     ))}
@@ -2812,11 +2802,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
                               {trace.commits.length > 0 && (
                                 <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Commits</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1">Commits</h4>
                                   <ul className="space-y-1">
                                     {trace.commits.map((c, i) => (
-                                      <li key={i} className="flex items-center gap-2 text-slate-300 font-mono text-xs">
-                                        <Icon name="commit" className="text-sm text-green-400" />
+                                      <li key={i} className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-mono text-xs">
+                                        <Icon name="commit" className="text-sm text-green-600 dark:text-green-400" />
                                         {c}
                                       </li>
                                     ))}
@@ -2836,7 +2826,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                       {detailTab === "related" && (
                         <div data-testid="related-panel">
                           {linkedLoading && (
-                            <div className="flex items-center gap-2 text-slate-400">
+                            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
                               <Icon name="hourglass_empty" className="text-base animate-spin" />
                               Finding related items...
                             </div>
@@ -2845,17 +2835,17 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                             <div className="space-y-4">
                               {linkedContext.emails.length > 0 && (
                                 <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Related emails</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-2">Related emails</h4>
                                   <div className="space-y-2">
                                     {linkedContext.emails.map((email) => (
                                       <div
                                         key={email.id}
                                         onClick={() => navigate(`/gmail?thread=${email.id}`)}
-                                        className="flex items-start gap-2 p-2 rounded-md bg-slate-800/50 hover:bg-slate-800 cursor-pointer transition-colors"
+                                        className="flex items-start gap-2 p-2 rounded-md bg-slate-100 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
                                       >
-                                        <Icon name="mail" className="text-blue-400 mt-0.5" size={14} />
+                                        <Icon name="mail" className="text-blue-600 dark:text-blue-400 mt-0.5" size={14} />
                                         <div className="flex-1 min-w-0">
-                                          <p className="text-slate-200 text-sm truncate">{email.subject}</p>
+                                          <p className="text-slate-800 dark:text-slate-200 text-sm truncate">{email.subject}</p>
                                           <p className="text-slate-500 text-xs">{email.from}</p>
                                         </div>
                                       </div>
@@ -2866,17 +2856,17 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
                               {linkedContext.events.length > 0 && (
                                 <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Related events</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-2">Related events</h4>
                                   <div className="space-y-2">
                                     {linkedContext.events.map((ev) => (
                                       <div
                                         key={ev.id}
                                         onClick={() => navigate('/calendar')}
-                                        className="flex items-start gap-2 p-2 rounded-md bg-slate-800/50 hover:bg-slate-800 cursor-pointer transition-colors"
+                                        className="flex items-start gap-2 p-2 rounded-md bg-slate-100 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
                                       >
-                                        <Icon name="event" className="text-purple-400 mt-0.5" size={14} />
+                                        <Icon name="event" className="text-purple-600 dark:text-purple-400 mt-0.5" size={14} />
                                         <div className="flex-1 min-w-0">
-                                          <p className="text-slate-200 text-sm">{ev.summary}</p>
+                                          <p className="text-slate-800 dark:text-slate-200 text-sm">{ev.summary}</p>
                                           {ev.start && (
                                             <p className="text-slate-500 text-xs">
                                               {(() => {
@@ -2896,7 +2886,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
                               {linkedContext.files.length > 0 && (
                                 <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Related files</h4>
+                                  <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-2">Related files</h4>
                                   <div className="space-y-2">
                                     {linkedContext.files.map((file) => (
                                       <a
@@ -2904,11 +2894,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                                         href={file.webViewLink || '#'}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="flex items-start gap-2 p-2 rounded-md bg-slate-800/50 hover:bg-slate-800 transition-colors block"
+                                        className="flex items-start gap-2 p-2 rounded-md bg-slate-100 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors block"
                                       >
                                         <Icon name="description" className="text-emerald-400 mt-0.5" size={14} />
                                         <div className="flex-1 min-w-0">
-                                          <p className="text-slate-200 text-sm truncate">{file.name}</p>
+                                          <p className="text-slate-800 dark:text-slate-200 text-sm truncate">{file.name}</p>
                                         </div>
                                         <Icon name="open_in_new" className="text-slate-500" size={12} />
                                       </a>
@@ -2929,10 +2919,10 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                       )}
 
                       {/* Link a commit to this task */}
-                      <div className="mt-4 pt-3 border-t border-slate-800">
+                      <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
                         {commitTaskId === task.id ? (
                           <div className="space-y-2">
-                            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Link a commit to this needle</h4>
+                            <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">Link a commit to this needle</h4>
                             <div className="flex items-center gap-2">
                               <input
                                 type="text"
@@ -2943,7 +2933,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                                   if (e.key === "Escape") { setCommitTaskId(null); setCommitMessage(""); setCommitResult(null); }
                                 }}
                                 placeholder="What did you change?"
-                                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-300 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                                className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 placeholder-slate-600 focus:outline-none focus:border-blue-500"
                                 autoFocus
                                 data-testid="commit-message-input"
                               />
@@ -2958,14 +2948,14 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                               </button>
                               <button
                                 onClick={() => { setCommitTaskId(null); setCommitMessage(""); setCommitResult(null); }}
-                                className="p-1.5 text-slate-500 hover:text-slate-300"
+                                className="p-1.5 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                                 title="Cancel"
                               >
                                 <Icon name="close" className="text-sm" />
                               </button>
                             </div>
                             {commitResult && (
-                              <p data-testid="commit-result" className="text-xs text-green-400 flex items-center gap-1">
+                              <p data-testid="commit-result" className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
                                 <Icon name="check_circle" className="text-sm" />
                                 {commitResult}
                               </p>
@@ -2974,7 +2964,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         ) : (
                           <button
                             onClick={() => { setCommitTaskId(task.id); setCommitResult(null); }}
-                            className="flex items-center gap-2 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                            className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
                             data-testid="commit-trigger-btn"
                           >
                             <Icon name="commit" className="text-sm" />
@@ -2994,9 +2984,9 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             </div>
             <DragOverlay>
               {activeDragId ? (
-                <div className="bg-slate-900/90 border border-blue-500/60 rounded-lg px-4 py-3 flex items-center gap-3 shadow-xl opacity-90">
-                  <Icon name="drag_indicator" className="text-slate-400 text-lg" />
-                  <span className="text-sm text-slate-300">
+                <div className="bg-white dark:bg-slate-900/90 border border-blue-500/60 rounded-lg px-4 py-3 flex items-center gap-3 shadow-xl opacity-90">
+                  <Icon name="drag_indicator" className="text-slate-600 dark:text-slate-400 text-lg" />
+                  <span className="text-sm text-slate-700 dark:text-slate-300">
                     {tasks.find((t) => t.id === activeDragId)?.title ?? activeDragId}
                   </span>
                 </div>
@@ -3007,10 +2997,10 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             {/* Footer */}
             <div className="flex items-center justify-between mt-6 text-sm" data-testid="tasks-footer">
               <div className="flex items-center gap-4 flex-wrap">
-                <span className="text-slate-400" data-testid="footer-open-count">
+                <span className="text-slate-600 dark:text-slate-400" data-testid="footer-open-count">
                   <span className="text-white font-medium">{visibleCount}</span> Open
                 </span>
-                <span className="text-slate-400" data-testid="footer-closed-count">
+                <span className="text-slate-600 dark:text-slate-400" data-testid="footer-closed-count">
                   <span className="text-white font-medium">{closedCount}</span> Closed
                 </span>
                 {filtersHidingAllTasks && (
@@ -3018,7 +3008,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                     {openCount} open total &middot; 0 match your filters &middot;{" "}
                     <button
                       onClick={clearAllFilters}
-                      className="text-blue-400 hover:text-blue-300 underline"
+                      className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline"
                       data-testid="clear-filters-btn"
                     >
                       Clear filters
@@ -3028,7 +3018,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
               </div>
               <span className="text-slate-600 text-xs">
-                Press <kbd className="px-1.5 py-0.5 bg-slate-800 rounded text-slate-400">/</kbd> for new needle
+                Press <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-slate-600 dark:text-slate-400">/</kbd> for new needle
               </span>
             </div>
           </>
@@ -3067,23 +3057,23 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       {/* Import modal */}
       {importModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setImportModalOpen(false)}>
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">Import Needles</h2>
-              <button onClick={() => setImportModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button onClick={() => setImportModalOpen(false)} className="text-slate-600 dark:text-slate-400 hover:text-white">
                 <Icon name="close" size={20} />
               </button>
             </div>
             <div className="flex gap-2 mb-4">
               <button
                 onClick={() => { setImportSource('linear'); setImportResult(null); setImportFields({}); }}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${importSource === 'linear' ? 'bg-purple-500/20 text-purple-300' : 'bg-slate-800 text-slate-400 hover:text-slate-300'}`}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${importSource === 'linear' ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}
               >
                 Linear
               </button>
               <button
                 onClick={() => { setImportSource('jira'); setImportResult(null); setImportFields({}); }}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${importSource === 'jira' ? 'bg-blue-500/20 text-blue-300' : 'bg-slate-800 text-slate-400 hover:text-slate-300'}`}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${importSource === 'jira' ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}
               >
                 Jira
               </button>
@@ -3092,75 +3082,75 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             {importSource === 'linear' ? (
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm text-slate-400 mb-1">API Key</label>
+                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">API Key</label>
                   <input
                     type="password"
                     value={importFields.linear_key || ''}
                     onChange={(e) => setImportFields({ ...importFields, linear_key: e.target.value })}
                     placeholder="lin_api_..."
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-400 mb-1">Team ID</label>
+                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Team ID</label>
                   <input
                     type="text"
                     value={importFields.linear_team || ''}
                     onChange={(e) => setImportFields({ ...importFields, linear_team: e.target.value })}
                     onKeyDown={(e) => { if (e.key === "Enter") (document.querySelector("[data-import-submit]") as HTMLButtonElement)?.click(); }}
                     placeholder="e.g. abc123"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
                   />
                 </div>
               </div>
             ) : (
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm text-slate-400 mb-1">Jira domain</label>
+                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Jira domain</label>
                   <input
                     type="text"
                     value={importFields.jira_domain || ''}
                     onChange={(e) => setImportFields({ ...importFields, jira_domain: e.target.value })}
                     placeholder="yourcompany.atlassian.net"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-400 mb-1">Email</label>
+                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Email</label>
                   <input
                     type="email"
                     value={importFields.jira_email || ''}
                     onChange={(e) => setImportFields({ ...importFields, jira_email: e.target.value })}
                     placeholder="you@company.com"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-400 mb-1">API Token</label>
+                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">API Token</label>
                   <input
                     type="password"
                     value={importFields.jira_token || ''}
                     onChange={(e) => setImportFields({ ...importFields, jira_token: e.target.value })}
                     placeholder="Your Jira API token"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-400 mb-1">Project Key</label>
+                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Project Key</label>
                   <input
                     type="text"
                     value={importFields.jira_project || ''}
                     onChange={(e) => setImportFields({ ...importFields, jira_project: e.target.value })}
                     onKeyDown={(e) => { if (e.key === "Enter") (document.querySelector("[data-import-submit]") as HTMLButtonElement)?.click(); }}
                     placeholder="e.g. PROJ"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
                   />
                 </div>
               </div>
             )}
 
             {importResult && (
-              <div className={`mt-4 p-3 rounded-lg text-sm ${importResult.errors.length > 0 ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300' : 'bg-green-500/10 border border-green-500/30 text-green-300'}`}>
+              <div className={`mt-4 p-3 rounded-lg text-sm ${importResult.errors.length > 0 ? 'bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300' : 'bg-green-500/10 border border-green-500/30 text-green-700 dark:text-green-300'}`}>
                 {importResult.created > 0 && <span>Created {importResult.created} needles. </span>}
                 {importResult.errors.map((e, i) => <span key={i} className="block">{e}</span>)}
               </div>
@@ -3208,11 +3198,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       {/* Priority reason prompt */}
       {pendingPriorityChange && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-5 w-80 space-y-3">
-            <div className="text-sm font-medium text-slate-200">
+          <div className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-5 w-80 space-y-3">
+            <div className="text-sm font-medium text-slate-800 dark:text-slate-200">
               Why are you changing the priority?
             </div>
-            <p className="text-xs text-slate-400">Optional. Press Skip to change without a note.</p>
+            <p className="text-xs text-slate-600 dark:text-slate-400">Optional. Press Skip to change without a note.</p>
             <input
               type="text"
               value={priorityReason}
@@ -3222,13 +3212,13 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                 if (e.key === "Escape") commitPriorityChange(true);
               }}
               placeholder="e.g. customer request, blocking release..."
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-800 dark:text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
               autoFocus
             />
             <div className="flex items-center justify-end gap-2">
               <button
                 onClick={() => commitPriorityChange(true)}
-                className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                className="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
               >
                 Skip
               </button>
@@ -3252,7 +3242,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
           <button
             data-testid="close-task-error-dismiss"
             onClick={() => setCloseError(null)}
-            className="font-medium text-red-400 hover:text-red-300"
+            className="font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
           >
             Dismiss
           </button>
@@ -3265,19 +3255,19 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
           onClick={(e) => { if (e.target === e.currentTarget) setPendingClaritySpawn(null) }}
         >
-          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-lg w-full mx-4 shadow-xl">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 max-w-lg w-full mx-4 shadow-xl">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-white text-lg font-semibold">Clarify before building</h2>
               <button
                 type="button"
                 onClick={() => setPendingClaritySpawn(null)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-600 dark:text-slate-400 hover:text-white"
                 aria-label="Close"
               >
                 <Icon name="close" />
               </button>
             </div>
-            <p className="text-sm text-slate-400 mb-4">
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
               Fix these issues first, then the build will start automatically.
             </p>
             <NeedsClarityChip
@@ -3306,13 +3296,13 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       {undoDelete && (
         <div
           data-testid="undo-delete-task-toast"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 text-sm text-slate-200 px-4 py-3 rounded-xl shadow-lg"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-800 dark:text-slate-200 px-4 py-3 rounded-xl shadow-lg"
         >
           <span>Needle deleted.</span>
           <button
             data-testid="undo-delete-task-button"
             onClick={handleUndo}
-            className="font-medium text-blue-400 hover:text-blue-300"
+            className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
           >
             Undo
           </button>

@@ -54,18 +54,18 @@ function timeAgo(iso: string | null | undefined): string {
 
 function statusColor(status: string | undefined): string {
   switch (status) {
-    case 'open': return 'text-blue-400 bg-blue-500/10 border-blue-500/30';
-    case 'in_progress': return 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30';
+    case 'open': return 'text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/30';
+    case 'in_progress': return 'text-yellow-600 dark:text-yellow-400 bg-yellow-500/10 border-yellow-500/30';
     case 'closed': return 'text-slate-500 bg-slate-500/10 border-slate-500/30';
-    default: return 'text-slate-400 bg-slate-500/10 border-slate-500/20';
+    default: return 'text-slate-600 dark:text-slate-400 bg-slate-500/10 border-slate-500/20';
   }
 }
 
 function priorityColor(priority: string | undefined): string {
   switch (priority) {
-    case 'P0': return 'text-red-400';
-    case 'P1': return 'text-orange-400';
-    case 'P2': return 'text-yellow-400';
+    case 'P0': return 'text-red-600 dark:text-red-400';
+    case 'P1': return 'text-orange-600 dark:text-orange-400';
+    case 'P2': return 'text-yellow-600 dark:text-yellow-400';
     default: return 'text-slate-500';
   }
 }
@@ -82,14 +82,14 @@ function DecisionCard({ decision, query }: { decision: Decision; query: string }
   };
   return (
     <div
-      className="bg-slate-900/60 border border-slate-800 rounded-lg px-4 py-3 hover:border-slate-700 transition-colors"
+      className="bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg px-4 py-3 hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
       data-testid="decision-card"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2 min-w-0 flex-1">
-          <Icon name="article" className="text-blue-400 text-base mt-0.5 flex-shrink-0" />
+          <Icon name="article" className="text-blue-600 dark:text-blue-400 text-base mt-0.5 flex-shrink-0" />
           <div className="min-w-0">
-            <p className="text-sm font-medium text-slate-200 truncate">{highlight(decision.title)}</p>
+            <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{highlight(decision.title)}</p>
             <p className="text-[11px] text-slate-500 mt-0.5">{decision.name}</p>
           </div>
         </div>
@@ -97,7 +97,7 @@ function DecisionCard({ decision, query }: { decision: Decision; query: string }
           <span className="text-[11px] text-slate-500">{timeAgo(decision.modified_at)}</span>
           <button
             onClick={() => setExpanded((v) => !v)}
-            className="text-slate-500 hover:text-slate-300 transition-colors"
+            className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
             aria-label={expanded ? 'Collapse' : 'Expand'}
           >
             <Icon name={expanded ? 'expand_less' : 'expand_more'} className="text-base" />
@@ -108,7 +108,7 @@ function DecisionCard({ decision, query }: { decision: Decision; query: string }
         <p className="text-[11px] text-slate-500 mt-1.5 ml-6 line-clamp-2">{preview}</p>
       )}
       {expanded && (
-        <pre className="mt-3 ml-6 text-[11px] text-slate-400 whitespace-pre-wrap font-mono bg-slate-950/60 rounded p-3 max-h-64 overflow-y-auto">
+        <pre className="mt-3 ml-6 text-[11px] text-slate-600 dark:text-slate-400 whitespace-pre-wrap font-mono bg-white dark:bg-slate-950/60 rounded p-3 max-h-64 overflow-y-auto">
           {decision.content}
         </pre>
       )}
@@ -121,12 +121,12 @@ function NeedleCard({ needle, query }: { needle: Needle; query: string }) {
   void query; void highlight;
   return (
     <div
-      className="bg-slate-900/60 border border-slate-800 rounded-lg px-4 py-3 hover:border-slate-700 transition-colors"
+      className="bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg px-4 py-3 hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
       data-testid="needle-card"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2 min-w-0 flex-1">
-          <Icon name="push_pin" className="text-slate-400 text-base mt-0.5 flex-shrink-0" />
+          <Icon name="push_pin" className="text-slate-600 dark:text-slate-400 text-base mt-0.5 flex-shrink-0" />
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               {needle.id && (
@@ -136,14 +136,14 @@ function NeedleCard({ needle, query }: { needle: Needle; query: string }) {
                 {needle.priority}
               </span>
             </div>
-            <p className="text-sm font-medium text-slate-200 mt-0.5">{needle.title}</p>
+            <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mt-0.5">{needle.title}</p>
             {needle.description && (
               <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{needle.description}</p>
             )}
             {needle.tags && needle.tags.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1.5">
                 {needle.tags.map((tag) => (
-                  <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-slate-800 text-slate-400 rounded">
+                  <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded">
                     {tag}
                   </span>
                 ))}
@@ -184,14 +184,14 @@ function AuditDetailModal({ event, onClose }: { event: AuditEvent; onClose: () =
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-slate-900 border border-slate-800 rounded-xl shadow-2xl"
+        className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between px-5 py-4 border-b border-slate-800">
+        <div className="flex items-start justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-start gap-2 min-w-0">
-            <Icon name="receipt_long" className="text-slate-400 text-lg mt-0.5 flex-shrink-0" />
+            <Icon name="receipt_long" className="text-slate-600 dark:text-slate-400 text-lg mt-0.5 flex-shrink-0" />
             <div className="min-w-0">
-              <h2 className="text-sm font-medium text-slate-100 truncate" data-testid="audit-detail-event">
+              <h2 className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate" data-testid="audit-detail-event">
                 {event.event || '(event)'}
               </h2>
               {ts && (
@@ -203,7 +203,7 @@ function AuditDetailModal({ event, onClose }: { event: AuditEvent; onClose: () =
           </div>
           <button
             onClick={onClose}
-            className="p-1 text-slate-500 hover:text-slate-200 shrink-0"
+            className="p-1 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 shrink-0"
             aria-label="Close"
             data-testid="audit-detail-close"
           >
@@ -216,28 +216,28 @@ function AuditDetailModal({ event, onClose }: { event: AuditEvent; onClose: () =
             {event.event && (
               <div>
                 <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-0.5">Event</p>
-                <p className="text-sm text-slate-200 font-mono">{event.event}</p>
+                <p className="text-sm text-slate-800 dark:text-slate-200 font-mono">{event.event}</p>
               </div>
             )}
             {ts && (
               <div>
                 <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-0.5">Time</p>
-                <p className="text-sm text-slate-200 font-mono">{formatDateTime(ts as string)}</p>
+                <p className="text-sm text-slate-800 dark:text-slate-200 font-mono">{formatDateTime(ts as string)}</p>
               </div>
             )}
             {event.tool && (
               <div>
                 <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-0.5">Tool</p>
-                <p className="text-sm text-slate-200 font-mono">{String(event.tool)}</p>
+                <p className="text-sm text-slate-800 dark:text-slate-200 font-mono">{String(event.tool)}</p>
               </div>
             )}
           </div>
           {extraEntries.length > 0 && (
-            <div className="border-t border-slate-800 pt-3 space-y-2">
+            <div className="border-t border-slate-200 dark:border-slate-800 pt-3 space-y-2">
               {extraEntries.map(([key, value]) => (
                 <div key={key}>
                   <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-0.5">{key}</p>
-                  <pre className="text-[11px] text-slate-300 font-mono whitespace-pre-wrap bg-slate-950/60 rounded p-2 overflow-x-auto">
+                  <pre className="text-[11px] text-slate-700 dark:text-slate-300 font-mono whitespace-pre-wrap bg-white dark:bg-slate-950/60 rounded p-2 overflow-x-auto">
                     {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value ?? '')}
                   </pre>
                 </div>
@@ -256,13 +256,13 @@ function AuditCard({ event, onClick }: { event: AuditEvent; onClick: () => void 
   const tool = event.tool;
   return (
     <button
-      className="w-full text-left bg-slate-900/40 border border-slate-800/60 rounded px-3 py-2 font-mono text-[11px] flex items-start gap-3 hover:border-slate-700 hover:bg-slate-900/60 transition-colors"
+      className="w-full text-left bg-white/40 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 rounded px-3 py-2 font-mono text-[11px] flex items-start gap-3 hover:border-slate-200 dark:hover:border-slate-700 hover:bg-white/60 dark:hover:bg-slate-900/60 transition-colors"
       data-testid="audit-card"
       onClick={onClick}
       aria-label={`View details for ${label}`}
     >
       <span className="text-slate-500 flex-shrink-0 w-32 truncate">{timeAgo(ts)}</span>
-      <span className="text-slate-300 flex-1 truncate">{label}</span>
+      <span className="text-slate-700 dark:text-slate-300 flex-1 truncate">{label}</span>
       {tool && <span className="text-slate-500 flex-shrink-0">{String(tool)}</span>}
     </button>
   );
@@ -340,10 +340,10 @@ export default function OstkFiles() {
   ];
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="ostk" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 max-w-4xl mx-auto">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8 max-w-4xl mx-auto">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold">ostk browser</h1>
@@ -351,7 +351,7 @@ export default function OstkFiles() {
           </div>
           <button
             onClick={() => fetchTab(tab)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 transition-colors border border-slate-700"
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-300 transition-colors border border-slate-200 dark:border-slate-700"
             aria-label="Refresh"
           >
             <Icon name="refresh" className="text-base" />
@@ -367,13 +367,13 @@ export default function OstkFiles() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search…"
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/60"
+            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/60"
             data-testid="ostk-search"
           />
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-1 mb-4 bg-slate-900/60 rounded-lg p-1 border border-slate-800">
+        <div className="flex gap-1 mb-4 bg-white/60 dark:bg-slate-900/60 rounded-lg p-1 border border-slate-200 dark:border-slate-800">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -381,8 +381,8 @@ export default function OstkFiles() {
               data-testid={`tab-${t.id}`}
               className={`flex items-center gap-1.5 flex-1 justify-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 tab === t.id
-                  ? 'bg-slate-700 text-white'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  ? 'bg-slate-200 dark:bg-slate-700 text-white'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50/60 dark:hover:bg-slate-800/60'
               }`}
             >
               <Icon name={t.icon} className="text-base" />
@@ -400,7 +400,7 @@ export default function OstkFiles() {
         )}
 
         {error && !loading && (
-          <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+          <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-600 dark:text-red-400 text-sm">
             <Icon name="error" className="text-lg" />
             <span>{error}</span>
           </div>

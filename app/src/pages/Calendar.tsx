@@ -112,31 +112,31 @@ export function countdownBadgeStyle(
     // In progress.
     if (now >= startMs) {
       return {
-        className: 'bg-green-500/20 text-green-400 border border-green-500/40',
+        className: 'bg-green-500/20 text-green-600 dark:text-green-400 border border-green-500/40',
         pulse: true,
       }
     }
     const minsToStart = Math.round((startMs - now) / 60000)
     if (minsToStart < 5) {
       return {
-        className: 'bg-red-500/20 text-red-400 border border-red-500/40',
+        className: 'bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/40',
         pulse: false,
       }
     }
     if (minsToStart <= 30) {
       return {
-        className: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
+        className: 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40',
         pulse: false,
       }
     }
     if (minsToStart <= 60) {
       return {
-        className: 'bg-blue-500/20 text-blue-400 border border-blue-500/40',
+        className: 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/40',
         pulse: false,
       }
     }
     return {
-      className: 'bg-slate-500/20 text-slate-400 border border-slate-500/40',
+      className: 'bg-slate-500/20 text-slate-600 dark:text-slate-400 border border-slate-500/40',
       pulse: false,
     }
   } catch {
@@ -581,7 +581,7 @@ export default function Calendar() {
     }
   }
 
-  const cardClass = 'bg-slate-900/40 border border-slate-800 p-3 sm:p-4 rounded-xl'
+  const cardClass = 'bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-3 sm:p-4 rounded-xl'
 
   // Group events by day. ``toISOString()`` would give UTC, so at 9pm
   // PDT on April 10 the UTC date is already April 11 and an event at
@@ -601,9 +601,9 @@ export default function Calendar() {
 
   if (loading || authStatus === null) {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="Calendar" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
         </div>
       </div>
@@ -612,9 +612,9 @@ export default function Calendar() {
 
   if (!authStatus?.authenticated || authStatus.needs_reauth) {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="Calendar" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
             icon="calendar_month"
             accentColor="#3b82f6"
@@ -645,7 +645,7 @@ export default function Calendar() {
                 <button
                   type="button"
                   onClick={() => setShowSetupGuide(true)}
-                  className="w-full text-xs text-slate-500 hover:text-slate-300 underline"
+                  className="w-full text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline"
                 >
                   Need setup help? See the guide
                 </button>
@@ -661,9 +661,9 @@ export default function Calendar() {
 
   if (apiNotEnabled) {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="Calendar" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
             icon="warning"
             accentColor="#f59e0b"
@@ -684,7 +684,7 @@ export default function Calendar() {
                 </p>
                 <button
                   onClick={() => { setApiNotEnabled(false); fetchEvents() }}
-                  className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
+                  className="w-full py-3 bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
                 >
                   Retry
                 </button>
@@ -697,15 +697,15 @@ export default function Calendar() {
   }
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="Calendar" />
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header row */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold">Calendar</h1>
             {authStatus.email && (
-              <p className="text-sm text-slate-400 mt-0.5">{authStatus.email}</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">{authStatus.email}</p>
             )}
           </div>
           <div className="flex items-center gap-3">
@@ -717,7 +717,7 @@ export default function Calendar() {
             <button
               onClick={handleSync}
               disabled={syncing}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm transition-colors disabled:opacity-50"
             >
               <Icon name="sync" size={16} className={syncing ? 'animate-spin' : ''} />
               Sync
@@ -728,7 +728,7 @@ export default function Calendar() {
         {/* Today's events strip */}
         <div className={`${cardClass} mb-6`}>
           <div className="flex items-center gap-2 mb-4">
-            <Icon name="today" className="text-blue-400" size={18} />
+            <Icon name="today" className="text-blue-600 dark:text-blue-400" size={18} />
             <h2 className="text-base font-semibold">Today</h2>
           </div>
           {todayEvents.length === 0 ? (
@@ -751,7 +751,7 @@ export default function Calendar() {
                       className={`flex items-start gap-4 p-3 rounded-xl border transition-colors ${
                         inProgress
                           ? 'border-blue-500/50 bg-blue-500/10'
-                          : 'border-slate-800 bg-slate-900/30'
+                          : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/30'
                       }`}
                       data-testid={`event-card-${ev.id}`}
                     >
@@ -760,10 +760,10 @@ export default function Calendar() {
                         data-testid={`event-body-${ev.id}`}
                       >
                         <div className="flex items-center gap-3">
-                          <p className="text-sm font-medium text-slate-200 shrink-0">{startTime}</p>
+                          <p className="text-sm font-medium text-slate-800 dark:text-slate-200 shrink-0">{startTime}</p>
                           <p className="font-medium text-sm truncate">{ev.summary || 'Untitled'}</p>
                           {inProgress && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded-full shrink-0">
+                            <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded-full shrink-0">
                               Now
                             </span>
                           )}
@@ -786,7 +786,7 @@ export default function Calendar() {
                           </span>
                         )}
                         {ev.location && (
-                          <p className="text-xs text-slate-400 truncate">{ev.location}</p>
+                          <p className="text-xs text-slate-600 dark:text-slate-400 truncate">{ev.location}</p>
                         )}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
@@ -795,7 +795,7 @@ export default function Calendar() {
                             href={ev.hangoutLink}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-1 px-2 py-1 bg-green-500/20 text-green-400 rounded-lg text-xs hover:bg-green-500/30 transition-colors"
+                            className="flex items-center gap-1 px-2 py-1 bg-green-500/20 text-green-600 dark:text-green-400 rounded-lg text-xs hover:bg-green-500/30 transition-colors"
                           >
                             <Icon name="video_call" size={14} />
                             Meet
@@ -805,13 +805,13 @@ export default function Calendar() {
                           <button
                             onClick={() => handlePrep(ev)}
                             disabled={pStatus === 'loading'}
-                            className="flex items-center gap-1 px-2 py-1 bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 rounded-lg text-xs transition-colors disabled:opacity-50"
+                            className="flex items-center gap-1 px-2 py-1 bg-violet-500/20 text-violet-700 dark:text-violet-300 hover:bg-violet-500/30 rounded-lg text-xs transition-colors disabled:opacity-50"
                             title="Get ready for this meeting"
                           >
                             {pStatus === 'loading' ? (
                               <><Icon name="progress_activity" size={14} className="animate-spin" /> Getting ready...</>
                             ) : pStatus === 'error' ? (
-                              <><Icon name="error" size={14} className="text-red-400" /> Error</>
+                              <><Icon name="error" size={14} className="text-red-600 dark:text-red-400" /> Error</>
                             ) : briefing ? (
                               <><Icon name="auto_awesome" size={14} /> {expanded ? 'Hide' : 'Prep'}</>
                             ) : (
@@ -822,20 +822,20 @@ export default function Calendar() {
                         <button
                           onClick={() => handleCreateTask(ev, 'Today', startTime)}
                           disabled={taskState === 'loading' || taskState === 'done'}
-                          className="flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs transition-colors disabled:opacity-50"
+                          className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-xs transition-colors disabled:opacity-50"
                           title="Create a prep needle"
                         >
                           {taskState === 'done' ? (
-                            <><Icon name="check" size={14} className="text-green-400" /> Done</>
+                            <><Icon name="check" size={14} className="text-green-600 dark:text-green-400" /> Done</>
                           ) : taskState === 'error' ? (
-                            <><Icon name="error" size={14} className="text-red-400" /> Error</>
+                            <><Icon name="error" size={14} className="text-red-600 dark:text-red-400" /> Error</>
                           ) : (
                             <><Icon name="add_task" size={14} /> Needle</>
                           )}
                         </button>
                         <button
                           onClick={() => deleteEvent(ev)}
-                          className="flex items-center gap-1 px-2 py-1 text-slate-500 hover:text-red-400 rounded-lg text-xs transition-colors"
+                          className="flex items-center gap-1 px-2 py-1 text-slate-500 hover:text-red-600 dark:hover:text-red-400 rounded-lg text-xs transition-colors"
                           title="Delete this event"
                           data-testid={`delete-event-${ev.id}`}
                         >
@@ -845,11 +845,11 @@ export default function Calendar() {
                     </div>
                     {briefing && expanded && (
                       <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-3 space-y-2">
-                        <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{briefing}</p>
+                        <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">{briefing}</p>
                         <div className="flex items-center gap-3">
                           <button
                             onClick={() => navigator.clipboard.writeText(briefing)}
-                            className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
+                            className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
                           >
                             <Icon name="content_copy" size={12} />
                             Copy
@@ -857,14 +857,14 @@ export default function Calendar() {
                           <button
                             onClick={() => handleCreateTasksFromBriefing(ev.id)}
                             disabled={briefingTaskStatus[ev.id] === 'loading' || briefingTaskStatus[ev.id] === 'done'}
-                            className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
+                            className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors disabled:opacity-50"
                           >
                             {briefingTaskStatus[ev.id] === 'loading' ? (
                               <><Icon name="progress_activity" size={12} className="animate-spin" /> Creating needles...</>
                             ) : briefingTaskStatus[ev.id] === 'done' ? (
-                              <><Icon name="check_circle" size={12} className="text-green-400" /> {briefingTaskCount[ev.id] || 0} needles created</>
+                              <><Icon name="check_circle" size={12} className="text-green-600 dark:text-green-400" /> {briefingTaskCount[ev.id] || 0} needles created</>
                             ) : briefingTaskStatus[ev.id] === 'error' ? (
-                              <><Icon name="error" size={12} className="text-red-400" /> Failed</>
+                              <><Icon name="error" size={12} className="text-red-600 dark:text-red-400" /> Failed</>
                             ) : (
                               <><Icon name="add_task" size={12} /> Create needles from briefing</>
                             )}
@@ -882,12 +882,12 @@ export default function Calendar() {
         {/* Next 7 days grouped by day */}
         {Object.keys(upcomingGroups).length > 0 && (
           <div className="space-y-4">
-            <h2 className="text-base font-semibold text-slate-300">Upcoming</h2>
+            <h2 className="text-base font-semibold text-slate-700 dark:text-slate-300">Upcoming</h2>
             {Object.entries(upcomingGroups).map(([dateKey, dayEvents]) => {
               const label = dayLabel(dateKey + 'T12:00:00')
               return (
                 <div key={dateKey} className={cardClass}>
-                  <p className="text-sm font-medium text-slate-400 mb-3">{label}</p>
+                  <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-3">{label}</p>
                   <div className="space-y-2">
                     {dayEvents.map((ev) => {
                       const startTime = formatTime(ev.start?.dateTime)
@@ -901,7 +901,7 @@ export default function Calendar() {
                       return (
                         <div key={ev.id} className="space-y-1.5">
                           <div
-                            className="flex items-start gap-3 p-2.5 rounded-lg border border-slate-800/50 bg-slate-900/20"
+                            className="flex items-start gap-3 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800/50 bg-white/20 dark:bg-slate-900/20"
                             data-testid={`event-card-${ev.id}`}
                           >
                             <div
@@ -909,7 +909,7 @@ export default function Calendar() {
                               data-testid={`event-body-${ev.id}`}
                             >
                               <div className="flex items-center gap-3">
-                                <p className="text-xs font-medium text-slate-300 shrink-0">{startTime}</p>
+                                <p className="text-xs font-medium text-slate-700 dark:text-slate-300 shrink-0">{startTime}</p>
                                 <p className="text-sm truncate">{ev.summary || 'Untitled'}</p>
                               </div>
                               {countdown && badge && (
@@ -939,7 +939,7 @@ export default function Calendar() {
                                   href={ev.hangoutLink}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="flex items-center gap-1 px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded text-xs hover:bg-green-500/30 transition-colors"
+                                  className="flex items-center gap-1 px-1.5 py-0.5 bg-green-500/20 text-green-600 dark:text-green-400 rounded text-xs hover:bg-green-500/30 transition-colors"
                                 >
                                   <Icon name="video_call" size={12} />
                                   Meet
@@ -949,13 +949,13 @@ export default function Calendar() {
                                 <button
                                   onClick={() => handlePrep(ev)}
                                   disabled={pStatus === 'loading'}
-                                  className="flex items-center gap-1 px-1.5 py-0.5 bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 rounded text-xs transition-colors disabled:opacity-50"
+                                  className="flex items-center gap-1 px-1.5 py-0.5 bg-violet-500/20 text-violet-700 dark:text-violet-300 hover:bg-violet-500/30 rounded text-xs transition-colors disabled:opacity-50"
                                   title="Get ready for this meeting"
                                 >
                                   {pStatus === 'loading' ? (
                                     <Icon name="progress_activity" size={12} className="animate-spin" />
                                   ) : pStatus === 'error' ? (
-                                    <Icon name="error" size={12} className="text-red-400" />
+                                    <Icon name="error" size={12} className="text-red-600 dark:text-red-400" />
                                   ) : (
                                     <Icon name="auto_awesome" size={12} />
                                   )}
@@ -965,11 +965,11 @@ export default function Calendar() {
                               <button
                                 onClick={() => handleCreateTask(ev, label, startTime)}
                                 disabled={taskState === 'loading' || taskState === 'done'}
-                                className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-xs transition-colors disabled:opacity-50"
+                                className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-xs transition-colors disabled:opacity-50"
                                 title="Create a prep needle"
                               >
                                 {taskState === 'done' ? (
-                                  <Icon name="check" size={12} className="text-green-400" />
+                                  <Icon name="check" size={12} className="text-green-600 dark:text-green-400" />
                                 ) : (
                                   <Icon name="add_task" size={12} />
                                 )}
@@ -977,7 +977,7 @@ export default function Calendar() {
                               </button>
                               <button
                                 onClick={() => deleteEvent(ev)}
-                                className="flex items-center gap-1 px-1.5 py-0.5 text-slate-500 hover:text-red-400 rounded text-xs transition-colors"
+                                className="flex items-center gap-1 px-1.5 py-0.5 text-slate-500 hover:text-red-600 dark:hover:text-red-400 rounded text-xs transition-colors"
                                 title="Delete this event"
                                 data-testid={`delete-event-${ev.id}`}
                               >
@@ -987,11 +987,11 @@ export default function Calendar() {
                           </div>
                           {briefing && expanded && (
                             <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-2.5 space-y-1.5">
-                              <p className="text-[11px] text-slate-300 leading-relaxed whitespace-pre-wrap">{briefing}</p>
+                              <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">{briefing}</p>
                               <div className="flex items-center gap-3">
                                 <button
                                   onClick={() => navigator.clipboard.writeText(briefing)}
-                                  className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
+                                  className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
                                 >
                                   <Icon name="content_copy" size={11} />
                                   Copy
@@ -999,14 +999,14 @@ export default function Calendar() {
                                 <button
                                   onClick={() => handleCreateTasksFromBriefing(ev.id)}
                                   disabled={briefingTaskStatus[ev.id] === 'loading' || briefingTaskStatus[ev.id] === 'done'}
-                                  className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
+                                  className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors disabled:opacity-50"
                                 >
                                   {briefingTaskStatus[ev.id] === 'loading' ? (
                                     <><Icon name="progress_activity" size={11} className="animate-spin" /> Creating needles...</>
                                   ) : briefingTaskStatus[ev.id] === 'done' ? (
-                                    <><Icon name="check_circle" size={11} className="text-green-400" /> {briefingTaskCount[ev.id] || 0} needles created</>
+                                    <><Icon name="check_circle" size={11} className="text-green-600 dark:text-green-400" /> {briefingTaskCount[ev.id] || 0} needles created</>
                                   ) : briefingTaskStatus[ev.id] === 'error' ? (
-                                    <><Icon name="error" size={11} className="text-red-400" /> Failed</>
+                                    <><Icon name="error" size={11} className="text-red-600 dark:text-red-400" /> Failed</>
                                   ) : (
                                     <><Icon name="add_task" size={11} /> Create needles from briefing</>
                                   )}
@@ -1035,13 +1035,13 @@ export default function Calendar() {
 
       {undoDelete && (
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 text-sm text-slate-200 px-4 py-3 rounded-xl shadow-lg"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-800 dark:text-slate-200 px-4 py-3 rounded-xl shadow-lg"
           data-testid="undo-delete-event-toast"
         >
           <span>Event deleted.</span>
           <button
             onClick={handleUndoDeleteEvent}
-            className="font-medium text-blue-400 hover:text-blue-300"
+            className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
             data-testid="undo-delete-event-button"
           >
             Undo

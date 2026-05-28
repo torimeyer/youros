@@ -150,7 +150,13 @@ async def test_remove_worktree_refuses_when_branch_has_unmerged_commits(tmp_path
 
 @pytest.mark.asyncio
 async def test_create_worktree_pre_clean_refuses_when_branch_has_unmerged_commits(tmp_path):
-    """create_worktree() must not wipe an existing worktree that is ahead of main."""
+    """create_worktree() must not wipe an existing worktree that is ahead of main.
+
+    When the worktree is safe to reuse (HEAD on the expected branch, no merge
+    conflicts), create_worktree() reuses the existing checkout and returns
+    (True, "") so the retry inherits all prior in-progress work.  The worktree
+    and its unmerged commit must be completely untouched.
+    """
     repo = tmp_path / "repo"
     repo.mkdir()
     _init_repo(repo)
@@ -178,28 +184,36 @@ async def test_create_worktree_pre_clean_refuses_when_branch_has_unmerged_commit
         f"setup: expected 1 commit ahead of main, got: {count.stdout.strip()!r}"
     )
 
-    # Second spawn attempt: must refuse to pre-clean the existing worktree.
+    # Second spawn attempt: worktree is safe to reuse (HEAD on correct branch,
+    # no merge conflicts), so create_worktree() returns (True, "") and preserves
+    # the existing checkout rather than wiping it.
     ok2, err2 = await create_worktree(
         project_root=repo,
         agent_name="respawn-test",
         branch=branch,
         wt_path=wt_path,
     )
-    assert ok2 is False, (
-        "create_worktree must refuse (return False) when existing worktree has unmerged commits"
-    )
-    assert "safety" in err2.lower() or "unmerged" in err2.lower(), (
-        f"error message should mention safety/unmerged, got: {err2!r}"
+    assert ok2 is True, (
+        f"create_worktree must reuse a safe existing worktree (HEAD on {branch!r}, "
+        f"no merge conflicts) and return True; got ok={ok2}, err={err2!r}"
     )
 
-    # The original worktree and branch must be untouched.
-    assert wt_path.exists(), "worktree directory was deleted by pre-clean despite unmerged commits"
-    assert _branch_exists(repo, branch), (
-        f"branch {branch} was deleted by pre-clean despite unmerged commits"
+    # The original worktree and branch must be completely untouched.
+    assert wt_path.exists(), "worktree directory must survive reuse"
+    assert _branch_exists(repo, branch), f"branch {branch} must survive reuse"
+
+    # The prior unmerged commit must still be on the branch.
+    count2 = subprocess.run(
+        ["git", "rev-list", "--count", f"main..{branch}"],
+        cwd=str(repo), capture_output=True, text=True, check=False,
     )
+    assert count2.stdout.strip() == "1", (
+        f"prior commit must survive reuse; rev-list returned: {count2.stdout.strip()!r}"
+    )
+
     listed = _worktree_list(repo)
     assert str(wt_path) in listed, (
-        f"worktree deregistered by pre-clean despite unmerged commits. Listed: {listed}"
+        f"worktree must remain registered after reuse. Listed: {listed}"
     )
 
 

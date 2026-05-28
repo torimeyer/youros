@@ -113,11 +113,11 @@ export default function AdminPolicies() {
   const [savedAgentfile, setSavedAgentfile] = useState(false)
   const [agentfileError, setAgentfileError] = useState<string | null>(null)
 
-  const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'}`
-  const labelCls = darkMode ? 'text-slate-400' : 'text-slate-500'
+  const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-800' : 'bg-white border-slate-200'}`
+  const labelCls = darkMode ? 'text-slate-600 dark:text-slate-400' : 'text-slate-500'
   const valueCls = darkMode ? 'text-white' : 'text-slate-900'
-  const headingCls = darkMode ? 'text-slate-200' : 'text-slate-800'
-  const inputCls = darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+  const headingCls = darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-800'
+  const inputCls = darkMode ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
 
   useEffect(() => {
     Promise.all([
@@ -269,12 +269,12 @@ export default function AdminPolicies() {
                   active
                     ? 'bg-indigo-500/20 border-indigo-500'
                     : darkMode
-                      ? 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                      ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700'
                       : 'bg-white border-slate-200 hover:border-slate-300'
                 }`}
               >
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                  active ? 'bg-indigo-500/30 text-indigo-300' : darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'
+                  active ? 'bg-indigo-500/30 text-indigo-700 dark:text-indigo-300' : darkMode ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400' : 'bg-slate-100 text-slate-500'
                 }`}>
                   <Icon name={level.icon} size={22} />
                 </div>
@@ -282,7 +282,7 @@ export default function AdminPolicies() {
                   <p className={`font-medium ${valueCls}`}>{level.label}</p>
                   <p className={`text-sm mt-0.5 ${labelCls}`}>{level.description}</p>
                 </div>
-                {active && <Icon name="check_circle" className="text-indigo-400 mt-1" size={20} />}
+                {active && <Icon name="check_circle" className="text-indigo-600 dark:text-indigo-400 mt-1" size={20} />}
               </button>
             )
           })}
@@ -367,9 +367,9 @@ export default function AdminPolicies() {
         ) : (
           <div className="space-y-2">
             {templates.map((t) => (
-              <div key={t.id} className={`flex items-center justify-between px-4 py-3 rounded-lg ${darkMode ? 'bg-slate-800/50' : 'bg-slate-50'}`}>
+              <div key={t.id} className={`flex items-center justify-between px-4 py-3 rounded-lg ${darkMode ? 'bg-slate-100 dark:bg-slate-800/50' : 'bg-slate-50'}`}>
                 <div className="flex items-center gap-3">
-                  <Icon name={t.icon || 'smart_toy'} className="text-indigo-400" size={20} />
+                  <Icon name={t.icon || 'smart_toy'} className="text-indigo-600 dark:text-indigo-400" size={20} />
                   <div>
                     <p className={`text-sm font-medium ${valueCls}`}>{t.name}</p>
                     <p className={`text-xs ${labelCls}`}>{t.description}</p>
@@ -377,7 +377,7 @@ export default function AdminPolicies() {
                 </div>
                 <button
                   onClick={() => handleDeleteTemplate(t.id)}
-                  className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                  className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
                 >
                   Remove
                 </button>
@@ -393,7 +393,7 @@ export default function AdminPolicies() {
           <h2 className={`text-base font-semibold ${headingCls}`}>Agentfile</h2>
           <div className="flex items-center gap-3">
             {savedAgentfile && (
-              <span className="text-xs text-green-400 flex items-center gap-1">
+              <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
                 <Icon name="check_circle" size={14} />
                 Saved
               </span>
@@ -402,14 +402,14 @@ export default function AdminPolicies() {
               <>
                 <button
                   onClick={handleOpenEditAgentfile}
-                  className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
                   data-testid="agentfile-edit-btn"
                 >
                   Edit
                 </button>
                 <button
                   onClick={handleRegenerateAgentfile}
-                  className="text-xs text-slate-400 hover:text-slate-300 transition-colors"
+                  className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                 >
                   Regenerate
                 </button>
@@ -419,7 +419,7 @@ export default function AdminPolicies() {
         </div>
 
         {!editingAgentfile ? (
-          <pre className={`text-xs p-4 rounded-lg overflow-x-auto ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-700'}`}>
+          <pre className={`text-xs p-4 rounded-lg overflow-x-auto ${darkMode ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300' : 'bg-slate-50 text-slate-700'}`}>
             {agentfile || 'No Agentfile configured.'}
           </pre>
         ) : (
@@ -429,7 +429,7 @@ export default function AdminPolicies() {
               <button
                 onClick={() => setAgentfileRawView(!agentfileRawView)}
                 className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 ${
-                  darkMode ? 'border-slate-700 text-slate-400 hover:text-white hover:border-slate-600' : 'border-slate-300 text-slate-500 hover:text-slate-700'
+                  darkMode ? 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-white hover:border-slate-600' : 'border-slate-300 text-slate-500 hover:text-slate-700'
                 }`}
               >
                 <Icon name={agentfileRawView ? 'edit' : 'code'} size={14} />
@@ -438,7 +438,7 @@ export default function AdminPolicies() {
             </div>
 
             {agentfileError && (
-              <div className={`text-sm px-4 py-3 rounded-lg border ${darkMode ? 'bg-red-900/20 border-red-700/40 text-red-400' : 'bg-red-50 border-red-200 text-red-600'}`}>
+              <div className={`text-sm px-4 py-3 rounded-lg border ${darkMode ? 'bg-red-900/20 border-red-700/40 text-red-600 dark:text-red-400' : 'bg-red-50 border-red-200 text-red-600'}`}>
                 {agentfileError}
               </div>
             )}
@@ -449,7 +449,7 @@ export default function AdminPolicies() {
                 onChange={(e) => setAgentfileRaw(e.target.value)}
                 rows={12}
                 className={`w-full font-mono text-xs rounded-lg border px-3 py-2 focus:outline-none focus:border-indigo-500 resize-y ${
-                  darkMode ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-50 border-slate-300 text-slate-700'
+                  darkMode ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300' : 'bg-slate-50 border-slate-300 text-slate-700'
                 }`}
                 data-testid="agentfile-raw-textarea"
               />
@@ -494,9 +494,9 @@ export default function AdminPolicies() {
                           key={tool.value}
                           className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
                             checked
-                              ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300'
+                              ? 'bg-indigo-500/20 border-indigo-500 text-indigo-700 dark:text-indigo-300'
                               : darkMode
-                                ? 'bg-slate-800/50 border-slate-700 text-slate-400 hover:border-slate-600'
+                                ? 'bg-slate-100 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-600'
                                 : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'
                           }`}
                         >

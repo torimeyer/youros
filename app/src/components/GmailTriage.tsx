@@ -37,21 +37,21 @@ type ActionState = 'idle' | 'loading' | 'done' | 'error'
 const CATEGORY_CONFIG = {
   action_needed: {
     label: 'Needs reply',
-    color: 'text-red-400',
+    color: 'text-red-600 dark:text-red-400',
     bg: 'bg-red-500/15 border-red-500/30',
     dot: 'bg-red-400',
     icon: 'reply' as const,
   },
   task_worthy: {
     label: 'Needle found',
-    color: 'text-amber-400',
+    color: 'text-amber-600 dark:text-amber-400',
     bg: 'bg-amber-500/15 border-amber-500/30',
     dot: 'bg-amber-400',
     icon: 'task_alt' as const,
   },
   informational: {
     label: 'FYI',
-    color: 'text-blue-400',
+    color: 'text-blue-600 dark:text-blue-400',
     bg: 'bg-blue-500/10 border-blue-500/20',
     dot: 'bg-blue-400',
     icon: 'info' as const,
@@ -59,7 +59,7 @@ const CATEGORY_CONFIG = {
   noise: {
     label: 'Noise',
     color: 'text-slate-500',
-    bg: 'bg-slate-800/40 border-slate-700/30',
+    bg: 'bg-slate-50/40 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/30',
     dot: 'bg-slate-600',
     icon: 'volume_off' as const,
   },
@@ -147,19 +147,19 @@ export default function GmailTriage() {
       {/* Header row */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <Icon name="auto_awesome" size={18} className="text-violet-400" />
+          <Icon name="auto_awesome" size={18} className="text-violet-600 dark:text-violet-400" />
           <h2 className="text-base font-semibold">Smart Triage</h2>
           {summary && (
             <div className="flex items-center gap-3 ml-2">
               <SummaryBadge
                 count={summary.action_needed}
                 label={summary.action_needed === 1 ? 'needs reply' : 'need replies'}
-                color="text-red-400"
+                color="text-red-600 dark:text-red-400"
               />
               <SummaryBadge
                 count={summary.task_worthy}
                 label={summary.task_worthy === 1 ? 'needle found' : 'needles found'}
-                color="text-amber-400"
+                color="text-amber-600 dark:text-amber-400"
               />
               <SummaryBadge
                 count={summary.noise}
@@ -186,7 +186,7 @@ export default function GmailTriage() {
 
       {/* Error */}
       {error && (
-        <div className="px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
+        <div className="px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
@@ -205,7 +205,7 @@ export default function GmailTriage() {
 
       {/* Results */}
       {result && visibleMessages.length === 0 && (
-        <p className="text-sm text-slate-400 py-2">
+        <p className="text-sm text-slate-600 dark:text-slate-400 py-2">
           {result.messages.length === 0
             ? 'No unread messages found.'
             : 'All messages handled.'}
@@ -238,11 +238,11 @@ export default function GmailTriage() {
                       <span className="text-sm font-medium text-white truncate">
                         {msg.from_name || msg.from_email}
                       </span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full bg-slate-900/60 ${cfg.color}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full bg-white/60 dark:bg-slate-900/60 ${cfg.color}`}>
                         {cfg.label}
                       </span>
                     </div>
-                    <p className="text-sm text-slate-300 truncate mt-0.5">{msg.subject}</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300 truncate mt-0.5">{msg.subject}</p>
                     <p className="text-xs text-slate-500 truncate mt-0.5">{msg.snippet}</p>
                   </div>
                   <Icon
@@ -257,13 +257,13 @@ export default function GmailTriage() {
                   <div className="px-4 pb-4 space-y-3 border-t border-white/10 pt-3">
                     {/* Reason */}
                     {msg.reason && (
-                      <p className="text-xs text-slate-400 italic">{msg.reason}</p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 italic">{msg.reason}</p>
                     )}
 
                     {/* Task suggestion */}
                     {msg.category === 'task_worthy' && msg.task_title && (
-                      <div className="bg-slate-900/60 rounded-lg px-3 py-2 text-sm">
-                        <p className="text-slate-300 font-medium">{msg.task_title}</p>
+                      <div className="bg-white/60 dark:bg-slate-900/60 rounded-lg px-3 py-2 text-sm">
+                        <p className="text-slate-700 dark:text-slate-300 font-medium">{msg.task_title}</p>
                         {msg.task_description && (
                           <p className="text-slate-500 text-xs mt-0.5">{msg.task_description}</p>
                         )}
@@ -272,9 +272,9 @@ export default function GmailTriage() {
 
                     {/* Draft */}
                     {draft && (
-                      <div className="bg-slate-900/60 rounded-lg px-3 py-2 text-sm">
+                      <div className="bg-white/60 dark:bg-slate-900/60 rounded-lg px-3 py-2 text-sm">
                         <p className="text-xs text-slate-500 mb-1">Draft reply:</p>
-                        <p className="text-slate-300 whitespace-pre-wrap">{draft}</p>
+                        <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{draft}</p>
                       </div>
                     )}
 
@@ -316,7 +316,7 @@ export default function GmailTriage() {
                         state={actionStates[actionKey(msg.id, 'archive')]}
                         doneLabel="Archived"
                         onClick={() => applyAction('archive', msg.id)}
-                        className="bg-slate-700 hover:bg-slate-600"
+                        className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-600"
                       />
 
                       <ActionButton
@@ -325,7 +325,7 @@ export default function GmailTriage() {
                         state={actionStates[actionKey(msg.id, 'skip')]}
                         doneLabel="Skipped"
                         onClick={() => applyAction('skip', msg.id)}
-                        className="bg-slate-800 hover:bg-slate-700 text-slate-400"
+                        className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400"
                       />
                     </div>
                   </div>

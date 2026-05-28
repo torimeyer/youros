@@ -49,7 +49,7 @@ const BUCKET_CONFIG = [
     label: 'Inactive',
     description: 'No activity in the last 7 days',
     icon: 'person_off',
-    color: 'text-slate-400',
+    color: 'text-slate-600 dark:text-slate-400',
     bg: 'bg-slate-500/10',
     border: 'border-slate-500/20',
   },
@@ -68,10 +68,10 @@ export default function TeamAdoption() {
       .finally(() => setLoading(false))
   }, [])
 
-  const cardCls = `rounded-xl border p-5 ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'}`
-  const labelCls = darkMode ? 'text-slate-400' : 'text-slate-500'
+  const cardCls = `rounded-xl border p-5 ${darkMode ? 'bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-800' : 'bg-white border-slate-200'}`
+  const labelCls = darkMode ? 'text-slate-600 dark:text-slate-400' : 'text-slate-500'
   const valueCls = darkMode ? 'text-white' : 'text-slate-900'
-  const headingCls = darkMode ? 'text-slate-200' : 'text-slate-800'
+  const headingCls = darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-800'
 
   if (loading) {
     return (
@@ -83,7 +83,7 @@ export default function TeamAdoption() {
 
   if (error) {
     return (
-      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 text-sm">
+      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-600 dark:text-red-400 text-sm">
         {error}
       </div>
     )
@@ -122,7 +122,7 @@ export default function TeamAdoption() {
               data-testid="adoption-gap-callout"
               className={`${cardCls} flex items-start gap-3`}
             >
-              <Icon name="warning_amber" className="text-orange-400 mt-0.5" size={20} />
+              <Icon name="warning_amber" className="text-orange-600 dark:text-orange-400 mt-0.5" size={20} />
               <div>
                 <p className={`text-xs uppercase font-semibold mb-0.5 ${labelCls}`}>Adoption gap</p>
                 <p className={`font-semibold ${valueCls}`}>
@@ -168,7 +168,7 @@ export default function TeamAdoption() {
                   {members.map((email) => (
                     <span
                       key={email}
-                      className={`text-xs px-2 py-0.5 rounded-full ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}
+                      className={`text-xs px-2 py-0.5 rounded-full ${darkMode ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300' : 'bg-slate-100 text-slate-600'}`}
                     >
                       {email}
                     </span>

@@ -80,7 +80,7 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
       <div className="flex items-center justify-between" data-testid="atlassian-connect-expired">
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full bg-amber-400 flex-shrink-0" />
-          <p className="text-sm text-amber-300">Atlassian credentials expired</p>
+          <p className="text-sm text-amber-700 dark:text-amber-300">Atlassian credentials expired</p>
         </div>
         <button
           onClick={() => { window.location.href = '/api/atlassian/auth?return_to=/settings' }}
@@ -100,7 +100,7 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" />
           <div className="min-w-0">
-            <p className="text-sm text-slate-200 font-medium truncate">
+            <p className="text-sm text-slate-800 dark:text-slate-200 font-medium truncate">
               {status.email || status.site || 'Connected'}
             </p>
             {status.site && status.email && (
@@ -112,7 +112,7 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
           onClick={handleDisconnect}
           disabled={disconnecting}
           data-testid="atlassian-disconnect-btn"
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50 flex-shrink-0"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors disabled:opacity-50 flex-shrink-0"
         >
           <Icon name="link_off" size={15} />
           Disconnect
@@ -138,7 +138,7 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
           </button>
           <button
             onClick={() => setForceTokenForm(true)}
-            className="text-xs text-slate-500 hover:text-slate-300 underline"
+            className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline"
             data-testid="atlassian-use-token-btn"
           >
             Use a token instead
@@ -156,7 +156,7 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
           value={site}
           onChange={(e) => setSite(e.target.value)}
           placeholder="https://company.atlassian.net"
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
           data-testid="atlassian-site-input"
         />
         <input
@@ -164,7 +164,7 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="Email"
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
           data-testid="atlassian-email-input"
         />
         <input
@@ -172,7 +172,7 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
           value={token}
           onChange={(e) => setToken(e.target.value)}
           placeholder="API token"
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
           data-testid="atlassian-token-input"
         />
         <p className="text-xs text-slate-500">
@@ -180,12 +180,12 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
             href="https://id.atlassian.com/manage-profile/security/api-tokens"
             target="_blank"
             rel="noreferrer"
-            className="text-blue-400 hover:text-blue-300 underline"
+            className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline"
           >
             Get a token at id.atlassian.com
           </a>
         </p>
-        {error && <p className="text-xs text-red-400">{error}</p>}
+        {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
         <div className="flex items-center gap-3">
           <button
             onClick={handleConnect}
@@ -199,7 +199,7 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
           {oauthAvailable && (
             <button
               onClick={() => setForceTokenForm(false)}
-              className="text-xs text-slate-500 hover:text-slate-300 underline"
+              className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline"
             >
               Use OAuth instead
             </button>

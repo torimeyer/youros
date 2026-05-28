@@ -78,11 +78,11 @@ const NAV_GROUPS: NavGroup[] = [
 // All items for route-based lookups (preserves featureLabel for feature filtering)
 const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/', icon: 'home', label: 'Home', featureLabel: null },
-  { to: '/tasks', icon: 'checklist', label: 'Needles', featureLabel: 'Needles', tasksBadge: true },
+  { to: '/tasks', icon: 'needle', label: 'Needles', featureLabel: 'Needles', tasksBadge: true },
   { to: '/specs', icon: 'article', label: 'Specs', featureLabel: 'Specs', specsBadge: true },
   { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
   { to: '/backlog', icon: 'inventory_2', label: 'Kanban view', featureLabel: 'Backlog' },
-  { to: '/break', icon: 'sports_esports', label: 'Break Room', featureLabel: 'Break Room' },
+  { to: '/break', icon: 'sports_esports', label: 'The Arcade', featureLabel: 'The Arcade' },
   ...NAV_GROUPS.flatMap((g) => g.items),
 ]
 
@@ -200,8 +200,7 @@ interface SidebarGroupProps {
   unfinishedSpecs: number
   onNavigate?: () => void
   iconFilled: 'filled' | 'outlined'
-  features: { label: string; enabled: boolean }[]
-  setFeatures: (f: { label: string; enabled: boolean }[]) => void
+  setNavOrder: (order: string[]) => void
 }
 
 function SidebarGroup({
@@ -216,8 +215,7 @@ function SidebarGroup({
   unfinishedSpecs,
   onNavigate,
   iconFilled,
-  features,
-  setFeatures,
+  setNavOrder,
 }: SidebarGroupProps) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -241,14 +239,7 @@ function SidebarGroup({
     const newIndex = visibleItems.findIndex((item) => item.to === over.id)
     if (oldIndex === -1 || newIndex === -1) return
     const reordered = arrayMove(visibleItems, oldIndex, newIndex)
-    // Rebuild features array preserving items outside this group
-    const reorderedLabels = reordered.map((i) => i.featureLabel).filter(Boolean) as string[]
-    const seen = new Set(reorderedLabels)
-    const newFeatures: { label: string; enabled: boolean }[] = [
-      ...reorderedLabels.map((l) => features.find((f) => f.label === l)!).filter(Boolean),
-      ...features.filter((f) => !seen.has(f.label)),
-    ]
-    setFeatures(newFeatures)
+    setNavOrder(reordered.map((i) => i.featureLabel).filter(Boolean) as string[])
   }
 
   return (
@@ -326,7 +317,8 @@ export function Sidebar() {
   const displayOsName = useAppStore((s) => s.displayOsName())
   const instanceMode = useAppStore((s) => s.instanceMode)
   const features = useAppStore((s) => s.features)
-  const setFeatures = useAppStore((s) => s.setFeatures)
+  const navOrder = useAppStore((s) => s.navOrder)
+  const setNavOrder = useAppStore((s) => s.setNavOrder)
   const powerUserMode = useAppStore((s) => s.powerUserMode)
   const enterpriseUser = useAppStore((s) => s.enterpriseUser)
   const sidebarPosition = useAppStore((s) => s.sidebarPosition)
@@ -615,11 +607,13 @@ export function Sidebar() {
       return `Backend slow to respond. Checking...${ostkKernel ? ` (${ostkKernel})` : ''}`
     }
     const t = lastHealthyAt ? new Date(lastHealthyAt).toLocaleTimeString() : 'unknown'
-    return `Backend not responding. Last healthy at ${t}. To restart: bash scripts/restart-backend.sh`
+    return `Backend not responding. Last healthy at ${t}. Reconnecting… this recovers automatically.`
   })()
 
   // Build feature-filtered view of all nav items
-  const featureOrder = new Map(features.map((f, i) => [f.label, i]))
+  // Nav order is stored separately from feature toggles so all draggable
+  // items persist their position even if they have no feature-toggle entry.
+  const navOrderMap = new Map(navOrder.map((label, i) => [label, i]))
 
   function isEnabled(item: NavItem): boolean {
     if (!item.featureLabel) return true
@@ -640,7 +634,7 @@ export function Sidebar() {
       .sort((a, b) => {
         if (!a.featureLabel) return -1
         if (!b.featureLabel) return 1
-        return (featureOrder.get(a.featureLabel) ?? 999) - (featureOrder.get(b.featureLabel) ?? 999)
+        return (navOrderMap.get(a.featureLabel) ?? 999) - (navOrderMap.get(b.featureLabel) ?? 999)
       })
   }
 
@@ -781,8 +775,7 @@ export function Sidebar() {
               unfinishedSpecs={Math.max(0, unfinishedSpecs + pendingSpecDelta)}
               onNavigate={() => setMobileOpen(false)}
               iconFilled={iconStyle}
-              features={features}
-              setFeatures={setFeatures}
+              setNavOrder={setNavOrder}
             />
           )
         })}
@@ -857,7 +850,7 @@ export function Sidebar() {
           data-testid="theme-toggle"
           aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
           onClick={toggleDarkMode}
-          className="relative flex items-center w-full h-10 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition-colors duration-200 cursor-pointer border border-slate-300 dark:border-slate-700 p-1"
+          className="relative flex items-center w-full h-10 rounded-full bg-slate-100 hover:bg-slate-200 dark:hover:bg-slate-800 dark:hover:bg-slate-700 transition-colors duration-200 cursor-pointer border border-slate-300 dark:border-slate-700 p-1"
         >
           {/* Sun icon (light) */}
           <span className={`w-1/2 flex items-center justify-center z-10 transition-colors duration-200 ${!darkMode ? 'text-amber-500' : 'text-slate-500 hover:text-slate-400'}`}>

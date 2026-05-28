@@ -46,11 +46,26 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEV_BACKEND="$SCRIPT_DIR/dev-backend.sh"
+# DEV_BACKEND is overridable so tests (and future supervisors) can point the
+# watchdog at a stub instead of the real launcher that binds port 8000.
+DEV_BACKEND="${MYOS_WATCHDOG_DEV_BACKEND:-$SCRIPT_DIR/dev-backend.sh}"
 PIDFILE="${MYOS_WATCHDOG_PIDFILE:-/tmp/myos-backend-watchdog.pid}"
 LOGFILE="${MYOS_WATCHDOG_LOGFILE:-/tmp/myos-backend-watchdog.log}"
 INTERVAL="${MYOS_WATCHDOG_INTERVAL:-30}"
-HEALTH_URL="${MYOS_WATCHDOG_HEALTH_URL:-https://127.0.0.1:8000/api/health}"
+# Auto-detect scheme: use https only when the localhost cert files exist.
+# This matches the logic in scripts/dev-backend.sh (lines 300-305) so the
+# watchdog never probes https when uvicorn is serving http (which would always
+# return curl error 000 and trigger spurious restarts). The launchd plist sets
+# MYOS_WATCHDOG_HEALTH_URL explicitly so this auto-detect only affects dev mode.
+if [ -z "${MYOS_WATCHDOG_HEALTH_URL:-}" ]; then
+    if [ -f "${HOME:-}/.myos/localhost.key" ] && [ -f "${HOME:-}/.myos/localhost.crt" ]; then
+        HEALTH_URL="https://127.0.0.1:8000/api/health"
+    else
+        HEALTH_URL="http://127.0.0.1:8000/api/health"
+    fi
+else
+    HEALTH_URL="$MYOS_WATCHDOG_HEALTH_URL"
+fi
 MAX_RESTARTS="${MYOS_WATCHDOG_MAX_RESTARTS:-50}"
 # Seconds to sleep between retries inside probe_once (default 5; tests set to 0
 # so the inner retry loop completes in milliseconds instead of 10 seconds).
@@ -286,7 +301,22 @@ restart_backend() {
         fi
         rm -f "$BACKEND_PIDFILE" 2>/dev/null || true
         consecutive_pid_alive_failures=0
+        # Kill-only mode: launchd (KeepAlive=true) owns the respawn. We SIGKILLed
+        # the wedged uvicorn above; do NOT launch dev-backend.sh, or we would race
+        # launchd for port 8000 -- the exact double-bind the locking below guards
+        # against. launchd sees the process exit and respawns it in ~1s.
+        if [ "${MYOS_WATCHDOG_KILL_ONLY:-0}" = "1" ]; then
+            log "INFO kill-only mode: wedged backend SIGKILLed, leaving respawn to launchd"
+            return 0
+        fi
         # Fall through to the normal restart path below.
+    fi
+    # Kill-only mode, crash path: the pid is dead (process already exited). launchd
+    # respawns on exit, so the watchdog must do nothing here -- launching
+    # dev-backend.sh would create a second uvicorn racing launchd's respawn.
+    if [ "${MYOS_WATCHDOG_KILL_ONLY:-0}" = "1" ]; then
+        log "INFO kill-only mode: backend down and pid dead, leaving respawn to launchd"
+        return 0
     fi
     # Acquire restart lock atomically before spawning. When two watchdog
     # instances run simultaneously both can pass backend_pid_alive (both
@@ -369,9 +399,9 @@ while :; do
     # for up to 10 seconds). Only after three consecutive misses
     # spaced 5 seconds apart do we consider the backend actually down.
     # This removes most of the restart thrash caused by MCP flapping.
-    sleep 5 && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
-    sleep 5 && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
-    sleep 5 && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
+    sleep "${MYOS_WATCHDOG_TRANSIENT_RETRY_SLEEP:-5}" && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
+    sleep "${MYOS_WATCHDOG_TRANSIENT_RETRY_SLEEP:-5}" && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
+    sleep "${MYOS_WATCHDOG_TRANSIENT_RETRY_SLEEP:-5}" && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
     restarts=$((restarts + 1))
     if [ "$restarts" -gt "$MAX_RESTARTS" ]; then
         log "ERROR exceeded max restarts ($MAX_RESTARTS), exiting"

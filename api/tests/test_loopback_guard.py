@@ -75,7 +75,11 @@ async def test_health_bypassed_from_non_loopback(monkeypatch):
     async with _client_with_host("10.0.0.5") as c:
         resp = await c.get("/api/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok", "service": "myos-api"}
+    # →1744 added a "checks" block to the health body; assert the core
+    # fields are present rather than pinning the exact dict.
+    _body = resp.json()
+    assert _body["status"] == "ok"
+    assert _body["service"] == "myos-api"
 
 
 @pytest.mark.asyncio

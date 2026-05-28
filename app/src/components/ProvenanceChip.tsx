@@ -35,7 +35,7 @@ export default function ProvenanceChip({
   return (
     <span
       data-testid="provenance-chip"
-      className="inline-flex items-center text-xs text-slate-400 bg-slate-800/80 rounded-full px-2 py-0.5 border border-slate-700/50"
+      className="inline-flex items-center text-xs text-slate-600 dark:text-slate-400 bg-slate-50/80 dark:bg-slate-800/80 rounded-full px-2 py-0.5 border border-slate-200 dark:border-slate-700/50"
     >
       {text}
     </span>

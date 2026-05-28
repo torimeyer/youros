@@ -55,9 +55,9 @@ export function StructuredPicker({ question, options, multiSelect = false, onSel
   return (
     <div
       data-testid="structured-picker"
-      className="my-3 rounded-xl border border-slate-700/60 bg-slate-900/60 backdrop-blur-sm p-4 space-y-3"
+      className="my-3 rounded-xl border border-slate-200/60 dark:border-slate-700/60 bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm p-4 space-y-3"
     >
-      <p className="text-sm text-slate-300 font-medium">{question}</p>
+      <p className="text-sm text-slate-700 dark:text-slate-300 font-medium">{question}</p>
       <div className="flex flex-wrap gap-2">
         {allOptions.map(opt => {
           const isSelected = selected.has(opt.label)
@@ -73,15 +73,15 @@ export function StructuredPicker({ question, options, multiSelect = false, onSel
                 submitted
                   ? isSelected
                     ? 'border-blue-500/80 bg-blue-500/20 text-blue-200 cursor-default'
-                    : 'border-slate-700/40 bg-slate-800/30 text-slate-500 cursor-default'
+                    : 'border-slate-200/40 dark:border-slate-700/40 bg-slate-100 dark:bg-slate-800/30 text-slate-500 cursor-default'
                   : isSelected
                   ? 'border-blue-500/60 bg-blue-500/10 text-blue-200'
-                  : 'border-slate-600/60 bg-slate-800/60 text-slate-200 hover:border-blue-500/60 hover:bg-blue-500/10 hover:text-blue-200',
+                  : 'border-slate-600/60 bg-slate-50/60 dark:bg-slate-800/60 text-slate-800 dark:text-slate-200 hover:border-blue-500/60 hover:bg-blue-500/10 hover:text-blue-200',
               ].join(' ')}
             >
               <span className="font-medium">{opt.label}</span>
               {opt.description && (
-                <span className="text-xs text-slate-400 mt-0.5">{opt.description}</span>
+                <span className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{opt.description}</span>
               )}
             </button>
           )
@@ -96,7 +96,7 @@ export function StructuredPicker({ question, options, multiSelect = false, onSel
             onChange={e => setOtherText(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleOtherSend()}
             placeholder="Type your answer…"
-            className="flex-1 rounded-lg bg-slate-800/60 border border-slate-600/60 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/60"
+            className="flex-1 rounded-lg bg-slate-50/60 dark:bg-slate-800/60 border border-slate-600/60 px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/60"
             autoFocus
           />
           <button

@@ -57,6 +57,9 @@ def _fire_delta(name: str, status: str) -> None:
 # list_agents reads directly from it so every GET /agents completes in <10 ms.
 _cached_snapshot: dict = {"agents": [], "computed_at": None, "daemon_running": False}
 _snapshot_lock: asyncio.Lock = asyncio.Lock()
+# Single-flights the cold-cache snapshot compute so a polling storm can't
+# stampede _compute_agents_snapshot_async() and wedge the loop (→1687/→1738).
+_snapshot_compute_lock: asyncio.Lock = asyncio.Lock()
 
 # Merge-debt cache (→1555): the merge_debt_tick_loop refreshes every 60 s.
 _cached_merge_debt: dict = {"count": 0, "items": []}
@@ -2122,16 +2125,19 @@ def _recover_stale_agents():
                 changed = True
                 continue
 
-        # Case 2c (→1678): universal PID-liveness guard for ALL sources.
+        # Case 2c (→1678): PID-liveness guard for non-claude-code backend spawns.
         # The Case 2b multi-signal check above only runs for source=="claude-code",
-        # so backend-managed spawns (ui/api/chat) fell straight through to Case 3
+        # so backend-managed spawns (api/chat) fell straight through to Case 3
         # and got marked abandoned even when their PID was still alive and working.
-        # That false-abandon is what triggers the respawn cascade: the auto-
-        # respawner re-launches "abandoned" agents, multiplying processes until
-        # the 500ms snapshot loop starves and the event loop wedges. If the PID
-        # is alive (even orphaned/reparented), keep the agent running and only
-        # flag a stale heartbeat — never abandon a live process.
-        if pid and _is_pid_alive(pid):
+        # That false-abandon is what triggers the respawn cascade.
+        #
+        # Differentiate by source (→1453 vs →1678 conflict):
+        # - source="api"/"chat": autonomous backend processes that may survive
+        #   restart reparented to init. Keep them alive even if not our child.
+        # - source="ui": orphan PIDs from old backend run — reparented to init
+        #   but their drain/heartbeat tasks are gone. Let these fall to Case 3.
+        _is_api_autonomous = source in ("api", "chat")
+        if pid and _is_pid_alive(pid) and (_is_pid_my_child(pid) or _is_api_autonomous):
             meta["stale_heartbeat"] = True
             changed = True
             continue
@@ -4200,9 +4206,19 @@ async def list_agents(
     async with _snapshot_lock:
         snapshot = dict(_cached_snapshot)
     if snapshot.get("computed_at") is None:
-        snapshot = await _compute_agents_snapshot_async()
-        async with _snapshot_lock:
-            _cached_snapshot.update(snapshot)
+        # Cold cache: single-flight the compute so concurrent cold-cache polls
+        # (dashboard storm at startup) collapse into ONE compute instead of
+        # each running its own, exhausting the thread pool and wedging the
+        # event loop (→1687/→1738). Double-checked: a prior holder may have
+        # filled the cache while we waited on the compute lock.
+        async with _snapshot_compute_lock:
+            async with _snapshot_lock:
+                snapshot = dict(_cached_snapshot)
+            if snapshot.get("computed_at") is None:
+                computed = await _compute_agents_snapshot_async()
+                async with _snapshot_lock:
+                    _cached_snapshot.update(computed)
+                    snapshot = dict(_cached_snapshot)
     all_agents = list(snapshot.get("agents", []))
     # Overlay live statuses from agent_metadata (snapshot is up to 500ms stale).
     # This ensures /complete and other status mutations are immediately visible.
@@ -4515,6 +4531,29 @@ def _extract_all_needle_ids(
         for m in _ARROW_NEEDLE_RE.finditer(text):
             seen.setdefault(m.group(1), None)
     return list(seen.keys())
+
+
+def _fire_set_needle_in_progress(needle_id: str) -> None:
+    """Schedule a persistent in_progress write for *needle_id*, non-blocking.
+
+    Wraps ostk.set_needle_in_progress in a create_task so the spawn/register
+    hot path is never delayed. Swallows all errors so a JSONL write failure
+    never disrupts agent registration.
+    """
+    if not needle_id:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_set_needle_in_progress_async(needle_id))
+    except RuntimeError:
+        pass
+
+
+async def _set_needle_in_progress_async(needle_id: str) -> None:
+    try:
+        await ostk.set_needle_in_progress(needle_id)
+    except Exception:
+        pass
 
 
 def _build_spec_ac_block(task_id: str, docs: list[dict]) -> str:
@@ -5943,13 +5982,16 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
         # Originating task linkage is stored via spawn_meta["task_id"]
         # above. The effective ``in_progress`` label on the task is
         # computed on read (see routers.tasks.list_tasks and the
-        # ``get_running_task_ids`` helper in this module) so that the
-        # label follows the live-agent signal in both directions: on
-        # when an agent is working, off when the last one ends. We do
-        # not write the status back into issues.jsonl here because
-        # that would leave the task "in_progress" forever after the
-        # agent finished. Terminal states (closed, shelved) are
-        # preserved by the overlay logic itself.
+        # ``get_running_task_ids`` helper in this module) for
+        # backward-compat overlay. Additionally, if a needle_id was
+        # resolved, we persistently write in_progress to issues.jsonl
+        # so the status survives across agent completion and is visible
+        # to ostk CLI readers, not just the API overlay. The needle
+        # stays in_progress until the branch merges to main, at which
+        # point the auto-merge path calls close_task (→1714).
+        _spawn_nid = spawn_meta.get("needle_id")
+        if _spawn_nid:
+            _fire_set_needle_in_progress(_spawn_nid)
 
         return {
             "result": f"Agent '{body.name}' spawned",
@@ -6509,6 +6551,11 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     elif existing.get("chat_mode"):
         record["chat_mode"] = existing["chat_mode"]
     agent_metadata[body.name] = record
+    # Persistently mark the needle in_progress when an agent registers
+    # for it (→1714). Fire-and-forget so register latency is unaffected.
+    _reg_nid = record.get("needle_id")
+    if _reg_nid and status == "running":
+        _fire_set_needle_in_progress(_reg_nid)
     # →1475: link session JSONL at register time so transcript_bytes is populated
     # immediately. If no file found yet (timing race), mark pending for retry.
     if source == "claude-code" and not record.get("transcript_path"):
@@ -7420,6 +7467,16 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
                         "mark_agent_complete.auto_merge name=%s branch=%s merged",
                         name, _am_branch,
                     )
+                    # Close the needle associated with this agent on merge (→1714).
+                    _am_nid = existing_meta.get("needle_id")
+                    if _am_nid:
+                        try:
+                            await ostk.close_task(f"→{_am_nid}", closed_reason="completed")
+                        except Exception:
+                            logger.warning(
+                                "mark_agent_complete.auto_merge needle_close_failed name=%s nid=%s",
+                                name, _am_nid,
+                            )
             else:
                 logger.warning(
                     "mark_agent_complete.auto_merge_failed name=%s branch=%s stderr=%s",

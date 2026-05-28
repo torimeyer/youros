@@ -36,15 +36,15 @@ function displayStatus(s: string): 'Draft' | 'Ready' | 'Building' | 'Done' {
 
 function specStatusClass(ds: 'Draft' | 'Ready' | 'Building' | 'Done'): string {
   if (ds === 'Ready') return 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30'
-  if (ds === 'Building') return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30'
-  if (ds === 'Done') return 'bg-green-900/40 text-green-400'
-  return 'bg-slate-700 text-slate-200'
+  if (ds === 'Building') return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/30'
+  if (ds === 'Done') return 'bg-green-900/40 text-green-600 dark:text-green-400'
+  return 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200'
 }
 
 function taskStatusClass(s: string): string {
-  if (s === 'in_progress') return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30'
-  if (s === 'complete') return 'bg-green-900/40 text-green-400'
-  return 'bg-slate-700 text-slate-200'
+  if (s === 'in_progress') return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/30'
+  if (s === 'complete') return 'bg-green-900/40 text-green-600 dark:text-green-400'
+  return 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200'
 }
 
 function taskDisplayStatus(s: string): string {
@@ -59,18 +59,18 @@ function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void })
   return (
     <div
       data-testid={`kanban-card-${spec.id}`}
-      className="rounded-xl bg-slate-800/50 hover:-translate-y-px transition-transform min-w-0 overflow-hidden"
+      className="rounded-xl bg-slate-100 dark:bg-slate-800/50 hover:-translate-y-px transition-transform min-w-0 overflow-hidden"
     >
       <Link
         to={`/specs?focus=${encodeURIComponent(spec.path ?? spec.id)}`}
         data-testid="spec-card-link"
         className="p-4 flex flex-col gap-2 cursor-pointer block"
       >
-      <span className="font-mono text-xs text-slate-400" data-testid="spec-id-chip">
+      <span className="font-mono text-xs text-slate-600 dark:text-slate-400" data-testid="spec-id-chip">
         {specSlug}
       </span>
       <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium text-slate-200 flex-1 line-clamp-2 break-words">{spec.title}</span>
+        <span className="text-sm font-medium text-slate-800 dark:text-slate-200 flex-1 line-clamp-2 break-words">{spec.title}</span>
         <span
           data-testid="card-type-chip"
           className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30 shrink-0"
@@ -89,7 +89,7 @@ function SpecCard({ spec, onBuild }: { spec: Spec; onBuild: (s: Spec) => void })
           <span
             key={tid}
             data-testid={`card-task-chip-${tid}`}
-            className="text-xs px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-300"
+            className="text-xs px-2 py-0.5 rounded-full bg-slate-100/60 dark:bg-slate-700/60 text-slate-700 dark:text-slate-300"
           >
             {tid}
           </span>
@@ -114,21 +114,21 @@ function TaskCard({ task }: { task: Task }) {
   return (
     <div
       data-testid={`kanban-card-${task.id}`}
-      className="rounded-xl bg-slate-800/50 hover:-translate-y-px transition-transform min-w-0 overflow-hidden"
+      className="rounded-xl bg-slate-100 dark:bg-slate-800/50 hover:-translate-y-px transition-transform min-w-0 overflow-hidden"
     >
       <Link
         to={`/tasks?focus=${task.id}`}
         data-testid="task-card-link"
         className="p-4 flex flex-col gap-2 cursor-pointer block"
       >
-      <span className="font-mono text-xs text-slate-400" data-testid="task-id-chip">
+      <span className="font-mono text-xs text-slate-600 dark:text-slate-400" data-testid="task-id-chip">
         →{task.id}
       </span>
       <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium text-slate-200 flex-1 line-clamp-2 break-words">{task.title}</span>
+        <span className="text-sm font-medium text-slate-800 dark:text-slate-200 flex-1 line-clamp-2 break-words">{task.title}</span>
         <span
           data-testid="card-type-chip"
-          className="text-xs px-2 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 shrink-0"
+          className="text-xs px-2 py-0.5 rounded-full bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 shrink-0"
         >
           Needle
         </span>
@@ -141,7 +141,7 @@ function TaskCard({ task }: { task: Task }) {
           {taskDisplayStatus(task.status)}
         </span>
         {task.spec_id && (
-          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-300">
+          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100/60 dark:bg-slate-700/60 text-slate-700 dark:text-slate-300">
             → {task.spec_id}
           </span>
         )}
@@ -169,14 +169,14 @@ function KanbanColumn({
 }) {
   return (
     <div data-testid={`kanban-column-${id}`} className="flex-1 flex flex-col gap-3 min-w-0">
-      <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider flex items-center">
+      <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center">
         {label}
         <span
           data-testid={`column-count-${id}`}
           className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
             count > 0
               ? 'bg-emerald-500/15 text-emerald-300'
-              : 'bg-slate-700/60 text-slate-300'
+              : 'bg-slate-100/60 dark:bg-slate-700/60 text-slate-700 dark:text-slate-300'
           }`}
         >
           {count}
@@ -185,7 +185,7 @@ function KanbanColumn({
       {isEmpty ? (
         <div
           data-testid={emptyTestId}
-          className="rounded-xl bg-slate-800/20 p-4 text-center text-sm text-slate-500"
+          className="rounded-xl bg-slate-50/20 dark:bg-slate-800/20 p-4 text-center text-sm text-slate-500"
         >
           Nothing here
         </div>
@@ -259,7 +259,7 @@ function AllView() {
           placeholder="Search..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="text-xs bg-slate-800 text-slate-300 placeholder-slate-500 rounded-lg px-3 py-1 border border-slate-700 focus:outline-none focus:border-slate-500"
+          className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 placeholder-slate-500 rounded-lg px-3 py-1 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-slate-500"
         />
       </div>
 

@@ -13,9 +13,9 @@ export function TodoListPanel({ todos }: Props) {
   return (
     <div
       data-testid="todo-list-panel"
-      className="inline-flex flex-col gap-1.5 px-4 py-3 rounded-xl border border-slate-700/50 bg-slate-800/40 max-w-[85%]"
+      className="inline-flex flex-col gap-1.5 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700/50 bg-slate-50/40 dark:bg-slate-800/40 max-w-[85%]"
     >
-      <span className="text-xs text-slate-400 font-medium">This turn</span>
+      <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">This turn</span>
       {todos.map((todo, i) => {
         const icon =
           todo.status === 'completed' ? '✓' :
@@ -30,13 +30,13 @@ export function TodoListPanel({ todos }: Props) {
           >
             <span className={`mt-0.5 shrink-0 ${
               todo.status === 'completed' ? 'text-green-500' :
-              todo.status === 'in_progress' ? 'text-amber-400' : 'text-slate-500'
+              todo.status === 'in_progress' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500'
             }`}>
               {icon}
             </span>
             <span className={
               todo.status === 'completed' ? 'text-slate-500 line-through' :
-              todo.status === 'in_progress' ? 'text-slate-200' : 'text-slate-400'
+              todo.status === 'in_progress' ? 'text-slate-800 dark:text-slate-200' : 'text-slate-600 dark:text-slate-400'
             }>
               {label}
             </span>

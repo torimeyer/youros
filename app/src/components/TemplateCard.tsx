@@ -63,23 +63,23 @@ export default function TemplateCard({
 
   const accentColor =
     source === 'builtin'
-      ? 'text-blue-400'
+      ? 'text-blue-600 dark:text-blue-400'
       : source === 'custom'
-        ? 'text-purple-400'
-        : 'text-slate-400'
+        ? 'text-purple-600 dark:text-purple-400'
+        : 'text-slate-600 dark:text-slate-400'
 
   const hasParseError = parseError != null
   const showBadge = source === 'marketplace' || source === 'custom'
 
   return (
     <div
-      className={`bg-slate-900/40 border rounded-xl p-5 flex flex-col gap-2 hover:border-slate-700 transition-colors ${favorited ? 'border-amber-500/40' : 'border-slate-800'}`}
+      className={`bg-white/40 dark:bg-slate-900/40 border rounded-xl p-5 flex flex-col gap-2 hover:border-slate-200 dark:hover:border-slate-700 transition-colors ${favorited ? 'border-amber-500/40' : 'border-slate-200 dark:border-slate-800'}`}
       data-testid={testId ?? `template-card-${name}`}
     >
       {/* Top row: icon, body, action */}
       <div className="flex items-start gap-3">
         {/* Icon */}
-        <div className="shrink-0 w-12 h-12 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center">
+        <div className="shrink-0 w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
           <Icon name={icon} className={accentColor} size={24} />
         </div>
 
@@ -91,7 +91,7 @@ export default function TemplateCard({
               onUnfavorite ? (
                 <button
                   onClick={(e) => { e.stopPropagation(); onUnfavorite(); }}
-                  className="text-amber-400 hover:text-amber-300"
+                  className="text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300"
                   title="Remove from favorites"
                   data-testid={`${testId ?? `template-card-${name}`}-star`}
                 >
@@ -102,7 +102,7 @@ export default function TemplateCard({
                   <Icon name="lock" size={13} />
                 </span>
               ) : (
-                <span className="text-amber-400" title="Favorited" data-testid={`${testId ?? `template-card-${name}`}-favorited`}>
+                <span className="text-amber-600 dark:text-amber-400" title="Favorited" data-testid={`${testId ?? `template-card-${name}`}-favorited`}>
                   <Icon name="star" size={14} />
                 </span>
               )
@@ -110,7 +110,7 @@ export default function TemplateCard({
             {aliases.map((a) => (
               <span
                 key={a}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 font-mono"
+                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 font-mono"
                 data-testid={`alias-chip-${a}`}
               >
                 alias: {a}
@@ -128,7 +128,7 @@ export default function TemplateCard({
           </div>
           <div className="flex items-center gap-1 mt-0.5">
             <p
-              className="text-slate-400 text-xs line-clamp-2 flex-1 min-w-0"
+              className="text-slate-600 dark:text-slate-400 text-xs line-clamp-2 flex-1 min-w-0"
               title={description}
             >
               {description}
@@ -138,7 +138,7 @@ export default function TemplateCard({
               <div className="relative shrink-0">
                 <button
                   type="button"
-                  className="text-slate-600 hover:text-slate-400 transition-colors focus:outline-none"
+                  className="text-slate-600 hover:text-slate-600 dark:hover:text-slate-400 transition-colors focus:outline-none"
                   aria-label={`Capabilities for ${name}`}
                   data-testid={`template-caps-info-${name}`}
                   onMouseEnter={() => setCapHover(true)}
@@ -150,10 +150,10 @@ export default function TemplateCard({
                 </button>
                 {capHover && (
                   <div
-                    className="absolute right-0 bottom-full mb-1 z-10 w-52 bg-slate-800 border border-slate-700 rounded-lg p-2 shadow-lg pointer-events-none"
+                    className="absolute right-0 bottom-full mb-1 z-10 w-52 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2 shadow-lg pointer-events-none"
                     data-testid={`template-capabilities-${name}`}
                   >
-                    <p className="text-[10px] text-slate-400 space-y-0.5">
+                    <p className="text-[10px] text-slate-600 dark:text-slate-400 space-y-0.5">
                       <span className="block" title={`Writes to: ${capabilities.writes_to}`}>✎ {capabilities.writes_to}</span>
                       <span className="block" title={`Budget: ${capabilities.budget}`}>⌛ {capabilities.budget}</span>
                       <span className="block" title={`Time limit: ${capabilities.time_limit}`}>🕒 {capabilities.time_limit}</span>
@@ -171,7 +171,7 @@ export default function TemplateCard({
           {onAction && !installed && (
             <button
               onClick={onAction}
-              className="text-blue-400 hover:text-blue-300 transition-colors"
+              className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
               title={`Add ${name} to your templates`}
               data-testid={testId ? `${testId}-action` : `template-card-${name}-action`}
             >
@@ -188,7 +188,7 @@ export default function TemplateCard({
             </button>
           )}
           {!onAction && installed && (
-            <span className="text-green-400" title="Already added">
+            <span className="text-green-600 dark:text-green-400" title="Already added">
               <Icon name="check_circle" size={18} />
             </span>
           )}
@@ -199,17 +199,17 @@ export default function TemplateCard({
       {/* Parse error panel (replaces capabilities) */}
       {hasParseError && (
         <div
-          className="pt-2 border-t border-slate-700/50"
+          className="pt-2 border-t border-slate-200 dark:border-slate-700/50"
           data-testid={`template-capabilities-error-${name}`}
         >
-          <p className="text-xs text-amber-400">
+          <p className="text-xs text-amber-600 dark:text-amber-400">
             Could not read capabilities for this template. Fix the .agent file.
           </p>
           <button
             type="button"
             disabled
             data-testid={`template-spawn-${name}`}
-            className="w-full mt-2 py-1.5 bg-slate-800 text-slate-500 rounded-lg text-xs cursor-not-allowed"
+            className="w-full mt-2 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-lg text-xs cursor-not-allowed"
           >
             Spawn
           </button>

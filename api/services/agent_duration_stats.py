@@ -172,10 +172,13 @@ def _try_time_primitive_estimate() -> Optional[int]:
 def get_duration_stats(force_refresh: bool = False) -> dict:
     """Return cached duration stats, recomputing every CACHE_TTL_SEC.
 
-    Tries the Time primitive first (``time_primitive.estimate("agent_spawn")``).
-    If that returns a value, uses it as ``median_seconds`` and skips the
-    local rolling-median scan. Falls back to the local scan when the
-    primitive has no data yet.
+    Primary source: rolling median from ``agent_state.json`` via
+    ``compute_duration_stats()``.  This reflects real completed production
+    agents and is not affected by test fixtures that may write short-lived
+    entries to the primitives DB.
+
+    Fallback: ``time_primitive.estimate("agent_spawn")`` is used only when
+    the local state file has zero usable samples (e.g. fresh install).
 
     The cache is a single module-level dict guarded by a lock so
     concurrent polls do not race. Pass ``force_refresh=True`` to skip
@@ -189,19 +192,20 @@ def get_duration_stats(force_refresh: bool = False) -> dict:
             and _cache["expires_at"] > now_monotonic
         ):
             return dict(_cache["value"])
-        # Try Time primitive first; fall back to local rolling median.
-        tp_estimate = _try_time_primitive_estimate()
-        if tp_estimate is not None:
-            value = {
-                "median_seconds": int(round(tp_estimate)),
-                "p75_seconds": int(round(tp_estimate)),
-                "sample_count": 1,
-                "window_days": DEFAULT_WINDOW_DAYS,
-            }
-            _cache["value"] = value
-            _cache["expires_at"] = now_monotonic + CACHE_TTL_SEC
-            return dict(value)
+        # Primary: local agent_state.json rolling median.
         value = compute_duration_stats()
+        # Fallback to Time primitive only when there is no local history.
+        # The primitive DB can be polluted by test fixtures with sub-real
+        # durations that would otherwise override real production data.
+        if value["sample_count"] == 0:
+            tp_estimate = _try_time_primitive_estimate()
+            if tp_estimate is not None:
+                value = {
+                    "median_seconds": int(round(tp_estimate)),
+                    "p75_seconds": int(round(tp_estimate)),
+                    "sample_count": 1,
+                    "window_days": DEFAULT_WINDOW_DAYS,
+                }
         _cache["value"] = value
         _cache["expires_at"] = now_monotonic + CACHE_TTL_SEC
         return dict(value)

@@ -34,7 +34,7 @@ export function RecentAgentActions({ agent, onRunAgain, onSaveGem }: Props) {
           <button
             data-testid={`action-${specific.label.toLowerCase().replace(/\s+/g, "-")}`}
             onClick={specific.label === "Save to gems" ? handleSaveGem : handleRunAgain}
-            className="inline-flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-blue-900/60 border border-slate-700 hover:border-blue-600 text-slate-300 hover:text-blue-300 rounded-full px-3 py-1 transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs bg-slate-100 dark:bg-slate-800 hover:bg-blue-900/60 border border-slate-200 dark:border-slate-700 hover:border-blue-600 text-slate-700 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 rounded-full px-3 py-1 transition-colors"
           >
             <Icon name={specific.icon} size={12} />
             {specific.label}
@@ -42,7 +42,7 @@ export function RecentAgentActions({ agent, onRunAgain, onSaveGem }: Props) {
           <button
             data-testid="action-run-again"
             onClick={handleRunAgain}
-            className="inline-flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-slate-200 rounded-full px-3 py-1 transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-full px-3 py-1 transition-colors"
           >
             <Icon name="replay" size={12} />
             Run again
@@ -52,7 +52,7 @@ export function RecentAgentActions({ agent, onRunAgain, onSaveGem }: Props) {
         <button
           data-testid="action-run-again"
           onClick={handleRunAgain}
-          className="inline-flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-slate-200 rounded-full px-3 py-1 transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-full px-3 py-1 transition-colors"
         >
           <Icon name="replay" size={12} />
           Run again

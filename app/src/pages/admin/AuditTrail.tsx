@@ -19,11 +19,11 @@ export default function AdminAuditTrail() {
   const [typeFilter, setTypeFilter] = useState('')
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
 
-  const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'}`
-  const labelCls = darkMode ? 'text-slate-400' : 'text-slate-500'
+  const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-800' : 'bg-white border-slate-200'}`
+  const labelCls = darkMode ? 'text-slate-600 dark:text-slate-400' : 'text-slate-500'
   const valueCls = darkMode ? 'text-white' : 'text-slate-900'
-  const headingCls = darkMode ? 'text-slate-200' : 'text-slate-800'
-  const inputCls = darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+  const headingCls = darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-800'
+  const inputCls = darkMode ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
 
   useEffect(() => {
     api.get<{ events: AuditEvent[] }>('/enterprise/audit')
@@ -115,8 +115,8 @@ export default function AdminAuditTrail() {
                   onClick={() => setExpandedIdx(expanded ? null : i)}
                   className={`w-full text-left px-4 py-3 rounded-lg transition-colors ${
                     expanded
-                      ? darkMode ? 'bg-slate-800' : 'bg-slate-100'
-                      : darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50'
+                      ? darkMode ? 'bg-slate-100 dark:bg-slate-800' : 'bg-slate-100'
+                      : darkMode ? 'hover:bg-slate-100 dark:hover:bg-slate-800/50' : 'hover:bg-slate-50'
                   }`}
                 >
                   <div className="flex items-center gap-3">
@@ -135,7 +135,7 @@ export default function AdminAuditTrail() {
                   </div>
                   {expanded && (
                     <pre className={`mt-2 ml-7 text-xs p-3 rounded-lg overflow-x-auto ${
-                      darkMode ? 'bg-slate-900 text-slate-300' : 'bg-white text-slate-700'
+                      darkMode ? 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300' : 'bg-white text-slate-700'
                     }`}>
                       {JSON.stringify(e.data, null, 2)}
                     </pre>

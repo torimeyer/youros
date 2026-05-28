@@ -750,3 +750,21 @@ describe('TopBar persistent-notification toast', () => {
     })
   })
 })
+
+// Regression guard: TopBar must render a flow spacer so pages don't need
+// per-page top padding that can be forgotten (→1731).
+describe('TopBar flow spacer', () => {
+  it('renders a topbar-spacer div matching the fixed header height', () => {
+    render(
+      <BrowserRouter>
+        <TopBar title="Test" />
+      </BrowserRouter>
+    )
+    const spacer = document.querySelector('[data-testid="topbar-spacer"]')
+    expect(spacer).not.toBeNull()
+    // Must carry both mobile (h-14) and sm (h-16) height classes so
+    // content is never hidden under the fixed bar on any breakpoint.
+    expect(spacer?.className).toContain('h-14')
+    expect(spacer?.className).toContain('sm:h-16')
+  })
+})

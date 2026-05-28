@@ -23,6 +23,8 @@ interface DriveFile {
   name: string;
   mimeType: string;
   modifiedTime: string;
+  viewedByMeTime?: string | null;
+  createdTime?: string | null;
   iconLink: string;
   webViewLink: string;
   size: string | null;
@@ -59,12 +61,12 @@ const MIME_LABELS: Record<string, string> = {
 };
 
 const MIME_ICONS: Record<string, { icon: string; color: string }> = {
-  'application/vnd.google-apps.document': { icon: 'description', color: 'text-blue-400' },
-  'application/vnd.google-apps.presentation': { icon: 'slideshow', color: 'text-orange-400' },
-  'application/vnd.google-apps.spreadsheet': { icon: 'table_chart', color: 'text-green-400' },
-  'application/vnd.google-apps.drawing': { icon: 'brush', color: 'text-purple-400' },
-  'application/vnd.google-apps.folder': { icon: 'folder', color: 'text-yellow-400' },
-  'application/pdf': { icon: 'picture_as_pdf', color: 'text-red-400' },
+  'application/vnd.google-apps.document': { icon: 'description', color: 'text-blue-600 dark:text-blue-400' },
+  'application/vnd.google-apps.presentation': { icon: 'slideshow', color: 'text-orange-600 dark:text-orange-400' },
+  'application/vnd.google-apps.spreadsheet': { icon: 'table_chart', color: 'text-green-600 dark:text-green-400' },
+  'application/vnd.google-apps.drawing': { icon: 'brush', color: 'text-purple-600 dark:text-purple-400' },
+  'application/vnd.google-apps.folder': { icon: 'folder', color: 'text-yellow-600 dark:text-yellow-400' },
+  'application/pdf': { icon: 'picture_as_pdf', color: 'text-red-600 dark:text-red-400' },
 };
 
 // Seed the Drive file list from localStorage so the page paints rows
@@ -97,7 +99,7 @@ function writeDriveCache(files: DriveFile[]) {
 }
 
 function mimeIcon(mimeType: string): { icon: string; color: string } {
-  return MIME_ICONS[mimeType] ?? { icon: 'insert_drive_file', color: 'text-slate-400' };
+  return MIME_ICONS[mimeType] ?? { icon: 'insert_drive_file', color: 'text-slate-600 dark:text-slate-400' };
 }
 
 function mimeLabel(mimeType: string): string {
@@ -118,11 +120,20 @@ function isInlinePreviewable(mimeType: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Filter types and helpers
+// Filter and sort types / helpers
 // ---------------------------------------------------------------------------
 
+type DriveSort = 'opened' | 'edited' | 'created';
 type FileTypeFilter = 'all' | 'docs' | 'slides' | 'sheets' | 'pdfs' | 'images' | 'folders';
 type ModifiedFilter = 'all' | 'today' | 'week' | 'month';
+
+const SORT_OPTIONS: { value: DriveSort; label: string }[] = [
+  { value: 'opened', label: 'Last opened' },
+  { value: 'edited', label: 'Last edited' },
+  { value: 'created', label: 'Date created' },
+];
+
+const DRIVE_SORT_KEY = 'myos.driveSort.v1';
 
 const FILE_TYPE_OPTIONS: { value: FileTypeFilter; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -232,12 +243,12 @@ function CredentialsPicker({ onSaved }: { onSaved: () => void }) {
 
   return (
     <div className="mb-6">
-      <p className="text-sm font-medium text-slate-300 mb-3 text-left">
+      <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3 text-left">
         Step 1: Upload your credentials file
       </p>
 
       {saved ? (
-        <div className="flex items-center gap-2 p-4 bg-green-500/10 border border-green-500/30 rounded-xl text-green-300 text-sm">
+        <div className="flex items-center gap-2 p-4 bg-green-500/10 border border-green-500/30 rounded-xl text-green-700 dark:text-green-300 text-sm">
           <Icon name="check_circle" size={18} />
           Credentials saved. Moving on...
         </div>
@@ -254,15 +265,15 @@ function CredentialsPicker({ onSaved }: { onSaved: () => void }) {
             className={`flex flex-col items-center justify-center gap-2 p-8 border-2 border-dashed rounded-xl cursor-pointer transition-colors ${
               dragging
                 ? 'border-blue-400 bg-blue-500/10'
-                : 'border-slate-600 hover:border-slate-400 bg-slate-800/40'
+                : 'border-slate-600 hover:border-slate-400 bg-slate-50/40 dark:bg-slate-800/40'
             }`}
           >
             {uploading ? (
               <LoadingState variant="spinner" message="Saving..." />
             ) : (
               <>
-                <Icon name="upload_file" className="text-3xl text-slate-400" />
-                <span className="text-sm text-slate-300">Drop your Google credentials file here</span>
+                <Icon name="upload_file" className="text-3xl text-slate-600 dark:text-slate-400" />
+                <span className="text-sm text-slate-700 dark:text-slate-300">Drop your Google credentials file here</span>
                 <span className="text-xs text-slate-500">or click to browse</span>
               </>
             )}
@@ -326,12 +337,12 @@ function ConnectScreen({
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
-      <div data-testid="connect-card" className="max-w-md mx-auto bg-slate-900/40 border border-slate-800 p-5 sm:px-8 sm:pb-8 rounded-2xl w-full">
+      <div data-testid="connect-card" className="max-w-md mx-auto bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-5 sm:px-8 sm:pb-8 rounded-2xl w-full">
         <div className="p-4 rounded-2xl mb-4 inline-block" style={{ backgroundColor: '#3b82f61a' }}>
           <span className="material-symbols-outlined" style={{ fontSize: '32px', color: '#3b82f6' }}>cloud</span>
         </div>
         <h2 className="text-xl font-bold mb-2">Connect Google Drive</h2>
-        <p className="text-slate-400 text-sm mb-6">
+        <p className="text-slate-600 dark:text-slate-400 text-sm mb-6">
           Browse and preview your Docs, Slides, and Sheets right here in yourOS.
         </p>
 
@@ -359,7 +370,7 @@ function ConnectScreen({
 
             {credsSaved && (
               <>
-                <p className="text-sm font-medium text-slate-300 mb-3 text-left">
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3 text-left">
                   Step 2: Connect your account
                 </p>
 
@@ -394,7 +405,7 @@ function ConnectScreen({
         <button
           type="button"
           onClick={() => setShowSetupGuide(true)}
-          className="inline-flex items-center gap-1 mt-4 text-slate-600 text-xs hover:text-slate-400 underline"
+          className="inline-flex items-center gap-1 mt-4 text-slate-600 text-xs hover:text-slate-600 dark:hover:text-slate-400 underline"
         >
           Setup guide
           <Icon name="help_outline" size={12} />
@@ -440,6 +451,15 @@ export default function Drive() {
   const [search, setSearch] = useState('');
   const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilter>('all');
   const [modifiedFilter, setModifiedFilter] = useState<ModifiedFilter>('all');
+  const [sortBy, setSortBy] = useState<DriveSort>(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? window.localStorage.getItem(DRIVE_SORT_KEY) : null;
+      return (saved && ['opened', 'edited', 'created'].includes(saved) ? saved : 'opened') as DriveSort;
+    } catch {
+      return 'opened';
+    }
+  });
+  const sortByRef = useRef<DriveSort>('opened');
   const [previewFile, setPreviewFile] = useState<DriveFile | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
@@ -521,11 +541,17 @@ export default function Drive() {
     }
   }, []);
 
+  // Keep ref in sync so fetchFiles always reads the current sort without needing it in deps.
+  sortByRef.current = sortBy;
+
   const fetchFiles = useCallback(async (q?: string): Promise<number | null> => {
     setFilesLoading(true);
     setFilesError(null);
     try {
-      const path = q ? `/drive/files?q=${encodeURIComponent(q)}` : '/drive/files';
+      const params = new URLSearchParams();
+      if (q) params.set('q', q);
+      params.set('sort', sortByRef.current);
+      const path = `/drive/files?${params.toString()}`;
       const res = await api.get<FilesResponse>(path);
       const list = res.files ?? [];
       setFiles(list);
@@ -631,6 +657,19 @@ export default function Drive() {
     };
   }, [search, authStatus, fetchFiles]);
 
+  // Persist sort preference and re-fetch when it changes.
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') window.localStorage.setItem(DRIVE_SORT_KEY, sortBy);
+    } catch {
+      // Ignore storage errors.
+    }
+    if (!authStatus?.authenticated) return;
+    fetchFiles(search || undefined);
+    // Intentionally omit `search` from deps. The search effect handles search changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortBy, authStatus, fetchFiles]);
+
   const handleSync = async () => {
     setSyncing(true);
     setSyncError(null);
@@ -715,22 +754,22 @@ export default function Drive() {
   };
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="Drive" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 max-w-6xl mx-auto">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl sm:text-2xl font-bold">Google Drive</h1>
         </div>
 
         {/* OAuth callback banner */}
         {connectBanner && connectBanner.type === 'redirect_uri_mismatch' && (
-          <div className="flex items-start justify-between gap-3 p-4 rounded-xl mb-6 text-sm bg-red-500/10 border border-red-500/30 text-red-300">
+          <div className="flex items-start justify-between gap-3 p-4 rounded-xl mb-6 text-sm bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300">
             <div className="flex items-start gap-2">
               <Icon name="error" size={18} className="flex-shrink-0 mt-0.5" />
               <div>
                 <p className="font-medium mb-1">Google refused the connection because this URL is not registered:</p>
-                <code className="block bg-slate-900/60 px-2 py-1 rounded text-xs font-mono text-red-200 mb-2">
+                <code className="block bg-white/60 dark:bg-slate-900/60 px-2 py-1 rounded text-xs font-mono text-red-200 mb-2">
                   {connectBanner.redirectUri}
                 </code>
                 <p className="mb-2">
@@ -749,7 +788,7 @@ export default function Drive() {
             </div>
             <button
               onClick={() => setConnectBanner(null)}
-              className="text-slate-400 hover:text-white flex-shrink-0"
+              className="text-slate-600 dark:text-slate-400 hover:text-white flex-shrink-0"
               aria-label="Dismiss"
             >
               <Icon name="close" size={16} />
@@ -760,8 +799,8 @@ export default function Drive() {
           <div
             className={`flex items-center justify-between gap-3 p-4 rounded-xl mb-6 text-sm ${
               connectBanner.type === 'success'
-                ? 'bg-green-500/10 border border-green-500/30 text-green-300'
-                : 'bg-red-500/10 border border-red-500/30 text-red-300'
+                ? 'bg-green-500/10 border border-green-500/30 text-green-700 dark:text-green-300'
+                : 'bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300'
             }`}
           >
             <div className="flex items-center gap-2">
@@ -770,7 +809,7 @@ export default function Drive() {
             </div>
             <button
               onClick={() => setConnectBanner(null)}
-              className="text-slate-400 hover:text-white"
+              className="text-slate-600 dark:text-slate-400 hover:text-white"
               aria-label="Dismiss"
             >
               <Icon name="close" size={16} />
@@ -781,12 +820,12 @@ export default function Drive() {
         {/* API not enabled */}
         {apiNotEnabled && (
           <div className="max-w-md">
-            <div className="bg-slate-900/40 border border-amber-800/40 p-8 rounded-2xl">
+            <div className="bg-white/40 dark:bg-slate-900/40 border border-amber-800/40 p-8 rounded-2xl">
               <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center mb-4">
-                <Icon name="warning" className="text-amber-400" size={24} />
+                <Icon name="warning" className="text-amber-600 dark:text-amber-400" size={24} />
               </div>
               <h2 className="text-xl font-semibold mb-2">Drive API not enabled</h2>
-              <p className="text-slate-400 mb-4">
+              <p className="text-slate-600 dark:text-slate-400 mb-4">
                 Your Google Cloud project has the Google Drive API disabled. You need to turn it on once. Reconnecting will not fix this.
               </p>
               <a
@@ -802,7 +841,7 @@ export default function Drive() {
               </p>
               <button
                 onClick={() => { setApiNotEnabled(false); fetchFiles() }}
-                className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
+                className="w-full py-3 bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
               >
                 Retry
               </button>
@@ -853,12 +892,12 @@ export default function Drive() {
 
             {/* Account + sync bar */}
             <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-              <div className="flex items-center gap-2 text-sm text-slate-400">
+              <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
                 <Icon name="account_circle" className="text-base" />
                 <span>{authStatus.email ?? 'Google account connected'}</span>
                 <button
                   onClick={handleDisconnect}
-                  className="ml-2 text-xs text-slate-600 hover:text-red-400 transition-colors"
+                  className="ml-2 text-xs text-slate-600 hover:text-red-600 dark:hover:text-red-400 transition-colors"
                 >
                   Disconnect
                 </button>
@@ -866,10 +905,10 @@ export default function Drive() {
 
               <div className="flex items-center gap-3">
                 {syncError && (
-                  <span className="text-xs text-red-400">{syncError}</span>
+                  <span className="text-xs text-red-600 dark:text-red-400">{syncError}</span>
                 )}
                 {uploadError && (
-                  <span className="text-xs text-red-400">{uploadError}</span>
+                  <span className="text-xs text-red-600 dark:text-red-400">{uploadError}</span>
                 )}
                 <span className="text-xs text-slate-600">
                   {syncTimeLabel(lastSyncedAt)}
@@ -911,7 +950,7 @@ export default function Drive() {
                 <button
                   onClick={handleSync}
                   disabled={syncing}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 rounded-lg text-sm text-slate-300 transition-colors border border-slate-700"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 rounded-lg text-sm text-slate-700 dark:text-slate-300 transition-colors border border-slate-200 dark:border-slate-700"
                 >
                   <Icon
                     name="sync"
@@ -922,10 +961,31 @@ export default function Drive() {
               </div>
             </div>
 
-            {/* Filter bar: file type pills, modified dropdown, search input */}
+            {/* Filter bar: sort control, file type pills, modified dropdown, search input */}
             <div className="flex items-center gap-3 mb-4 flex-wrap">
+              {/* Sort segmented control */}
+              <div className="flex items-center gap-1 bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg p-1">
+                {SORT_OPTIONS.map((opt) => {
+                  const active = sortBy === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      data-testid={`drive-sort-${opt.value}`}
+                      onClick={() => setSortBy(opt.value)}
+                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                        active
+                          ? 'bg-blue-600 text-white'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+
               {/* File type pills */}
-              <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-lg p-1 flex-wrap">
+              <div className="flex items-center gap-1 bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg p-1 flex-wrap">
                 {FILE_TYPE_OPTIONS.map((opt) => {
                   const active = fileTypeFilter === opt.value;
                   return (
@@ -935,7 +995,7 @@ export default function Drive() {
                       className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
                         active
                           ? 'bg-blue-600 text-white'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                       }`}
                     >
                       {opt.label}
@@ -949,7 +1009,7 @@ export default function Drive() {
                 <select
                   value={modifiedFilter}
                   onChange={(e) => setModifiedFilter(e.target.value as ModifiedFilter)}
-                  className="appearance-none bg-slate-900 border border-slate-800 rounded-lg pl-3 pr-8 py-1.5 text-xs text-slate-300 cursor-pointer focus:outline-none focus:border-blue-500 transition-colors"
+                  className="appearance-none bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg pl-3 pr-8 py-1.5 text-xs text-slate-700 dark:text-slate-300 cursor-pointer focus:outline-none focus:border-blue-500 transition-colors"
                   aria-label="Filter by modified time"
                 >
                   {MODIFIED_OPTIONS.map((opt) => (
@@ -977,12 +1037,12 @@ export default function Drive() {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search by filename..."
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-8 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg pl-9 pr-8 py-1.5 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
                 />
                 {search && (
                   <button
                     onClick={() => setSearch('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                     aria-label="Clear search"
                   >
                     <Icon name="close" size={14} />
@@ -1035,7 +1095,9 @@ export default function Drive() {
                   <span>Name</span>
                   <span>Type</span>
                   <span></span>
-                  <span className="text-right">Modified</span>
+                  <span className="text-right">
+                    {sortBy === 'opened' ? 'Opened' : sortBy === 'created' ? 'Created' : 'Modified'}
+                  </span>
                   <span></span>
                 </div>
 
@@ -1049,7 +1111,7 @@ export default function Drive() {
                       className={`grid grid-cols-[1fr_120px_auto_80px_36px] gap-4 items-center border rounded-xl px-4 py-3 transition-colors ${
                         isSelected
                           ? 'bg-blue-600/10 border-blue-500/50'
-                          : 'bg-slate-900/60 border-slate-800 hover:border-blue-500/30 hover:bg-slate-800/60'
+                          : 'bg-white/60 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-blue-500/30 hover:bg-slate-50/60 dark:hover:bg-slate-800/60'
                       }`}
                     >
                       <button
@@ -1063,9 +1125,9 @@ export default function Drive() {
                         className="flex items-center gap-3 min-w-0 cursor-pointer text-left"
                       >
                         <Icon name={icon} className={`text-xl ${color} flex-shrink-0`} />
-                        <span className="text-sm truncate text-slate-100">{file.name}</span>
+                        <span className="text-sm truncate text-slate-900 dark:text-slate-100">{file.name}</span>
                       </button>
-                      <span className="text-xs text-slate-400 truncate">
+                      <span className="text-xs text-slate-600 dark:text-slate-400 truncate">
                         {mimeLabel(file.mimeType)}
                       </span>
                       {file.webViewLink ? (
@@ -1074,7 +1136,7 @@ export default function Drive() {
                           target="_blank"
                           rel="noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-400 transition-colors whitespace-nowrap"
+                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors whitespace-nowrap"
                           title="Open in Google Drive"
                         >
                           <Icon name="open_in_new" size={12} />
@@ -1084,14 +1146,20 @@ export default function Drive() {
                         <span />
                       )}
                       <span className="text-xs text-slate-500 text-right">
-                        {formatRelative(file.modifiedTime)}
+                        {formatRelative(
+                          sortBy === 'opened'
+                            ? (file.viewedByMeTime ?? file.modifiedTime)
+                            : sortBy === 'created'
+                            ? (file.createdTime ?? file.modifiedTime)
+                            : file.modifiedTime
+                        )}
                       </span>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           deleteDriveFile(file.id, file.name);
                         }}
-                        className="flex items-center justify-center w-7 h-7 rounded-md text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        className="flex items-center justify-center w-7 h-7 rounded-md text-slate-600 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors"
                         title={`Delete ${file.name}`}
                         data-testid={`drive-delete-${file.id}`}
                       >
@@ -1124,13 +1192,13 @@ export default function Drive() {
 
       {undoDelete && (
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 text-sm text-slate-200 px-4 py-3 rounded-xl shadow-lg"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-800 dark:text-slate-200 px-4 py-3 rounded-xl shadow-lg"
           data-testid="undo-delete-drive-toast"
         >
           <span>Moved to trash.</span>
           <button
             onClick={handleUndoDriveDelete}
-            className="font-medium text-blue-400 hover:text-blue-300"
+            className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
             data-testid="undo-delete-drive-button"
           >
             Undo
@@ -1144,11 +1212,11 @@ export default function Drive() {
           data-testid="drive-trash-error-toast"
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-start gap-3 bg-red-950 border border-red-800 text-red-200 text-sm px-4 py-3 rounded-xl shadow-lg max-w-md"
         >
-          <Icon name="error" size={18} className="text-red-400 mt-0.5 flex-shrink-0" />
+          <Icon name="error" size={18} className="text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
           <span className="flex-1">{trashError}</span>
           <button
             onClick={() => setTrashError(null)}
-            className="text-slate-500 hover:text-slate-300"
+            className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
             aria-label="Dismiss"
           >
             <Icon name="close" size={14} />

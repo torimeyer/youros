@@ -28,7 +28,7 @@ export default function PageHeader({
             <React.Fragment key={idx}>
               {idx > 0 && <span>/</span>}
               {item.href ? (
-                <a href={item.href} className="hover:text-slate-300 transition-colors">
+                <a href={item.href} className="hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                   {item.label}
                 </a>
               ) : (
@@ -42,7 +42,7 @@ export default function PageHeader({
         <div className="flex flex-col gap-1">
           <h1 className="text-xl sm:text-2xl font-bold text-white">{title}</h1>
           {subtitle && (
-            <p className="text-sm text-slate-400">{subtitle}</p>
+            <p className="text-sm text-slate-600 dark:text-slate-400">{subtitle}</p>
           )}
         </div>
         {(primaryAction || overflowMenu) && (

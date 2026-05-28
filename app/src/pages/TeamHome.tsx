@@ -48,13 +48,13 @@ export default function TeamHome() {
     return <Navigate to="/" replace />
   }
 
-  const card = `rounded-xl border p-6 ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'}`
-  const sectionHeading = `text-base font-semibold ${darkMode ? 'text-slate-200' : 'text-slate-800'}`
-  const empty = `text-sm ${darkMode ? 'text-slate-500' : 'text-slate-400'}`
-  const divider = `border-b last:border-0 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`
-  const label = `text-xs uppercase tracking-wide font-medium ${darkMode ? 'text-slate-500' : 'text-slate-400'}`
-  const primaryText = `font-medium ${darkMode ? 'text-slate-200' : 'text-slate-800'}`
-  const secondaryText = `text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`
+  const card = `rounded-xl border p-6 ${darkMode ? 'bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-800' : 'bg-white border-slate-200'}`
+  const sectionHeading = `text-base font-semibold ${darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-800'}`
+  const empty = `text-sm ${darkMode ? 'text-slate-500' : 'text-slate-600 dark:text-slate-400'}`
+  const divider = `border-b last:border-0 ${darkMode ? 'border-slate-200 dark:border-slate-800' : 'border-slate-100'}`
+  const label = `text-xs uppercase tracking-wide font-medium ${darkMode ? 'text-slate-500' : 'text-slate-600 dark:text-slate-400'}`
+  const primaryText = `font-medium ${darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-800'}`
+  const secondaryText = `text-xs ${darkMode ? 'text-slate-500' : 'text-slate-600 dark:text-slate-400'}`
 
   if (loading) {
     return (
@@ -66,7 +66,7 @@ export default function TeamHome() {
 
   if (error) {
     return (
-      <div className="p-6 text-red-400 text-sm" data-testid="team-home-error">{error}</div>
+      <div className="p-6 text-red-600 dark:text-red-400 text-sm" data-testid="team-home-error">{error}</div>
     )
   }
 
@@ -78,7 +78,7 @@ export default function TeamHome() {
         {/* Team Picks */}
         <div className={card} data-testid="team-picks-card">
           <div className="flex items-center gap-2 mb-4">
-            <Icon name="star" className="text-yellow-400" />
+            <Icon name="star" className="text-yellow-600 dark:text-yellow-400" />
             <h2 className={sectionHeading}>Team picks</h2>
           </div>
           {data?.team_picks.length === 0 ? (
@@ -87,7 +87,7 @@ export default function TeamHome() {
             <ul className="space-y-1" data-testid="team-picks-list">
               {data?.team_picks.map((pick) => (
                 <li key={pick.id} className={`flex items-start gap-3 py-2 ${divider}`} data-testid={`pick-${pick.id}`}>
-                  <Icon name="description" className={`text-base mt-0.5 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} />
+                  <Icon name="description" className={`text-base mt-0.5 ${darkMode ? 'text-slate-600 dark:text-slate-400' : 'text-slate-500'}`} />
                   <div>
                     <p className={`text-sm ${primaryText}`}>{pick.name}</p>
                     <p className={secondaryText}>v{pick.version} · shared by {pick.signed_by_org}</p>
@@ -101,7 +101,7 @@ export default function TeamHome() {
         {/* Adoption summary */}
         <div className={card} data-testid="adoption-card">
           <div className="flex items-center gap-2 mb-4">
-            <Icon name="trending_up" className="text-green-400" />
+            <Icon name="trending_up" className="text-green-600 dark:text-green-400" />
             <h2 className={sectionHeading}>What the team is using</h2>
           </div>
           {data?.adoption_summary && (
@@ -127,7 +127,7 @@ export default function TeamHome() {
       {/* Announcements */}
       <div className={card} data-testid="announcements-card">
         <div className="flex items-center gap-2 mb-4">
-          <Icon name="campaign" className="text-indigo-400" />
+          <Icon name="campaign" className="text-indigo-600 dark:text-indigo-400" />
           <h2 className={sectionHeading}>Announcements</h2>
         </div>
         {data?.announcements.length === 0 ? (
@@ -137,9 +137,9 @@ export default function TeamHome() {
             {data?.announcements.map((a, i) => (
               <li key={a.id ?? i} className={`pb-4 ${divider}`} data-testid={`announcement-${a.id ?? i}`}>
                 <p className={`text-sm ${primaryText}`}>{a.title}</p>
-                {a.body && <p className={`text-sm mt-1 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{a.body}</p>}
+                {a.body && <p className={`text-sm mt-1 ${darkMode ? 'text-slate-600 dark:text-slate-400' : 'text-slate-600'}`}>{a.body}</p>}
                 {a.created_at && (
-                  <p className={`text-xs mt-1 ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                  <p className={`text-xs mt-1 ${darkMode ? 'text-slate-600' : 'text-slate-600 dark:text-slate-400'}`}>
                     {new Date(a.created_at).toLocaleDateString()}
                   </p>
                 )}

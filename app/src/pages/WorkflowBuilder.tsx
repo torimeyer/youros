@@ -56,10 +56,10 @@ const MODELS = [
 ];
 
 const stepStatusStyles: Record<string, string> = {
-  pending: "bg-slate-700 text-slate-400",
-  running: "bg-blue-500/20 text-blue-300 animate-pulse",
-  done: "bg-green-500/20 text-green-400",
-  failed: "bg-red-500/20 text-red-400",
+  pending: "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400",
+  running: "bg-blue-500/20 text-blue-700 dark:text-blue-300 animate-pulse",
+  done: "bg-green-500/20 text-green-600 dark:text-green-400",
+  failed: "bg-red-500/20 text-red-600 dark:text-red-400",
   skipped: "bg-slate-600/50 text-slate-500",
 };
 
@@ -130,23 +130,23 @@ function StepCard({
       {/* Connector line from previous step */}
       {index > 0 && (
         <div className="flex justify-center -mt-0.5 mb-0.5">
-          <div className="w-px h-6 bg-slate-700" />
+          <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
         </div>
       )}
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col gap-4">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col gap-4">
         {/* Card header */}
         <div className="flex items-center gap-3">
           <button
             {...attributes}
             {...listeners}
-            className="text-slate-600 hover:text-slate-400 cursor-grab active:cursor-grabbing touch-none"
+            className="text-slate-600 hover:text-slate-600 dark:hover:text-slate-400 cursor-grab active:cursor-grabbing touch-none"
             aria-label="Drag to reorder"
           >
             <Icon name="drag_indicator" className="text-xl" />
           </button>
 
-          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 text-xs font-bold shrink-0">
+          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">
             {index + 1}
           </span>
 
@@ -155,13 +155,13 @@ function StepCard({
             value={step.agent_name}
             onChange={(e) => onChange({ ...step, agent_name: e.target.value })}
             placeholder={`Step ${index + 1} name`}
-            className="flex-1 bg-transparent text-slate-100 font-medium placeholder-slate-600 outline-none border-b border-transparent focus:border-slate-600 transition-colors"
+            className="flex-1 bg-transparent text-slate-900 dark:text-slate-100 font-medium placeholder-slate-600 outline-none border-b border-transparent focus:border-slate-600 transition-colors"
           />
 
           {statusLabel && (
             <span
               className={`px-2 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wide ${
-                stepStatusStyles[statusLabel] ?? "bg-slate-700 text-slate-400"
+                stepStatusStyles[statusLabel] ?? "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"
               }`}
             >
               {statusLabel}
@@ -171,7 +171,7 @@ function StepCard({
           {!isOnly && (
             <button
               onClick={onRemove}
-              className="text-slate-600 hover:text-red-400 transition-colors"
+              className="text-slate-600 hover:text-red-600 dark:hover:text-red-400 transition-colors"
               aria-label="Remove step"
             >
               <Icon name="close" className="text-lg" />
@@ -187,7 +187,7 @@ function StepCard({
             onChange={(e) => onChange({ ...step, prompt: e.target.value })}
             placeholder="Describe the task for this step..."
             rows={3}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-600 outline-none focus:border-slate-500 resize-none transition-colors"
+            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-600 outline-none focus:border-slate-500 resize-none transition-colors"
           />
         </div>
 
@@ -198,7 +198,7 @@ function StepCard({
             <select
               value={step.model}
               onChange={(e) => onChange({ ...step, model: e.target.value })}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-500 transition-colors"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-slate-500 transition-colors"
             >
               {MODELS.map((m) => (
                 <option key={m.value} value={m.value}>
@@ -216,7 +216,7 @@ function StepCard({
               step={0.5}
               value={step.budget}
               onChange={(e) => onChange({ ...step, budget: parseFloat(e.target.value) || 2.0 })}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-500 transition-colors"
+              className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-slate-500 transition-colors"
             />
           </div>
         </div>
@@ -234,8 +234,8 @@ function StepCard({
                   onClick={() => toggleDep(prev.id)}
                   className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
                     step.depends_on.includes(prev.id)
-                      ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300"
-                      : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500"
+                      ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-700 dark:text-indigo-300"
+                      : "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-500"
                   }`}
                 >
                   {step.depends_on.includes(prev.id) ? (
@@ -252,7 +252,7 @@ function StepCard({
 
         {/* Error message */}
         {step.error && (
-          <p className="text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{step.error}</p>
+          <p className="text-xs text-red-600 dark:text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{step.error}</p>
         )}
       </div>
     </div>
@@ -500,9 +500,9 @@ export default function WorkflowBuilder() {
   const isRunning = workflowStatus === "running" || running;
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title={id ? "Edit automation" : "New automation"} />
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         <div className="max-w-2xl mx-auto">
           {/* Header */}
           <div className="flex items-start justify-between gap-4 mb-6">
@@ -512,7 +512,7 @@ export default function WorkflowBuilder() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Automation name"
-                className="w-full bg-transparent text-2xl font-bold text-slate-100 placeholder-slate-600 outline-none border-b border-transparent focus:border-slate-600 transition-colors pb-1"
+                className="w-full bg-transparent text-2xl font-bold text-slate-900 dark:text-slate-100 placeholder-slate-600 outline-none border-b border-transparent focus:border-slate-600 transition-colors pb-1"
               />
               <p className="text-sm text-slate-500 mt-1">
                 Add steps below. Each step runs an agent with your instructions.
@@ -553,10 +553,10 @@ export default function WorkflowBuilder() {
               <div
                 className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-2 ${
                   workflowStatus === "done"
-                    ? "bg-green-500/10 text-green-400"
+                    ? "bg-green-500/10 text-green-600 dark:text-green-400"
                     : workflowStatus === "failed"
-                    ? "bg-red-500/10 text-red-400"
-                    : "bg-slate-800 text-slate-400"
+                    ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
                 }`}
               >
                 {workflowStatus === "done" && <Icon name="check_circle" className="text-base" />}
@@ -574,8 +574,8 @@ export default function WorkflowBuilder() {
             <div
               className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium ${
                 messageType === "success"
-                  ? "bg-green-500/20 text-green-400"
-                  : "bg-red-500/20 text-red-400"
+                  ? "bg-green-500/20 text-green-600 dark:text-green-400"
+                  : "bg-red-500/20 text-red-600 dark:text-red-400"
               }`}
             >
               {message}
@@ -608,13 +608,13 @@ export default function WorkflowBuilder() {
           {/* Add step */}
           <div className="flex justify-center mt-4">
             <div className="flex items-center gap-2">
-              <div className="w-px h-4 bg-slate-700" />
+              <div className="w-px h-4 bg-slate-200 dark:bg-slate-700" />
             </div>
           </div>
           <div className="flex justify-center mt-1">
             <button
               onClick={addStep}
-              className="flex items-center gap-2 px-5 py-2.5 border border-dashed border-slate-700 hover:border-indigo-500 text-slate-400 hover:text-indigo-400 text-sm font-medium rounded-xl transition-colors"
+              className="flex items-center gap-2 px-5 py-2.5 border border-dashed border-slate-200 dark:border-slate-700 hover:border-indigo-500 text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium rounded-xl transition-colors"
             >
               <Icon name="add" className="text-base" />
               Add step
@@ -625,7 +625,7 @@ export default function WorkflowBuilder() {
           <div className="mt-8 flex justify-center">
             <button
               onClick={() => navigate("/workflows")}
-              className="text-xs text-slate-600 hover:text-slate-400 transition-colors"
+              className="text-xs text-slate-600 hover:text-slate-600 dark:hover:text-slate-400 transition-colors"
             >
               Back to all automations
             </button>

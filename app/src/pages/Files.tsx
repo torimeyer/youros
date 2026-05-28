@@ -63,11 +63,11 @@ interface RecentDocsResponse {
 // --- Helpers ---
 
 const typeConfig: Record<string, { icon: string; color: string; label: string }> = {
-  node: { icon: 'javascript', color: 'text-yellow-400', label: 'Node.js' },
-  python: { icon: 'code', color: 'text-blue-400', label: 'Python' },
-  rust: { icon: 'memory', color: 'text-orange-400', label: 'Rust' },
-  go: { icon: 'speed', color: 'text-cyan-400', label: 'Go' },
-  folder: { icon: 'folder', color: 'text-slate-400', label: 'Folder' },
+  node: { icon: 'javascript', color: 'text-yellow-600 dark:text-yellow-400', label: 'Node.js' },
+  python: { icon: 'code', color: 'text-blue-600 dark:text-blue-400', label: 'Python' },
+  rust: { icon: 'memory', color: 'text-orange-600 dark:text-orange-400', label: 'Rust' },
+  go: { icon: 'speed', color: 'text-cyan-600 dark:text-cyan-400', label: 'Go' },
+  folder: { icon: 'folder', color: 'text-slate-600 dark:text-slate-400', label: 'Folder' },
 };
 
 
@@ -253,10 +253,10 @@ export default function Files() {
   // --- Render ---
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="Files" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 max-w-6xl mx-auto">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-3">
@@ -265,7 +265,7 @@ export default function Files() {
           <div className="flex items-center gap-2">
             <button
               onClick={refresh}
-              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 transition-colors border border-slate-700"
+              className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-300 transition-colors border border-slate-200 dark:border-slate-700"
             >
               <Icon name="refresh" className="text-base" />
               Refresh
@@ -280,7 +280,7 @@ export default function Files() {
               <div className="flex items-center gap-1 mb-4 text-sm flex-wrap">
                 <button
                   onClick={navigateUp}
-                  className="flex items-center gap-1 px-2 py-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors mr-2"
+                  className="flex items-center gap-1 px-2 py-1 text-slate-600 dark:text-slate-400 hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors mr-2"
                   title="Go up one level"
                 >
                   <Icon name="arrow_back" size={16} />
@@ -289,7 +289,7 @@ export default function Files() {
 
                 <button
                   onClick={navigateToRoot}
-                  className="text-blue-400 hover:text-blue-300 transition-colors px-1"
+                  className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors px-1"
                 >
                   Projects
                 </button>
@@ -298,11 +298,11 @@ export default function Files() {
                   <span key={crumb.path} className="flex items-center gap-1">
                     <Icon name="chevron_right" size={14} className="text-slate-600" />
                     {i === (browseData.breadcrumbs.length - 1) ? (
-                      <span className="text-slate-200 font-medium px-1">{crumb.name}</span>
+                      <span className="text-slate-800 dark:text-slate-200 font-medium px-1">{crumb.name}</span>
                     ) : (
                       <button
                         onClick={() => navigateTo(crumb.path)}
-                        className="text-blue-400 hover:text-blue-300 transition-colors px-1"
+                        className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors px-1"
                       >
                         {crumb.name}
                       </button>
@@ -315,7 +315,7 @@ export default function Files() {
             {/* Recent Documents (root view only) */}
             {currentPath === null && !recentDocsLoading && recentDocs.length > 0 && (
               <div className="mb-8">
-                <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                   <Icon name="schedule" className="text-base text-slate-500" />
                   Recent Documents
                 </h2>
@@ -325,7 +325,7 @@ export default function Files() {
                     return (
                       <div
                         key={doc.path}
-                        className="group grid grid-cols-[1fr_80px_80px_32px] gap-4 items-center bg-slate-900/40 border border-slate-800/60 rounded-lg px-4 py-2.5 hover:border-blue-500/40 hover:bg-slate-800/40 transition-colors w-full"
+                        className="group grid grid-cols-[1fr_80px_80px_32px] gap-4 items-center bg-white/40 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 rounded-lg px-4 py-2.5 hover:border-blue-500/40 hover:bg-slate-50/40 dark:hover:bg-slate-800/40 transition-colors w-full"
                         data-testid={`recent-doc-row-${doc.path}`}
                       >
                         <button
@@ -341,8 +341,8 @@ export default function Files() {
                           className="min-w-0 text-left"
                         >
                           <div className="flex items-center gap-2">
-                            <Icon name="article" className="text-base text-blue-400 flex-shrink-0" />
-                            <span className="text-sm text-slate-200 truncate">{friendly.title}</span>
+                            <Icon name="article" className="text-base text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                            <span className="text-sm text-slate-800 dark:text-slate-200 truncate">{friendly.title}</span>
                             {friendly.timeLabel && (
                               <span className="text-[11px] text-slate-600 truncate hidden sm:inline">{friendly.timeLabel}</span>
                             )}
@@ -358,7 +358,7 @@ export default function Files() {
                             e.stopPropagation();
                             deleteRecentDoc(doc);
                           }}
-                          className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
                           title="Delete"
                           aria-label={`Delete ${doc.name}`}
                           data-testid={`recent-doc-delete-${doc.path}`}
@@ -380,7 +380,7 @@ export default function Files() {
                 )}
 
                 {projectsError && (
-                  <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm mb-4">
+                  <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-600 dark:text-red-400 text-sm mb-4">
                     <Icon name="error" className="text-lg" />
                     <span>{projectsError}</span>
                   </div>
@@ -408,7 +408,7 @@ export default function Files() {
                         <button
                           key={project.name}
                           onClick={() => navigateTo(project.name)}
-                          className="grid grid-cols-[1fr_80px_60px_80px] gap-4 items-center bg-slate-900/60 border border-slate-800 rounded-lg px-4 py-3 hover:border-blue-500/50 hover:bg-slate-800/60 transition-colors cursor-pointer text-left w-full"
+                          className="grid grid-cols-[1fr_80px_60px_80px] gap-4 items-center bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg px-4 py-3 hover:border-blue-500/50 hover:bg-slate-50/60 dark:hover:bg-slate-800/60 transition-colors cursor-pointer text-left w-full"
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <Icon name={cfg.icon} className={`text-xl ${cfg.color}`} />
@@ -419,12 +419,12 @@ export default function Files() {
                               )}
                             </div>
                             {project.has_git && (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded font-medium flex-shrink-0">
+                              <span className="text-[10px] text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded font-medium flex-shrink-0">
                                 git
                               </span>
                             )}
                           </div>
-                          <span className="text-xs text-slate-400">{cfg.label}</span>
+                          <span className="text-xs text-slate-600 dark:text-slate-400">{cfg.label}</span>
                           <span className="text-xs text-slate-500">{project.file_count}</span>
                           <span className="text-xs text-slate-500 text-right">{formatRelative(project.last_modified)}</span>
                         </button>
@@ -449,7 +449,7 @@ export default function Files() {
                 )}
 
                 {browseError && (
-                  <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm mb-4">
+                  <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-600 dark:text-red-400 text-sm mb-4">
                     <Icon name="error" className="text-lg" />
                     <span>{browseError}</span>
                   </div>
@@ -461,7 +461,7 @@ export default function Files() {
                     data-testid="files-forbidden-empty-state"
                   >
                     <Icon name="lock" className="text-4xl mb-2" />
-                    <p className="text-slate-300 text-sm font-medium mb-1">
+                    <p className="text-slate-700 dark:text-slate-300 text-sm font-medium mb-1">
                       This folder can't be browsed.
                     </p>
                     <p className="text-xs text-slate-500 max-w-md mx-auto">
@@ -501,17 +501,17 @@ export default function Files() {
                           }}
                           className={`grid grid-cols-[1fr_100px_80px] gap-4 items-center border rounded-lg px-4 py-3 transition-colors cursor-pointer text-left w-full ${
                             isFolder
-                              ? 'bg-slate-900/60 border-slate-800 hover:border-blue-500/50 hover:bg-slate-800/60'
-                              : 'bg-slate-900/40 border-slate-800/60 hover:border-slate-700 hover:bg-slate-800/40'
+                              ? 'bg-white/60 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-blue-500/50 hover:bg-slate-50/60 dark:hover:bg-slate-800/60'
+                              : 'bg-white/40 dark:bg-slate-900/40 border-slate-200/60 dark:border-slate-800/60 hover:border-slate-200 dark:hover:border-slate-700 hover:bg-slate-50/40 dark:hover:bg-slate-800/40'
                           }`}
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             {isFolder ? (
-                              <Icon name="folder" className="text-xl text-blue-400" />
+                              <Icon name="folder" className="text-xl text-blue-600 dark:text-blue-400" />
                             ) : (
-                              <Icon name={fileIcon(entry.name)} className="text-xl text-slate-400" />
+                              <Icon name={fileIcon(entry.name)} className="text-xl text-slate-600 dark:text-slate-400" />
                             )}
-                            <span className={`text-sm truncate ${isFolder ? 'font-medium text-slate-100' : 'text-slate-300'}`}>
+                            <span className={`text-sm truncate ${isFolder ? 'font-medium text-slate-900 dark:text-slate-100' : 'text-slate-700 dark:text-slate-300'}`}>
                               {entry.name}
                             </span>
                             {isFolder && (
@@ -570,19 +570,19 @@ export default function Files() {
           }
           className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-start gap-3 px-4 py-3 rounded-xl shadow-lg text-sm border ${
             deleteToast.kind === 'success'
-              ? 'bg-slate-800 border-slate-700 text-slate-200'
+              ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
               : 'bg-red-950 border-red-800 text-red-200'
           }`}
         >
           <Icon
             name={deleteToast.kind === 'success' ? 'check_circle' : 'error'}
             size={18}
-            className={deleteToast.kind === 'success' ? 'text-green-400' : 'text-red-400'}
+            className={deleteToast.kind === 'success' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}
           />
           <span>{deleteToast.message}</span>
           <button
             onClick={() => setDeleteToast(null)}
-            className="text-slate-500 hover:text-slate-300"
+            className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
             aria-label="Dismiss"
           >
             <Icon name="close" size={14} />

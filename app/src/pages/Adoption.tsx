@@ -13,13 +13,13 @@ interface Skill {
 
 function skillDelta(skill: Skill): { label: string; color: string } | null {
   if (skill.prev_week_uses === 0 && skill.uses_this_week > 0) {
-    return { label: 'new', color: 'text-slate-400' }
+    return { label: 'new', color: 'text-slate-600 dark:text-slate-400' }
   }
   if (skill.prev_week_uses > 0) {
     const pct = Math.round(((skill.uses_this_week - skill.prev_week_uses) / skill.prev_week_uses) * 100)
     return {
       label: pct >= 0 ? `+${pct}%` : `${pct}%`,
-      color: pct > 0 ? 'text-green-400' : pct < 0 ? 'text-red-400' : 'text-slate-400',
+      color: pct > 0 ? 'text-green-600 dark:text-green-400' : pct < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-400',
     }
   }
   return null
@@ -63,10 +63,10 @@ export default function Adoption() {
 
   if (loading || error || !data) {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="What's working" />
-        <div className="pt-16 px-6 pb-6 sm:pt-20 max-w-2xl mx-auto">
-          <p className="text-slate-400 text-sm py-8">
+        <div className="px-6 pb-6 max-w-2xl mx-auto">
+          <p className="text-slate-600 dark:text-slate-400 text-sm py-8">
             {loading ? 'Loading...' : "Couldn't load your activity right now. Try refreshing."}
           </p>
         </div>
@@ -77,12 +77,12 @@ export default function Adoption() {
   const hasActivity = data.top_skills.length > 0
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="What's working" />
-      <div className="pt-16 px-6 pb-6 sm:pt-20 max-w-2xl mx-auto space-y-8">
+      <div className="px-6 pb-6 max-w-2xl mx-auto space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-slate-100">What's working</h1>
-        <p className="text-slate-400 text-sm mt-1">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">What's working</h1>
+        <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">
           A quick look at what you've been running this week and what to try next.
         </p>
       </div>
@@ -99,11 +99,11 @@ export default function Adoption() {
               <div
                 key={skill.id}
                 data-testid="skill-card"
-                className="flex items-center justify-between bg-slate-800/50 border border-slate-700/50 rounded-lg px-4 py-3"
+                className="flex items-center justify-between bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg px-4 py-3"
               >
                 <div className="flex items-center gap-3">
-                  <Icon name="bolt" className="text-amber-400 text-lg" />
-                  <span className="text-sm font-medium text-slate-100">{skill.name}</span>
+                  <Icon name="bolt" className="text-amber-600 dark:text-amber-400 text-lg" />
+                  <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{skill.name}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   {(() => {
@@ -111,7 +111,7 @@ export default function Adoption() {
                     return delta ? (
                       <span
                         data-testid="skill-delta"
-                        className={`text-xs ${delta.color} bg-slate-700/50 px-2 py-0.5 rounded-full`}
+                        className={`text-xs ${delta.color} bg-slate-200 dark:bg-slate-700/50 px-2 py-0.5 rounded-full`}
                       >
                         {delta.label}
                       </span>
@@ -119,7 +119,7 @@ export default function Adoption() {
                   })()}
                   <span
                     data-testid="skill-use-count"
-                    className="text-xs text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded-full"
+                    className="text-xs text-slate-600 dark:text-slate-400 bg-slate-200 dark:bg-slate-700/50 px-2 py-0.5 rounded-full"
                   >
                     {skill.uses_this_week}x this week
                   </span>
@@ -143,12 +143,12 @@ export default function Adoption() {
                 data-testid="starter-card"
                 aria-label={`Start a ${card.name} agent`}
                 onClick={() => navigate(`/agents?template=${card.id}`)}
-                className="w-full text-left flex items-start gap-3 bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
+                className="w-full text-left flex items-start gap-3 bg-slate-100 dark:bg-slate-800/30 border border-slate-200/40 dark:border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-50/60 dark:hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
               >
                 <Icon name={card.icon} className="text-sky-400 text-lg mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-slate-100">{card.name}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{card.desc}</p>
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{card.name}</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{card.desc}</p>
                 </div>
               </button>
             ))}
@@ -170,12 +170,12 @@ export default function Adoption() {
                 data-testid="recommendation-card"
                 aria-label={`Start a ${rec.name} agent`}
                 onClick={() => navigate(`/agents?template=${rec.id}`)}
-                className="w-full text-left flex items-start gap-3 bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
+                className="w-full text-left flex items-start gap-3 bg-slate-100 dark:bg-slate-800/30 border border-slate-200/40 dark:border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-50/60 dark:hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
               >
                 <Icon name="lightbulb" className="text-sky-400 text-lg mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-slate-100">{rec.name}</p>
-                  <p data-testid="rec-why" className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{rec.name}</p>
+                  <p data-testid="rec-why" className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                     Because {rec.why}
                   </p>
                 </div>
@@ -190,10 +190,10 @@ export default function Adoption() {
         <h2 id="week-heading" className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
           This week
         </h2>
-        <div className="bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-4 space-y-3">
+        <div className="bg-slate-100 dark:bg-slate-800/30 border border-slate-200/40 dark:border-slate-700/40 rounded-lg px-4 py-4 space-y-3">
           <div className="flex items-center gap-3">
-            <Icon name="check_circle" className="text-green-400 text-lg shrink-0" />
-            <span className="text-sm text-slate-300">
+            <Icon name="check_circle" className="text-green-600 dark:text-green-400 text-lg shrink-0" />
+            <span className="text-sm text-slate-700 dark:text-slate-300">
               {data.this_week.agent_runs_completed === 0
                 ? 'No agent runs finished this week yet.'
                 : `${data.this_week.agent_runs_completed} agent run${data.this_week.agent_runs_completed === 1 ? '' : 's'} finished`}
@@ -201,8 +201,8 @@ export default function Adoption() {
           </div>
           {data.this_week.top_spec_or_task && (
             <div className="flex items-center gap-3">
-              <Icon name="flag" className="text-amber-400 text-lg shrink-0" />
-              <span className="text-sm text-slate-300" data-testid="top-priority-label">
+              <Icon name="flag" className="text-amber-600 dark:text-amber-400 text-lg shrink-0" />
+              <span className="text-sm text-slate-700 dark:text-slate-300" data-testid="top-priority-label">
                 Top priority: {truncatePriority(data.this_week.top_spec_or_task!)}
               </span>
             </div>

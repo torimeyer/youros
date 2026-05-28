@@ -467,6 +467,64 @@ describe('Slack one-click OAuth button', () => {
   })
 })
 
+describe('→1707 multi-workspace support', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.slackChannels.v2')
+  })
+
+  it('shows workspace pills when multiple workspaces are connected', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/slack/status')) {
+        return Promise.resolve({ connected: true, team_name: 'Acme', team_id: 'T1', configured: true })
+      }
+      if (path.includes('/slack/workspaces')) {
+        return Promise.resolve({
+          workspaces: [
+            { team_id: 'T1', team_name: 'Acme' },
+            { team_id: 'T2', team_name: 'Beta Corp' },
+          ],
+        })
+      }
+      if (path.includes('/slack/channels')) {
+        return Promise.resolve({ channels: [] })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSlack()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('slack-workspace-T1')).toBeInTheDocument()
+      expect(screen.getByTestId('slack-workspace-T2')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Acme')).toBeInTheDocument()
+    expect(screen.getByText('Beta Corp')).toBeInTheDocument()
+  })
+
+  it('shows "Add workspace" button when connected', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/slack/status')) {
+        return Promise.resolve({ connected: true, team_name: 'Acme', team_id: 'T1', configured: true })
+      }
+      if (path.includes('/slack/workspaces')) {
+        return Promise.resolve({ workspaces: [{ team_id: 'T1', team_name: 'Acme' }] })
+      }
+      if (path.includes('/slack/channels')) {
+        return Promise.resolve({ channels: [] })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSlack()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('slack-add-workspace-btn')).toBeInTheDocument()
+    })
+  })
+})
+
 describe('Slack configure form', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -512,7 +570,7 @@ describe('Slack configure form', () => {
     })
   })
 
-  it('submitting the form calls /slack/configure with entered credentials', async () => {
+  it('submitting the form calls /slack/credentials with entered credentials', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path.includes('/slack/status')) {
         return Promise.resolve({ connected: false, team_name: '', team_id: '', configured: false })
@@ -532,7 +590,7 @@ describe('Slack configure form', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save/i }))
 
     await waitFor(() => {
-      expect(mockedApiPost).toHaveBeenCalledWith('/slack/configure', {
+      expect(mockedApiPost).toHaveBeenCalledWith('/slack/credentials', {
         client_id: 'my-client-id',
         client_secret: 'my-client-secret',
       })

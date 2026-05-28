@@ -131,11 +131,11 @@ interface SessionDiff {
 
 const focusIcons = ['code', 'mail', 'smart_toy', 'target', 'bolt'];
 const focusColors = [
-  'bg-pink-500/20 text-pink-400',
-  'bg-blue-500/20 text-blue-400',
-  'bg-purple-500/20 text-purple-400',
-  'bg-cyan-500/20 text-cyan-400',
-  'bg-orange-500/20 text-orange-400',
+  'bg-pink-500/20 text-pink-600 dark:text-pink-400',
+  'bg-blue-500/20 text-blue-600 dark:text-blue-400',
+  'bg-purple-500/20 text-purple-600 dark:text-purple-400',
+  'bg-cyan-500/20 text-cyan-600 dark:text-cyan-400',
+  'bg-orange-500/20 text-orange-600 dark:text-orange-400',
 ];
 
 // Calendar widget range. Drives the day/week/month selector on the
@@ -467,9 +467,9 @@ export default function Dashboard() {
   };
 
   const quickLaunch = [
-    { icon: 'add_task', label: 'New Needle', color: 'text-blue-400', hoverBorder: 'hover:border-blue-500' },
-    { icon: 'bolt', label: 'Spawn Agent', color: 'text-purple-400', hoverBorder: 'hover:border-purple-500' },
-    { icon: 'chat', label: 'Open Chat', color: 'text-cyan-400', hoverBorder: 'hover:border-cyan-500' },
+    { icon: 'add_task', label: 'New Needle', color: 'text-blue-600 dark:text-blue-400', hoverBorder: 'hover:border-blue-500' },
+    { icon: 'bolt', label: 'Spawn Agent', color: 'text-purple-600 dark:text-purple-400', hoverBorder: 'hover:border-purple-500' },
+    { icon: 'chat', label: 'Open Chat', color: 'text-cyan-600 dark:text-cyan-400', hoverBorder: 'hover:border-cyan-500' },
   ];
 
 
@@ -538,21 +538,21 @@ export default function Dashboard() {
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3 flex-1">
               <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                <Icon name="wb_sunny" className="text-blue-400" size={18} />
+                <Icon name="wb_sunny" className="text-blue-600 dark:text-blue-400" size={18} />
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1.5">
-                  <p className="text-xs font-medium text-blue-400 uppercase tracking-wide">{greetingLabel}</p>
+                  <p className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">{greetingLabel}</p>
                   {briefingRefreshing && (
                     <span
                       data-testid="briefing-refreshing"
-                      className="text-[10px] font-medium text-blue-300/70 uppercase tracking-wide"
+                      className="text-[10px] font-medium text-blue-700 dark:text-blue-300/70 uppercase tracking-wide"
                     >
                       Refreshing...
                     </span>
                   )}
                 </div>
-                <div className="text-sm text-slate-200 leading-relaxed space-y-3">
+                <div className="text-sm text-slate-800 dark:text-slate-200 leading-relaxed space-y-3">
                   {briefing.briefing.split(/\n\n+/).map((para, i) => (
                     <div key={i}>{renderMarkdown(para)}</div>
                   ))}
@@ -598,7 +598,7 @@ export default function Dashboard() {
             </div>
             <button
               onClick={handleDismissBriefing}
-              className="text-slate-500 hover:text-slate-300 transition-colors shrink-0 mt-0.5"
+              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors shrink-0 mt-0.5"
               aria-label="Dismiss briefing"
             >
               <Icon name="close" size={18} />
@@ -628,7 +628,7 @@ export default function Dashboard() {
       <div
         key="briefing"
         data-testid="widget-briefing"
-        className="mb-6 bg-slate-900/40 border border-slate-800 rounded-xl p-5"
+        className="mb-6 bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-5"
       >
         <div className="flex items-start gap-3">
           <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0 mt-0.5">
@@ -636,12 +636,12 @@ export default function Dashboard() {
           </div>
           <div className="flex-1">
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">{greetingLabel}</p>
-            <p className="text-sm text-slate-400 leading-relaxed mb-2">
+            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-2">
               {emptyCopy}
             </p>
             <button
               onClick={handleShowBriefing}
-              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
             >
               {emptyAction}
             </button>
@@ -657,18 +657,18 @@ export default function Dashboard() {
         <div
           key="focus_first"
           data-testid="widget-focus-first"
-          className="mb-6 bg-slate-900/40 border border-slate-800 p-4 sm:p-6 rounded-xl"
+          className="mb-6 bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-4 sm:p-6 rounded-xl"
         >
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-full bg-pink-500/20 flex items-center justify-center">
-              <Icon name="priority_high" className="text-pink-400" size={22} />
+              <Icon name="priority_high" className="text-pink-600 dark:text-pink-400" size={22} />
             </div>
             <div>
-              <p className="text-xs font-medium text-pink-400 uppercase tracking-wide">Focus on this first</p>
+              <p className="text-xs font-medium text-pink-600 dark:text-pink-400 uppercase tracking-wide">Focus on this first</p>
               <h3 className="text-lg font-semibold text-white">Nothing blocking others right now</h3>
             </div>
           </div>
-          <p className="text-sm text-slate-400 ml-[52px]">
+          <p className="text-sm text-slate-600 dark:text-slate-400 ml-[52px]">
             When a needle blocks several others, it will show up here so you know to finish it first.
           </p>
         </div>
@@ -683,20 +683,20 @@ export default function Dashboard() {
       >
         <div className="flex items-center gap-3 mb-2">
           <div className="w-10 h-10 rounded-full bg-pink-500/20 flex items-center justify-center">
-            <Icon name="priority_high" className="text-pink-400" size={22} />
+            <Icon name="priority_high" className="text-pink-600 dark:text-pink-400" size={22} />
           </div>
           <div className="flex items-center gap-3">
             <div>
-              <p className="text-xs font-medium text-pink-400 uppercase tracking-wide">Focus on this first</p>
+              <p className="text-xs font-medium text-pink-600 dark:text-pink-400 uppercase tracking-wide">Focus on this first</p>
               <h3 className="text-lg font-semibold text-white">{compounds.top.title}</h3>
             </div>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-pink-500/20 text-pink-300 text-xs font-medium rounded-full whitespace-nowrap">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-pink-500/20 text-pink-700 dark:text-pink-300 text-xs font-medium rounded-full whitespace-nowrap">
               <Icon name="lock_open" size={12} />
               Unblocks {compounds.top.blocks_count}
             </span>
           </div>
         </div>
-        <p className="text-sm text-slate-400 ml-[52px]">
+        <p className="text-sm text-slate-600 dark:text-slate-400 ml-[52px]">
           Finishing this unblocks {compounds.top.blocks_count} other {compounds.top.blocks_count === 1 ? 'needle' : 'needles'}.
           Getting it done first lets everything else move forward.
         </p>
@@ -709,10 +709,10 @@ export default function Dashboard() {
                   e.stopPropagation();
                   navigate(`/tasks?focus=${encodeURIComponent(task.id)}`);
                 }}
-                className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200 cursor-pointer transition-colors"
+                className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer transition-colors"
               >
                 <span className="truncate">{task.title}</span>
-                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-slate-800 text-slate-400 text-[10px] font-medium rounded-full whitespace-nowrap shrink-0">
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-medium rounded-full whitespace-nowrap shrink-0">
                   <Icon name="lock_open" size={10} />
                   {task.blocks_count}
                 </span>
@@ -729,12 +729,12 @@ export default function Dashboard() {
     <Card hover padding="sm" className="sm:p-6">
       <div className="flex items-center justify-between mb-4 pr-8">
         <div className="flex items-center gap-2">
-          <Icon name="target" className="text-pink-400" size={20} />
+          <Icon name="target" className="text-pink-600 dark:text-pink-400" size={20} />
           <h2 className="text-lg font-semibold">Today's Focus</h2>
         </div>
         <div className="flex items-center gap-3 text-sm">
-          <span className="text-pink-400">{openCount} open</span>
-          <span className="text-blue-400">{closedCount} done</span>
+          <span className="text-pink-600 dark:text-pink-400">{openCount} open</span>
+          <span className="text-blue-600 dark:text-blue-400">{closedCount} done</span>
         </div>
       </div>
       <div className="space-y-3">
@@ -756,7 +756,7 @@ export default function Dashboard() {
                 }
               }}
               aria-label={`Open task ${task.title}`}
-              className="flex items-center gap-4 p-3 rounded-lg hover:bg-slate-800/50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              className="flex items-center gap-4 p-3 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/50"
             >
               <div className={`w-10 h-10 rounded-full flex items-center justify-center ${task.color}`}>
                 <Icon name={task.icon} size={20} />
@@ -768,7 +768,7 @@ export default function Dashboard() {
                   textClassName="font-medium"
                   testId="focus-task-expand"
                 />
-                <p className="text-sm text-slate-400">{task.subtitle}</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400">{task.subtitle}</p>
               </div>
               <Icon name="open_in_new" className="text-slate-500" size={18} />
             </div>
@@ -788,10 +788,10 @@ export default function Dashboard() {
           <button
             key={item.label}
             onClick={quickLaunchActions[item.label]}
-            className={`flex flex-col items-center p-3 sm:p-4 min-h-[44px] bg-slate-900 rounded-lg border border-slate-800 ${item.hoverBorder} transition-colors`}
+            className={`flex flex-col items-center p-3 sm:p-4 min-h-[44px] bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 ${item.hoverBorder} transition-colors`}
           >
             <Icon name={item.icon} className={item.color} size={24} />
-            <span className="text-sm text-slate-300 mt-2">{item.label}</span>
+            <span className="text-sm text-slate-700 dark:text-slate-300 mt-2">{item.label}</span>
           </button>
         ))}
       </div>
@@ -819,7 +819,7 @@ export default function Dashboard() {
       <div
         role="group"
         aria-label="Calendar range"
-        className="inline-flex rounded-lg bg-slate-800/60 p-0.5 text-xs"
+        className="inline-flex rounded-lg bg-slate-50/60 dark:bg-slate-800/60 p-0.5 text-xs"
         data-testid="calendar-range-selector"
         onClick={(e) => e.stopPropagation()}
       >
@@ -832,7 +832,7 @@ export default function Dashboard() {
               onClick={handleRangeClick(range)}
               aria-pressed={active}
               data-testid={`calendar-range-${range}`}
-              className={`px-2.5 py-1 rounded-md transition-colors ${active ? 'bg-blue-500/30 text-blue-200' : 'text-slate-400 hover:text-slate-200'}`}
+              className={`px-2.5 py-1 rounded-md transition-colors ${active ? 'bg-blue-500/30 text-blue-200' : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'}`}
             >
               {CALENDAR_RANGE_LABEL[range]}
             </button>
@@ -844,7 +844,7 @@ export default function Dashboard() {
     const header = (
       <div className="flex items-center justify-between mb-3 pr-8">
         <div className="flex items-center gap-2">
-          <Icon name="calendar_month" className="text-blue-400" size={20} />
+          <Icon name="calendar_month" className="text-blue-600 dark:text-blue-400" size={20} />
           <h2 className="text-lg font-semibold">Upcoming events</h2>
         </div>
         {rangeSelector}
@@ -874,7 +874,7 @@ export default function Dashboard() {
       <Card hover padding="sm" className="sm:p-6">
         <div className="flex items-center mb-4 pr-8">
           <div className="flex items-center gap-2">
-            <Icon name="calendar_today" className="text-cyan-400" size={20} />
+            <Icon name="calendar_today" className="text-cyan-600 dark:text-cyan-400" size={20} />
             <h2 className="text-lg font-semibold">Day Summary</h2>
           </div>
         </div>
@@ -886,7 +886,7 @@ export default function Dashboard() {
           ) : (
             <ul className="space-y-2">
               {summaryBullets.map((bullet, i) => (
-                <li key={i} className="flex items-start gap-3 text-sm text-slate-300">
+                <li key={i} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
                   <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
                   {bullet}
                 </li>
@@ -908,17 +908,17 @@ export default function Dashboard() {
         <div className="flex items-start gap-4 mb-4 pr-8">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center shrink-0">
-              <Icon name="rocket_launch" className="text-indigo-400" size={20} />
+              <Icon name="rocket_launch" className="text-indigo-600 dark:text-indigo-400" size={20} />
             </div>
             <div>
-              <p className="text-xs font-medium text-indigo-400 uppercase tracking-wide mb-0.5">Try an Adventure</p>
+              <p className="text-xs font-medium text-indigo-600 dark:text-indigo-400 uppercase tracking-wide mb-0.5">Try an Adventure</p>
               <p className="font-semibold">Pick something to get started on</p>
             </div>
           </div>
         </div>
 
         {adventureSpawned ? (
-          <div data-testid="adventure-spawned-banner" className="flex items-center gap-2 px-4 py-3 bg-green-500/10 border border-green-500/30 rounded-lg text-sm text-green-300">
+          <div data-testid="adventure-spawned-banner" className="flex items-center gap-2 px-4 py-3 bg-green-500/10 border border-green-500/30 rounded-lg text-sm text-green-700 dark:text-green-300">
             <Icon name="check_circle" size={16} />
             <span>Agent started.</span>
             <button
@@ -940,11 +940,11 @@ export default function Dashboard() {
                   className={`text-left p-3 rounded-lg border transition-colors ${
                     adventureSelected?.id === adv.id
                       ? 'border-indigo-500 bg-indigo-500/10'
-                      : 'border-slate-700 bg-slate-900/50 hover:border-slate-600'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/50 hover:border-slate-600'
                   }`}
                 >
-                  <Icon name={adv.icon} size={16} className="text-indigo-400 mb-1" />
-                  <p className="text-xs font-medium text-slate-200 leading-snug">{adv.title}</p>
+                  <Icon name={adv.icon} size={16} className="text-indigo-600 dark:text-indigo-400 mb-1" />
+                  <p className="text-xs font-medium text-slate-800 dark:text-slate-200 leading-snug">{adv.title}</p>
                 </button>
               ))}
             </div>
@@ -957,7 +957,7 @@ export default function Dashboard() {
                 onKeyDown={(e) => { if (e.key === 'Enter' && !adventureLoading) handleSpawnAdventure(); }}
                 placeholder={adventureSelected ? adventureSelected.placeholder : 'Describe what you want to do...'}
                 data-testid="adventure-description-input"
-                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+                className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
               />
               <button
                 onClick={handleSpawnAdventure}
@@ -1059,25 +1059,25 @@ export default function Dashboard() {
 
   return (
     <div
-      className="min-h-dvh bg-slate-950 text-white"
+      className="min-h-dvh bg-white dark:bg-slate-950 text-white"
       data-live-agents={String(liveAgentsCount)}
       data-live-tasks={String(liveTasksCount)}
     >
       <TopBar title="Home" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {visibleBanners.map((id) => widgetRenderers[id]?.())}
 
         {/* Greeting + Customize button */}
         <div className="mb-6 sm:mb-8 flex items-start justify-between gap-4">
           <div data-tour="dashboard">
             <h1 className="text-2xl sm:text-3xl font-bold mb-1">Welcome to {displayOsName}</h1>
-            {greetingSubtitle && <p className="text-slate-400">{greetingSubtitle}</p>}
+            {greetingSubtitle && <p className="text-slate-600 dark:text-slate-400">{greetingSubtitle}</p>}
           </div>
           <button
             onClick={() => setCustomizeOpen(true)}
             aria-label="Customize dashboard"
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900/60 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-lg text-sm text-slate-300 transition-colors shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/60 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-300 transition-colors shrink-0"
           >
             <Icon name="dashboard_customize" size={16} />
             Customize
@@ -1092,7 +1092,7 @@ export default function Dashboard() {
               <div className="absolute top-3 right-3 opacity-0 group-hover/widget:opacity-100 transition-opacity">
                 <button
                   onClick={() => setWidgetMenuOpen(widgetMenuOpen === id ? null : id)}
-                  className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors"
+                  className="p-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors"
                   aria-label={`Widget options for ${id}`}
                   data-testid={`widget-menu-trigger-${id}`}
                 >
@@ -1104,7 +1104,7 @@ export default function Dashboard() {
                       <button
                         onClick={() => { handleDismissAdventure(); setWidgetMenuOpen(null); }}
                         data-testid="widget-menu-adventure-dismiss"
-                        className="w-full text-left px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
+                        className="w-full text-left px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
                       >
                         <Icon name="close" size={14} />
                         Dismiss
@@ -1115,7 +1115,7 @@ export default function Dashboard() {
                         onClick={() => { fetchSummary(); setWidgetMenuOpen(null); }}
                         disabled={summaryLoading}
                         data-testid="widget-menu-day-summary-refresh"
-                        className="w-full text-left px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors flex items-center gap-2"
+                        className="w-full text-left px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors flex items-center gap-2"
                       >
                         <Icon name="refresh" size={14} className={summaryLoading ? 'animate-spin' : ''} />
                         Refresh
@@ -1123,7 +1123,7 @@ export default function Dashboard() {
                     )}
                     <button
                       onClick={() => removeWidget(id)}
-                      className="w-full text-left px-3 py-1.5 text-sm text-red-500 dark:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
+                      className="w-full text-left px-3 py-1.5 text-sm text-red-500 dark:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
                     >
                       <Icon name="visibility_off" size={14} />
                       Hide widget

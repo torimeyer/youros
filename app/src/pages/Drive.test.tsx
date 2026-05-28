@@ -687,6 +687,105 @@ describe('Drive page', () => {
   })
 })
 
+describe('Drive sort control (→1752)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.driveCache.v1')
+    window.localStorage.removeItem('myos.driveSort.v1')
+  })
+
+  it('renders all three sort buttons', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => screen.getByText('Q1 Report'))
+
+    expect(screen.getByTestId('drive-sort-opened')).toBeInTheDocument()
+    expect(screen.getByTestId('drive-sort-edited')).toBeInTheDocument()
+    expect(screen.getByTestId('drive-sort-created')).toBeInTheDocument()
+  })
+
+  it('defaults to "Last opened" (sort=opened)', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => screen.getByText('Q1 Report'))
+
+    // The "Last opened" button should be active (has bg-blue-600 class via aria-pressed logic
+    // or just verify the API was called with sort=opened).
+    expect(mockedApiGet).toHaveBeenCalledWith(expect.stringContaining('sort=opened'))
+  })
+
+  it('clicking "Last edited" re-fetches with sort=edited', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => screen.getByText('Q1 Report'))
+
+    fireEvent.click(screen.getByTestId('drive-sort-edited'))
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith(expect.stringContaining('sort=edited'))
+    })
+  })
+
+  it('clicking "Date created" re-fetches with sort=created', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => screen.getByText('Q1 Report'))
+
+    fireEvent.click(screen.getByTestId('drive-sort-created'))
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith(expect.stringContaining('sort=created'))
+    })
+  })
+
+  it('persists sort preference to localStorage', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => screen.getByText('Q1 Report'))
+
+    fireEvent.click(screen.getByTestId('drive-sort-edited'))
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem('myos.driveSort.v1')).toBe('edited')
+    })
+  })
+
+  it('reads sort preference from localStorage on mount', async () => {
+    window.localStorage.setItem('myos.driveSort.v1', 'created')
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => screen.getByText('Q1 Report'))
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith(expect.stringContaining('sort=created'))
+    })
+  })
+})
+
 describe('Drive localStorage cache (faster return visits)', () => {
   beforeEach(() => {
     vi.clearAllMocks()

@@ -578,6 +578,66 @@ def test_render_bolds_task_titles_in_briefing():
     assert '"Wire OAuth refresh"' not in text
 
 
+def test_render_closed_yesterday_as_bullet_list():
+    """Closed-task titles must render as a markdown bullet list, not a
+    comma-separated run of bold text, so the frontend renders them as
+    distinct bullets instead of one long sentence.
+    """
+    import services.briefing as bf
+
+    facts = {
+        "events": [],
+        "priority_tasks": [],
+        "top_compound": None,
+        "closed_yesterday": [
+            "Ship onboarding wizard",
+            "Fix mailbox lock",
+            "Patch Stitch enums",
+        ],
+        "p0p1_count": 0,
+    }
+    text = bf._render_briefing_from_facts(facts)
+
+    # Lead-in line ends with colon, titles are on separate bullet lines.
+    assert "3 tasks closed yesterday:" in text
+    assert "- **Ship onboarding wizard**" in text
+    assert "- **Fix mailbox lock**" in text
+    assert "- **Patch Stitch enums**" in text
+    # Old comma-separated form must be gone.
+    assert "**Ship onboarding wizard**, **Fix mailbox lock**" not in text
+
+
+def test_render_closed_yesterday_bullet_list_with_overflow():
+    """When more than 3 tasks closed, show 3 bullets plus an 'and N more'
+    tail bullet instead of the old inline 'including A, B, C, and N more' prose.
+    """
+    import services.briefing as bf
+
+    facts = {
+        "events": [],
+        "priority_tasks": [],
+        "top_compound": None,
+        "closed_yesterday": [
+            "Task Alpha",
+            "Task Beta",
+            "Task Gamma",
+            "Task Delta",
+            "Task Epsilon",
+        ],
+        "p0p1_count": 0,
+    }
+    text = bf._render_briefing_from_facts(facts)
+
+    assert "5 tasks closed yesterday:" in text
+    assert "- **Task Alpha**" in text
+    assert "- **Task Beta**" in text
+    assert "- **Task Gamma**" in text
+    # Overflow tail as a bullet.
+    assert "- and 2 more." in text
+    # Old prose form must be gone.
+    assert "including **Task Alpha**" not in text
+
+
 def test_render_bolds_compound_task_title_in_briefing():
     """The highest-leverage (compound) line must also bold the task
     title rather than wrap it in double-quotes.

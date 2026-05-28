@@ -373,13 +373,13 @@ export default function Gmail() {
     }
   }
 
-  const cardClass = 'bg-slate-900/40 border border-slate-800 p-3 sm:p-4 rounded-xl'
+  const cardClass = 'bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-3 sm:p-4 rounded-xl'
 
   if (loading || authStatus === null) {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="Gmail" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
         </div>
       </div>
@@ -388,9 +388,9 @@ export default function Gmail() {
 
   if (!authStatus?.authenticated || authStatus.needs_reauth) {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="Gmail" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
             icon="mail"
             accentColor="#ef4444"
@@ -421,7 +421,7 @@ export default function Gmail() {
                 <button
                   type="button"
                   onClick={() => setShowSetupGuide(true)}
-                  className="w-full text-xs text-slate-500 hover:text-slate-300 underline"
+                  className="w-full text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline"
                 >
                   Need setup help? See the guide
                 </button>
@@ -437,9 +437,9 @@ export default function Gmail() {
 
   if (apiNotEnabled) {
     return (
-      <div className="min-h-dvh bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
         <TopBar title="Gmail" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
             icon="warning"
             accentColor="#f59e0b"
@@ -460,7 +460,7 @@ export default function Gmail() {
                 </p>
                 <button
                   onClick={() => { setApiNotEnabled(false); fetchMessages() }}
-                  className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
+                  className="w-full py-3 bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
                 >
                   Retry
                 </button>
@@ -473,22 +473,22 @@ export default function Gmail() {
   }
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
       <TopBar title="Gmail" />
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header row */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl sm:text-2xl font-bold">Gmail</h1>
               {messages.filter((m) => m.is_unread).length > 0 && (
-                <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-sm font-semibold rounded-full">
+                <span className="px-2 py-0.5 bg-red-500/20 text-red-600 dark:text-red-400 text-sm font-semibold rounded-full">
                   {messages.filter((m) => m.is_unread).length}
                 </span>
               )}
             </div>
             {authStatus.email && (
-              <p className="text-sm text-slate-400 mt-0.5">{authStatus.email}</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">{authStatus.email}</p>
             )}
           </div>
           <div className="flex items-center gap-3">
@@ -500,7 +500,7 @@ export default function Gmail() {
             <button
               onClick={() => setGmailUnreadAtTop(!gmailUnreadAtTop)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                gmailUnreadAtTop ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-400'
+                gmailUnreadAtTop ? 'bg-red-500/20 text-red-600 dark:text-red-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
               }`}
             >
               <Icon name="vertical_align_top" size={16} />
@@ -509,7 +509,7 @@ export default function Gmail() {
             <button
               onClick={handleSync}
               disabled={syncing}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm transition-colors disabled:opacity-50"
             >
               <Icon name="sync" size={16} className={syncing ? 'animate-spin' : ''} />
               Sync
@@ -520,11 +520,11 @@ export default function Gmail() {
         {/* Message list */}
         <div className={cardClass}>
           <div className="flex items-center gap-2 mb-4 flex-wrap">
-            <Icon name="inbox" className="text-red-400" size={18} />
+            <Icon name="inbox" className="text-red-600 dark:text-red-400" size={18} />
             <h2 className="text-base font-semibold">Inbox</h2>
             {selectedIds.size > 0 && (
               <>
-                <span className="ml-2 text-sm text-slate-400">
+                <span className="ml-2 text-sm text-slate-600 dark:text-slate-400">
                   {selectedIds.size} selected
                 </span>
                 <button
@@ -540,7 +540,7 @@ export default function Gmail() {
                 <button
                   type="button"
                   onClick={() => setSelectedIds(new Set())}
-                  className="flex items-center gap-1 px-2 py-1 text-xs text-slate-400 hover:text-slate-200"
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
                 >
                   Clear
                 </button>
@@ -548,7 +548,7 @@ export default function Gmail() {
             )}
           </div>
           {trashError && (
-            <div className="mb-3 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
+            <div className="mb-3 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-700 dark:text-red-300">
               {trashError}
             </div>
           )}
@@ -563,7 +563,7 @@ export default function Gmail() {
               action={{ label: 'Sync now', onClick: handleSync }}
             />
           ) : (
-            <div className="divide-y divide-slate-800/60">
+            <div className="divide-y divide-slate-200/60 dark:divide-slate-800/60">
               {displayedMessages.map((msg) => {
                 const isExpanded = expandedId === msg.id
                 const isComposing = composer?.messageId === msg.id
@@ -588,7 +588,7 @@ export default function Gmail() {
                       onClick={() => handleMessageClick(msg)}
                       disabled={markingRead.has(msg.id)}
                       aria-expanded={isExpanded}
-                      className={`flex-1 min-w-0 text-left px-3 py-3 rounded-lg transition-colors hover:bg-slate-800/40 disabled:opacity-50 ${
+                      className={`flex-1 min-w-0 text-left px-3 py-3 rounded-lg transition-colors hover:bg-slate-50/40 dark:hover:bg-slate-800/40 disabled:opacity-50 ${
                         msg.is_unread ? '' : 'opacity-75'
                       }`}
                     >
@@ -602,12 +602,12 @@ export default function Gmail() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
-                            <p className={`text-sm truncate ${msg.is_unread ? 'font-semibold text-white' : 'text-slate-300'}`}>
+                            <p className={`text-sm truncate ${msg.is_unread ? 'font-semibold text-white' : 'text-slate-700 dark:text-slate-300'}`}>
                               {msg.from_name || msg.from_email}
                             </p>
                             <span className="text-xs text-slate-500 shrink-0">{formatSmartDate(msg.date)}</span>
                           </div>
-                          <p className={`text-sm truncate mt-0.5 ${msg.is_unread ? 'text-slate-200' : 'text-slate-400'}`}>
+                          <p className={`text-sm truncate mt-0.5 ${msg.is_unread ? 'text-slate-800 dark:text-slate-200' : 'text-slate-600 dark:text-slate-400'}`}>
                             {msg.subject}
                           </p>
                           <p className="text-xs text-slate-500 truncate mt-0.5">
@@ -627,7 +627,7 @@ export default function Gmail() {
 
                     {isExpanded && (
                       <div className="px-3 pb-3">
-                        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
                           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
                             <div className="text-xs text-slate-500 min-w-0 truncate">
                               From {msg.from_name || msg.from_email}
@@ -638,14 +638,14 @@ export default function Gmail() {
                                 type="button"
                                 onClick={(e) => handleCreateTask(e, msg.id)}
                                 disabled={taskStatus[msg.id] === 'loading' || taskStatus[msg.id] === 'done'}
-                                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
+                                className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-50"
                               >
                                 {taskStatus[msg.id] === 'loading' ? (
                                   <><Icon name="progress_activity" size={14} className="animate-spin" /> Creating task...</>
                                 ) : taskStatus[msg.id] === 'done' ? (
-                                  <><Icon name="check_circle" size={14} className="text-green-400" /> Task created</>
+                                  <><Icon name="check_circle" size={14} className="text-green-600 dark:text-green-400" /> Task created</>
                                 ) : taskStatus[msg.id] === 'error' ? (
-                                  <><Icon name="error" size={14} className="text-red-400" /> Failed</>
+                                  <><Icon name="error" size={14} className="text-red-600 dark:text-red-400" /> Failed</>
                                 ) : (
                                   <><Icon name="add_task" size={14} /> Create task</>
                                 )}
@@ -655,7 +655,7 @@ export default function Gmail() {
                                 onClick={(e) => handleTrashMessage(e, msg.id)}
                                 disabled={trashing.has(msg.id)}
                                 aria-label="Move to Trash"
-                                className="flex items-center gap-1 text-xs text-slate-400 hover:text-red-400 disabled:opacity-50"
+                                className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
                               >
                                 {trashing.has(msg.id) ? (
                                   <><Icon name="progress_activity" size={14} className="animate-spin" /> Moving...</>
@@ -666,14 +666,14 @@ export default function Gmail() {
                               <button
                                 type="button"
                                 onClick={(e) => handleOpenInGmail(e, msg.id)}
-                                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
+                                className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
                               >
                                 <Icon name="open_in_new" size={14} />
                                 Open in Gmail
                               </button>
                             </div>
                           </div>
-                          <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">
+                          <p className="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-words">
                             {msg.snippet}
                           </p>
 
@@ -698,7 +698,7 @@ export default function Gmail() {
                                   <button
                                     type="button"
                                     onClick={(e) => handleStartReply(e, msg.id, false)}
-                                    className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors"
+                                    className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors"
                                   >
                                     <Icon name="reply" size={16} />
                                     Reply
@@ -706,7 +706,7 @@ export default function Gmail() {
                                   <button
                                     type="button"
                                     onClick={(e) => handleStartReply(e, msg.id, true)}
-                                    className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors"
+                                    className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors"
                                   >
                                     <Icon name="reply_all" size={16} />
                                     Reply all

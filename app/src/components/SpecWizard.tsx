@@ -176,12 +176,12 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
     <div data-testid={testId}>
       {items.map((item, i) => (
         <div key={i} className="flex items-center gap-2 mb-2 group">
-          <span className="flex-1 text-sm text-slate-300 bg-slate-800/50 rounded-lg px-3 py-2">
+          <span className="flex-1 text-sm text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/50 rounded-lg px-3 py-2">
             {item}
           </span>
           <button
             onClick={() => removeFromList(items, setItems, i)}
-            className="text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+            className="text-slate-500 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
           >
             <Icon name="close" size={16} />
           </button>
@@ -196,12 +196,12 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
             if (e.key === "Enter") addToList(items, setItems, newItem, setNewItem);
           }}
           placeholder={placeholder}
-          className="flex-1 bg-slate-900/40 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+          className="flex-1 bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
         />
         <button
           onClick={() => addToList(items, setItems, newItem, setNewItem)}
           disabled={!newItem.trim()}
-          className="text-blue-400 hover:text-blue-300 disabled:opacity-30"
+          className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 disabled:opacity-30"
         >
           <Icon name="add" size={20} />
         </button>
@@ -210,17 +210,17 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
   );
 
   return (
-    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-6 mb-8" data-testid="spec-wizard">
+    <div className="bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-6 mb-8" data-testid="spec-wizard">
       {/* Mode picker header */}
       <div className="flex items-center gap-1 mb-6">
-        <div className="flex bg-slate-800 rounded-lg p-1 gap-1 flex-1">
+        <div className="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-1 gap-1 flex-1">
           <button
             onClick={() => setMode("needle")}
             data-testid="mode-needle"
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               mode === "needle"
-                ? "bg-slate-700 text-white"
-                : "text-slate-400 hover:text-slate-200"
+                ? "bg-slate-200 dark:bg-slate-700 text-white"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
             }`}
           >
             <Icon name="add_task" size={16} />
@@ -231,15 +231,15 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
             data-testid="mode-spec"
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               mode === "spec"
-                ? "bg-slate-700 text-white"
-                : "text-slate-400 hover:text-slate-200"
+                ? "bg-slate-200 dark:bg-slate-700 text-white"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
             }`}
           >
             <Icon name="description" size={16} />
             Spec
           </button>
         </div>
-        <button onClick={onCancel} className="ml-2 text-slate-500 hover:text-slate-300">
+        <button onClick={onCancel} className="ml-2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
           <Icon name="close" size={20} />
         </button>
       </div>
@@ -253,20 +253,20 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
           </p>
           <div className="space-y-3">
             <div>
-              <label className="block text-sm text-slate-400 mb-1">What needs doing?</label>
+              <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">What needs doing?</label>
               <input
                 type="text"
                 value={needleTitle}
                 onChange={(e) => setNeedleTitle(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && needleTitle.trim()) handleSaveNeedle(); }}
                 placeholder="e.g. Fix dark mode flicker on settings page"
-                className="w-full bg-slate-900/40 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="w-full bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                 data-testid="needle-title"
                 autoFocus
               />
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-1">
+              <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">
                 More detail <span className="text-slate-600">(optional)</span>
               </label>
               <input
@@ -274,7 +274,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
                 value={needleDesc}
                 onChange={(e) => setNeedleDesc(e.target.value)}
                 placeholder="Any extra context..."
-                className="w-full bg-slate-900/40 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="w-full bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                 data-testid="needle-desc"
               />
             </div>
@@ -308,10 +308,10 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
                 <div
                   className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-colors ${
                     i < stepIndex
-                      ? "bg-green-500/20 text-green-400"
+                      ? "bg-green-500/20 text-green-600 dark:text-green-400"
                       : i === stepIndex
-                        ? "bg-blue-500/20 text-blue-400 ring-1 ring-blue-500"
-                        : "bg-slate-800 text-slate-500"
+                        ? "bg-blue-500/20 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-500"
                   }`}
                 >
                   {i < stepIndex ? <Icon name="check" size={14} /> : i + 1}
@@ -324,7 +324,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
                   {s}
                 </span>
                 {i < SPEC_STEPS.length - 1 && (
-                  <div className="w-8 h-px bg-slate-700 mx-1" />
+                  <div className="w-8 h-px bg-slate-200 dark:bg-slate-700 mx-1" />
                 )}
               </div>
             ))}
@@ -334,19 +334,19 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
           {step === "Problem" && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm text-slate-400 mb-1">Title</label>
+                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Title</label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Name this spec..."
-                  className="w-full bg-slate-900/40 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                   data-testid="wizard-title"
                   autoFocus
                 />
               </div>
               <div>
-                <label className="block text-sm text-slate-400 mb-1">
+                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">
                   What problem are you solving? Who has it?
                 </label>
                 <textarea
@@ -354,13 +354,13 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
                   onChange={(e) => setProblem(e.target.value)}
                   placeholder="e.g. PMs forget which tasks relate to their upcoming meetings, so they walk into meetings unprepared..."
                   rows={4}
-                  className="w-full bg-slate-900/40 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                  className="w-full bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
                   data-testid="wizard-problem"
                 />
               </div>
               {afterStatement && (
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-4 py-3">
-                  <p className="text-xs text-blue-400 mb-1">After this ships:</p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mb-1">After this ships:</p>
                   <p className="text-sm text-white">{afterStatement}</p>
                 </div>
               )}
@@ -370,7 +370,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
           {step === "Scope" && (
             <div className="space-y-6">
               <div>
-                <label className="block text-sm text-slate-400 mb-2">
+                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
                   What should this include?
                 </label>
                 <ListEditor
@@ -383,7 +383,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
                 />
               </div>
               <div>
-                <label className="block text-sm text-slate-400 mb-2">
+                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
                   What should this NOT include?
                 </label>
                 <ListEditor
@@ -400,7 +400,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
 
           {step === "Produces" && (
             <div data-testid="wizard-produces" className="space-y-3">
-              <p className="text-sm text-slate-400 mb-4">
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
                 What should this spec produce when you click "Build it"?
               </p>
               <div className="grid grid-cols-2 gap-3">
@@ -412,10 +412,10 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
                     className={`flex items-start gap-3 rounded-xl border p-4 text-left transition-colors ${
                       produces === opt.value
                         ? "border-blue-500 bg-blue-500/10 text-white"
-                        : "border-slate-700 bg-slate-800/40 text-slate-300 hover:border-slate-500"
+                        : "border-slate-200 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/40 text-slate-700 dark:text-slate-300 hover:border-slate-500"
                     }`}
                   >
-                    <Icon name={opt.icon} size={20} className={produces === opt.value ? "text-blue-400" : "text-slate-500"} />
+                    <Icon name={opt.icon} size={20} className={produces === opt.value ? "text-blue-600 dark:text-blue-400" : "text-slate-500"} />
                     <div>
                       <div className="font-medium text-sm">{opt.label}</div>
                       <div className="text-xs text-slate-500 mt-0.5">{opt.description}</div>
@@ -429,20 +429,20 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
           {step === "Criteria" && (
             <div className="space-y-6">
               {suggesting && (
-                <div className="flex items-center gap-2 text-sm text-blue-400 mb-2">
+                <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 mb-2">
                   <Icon name="autorenew" size={16} className="animate-spin" />
                   Generating suggestions...
                 </div>
               )}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm text-slate-400">
+                  <label className="text-sm text-slate-600 dark:text-slate-400">
                     How will we know it works? <span className="text-slate-600">(need at least 3)</span>
                   </label>
                   <button
                     onClick={handleSuggest}
                     disabled={suggesting || !problem.trim()}
-                    className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-30"
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 disabled:opacity-30"
                   >
                     Regenerate suggestions
                   </button>
@@ -457,7 +457,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
                 />
               </div>
               <div>
-                <label className="block text-sm text-slate-400 mb-2">
+                <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
                   What this does NOT do
                 </label>
                 <ListEditor
@@ -477,49 +477,49 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
               <h3 className="text-white font-semibold text-base">{title}</h3>
 
               <div>
-                <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Produces</h4>
-                <p className="text-slate-300">{PRODUCES_OPTIONS.find(o => o.value === produces)?.label ?? produces}</p>
+                <h4 className="text-slate-600 dark:text-slate-400 text-xs uppercase tracking-wider mb-1">Produces</h4>
+                <p className="text-slate-700 dark:text-slate-300">{PRODUCES_OPTIONS.find(o => o.value === produces)?.label ?? produces}</p>
               </div>
 
               <div>
-                <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Problem</h4>
-                <p className="text-slate-300">{problem}</p>
+                <h4 className="text-slate-600 dark:text-slate-400 text-xs uppercase tracking-wider mb-1">Problem</h4>
+                <p className="text-slate-700 dark:text-slate-300">{problem}</p>
                 {afterStatement && (
-                  <p className="text-blue-400 mt-1 text-xs">After this ships: {afterStatement}</p>
+                  <p className="text-blue-600 dark:text-blue-400 mt-1 text-xs">After this ships: {afterStatement}</p>
                 )}
               </div>
 
               {inScope.length > 0 && (
                 <div>
-                  <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">In scope</h4>
-                  <ul className="text-slate-300 space-y-0.5">
-                    {inScope.map((s, i) => <li key={i} className="flex items-start gap-2"><Icon name="check_circle" size={14} className="text-green-400 mt-0.5 shrink-0" />{s}</li>)}
+                  <h4 className="text-slate-600 dark:text-slate-400 text-xs uppercase tracking-wider mb-1">In scope</h4>
+                  <ul className="text-slate-700 dark:text-slate-300 space-y-0.5">
+                    {inScope.map((s, i) => <li key={i} className="flex items-start gap-2"><Icon name="check_circle" size={14} className="text-green-600 dark:text-green-400 mt-0.5 shrink-0" />{s}</li>)}
                   </ul>
                 </div>
               )}
 
               {outOfScope.length > 0 && (
                 <div>
-                  <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Out of scope</h4>
-                  <ul className="text-slate-300 space-y-0.5">
-                    {outOfScope.map((s, i) => <li key={i} className="flex items-start gap-2"><Icon name="block" size={14} className="text-red-400 mt-0.5 shrink-0" />{s}</li>)}
+                  <h4 className="text-slate-600 dark:text-slate-400 text-xs uppercase tracking-wider mb-1">Out of scope</h4>
+                  <ul className="text-slate-700 dark:text-slate-300 space-y-0.5">
+                    {outOfScope.map((s, i) => <li key={i} className="flex items-start gap-2"><Icon name="block" size={14} className="text-red-600 dark:text-red-400 mt-0.5 shrink-0" />{s}</li>)}
                   </ul>
                 </div>
               )}
 
               {criteria.length > 0 && (
                 <div>
-                  <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Success criteria</h4>
-                  <ul className="text-slate-300 space-y-0.5">
-                    {criteria.map((c, i) => <li key={i} className="flex items-start gap-2"><Icon name="radio_button_unchecked" size={14} className="text-blue-400 mt-0.5 shrink-0" />{c}</li>)}
+                  <h4 className="text-slate-600 dark:text-slate-400 text-xs uppercase tracking-wider mb-1">Success criteria</h4>
+                  <ul className="text-slate-700 dark:text-slate-300 space-y-0.5">
+                    {criteria.map((c, i) => <li key={i} className="flex items-start gap-2"><Icon name="radio_button_unchecked" size={14} className="text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />{c}</li>)}
                   </ul>
                 </div>
               )}
 
               {nonGoals.length > 0 && (
                 <div>
-                  <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-1">Non-goals</h4>
-                  <ul className="text-slate-300 space-y-0.5">
+                  <h4 className="text-slate-600 dark:text-slate-400 text-xs uppercase tracking-wider mb-1">Non-goals</h4>
+                  <ul className="text-slate-700 dark:text-slate-300 space-y-0.5">
                     {nonGoals.map((g, i) => <li key={i} className="flex items-start gap-2"><Icon name="do_not_disturb" size={14} className="text-slate-500 mt-0.5 shrink-0" />{g}</li>)}
                   </ul>
                 </div>
@@ -528,7 +528,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
           )}
 
           {/* Spec navigation */}
-          <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-800">
+          <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-200 dark:border-slate-800">
             <Button
               variant="secondary"
               size="sm"

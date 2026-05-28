@@ -7,6 +7,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from services import provider_detection as _pd
+
+
+# ---------------------------------------------------------------------------
+# Cache reset — prevents TTL cache from leaking state between tests (→1738)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _reset_provider_cache():
+    """Reset the detect_providers() TTL cache before each test.
+
+    Commit 195f2a25 (→1738) added a 30-second single-flight cache.  Without
+    this fixture, the first test's mocked result stays cached and subsequent
+    tests see that stale value instead of re-running their own mocks.
+    """
+    _pd._reset_provider_cache()
+    yield
+
 
 # ---------------------------------------------------------------------------
 # detect_providers() unit tests
