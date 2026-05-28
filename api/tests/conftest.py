@@ -394,6 +394,48 @@ def _guard_audit_writes(tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _reset_ostk_singleton():
+    """Reset the services.ostk.ostk singleton state between tests.
+
+    The singleton carries mutable state that leaks across tests:
+
+    1. ``_socket_available`` (None/True/False): once a test drives it to False
+       (socket unavailable), all subsequent tests skip the socket path even when
+       they patch ostk_socket.
+
+    2. ``_audit_cache`` and ``_audit_tail`` (module-level dicts): keyed by
+       audit.jsonl path.  A test that reads the real audit.jsonl warms the
+       cache; the next test sees stale data even if it patches the audit path.
+
+    3. Instance-attribute bleed from ``monkeypatch.setattr(ostk, "method",
+       fake)``: monkeypatch restores by calling ``setattr(ostk, "method",
+       original_bound_method)``, which puts the original bound method in the
+       INSTANCE DICT.  Any subsequent ``patch("services.ostk.OstkService.method",
+       ...)`` then misses because Python's MRO finds the instance-level attr
+       first, bypassing the class-level patch.  Stripping unexpected instance
+       attrs prevents this ordering sensitivity.
+    """
+    import services.ostk as ostk_mod
+
+    _EXPECTED_INSTANCE_ATTRS = frozenset({"cwd", "_socket_available"})
+
+    def _clean():
+        for k in list(vars(ostk_mod.ostk)):
+            if k not in _EXPECTED_INSTANCE_ATTRS:
+                try:
+                    delattr(ostk_mod.ostk, k)
+                except AttributeError:
+                    pass
+        ostk_mod.ostk._socket_available = None
+        ostk_mod._audit_cache.clear()
+        ostk_mod._audit_tail.clear()
+
+    _clean()
+    yield
+    _clean()
+
+
+@pytest.fixture(autouse=True)
 def _pin_myos_files_dir_to_tmp(tmp_path, monkeypatch):
     """Redirect ``MYOS_FILES_DIR`` to a tmp path for every test.
 
