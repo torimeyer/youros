@@ -394,7 +394,7 @@ describe('QuickLook - Drive mode', () => {
   it('shows Save to yourOS button in drive mode', () => {
     render(<QuickLook {...driveBase} driveData={makeDriveData()} />)
     expect(screen.getByTestId('drive-preview-save-to-myos')).toBeInTheDocument()
-    expect(screen.getByText(/save to myos/i)).toBeInTheDocument()
+    expect(screen.getByText(/save to youros/i)).toBeInTheDocument()
   })
 
   it('shows Saved after successful import', async () => {
