@@ -75,44 +75,13 @@ class ChatHistoryStore:
         return payload
 
     def get_prior_messages(self, current_tab_id: str = "", limit: int = 10) -> list[dict[str, str]]:
-        """Return the last *limit* messages from the most recent prior tab.
+        """Each chat tab is fully isolated — no cross-tab context injection.
 
-        Skips the tab whose id matches *current_tab_id* so the caller
-        never injects messages from the conversation the user is currently
-        in. Returns a list of ``{"role": ..., "content": ...}`` dicts
-        suitable for prepending to the messages list.
+        Tabs behave like Warp terminal tabs: separate session, no shared
+        state, no leakage. Always returns [] so build_memory_context is a
+        no-op and a new tab never sees messages from a different tab.
         """
-        data = self.load()
-        tabs = data.get("tabs", [])
-        if not tabs:
-            return []
-
-        # Find the most recent prior tab (tabs are stored newest-last by
-        # convention in the frontend, but we simply pick the last tab that
-        # is not the current one and has messages).
-        candidate: dict[str, Any] | None = None
-        for tab in reversed(tabs):
-            tab_id = tab.get("id", "")
-            if tab_id == current_tab_id:
-                continue
-            msgs = tab.get("messages")
-            if isinstance(msgs, list) and msgs:
-                candidate = tab
-                break
-
-        if candidate is None:
-            return []
-
-        raw_msgs = candidate["messages"]
-        # Take the last N messages, keeping only role and content.
-        recent = raw_msgs[-limit:] if len(raw_msgs) > limit else raw_msgs
-        result: list[dict[str, str]] = []
-        for m in recent:
-            role = m.get("role", "")
-            content = m.get("content", "")
-            if role in ("user", "assistant") and isinstance(content, str) and content.strip():
-                result.append({"role": role, "content": content})
-        return result
+        return []
 
     def clear(self) -> None:
         atomic_write_json(self._path, _default_state())
