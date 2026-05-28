@@ -115,19 +115,7 @@ describe('OnboardingWizard', () => {
   it('starts on the Welcome step', () => {
     render(<OnboardingWizard />)
     expect(screen.getByTestId('step-welcome')).toBeInTheDocument()
-  })
-
-  it('renders YourOSLogo SVG on Welcome step', () => {
-    render(<OnboardingWizard />)
-    const welcome = screen.getByTestId('step-welcome')
-    expect(welcome.querySelector('svg')).toBeInTheDocument()
-  })
-
-  it('shows step counter on Welcome step', () => {
-    render(<OnboardingWizard />)
-    const counter = screen.getByTestId('step-counter')
-    const dots = screen.getByTestId('progress-dots')
-    expect(counter.textContent).toBe(`Step 1 of ${dots.children.length}`)
+    expect(screen.getByText('Welcome!')).toBeInTheDocument()
   })
 
   it('shows progress dots equal to the number of steps', () => {
@@ -168,25 +156,11 @@ describe('OnboardingWizard', () => {
     expect(screen.getByTestId('skip-button')).toBeInTheDocument()
   })
 
-  it('shows Elizabeth Taylor placeholder on You step', () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(1)
-    expect(screen.getByTestId('user-name-input')).toHaveAttribute('placeholder', 'e.g. Elizabeth Taylor')
-  })
-
   it('advances to Name step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(2) // Welcome -> You -> Name
     expect(screen.getByTestId('step-name')).toBeInTheDocument()
-  })
-
-  it('renders jet-stream backdrop on Name step', () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(2)
-    expect(screen.getByTestId('jet-stream-backdrop')).toBeInTheDocument()
   })
 
   it('goes back to You from Name step', () => {
@@ -800,7 +774,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     expect(screen.queryByTestId('onboarding-files-location-note')).not.toBeInTheDocument()
   })
 
-  it('WelcomeStep shows a link to the privacy policy', () => {
+  it('Privacy policy link is visible in the footer', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     const link = screen.getByTestId('onboarding-privacy-link')
@@ -1525,15 +1499,6 @@ describe('OnboardingWizard — FilesLocation step', () => {
     clickNext(3)
     const input = await screen.findByTestId('files-dir-input') as HTMLInputElement
     await waitFor(() => expect(input.value).toBe('~/.myos/files'))
-  })
-
-  it('Use default button resets input to ~/.myos/files', async () => {
-    render(<OnboardingWizard />)
-    clickNext(3)
-    const input = await screen.findByTestId('files-dir-input') as HTMLInputElement
-    await waitFor(() => expect(input.value).toBe('/Users/me/custom'))
-    fireEvent.click(screen.getByTestId('files-location-use-default'))
-    expect((screen.getByTestId('files-dir-input') as HTMLInputElement).value).toBe('~/.myos/files')
   })
 
   it('Next button PUTs files_dir to /settings then advances to Profile', async () => {

@@ -1,7 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useAppStore, TEAM_MODE_VISIBLE } from '../stores/app'
 import Icon from './Icon'
-import YourOSLogo from './YourOSLogo'
 import { api } from '../lib/api'
 import { reportError } from '../lib/reportError'
 import { AGENT_MARKETPLACE, PERSONA_ICONS, type MarketplaceCategory } from '../data/agentMarketplace'
@@ -405,20 +404,15 @@ export default function OnboardingWizard() {
 
       <div className="w-full max-w-lg px-8">
         {/* Progress dots */}
-        <div className="flex items-center mb-10">
-          <div className="flex flex-1 justify-center gap-2" data-testid="progress-dots">
-            {STEPS.map((s, i) => (
-              <div
-                key={s}
-                className={`w-2.5 h-2.5 rounded-full transition-colors ${
-                  i === stepIndex ? 'bg-blue-500' : i < stepIndex ? 'bg-blue-400/50' : dotInactiveCls
-                }`}
-              />
-            ))}
-          </div>
-          <span className={`text-xs ${subtextCls} ml-3 whitespace-nowrap`} data-testid="step-counter">
-            Step {stepIndex + 1} of {STEPS.length}
-          </span>
+        <div className="flex justify-center gap-2 mb-10" data-testid="progress-dots">
+          {STEPS.map((s, i) => (
+            <div
+              key={s}
+              className={`w-2.5 h-2.5 rounded-full transition-colors ${
+                i === stepIndex ? 'bg-blue-500' : i < stepIndex ? 'bg-blue-400/50' : dotInactiveCls
+              }`}
+            />
+          ))}
         </div>
 
         {/* OAuth error banner */}
@@ -681,6 +675,19 @@ export default function OnboardingWizard() {
             )}
           </div>
         </div>
+
+        {/* Privacy footer, shown beneath every step */}
+        <p className="mt-6 text-center text-xs opacity-40">
+          <a
+            href="/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:opacity-100"
+            data-testid="onboarding-privacy-link"
+          >
+            Privacy policy
+          </a>
+        </p>
       </div>
     </div>
   )
@@ -877,23 +884,13 @@ function WelcomeStep({ subtextCls }: { subtextCls: string }) {
   return (
     <div className="text-center" data-testid="step-welcome">
       <div className="mb-6">
-        <YourOSLogo size={120} />
+        <img src="/youros-logo-hero.jpeg" alt="yourOS" className="w-32 h-32 object-contain mx-auto rounded-2xl" />
       </div>
+      <h1 className="text-3xl font-bold mb-1">Welcome!</h1>
       <p className="text-xs italic text-slate-500 mb-4">an OS that knows you.</p>
       <p className={`${subtextCls} text-lg leading-relaxed`}>
         Let's set up your personal OS. This will only take a minute, and you can
         change everything later in settings.
-      </p>
-      <p className={`${subtextCls} text-xs leading-relaxed mt-3`}>
-        <a
-          href="/privacy"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline opacity-60 hover:opacity-100"
-          data-testid="onboarding-privacy-link"
-        >
-          Privacy policy
-        </a>
       </p>
     </div>
   )
@@ -923,60 +920,12 @@ function YouStep({
         value={userName}
         onChange={(e) => setUserName(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") onNext(); }}
-        placeholder="e.g. Elizabeth Taylor"
+        placeholder="Your name"
         className={`w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
         data-testid="user-name-input"
         autoFocus
       />
     </div>
-  )
-}
-
-function JetStreamBackdrop() {
-  return (
-    <svg
-      aria-hidden="true"
-      data-testid="jet-stream-backdrop"
-      className="absolute inset-x-0 -top-4 w-full pointer-events-none -z-10"
-      style={{ height: '80px' }}
-      viewBox="0 0 400 80"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <defs>
-        <linearGradient id="jet-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#f7a26b" />
-          <stop offset="50%" stopColor="#e85f7c" />
-          <stop offset="100%" stopColor="#7c2d6a" />
-        </linearGradient>
-      </defs>
-      <path
-        d="M-100 25 C50 5 150 55 250 25 S 350 5 500 25"
-        fill="none"
-        stroke="url(#jet-grad)"
-        strokeWidth="2"
-        strokeLinecap="round"
-        opacity="0.22"
-        className="jet-stream-path-1"
-      />
-      <path
-        d="M-100 45 C0 25 200 65 300 45 S 400 25 500 45"
-        fill="none"
-        stroke="url(#jet-grad)"
-        strokeWidth="2"
-        strokeLinecap="round"
-        opacity="0.18"
-        className="jet-stream-path-2"
-      />
-      <path
-        d="M-100 60 C100 40 200 70 300 55 S 400 40 500 60"
-        fill="none"
-        stroke="url(#jet-grad)"
-        strokeWidth="2"
-        strokeLinecap="round"
-        opacity="0.28"
-        className="jet-stream-path-3"
-      />
-    </svg>
   )
 }
 
@@ -1002,19 +951,16 @@ function NameStep({
       <p className={`${subtextCls} mb-6`}>
         Give your personal OS a name. This shows up in the sidebar and title bar.
       </p>
-      <div className="relative overflow-visible">
-        <JetStreamBackdrop />
-        <input
-          type="text"
-          value={osName}
-          onChange={(e) => setOsName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") onNext(); }}
-          placeholder={`e.g. ${example}`}
-          className={`relative z-10 w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
-          data-testid="os-name-input"
-          autoFocus
-        />
-      </div>
+      <input
+        type="text"
+        value={osName}
+        onChange={(e) => setOsName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") onNext(); }}
+        placeholder={`e.g. ${example}`}
+        className={`w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+        data-testid="os-name-input"
+        autoFocus
+      />
     </div>
   )
 }
@@ -1052,13 +998,6 @@ function FilesLocationStep({
           className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
         />
       </div>
-      <button
-        onClick={() => setFilesDir(defaultPath)}
-        data-testid="files-location-use-default"
-        className={`text-xs ${subtextCls} hover:opacity-80 underline`}
-      >
-        Use default ({defaultPath})
-      </button>
     </div>
   )
 }

@@ -188,10 +188,10 @@ export default function Pong() {
     if (score.you >= WIN || score.cpu >= WIN) {
       s.paused = true
       void confirm({
-        title: score.you >= WIN ? 'Equilibrium Restored' : 'Discord Prevails',
-        message: 'The debute of forces has reached its conclusion. Seek absolute balance again?',
-        confirmLabel: 'Commence Debate',
-        cancelLabel: 'Rest',
+        title: score.you >= WIN ? 'You won!' : 'Game over',
+        message: `You scored ${score.you}, computer scored ${score.cpu}. Play again?`,
+        confirmLabel: 'Play again',
+        cancelLabel: 'Quit',
       }).then(a => { if (a) resetMatch() })
     }
   }, [score, confirm])

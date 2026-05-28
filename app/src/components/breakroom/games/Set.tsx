@@ -14,11 +14,10 @@ const GAME_ID = 'set'
 const INITIAL = 12
 const MAX = 21
 
-// Spiritualist, ethereal palette inspired by Hilma af Klint
 const COLOR: Record<SetCard['color'], string> = {
-  red: '#e5989b',    // Dusty rose
-  green: '#b7b7a4',  // Muted sage
-  purple: '#b5838d', // Ethereal mauve
+  red: '#dc2626',
+  green: '#16a34a',
+  purple: '#2563eb',
 }
 
 // Global SVG patterns for spiritualist shading
@@ -184,10 +183,10 @@ export default function SetGame() {
         const isBest = recordHighScore(GAME_ID, score)
         if (isBest) setBest(score)
         const again = await confirm({
-          title: 'Visions Exhausted',
-          message: `The spiritual alignment has concluded. You witnessed ${score} convergence${score === 1 ? '' : 's'}.${isBest ? ' A new height of spiritual clarity!' : ''} Seek another vision?`,
-          confirmLabel: 'Begin Anew',
-          cancelLabel: 'Rest',
+          title: 'Game over',
+          message: `You found ${score} set${score === 1 ? '' : 's'}.${isBest ? ' New best!' : ''} Play again?`,
+          confirmLabel: 'Play again',
+          cancelLabel: 'Quit',
         })
         if (again) deal()
       }
@@ -196,7 +195,7 @@ export default function SetGame() {
   )
 
   function toggle(i: number) {
-    if (message === 'Discordant' || matchedIndices.length > 0) return
+    if (message === 'No match' || matchedIndices.length > 0) return
     if (selected.includes(i)) {
       setSelected(selected.filter((x) => x !== i))
       return
@@ -209,7 +208,7 @@ export default function SetGame() {
 
     const [a, b, c] = next.map((idx) => tableau[idx])
     if (!isValidSet(a, b, c)) {
-      setMessage('Discordant')
+      setMessage('No match')
       setTimeout(() => {
         setSelected([])
         setMessage('')
@@ -218,7 +217,7 @@ export default function SetGame() {
     }
 
     setMatchedIndices(next)
-    setMessage('Convergence!')
+    setMessage('Match!')
 
     setTimeout(() => {
       const chosen = new Set(next)
@@ -250,18 +249,18 @@ export default function SetGame() {
       <GlobalPatternDefs />
 
       <div className="flex flex-col gap-1">
-        <h2 className="text-2xl font-serif text-[#b5838d] dark:text-[#e5989b]">The Seer's Convergence</h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400">Align the frequencies of the spiritual plane.</p>
+        <h2 className="text-2xl font-bold">Set</h2>
+        <p className="text-xs text-slate-500 dark:text-slate-400">Find groups of 3 cards where each property is all-same or all-different.</p>
       </div>
 
       <div className="flex items-center gap-6 text-sm font-serif">
-        <span className="text-[#6b705c] dark:text-[#a5a58d]">Convergences: {found}</span>
-        {best != null && <span className="text-[#b7b7a4]">Greatest Vision: {best}</span>}
-        <span className="text-[#b7b7a4]">Echoes remaining: {deck.length}</span>
+        <span className="text-slate-600 dark:text-slate-400">Sets found: {found}</span>
+        {best != null && <span className="text-slate-500">Best: {best}</span>}
+        <span className="text-slate-500">Remaining: {deck.length}</span>
         {message && (
           <span
             className={`font-semibold animate-pulse ${
-              message === 'Convergence!' ? 'text-[#b5838d]' : 'text-red-400'
+              message === 'Match!' ? 'text-green-600' : 'text-red-500'
             }`}
           >
             {message}

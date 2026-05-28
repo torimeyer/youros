@@ -201,13 +201,13 @@ export default function Frogger() {
       draw()
       if (kind === 'home') setWins((w) => w + 1)
       void confirmRef.current({
-        title: kind === 'home' ? 'THE CROWN IS YOURS' : 'ERASED',
+        title: kind === 'home' ? 'You won!' : 'Game over',
         message:
           kind === 'home'
-            ? 'You tagged the heights of the city. Tag another?'
-            : 'The city avenues are unforgiving. Try to make your mark again?',
-        confirmLabel: kind === 'home' ? 'Tag Again' : 'Resurrect',
-        cancelLabel: 'Surrender',
+            ? 'You made it across. Play again?'
+            : 'You didn\'t make it. Try again?',
+        confirmLabel: 'Play again',
+        cancelLabel: 'Quit',
       }).then((again) => {
         if (again) {
           game.frog = { col: 5, row: 8 }

@@ -63,10 +63,10 @@ export default function Minesweeper() {
       setBoard(b.map((row) => row.map((cell) => (cell.mine ? { ...cell, revealed: true } : cell))))
       setStatus('lost')
       void confirm({
-        title: 'The Dragon Awakens 🐉',
-        message: 'You have disturbed the dragon\'s slumber. The seas are no longer safe. Try again?',
-        confirmLabel: 'Set Sail Again',
-        cancelLabel: 'Stay on Shore',
+        title: 'Game over',
+        message: 'You hit a mine. Try again?',
+        confirmLabel: 'Try again',
+        cancelLabel: 'Quit',
       }).then((again) => {
         if (again) reset()
       })
@@ -80,10 +80,10 @@ export default function Minesweeper() {
       const isBest = recordBestTime(GAME_ID, ms)
       if (isBest) setBest(ms)
       void confirm({
-        title: '🌊 Safe Passage',
-        message: `You have navigated the archipelago in ${Math.round(ms / 1000)}s. The dragons sleep on. New voyage?`,
-        confirmLabel: 'Begin Voyage',
-        cancelLabel: 'Rest',
+        title: 'You won!',
+        message: `Board cleared in ${Math.round(ms / 1000)}s.${isBest ? ' New best!' : ''} Play again?`,
+        confirmLabel: 'Play again',
+        cancelLabel: 'Quit',
       }).then((again) => {
         if (again) reset()
       })

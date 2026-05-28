@@ -157,20 +157,20 @@ export default function Mastermind() {
     if (isWin(score, LEN)) {
       setStatus('won')
       void confirm({
-        title: 'Awakened',
-        message: 'The subconscious code is broken. You have escaped the alchemist’s dream. Re-enter the dream?',
-        confirmLabel: 'Dream Again',
-        cancelLabel: 'Stay Awake',
+        title: 'You won!',
+        message: 'You cracked the code. Play again?',
+        confirmLabel: 'Play again',
+        cancelLabel: 'Quit',
       }).then((a) => {
         if (a) reset()
       })
     } else if (ng.length >= MAX) {
       setStatus('lost')
       void confirm({
-        title: 'Trapped in the Void',
-        message: 'The code remains hidden. The dream deepens. Try to wake up again?',
-        confirmLabel: 'Escape Again',
-        cancelLabel: 'Succumb',
+        title: 'Game over',
+        message: 'The code was not found. Try again?',
+        confirmLabel: 'Try again',
+        cancelLabel: 'Quit',
       }).then((a) => {
         if (a) reset()
       })

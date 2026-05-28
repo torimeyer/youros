@@ -108,10 +108,10 @@ export default function Snake() {
     const isBest = recordHighScore(GAME_ID, score)
     if (isBest) setBest(score)
     void confirm({
-      title: 'Cosmic Dissolution',
-      message: `Your pattern reached a depth of ${score}.${isBest ? ' A new infinity!' : ''} Expand again?`,
-      confirmLabel: 'Expand',
-      cancelLabel: 'Dissolve',
+      title: 'Game over',
+      message: `You scored ${score}.${isBest ? ' New best!' : ''} Play again?`,
+      confirmLabel: 'Play again',
+      cancelLabel: 'Quit',
     }).then((a) => { if (a) reset() })
   }, [dead])
 

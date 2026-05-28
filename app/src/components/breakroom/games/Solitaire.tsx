@@ -250,10 +250,10 @@ export default function Solitaire() {
     if (isWin(game.foundations.map(topOf))) {
       void (async () => {
         const again = await confirm({
-          title: 'Closing Time',
-          message: 'The patrons have all gone home. The city is quiet. Seek another night?',
-          confirmLabel: 'Open the Diner',
-          cancelLabel: 'Walk Home',
+          title: 'You won!',
+          message: 'You finished the game. Play again?',
+          confirmLabel: 'Play again',
+          cancelLabel: 'Quit',
         })
         if (again) reset()
       })()
