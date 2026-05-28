@@ -888,7 +888,7 @@ describe('OnboardingWizard — Customize step starter pack', () => {
     expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
   })
 
-  it('Customize step shows error state when the API call fails', async () => {
+  it('Customize step shows fallback items when the API call fails (no error message)', async () => {
     vi.mocked(api.post).mockImplementation((path: string) => {
       if (path === '/onboarding/intent') {
         return Promise.reject(new Error('network error'))
@@ -903,10 +903,12 @@ describe('OnboardingWizard — Customize step starter pack', () => {
     fireEvent.click(screen.getByText(pmCat.category))
     clickNext(1)
 
+    // Fallback items appear immediately; error message is never shown
     await waitFor(() => {
-      expect(screen.getByTestId('customize-load-error')).toBeInTheDocument()
+      expect(screen.getByTestId('pack-item-builtin-builder')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('customize-load-retry')).toBeInTheDocument()
+    expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('customize-load-retry')).not.toBeInTheDocument()
   })
 
   it('all Wave 8 persona IDs map to a valid intent (no blank Customize step)', () => {
@@ -1195,7 +1197,7 @@ describe('OnboardingWizard — Customize agents step', () => {
     })
   })
 
-  it('shows error state and hides loading after 10-second timeout when fetch hangs', async () => {
+  it('shows fallback items and hides loading after 10-second timeout when fetch hangs', async () => {
     vi.useFakeTimers()
     try {
       vi.mocked(api.post).mockReturnValue(new Promise(() => {}))
@@ -1208,6 +1210,8 @@ describe('OnboardingWizard — Customize agents step', () => {
       fireEvent.click(screen.getByText(pmCat.category))
       fireEvent.click(screen.getByTestId('next-button'))
 
+      // Fallback renders immediately before timeout
+      expect(screen.getByTestId('pack-item-builtin-builder')).toBeInTheDocument()
       expect(screen.getByTestId('customize-loading')).toBeInTheDocument()
 
       await act(async () => {
@@ -1215,19 +1219,23 @@ describe('OnboardingWizard — Customize agents step', () => {
       })
 
       expect(screen.queryByTestId('customize-loading')).not.toBeInTheDocument()
-      expect(screen.getByTestId('customize-load-error')).toBeInTheDocument()
+      expect(screen.getByTestId('pack-item-builtin-builder')).toBeInTheDocument()
+      expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('Try again button re-fires the fetch after an error', async () => {
+  it('switching persona re-fires the fetch', async () => {
     let intentCalls = 0
     vi.mocked(api.post).mockImplementation((path: string) => {
       if (path !== '/onboarding/intent') return Promise.resolve({})
-      return intentCalls++ === 0
-        ? Promise.reject(new Error('network error'))
-        : Promise.resolve({ starter_pack: [] })
+      intentCalls++
+      return Promise.resolve({
+        starter_pack: [
+          { kind: 'agent', id: 'builtin-pm-prd', name: 'PRD', description: 'desc', default_selected: true },
+        ],
+      })
     })
 
     render(<OnboardingWizard />)
@@ -1238,14 +1246,9 @@ describe('OnboardingWizard — Customize agents step', () => {
     fireEvent.click(screen.getByText(pmCat.category))
     fireEvent.click(screen.getByTestId('next-button'))
 
-    await waitFor(() => expect(screen.getByTestId('customize-load-error')).toBeInTheDocument())
-
-    const intentCallsBefore = intentCalls
-
-    fireEvent.click(screen.getByTestId('customize-load-retry'))
-
     await waitFor(() => {
-      expect(intentCalls).toBeGreaterThan(intentCallsBefore)
+      expect(intentCalls).toBe(1)
+      expect(screen.getByTestId('pack-item-builtin-pm-prd')).toBeInTheDocument()
     })
   })
 })

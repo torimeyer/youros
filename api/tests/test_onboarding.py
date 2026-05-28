@@ -635,3 +635,37 @@ async def test_intent_endpoint_does_not_break_dream(client):
     assert resp.status_code == 200
     assert "goal" in resp.json()
     assert "tasks" in resp.json()
+
+
+# --- POST /api/onboarding/intent — starter agents step ---
+
+ALL_VALID_INTENTS = [
+    "writing", "personal", "coding", "research", "work_role",
+    "sales", "general", "marketing", "founder", "support", "designer",
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ALL_VALID_INTENTS)
+async def test_intent_returns_nonempty_pack_for_all_valid_intents(client, intent):
+    """Every valid intent returns 200 with at least one starter agent.
+
+    No LLM client is injected — the endpoint must not require one.
+    This assertion guards against the demo-blocker where step 6 shows
+    'Couldn't load suggestions' because the pack comes back empty.
+    """
+    resp = await client.post("/api/onboarding/intent", json={"intent": intent})
+    assert resp.status_code == 200, f"intent={intent!r} returned {resp.status_code}"
+    data = resp.json()
+    assert "starter_pack" in data
+    assert len(data["starter_pack"]) > 0, f"intent={intent!r} returned empty starter_pack"
+    for item in data["starter_pack"]:
+        assert item["id"], f"item missing id in intent={intent!r}"
+        assert item["name"], f"item missing name in intent={intent!r}"
+
+
+@pytest.mark.asyncio
+async def test_intent_returns_422_for_unknown_intent(client):
+    """An unrecognised intent value is rejected with 422, not 500."""
+    resp = await client.post("/api/onboarding/intent", json={"intent": "personal_productivity"})
+    assert resp.status_code == 422
