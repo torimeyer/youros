@@ -139,7 +139,6 @@ export default function Settings() {
   const [suggestError, setSuggestError] = useState<string | null>(null);
   const [editingShortcut, setEditingShortcut] = useState<string | null>(null);
   const [customShortcuts, setCustomShortcuts] = useState<Record<string, string>>({});
-  const [chimeEnabled, setChimeEnabled] = useState(false);
   const [keySaveStatus, setKeySaveStatus] = useState<string | null>(null);
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
@@ -245,9 +244,6 @@ export default function Settings() {
         }
         if (data.quiet_hours !== undefined) setQuietHours(data.quiet_hours);
         if ((data as any).shortcuts) setCustomShortcuts((data as any).shortcuts);
-        if (data.notifications && typeof (data.notifications as any).chime === 'boolean') {
-          setChimeEnabled((data.notifications as any).chime);
-        }
         if ((data as any).auto_template_matching !== undefined) {
           setAutoTemplateMatching((data as any).auto_template_matching);
         }
@@ -528,30 +524,6 @@ export default function Settings() {
     const next = !quietHours;
     setQuietHours(next);
     api.patch('/settings', { quiet_hours: next }).catch(() => {});
-  };
-
-  const handleChimeToggle = () => {
-    const next = !chimeEnabled;
-    setChimeEnabled(next);
-    if (next) {
-      try {
-        const ctx = new AudioContext();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.frequency.value = 880;
-        gain.gain.setValueAtTime(0.3, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.4);
-      } catch { /* AudioContext not available */ }
-    }
-    const notifObj: Record<string, boolean> = {};
-    notifications.forEach((n) => {
-      notifObj[n.label] = n.enabled;
-    });
-    api.patch('/settings', { notifications: { ...notifObj, chime: next } }).catch(() => {});
   };
 
   const handleShortcutEdit = (label: string, keys: string) => {
@@ -1875,13 +1847,6 @@ export default function Settings() {
                   <Toggle checked={settingsPushEnabled} onChange={handlePushToggle} testId="push-toggle" disabled={pushToggling} />
                 </div>
               )}
-              <div className="flex items-center justify-between py-2">
-                <div className="pr-3">
-                  <p className="text-sm text-slate-700 dark:text-slate-300">Chime sound</p>
-                  <p className="text-xs text-slate-500">Play a short sound when a notification arrives</p>
-                </div>
-                <Toggle checked={chimeEnabled} onChange={handleChimeToggle} testId="chime-toggle" />
-              </div>
               <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
                 <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-3">What triggers notifications</p>
                 <div className="space-y-3">
