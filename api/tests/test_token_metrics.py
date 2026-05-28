@@ -137,3 +137,82 @@ def test_metrics_file_lives_under_project_dot_ostk():
     p = token_metrics._METRICS_PATH
     assert p.name == "metrics.jsonl"
     assert p.parent.name == ".ostk"
+
+
+# ---------------------------------------------------------------------------
+# Disk-cache persistence tests (→29 wedge fix)
+# ---------------------------------------------------------------------------
+
+def _make_metrics_line(cache_read: int = 0, cache_create: int = 0, input_tok: int = 0) -> str:
+    return json.dumps({
+        "event": "chat_turn",
+        "cache_read_input_tokens": cache_read,
+        "cache_creation_input_tokens": cache_create,
+        "input_tokens": input_tok,
+    }) + "\n"
+
+
+def test_disk_cache_skips_full_scan_on_cold_start(tmp_path: Path):
+    """On a cold in-memory start, _load_metrics_disk_cache should restore the
+    persisted tuple so _compute_conv_totals_incremental does a cheap tail-read
+    instead of a 4+ second full scan of the 500 MB+ metrics.jsonl (→29 fix).
+    """
+    metrics_file = tmp_path / ".ostk" / "metrics.jsonl"
+    metrics_file.parent.mkdir(parents=True)
+    disk_cache_file = tmp_path / ".ostk" / "metrics_totals_cache.json"
+
+    # Write 3 known lines to metrics.jsonl
+    metrics_file.write_text(
+        _make_metrics_line(cache_read=100, cache_create=200, input_tok=300)
+        + _make_metrics_line(cache_read=10, cache_create=20, input_tok=30)
+        + _make_metrics_line(cache_read=1, cache_create=2, input_tok=3)
+    )
+    st = metrics_file.stat()
+
+    # Pre-populate the disk cache to the full file size with known totals
+    disk_cache_file.write_text(json.dumps({
+        "file_size": st.st_size,
+        "mtime_ns": st.st_mtime_ns,
+        "inode": st.st_ino,
+        "cache_read": 111,
+        "cache_create": 222,
+        "total_input": 333,
+    }))
+
+    # Patch paths and reset in-memory cache (simulates cold start)
+    with (
+        patch.object(token_metrics, "_METRICS_PATH", metrics_file),
+        patch.object(token_metrics, "_METRICS_DISK_CACHE_PATH", disk_cache_file),
+        patch.object(token_metrics, "_METRICS_TOTALS_CACHE", None),
+    ):
+        result = token_metrics._compute_conv_totals_incremental()
+
+    # Should return the disk-cached totals (no re-scan)
+    assert result == (111, 222, 333)
+
+
+def test_disk_cache_written_after_full_scan(tmp_path: Path):
+    """After a full re-read, _save_metrics_disk_cache should persist the totals
+    so the NEXT cold start uses the fast tail-read path.
+    """
+    metrics_file = tmp_path / ".ostk" / "metrics.jsonl"
+    metrics_file.parent.mkdir(parents=True)
+    disk_cache_file = tmp_path / ".ostk" / "metrics_totals_cache.json"
+
+    metrics_file.write_text(
+        _make_metrics_line(cache_read=50, cache_create=60, input_tok=70)
+    )
+
+    with (
+        patch.object(token_metrics, "_METRICS_PATH", metrics_file),
+        patch.object(token_metrics, "_METRICS_DISK_CACHE_PATH", disk_cache_file),
+        patch.object(token_metrics, "_METRICS_TOTALS_CACHE", None),
+    ):
+        result = token_metrics._compute_conv_totals_incremental()
+
+    assert result == (50, 60, 70)
+    assert disk_cache_file.exists(), "disk cache must be written after full scan"
+    data = json.loads(disk_cache_file.read_text())
+    assert data["cache_read"] == 50
+    assert data["cache_create"] == 60
+    assert data["total_input"] == 70

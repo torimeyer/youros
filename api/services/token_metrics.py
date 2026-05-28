@@ -47,6 +47,59 @@ _SAVINGS_TTL_SECONDS = 30
 # Tuple: (file_size, mtime_ns, inode, cache_read, cache_create, total_input)
 _METRICS_TOTALS_CACHE: Optional[tuple[int, int, int, int, int, int]] = None
 
+# Disk-persisted copy of _METRICS_TOTALS_CACHE so backend restarts skip the
+# 4+ second cold full-scan of the 500 MB+ metrics.jsonl. Loaded once on the
+# first call to _compute_conv_totals_incremental, then kept in sync with
+# every in-memory update. If metrics.jsonl grew since the last save we do a
+# fast tail-read (milliseconds); if the inode changed we fall through to the
+# full re-read and overwrite the disk cache.
+_METRICS_DISK_CACHE_PATH = Path(PROJECT_ROOT) / ".ostk" / "metrics_totals_cache.json"
+
+
+def _load_metrics_disk_cache() -> None:
+    """Populate _METRICS_TOTALS_CACHE from the persisted disk copy.
+
+    No-op if the cache is already warm or the disk file is missing/corrupt.
+    Called once at the top of _compute_conv_totals_incremental.
+    """
+    global _METRICS_TOTALS_CACHE
+    if _METRICS_TOTALS_CACHE is not None:
+        return
+    try:
+        if not _METRICS_DISK_CACHE_PATH.exists():
+            return
+        data = json.loads(_METRICS_DISK_CACHE_PATH.read_text())
+        _METRICS_TOTALS_CACHE = (
+            int(data["file_size"]),
+            int(data["mtime_ns"]),
+            int(data["inode"]),
+            int(data["cache_read"]),
+            int(data["cache_create"]),
+            int(data["total_input"]),
+        )
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        pass
+
+
+def _save_metrics_disk_cache(cache: tuple) -> None:
+    """Persist _METRICS_TOTALS_CACHE to disk for the next cold start.
+
+    Best-effort: any I/O failure is silently swallowed.
+    """
+    file_size, mtime_ns, inode, cache_read, cache_create, total_input = cache
+    try:
+        _METRICS_DISK_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _METRICS_DISK_CACHE_PATH.write_text(json.dumps({
+            "file_size": file_size,
+            "mtime_ns": mtime_ns,
+            "inode": inode,
+            "cache_read": cache_read,
+            "cache_create": cache_create,
+            "total_input": total_input,
+        }))
+    except OSError:
+        pass
+
 
 def _compute_conv_totals_incremental() -> tuple[int, int, int]:
     """Return (conv_cache_read, conv_cache_creation, conv_total_input).
@@ -54,8 +107,15 @@ def _compute_conv_totals_incremental() -> tuple[int, int, int]:
     Uses an append-only incremental read: after the first full pass, only
     new bytes appended since the last read are parsed. Inode is checked so
     a file replacement always triggers a full re-read.
+
+    On the first call after a backend restart _METRICS_TOTALS_CACHE is None.
+    _load_metrics_disk_cache() restores it from disk so the hot path (tail
+    read) kicks in immediately instead of triggering a 4+ second full scan
+    of the 500 MB+ metrics.jsonl that holds the Python GIL and blocks TLS
+    handshakes for all incoming connections (→29 wedge root cause).
     """
     global _METRICS_TOTALS_CACHE
+    _load_metrics_disk_cache()
     try:
         if not _METRICS_PATH.exists():
             _METRICS_TOTALS_CACHE = None
@@ -87,11 +147,12 @@ def _compute_conv_totals_incremental() -> tuple[int, int, int]:
                     new_create += int(ev.get("cache_creation_input_tokens", 0) or 0)
                     new_input += int(ev.get("input_tokens", 0) or 0)
                 _METRICS_TOTALS_CACHE = (st.st_size, st.st_mtime_ns, st.st_ino, new_read, new_create, new_input)
+                _save_metrics_disk_cache(_METRICS_TOTALS_CACHE)
                 return (new_read, new_create, new_input)
             except OSError:
                 pass
 
-    # Full re-read
+    # Full re-read (cold cache or inode changed — unavoidable but infrequent)
     conv_cache_read = conv_cache_creation = conv_total_input = 0
     try:
         with open(_METRICS_PATH, "rb") as f:
@@ -112,6 +173,7 @@ def _compute_conv_totals_incremental() -> tuple[int, int, int]:
         pass
 
     _METRICS_TOTALS_CACHE = (st.st_size, st.st_mtime_ns, st.st_ino, conv_cache_read, conv_cache_creation, conv_total_input)
+    _save_metrics_disk_cache(_METRICS_TOTALS_CACHE)
     return (conv_cache_read, conv_cache_creation, conv_total_input)
 
 
