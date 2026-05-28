@@ -631,8 +631,8 @@ export default function Dashboard() {
         className="mb-6 bg-slate-900/40 border border-slate-800 rounded-xl p-5"
       >
         <div className="flex items-start gap-3">
-          <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center shrink-0 mt-0.5">
-            <Icon name="wb_sunny" className="text-slate-500" size={18} />
+          <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0 mt-0.5">
+            <Icon name="wb_sunny" className="text-amber-500 dark:text-amber-400" size={18} />
           </div>
           <div className="flex-1">
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">{greetingLabel}</p>

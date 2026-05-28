@@ -81,13 +81,13 @@ html {
 }
 
 [data-theme="dark"] {
-  --theme-bg: #020617;
+  --theme-bg: #13151c;
   --theme-text: #e2e8f0;
-  --theme-surface: rgba(15, 23, 42, 0.4);
-  --theme-surface-hover: #1e293b;
-  --theme-border: #1e293b;
+  --theme-surface: rgba(26, 32, 50, 0.65);
+  --theme-surface-hover: #252b3d;
+  --theme-border: #2d3648;
   --theme-text-muted: #94a3b8;
-  --theme-sidebar-bg: #020617;
+  --theme-sidebar-bg: #0f111a;
 }
 
 html, body {
@@ -322,5 +322,26 @@ body {
 [data-compact="true"] .text-lg { font-size: 1rem; }
 
 /* Card style: solid removes the glass/blur effect and uses an opaque background */
-[data-card-style="solid"] .bg-slate-900\/40 { background-color: #0f172a; }
+[data-card-style="solid"] .bg-slate-900\/40 { background-color: #1a2030; }
 [data-card-style="solid"][data-theme="light"] .bg-slate-900\/40 { background-color: #f1f5f9; }
+
+/* Light mode: make cards stand out with higher opacity over the blue-gray bg */
+[data-theme="light"] .bg-white\/40 { background-color: rgba(255, 255, 255, 0.9); }
+
+/* Dark mode: warmer charcoal surfaces — all dark: prefixed slate classes */
+[data-theme="dark"] .dark\:bg-slate-950 { background-color: #0f111a; }
+[data-theme="dark"] .dark\:bg-slate-950\/80 { background-color: rgba(15, 17, 26, 0.8); }
+[data-theme="dark"] .dark\:bg-slate-950\/60 { background-color: rgba(15, 17, 26, 0.6); }
+[data-theme="dark"] .dark\:bg-slate-900 { background-color: #1a2030; }
+[data-theme="dark"] .dark\:bg-slate-900\/40 { background-color: rgba(26, 32, 48, 0.65); }
+[data-theme="dark"] .dark\:bg-slate-900\/50 { background-color: rgba(26, 32, 48, 0.75); }
+[data-theme="dark"] .dark\:bg-slate-900\/60 { background-color: rgba(26, 32, 48, 0.8); }
+[data-theme="dark"] .dark\:bg-slate-800 { background-color: #1e2535; }
+[data-theme="dark"] .dark\:bg-slate-800\/50 { background-color: rgba(30, 37, 53, 0.5); }
+[data-theme="dark"] .dark\:bg-slate-800\/60 { background-color: rgba(30, 37, 53, 0.6); }
+/* non-prefixed bg-slate-950 (Sidebar uses this without dark: prefix) */
+[data-theme="dark"] .bg-slate-950 { background-color: #0f111a; }
+[data-theme="dark"] .bg-slate-950\/95 { background-color: rgba(15, 17, 26, 0.95); }
+/* Dark mode border softening */
+[data-theme="dark"] .dark\:border-slate-800 { border-color: #2d3648; }
+[data-theme="dark"] .dark\:border-slate-700 { border-color: #3d4a60; }
