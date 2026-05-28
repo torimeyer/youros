@@ -36,7 +36,6 @@ import { useAppStore } from './stores/app'
 import { useRunningAgentsFeed } from './hooks/useRunningAgentsFeed'
 import { useSessionsFeed } from './hooks/useSessionsFeed'
 import { useDashboardFeed } from './hooks/useDashboardFeed'
-import { useNotificationsFeed } from './hooks/useNotificationsFeed'
 import { useCalendarFeed } from './hooks/useCalendarFeed'
 import { useVictoryFanfare } from './hooks/useVictoryFanfare'
 import ShareView from './pages/ShareView'
@@ -60,7 +59,6 @@ export default function App() {
   useRunningAgentsFeed()
   useSessionsFeed()
   useDashboardFeed()
-  useNotificationsFeed()
   useCalendarFeed()
   useVictoryFanfare()
   const hydrated = useAppStore((s) => s.hydrated)

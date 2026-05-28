@@ -28,13 +28,6 @@ vi.mock("../lib/api", () => ({
   ApiTimeoutError: class ApiTimeoutError extends Error {},
 }));
 
-vi.mock("../lib/pushNotifications", () => ({
-  isPushSupported: vi.fn().mockReturnValue(false),
-  isSubscribed: vi.fn().mockResolvedValue(false),
-  subscribe: vi.fn(),
-  unsubscribe: vi.fn(),
-}));
-
 const EXISTING_CONFIG = {
   configured: true,
   config: {

@@ -14,13 +14,6 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
-// Mock push notifications module
-vi.mock('../lib/pushNotifications', () => ({
-  isPushSupported: vi.fn().mockReturnValue(false),
-  isSubscribed: vi.fn().mockResolvedValue(false),
-  subscribe: vi.fn().mockResolvedValue(false),
-  unsubscribe: vi.fn().mockResolvedValue(false),
-}))
 
 // jsdom does not provide window.matchMedia. Provide a minimal stub
 // so the responsive detection in TopBar (rendered by Settings) does not crash.
@@ -1177,185 +1170,129 @@ describe('Settings page — Developer section', () => {
   })
 })
 
-describe('Settings page — Push notifications toggle', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    useAppStore.setState({
-      osName: 'myOS',
-      darkMode: true,
-      accentColor: 'blue',
-      features: [
-        { label: 'Chat', enabled: true },
-        { label: 'Tasks', enabled: true },
-        { label: 'Agents', enabled: true },
-        { label: 'Activity', enabled: true },
-        { label: 'Projects', enabled: true },
-        { label: 'Specs', enabled: true },
-        { label: 'Automations', enabled: false },
-        { label: 'Cost Tracking', enabled: true },
-      ],
+describe('Connections skeleton loading state (→1061)', () => {
+  it('shows key-status skeleton while key-status API is pending', () => {
+    const mockedApiGet = vi.mocked(api.get)
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/secrets/key-status') {
+        return new Promise(() => {}) // never resolves
+      }
+      return Promise.resolve({})
     })
-  })
-
-  it('does not render push toggle when push is not supported', async () => {
-    renderSettings()
-    const toggle = screen.queryByTestId('push-toggle')
-    expect(toggle).not.toBeInTheDocument()
-  })
-
-  it('clicking push toggle calls subscribe when not subscribed', async () => {
-    const { isPushSupported, subscribe, isSubscribed } = await import('../lib/pushNotifications')
-    vi.mocked(isPushSupported).mockReturnValue(true)
-    vi.mocked(isSubscribed).mockResolvedValue(false)
-    vi.mocked(subscribe).mockResolvedValue(true)
 
     renderSettings()
-    const toggle = await screen.findByTestId('push-toggle')
-    
-    fireEvent.click(toggle)
+
+    expect(screen.getByTestId('key-status-skeleton')).toBeInTheDocument()
+    expect(screen.queryByText(/No key found/)).not.toBeInTheDocument()
+  })
+
+  it('hides skeleton and shows key status after API resolves with no key', async () => {
+    const mockedApiGet = vi.mocked(api.get)
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/secrets/key-status') {
+        return Promise.resolve({ anthropic: false, gemini: false, google_oauth_available: false })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSettings()
+
     await waitFor(() => {
-      expect(vi.mocked(subscribe)).toHaveBeenCalled()
+      expect(screen.queryByTestId('key-status-skeleton')).not.toBeInTheDocument()
     })
+    expect(screen.getByText(/No key found/)).toBeInTheDocument()
   })
 
-  it('clicking push toggle calls unsubscribe when subscribed', async () => {
-    const { isPushSupported, unsubscribe, isSubscribed } = await import('../lib/pushNotifications')
-    vi.mocked(isPushSupported).mockReturnValue(true)
-    vi.mocked(isSubscribed).mockResolvedValue(true)
-    vi.mocked(unsubscribe).mockResolvedValue(true)
+  it('hides skeleton and shows key available banner after API resolves with key present', async () => {
+    const mockedApiGet = vi.mocked(api.get)
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/secrets/key-status') {
+        return Promise.resolve({
+          anthropic: true,
+          anthropic_source: 'keychain',
+          gemini: false,
+          google_oauth_available: false,
+        })
+      }
+      return Promise.resolve({})
+    })
 
     renderSettings()
-    const toggle = await screen.findByTestId('push-toggle')
-    
-    fireEvent.click(toggle)
+
     await waitFor(() => {
-      expect(vi.mocked(unsubscribe)).toHaveBeenCalled()
+      expect(screen.queryByTestId('key-status-skeleton')).not.toBeInTheDocument()
     })
+    expect(screen.getByText(/Key available/)).toBeInTheDocument()
+    expect(screen.queryByText(/No key found/)).not.toBeInTheDocument()
   })
 
-  describe('Connections skeleton loading state (→1061)', () => {
-    it('shows key-status skeleton while key-status API is pending', () => {
-      const mockedApiGet = vi.mocked(api.get)
-      mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/secrets/key-status') {
-          return new Promise(() => {}) // never resolves
-        }
-        return Promise.resolve({})
-      })
-
-      renderSettings()
-
-      expect(screen.getByTestId('key-status-skeleton')).toBeInTheDocument()
-      expect(screen.queryByText(/No key found/)).not.toBeInTheDocument()
+  it('never shows amber no-key warning before key-status resolves', () => {
+    const mockedApiGet = vi.mocked(api.get)
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/secrets/key-status') {
+        return new Promise(() => {}) // never resolves
+      }
+      return Promise.resolve({})
     })
 
-    it('hides skeleton and shows key status after API resolves with no key', async () => {
-      const mockedApiGet = vi.mocked(api.get)
-      mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/secrets/key-status') {
-          return Promise.resolve({ anthropic: false, gemini: false, google_oauth_available: false })
-        }
-        return Promise.resolve({})
-      })
+    renderSettings()
 
-      renderSettings()
-
-      await waitFor(() => {
-        expect(screen.queryByTestId('key-status-skeleton')).not.toBeInTheDocument()
-      })
-      expect(screen.getByText(/No key found/)).toBeInTheDocument()
-    })
-
-    it('hides skeleton and shows key available banner after API resolves with key present', async () => {
-      const mockedApiGet = vi.mocked(api.get)
-      mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/secrets/key-status') {
-          return Promise.resolve({
-            anthropic: true,
-            anthropic_source: 'keychain',
-            gemini: false,
-            google_oauth_available: false,
-          })
-        }
-        return Promise.resolve({})
-      })
-
-      renderSettings()
-
-      await waitFor(() => {
-        expect(screen.queryByTestId('key-status-skeleton')).not.toBeInTheDocument()
-      })
-      expect(screen.getByText(/Key available/)).toBeInTheDocument()
-      expect(screen.queryByText(/No key found/)).not.toBeInTheDocument()
-    })
-
-    it('never shows amber no-key warning before key-status resolves', () => {
-      const mockedApiGet = vi.mocked(api.get)
-      mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/secrets/key-status') {
-          return new Promise(() => {}) // never resolves
-        }
-        return Promise.resolve({})
-      })
-
-      renderSettings()
-
-      expect(screen.queryByText(/No key found/)).not.toBeInTheDocument()
-    })
-
-    it('connection dots render immediately on mount before status loads', () => {
-      const mockedApiGet = vi.mocked(api.get)
-      mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/gmail/auth/status' || path === '/calendar/auth/status' ||
-            path === '/drive/auth/status' || path === '/slack/status') {
-          return new Promise(() => {}) // never resolves
-        }
-        return Promise.resolve({})
-      })
-
-      renderSettings()
-
-      expect(screen.getByTestId('pill-google')).toBeInTheDocument()
-      expect(screen.getByTestId('pill-slack')).toBeInTheDocument()
-    })
+    expect(screen.queryByText(/No key found/)).not.toBeInTheDocument()
   })
 
-  describe('Help section in Preferences (→1421)', () => {
-    function switchToPreferences() {
-      const btn = screen.getAllByRole('button').find(b => b.textContent?.trim() === 'Preferences')
-      if (btn) fireEvent.click(btn)
-    }
-
-    it('renders a "Take the tour" button in Settings Preferences', () => {
-      renderSettings()
-      switchToPreferences()
-      expect(screen.getByTestId('settings-tour-button')).toBeInTheDocument()
-      expect(screen.getByText('Take the tour')).toBeInTheDocument()
+  it('connection dots render immediately on mount before status loads', () => {
+    const mockedApiGet = vi.mocked(api.get)
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/gmail/auth/status' || path === '/calendar/auth/status' ||
+          path === '/drive/auth/status' || path === '/slack/status') {
+        return new Promise(() => {}) // never resolves
+      }
+      return Promise.resolve({})
     })
 
-    it('"Take the tour" button calls setShowTour(true) when clicked', () => {
-      const setShowTour = vi.fn()
-      useAppStore.setState({ setShowTour })
-      renderSettings()
-      switchToPreferences()
-      fireEvent.click(screen.getByTestId('settings-tour-button'))
-      expect(setShowTour).toHaveBeenCalledWith(true)
-    })
+    renderSettings()
 
-    it('renders an "Open activity log" link in Settings Preferences', () => {
-      renderSettings()
-      switchToPreferences()
-      expect(screen.getByTestId('settings-activity-link')).toBeInTheDocument()
-      expect(screen.getByText('Open activity log')).toBeInTheDocument()
-    })
-
-    it('"Open activity log" link points to /activity', () => {
-      renderSettings()
-      switchToPreferences()
-      const link = screen.getByTestId('settings-activity-link')
-      expect(link.getAttribute('href')).toBe('/activity')
-    })
+    expect(screen.getByTestId('pill-google')).toBeInTheDocument()
+    expect(screen.getByTestId('pill-slack')).toBeInTheDocument()
   })
+})
+
+describe('Help section in Preferences (→1421)', () => {
+  function switchToPreferences() {
+    const btn = screen.getAllByRole('button').find(b => b.textContent?.trim() === 'Preferences')
+    if (btn) fireEvent.click(btn)
+  }
+
+  it('renders a "Take the tour" button in Settings Preferences', () => {
+    renderSettings()
+    switchToPreferences()
+    expect(screen.getByTestId('settings-tour-button')).toBeInTheDocument()
+    expect(screen.getByText('Take the tour')).toBeInTheDocument()
+  })
+
+  it('"Take the tour" button calls setShowTour(true) when clicked', () => {
+    const setShowTour = vi.fn()
+    useAppStore.setState({ setShowTour })
+    renderSettings()
+    switchToPreferences()
+    fireEvent.click(screen.getByTestId('settings-tour-button'))
+    expect(setShowTour).toHaveBeenCalledWith(true)
+  })
+
+  it('renders an "Open activity log" link in Settings Preferences', () => {
+    renderSettings()
+    switchToPreferences()
+    expect(screen.getByTestId('settings-activity-link')).toBeInTheDocument()
+    expect(screen.getByText('Open activity log')).toBeInTheDocument()
+  })
+
+  it('"Open activity log" link points to /activity', () => {
+    renderSettings()
+    switchToPreferences()
+    const link = screen.getByTestId('settings-activity-link')
+    expect(link.getAttribute('href')).toBe('/activity')
+  })
+})
 })
 
 describe('Settings — Memory provenance (F4)', () => {

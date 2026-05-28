@@ -8,7 +8,6 @@ import ConfirmModal from '../components/ConfirmModal';
 import { useConfirm } from '../hooks/useConfirm';
 import { api } from '../lib/api';
 import { reportError } from '../lib/reportError';
-import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 import SlackConnect from '../components/SlackConnect';
 import { AtlassianSetupCard, GithubSetupCard } from '../components/OnboardingWizard';
 import CustomVerbs from '../components/CustomVerbs';
@@ -171,11 +170,6 @@ export default function Settings() {
     Slack: { loading: true, connected: false, label: '' },
     iMessage: { loading: true, connected: false, label: '' },
   });
-
-  // Push notification state
-  const [settingsPushEnabled, setSettingsPushEnabled] = useState(false);
-  const [pushToggling, setPushToggling] = useState(false);
-  const pushSupported = isPushSupported();
 
   // Sync state
   const [syncConfigured, setSyncConfigured] = useState(false);
@@ -365,29 +359,8 @@ export default function Settings() {
         setSyncLastSynced(data.last_synced ?? null);
       })
       .catch(() => {});
-    // Check push subscription state
-    if (pushSupported) {
-      isSubscribed().then(setSettingsPushEnabled).catch(() => {});
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const handlePushToggle = async () => {
-    setPushToggling(true);
-    try {
-      if (settingsPushEnabled) {
-        await pushUnsubscribe();
-        setSettingsPushEnabled(false);
-      } else {
-        const ok = await pushSubscribe();
-        setSettingsPushEnabled(ok);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setPushToggling(false);
-    }
-  };
 
   const accentColors = [
     { color: 'bg-blue-500', name: 'blue' },
@@ -1866,15 +1839,6 @@ export default function Settings() {
           <div id="section-notifications" className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
             <div className={cardClass}>
               <h2 className="text-lg font-semibold mb-5">Notifications</h2>
-              {pushSupported && (
-                <div className="flex items-center justify-between py-2">
-                  <div className="pr-3">
-                    <p className="text-sm text-slate-700 dark:text-slate-300">Desktop notifications</p>
-                    <p className="text-xs text-slate-500">Get alerts even when the browser tab is closed</p>
-                  </div>
-                  <Toggle checked={settingsPushEnabled} onChange={handlePushToggle} testId="push-toggle" disabled={pushToggling} />
-                </div>
-              )}
               <div className="flex items-center justify-between py-2">
                 <div className="pr-3">
                   <p className="text-sm text-slate-700 dark:text-slate-300">Chime sound</p>

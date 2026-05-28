@@ -3,7 +3,6 @@ import TopBar from '../components/TopBar'
 import { api } from '../lib/api'
 import Icon from '../components/Icon'
 import SlackReplyComposer from '../components/SlackReplyComposer'
-import JiraCommentComposer from '../components/JiraCommentComposer'
 
 interface InboxItem {
   id: string
@@ -15,16 +14,6 @@ interface InboxItem {
   permalink: string | null
   created_at: string
   raw: Record<string, unknown>
-}
-
-interface Notification {
-  id: string
-  type: string
-  title: string
-  body: string
-  action_url: string | null
-  read: boolean
-  created_at: string
 }
 
 const CACHE_KEY = 'myos.inboxCache.v1'
@@ -43,14 +32,6 @@ function kindLabel(kind: string): string {
   return kind
 }
 
-function notifTypeLabel(type: string): string {
-  if (type === 'agent') return 'Agent'
-  if (type === 'spec_complete') return 'Feature live'
-  if (type === 'roadmap_ready') return 'Roadmap'
-  if (type === 'task_overdue') return 'Overdue'
-  return type
-}
-
 export default function Inbox() {
   const [items, setItems] = useState<InboxItem[]>(() => {
     try {
@@ -60,21 +41,15 @@ export default function Inbox() {
       return []
     }
   })
-  const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
-  const [commentingOn, setCommentingOn] = useState<{ notifId: string; issueKey: string } | null>(null)
 
   useEffect(() => {
-    Promise.all([
-      api.get<{ items: InboxItem[] }>('/inbox'),
-      api.get<Notification[]>('/notifications'),
-    ])
-      .then(([inboxRes, notifRes]) => {
+    api.get<{ items: InboxItem[] }>('/inbox')
+      .then((inboxRes) => {
         const fetched = inboxRes.items ?? []
         setItems(fetched)
         localStorage.setItem(CACHE_KEY, JSON.stringify(fetched))
-        setNotifications(Array.isArray(notifRes) ? notifRes : [])
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -83,12 +58,6 @@ export default function Inbox() {
   function handleDismiss(id: string) {
     setItems((prev) => prev.filter((i) => i.id !== id))
     api.delete(`/inbox/items/${id}`).catch(() => {})
-  }
-
-  function handleDismissNotification(id: string) {
-    setNotifications((prev) => prev.filter((n) => n.id !== id))
-    api.delete(`/notifications/${id}`).catch(() => {})
-    api.post(`/notifications/${id}/read`, {}).catch(() => {})
   }
 
   async function handleConvert(item: InboxItem) {
@@ -102,7 +71,7 @@ export default function Inbox() {
   }
 
   const kinds = Array.from(new Set(items.map((i) => i.kind)))
-  const isEmpty = items.length === 0 && notifications.length === 0
+  const isEmpty = items.length === 0
 
   return (
     <div data-testid="inbox-page" className="flex flex-col h-full">
@@ -117,96 +86,6 @@ export default function Inbox() {
           </div>
         ) : (
           <div className="flex flex-col gap-6">
-            {notifications.length > 0 && (
-              <div>
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2 px-1">
-                  Notifications
-                </h2>
-                <div className="flex flex-col gap-2">
-                  {notifications.map((notif) => {
-                    const jiraKeyMatch =
-                      notif.type === 'jira_update'
-                        ? notif.title.match(/^([A-Z][A-Z0-9_]+-\d+)/)
-                        : null
-                    const jiraKey = jiraKeyMatch ? jiraKeyMatch[1] : null
-                    return (
-                      <div
-                        key={notif.id}
-                        data-testid={`notification-item-${notif.id}`}
-                        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4"
-                      >
-                        <div className="flex items-start gap-4">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              {!notif.read && (
-                                <span
-                                  data-testid={`notif-unread-dot-${notif.id}`}
-                                  className="w-2 h-2 rounded-full bg-blue-500 shrink-0"
-                                />
-                              )}
-                              <span className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
-                                {notif.title}
-                              </span>
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shrink-0">
-                                {notifTypeLabel(notif.type)}
-                              </span>
-                            </div>
-                            {notif.body && (
-                              <p className="text-xs text-slate-600 dark:text-slate-400">
-                                {notif.body.length > 120
-                                  ? `${notif.body.slice(0, 120)}...`
-                                  : notif.body}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            {jiraKey && (
-                              <button
-                                type="button"
-                                data-testid={`jira-comment-button-${notif.id}`}
-                                onClick={() =>
-                                  setCommentingOn({ notifId: notif.id, issueKey: jiraKey })
-                                }
-                                className="text-xs px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-600 dark:text-blue-400 hover:bg-blue-500/30 transition-colors"
-                              >
-                                Comment
-                              </button>
-                            )}
-                            {notif.action_url && (
-                              <button
-                                type="button"
-                                onClick={() => window.open(notif.action_url as string, '_blank')}
-                                className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                              >
-                                Open
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              data-testid={`notif-dismiss-${notif.id}`}
-                              onClick={() => handleDismissNotification(notif.id)}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                            >
-                              Dismiss
-                            </button>
-                          </div>
-                        </div>
-                        {commentingOn?.notifId === notif.id && (
-                          <JiraCommentComposer
-                            issueKey={commentingOn.issueKey}
-                            onCancel={() => setCommentingOn(null)}
-                            onSent={() => {
-                              setCommentingOn(null)
-                              handleDismissNotification(notif.id)
-                            }}
-                          />
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
             {kinds.map((kind) => (
               <div key={kind}>
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2 px-1">

@@ -4,7 +4,6 @@ import { Sidebar } from './Sidebar'
 import { ChatPanel } from './ChatPanel'
 import { UniversalSearch } from './UniversalSearch'
 import GuidedTour from './GuidedTour'
-import NotificationToasts from './NotificationToast'
 import MemoryToast from './MemoryToast'
 import ReleaseNotesWatcher from './ReleaseNotesWatcher'
 import { useUserActivity } from '../hooks/useUserActivity'
@@ -172,7 +171,6 @@ export function Layout() {
       <ChatPanel />
       <UniversalSearch open={commandPaletteOpen} onClose={closeCommandPalette} />
       {showTour && <GuidedTour onComplete={() => setShowTour(false)} />}
-      <NotificationToasts />
       <MemoryToast />
       <ReleaseNotesWatcher />
       {adhdConfig.enabled && checkIn && (
