@@ -397,28 +397,42 @@ def _guard_audit_writes(tmp_path):
 def _reset_ostk_singleton():
     """Reset the services.ostk.ostk singleton state between tests.
 
-    The singleton carries two pieces of mutable state that leak across tests:
+    The singleton carries mutable state that leaks across tests:
 
     1. ``_socket_available`` (None/True/False): once a test drives it to False
        (socket unavailable), all subsequent tests skip the socket path even when
-       they patch ostk_socket — because the flag is still False from the
-       previous test.
+       they patch ostk_socket.
 
     2. ``_audit_cache`` and ``_audit_tail`` (module-level dicts): keyed by
        audit.jsonl path.  A test that reads the real audit.jsonl warms the
        cache; the next test sees stale data even if it patches the audit path.
 
-    Clearing all three before and after each test guarantees a clean starting
-    state regardless of execution order.
+    3. Instance-attribute bleed from ``monkeypatch.setattr(ostk, "method",
+       fake)``: monkeypatch restores by calling ``setattr(ostk, "method",
+       original_bound_method)``, which puts the original bound method in the
+       INSTANCE DICT.  Any subsequent ``patch("services.ostk.OstkService.method",
+       ...)`` then misses because Python's MRO finds the instance-level attr
+       first, bypassing the class-level patch.  Stripping unexpected instance
+       attrs prevents this ordering sensitivity.
     """
     import services.ostk as ostk_mod
-    ostk_mod.ostk._socket_available = None
-    ostk_mod._audit_cache.clear()
-    ostk_mod._audit_tail.clear()
+
+    _EXPECTED_INSTANCE_ATTRS = frozenset({"cwd", "_socket_available"})
+
+    def _clean():
+        for k in list(vars(ostk_mod.ostk)):
+            if k not in _EXPECTED_INSTANCE_ATTRS:
+                try:
+                    delattr(ostk_mod.ostk, k)
+                except AttributeError:
+                    pass
+        ostk_mod.ostk._socket_available = None
+        ostk_mod._audit_cache.clear()
+        ostk_mod._audit_tail.clear()
+
+    _clean()
     yield
-    ostk_mod.ostk._socket_available = None
-    ostk_mod._audit_cache.clear()
-    ostk_mod._audit_tail.clear()
+    _clean()
 
 
 @pytest.fixture(autouse=True)
