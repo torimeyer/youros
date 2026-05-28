@@ -8,15 +8,25 @@ import { api } from '../lib/api'
 import { AGENT_MARKETPLACE } from '../data/agentMarketplace'
 
 // Mock the api module so network calls don't fire
-vi.mock('../lib/api', () => ({
-  api: {
-    get: vi.fn().mockResolvedValue({}),
-    post: vi.fn().mockResolvedValue({}),
-    put: vi.fn().mockResolvedValue({}),
-    patch: vi.fn().mockResolvedValue({}),
-    delete: vi.fn().mockResolvedValue({}),
-  },
-}))
+vi.mock('../lib/api', () => {
+  class MockApiError extends Error {
+    response: { status: number; data: { detail?: string } }
+    constructor(status: number, detail?: string) {
+      super(detail || `HTTP ${status}`)
+      this.response = { status, data: { detail } }
+    }
+  }
+  return {
+    api: {
+      get: vi.fn().mockResolvedValue({}),
+      post: vi.fn().mockResolvedValue({}),
+      put: vi.fn().mockResolvedValue({}),
+      patch: vi.fn().mockResolvedValue({}),
+      delete: vi.fn().mockResolvedValue({}),
+    },
+    ApiError: MockApiError,
+  }
+})
 
 const MOCK_ADVENTURES = {
   adventures: [
@@ -903,7 +913,7 @@ describe('OnboardingWizard — Customize step starter pack', () => {
     expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
   })
 
-  it('Customize step shows fallback agents when the API call fails (never blank, never error)', async () => {
+  it('Customize step shows an actionable error when the API call fails (no silent fallback)', async () => {
     vi.mocked(api.post).mockImplementation((path: string) => {
       if (path === '/onboarding/intent') {
         return Promise.reject(new Error('network error'))
@@ -918,11 +928,10 @@ describe('OnboardingWizard — Customize step starter pack', () => {
     fireEvent.click(screen.getByText(pmCat.category))
     clickNext(1)
 
+    // Per #27: no silent fallback. User must see actionable error.
     await waitFor(() => {
-      expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('pack-item-builtin-builder')).not.toBeInTheDocument()
     })
-    // Fallback pack is shown immediately
-    expect(screen.getByTestId('pack-item-builtin-builder')).toBeInTheDocument()
   })
 
   it('all Wave 8 persona IDs map to a valid intent (no blank Customize step)', () => {
@@ -1211,34 +1220,8 @@ describe('OnboardingWizard — Customize agents step', () => {
     })
   })
 
-  it('shows fallback agents after 10-second timeout when fetch hangs (never error state)', async () => {
-    vi.useFakeTimers()
-    try {
-      vi.mocked(api.post).mockReturnValue(new Promise(() => {}))
-
-      render(<OnboardingWizard />)
-
-      fireEvent.click(screen.getByTestId('next-button'))
-      for (let i = 0; i < 3; i++) fireEvent.click(screen.getByTestId('skip-button'))
-      const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
-      fireEvent.click(screen.getByText(pmCat.category))
-      fireEvent.click(screen.getByTestId('next-button'))
-
-      // Fallback shown immediately — no spinner since pack.length > 0
-      expect(screen.getByTestId('pack-item-builtin-builder')).toBeInTheDocument()
-      expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
-
-      await act(async () => {
-        vi.advanceTimersByTime(10_000)
-      })
-
-      // After timeout: still showing fallback, no error state
-      expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
-      expect(screen.getByTestId('pack-item-builtin-builder')).toBeInTheDocument()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
+  // Deleted per #27: previous behavior was "render fallback on timeout, never error."
+  // New behavior: surface real errors to the user instead of silently falling back.
 })
 
 
