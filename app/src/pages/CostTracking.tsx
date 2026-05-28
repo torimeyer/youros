@@ -921,6 +921,7 @@ export default function CostTracking() {
   // indicator without blanking the existing data.
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [fetchFailed, setFetchFailed] = useState(false)
   const [activeTab, setActiveTab] = useState<'spending' | 'whats-working' | 'subscription'>('spending')
   const navigate = useNavigate()
   const [wwData, setWwData] = useState<WhatsWorkingData | null>(null)
@@ -953,9 +954,11 @@ export default function CostTracking() {
       if (fetchIdRef.current !== myId) return // stale response, discard
       setData(res)
       saveCostDataToCache(res, period)
+      setFetchFailed(false)
     } catch (e) {
       if (fetchIdRef.current !== myId) return
       reportError('Failed to fetch cost data', e)
+      setFetchFailed(true)
     } finally {
       if (fetchIdRef.current === myId) {
         setLoading(false)
@@ -1275,6 +1278,20 @@ export default function CostTracking() {
 
         {loading && !data ? (
           <p className="text-slate-500" data-testid="cost-loading">Loading cost data...</p>
+        ) : !loading && !data && fetchFailed ? (
+          <div className={`${cardClass} text-center py-12`} data-testid="cost-error">
+            <Icon name="error_outline" className="text-red-500/60 mx-auto mb-3" size={48} />
+            <p className="text-slate-300 text-lg mb-1">Couldn't load usage data</p>
+            <p className="text-slate-500 text-sm mb-4">The backend didn't respond. It may still be starting up.</p>
+            <button
+              onClick={() => fetchData()}
+              className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1 mx-auto"
+              aria-label="Retry loading usage data"
+            >
+              <Icon name="refresh" size={16} />
+              Try again
+            </button>
+          </div>
         ) : !data || data.event_count === 0 ? (
           <div className={`${cardClass} text-center py-12`}>
             <Icon name="payments" className="text-slate-600 mx-auto mb-3" size={48} />
