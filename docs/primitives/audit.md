@@ -1,6 +1,6 @@
 # Audit primitive
 
-A myOS primitive (v1.0). Every state change in the system writes an audit row. The audit stream is the system of record.
+A yourOS primitive (v1.0). Every state change in the system writes an audit row. The audit stream is the system of record.
 
 ## Purpose
 
@@ -10,7 +10,7 @@ Make every meaningful state change reversible and inspectable. File edits, agent
 
 Module: `external:ostk` · Version: v1.0 · Status: active.
 
-Audit is provided by the ostk coordination kernel, not by myOS Python. Two surfaces:
+Audit is provided by the ostk coordination kernel, not by yourOS Python. Two surfaces:
 
 ```bash
 # Append a free-text annotation
@@ -20,7 +20,7 @@ ostk note "shipped v3.18.1"
 ostk fs-ops <path> --old "..." --new "..."
 ```
 
-From Python (myOS-side helpers):
+From Python (yourOS-side helpers):
 
 ```python
 from services.ostk import ostk
@@ -40,7 +40,7 @@ By definition: every audit-emitting call IS the event. The stream contains:
 
 ## Versioning history
 
-- **v1.0** (2026-05-16): formalized as a myOS primitive. The underlying ostk audit stream has been present since the kernel landed; this entry pins the surface myOS callers rely on.
+- **v1.0** (2026-05-16): formalized as a yourOS primitive. The underlying ostk audit stream has been present since the kernel landed; this entry pins the surface yourOS callers rely on.
 
 ## Worked examples
 

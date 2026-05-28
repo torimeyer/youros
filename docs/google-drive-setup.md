@@ -1,12 +1,12 @@
-# Connect Google Drive to myOS
+# Connect Google Drive to yourOS
 
-This guide walks you through getting a credentials file from Google and saving it so myOS can connect to your Drive.
+This guide walks you through getting a credentials file from Google and saving it so yourOS can connect to your Drive.
 
 ---
 
 ## What you need
 
-A "credentials file" from Google Cloud Console. This file lets myOS sign in to Google on your behalf. It is stored only on your computer and never sent anywhere.
+A "credentials file" from Google Cloud Console. This file lets yourOS sign in to Google on your behalf. It is stored only on your computer and never sent anywhere.
 
 ---
 
@@ -14,7 +14,7 @@ A "credentials file" from Google Cloud Console. This file lets myOS sign in to G
 
 1. Go to [https://console.cloud.google.com](https://console.cloud.google.com).
 2. Click the project dropdown at the top and choose **New Project**.
-3. Give it any name (e.g. "myOS Drive") and click **Create**.
+3. Give it any name (e.g. "yourOS Drive") and click **Create**.
 
 ---
 
@@ -41,7 +41,7 @@ A "credentials file" from Google Cloud Console. This file lets myOS sign in to G
 1. Go to **APIs and Services > Credentials**.
 2. Click **Create Credentials > OAuth client ID**.
 3. Choose **Web application** as the application type (not "Desktop app").
-4. Give it a name (e.g. "myOS Drive").
+4. Give it a name (e.g. "yourOS Drive").
 5. Under **Authorized redirect URIs**, click **Add URI** and enter exactly:
    ```
    http://localhost:37373/api/drive/auth/callback
@@ -74,16 +74,16 @@ mkdir -p ~/.myos
 
 ---
 
-## Step 6: Connect in myOS
+## Step 6: Connect in yourOS
 
-Go to the **Drive** tab in myOS and click **Connect your Google account**. A Google sign-in page will open in your browser. Sign in and grant the requested permission (read-only access to your Drive files).
+Go to the **Drive** tab in yourOS and click **Connect your Google account**. A Google sign-in page will open in your browser. Sign in and grant the requested permission (read-only access to your Drive files).
 
-Once you sign in, myOS will sync your file list and you can start browsing.
+Once you sign in, yourOS will sync your file list and you can start browsing.
 
 ---
 
 ## Notes
 
-- myOS only requests **read-only** access. It cannot add, edit, or delete any files.
+- yourOS only requests **read-only** access. It cannot add, edit, or delete any files.
 - Your token is saved locally at `~/.myos/google_token.json`. To disconnect, click **Disconnect** in the Drive tab.
 - File previews are cached for 1 hour at `~/.myos/drive_cache/`. You can delete this folder at any time to clear the cache.

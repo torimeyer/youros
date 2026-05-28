@@ -27,7 +27,7 @@
 - **pre-tool-guard / worktree_cwd_guard (→1311)**: guard only blocks git write ops without `cwd=`. All the agent's bash calls used explicit worktree `cwd=`. No hook rejection in transcript.
 - **max_turns**: not configured in agents.py spawner.
 - **Context window limit**: agent ran only 8 minutes; context would not be full.
-- **Backend SIGKILL at 20:58Z (May 13)**: That was the myOS API backend. The agent survived that event (transcript shows activity at 01:47-01:55Z next day). The ostk MCP daemon is a separate process; watchdog does not monitor it.
+- **Backend SIGKILL at 20:58Z (May 13)**: That was the yourOS API backend. The agent survived that event (transcript shows activity at 01:47-01:55Z next day). The ostk MCP daemon is a separate process; watchdog does not monitor it.
 
 ## Evidence
 

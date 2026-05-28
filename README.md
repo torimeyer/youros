@@ -1,16 +1,16 @@
-# myOS
+# yourOS
 
 Your personal AI operating system. A local web app that gives you a workspace with AI chat, background agents, task management, and more. Built on [ostk](https://ostk.ai).
 
 ## How it works
 
-myOS runs entirely on your computer. You open it in your browser at localhost, no account or login needed. All your data lives in `~/.myos/` and never leaves your machine unless you connect an integration like Gmail or Slack, in which case those requests go directly from your machine to the provider. myOS is not a cloud service.
+yourOS runs entirely on your computer. You open it in your browser at localhost, no account or login needed. All your data lives in `~/.myos/` and never leaves your machine unless you connect an integration like Gmail or Slack, in which case those requests go directly from your machine to the provider. yourOS is not a cloud service.
 
 Icons and fonts are loaded from Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`). If your network blocks those hosts, the UI will still work but icons will render as text labels. See Troubleshooting below.
 
 ## Install
 
-You need Python 3.9 or newer, Node 18 or newer, and git. Installing myOS does not require Homebrew. myOS runs on macOS and Linux.
+You need Python 3.9 or newer, Node 18 or newer, and git. Installing yourOS does not require Homebrew. yourOS runs on macOS and Linux.
 
 ### On macOS
 
@@ -24,13 +24,13 @@ Python and Node come pre-installed on recent macOS, or you can download them fro
 
 ### Claude Code integration (optional)
 
-When you spawn Claude Code Task-tool subagents, myOS can register them on its Agents page so you have one place to see all your in-flight AI work. By default this only happens inside the myOS repo itself. If you want it elsewhere, you have three options — pick any or none:
+When you spawn Claude Code Task-tool subagents, yourOS can register them on its Agents page so you have one place to see all your in-flight AI work. By default this only happens inside the yourOS repo itself. If you want it elsewhere, you have three options — pick any or none:
 
 | Mode | How | When |
 |---|---|---|
 | **Per-repo** | `cd some-project && myos-track` | You always want tracking when working in a specific project. Writes `.claude/settings.local.json` in that repo. `myos-track --remove` reverses it. No global modification. |
 | **Per-session** | `cd some-project && myos-claude` | You occasionally want tracking — one Claude Code session at a time. Wrapper script that cleans up on exit, so the next plain `claude` in that dir isn't tracked. |
-| **Machine-wide** | `./install.sh --with-claude-hooks` | You use myOS as your daily dashboard for all Claude Code activity. Installs a hook at `~/.claude/hooks/register-agent.sh` that fires on every Claude Code session on this machine. `./uninstall.sh` removes it. |
+| **Machine-wide** | `./install.sh --with-claude-hooks` | You use yourOS as your daily dashboard for all Claude Code activity. Installs a hook at `~/.claude/hooks/register-agent.sh` that fires on every Claude Code session on this machine. `./uninstall.sh` removes it. |
 
 All three point at the same hook file at `~/.myos/hooks/register-agent.sh`, which `install.sh` stages automatically.
 
@@ -90,7 +90,7 @@ Your settings, chats, tasks, and labels live in `~/.myos/` (separate from the re
 ./uninstall.sh
 ```
 
-Stops running myOS processes and removes what `install.sh` put in the repo: `api/.venv`, `app/node_modules`, `app/dist`, `.mcp.json`, and the `myos` / `myos-update` shell aliases. Keeps `~/.myos/` (your tasks, chats, settings), ostk, and the localhost cert trust — so re-running `./install.sh` brings you right back.
+Stops running yourOS processes and removes what `install.sh` put in the repo: `api/.venv`, `app/node_modules`, `app/dist`, `.mcp.json`, and the `myos` / `myos-update` shell aliases. Keeps `~/.myos/` (your tasks, chats, settings), ostk, and the localhost cert trust — so re-running `./install.sh` brings you right back.
 
 To truly reset to a clean slate (useful when testing a fresh install):
 
@@ -129,7 +129,7 @@ scripts/dev-frontend.sh     # Vite on https://localhost:3010
 ./stop.sh
 ```
 
-`./start.sh` and `scripts/dev-backend.sh` both run a watchdog that restarts uvicorn on crash, so `Ctrl+C` alone can leave myOS running in the background. `stop.sh` kills the watchdog first, then uvicorn on port 8000 and Vite on port 3010.
+`./start.sh` and `scripts/dev-backend.sh` both run a watchdog that restarts uvicorn on crash, so `Ctrl+C` alone can leave yourOS running in the background. `stop.sh` kills the watchdog first, then uvicorn on port 8000 and Vite on port 3010.
 
 If `stop.sh` isn't available, the manual equivalent is:
 
@@ -167,9 +167,9 @@ You can explore the dashboard, tasks, and ideas without an API key. Chat and age
 
 ## ostk Integration
 
-myOS covers the full ostk surface area:
+yourOS covers the full ostk surface area:
 
-| ostk Feature | myOS Integration |
+| ostk Feature | yourOS Integration |
 |---|---|
 | work add/close/list/next | Tasks page |
 | work link/depends | Task dependencies |
@@ -216,13 +216,13 @@ To use Gemini through your Google account:
 
 ## Atlassian (Jira and Confluence) Setup
 
-Connect Jira and Confluence in **Settings > Atlassian**. myOS uses OAuth, no password needed. Full setup instructions, permission details, and troubleshooting: [docs/integrations/atlassian.md](docs/integrations/atlassian.md).
+Connect Jira and Confluence in **Settings > Atlassian**. yourOS uses OAuth, no password needed. Full setup instructions, permission details, and troubleshooting: [docs/integrations/atlassian.md](docs/integrations/atlassian.md).
 
-**If you connected before May 2026:** Disconnect and reconnect once. Atlassian deprecated the old permission names used in earlier versions of myOS, and newer API endpoints reject tokens that only carry them. The reconnect takes about 30 seconds and is a one-time step.
+**If you connected before May 2026:** Disconnect and reconnect once. Atlassian deprecated the old permission names used in earlier versions of yourOS, and newer API endpoints reject tokens that only carry them. The reconnect takes about 30 seconds and is a one-time step.
 
 ## Pre-commit Test Hook
 
-myOS ships a lightweight git pre-commit hook that runs pytest, vitest, and `tsc -b` only on the files you staged. It catches broken tests at the commit that introduces them, instead of letting them pile up until release day. A typical commit stays under 30 seconds because only the relevant tests run.
+yourOS ships a lightweight git pre-commit hook that runs pytest, vitest, and `tsc -b` only on the files you staged. It catches broken tests at the commit that introduces them, instead of letting them pile up until release day. A typical commit stays under 30 seconds because only the relevant tests run.
 
 Install once:
 
@@ -254,7 +254,7 @@ The Material Symbols font failed to load. Usually a stale browser cache after an
 `start.sh` runs a watchdog that respawns uvicorn on crash, so the app can keep running after you Ctrl+C. Use `./stop.sh` to shut down cleanly.
 
 **Port 8000 is already in use**
-Another process (often a leftover myOS from a previous session) is holding it. Run `./stop.sh`. If that doesn't clear it, `lsof -nP -iTCP:8000 -sTCP:LISTEN` shows what's there.
+Another process (often a leftover yourOS from a previous session) is holding it. Run `./stop.sh`. If that doesn't clear it, `lsof -nP -iTCP:8000 -sTCP:LISTEN` shows what's there.
 
 **401 on `/api/calendar/events` in the browser console**
 Expected until you finish Google Sign-In. See "Google Sign-In Setup" above.
@@ -265,3 +265,17 @@ Icons show as text because `fonts.googleapis.com` / `fonts.gstatic.com` are unre
 ## Roadmap
 
 Open `roadmap.html` in your browser to see the three-year plan.
+
+## Contributing: why internal identifiers still say "myos"
+
+The product is called **yourOS** on every screen you see. Under the hood, engineering keeps the old `myos` name in identifiers that would break or lose data if changed:
+
+- `~/.myos/` — the user data directory (renaming moves no data and risks orphaning 200MB+ of history)
+- `MYOS_*` environment variables — 36 of them; renaming requires coordinated operator changes
+- `myos-backend` / `myos-frontend` PM2 process names and PID files
+- `com.myos.ostk-watchdog` launchd plist (installed at `~/Library/LaunchAgents/`)
+- `myos.` localStorage key prefixes — renaming clears browser state
+- `/api/health` returns `{"service":"myos-api"}` — e2e smoke tests grep this string
+- `BACKEND_SESSION_PREFIX = "myos-api-"` — names ostk session directories
+
+These stay `myos` until there is a migration path for each. The split is intentional: user-facing = `yourOS`, engineering internals = `myos`.

@@ -1,10 +1,10 @@
 # Time primitive
 
-A myOS primitive (v1.0). Every long-running operation publishes its start, progress, and finish through Time; consumers ask Time for ETA and current status.
+A yourOS primitive (v1.0). Every long-running operation publishes its start, progress, and finish through Time; consumers ask Time for ETA and current status.
 
 ## Purpose
 
-Give every long-running operation in myOS a single, observable lifecycle. Time records when an op started, what step it's on, and (using rolling-median history) when it's likely to finish. Other surfaces (chat preamble, Agents panel pill, release banner) read from Time.
+Give every long-running operation in yourOS a single, observable lifecycle. Time records when an op started, what step it's on, and (using rolling-median history) when it's likely to finish. Other surfaces (chat preamble, Agents panel pill, release banner) read from Time.
 
 ## Contract
 

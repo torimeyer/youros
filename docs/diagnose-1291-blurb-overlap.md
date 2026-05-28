@@ -14,7 +14,7 @@ agents is running into the title above it".
 
 ## Layout
 The ChatPanel is a vertical flex column. Children:
-1. Header (flex row with chat icon + "myOS Chat" title)
+1. Header (flex row with chat icon + "yourOS Chat" title)
 2. Tab bar
 3. Message scroll area (`flex-1 overflow-y-auto py-4`)
 4. (Conditional) GiphyPicker, AttachmentPicker — modal/fixed

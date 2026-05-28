@@ -1,10 +1,10 @@
 # Heartbeat primitive
 
-A myOS primitive (v1.0). Liveness signal for agents: when an agent registered, when it last pinged, when it finished.
+A yourOS primitive (v1.0). Liveness signal for agents: when an agent registered, when it last pinged, when it finished.
 
 ## Purpose
 
-Tell other parts of myOS which agents are alive right now, when each was last seen, and when each finished. The agent panel, the auto-completion sweeper, and the ghost reaper all read from heartbeat state.
+Tell other parts of yourOS which agents are alive right now, when each was last seen, and when each finished. The agent panel, the auto-completion sweeper, and the ghost reaper all read from heartbeat state.
 
 ## Contract
 

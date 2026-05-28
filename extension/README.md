@@ -1,6 +1,6 @@
-# myOS Gemini Capture
+# yourOS Gemini Capture
 
-A Chrome extension that captures your [gemini.google.com](https://gemini.google.com) conversations and sends them to your local myOS instance.
+A Chrome extension that captures your [gemini.google.com](https://gemini.google.com) conversations and sends them to your local yourOS instance.
 
 ## Loading the extension in Chrome
 
@@ -18,7 +18,7 @@ The extension icon should appear in your toolbar.
    ```
    cat ~/.myos/extension_token
    ```
-   If the file doesn't exist, start the myOS backend once and it'll be created automatically.
+   If the file doesn't exist, start the yourOS backend once and it'll be created automatically.
 
 2. **Configure the extension**
    Click the extension icon, then click **Settings**.
@@ -32,10 +32,10 @@ The extension icon should appear in your toolbar.
 ## How it works
 
 - The extension watches the Gemini page for new conversation turns.
-- When a turn completes (user submit or model stream done), it's sent to `POST /api/gemini-capture` on your local myOS backend.
-- Captured conversations appear in the **Gemini Captures** section on the My Gems page in myOS.
+- When a turn completes (user submit or model stream done), it's sent to `POST /api/gemini-capture` on your local yourOS backend.
+- Captured conversations appear in the **Gemini Captures** section on the My Gems page in yourOS.
 - Capture is **off by default** — you control it from the popup.
 
 ## Privacy
 
-All data stays on your machine. Nothing is sent to any remote server other than your local myOS backend running at `127.0.0.1:8000`.
+All data stays on your machine. Nothing is sent to any remote server other than your local yourOS backend running at `127.0.0.1:8000`.

@@ -23,7 +23,7 @@ if (res.status === 204) {
 Import `ApiError`, `ApiTimeoutError` from `../lib/api`.
 Replace bare `catch {}` with typed error handling:
 - **404**: gem was already deleted — keep it removed, inform user to refresh
-- **timeout**: server unreachable — tell user to check myOS is running
+- **timeout**: server unreachable — tell user to check yourOS is running
 - **other**: generic but specific enough to help
 
 ## Verification

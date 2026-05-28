@@ -2,7 +2,7 @@
 
 ## Provenance
 
-Created 2026-05-18. Originated from needle →1433 (team mode multi-user design) and the NR partnership CTO meeting that surfaced the need for multiple people to work in the same myOS workspace. Agent `plan-1433-team-mode-27ee10` wrote the spec. Commit `112a7bd` on main: "→1433 plan: team mode — multi-user, shared workspace, roles, billing, surface migration". The spec also absorbed →1434 (Cost/Permission primitive promotion), which was closed 2026-05-17.
+Created 2026-05-18. Originated from needle →1433 (team mode multi-user design) and the NR partnership CTO meeting that surfaced the need for multiple people to work in the same yourOS workspace. Agent `plan-1433-team-mode-27ee10` wrote the spec. Commit `112a7bd` on main: "→1433 plan: team mode — multi-user, shared workspace, roles, billing, surface migration". The spec also absorbed →1434 (Cost/Permission primitive promotion), which was closed 2026-05-17.
 
 ## What's missing
 
@@ -59,7 +59,7 @@ Core architecture decisions made 2026-05-18:
 - **Isolation level v1**: `open` only — all members see all workspace data by default. `scoped` and `strict` are non-goals.
 - **Path strategy for per-user data**: `~/.myos/users/<user_id>/<file>` with `user_id` from enterprise.json. Flat paths remain as read-only fallbacks during deprecation, then removed.
 - **Authentication v1**: Magic link (owner emails a one-time link; on click, session cookie is set). No password, no IdP.
-- **Cost/Permission primitive promotion** (from →1434): deferred until team-mode v1 ships and modules have real callers. See "Cost & Permission as myOS primitives (v2)" section.
+- **Cost/Permission primitive promotion** (from →1434): deferred until team-mode v1 ships and modules have real callers. See "Cost & Permission as yourOS primitives (v2)" section.
 - **Open questions** (see Open questions section): magic link delivery, workspace host, conflict resolution, per-user OAuth, API key model, session expiry, Viewer role scope, →1410 users/ directory, Atlassian tokens, team.json fate — all pending before implementation.
 ```
 

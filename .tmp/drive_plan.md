@@ -20,7 +20,7 @@ Scanned roughly 500 of your most recently touched files. That's about as far as 
 5. **Personal Journal** - dated docs like "9/3/25," "5/8/25," "7/3/24," "10.27.23," "1/26/24," Reflections. These look like your private writing. About 15 items.
 6. **Photos** - the loose PRINT and WEB jpgs at root plus one-off screenshots. About 25 items. (The big shared photo folders stay where they are, they're not yours to move.)
 7. **Shared with Me** - leave as is, this is a Google Drive system thing. Just stop seeing them cluttering your main view.
-8. **myOS** - already exists, keep it.
+8. **yourOS** - already exists, keep it.
 9. **Google AI Studio** - already exists, keep it.
 10. **Archive** - everything older than 2020 that you haven't opened since. About 30 items like wedding guest list, baby shower list, 2015 budget, Friends Trivia, old resumes.
 

@@ -1,6 +1,6 @@
 # Skill primitive
 
-A myOS primitive (v1.0). Named, invocable capabilities surfaced as slash commands in chat and callable via the API.
+A yourOS primitive (v1.0). Named, invocable capabilities surfaced as slash commands in chat and callable via the API.
 
 ## Purpose
 

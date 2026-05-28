@@ -69,7 +69,7 @@ Source: `api/routers/sessions.py` lines 33–37:
 BACKEND_SESSION_PREFIX = "myos-api-"
 ```
 
-`myos-api-3233` is the **myOS FastAPI/uvicorn worker process** writing through
+`myos-api-3233` is the **yourOS FastAPI/uvicorn worker process** writing through
 the ostk MCP — not a human session. Every backend restart increments the
 suffix. The sessions router explicitly filters these out of the Sessions
 sidebar (`_is_backend_self_session` at line 40).
@@ -82,7 +82,7 @@ app/src/pages/Agents.test.tsx    gen 20  claude-code-3236   ← same subagent A
 api/tests/test_1219_agents_...   gen  3  claude-code-3238   ← subagent B (→1219 worktree)
 api/main.py (worktree)           gen  3  claude-code-3238   ← same subagent B
 api/routers/agents.py (worktree) gen  7  claude-code-3240   ← subagent C (→1219 worktree)
-app/src/pages/Tasks.tsx          gen 35  myos-api-3233      ← myOS API backend process
+app/src/pages/Tasks.tsx          gen 35  myos-api-3233      ← yourOS API backend process
 ```
 
 All entries are subagents or the API backend — all originating from the same

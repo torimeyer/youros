@@ -31,13 +31,13 @@ ForkStep renders `<h1 className="text-3xl font-bold mb-2">Welcome!</h1>`. The ve
 
 ### C2 — Profile heading breaks when OS name is blank
 **File:** `OnboardingWizard.tsx:396`  
-`<h2>Tell {osName} about you</h2>` — if the user skipped the Name step, `osName` is `''` and the heading renders as "Tell  about you" (two spaces, missing word). The Ready step handles this correctly with `{osName || 'myOS'}` but Profile does not.  
+`<h2>Tell {osName} about you</h2>` — if the user skipped the Name step, `osName` is `''` and the heading renders as "Tell  about you" (two spaces, missing word). The Ready step handles this correctly with `{osName || 'yourOS'}` but Profile does not.  
 **Fix applied inline:** Changed to `Tell {osName || 'your OS'} about you`.
 
 ### C3 — TrackingStep first option is a statement, not a choice label
 **File:** `OnboardingWizard.tsx:1052`  
-Option label: `"myOS is my daily dashboard, track everything."` — this reads as a statement of fact, not a choice. The other two options ("I always want tracking when I'm in my work repo.", "I just want to try myOS without touching anything else.") use first-person choice phrasing.  
-**Fix applied inline:** Changed to `"Track everything — myOS is my main dashboard."` (consistent with the intent, first-person removed for brevity match with the others).
+Option label: `"yourOS is my daily dashboard, track everything."` — this reads as a statement of fact, not a choice. The other two options ("I always want tracking when I'm in my work repo.", "I just want to try yourOS without touching anything else.") use first-person choice phrasing.  
+**Fix applied inline:** Changed to `"Track everything — yourOS is my main dashboard."` (consistent with the intent, first-person removed for brevity match with the others).
 
 ### C4 — Connect step heading doesn't match its contents
 **File:** `OnboardingWizard.tsx:1161`  
@@ -115,7 +115,7 @@ All other async loading states in the app use a spinner component. Customize sho
 Both tabs run `finish()` independently. The second tab to finish overwrites the first tab's settings (OS name, provider, tracking). The user ends up with whichever tab won the last PATCH call. Low probability but silent data loss.
 
 ### E2 — Team flow has no Tracking setup
-The Team path (Fork → OrgName → AdminEmail → InviteTeam → Guardrails → Theme → Connect → TeamReady) has no tracking step. A team admin finishing onboarding never configures myOS hooks. This may be intentional but it's not surfaced to the user (no "you can set up tracking in settings later" note on TeamReady).
+The Team path (Fork → OrgName → AdminEmail → InviteTeam → Guardrails → Theme → Connect → TeamReady) has no tracking step. A team admin finishing onboarding never configures yourOS hooks. This may be intentional but it's not surfaced to the user (no "you can set up tracking in settings later" note on TeamReady).
 
 ### E3 — OrgName and AdminEmail accept empty strings
 **File:** `TeamOnboardingSteps.tsx` — both input steps call `onNext` on Enter and there's no validation guard. An empty OrgName produces the TeamReadyStep headline " OS is ready" (blank prefix). Empty AdminEmail means the admin record has no email.  
@@ -133,7 +133,7 @@ The global Enter handler excludes `INPUT`, `TEXTAREA`, `BUTTON`, and `contentEdi
 |---|------|------|--------|
 | C1 | `OnboardingWizard.tsx` | 632 | ForkStep heading: "Welcome!" → "Let's get started" |
 | C2 | `OnboardingWizard.tsx` | 396 | Profile heading: `{osName}` → `{osName \|\| 'your OS'}` |
-| C3 | `OnboardingWizard.tsx` | 1052 | Tracking label 1: awkward statement → "Track everything — myOS is my main dashboard." |
+| C3 | `OnboardingWizard.tsx` | 1052 | Tracking label 1: awkward statement → "Track everything — yourOS is my main dashboard." |
 
 ## Summary of child needles filed
 

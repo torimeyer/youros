@@ -1,6 +1,6 @@
 # Memory primitive
 
-A myOS primitive (v1.0). Per-user free-text memory injected into every chat turn's system prompt.
+A yourOS primitive (v1.0). Per-user free-text memory injected into every chat turn's system prompt.
 
 ## Purpose
 

@@ -33,7 +33,7 @@ The install path is:
 ```
 curl -fsSL https://ostk.ai/install | sh
 ```
-or via the myOS `install.sh` which downloads from `os-tack/ostk.ai` releases.
+or via the yourOS `install.sh` which downloads from `os-tack/ostk.ai` releases.
 
 **tori's GitHub account** does not currently have collaborator access to `os-tack/haystack`
 (confirmed via `gh api repos/os-tack/haystack/collaborators/torimeyer` → 404).
@@ -68,7 +68,7 @@ for each bug, then open a GH issue on `os-tack/haystack` with a patch attached.
 Turnaround depends on upstream release cadence (recently: near-daily releases).
 
 **Option C — Vendor current binary + wrapper shims (workaround only)**
-Keep the installed binary as-is and apply workarounds inside the myOS Python layer.
+Keep the installed binary as-is and apply workarounds inside the yourOS Python layer.
 Does not fix the root cause; tech debt that blocks clean operation.
 
 **Recommended**: Option A. The repo is private-but-accessible to org members. One access grant
