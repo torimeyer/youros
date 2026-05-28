@@ -257,6 +257,19 @@ _SPEC_ARTIFACT_PATTERNS: tuple[re.Pattern[str], ...] = (
     # the /build endpoint path docs/spec/code-spec.md.  Kept as an
     # explicit slug so the filter is self-documenting (→1751).
     re.compile(r"(?:^|/)code[-_]spec(?:\.md)?$", re.IGNORECASE),
+    # Version-dot release prefix — agent-written release reports like
+    # "v4.1.0-backend-regression-check.md". A real user spec has a
+    # descriptive slug, not a semver prefix.
+    re.compile(r"(?:^|/)v\d+\.\d+\.\d+[-_ ]", re.IGNORECASE),
+    # Date suffix — agent-generated files stamped with YYYY-MM-DD, e.g.
+    # "launchd-activation-kill-test-2026-05-28.md". Real specs don't
+    # embed a calendar date in their filename.
+    re.compile(r"-\d{4}-\d{2}-\d{2}(?:\.md)?$", re.IGNORECASE),
+    # Root-cause suffix — diagnosis reports like "vite-504-root-cause.md".
+    re.compile(r"[-_ ]root[-_ ]cause\b", re.IGNORECASE),
+    # Verification suffix — agent verification writeups like
+    # "pre-design-audit-script-verification.md".
+    re.compile(r"[-_ ]verification(?:\.md)?$", re.IGNORECASE),
 )
 
 
@@ -435,8 +448,10 @@ async def list_specs(clear_to_build: Optional[bool] = None):
             else:
                 _filtered_docs.append(_d)
         docs = _filtered_docs
-        # Also exclude test-artifact specs from docs/draft/ and docs/spec/ so
-        # leaked fixtures (e.g. code-spec.md) never appear in the Specs view (→1751).
+        # Also exclude test-artifact specs (→1751) and agent-written audit/report
+        # docs. Tori's rule: specs are only created when she asks; agent reports
+        # (cut audits, regression checks, root-cause writeups, date-stamped triage
+        # files) must not appear here.
         docs = [
             d for d in docs
             if not _is_test_artifact_spec(d.get("path", ""), d.get("title", ""))

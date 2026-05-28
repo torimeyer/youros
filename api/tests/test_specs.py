@@ -1112,6 +1112,54 @@ async def test_close_task_concurrent_calls_do_not_lose_any_close(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Agent-report filter: _is_test_artifact_spec covers the new patterns
+# ---------------------------------------------------------------------------
+
+
+def test_is_test_artifact_spec_catches_agent_reports():
+    """Every doc the cut-prep agents wrote to docs/draft/ must be excluded
+    from the Specs view. Tori's rule: specs only exist when she asks for them.
+    Agent audit/report docs are caught by the expanded _SPEC_ARTIFACT_PATTERNS
+    (version prefix, date suffix, root-cause suffix, verification suffix).
+    """
+    from routers.specs import _is_test_artifact_spec
+
+    # -- Should be FILTERED (True = excluded) --------------------------------
+    agent_reports = [
+        # v4.1.0 release-report files (version-dot prefix)
+        ("docs/draft/v4.1.0-backend-regression-check.md", "v4.1.0 backend regression check"),
+        ("docs/draft/v4.1.0-cut-audit.md", "v4.1.0 Cut Prep Audit"),
+        ("docs/draft/v4.1.0-cut-gates.md", "v4.1.0 cut gates"),
+        ("docs/draft/v4.1.0-frontend-regression-check.md", "v4.1.0 frontend regression check"),
+        ("docs/draft/v4.1.0-nr-leak-check.md", "v4.1.0 nr leak check"),
+        # Date-stamped agent reports
+        ("docs/draft/launchd-activation-kill-test-2026-05-28.md", "launchd activation kill test 2026-05-28"),
+        ("docs/draft/pre-design-audit-script-fix-2026-05-28.md", "pre design audit script fix 2026-05-28"),
+        ("docs/draft/worktree-triage-1775-2026-05-28.md", "worktree triage 1775 2026-05-28"),
+        # Root-cause diagnosis report
+        ("docs/draft/vite-504-root-cause.md", "vite 504 root cause"),
+        # Verification writeup
+        ("docs/draft/pre-design-audit-script-verification.md", "pre design audit script verification"),
+    ]
+    for path, title in agent_reports:
+        assert _is_test_artifact_spec(path, title), (
+            f"Expected {path!r} to be filtered as agent report, but it was not"
+        )
+
+    # -- Should be KEPT (False = not excluded) --------------------------------
+    real_specs = [
+        ("docs/spec/discord-as-a-connected-service.md", "Discord as a connected service"),
+        ("docs/draft/pattern-watcher-v2.md", "Pattern watcher v2"),
+        ("docs/draft/user-memory-store-improvements.md", "User memory store improvements"),
+        ("~/.myos/specs/spec-auto-status.md", "Spec auto status"),
+        ("docs/draft/torichat-depth-vs-claude-code.md", "ToriChat depth vs Claude Code"),
+    ]
+    for path, title in real_specs:
+        assert not _is_test_artifact_spec(path, title), (
+            f"Expected {path!r} to be kept as real spec, but it was filtered"
+        )
+
+
 # AC-generation prompt guardrails
 # ---------------------------------------------------------------------------
 
