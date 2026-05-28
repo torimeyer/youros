@@ -207,7 +207,7 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
                 Review every needle. Nothing closes until you say so.
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                myOS will suggest what it thinks is done, duplicate, or no
+                yourOS will suggest what it thinks is done, duplicate, or no
                 longer relevant. You decide one by one.
               </p>
             </div>

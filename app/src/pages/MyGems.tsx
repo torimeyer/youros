@@ -157,10 +157,10 @@ export default function MyGems() {
         setToast({ kind: 'info', message: `"${gem.name}" was already deleted. Your list is up to date.` });
       } else if (err instanceof ApiTimeoutError) {
         setGems(previous);
-        setToast({ kind: 'error', message: `Couldn't reach the server in time. Make sure myOS is running, then try again.` });
+        setToast({ kind: 'error', message: `Couldn't reach the server in time. Make sure yourOS is running, then try again.` });
       } else {
         setGems(previous);
-        setToast({ kind: 'error', message: `Something went wrong deleting "${gem.name}". Try again, or restart myOS if this keeps happening.` });
+        setToast({ kind: 'error', message: `Something went wrong deleting "${gem.name}". Try again, or restart yourOS if this keeps happening.` });
       }
     }
   };
@@ -349,10 +349,10 @@ export default function MyGems() {
                     <li>
                       Click <strong className="text-slate-300">Load unpacked</strong> and select the{' '}
                       <code className="text-slate-300 bg-slate-800/60 px-1 rounded text-xs">extension</code>{' '}
-                      folder inside your myOS installation.
+                      folder inside your yourOS installation.
                     </li>
                     <li>
-                      Click the myOS icon in your Chrome toolbar, then open{' '}
+                      Click the yourOS icon in your Chrome toolbar, then open{' '}
                       <strong className="text-slate-300">Settings</strong>. Paste your auth token — find it
                       by opening a terminal and running{' '}
                       <code className="text-slate-300 bg-slate-800/60 px-1 rounded text-xs">cat ~/.myos/extension_token</code>.

@@ -3753,7 +3753,7 @@ export default function Agents() {
     try {
       // Try the new cancel endpoint first. This just marks the record as
       // cancelled so it falls out of Active Sessions, which is the right
-      // call for externally managed Claude Code agents that myOS cannot
+      // call for externally managed Claude Code agents that yourOS cannot
       // signal directly. If that fails (legacy 404), fall back to kill
       // which only works for in-process subprocesses.
       try {
@@ -4688,7 +4688,7 @@ export default function Agents() {
                   <EmptyState
                     icon="smart_toy"
                     title="No agents have run yet"
-                    description='Try asking myOS in chat to do something, like "help me plan my week" or "write a status update."'
+                    description='Try asking yourOS in chat to do something, like "help me plan my week" or "write a status update."'
                   />
                 </div>
               ) : (

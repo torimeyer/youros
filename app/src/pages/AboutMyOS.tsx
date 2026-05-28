@@ -35,10 +35,10 @@ export default function AboutMyOS() {
   const sections: Section[] = [
     {
       id: 'what-myos-is',
-      heading: 'What myOS is',
+      heading: 'What yourOS is',
       body: (
         <p className="text-sm text-slate-400">
-          myOS is a workspace that runs locally on your computer. It helps you organize needles and
+          yourOS is a workspace that runs locally on your computer. It helps you organize needles and
           notes, and coordinates AI agents on your behalf. It is built around the idea that your
           work should compound, not vanish at the end of each session.
         </p>
@@ -49,7 +49,7 @@ export default function AboutMyOS() {
       heading: 'Why this is not another AI wrapper',
       body: (
         <p className="text-sm text-slate-400">
-          Most AI tools call a model and forget. myOS coordinates. The kernel underneath tracks
+          Most AI tools call a model and forget. yourOS coordinates. The kernel underneath tracks
           every file change, every agent run, every decision, so that next week's work picks up
           where today's left off. The AI provider is interchangeable. The coordination is not.
         </p>
@@ -60,8 +60,8 @@ export default function AboutMyOS() {
       heading: 'The kernel underneath: ostk',
       body: (
         <p className="text-sm text-slate-400">
-          myOS is the part you see. Underneath, it runs on ostk, an independent open-source
-          coordination kernel that myOS is built on top of. ostk tracks who changed what, prevents
+          yourOS is the part you see. Underneath, it runs on ostk, an independent open-source
+          coordination kernel that yourOS is built on top of. ostk tracks who changed what, prevents
           agents from stepping on each other, keeps a record of every action, and remembers
           context across sessions. Without it, agents would conflict and forget. With it, they
           cooperate and pick up where they left off.
@@ -146,7 +146,7 @@ export default function AboutMyOS() {
       <TopBar title="About" />
       <main className="pt-24 pb-16 px-8 max-w-3xl mx-auto">
         <div data-testid="about-hero" className="mb-10">
-          <h1 className="text-4xl font-bold text-slate-100 mb-3">myOS</h1>
+          <h1 className="text-4xl font-bold text-slate-100 mb-3">yourOS</h1>
           <p className="text-lg text-slate-400">
             A workspace that remembers your work and coordinates AI agents on your behalf, all
             running locally on your machine.
@@ -202,7 +202,7 @@ export default function AboutMyOS() {
             data-testid="about-version"
             className="text-xs text-slate-600 mt-10 text-center font-mono"
           >
-            myOS {version}
+            yourOS {version}
           </p>
         )}
       </main>

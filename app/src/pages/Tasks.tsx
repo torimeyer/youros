@@ -2039,7 +2039,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                 <EmptyState
                   icon="checklist"
                   title="No needles yet."
-                  description="Type a task above, or tell myOS an idea in chat and it will create tasks for you."
+                  description="Type a task above, or tell yourOS an idea in chat and it will create tasks for you."
                 />
               )}
               {!loading && filteredTasks.length === 0 && tasks.length > 0 && (

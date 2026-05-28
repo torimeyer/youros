@@ -88,7 +88,7 @@ export function formatCountdown(
 // close the event is. Returns null when the subtitle should be hidden
 // entirely (after the event ends, or when there is no start).
 //
-// Colors mirror the rest of myOS chips:
+// Colors mirror the rest of yourOS chips:
 //   red   = under 5 minutes, you have to leave now
 //   amber = in 5 to 30 minutes, time to wrap up
 //   blue  = in 30 to 60 minutes, keep an eye on the clock
@@ -531,7 +531,7 @@ export default function Calendar() {
       window.location.href = res.url
     } catch {
       setConnectError(
-        'Could not get the sign-in link. Make sure the myOS backend is running and your Google credentials file is saved at ~/.myos/google_credentials.json.'
+        'Could not get the sign-in link. Make sure the yourOS backend is running and your Google credentials file is saved at ~/.myos/google_credentials.json.'
       )
     }
   }
@@ -621,7 +621,7 @@ export default function Calendar() {
             title={authStatus?.needs_reauth ? 'Calendar access needs to be updated' : 'Connect Google Calendar'}
             description={
               authStatus?.needs_reauth
-                ? 'Reconnect your Google account to give myOS permission to read your calendar. This uses the same account you already connected for Drive.'
+                ? 'Reconnect your Google account to give yourOS permission to read your calendar. This uses the same account you already connected for Drive.'
                 : 'See your upcoming meetings and create needles from events. This uses the same Google account as Drive, so no extra credentials are needed.'
             }
             primaryAction={

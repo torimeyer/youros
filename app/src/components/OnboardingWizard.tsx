@@ -247,7 +247,7 @@ export default function OnboardingWizard() {
     // Personal finish
     const settings: Record<string, unknown> = {
       os_name: osName,
-      instance_name: instanceName || 'myOS',
+      instance_name: instanceName || 'yourOS',
       user_name: userName,
       dark_mode: pickedDarkRef.current,
       provider: selectedProvider,
@@ -941,7 +941,7 @@ function NameStep({
   inputCls: string
   subtextCls: string
 }) {
-  const example = userName ? `${userName}OS` : 'MyOS'
+  const example = userName ? `${userName}OS` : 'YourOS'
   return (
     <div data-testid="step-name">
       <h2 className="text-2xl font-bold mb-2">Name your OS</h2>
@@ -982,7 +982,7 @@ function FilesLocationStep({
     <div data-testid="step-files-location">
       <h2 className="text-2xl font-bold mb-2">Where should your files go?</h2>
       <p className={`mb-4 ${subtextCls}`}>
-        This is the folder on your computer where myOS saves your files, like briefs and roadmaps.
+        This is the folder on your computer where yourOS saves your files, like briefs and roadmaps.
       </p>
       <div className="mb-3">
         <input
@@ -1118,26 +1118,26 @@ function TrackingStep({
   const options = [
     {
       id: 'everywhere' as const,
-      label: 'Track everything — myOS is my main dashboard.',
-      subtitle: "Every Claude Code conversation on this computer shows up in myOS, no matter which folder you're in.",
+      label: 'Track everything: yourOS is my main dashboard.',
+      subtitle: "Every Claude Code conversation on this computer shows up in yourOS, no matter which folder you're in.",
     },
     {
       id: 'repo' as const,
       label: "I always want tracking when I'm in my work repo.",
-      subtitle: 'Only conversations inside your work project show up in myOS. Other projects stay untouched.',
+      subtitle: 'Only conversations inside your work project show up in yourOS. Other projects stay untouched.',
     },
     {
       id: 'myos-only' as const,
-      label: 'I just want to try myOS without touching anything else.',
-      subtitle: 'Only conversations inside the myOS folder show up. Nothing else on your computer changes.',
+      label: 'I just want to try yourOS without touching anything else.',
+      subtitle: 'Only conversations inside the yourOS folder show up. Nothing else on your computer changes.',
     },
   ]
 
   return (
     <div data-testid="step-tracking">
-      <h2 className="text-2xl font-bold mb-2">How should myOS track your work?</h2>
+      <h2 className="text-2xl font-bold mb-2">How should yourOS track your work?</h2>
       <p className={`mb-6 ${subtextCls}`}>
-        Choose how myOS connects to Claude Code on this computer.
+        Choose how yourOS connects to Claude Code on this computer.
       </p>
       <div className="space-y-3">
         {options.map((opt) => (
@@ -1726,7 +1726,7 @@ export function GithubSetupCard({
       <div className="space-y-2">
         <p className={`text-xs ${subtextCls}`}>
           <a
-            href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=myOS"
+            href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=yourOS"
             target="_blank"
             rel="noreferrer"
             className="underline"
@@ -1812,7 +1812,7 @@ function ReadyStep({
         <div className="flex items-center justify-between">
           <span className={`text-sm ${subtextCls}`}>OS Name</span>
           <span className="text-sm font-medium" data-testid="summary-os-name">
-            {osName || 'myOS'}
+            {osName || 'yourOS'}
           </span>
         </div>
         <div className="flex items-center justify-between">

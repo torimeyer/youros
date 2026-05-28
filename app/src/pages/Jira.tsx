@@ -202,7 +202,7 @@ export default function Jira() {
             icon="bug_report"
             accentColor="#94a3b8"
             title="Connect Jira"
-            description="See your assigned Jira issues inside myOS. You need an Atlassian API token."
+            description="See your assigned Jira issues inside yourOS. You need an Atlassian API token."
             primaryAction={
               oauthAvailable && !forceTokenForm ? (
                 <div className="w-full space-y-3 text-left">
@@ -318,7 +318,7 @@ export default function Jira() {
                   <button
                     data-testid={`jira-needle-${detail.key}`}
                     onClick={() => handleTrackInMyOS(detail.key)}
-                    title="track this in myOS"
+                    title="track this in yourOS"
                     className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
                   >
                     <Icon

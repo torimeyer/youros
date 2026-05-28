@@ -281,7 +281,7 @@ export default function Slack() {
             icon="chat"
             accentColor="#a855f7"
             title="Connect Slack"
-            description="See your Slack messages, reply to conversations, and create tasks from messages without leaving myOS."
+            description="See your Slack messages, reply to conversations, and create tasks from messages without leaving yourOS."
             primaryAction={
               status?.configured && !showCredForm ? (
                 <div className="space-y-3">

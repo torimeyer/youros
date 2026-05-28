@@ -38,7 +38,7 @@ export default function GoogleSetupGuideModal({ onClose }: { onClose: () => void
         </div>
 
         <p className="text-sm text-slate-400 mb-5">
-          myOS needs a credentials file from Google so it can connect to your Drive, Calendar, and Gmail. You only have to do this once. Here is how.
+          yourOS needs a credentials file from Google so it can connect to your Drive, Calendar, and Gmail. You only have to do this once. Here is how.
         </p>
 
         <ol className="space-y-4 text-sm text-slate-300">
@@ -90,7 +90,7 @@ export default function GoogleSetupGuideModal({ onClose }: { onClose: () => void
 
         <div className="mt-6 p-3 bg-slate-800/50 border border-slate-700 rounded-lg">
           <p className="text-xs text-slate-400">
-            Your credentials file stays on your computer. myOS never uploads it anywhere.
+            Your credentials file stays on your computer. yourOS never uploads it anywhere.
           </p>
         </div>
 

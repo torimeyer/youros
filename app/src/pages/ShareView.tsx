@@ -100,7 +100,7 @@ function FileShareView({ item }: { item: FileSnapshotItem }) {
           data-testid="file-share-attribution"
           className="flex items-center gap-2 text-xs text-slate-400 bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 mb-4"
         >
-          <span>Shared by myOS</span>
+          <span>Shared by yourOS</span>
           {agent && (
             <>
               <span className="text-slate-600">&middot;</span>
@@ -247,7 +247,7 @@ export default function ShareView() {
 function Footer() {
   return (
     <div className="mt-12 text-center">
-      <p className="text-xs text-slate-600">Shared via <span className="font-semibold text-slate-500">myOS</span></p>
+      <p className="text-xs text-slate-600">Shared via <span className="font-semibold text-slate-500">yourOS</span></p>
     </div>
   );
 }

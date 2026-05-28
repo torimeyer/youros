@@ -346,7 +346,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
       const json = await resp.json()
       if (!resp.ok) throw new Error(json.detail ?? 'Import failed.')
       setDriveSaveStatus('success')
-      setDriveSaveMessage('Saved to myOS.')
+      setDriveSaveMessage('Saved to yourOS.')
     } catch (err: unknown) {
       setDriveSaveStatus('error')
       setDriveSaveMessage(err instanceof Error ? err.message : 'Could not save.')
@@ -384,7 +384,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                       : 'bg-blue-600/80 hover:bg-blue-600 border-blue-500/50 text-white disabled:opacity-50 disabled:cursor-not-allowed'
                   }`}
                 >
-                  {driveSaveStatus === 'saving' ? 'Saving...' : driveSaveStatus === 'success' ? 'Saved' : 'Save to myOS'}
+                  {driveSaveStatus === 'saving' ? 'Saving...' : driveSaveStatus === 'success' ? 'Saved' : 'Save to yourOS'}
                 </button>
                 {drivePreviewData?.web_view_link && (
                   <a

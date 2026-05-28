@@ -1359,7 +1359,7 @@ export default function Settings() {
           <div className={cardClass} data-testid="chat-backend-section">
           <h2 className="text-lg font-semibold mb-1">AI backend</h2>
           <p className="text-sm text-slate-400 mb-4">
-            Pick which sign-in powers every AI feature in myOS — chat, tasks, specs, and more. Your Claude subscription costs nothing extra if you already pay for Pro or Max. Using your Anthropic key charges per message.
+            Pick which sign-in powers every AI feature in yourOS: chat, tasks, specs, and more. Your Claude subscription costs nothing extra if you already pay for Pro or Max. Using your Anthropic key charges per message.
           </p>
           <div className="space-y-2" data-testid="chat-backend-radios">
             {[
@@ -1657,7 +1657,7 @@ export default function Settings() {
                   <h2 className="text-base font-semibold">iMessage</h2>
                 </div>
                 <p className="text-sm text-slate-400 mb-3">
-                  Read and reply to iMessages from within myOS. Requires macOS.
+                  Read and reply to iMessages from within yourOS. Requires macOS.
                 </p>
                 <a
                   href="/imessage"
@@ -1810,7 +1810,7 @@ export default function Settings() {
           ) : (
             <div>
               <p className="text-sm text-slate-400 mb-4">
-                Enter the URL of a private git repo you own. myOS will use it to keep your settings the same across all your devices.
+                Enter the URL of a private git repo you own. yourOS will use it to keep your settings the same across all your devices.
               </p>
               <div className="flex gap-2">
                 <input
@@ -1911,7 +1911,7 @@ export default function Settings() {
                 <div className="flex items-center justify-between">
                   <div className="pr-3">
                     <p className="text-sm text-slate-300">Pick the right agent automatically</p>
-                    <p className="text-xs text-slate-500">When you ask a question, myOS chooses the best built-in or saved agent for the job.</p>
+                    <p className="text-xs text-slate-500">When you ask a question, yourOS chooses the best built-in or saved agent for the job.</p>
                   </div>
                   <Toggle checked={autoTemplateMatching} onChange={handleAutoTemplateMatchingToggle} testId="auto-template-toggle" />
                 </div>
@@ -2161,7 +2161,7 @@ export default function Settings() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-slate-300">Take the tour</p>
-                    <p className="text-xs text-slate-500">Walk through what myOS can do, step by step.</p>
+                    <p className="text-xs text-slate-500">Walk through what yourOS can do, step by step.</p>
                   </div>
                   <button
                     data-testid="settings-tour-button"
@@ -2174,7 +2174,7 @@ export default function Settings() {
                 <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
                   <div>
                     <p className="text-sm text-slate-300">Open activity log</p>
-                    <p className="text-xs text-slate-500">See everything myOS has done recently.</p>
+                    <p className="text-xs text-slate-500">See everything yourOS has done recently.</p>
                   </div>
                   <NavLink
                     data-testid="settings-activity-link"

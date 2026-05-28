@@ -43,7 +43,7 @@ export default function Projects() {
       setProjects(res.projects);
     } catch (e) {
       reportError('Failed to fetch projects', e);
-      setError('Could not load your projects. Check that myOS is running and try again.');
+      setError('Could not load your projects. Check that yourOS is running and try again.');
     } finally {
       setLoading(false);
     }
@@ -63,7 +63,7 @@ export default function Projects() {
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold mb-1">Projects</h1>
             <p className="text-slate-400">
-              All directories in the myOS workspace.
+              All directories in the yourOS workspace.
             </p>
           </div>
           <button

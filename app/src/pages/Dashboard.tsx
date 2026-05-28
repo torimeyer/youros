@@ -882,7 +882,7 @@ export default function Dashboard() {
           {summaryLoading && summaryBullets.length === 0 ? (
             <p className="text-sm text-slate-500">Loading summary...</p>
           ) : summaryBullets.length === 0 ? (
-            <p className="text-sm text-slate-500">Nothing to summarize yet. Once you start using myOS, a daily recap will appear here.</p>
+            <p className="text-sm text-slate-500">Nothing to summarize yet. Once you start using yourOS, a daily recap will appear here.</p>
           ) : (
             <ul className="space-y-2">
               {summaryBullets.map((bullet, i) => (

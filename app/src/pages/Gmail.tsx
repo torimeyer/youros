@@ -221,7 +221,7 @@ export default function Gmail() {
       window.location.href = res.url
     } catch {
       setConnectError(
-        'Could not get the sign-in link. Make sure the myOS backend is running and your Google credentials file is saved at ~/.myos/google_credentials.json.'
+        'Could not get the sign-in link. Make sure the yourOS backend is running and your Google credentials file is saved at ~/.myos/google_credentials.json.'
       )
     }
   }
@@ -397,8 +397,8 @@ export default function Gmail() {
             title={authStatus?.needs_reauth ? 'Gmail access needs to be updated' : 'Connect Gmail'}
             description={
               authStatus?.needs_reauth
-                ? 'Reconnect your Google account to give myOS permission to read your Gmail. This uses the same account you already connected for Drive.'
-                : 'See your unread emails without leaving myOS. This uses the same Google account as Drive and Calendar, so no extra credentials are needed.'
+                ? 'Reconnect your Google account to give yourOS permission to read your Gmail. This uses the same account you already connected for Drive.'
+                : 'See your unread emails without leaving yourOS. This uses the same Google account as Drive and Calendar, so no extra credentials are needed.'
             }
             primaryAction={
               <div className="w-full space-y-3">

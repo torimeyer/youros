@@ -409,7 +409,7 @@ export default function IMessage() {
           writeConnectionCache('not_connected')
         }
       } catch {
-        setStatusReason('Could not connect to the myOS backend. Make sure the backend is running, then refresh this page.')
+        setStatusReason('Could not connect to the yourOS backend. Make sure the backend is running, then refresh this page.')
         setConnectionState('not_connected')
         writeConnectionCache('not_connected')
       }

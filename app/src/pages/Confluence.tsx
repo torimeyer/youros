@@ -169,7 +169,7 @@ export default function Confluence() {
             icon="menu_book"
             accentColor="#94a3b8"
             title="Connect Confluence"
-            description="See your recently-updated Confluence pages inside myOS. You need an Atlassian API token."
+            description="See your recently-updated Confluence pages inside yourOS. You need an Atlassian API token."
             primaryAction={
               oauthAvailable && !forceTokenForm ? (
                 <div className="w-full space-y-3 text-left">

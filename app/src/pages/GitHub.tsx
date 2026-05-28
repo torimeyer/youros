@@ -278,7 +278,7 @@ export default function GitHub() {
             icon="code"
             accentColor="#94a3b8"
             title="Connect GitHub"
-            description="Import issues from a GitHub repository and sync them with your myOS tasks. You need a personal access token with repo scope."
+            description="Import issues from a GitHub repository and sync them with your yourOS tasks. You need a personal access token with repo scope."
             primaryAction={
               <div className="w-full space-y-3 text-left">
                 <div>
@@ -352,7 +352,7 @@ export default function GitHub() {
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition-colors disabled:opacity-50"
             >
               <Icon name="sync" size={16} className={syncing ? 'animate-spin' : ''} />
-              Import to myOS
+              Import to yourOS
             </button>
             <button
               onClick={handleDisconnect}
@@ -376,7 +376,7 @@ export default function GitHub() {
         {syncResult && syncResult.errors.length === 0 && (
           <div className="mb-4 p-3 rounded-xl text-sm bg-green-500/10 border border-green-500/30 text-green-300">
             {syncResult.created > 0 && <span>Created {syncResult.created} tasks. </span>}
-            {syncResult.skipped > 0 && <span>Skipped {syncResult.skipped} (already in myOS). </span>}
+            {syncResult.skipped > 0 && <span>Skipped {syncResult.skipped} (already in yourOS). </span>}
           </div>
         )}
 

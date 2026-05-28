@@ -332,7 +332,7 @@ function ConnectScreen({
         </div>
         <h2 className="text-xl font-bold mb-2">Connect Google Drive</h2>
         <p className="text-slate-400 text-sm mb-6">
-          Browse and preview your Docs, Slides, and Sheets right here in myOS.
+          Browse and preview your Docs, Slides, and Sheets right here in yourOS.
         </p>
 
         {googleOAuthAvailable ? (
@@ -401,7 +401,7 @@ function ConnectScreen({
         </button>
 
         <p className="text-slate-600 text-xs mt-3">
-          myOS can browse, preview, and upload files to a dedicated "myOS" folder in your Drive. It cannot access or modify files you did not upload through myOS.
+          yourOS can browse, preview, and upload files to a dedicated "yourOS" folder in your Drive. It cannot access or modify files you did not upload through yourOS.
         </p>
       </div>
 

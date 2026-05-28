@@ -117,7 +117,7 @@ export default function GithubConnect() {
       <div className="space-y-2">
         <p className="text-xs text-slate-500">
           <a
-            href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=myOS"
+            href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=yourOS"
             target="_blank"
             rel="noreferrer"
             className="text-blue-400 hover:text-blue-300 underline"

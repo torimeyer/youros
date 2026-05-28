@@ -128,7 +128,7 @@ export default function SlackReplyComposer({
         value={body}
         onChange={(e) => setBody(e.target.value)}
         disabled={busy}
-        placeholder="Write your reply, or let myOS draft one for you."
+        placeholder="Write your reply, or let yourOS draft one for you."
         rows={6}
         aria-label="Reply body"
         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-slate-600 disabled:opacity-50 resize-y"

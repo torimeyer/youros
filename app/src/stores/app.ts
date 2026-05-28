@@ -122,9 +122,9 @@ interface AppState {
   setIsSidebarResizing: (v: boolean) => void
   osName: string
   setOsName: (name: string) => void
-  // Per-instance name. myOS is the product. Every user picks what their
+  // Per-instance name. yourOS is the product. Every user picks what their
   // own copy is called. Default matches the product so a user who never
-  // changes it still sees "myOS" in the UI. Tori's copy is "toriOS".
+  // changes it still sees "yourOS" in the UI. Tori's copy is "toriOS".
   instanceName: string
   setInstanceName: (name: string) => void
   darkMode: boolean
@@ -323,8 +323,8 @@ function readInitialSidebarWidth(): number {
 const initialOnboarded = lsGet(LS_KEYS.onboarded) === 'true'
 const initialDarkMode = lsGet(LS_KEYS.darkMode) !== 'false'
 const initialAccentColor = (lsGet(LS_KEYS.accentColor) as AccentColor) || 'blue'
-const initialOsName = lsGet(LS_KEYS.osName) || 'myOS'
-const initialInstanceName = lsGet(LS_KEYS.instanceName) || 'myOS'
+const initialOsName = lsGet(LS_KEYS.osName) || 'yourOS'
+const initialInstanceName = lsGet(LS_KEYS.instanceName) || 'yourOS'
 const initialDefaultChatModel = lsGet(LS_KEYS.defaultChatModel) || 'claude'
 const initialSideBySideEnabled = lsGet(LS_KEYS.sideBySideEnabled) === 'true'
 const initialUseOstkTerms = lsGet(LS_KEYS.useOstkTerms) === 'true'
@@ -719,18 +719,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       const v = String(server.os_name)
       updates.osName = v
       lsSet(LS_KEYS.osName, v)
-    } else if (state.osName && state.osName !== 'myOS') {
+    } else if (state.osName && state.osName !== 'yourOS') {
       backfill.os_name = state.osName
     }
 
     // instance_name. The user-picked name for this specific install.
-    // Defaults to the product name ("myOS") so every surface reads
+    // Defaults to the product name ("yourOS") so every surface reads
     // correctly for a user who has not renamed their copy.
     if (hasValue(server.instance_name)) {
       const v = String(server.instance_name)
       updates.instanceName = v
       lsSet(LS_KEYS.instanceName, v)
-    } else if (state.instanceName && state.instanceName !== 'myOS') {
+    } else if (state.instanceName && state.instanceName !== 'yourOS') {
       backfill.instance_name = state.instanceName
     }
 
