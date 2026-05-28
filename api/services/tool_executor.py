@@ -121,7 +121,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "name": "search_files",
-        "description": "Search for a text pattern across files using grep. Returns matching lines with file paths.",
+        "description": "Search for a text pattern across files using grep. Returns matching lines with file paths and surrounding context.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -132,6 +132,14 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "path": {
                     "type": "string",
                     "description": "Directory to search in. Defaults to workspace root.",
+                },
+                "context_lines": {
+                    "type": "integer",
+                    "description": "Lines of surrounding context to include before and after each match. Default 2.",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of output lines to return. Default 100, capped at 200.",
                 },
             },
             "required": ["pattern"],
@@ -573,7 +581,12 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
         elif name == "list_directory":
             return await _list_directory(input_data.get("path", ""))
         elif name == "search_files":
-            return await _search_files(input_data["pattern"], input_data.get("path", ""))
+            return await _search_files(
+                input_data["pattern"],
+                input_data.get("path", ""),
+                context_lines=input_data.get("context_lines", 2),
+                max_results=input_data.get("max_results", 100),
+            )
         elif name == "list_tasks":
             return await _list_tasks()
         elif name == "create_task":
@@ -744,13 +757,16 @@ async def _list_directory(path: str) -> str:
     return "\n".join(lines) if lines else "(empty directory)"
 
 
-async def _search_files(pattern: str, path: str) -> str:
+async def _search_files(
+    pattern: str, path: str, context_lines: int = 2, max_results: int = 100
+) -> str:
     if path:
         safe = _safe_path(path)
     else:
         safe = WORKSPACE
+    limit = min(max(1, max_results), 200)
     try:
-        proc = await asyncio.create_subprocess_exec(
+        grep_args = [
             "grep", "-rn",
             "--include=*.py", "--include=*.ts", "--include=*.tsx",
             "--include=*.js", "--include=*.json", "--include=*.md", "--include=*.toml",
@@ -758,7 +774,12 @@ async def _search_files(pattern: str, path: str) -> str:
             "--exclude-dir=.venv", "--exclude-dir=node_modules",
             "--exclude-dir=.git", "--exclude-dir=dist", "--exclude-dir=.vite",
             "-I",  # skip binary files
-            pattern, str(safe),
+        ]
+        if context_lines > 0:
+            grep_args.append(f"-C{context_lines}")
+        grep_args += [pattern, str(safe)]
+        proc = await asyncio.create_subprocess_exec(
+            *grep_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -766,10 +787,9 @@ async def _search_files(pattern: str, path: str) -> str:
         result = stdout.decode(errors="replace")
         if not result:
             return f"No matches found for: {pattern}"
-        # Truncate long results
         lines = result.splitlines()
-        if len(lines) > 100:
-            result = "\n".join(lines[:100]) + f"\n... ({len(lines)} total matches)"
+        if len(lines) > limit:
+            result = "\n".join(lines[:limit]) + f"\n... ({len(lines)} total lines)"
         return result
     except asyncio.TimeoutError:
         return f"Search timed out after {COMMAND_TIMEOUT} seconds"

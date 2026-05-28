@@ -245,6 +245,43 @@ class TestSearchFiles:
         result = await execute_tool("search_files", {"pattern": "zzz_will_not_match"})
         assert "No matches" in result
 
+    @pytest.mark.asyncio
+    async def test_context_lines_returns_surrounding_lines(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("services.tool_executor.WORKSPACE", tmp_path)
+        test_file = tmp_path / "sample.py"
+        test_file.write_text("line_before\nTARGET_LINE\nline_after\n")
+        result = await execute_tool(
+            "search_files", {"pattern": "TARGET_LINE", "context_lines": 1}
+        )
+        assert "line_before" in result
+        assert "line_after" in result
+
+    @pytest.mark.asyncio
+    async def test_max_results_caps_output(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("services.tool_executor.WORKSPACE", tmp_path)
+        test_file = tmp_path / "sample.py"
+        # Write 30 lines each containing MATCH so grep returns 30 match lines
+        test_file.write_text("\n".join(f"MATCH line {i}" for i in range(30)))
+        result = await execute_tool(
+            "search_files",
+            {"pattern": "MATCH", "context_lines": 0, "max_results": 5},
+        )
+        lines = [l for l in result.splitlines() if "MATCH" in l]
+        assert len(lines) <= 5
+        assert "total lines" in result
+
+    @pytest.mark.asyncio
+    async def test_max_results_capped_at_200(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("services.tool_executor.WORKSPACE", tmp_path)
+        test_file = tmp_path / "sample.py"
+        test_file.write_text("\n".join(f"MATCH line {i}" for i in range(10)))
+        # Requesting 999 should be silently capped at 200
+        result = await execute_tool(
+            "search_files",
+            {"pattern": "MATCH", "context_lines": 0, "max_results": 999},
+        )
+        assert "No matches" not in result
+
 
 # ---- execute_tool: ostk tools ----
 
