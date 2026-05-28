@@ -2293,11 +2293,26 @@ class OstkService:
                 "(a line starting with '- [ ]') before it can be promoted."
             )
 
-        # Flip status and add promoted_at in front matter.
+        # Assign a sequential spec_id unless the draft already has one.
+        _existing_spec_id = ""
+        for _line in file_lines:
+            _s = _line.strip()
+            if _s.startswith("spec_id:"):
+                _existing_spec_id = _s[len("spec_id:"):].strip()
+                break
+        if not _existing_spec_id:
+            _scan_dirs = [
+                Path(self.cwd) / "docs" / "spec",
+                USER_SPECS_DIR,
+            ]
+            _existing_spec_id = self._next_spec_id(_scan_dirs)
+
+        # Flip status and add promoted_at + spec_id in front matter.
         promoted_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         new_lines: list[str] = []
         status_written = False
         promoted_at_written = False
+        spec_id_written = False
         in_front_matter = bool(file_lines and file_lines[0].strip() == "---")
 
         for idx, line in enumerate(file_lines):
@@ -2306,10 +2321,13 @@ class OstkService:
                 new_lines.append(line)
                 continue
             if in_front_matter and stripped == "---" and idx > 0:
-                # End of front matter: inject promoted_at if not already present.
+                # End of front matter: inject promoted_at / spec_id if not already present.
                 if not promoted_at_written:
                     new_lines.append(f"promoted_at: {promoted_at}")
                     promoted_at_written = True
+                if not spec_id_written:
+                    new_lines.append(f"spec_id: {_existing_spec_id}")
+                    spec_id_written = True
                 in_front_matter = False
                 new_lines.append(line)
                 continue
@@ -2321,6 +2339,10 @@ class OstkService:
                 new_lines.append(f"promoted_at: {promoted_at}")
                 promoted_at_written = True
                 continue
+            if in_front_matter and stripped.startswith("spec_id:"):
+                new_lines.append(f"spec_id: {_existing_spec_id}")
+                spec_id_written = True
+                continue
             new_lines.append(line)
 
         # No front matter (or missing status): prepend one.
@@ -2329,6 +2351,7 @@ class OstkService:
                 "---",
                 "status: spec",
                 f"promoted_at: {promoted_at}",
+                f"spec_id: {_existing_spec_id}",
                 "---",
             ] + new_lines
 
@@ -2615,6 +2638,7 @@ class OstkService:
             "status": fallback_status,
             "created_at": "",
             "promoted_at": "",
+            "spec_id": "",
             "updated_at_ms": mtime_ms,
             "body": "",
             "task_ids": [],
@@ -2654,6 +2678,8 @@ class OstkService:
                             doc["created_at"] = val
                         elif key == "promoted_at":
                             doc["promoted_at"] = val
+                        elif key == "spec_id":
+                            doc["spec_id"] = val
                         elif key == "tasks":
                             # Inline format: tasks: ["407", "408"]
                             if val.startswith("["):
@@ -2689,6 +2715,46 @@ class OstkService:
                 text = stripped[5:].strip()
                 criteria.append({"text": text, "checked": False})
         return criteria
+
+    @staticmethod
+    def _next_spec_id(scan_dirs: "list[Path]") -> str:
+        """Return the next sequential spec ID (S001, S002, ...).
+
+        Scans all *.md files in scan_dirs for ``spec_id: SXXX`` frontmatter
+        lines and returns the next unused ID.
+        """
+        import re as _re
+        _id_re = _re.compile(r"^spec_id:\s*S(\d+)", _re.MULTILINE)
+        max_num = 0
+        for d in scan_dirs:
+            if not d.is_dir():
+                continue
+            for md in d.glob("*.md"):
+                try:
+                    text = md.read_text(errors="replace")
+                    for m in _id_re.finditer(text):
+                        max_num = max(max_num, int(m.group(1)))
+                except OSError:
+                    pass
+        return f"S{max_num + 1:03d}"
+
+    @staticmethod
+    def resolve_spec_by_id(spec_id: str, scan_dirs: "list[Path]") -> "Path | None":
+        """Return the Path of the spec file bearing spec_id, or None."""
+        import re as _re
+        pattern = _re.compile(
+            r"^spec_id:\s*" + _re.escape(spec_id) + r"\s*$", _re.MULTILINE
+        )
+        for d in scan_dirs:
+            if not d.is_dir():
+                continue
+            for md in d.glob("*.md"):
+                try:
+                    if pattern.search(md.read_text(errors="replace")):
+                        return md
+                except OSError:
+                    pass
+        return None
 
     def _write_status_to_frontmatter(self, path: Path, status: str) -> None:
         """Persist a new status value into a spec's YAML frontmatter.
