@@ -365,23 +365,95 @@ async def enable_myos_hooks(body: EnableHooksRequest = EnableHooksRequest()):
 
 @router.post("/onboarding/intent", response_model=IntentResponse)
 async def intent(body: IntentRequest):
-    """Return a tailored starter pack of agents based on the user's intended use case."""
+    """Return a personalized starter pack via LLM based on the user's intent and role."""
     from services.agent_templates_store import BUILTIN_AGENT_TEMPLATES
 
     by_id = {t["id"]: t for t in BUILTIN_AGENT_TEMPLATES}
     pack_spec = _INTENT_PACKS.get(body.intent, [])
+    candidates = [
+        {
+            "id": s["id"],
+            "name": by_id[s["id"]]["name"],
+            "description": by_id[s["id"]]["description"],
+        }
+        for s in pack_spec
+        if s["id"] in by_id
+    ]
 
-    items = []
-    for spec in pack_spec:
-        tpl = by_id.get(spec["id"])
+    if not candidates:
+        raise HTTPException(status_code=404, detail=f"No starter pack defined for intent '{body.intent}'.")
+
+    ai_client = await get_ai_client()
+    if ai_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Add an Anthropic API key in Settings to get a personalized starter pack.",
+        )
+
+    role_hint = f" The user's role is: {body.role}." if body.role else ""
+    system_prompt = (
+        "You are an onboarding assistant for yourOS, an AI productivity app. "
+        "Select the most relevant agents for this user and decide which to pre-check. "
+        "Return ONLY valid JSON, no markdown, no code fences:\n"
+        '{"items": [{"id": "...", "default_selected": true}, ...]}'
+    )
+    user_message = (
+        f"User intent: {body.intent}.{role_hint}\n\n"
+        f"Available agents:\n{json.dumps(candidates, indent=2)}\n\n"
+        "Select 3-6 agents. Pre-check (default_selected: true) the 2-4 most important ones."
+    )
+
+    try:
+        response = await asyncio.wait_for(
+            ai_client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=400,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            ),
+            timeout=15.0,
+        )
+    except asyncio.TimeoutError:
+        logger.error("LLM timeout in /onboarding/intent for intent=%s", body.intent)
+        raise HTTPException(status_code=504, detail="Request took too long. Please try again.")
+    except Exception:
+        logger.exception("LLM error in /onboarding/intent for intent=%s", body.intent)
+        raise HTTPException(
+            status_code=503,
+            detail="AI service unavailable. Check your Anthropic API key in Settings.",
+        )
+
+    text = "".join(getattr(block, "text", "") for block in response.content)
+
+    try:
+        data = json.loads(text)
+        raw_items = data["items"]
+        if not isinstance(raw_items, list):
+            raise ValueError("items must be a list")
+    except (json.JSONDecodeError, KeyError, ValueError):
+        logger.error("LLM returned invalid JSON in /onboarding/intent: %s", text[:300])
+        raise HTTPException(status_code=502, detail="AI returned unexpected format. Please try again.")
+
+    result = []
+    seen_ids: set[str] = set()
+    for item in raw_items:
+        agent_id = item.get("id", "")
+        if agent_id in seen_ids:
+            continue
+        tpl = by_id.get(agent_id)
         if tpl is None:
             continue
-        items.append(StarterPackItem(
+        seen_ids.add(agent_id)
+        result.append(StarterPackItem(
             kind="agent",
             id=tpl["id"],
             name=tpl["name"],
             description=tpl["description"],
-            default_selected=spec["default_selected"],
+            default_selected=bool(item.get("default_selected", True)),
         ))
 
-    return IntentResponse(starter_pack=items)
+    if not result:
+        logger.error("LLM returned no valid agent IDs for intent=%s: %s", body.intent, text[:300])
+        raise HTTPException(status_code=502, detail="AI returned no valid agents. Please try again.")
+
+    return IntentResponse(starter_pack=result)
