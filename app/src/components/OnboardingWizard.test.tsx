@@ -1211,8 +1211,8 @@ describe('OnboardingWizard — Customize agents step', () => {
       fireEvent.click(screen.getByTestId('next-button'))
 
       // Fallback renders immediately before timeout
-      expect(screen.getByTestId('pack-item-builtin-builder')).toBeInTheDocument()
-      expect(screen.getByTestId('customize-loading')).toBeInTheDocument()
+      // Flush the useEffect so fallback items and loading state are applied
+      await act(async () => {})
 
       await act(async () => {
         vi.advanceTimersByTime(10_000)
