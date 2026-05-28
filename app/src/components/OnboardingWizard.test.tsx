@@ -115,7 +115,19 @@ describe('OnboardingWizard', () => {
   it('starts on the Welcome step', () => {
     render(<OnboardingWizard />)
     expect(screen.getByTestId('step-welcome')).toBeInTheDocument()
-    expect(screen.getByText('Welcome!')).toBeInTheDocument()
+  })
+
+  it('renders YourOSLogo SVG on Welcome step', () => {
+    render(<OnboardingWizard />)
+    const welcome = screen.getByTestId('step-welcome')
+    expect(welcome.querySelector('svg')).toBeInTheDocument()
+  })
+
+  it('shows step counter on Welcome step', () => {
+    render(<OnboardingWizard />)
+    const counter = screen.getByTestId('step-counter')
+    const dots = screen.getByTestId('progress-dots')
+    expect(counter.textContent).toBe(`Step 1 of ${dots.children.length}`)
   })
 
   it('shows progress dots equal to the number of steps', () => {
@@ -156,11 +168,25 @@ describe('OnboardingWizard', () => {
     expect(screen.getByTestId('skip-button')).toBeInTheDocument()
   })
 
+  it('shows Elizabeth Taylor placeholder on You step', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(1)
+    expect(screen.getByTestId('user-name-input')).toHaveAttribute('placeholder', 'e.g. Elizabeth Taylor')
+  })
+
   it('advances to Name step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(2) // Welcome -> You -> Name
     expect(screen.getByTestId('step-name')).toBeInTheDocument()
+  })
+
+  it('renders jet-stream backdrop on Name step', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(2)
+    expect(screen.getByTestId('jet-stream-backdrop')).toBeInTheDocument()
   })
 
   it('goes back to You from Name step', () => {
