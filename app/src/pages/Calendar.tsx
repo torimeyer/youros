@@ -973,7 +973,7 @@ export default function Calendar() {
                                 ) : (
                                   <Icon name="add_task" size={12} />
                                 )}
-                                <span>Needle</span>
+                                <span>Task</span>
                               </button>
                               <button
                                 onClick={() => deleteEvent(ev)}

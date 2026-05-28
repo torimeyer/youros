@@ -200,7 +200,7 @@ describe('UniversalSearch search', () => {
   it('shows deep results when /search/deep returns items', async () => {
     mockedApiGet.mockImplementation((url: string) => {
       if ((url as string).includes('/search/deep')) {
-        return Promise.resolve([{ title: 'Needle about auth' }])
+        return Promise.resolve([{ title: 'Task about auth' }])
       }
       if ((url as string).includes('/search/recall')) return Promise.resolve([])
       return Promise.resolve({ tasks: [], query: '' })
@@ -213,7 +213,7 @@ describe('UniversalSearch search', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('section-deep')).toBeInTheDocument()
-      expect(screen.getByTestId('deep-item-0').textContent).toContain('Needle about auth')
+      expect(screen.getByTestId('deep-item-0').textContent).toContain('Task about auth')
     })
   })
 

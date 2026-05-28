@@ -62,7 +62,7 @@ function flattenResponse(resp: unknown): AnyItem[] {
 
 const NAV_ITEMS = [
   { id: 'home', label: 'Home', icon: 'home', path: '/' },
-  { id: 'tasks', label: 'Needles', icon: 'checklist', path: '/tasks' },
+  { id: 'tasks', label: 'Tasks', icon: 'checklist', path: '/tasks' },
   { id: 'inbox', label: 'Inbox', icon: 'inbox', path: '/inbox' },
   { id: 'agents', label: 'Agents', icon: 'smart_toy', path: '/agents' },
   { id: 'adoption', label: 'Adoption', icon: 'trending_up', path: '/adoption' },

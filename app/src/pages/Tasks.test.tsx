@@ -127,7 +127,7 @@ describe('Tasks page', () => {
     await waitFor(() => {
       expect(screen.getByTestId('page-header')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('page-header')).toHaveTextContent('Needles')
+    expect(screen.getByTestId('page-header')).toHaveTextContent('Tasks')
   })
 
   it('renders the export button in the overflow menu', async () => {
@@ -1833,12 +1833,12 @@ describe('Tasks page', () => {
       })
       // Review headline must make clear nothing closes without approval.
       expect(screen.getByTestId('audit-review-headline').textContent).toContain(
-        'Review every needle. Nothing closes until you say so.',
+        'Review every task. Nothing closes until you say so.',
       )
       expect(screen.getByTestId('audit-review-row-r-2')).toBeInTheDocument()
       const closeButton = screen.getByTestId('audit-close-r-1')
       expect(closeButton).toBeInTheDocument()
-      expect(closeButton.textContent).toContain('Close this needle')
+      expect(closeButton.textContent).toContain('Close this task')
       expect(screen.getByTestId('audit-keep-r-1')).toBeInTheDocument()
       expect(screen.getByText('This looks already done')).toBeInTheDocument()
       expect(screen.getByText(/duplicate of t-9/)).toBeInTheDocument()
@@ -1847,7 +1847,7 @@ describe('Tasks page', () => {
         '1 done',
       )
       expect(screen.getByTestId('audit-summary').textContent).toContain(
-        'Skipped 1 real-life needle',
+        'Skipped 1 real-life task',
       )
     })
 
@@ -1973,7 +1973,7 @@ describe('Tasks page', () => {
       await waitFor(() => {
         expect(screen.getByText('Done task')).toBeInTheDocument()
       })
-      expect(screen.getByTestId('closed-badge-2').textContent).toBe('Threaded')
+      expect(screen.getByTestId('closed-badge-2').textContent).toBe('Done')
       expect(screen.getByTestId('closed-badge-3').textContent).toBe('Duplicate')
       expect(screen.getByTestId('closed-badge-4').textContent).toBe('Archived')
     })

@@ -1717,7 +1717,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
   return (
     <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-      {!embedded && <TopBar title="Needles" />}
+      {!embedded && <TopBar title="Tasks" />}
 
       <div data-tour="tasks" className={`px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
         {/* Banner */}
@@ -1733,7 +1733,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         {/* Primary toolbar: one tight row */}
         <div className="flex items-center gap-2 mb-3 flex-wrap" data-testid="primary-toolbar">
           {/* Title + LIVE */}
-          <h1 data-testid="page-header" className="text-xl sm:text-2xl font-bold">Needles</h1>
+          <h1 data-testid="page-header" className="text-xl sm:text-2xl font-bold">Tasks</h1>
           <span className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full" data-testid="live-badge">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
             LIVE
@@ -1741,7 +1741,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
           {/* View tabs */}
           <div className="flex items-center gap-3 text-sm ml-2 mr-auto">
-            <button onClick={() => setActiveTab("tasks")} className={activeTab === "tasks" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Needles</button>
+            <button onClick={() => setActiveTab("tasks")} className={activeTab === "tasks" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Tasks</button>
             <button onClick={() => setActiveTab("labels")} className={activeTab === "labels" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Labels</button>
             <button onClick={() => setActiveTab("health")} className={activeTab === "health" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Health</button>
           </div>
@@ -2028,7 +2028,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
               {!loading && filteredTasks.length === 0 && tasks.length === 0 && (
                 <EmptyState
                   icon="checklist"
-                  title="No needles yet."
+                  title="No tasks yet."
                   description="Type a task above, or tell yourOS an idea in chat and it will create tasks for you."
                 />
               )}
@@ -2195,9 +2195,9 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         {task.status === "closed" && task.closed_reason === "completed" && (
                           <span
                             data-testid={`closed-badge-${task.id}`}
-                            className="needle-snap inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/30"
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/30"
                           >
-                            Threaded
+                            Done
                           </span>
                         )}
                         {task.status === "closed" && task.closed_reason === "duplicate" && (

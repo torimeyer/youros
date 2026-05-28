@@ -711,7 +711,7 @@ function ForkStep({
           </div>
           <div>
             <p className={`font-bold text-lg ${darkMode ? 'text-white' : 'text-slate-900'}`}>Just me</p>
-            <p className={`text-sm ${subtextCls}`}>A personal OS for managing your needles, agents, and tools.</p>
+            <p className={`text-sm ${subtextCls}`}>A personal OS for managing your tasks, agents, and tools.</p>
           </div>
         </button>
         <button

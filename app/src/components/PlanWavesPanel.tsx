@@ -111,7 +111,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
     setWavesData(null)
     api.get<WavesResponse>('/tasks/waves?include_specs=true')
       .then((r) => setWavesData({ waves: r?.waves ?? [], total_needles: r?.total_needles ?? 0 }))
-      .catch((e: unknown) => setWavesError(e instanceof Error ? e.message : 'Could not load sweep plan'))
+      .catch((e: unknown) => setWavesError(e instanceof Error ? e.message : 'Could not load wave plan'))
       .finally(() => setWavesLoading(false))
   }, [open])
 
@@ -212,7 +212,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
             <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">Plan</h2>
             {subtab === 'waves' && wavesData && (
               <span className="text-xs text-slate-500 ml-1">
-                {totalWaveItems} {totalWaveItems === 1 ? 'item' : 'items'} across {wavesData.waves.length} {wavesData.waves.length === 1 ? 'sweep' : 'sweeps'}
+                {totalWaveItems} {totalWaveItems === 1 ? 'item' : 'items'} across {wavesData.waves.length} {wavesData.waves.length === 1 ? 'wave' : 'waves'}
               </span>
             )}
           </div>
@@ -246,7 +246,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
             onClick={() => setSubtab('waves')}
             className={tabBtnClass(subtab === 'waves')}
           >
-            Sweeps
+            Waves
           </button>
         </div>
 
@@ -302,13 +302,13 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
           {subtab === 'tasks' && (
             <>
               {tasksLoading && (
-                <div className="text-sm text-slate-600 dark:text-slate-400 py-8 text-center">Loading needles...</div>
+                <div className="text-sm text-slate-600 dark:text-slate-400 py-8 text-center">Loading tasks...</div>
               )}
               {tasksError && (
                 <div className="text-sm text-red-400 bg-red-500/10 rounded-lg px-4 py-3">{tasksError}</div>
               )}
               {tasks && tasks.length === 0 && (
-                <div className="text-sm text-slate-600 dark:text-slate-400 py-8 text-center">No open needles.</div>
+                <div className="text-sm text-slate-600 dark:text-slate-400 py-8 text-center">No open tasks.</div>
               )}
               {tasks && tasks.map((t) => {
                 const specBadge = tasksWithSpecBadge(t)
@@ -338,12 +338,9 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
           {/* WAVES SUBTAB */}
           {subtab === 'waves' && (
             <div className="relative">
-              {wavesData && (
-                <div className="sweep-pass pointer-events-none absolute inset-0 z-10 overflow-hidden" />
-              )}
               {wavesLoading && (
                 <div data-testid="plan-waves-loading" className="text-sm text-slate-600 dark:text-slate-400 py-8 text-center">
-                  Working out the sweeps...
+                  Working out the waves...
                 </div>
               )}
               {wavesError && (
@@ -352,7 +349,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
                 </div>
               )}
               {wavesData && wavesData.waves.length === 0 && (
-                <div className="text-sm text-slate-600 dark:text-slate-400 py-8 text-center">No open needles to plan.</div>
+                <div className="text-sm text-slate-600 dark:text-slate-400 py-8 text-center">No open tasks to plan.</div>
               )}
               {wavesData && wavesData.waves.map((wave) => (
                 <div
@@ -365,7 +362,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
                       {wave.wave}
                     </span>
                     <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
-                      Sweep {wave.wave}
+                      Wave {wave.wave}
                     </span>
                     <span className="text-xs text-slate-500">
                       {wave.needles.length} {wave.needles.length === 1 ? 'item' : 'items'}
@@ -376,7 +373,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
                         className="ml-auto text-xs text-amber-600/80 dark:text-amber-400/80 flex items-center gap-1"
                       >
                         <Icon name="lock" className="text-xs" />
-                        Starts after sweep {wave.wave - 1} finishes
+                        Starts after wave {wave.wave - 1} finishes
                       </span>
                     )}
                   </div>
@@ -412,7 +409,7 @@ export default function PlanWavesPanel({ open, onClose }: Props) {
         {/* Footer hint — only in waves subtab */}
         {subtab === 'waves' && wavesData && wavesData.waves.length > 0 && (
           <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-600">
-            Items in the same sweep can run at the same time. Later sweeps wait for the previous one to finish.
+            Items in the same wave can run at the same time. Later waves wait for the previous one to finish.
           </div>
         )}
       </div>

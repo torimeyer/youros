@@ -151,35 +151,6 @@ body {
   animation: slide-up 0.25s ease-out;
 }
 
-@keyframes sweep-pass {
-  from { transform: translateX(-100%); }
-  to   { transform: translateX(100%); }
-}
-
-.sweep-pass::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent 0%, rgba(168, 85, 247, 0.12) 50%, transparent 100%);
-  animation: sweep-pass 0.5s ease-out forwards;
-}
-
-@keyframes needle-snap {
-  from { transform: translateY(2px); }
-  to   { transform: translateY(0); }
-}
-
-.needle-snap {
-  animation: needle-snap 0.25s ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sweep-pass::after,
-  .needle-snap {
-    animation: none;
-  }
-}
-
 /* AI Provider Claude card dot — softer in light mode */
 [data-theme="light"] .claude-provider-dot { background-color: #6ee7b7; }
 

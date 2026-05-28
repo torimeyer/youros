@@ -28,7 +28,7 @@ describe("RecurringTasksSection", () => {
     render(<RecurringTasksSection />);
 
     await waitFor(() => {
-      expect(screen.getByText(/No recurring needles yet/i)).toBeInTheDocument();
+      expect(screen.getByText(/No recurring tasks yet/i)).toBeInTheDocument();
     });
   });
 
@@ -87,7 +87,7 @@ describe("RecurringTasksSection", () => {
 
     fireEvent.click(screen.getByTestId("recurring-add-button"));
     expect(screen.getByTestId("recurring-modal")).toBeInTheDocument();
-    expect(screen.getByText("New recurring needle")).toBeInTheDocument();
+    expect(screen.getByText("New recurring task")).toBeInTheDocument();
   });
 
   it("submits a new recurring task with title and schedule", async () => {

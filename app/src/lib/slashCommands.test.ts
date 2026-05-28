@@ -36,7 +36,7 @@ describe('createSlashCommands', () => {
     const ids = cmds.map(c => c.id)
     const expected = [
       '/handoff', '/plan', '/review', '/init', '/help',
-      '/clear', '/spec', '/needle', '/gem', '/giphy',
+      '/clear', '/spec', '/task', '/gem', '/giphy',
     ]
     for (const id of expected) {
       expect(ids).toContain(id)
@@ -57,9 +57,9 @@ describe('createSlashCommands', () => {
     expect(ctx.clearChat).toHaveBeenCalledOnce()
   })
 
-  it('/needle trigger calls openNeedleModal', () => {
+  it('/task trigger calls openNeedleModal', () => {
     const ctx = makeCtx()
-    createSlashCommands(ctx).find(c => c.id === '/needle')!.trigger()
+    createSlashCommands(ctx).find(c => c.id === '/task')!.trigger()
     expect(ctx.openNeedleModal).toHaveBeenCalledOnce()
   })
 

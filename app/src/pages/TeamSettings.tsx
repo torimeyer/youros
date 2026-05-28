@@ -20,7 +20,7 @@ type Category = (typeof CATEGORIES)[number];
 
 const CATEGORY_LABELS: Record<Category, string> = {
   decisions: "Decisions",
-  tasks: "Needles",
+  tasks: "Tasks",
   notes: "Notes",
   transcripts: "Transcripts",
 };

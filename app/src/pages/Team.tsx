@@ -33,7 +33,7 @@ interface TeamStatus {
   };
 }
 
-const CATEGORY_FILTERS = ["All", "Decisions", "Needles", "Notes"] as const;
+const CATEGORY_FILTERS = ["All", "Decisions", "Tasks", "Notes"] as const;
 type CategoryFilter = (typeof CATEGORY_FILTERS)[number];
 
 const CATEGORY_COLORS: Record<string, string> = {

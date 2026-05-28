@@ -79,7 +79,7 @@ describe('Sidebar', () => {
     // Ensure all groups are expanded (only expand if currently collapsed)
     expandAllGroups()
 
-    const navLabels = ['Home', 'Needles', 'Specs', 'Kanban view', 'Agents', 'Calendar', 'Gmail', 'Settings']
+    const navLabels = ['Home', 'Tasks', 'Specs', 'Kanban view', 'Agents', 'Calendar', 'Gmail', 'Settings']
     for (const label of navLabels) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
@@ -169,7 +169,7 @@ describe('Sidebar', () => {
 
     const expectedPaths: Record<string, string> = {
       Home: '/',
-      Needles: '/tasks',
+      Tasks: '/tasks',
       Specs: '/specs',
       'Kanban view': '/backlog',
       Agents: '/agents',
@@ -255,7 +255,7 @@ describe('Sidebar', () => {
     renderSidebar()
 
     await waitFor(() => {
-      const tasksLink = screen.getByText('Needles').closest('a')
+      const tasksLink = screen.getByText('Tasks').closest('a')
       expect(tasksLink?.querySelector('.rounded-full')).not.toBeNull()
       expect(tasksLink?.textContent).toContain('7')
     })
@@ -263,7 +263,7 @@ describe('Sidebar', () => {
     // Badge styling must match the Agents badge exactly: green pill,
     // pulsing green dot, tiny bold text. The dot is a nested rounded-full
     // element with animate-pulse applied.
-    const tasksLink = screen.getByText('Needles').closest('a')
+    const tasksLink = screen.getByText('Tasks').closest('a')
     const badge = tasksLink?.querySelector('.bg-green-500\\/20')
     expect(badge).not.toBeNull()
     expect(badge?.className).toContain('text-green-400')
@@ -313,7 +313,7 @@ describe('Sidebar', () => {
 
     await waitFor(() => {
       expect(countsCalls).toBeGreaterThanOrEqual(1)
-      const tasksLink = screen.getByText('Needles').closest('a')
+      const tasksLink = screen.getByText('Tasks').closest('a')
       expect(tasksLink?.textContent).toContain('4')
     })
 
@@ -679,7 +679,7 @@ describe('Sidebar', () => {
     await waitFor(() => {
       const agentsLink = screen.getByText('Agents').closest('a')
       expect(agentsLink?.textContent).toContain('1')
-      const tasksLink = screen.getByText('Needles').closest('a')
+      const tasksLink = screen.getByText('Tasks').closest('a')
       expect(tasksLink?.textContent).toContain('2')
       const specsLink = screen.getByText('Specs').closest('a')
       expect(specsLink?.textContent).toContain('3')
@@ -843,7 +843,7 @@ describe('Sidebar grouped nav', () => {
 
     const expectedLinks = [
       { label: 'Home', href: '/' },
-      { label: 'Needles', href: '/tasks' },
+      { label: 'Tasks', href: '/tasks' },
       { label: 'Specs', href: '/specs' },
       { label: 'Kanban view', href: '/backlog' },
       { label: 'Agents', href: '/agents' },
@@ -1494,7 +1494,7 @@ describe('Sidebar — nav restructure (→1489)', () => {
     renderSidebar()
     expandAllGroups()
     await waitFor(() => {
-      const tasksLink = screen.getByText('Needles').closest('a')
+      const tasksLink = screen.getByText('Tasks').closest('a')
       expect(tasksLink?.textContent).toContain('7')
     })
   })

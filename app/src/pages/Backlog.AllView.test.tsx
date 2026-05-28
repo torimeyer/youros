@@ -56,7 +56,7 @@ describe('AllView kanban (→1478)', () => {
     // Use heading role to avoid collision with card status pills that share text with column names
     expect(within(screen.getByTestId('kanban-column-drafts')).getByRole('heading')).toHaveTextContent('Drafts')
     expect(within(screen.getByTestId('kanban-column-ready-specs')).getByRole('heading')).toHaveTextContent('Ready specs')
-    expect(within(screen.getByTestId('kanban-column-ready-tasks')).getByRole('heading')).toHaveTextContent('Ready needles')
+    expect(within(screen.getByTestId('kanban-column-ready-tasks')).getByRole('heading')).toHaveTextContent('Ready tasks')
     expect(within(screen.getByTestId('kanban-column-in-progress')).getByRole('heading')).toHaveTextContent('In progress')
   })
 
@@ -78,13 +78,13 @@ describe('AllView kanban (→1478)', () => {
     expect(draftCard.querySelector('[data-testid="card-build-button"]')).toBeNull()
   })
 
-  it('RED 4: open task appears in kanban-column-ready-tasks with type chip "Needle"', async () => {
+  it('RED 4: open task appears in kanban-column-ready-tasks with type chip "Task"', async () => {
     setup()
     await waitFor(() => expect(screen.getByTestId('kanban-card-open-task')).toBeInTheDocument())
     const col = screen.getByTestId('kanban-column-ready-tasks')
     expect(col).toContainElement(screen.getByTestId('kanban-card-open-task'))
     const card = screen.getByTestId('kanban-card-open-task')
-    expect(card.querySelector('[data-testid="card-type-chip"]')).toHaveTextContent('Needle')
+    expect(card.querySelector('[data-testid="card-type-chip"]')).toHaveTextContent('Task')
   })
 
   it('RED 4b: ready spec appears in kanban-column-ready-specs (→1514)', async () => {

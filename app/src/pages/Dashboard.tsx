@@ -461,13 +461,13 @@ export default function Dashboard() {
   const closedCount = data?.counts?.closed ?? 0;
 
   const quickLaunchActions: Record<string, () => void> = {
-    'New Needle': () => setQuickAddTaskOpen(true),
+    'New Task': () => setQuickAddTaskOpen(true),
     'Spawn Agent': () => setQuickSpawnOpen(true),
     'Open Chat': () => toggleChat(),
   };
 
   const quickLaunch = [
-    { icon: 'add_task', label: 'New Needle', color: 'text-blue-600 dark:text-blue-400', hoverBorder: 'hover:border-blue-500' },
+    { icon: 'add_task', label: 'New Task', color: 'text-blue-600 dark:text-blue-400', hoverBorder: 'hover:border-blue-500' },
     { icon: 'bolt', label: 'Spawn Agent', color: 'text-purple-600 dark:text-purple-400', hoverBorder: 'hover:border-purple-500' },
     { icon: 'chat', label: 'Open Chat', color: 'text-cyan-600 dark:text-cyan-400', hoverBorder: 'hover:border-cyan-500' },
   ];

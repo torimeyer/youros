@@ -60,7 +60,7 @@ export default function QuickAddTaskModal({ open, onClose, onSuccess }: Props) {
       if (onSuccess) onSuccess();
       onClose();
     } catch {
-      setError("Could not create needle. Try again.");
+      setError("Could not create task. Try again.");
     } finally {
       setSubmitting(false);
     }
@@ -91,7 +91,7 @@ export default function QuickAddTaskModal({ open, onClose, onSuccess }: Props) {
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-2">
             <Icon name="add_task" className="text-blue-600 dark:text-blue-400" size={22} />
-            <h2 className="text-white font-semibold text-lg">New needle</h2>
+            <h2 className="text-white font-semibold text-lg">New task</h2>
           </div>
           <button
             onClick={onClose}
@@ -160,7 +160,7 @@ export default function QuickAddTaskModal({ open, onClose, onSuccess }: Props) {
             disabled={!title.trim() || submitting}
             className="bg-pink-500 hover:bg-pink-600 disabled:bg-pink-500/40 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 text-sm transition-colors"
           >
-            {submitting ? "Adding..." : "Add needle"}
+            {submitting ? "Adding..." : "Add task"}
           </button>
         </div>
       </div>

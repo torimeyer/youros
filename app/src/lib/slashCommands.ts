@@ -105,8 +105,8 @@ export function createSlashCommands(ctx: CommandContext): SlashCommand[] {
       trigger: () => ctx.openSpecModal(),
     },
     {
-      id: '/needle',
-      label: 'Needle',
+      id: '/task',
+      label: 'Task',
       description: 'Add a task to the backlog',
       category: 'data',
       keywords: ['task', 'todo', 'issue', 'work'],
