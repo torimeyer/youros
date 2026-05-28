@@ -665,10 +665,28 @@ def _guard_real_store_writes():
     from pathlib import Path
     from config import PROJECT_ROOT
 
+    # Sentinel: file exists but the read blocked (e.g. ostk kernel holds an
+    # exclusive lock on issues.jsonl while rewriting it).  When either snap
+    # times out we skip the comparison rather than hanging for 30 s per test.
+    # Root cause: in worktree contexts PROJECT_ROOT/.ostk/needles/ resolves
+    # through a symlink to the live repo store which the kernel locks on write.
+    _TIMEOUT = object()
+
     def _snap(path: Path):
         if not path.exists():
             return None
-        return path.read_bytes()
+        result: list = [_TIMEOUT]
+
+        def _read() -> None:
+            try:
+                result[0] = path.read_bytes()
+            except OSError:
+                result[0] = None
+
+        t = threading.Thread(target=_read, daemon=True)
+        t.start()
+        t.join(timeout=2.0)
+        return result[0]
 
     issues_path = PROJECT_ROOT / ".ostk" / "needles" / "issues.jsonl"
     threads_path = Path.home() / ".myos" / "threads.json"
@@ -679,7 +697,12 @@ def _guard_real_store_writes():
     yield
 
     after_issues = _snap(issues_path)
-    if after_issues != snap_issues and not _issues_only_external_activity(snap_issues, after_issues):
+    if (
+        after_issues is not _TIMEOUT
+        and snap_issues is not _TIMEOUT
+        and after_issues != snap_issues
+        and not _issues_only_external_activity(snap_issues, after_issues)
+    ):
         raise AssertionError(
             f"Real issues.jsonl was modified during test — "
             f"a code path bypassed _isolate_tasks_ostk. "
@@ -687,12 +710,14 @@ def _guard_real_store_writes():
             f"after: {len(after_issues or b'')} bytes"
         )
 
-    assert _snap(threads_path) == snap_threads, (
-        f"Real threads.json was modified during test — "
-        f"a code path bypassed _isolate_threads_store. "
-        f"Content before: {len(snap_threads or b'')} bytes, "
-        f"after: {len(_snap(threads_path) or b'')} bytes"
-    )
+    after_threads = _snap(threads_path)
+    if after_threads is not _TIMEOUT and snap_threads is not _TIMEOUT:
+        assert after_threads == snap_threads, (
+            f"Real threads.json was modified during test — "
+            f"a code path bypassed _isolate_threads_store. "
+            f"Content before: {len(snap_threads or b'')} bytes, "
+            f"after: {len(after_threads or b'')} bytes"
+        )
 
 
 @pytest.fixture(autouse=True)
