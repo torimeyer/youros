@@ -42,6 +42,7 @@ interface Spec {
   path: string;
   filename: string;
   title: string;
+  spec_id?: string;
   status: "draft" | "ready" | "in-progress" | "complete";
   created_at: string;
   promoted_at: string;
@@ -1285,6 +1286,14 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                           className="text-slate-500 flex-shrink-0"
                           size={20}
                         />
+                        {doc.spec_id && (
+                          <span
+                            className="flex-shrink-0 font-mono text-xs font-medium text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded"
+                            data-testid="spec-id-badge"
+                          >
+                            {doc.spec_id}
+                          </span>
+                        )}
                         <p className="text-white text-lg font-medium truncate">
                           {doc.title}
                         </p>
