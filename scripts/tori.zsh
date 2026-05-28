@@ -104,10 +104,22 @@ tori() {
   local _ostk_pid=$!
 
   (
-    myos_behind=$(git -C ~/claude/torios fetch origin main 2>/dev/null && git -C ~/claude/torios rev-list HEAD..origin/main --count 2>/dev/null)
-    if [[ "$myos_behind" -gt 0 ]] 2>/dev/null; then
+    # GIT_TERMINAL_PROMPT=0: prevents git from blocking on a credential prompt
+    # (which hangs silently in a background subshell).
+    # http.connectTimeout / lowSpeedLimit / lowSpeedTime: bound HTTPS fetch
+    # duration via libcurl so a stalled connection exits instead of hanging.
+    GIT_TERMINAL_PROMPT=0 git -C ~/claude/torios \
+      -c http.connectTimeout=10 -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 \
+      fetch origin main 2>/dev/null || true
+    myos_behind=$(git -C ~/claude/torios rev-list HEAD..origin/main --count 2>/dev/null || echo 0)
+    # Skip pull when local has unpushed commits: ff-only would fail anyway,
+    # and git pull runs a second fetch that can hang (root cause of ->1776).
+    _ahead=$(git -C ~/claude/torios rev-list origin/main..HEAD --count 2>/dev/null || echo 0)
+    if [[ "${myos_behind:-0}" -gt 0 && "${_ahead:-0}" -eq 0 ]]; then
       printf '\033[38;2;140;140;140m  Updating myOS (%s new commits)...\033[0m\n' "$myos_behind"
-      git -C ~/claude/torios pull --ff-only origin main >/dev/null 2>&1
+      GIT_TERMINAL_PROMPT=0 git -C ~/claude/torios \
+        -c http.connectTimeout=10 -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 \
+        pull --ff-only origin main >/dev/null 2>&1 || true
     fi
     echo "done" > "$_git_tmp"
   ) &
