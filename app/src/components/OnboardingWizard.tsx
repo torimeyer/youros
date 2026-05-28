@@ -896,9 +896,9 @@ function WelcomeStep() {
       <div className="mb-6">
         <img src="/youros-logo-hero.png" alt="yourOS" className="mx-auto h-auto w-[368px]" />
       </div>
-      <p className="text-[23px] italic font-medium text-center tracking-wide whitespace-nowrap text-slate-700 dark:text-slate-300">an operating system for how <span className="font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-orange-500 bg-clip-text text-transparent">you</span> operate.</p>
+      <p className="text-xl italic font-medium text-center tracking-wide whitespace-nowrap text-slate-700 dark:text-slate-300">an operating system for how <span className="font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-orange-500 bg-clip-text text-transparent">you</span> operate.</p>
       <p className="text-[28px] italic font-bold text-center mb-6 bg-gradient-to-r from-pink-500 via-purple-500 to-orange-500 bg-clip-text text-transparent">this is your OS.</p>
-      <p className="text-sm italic text-slate-500 dark:text-slate-400 leading-relaxed mt-2">
+      <p className="text-[15px] italic text-slate-500 dark:text-slate-400 leading-relaxed mt-2">
         Let's get you set up. It takes about two minutes, and you can change anything later.
       </p>
     </div>
