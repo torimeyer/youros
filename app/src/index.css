@@ -151,6 +151,23 @@ body {
   animation: slide-up 0.25s ease-out;
 }
 
+@keyframes jet-stream-drift {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(-30px); }
+}
+
+.jet-stream-path-1 {
+  animation: jet-stream-drift 4s ease-in-out infinite;
+}
+
+.jet-stream-path-2 {
+  animation: jet-stream-drift 5.5s ease-in-out infinite;
+}
+
+.jet-stream-path-3 {
+  animation: jet-stream-drift 7s ease-in-out infinite;
+}
+
 /* AI Provider Claude card dot — softer in light mode */
 [data-theme="light"] .claude-provider-dot { background-color: #6ee7b7; }
 
