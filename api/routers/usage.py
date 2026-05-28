@@ -96,8 +96,10 @@ async def get_usage():
     """
     from routers.costs import _get_costs_cached
 
-    all_data = _get_costs_cached("all")
-    today_data = _get_costs_cached("today")
+    all_data, today_data = await asyncio.gather(
+        asyncio.to_thread(_get_costs_cached, "all"),
+        asyncio.to_thread(_get_costs_cached, "today"),
+    )
 
     by_model: list[dict] = all_data.get("by_model", [])
     by_date_all: list[dict] = all_data.get("by_date", [])

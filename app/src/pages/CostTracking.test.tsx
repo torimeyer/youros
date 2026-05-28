@@ -211,6 +211,16 @@ describe('CostTracking page', () => {
     })
   })
 
+  it('shows error card with retry button when fetch fails', async () => {
+    mockedApiGet.mockRejectedValue(new Error('Network error'))
+    renderCostTracking()
+    await waitFor(() => {
+      expect(screen.getByTestId('cost-error')).toBeInTheDocument()
+    })
+    expect(screen.getByText("Couldn't load usage data")).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /retry loading usage data/i })).toBeInTheDocument()
+  })
+
   // ostk-only savings card (Anthropic cache is intentionally not surfaced)
   it('renders the ostk savings card only (no anthropic cache card)', async () => {
     renderCostTracking()

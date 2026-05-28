@@ -1,3 +1,4 @@
+import asyncio
 import json as _json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -654,7 +655,7 @@ async def get_costs(period: Optional[str] = Query(None, description="Time filter
     Results are cached by (period, file_size, file_mtime_ns) so repeated
     requests with an unchanged audit file return instantly.
     """
-    result = _get_costs_cached(period)
+    result = await asyncio.to_thread(_get_costs_cached, period)
     result = dict(result)
     result["period"] = period or "all"
     return result
@@ -1128,7 +1129,7 @@ async def get_costs_savings(
     Results are cached per period key for 30 seconds so rapid filter
     clicks do not hammer the backend.
     """
-    return _get_savings_cached(period)
+    return await asyncio.to_thread(_get_savings_cached, period)
 
 
 # ---------------------------------------------------------------------------
