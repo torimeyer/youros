@@ -1,4 +1,4 @@
-"""Central configuration for the myOS API.
+"""Central configuration for the yourOS API.
 
 All path references derive from PROJECT_ROOT, which is computed from this
 file's location so the backend works regardless of where the repo lives.

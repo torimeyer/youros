@@ -816,7 +816,7 @@ def agent_mailbox_instruction(agent_name: str, model: str = "sonnet") -> str:
         "-d '{\"step\": \"<what you are doing now>\"}'`\n\n"
         f"### Mailbox checking (adaptive: {fast}s to {slow}s)\n\n"
         "The user may send you follow up instructions while you work via "
-        "the Agents page in myOS. To pick those up, you MUST do the "
+        "the Agents page in yourOS. To pick those up, you MUST do the "
         "following on a regular schedule, alongside your heartbeat:\n\n"
         f"**Adaptive poll schedule**: start your poll interval at {fast} "
         f"seconds. On each cycle with no new nudge, double the interval "
@@ -920,13 +920,13 @@ def agent_mailbox_instruction(agent_name: str, model: str = "sonnet") -> str:
         "https://127.0.0.1:8000/api/tasks/pull`\n"
         "If the response has `claimed: true`, work on that task next. "
         f"If `claimed: false`, no tasks are available. POST /api/agents/{agent_name}/complete and exit.\n\n"
-        "Atlassian (Jira and Confluence) is connected through myOS. "
+        "Atlassian (Jira and Confluence) is connected through yourOS. "
         "Server endpoints are available at /api/atlassian/jira/issue/{key} "
         "(GET for ticket detail), /api/atlassian/jira/issue/{key}/comment "
         "(POST {body}), /api/atlassian/jira/issue/{key}/transitions (GET) "
         "and /api/atlassian/jira/issue/{key}/transition (POST {transition_id}), "
         "and /api/atlassian/confluence/page/{id} (GET). Use these to read "
-        "tickets, comment, or move work without bouncing the user out of myOS. "
+        "tickets, comment, or move work without bouncing the user out of yourOS. "
         "Skip if /api/atlassian/status returns connected=false."
     )
 
@@ -3713,7 +3713,7 @@ async def _compute_agents_snapshot_async() -> dict:
     # watchdog to falsely SIGKILL uvicorn (→1379).
     # registry_reader reads the 38-line agents.jsonl (≤5.5 KB, mtime-cached)
     # and returns the same shape as kernel_ps(). agent_metadata overlays
-    # all myOS-specific fields (task, model, budget, source, etc.) in passes
+    # all yourOS-specific fields (task, model, budget, source, etc.) in passes
     # 2b/2c below, so nothing is lost.
     from services.registry_reader import read_registry_for_snapshot as _rfs
     ps_result = await loop.run_in_executor(None, _rfs)
@@ -4169,7 +4169,7 @@ async def list_agents(
     filter_source: Optional[str] = Query(None, alias="source"),
     limit: Optional[int] = None,
 ):
-    """List every agent known to myOS.
+    """List every agent known to yourOS.
 
     Pass ``user_spawned_only=true`` to get just the rows the Agents page
     shows. This applies the same filter as ``isUserSpawnedAgent`` in
@@ -6202,7 +6202,7 @@ def _link_session_jsonl(name: str, meta: dict, register_time_iso: str) -> bool:
 async def register_agent(body: AgentSpawn, request: Request = None):
     """Register an external agent (e.g., Claude Code subagent) without spawning a process.
 
-    This lets myOS track agents that are managed by another system. Agents
+    This lets yourOS track agents that are managed by another system. Agents
     should call this BEFORE they start work so they show up as "running"
     in the Agents page in real time. The default status is "running" so a
     simple register call is enough to make the agent visible immediately.

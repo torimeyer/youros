@@ -83,7 +83,7 @@ async def lifespan(app: FastAPI):
         await asyncio.gather(*_STARTUP_TASKS, return_exceptions=True)
 
 
-app = FastAPI(title="myOS API", lifespan=lifespan)
+app = FastAPI(title="yourOS API", lifespan=lifespan)
 
 import os as _os
 
@@ -301,7 +301,7 @@ async def schedule_upgrade_check():
             if myos.get("behind"):
                 count = myos.get("commits_behind", 0)
                 word = "commit" if count == 1 else "commits"
-                behind_parts.append(f"myOS has {count} new {word}.")
+                behind_parts.append(f"yourOS has {count} new {word}.")
             if ostk.get("behind"):
                 latest_v = ostk.get("latest", "")
                 current_v = ostk.get("current", "")
@@ -364,7 +364,7 @@ async def schedule_label_backfill():
 async def schedule_settings_sync_pull():
     """After a short delay, if sync is configured, pull from the remote.
 
-    This means opening myOS on a new machine automatically pulls in the
+    This means opening yourOS on a new machine automatically pulls in the
     settings from the user's other device. We wait 15 seconds so the
     server is fully up before doing any git network I/O.
     """

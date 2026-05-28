@@ -81,13 +81,13 @@ class Settings(BaseModel):
     # roadmaps, automation outputs). None means fall back to the default
     # ~/.myos/files. See api/services/files_dir.py.
     files_dir: Optional[str] = None
-    os_name: str = "myOS"
-    # Instance name shown in the app. myOS is the product; every user
+    os_name: str = "yourOS"
+    # Instance name shown in the app. yourOS is the product; every user
     # names their own instance. Default matches the product name so the
     # app still reads correctly for a user who never changes it. Tori's
     # instance is "toriOS". Set by the onboarding wizard and the
     # Settings page.
-    instance_name: str = "myOS"
+    instance_name: str = "yourOS"
     user_name: str = ""
     dark_mode: bool = True
     accent_color: str = "blue"

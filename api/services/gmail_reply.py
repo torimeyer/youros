@@ -510,7 +510,7 @@ def _build_draft_prompt(
     name = (user_name or "the user").strip() or "the user"
 
     system_prompt = (
-        f"You are myOS drafting a plain-text reply on behalf of {name}. "
+        f"You are yourOS drafting a plain-text reply on behalf of {name}. "
         "Match the original sender's tone. Keep it short. "
         "No subject line, no greeting boilerplate beyond a natural opener. "
         "Never use em-dashes anywhere. "

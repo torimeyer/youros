@@ -275,12 +275,12 @@ _GEMINI_NEXT_CHUNK_TIMEOUT_S = 45.0
 # Template form of the Gemini system instruction. The product-vs-instance
 # terms are filled in at call time by ``_gemini_system_instruction()`` so
 # every chat reflects the current user's ``instance_name`` setting while
-# still introducing the product (myOS) correctly.
+# still introducing the product (yourOS) correctly.
 _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE = (
     "You are Gemini, Google's AI model. "
     "If asked whether you are Gemini or which AI you are, confirm that you are Gemini. "
     "Do not describe yourself as local, embedded, or built into any system. "
-    "You are answering inside an instance of myOS named {instance_name}. "
+    "You are answering inside an instance of yourOS named {instance_name}. "
     "You can mention that you're running inside {instance_name} as context, "
     "but always answer as Gemini. "
     "Do not prefix your replies with your own name. The chat panel "
@@ -308,18 +308,18 @@ def _gemini_system_instruction() -> str:
 
     Resolves ``instance_name`` from settings each call so a renaming of
     the user's instance takes effect on the next chat without a restart.
-    Falls back to the product name ``myOS`` if the setting is missing.
+    Falls back to the product name ``yourOS`` if the setting is missing.
     """
-    instance_name = settings_store.get("instance_name", "myOS") or "myOS"
+    instance_name = settings_store.get("instance_name", "yourOS") or "yourOS"
     return _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE.format(instance_name=instance_name)
 
 
 # Backwards-compatible alias. Existing callers and tests import this
 # constant by name. It is frozen at import time using the then-current
 # ``instance_name`` so a test that imports the module before patching
-# settings still sees the default "myOS". Live code paths use the
+# settings still sees the default "yourOS". Live code paths use the
 # ``_gemini_system_instruction`` helper so they pick up renames.
-GEMINI_SYSTEM_INSTRUCTION = _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE.format(instance_name="myOS")
+GEMINI_SYSTEM_INSTRUCTION = _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE.format(instance_name="yourOS")
 
 
 def _gemini_model_name() -> str:
@@ -448,11 +448,11 @@ _GEMINI_QUOTA_HELP = (
 )
 
 _GEMINI_MODEL_GONE_HELP = (
-    "The Gemini model myOS was using is no longer available. Google "
+    "The Gemini model yourOS was using is no longer available. Google "
     "deprecates model names from time to time.\n\n"
     "Fix: set the MYOS_GEMINI_MODEL environment variable to a current "
     "model name (for example gemini-2.5-flash or gemini-flash-latest) "
-    "and restart myOS. You can list the models your key can reach at "
+    "and restart yourOS. You can list the models your key can reach at "
     "https://ai.google.dev/gemini-api/docs/models.\n\n"
     "If the default stopped working for everyone, please report it at "
     "https://github.com/torimeyer/torios/issues so we can update the "
@@ -475,7 +475,7 @@ def _friendly_gemini_error(error_text: str) -> str:
     for hint in _GEMINI_MODEL_GONE_HINTS:
         if hint in lowered:
             return (
-                "The Gemini model used by myOS is no longer available. "
+                "The Gemini model used by yourOS is no longer available. "
                 + _GEMINI_MODEL_GONE_HELP
             )
     for hint in _GEMINI_QUOTA_HINTS:
@@ -1534,7 +1534,7 @@ def _project_claude_md_context() -> str:
     Verify" in the activity stream as a corruption of "Spec").
 
     The block is left out entirely when no ``CLAUDE.md`` exists at the
-    workspace root, so non-myOS deployments of this code are unaffected.
+    workspace root, so non-yourOS deployments of this code are unaffected.
     Capped at ``_PROJECT_CLAUDE_MD_MAX_CHARS`` to bound context growth.
     """
     global _PROJECT_CLAUDE_MD_CACHE
@@ -1660,7 +1660,7 @@ def _system_prompt() -> str:
     """
     from datetime import datetime, timezone
     import time as _time
-    os_name = settings_store.get("os_name", "myOS")
+    os_name = settings_store.get("os_name", "yourOS")
     user_name = settings_store.get("user_name", "")
     owner = user_name if user_name else "the user"
     # Anchor relative dates AND the local timezone so the LLM stops
@@ -1730,10 +1730,10 @@ def _system_prompt() -> str:
         "background in the field can follow it. No jargon. Cover every relevant "
         "point, do not skip material for brevity. Use analogies for technical "
         "or abstract concepts. No code. No em-dashes.\n\n"
-        "GOOGLE INTEGRATION: Google Calendar, Gmail, and Drive are connected through myOS Settings, "
+        "GOOGLE INTEGRATION: Google Calendar, Gmail, and Drive are connected through yourOS Settings, "
         "NOT through Claude Code's MCP integrations. NEVER use mcp__claude_ai_Google_Calendar, "
         "mcp__claude_ai_Gmail, or mcp__claude_ai_Google_Drive tools. NEVER tell the user to "
-        "connect via Claude Code Settings or /mcp. Use ONLY the myOS tools listed below:\n"
+        "connect via Claude Code Settings or /mcp. Use ONLY the yourOS tools listed below:\n"
         "- create_calendar_event: Use when the user says 'add to calendar', 'schedule', "
         "'put on my calendar', or similar. For events without a specific time (field trips, "
         "birthdays), set all_day to true.\n"
@@ -1753,7 +1753,7 @@ def _system_prompt() -> str:
         "or asks to create a document in Drive.\n"
         "- get_calendar_events: Use to check what is on the calendar today.\n"
         "If the user asks to create a calendar event and Google is not connected, tell them "
-        "to connect Google in the myOS Settings page: go to Settings, select Google Gemini "
+        "to connect Google in the yourOS Settings page: go to Settings, select Google Gemini "
         "as the chat provider, then click 'Sign in with Google'.\n\n"
         "TASK CREATION: When the user says 'create tasks for all of it', 'turn this into tasks', "
         "'break this down into tasks', 'make needles for this', or anything that implies converting "
@@ -1763,13 +1763,13 @@ def _system_prompt() -> str:
         "If you have a create_tasks_from_spec tool and a spec file path is known "
         "(e.g. 'docs/spec/...' or 'docs/draft/...'), call that instead to create all tasks at once. "
         "If you do NOT have a create_task tool (e.g. you only have Bash), use the Bash tool to POST "
-        "each task to the myOS API: "
+        "each task to the yourOS API: "
         "curl -sk -X POST https://127.0.0.1:8000/api/tasks "
         "-H 'Content-Type: application/json' "
         "-d '{\"title\": \"<title>\", \"priority\": \"P1\", \"description\": \"<desc>\"}' "
         "Run one curl per task, then report the task IDs from the JSON responses. "
         "When multiple tasks need to be created, create them all in sequence without stopping to ask.\n\n"
-        "myOS VOCABULARY: In myOS, a 'spec' means a row on the Specs page (app/src/pages/Specs.tsx). "
+        "yourOS VOCABULARY: In yourOS, a 'spec' means a row on the Specs page (app/src/pages/Specs.tsx). "
         "Users track product specs and requirements there. When the user says 'spec' or 'specs', "
         "they mean a Specs page entry unless they say 'technical spec', 'openapi spec', or similar "
         "that clearly refers to something else. A 'needle' is a task in the ostk task tracker. "
@@ -2139,7 +2139,7 @@ def _no_tools_system_blocks(matched_template: Optional[dict]) -> list[dict]:
     today_human = today_local.strftime("%A, %B %d, %Y")
     today_iso = today_local.strftime("%Y-%m-%d")
 
-    os_name = settings_store.get("os_name", "myOS")
+    os_name = settings_store.get("os_name", "yourOS")
     user_name = settings_store.get("user_name", "")
     owner = user_name if user_name else "the user"
 
@@ -3566,7 +3566,7 @@ class ChatService:
             # does not need multipart support.
             last_content = _gemini_content_to_parts(messages[-1].get("content", ""))
             # Gemini's start_chat requires STRICTLY ALTERNATING roles
-            # (user, model, user, model, ...). myOS prepends a role="user"
+            # (user, model, user, model, ...). yourOS prepends a role="user"
             # context message (memory from prior tabs, calendar digest,
             # workspace status) before the real user turn, which produces
             # two consecutive user entries in history. The google-generativeai
@@ -3596,7 +3596,7 @@ class ChatService:
                     merged_history.append(entry)
             # Gemini requires history to END with a model turn so the
             # next send_message (always a user turn) keeps alternation.
-            # If history ends with a user entry (happens when myOS
+            # If history ends with a user entry (happens when yourOS
             # prepends prior-conversation memory as role=user and the
             # user starts a fresh tab, so the ONLY prior turn is that
             # memory block), synthesize a tiny model acknowledgement so

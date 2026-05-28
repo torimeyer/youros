@@ -1,4 +1,4 @@
-"""Tool registry for the myOS MCP server.
+"""Tool registry for the yourOS MCP server.
 
 Each entry in TOOLS maps a tool name to its MCP inputSchema and a handler
 coroutine that returns a plain Python value (will be JSON-serialised by the
@@ -16,7 +16,7 @@ from typing import Any
 TOOLS: list[dict] = [
     {
         "name": "task.list",
-        "description": "List myOS tasks (needles). Optionally filter by status or priority.",
+        "description": "List yourOS tasks (needles). Optionally filter by status or priority.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -33,7 +33,7 @@ TOOLS: list[dict] = [
     },
     {
         "name": "task.add",
-        "description": "Create a new myOS task (needle).",
+        "description": "Create a new yourOS task (needle).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -50,12 +50,12 @@ TOOLS: list[dict] = [
     },
     {
         "name": "spec.list",
-        "description": "List myOS spec and draft documents.",
+        "description": "List yourOS spec and draft documents.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "agent.spawn",
-        "description": "Spawn a myOS agent via the backend API.",
+        "description": "Spawn a yourOS agent via the backend API.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -72,7 +72,7 @@ TOOLS: list[dict] = [
     },
     {
         "name": "memory.search",
-        "description": "Search myOS tasks by concept using semantic near-search.",
+        "description": "Search yourOS tasks by concept using semantic near-search.",
         "inputSchema": {
             "type": "object",
             "properties": {

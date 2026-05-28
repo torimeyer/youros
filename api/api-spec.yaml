@@ -1,10 +1,10 @@
 openapi: 3.0.3
 info:
-  title: myOS API
-  description: API for power users to interact with myOS programmatically
+  title: yourOS API
+  description: API for power users to interact with yourOS programmatically
   version: 1.0.0
   contact:
-    name: myOS Support
+    name: yourOS Support
     email: support@myos.ai
 
 servers:

@@ -582,7 +582,7 @@ def _build_workspace_doc_index() -> str:
 async def build_baseline_context() -> str:
     """Always-on system context injected into every chat turn."""
     lines = []
-    os_name = settings_store.get("os_name") or "myOS"
+    os_name = settings_store.get("os_name") or "yourOS"
     user_name = settings_store.get("user_name") or ""
     standing = settings_store.get("standing_instructions") or ""
     lines.append(
@@ -1502,7 +1502,7 @@ async def chat_websocket(websocket: WebSocket):
                         context_parts.append(cal_ctx)
                 if context_parts:
                     combined = "\n\n".join(context_parts)
-                    system_msg = f"You are the AI assistant for myOS. Here is the current workspace context:\n\n{combined}\n\nAnswer the user's question using this context."
+                    system_msg = f"You are the AI assistant for yourOS. Here is the current workspace context:\n\n{combined}\n\nAnswer the user's question using this context."
                     messages = [{"role": "user", "content": system_msg}] + messages
 
             # Inject prior conversation memory so the AI can reference
