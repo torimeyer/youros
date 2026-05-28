@@ -482,7 +482,7 @@ fi
 # --- myOS repo accessible ---
 
 GH_STATUS=$(gh repo view torimeyer/youros --json name --jq '.name' 2>/dev/null || echo "")
-if [ "$GH_STATUS" = "myos" ]; then
+if [ "$GH_STATUS" = "youros" ]; then
     assert "torimeyer/youros repo is accessible" 0
 else
     assert "torimeyer/youros repo is accessible" 1
