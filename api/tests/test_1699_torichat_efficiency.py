@@ -5,8 +5,9 @@ Problem: a simple "what is the status of this draft?" fires ~11 sequential tool 
 round-trip through the flaky subscription path → more calls = more wedge risk.
 
 Fixes:
-1. MAX_TOOL_ROUNDS = 6 cap: when the model has used 6 tool rounds with no file edits,
-   force a text-only synthesis response instead of looping forever.
+1. MAX_TOOL_ROUNDS cap: when the model has used MAX_TOOL_ROUNDS tool rounds with no
+   file edits, force a text-only synthesis response instead of looping forever.
+   Value raised 6 → 15 in →1785 to match Claude Code's parent-session tool budget.
 2. Workspace index pre-loaded into build_baseline_context() so the model knows what
    docs exist without needing to grep/find them.
 """
@@ -39,14 +40,14 @@ class FakeWebSocket:
 
 
 # ---------------------------------------------------------------------------
-# Unit: MAX_TOOL_ROUNDS constant exists and is ≤ 10
+# Unit: MAX_TOOL_ROUNDS constant exists and is < MAX_AGENT_TURNS
 # ---------------------------------------------------------------------------
 
 
 class TestMaxToolRoundsConstant:
-    def test_constant_exists_and_is_small(self):
-        assert MAX_TOOL_ROUNDS <= 10, (
-            f"MAX_TOOL_ROUNDS={MAX_TOOL_ROUNDS} should be ≤10 to cap read-only discovery loops"
+    def test_constant_exists_and_is_bounded(self):
+        assert MAX_TOOL_ROUNDS <= 30, (
+            f"MAX_TOOL_ROUNDS={MAX_TOOL_ROUNDS} should be ≤30 to cap read-only discovery loops"
         )
         assert MAX_TOOL_ROUNDS >= 3, (
             f"MAX_TOOL_ROUNDS={MAX_TOOL_ROUNDS} should be ≥3 so legitimate multi-step reads still work"
