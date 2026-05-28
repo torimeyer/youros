@@ -249,6 +249,19 @@ _SPEC_ARTIFACT_PATTERNS: tuple[re.Pattern[str], ...] = (
     # "Demo Smoke Spec 87311" or "spec-87311.md". Real user titles do
     # not end in a long numeric run.
     re.compile(r"[-_ ]\d{4,}(?:\.md)?$", re.IGNORECASE),
+    # Version-dot release prefix — agent-written release reports like
+    # "v4.1.0-backend-regression-check.md". A real user spec has a
+    # descriptive slug, not a semver prefix.
+    re.compile(r"(?:^|/)v\d+\.\d+\.\d+[-_ ]", re.IGNORECASE),
+    # Date suffix — agent-generated files stamped with YYYY-MM-DD, e.g.
+    # "launchd-activation-kill-test-2026-05-28.md". Real specs don't
+    # embed a calendar date in their filename.
+    re.compile(r"-\d{4}-\d{2}-\d{2}(?:\.md)?$", re.IGNORECASE),
+    # Root-cause suffix — diagnosis reports like "vite-504-root-cause.md".
+    re.compile(r"[-_ ]root[-_ ]cause\b", re.IGNORECASE),
+    # Verification suffix — agent verification writeups like
+    # "pre-design-audit-script-verification.md".
+    re.compile(r"[-_ ]verification(?:\.md)?$", re.IGNORECASE),
 )
 
 
@@ -377,6 +390,13 @@ async def list_specs(clear_to_build: Optional[bool] = None):
     try:
         docs = await ostk.list_docs()
         docs = [d for d in docs if d.get("status") != "plan"]
+        # Exclude agent-written audit/report docs. Tori's rule: specs are only
+        # created when she asks. Agent reports (cut audits, regression checks,
+        # root-cause writeups, date-stamped triage files) must not appear here.
+        docs = [
+            d for d in docs
+            if not _is_test_artifact_spec(d.get("path", ""), d.get("title", ""))
+        ]
 
         # Re-apply compute_spec_status with active claims from _spec_claims.
         # list_docs() calls compute_spec_status without claims so its returned
