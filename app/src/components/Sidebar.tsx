@@ -703,7 +703,7 @@ export function Sidebar() {
           <span className="block text-[10px] text-slate-500 font-mono mt-0.5">{version}</span>
         )}
         {displayOsName === 'yourOS' && (
-          <span data-testid="sidebar-tagline" className="block text-[10px] italic text-slate-600 mt-0.5">an OS that knows you.</span>
+          <span data-testid="sidebar-tagline" className="block text-[10px] italic text-slate-600 mt-0.5">an operating system for how you operate. this is your os.</span>
         )}
         {TEAM_MODE_VISIBLE && instanceMode === 'personal' && (
           <Link

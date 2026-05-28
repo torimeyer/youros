@@ -17,7 +17,7 @@ const releaseNotes: ReleaseGroup[] = [
     entries: [
       {
         title: 'yourOS',
-        description: 'The app is now yourOS: an OS that knows you. The name puts you at the center. Internal plumbing stays the same; every surface you see says yourOS.',
+        description: 'The app is now yourOS. The name puts you at the center. Internal plumbing stays the same; every surface you see says yourOS.',
       },
     ],
   },
