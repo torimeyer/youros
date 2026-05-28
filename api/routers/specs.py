@@ -92,10 +92,10 @@ async def _ensure_decomposed(spec_path: str) -> list[dict]:
 
 
 async def _create_needle(title: str, description: str = "") -> dict:
-    """Create a needle (task) and return a standard shape.
+    """Create a task and return a standard shape.
 
     Used by the 5 creation endpoints when kind='needle'. Calls the same
-    ostk.add_task primitive that POST /api/tasks uses, so needles created
+    ostk.add_task primitive that POST /api/tasks uses, so tasks created
     via the wizard or roadmap flow land in the same Tasks list.
     """
     result = await ostk.add_task(title, description=description)
@@ -370,7 +370,7 @@ async def list_specs(clear_to_build: Optional[bool] = None):
     /specs/recent for the Recent Documents widget. Including them would
     inflate the page count and show agent plan files as user specs.
 
-    Specs that meet the auto-archive condition (all linked needles closed
+    Specs that meet the auto-archive condition (all linked tasks closed
     and all referenced files exist) are silently moved to
     ~/.myos/specs/archive/ and excluded from the list.
     """
@@ -559,7 +559,7 @@ async def get_specs_audit():
 async def create_draft(body: SpecDraft):
     """Create a new draft document or a needle, depending on kind.
 
-    When kind='needle' (default): adds a task to the needle store and
+    When kind='needle' (default): adds a task to the task store and
     returns immediately. No doc file is created.
 
     When kind='spec': auto-generates acceptance criteria and promotes the
@@ -707,7 +707,7 @@ async def list_spec_templates_endpoint():
 async def create_from_template(body: SpecFromTemplate):
     """Create a plan from a starter template, or a needle when kind='needle'.
 
-    When kind='needle' (default): drafts a needle using the template title
+    When kind='needle' (default): creates a task using the template title
     and the user's note as description.
 
     When kind='spec': creates a ready plan from the template's pre-written
@@ -817,7 +817,7 @@ async def import_spec(body: SpeckitImport):
     """Import a spec from spec-kit YAML, or create a needle when kind='needle'.
 
     When kind='needle' (default): parses the YAML and creates a single
-    needle from the spec name and description.
+    task from the spec name and description.
 
     When kind='spec': parses the YAML, creates a spec draft via ostk,
     writes the body, and creates tasks for each entry in the tasks list.
@@ -1275,7 +1275,7 @@ class DecomposeKernelBody(BaseModel):
 
 @router.post("/specs/{spec_path:path}/decompose-kernel")
 async def decompose_spec_kernel(spec_path: str, body: DecomposeKernelBody):
-    """Decompose a spec into sub-needles via the ostk kernel.
+    """Decompose a spec into sub-tasks via the ostk kernel.
 
     Unlike /specs/decompose (which always passes --auto), this endpoint
     lets the caller control whether ostk runs non-interactively. Pass
@@ -1367,10 +1367,10 @@ class SpecFromRoadmapLine(BaseModel):
 
 @router.post("/specs/from-roadmap-line")
 async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
-    """Create a needle or a ready plan from a single roadmap initiative line.
+    """Create a task or a ready plan from a single roadmap initiative line.
 
     When kind='needle' (default): validates the roadmap file exists, then
-    adds a needle using the initiative text as the title. Fast path.
+    adds a task using the initiative text as the title. Fast path.
 
     When kind='spec': drafts a plan whose goal is the initiative text,
     lets acceptance criteria generation run in the background, and
@@ -1743,7 +1743,7 @@ async def _build_fallback_from_acceptance_criteria(
     spec_name = Path(spec_path).stem
     # Serial (not parallel) task creation. A prior attempt parallelized
     # these with asyncio.gather to save ~300ms on the click-to-spawn
-    # window, but concurrent subprocesses raced for the ostk needle
+    # window, but concurrent subprocesses raced for the ostk task
     # counter lock, so bullets[i] no longer reliably got task_id
     # (first_id + i). Serial preserves the one-task-per-bullet mapping.
     configs: list[dict] = []
@@ -2735,9 +2735,9 @@ async def wizard_suggest(body: WizardSuggestRequest):
 
 @router.post("/specs/wizard/create")
 async def wizard_create(body: WizardCreateRequest):
-    """Create a needle or a rich SDD spec from wizard inputs.
+    """Create a task or a rich SDD spec from wizard inputs.
 
-    When kind='needle' (default): creates a needle from the title and
+    When kind='needle' (default): creates a task from the title and
     optional description. No spec file is written.
 
     When kind='spec': assembles a structured markdown spec from the wizard
