@@ -810,13 +810,19 @@ async def drive_file_thumbnail(file_id: str):
 
 
 @router.get("/drive/files/{file_id}/preview")
-async def drive_file_preview(file_id: str):
+async def drive_file_preview(
+    file_id: str,
+    mime_type: Optional[str] = Query(None, alias="mimeType"),
+):
     """Export a Drive file as PDF and return it.
 
     For Google Docs / Slides / Sheets, exports via the Drive API.
     For uploaded files (.pptx, .pdf, etc.), downloads the binary directly.
     Non-previewable files return JSON with previewable=false.
     Exported PDFs are cached in ~/.myos/drive_cache/ for 1 hour.
+
+    Pass ?mimeType=<mime> (from the file list) to skip the metadata round-trip
+    for Google-native files, cutting one API call from the cold path.
     """
     if not is_authenticated():
         raise HTTPException(status_code=401, detail="Not connected to Google Drive.")
@@ -829,9 +835,38 @@ async def drive_file_preview(file_id: str):
             pdf_bytes = cache_path.read_bytes()
             return Response(content=pdf_bytes, media_type="application/pdf")
 
-    # Fetch file metadata.
+    import asyncio
+
+    # Build the Drive service once for this request so helpers share it
+    # instead of each paying the build + token-read cost independently.
     try:
-        meta = await _get_file_meta(file_id)
+        svc = await asyncio.get_event_loop().run_in_executor(None, _build_drive_service)
+    except Exception as exc:
+        exc_str = str(exc).lower()
+        if "invalid_grant" in exc_str or "token has been expired" in exc_str or "revoked" in exc_str:
+            raise HTTPException(
+                status_code=401,
+                detail="Your Google connection expired. Please reconnect from the Drive page.",
+            ) from exc
+        raise HTTPException(status_code=500, detail=f"Could not connect to Drive: {exc}") from exc
+
+    # Fast path: when the caller already knows the MIME type (e.g. from the
+    # file list), skip the metadata GET for exportable Google-native files.
+    if mime_type is not None and mime_type in _EXPORTABLE_MIME:
+        try:
+            pdf_bytes = await _export_as_pdf(file_id, service=svc)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Could not export file as PDF: {exc}",
+            ) from exc
+        DRIVE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache_path.write_bytes(pdf_bytes)
+        return Response(content=pdf_bytes, media_type="application/pdf")
+
+    # Fetch file metadata (reuses the pre-built service).
+    try:
+        meta = await _get_file_meta(file_id, service=svc)
     except Exception as exc:
         exc_str = str(exc).lower()
         if "invalid_grant" in exc_str or "token has been expired" in exc_str or "revoked" in exc_str:
@@ -848,9 +883,9 @@ async def drive_file_preview(file_id: str):
     web_view_link = meta.get("webViewLink", "")
 
     if mime in _EXPORTABLE_MIME:
-        # Export as PDF via the Drive API.
+        # Export as PDF via the Drive API (reuses service).
         try:
-            pdf_bytes = await _export_as_pdf(file_id)
+            pdf_bytes = await _export_as_pdf(file_id, service=svc)
         except Exception as exc:
             raise HTTPException(
                 status_code=500,
@@ -885,7 +920,7 @@ async def drive_file_preview(file_id: str):
             response_mime = "text/plain; charset=utf-8"
         if response_mime:
             try:
-                content = await _download_file(file_id)
+                content = await _download_file(file_id, service=svc)
             except Exception as exc:
                 raise HTTPException(
                     status_code=500,
@@ -907,7 +942,7 @@ async def drive_file_preview(file_id: str):
         }
         if mime in office_conversion_targets:
             try:
-                pdf_bytes = await _export_office_file_as_pdf(file_id, office_conversion_targets[mime])
+                pdf_bytes = await _export_office_file_as_pdf(file_id, office_conversion_targets[mime], service=svc)
                 DRIVE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
                 cache_path.write_bytes(pdf_bytes)
                 return Response(content=pdf_bytes, media_type="application/pdf")
@@ -919,14 +954,14 @@ async def drive_file_preview(file_id: str):
     return {"previewable": False, "webViewLink": web_view_link, "mimeType": mime}
 
 
-async def _get_file_meta(file_id: str) -> dict:
+async def _get_file_meta(file_id: str, *, service=None) -> dict:
     """Fetch metadata for a single Drive file."""
     import asyncio
 
     def _call():
-        service = _build_drive_service()
+        svc = service if service is not None else _build_drive_service()
         return (
-            service.files()
+            svc.files()
             .get(
                 fileId=file_id,
                 fields="id,name,mimeType,webViewLink,size,thumbnailLink",
@@ -937,7 +972,7 @@ async def _get_file_meta(file_id: str) -> dict:
     return await asyncio.get_event_loop().run_in_executor(None, _call)
 
 
-async def _export_as_pdf(file_id: str) -> bytes:
+async def _export_as_pdf(file_id: str, *, service=None) -> bytes:
     """Export a Google-native file as PDF using the Drive API."""
     import asyncio
     import io
@@ -945,8 +980,8 @@ async def _export_as_pdf(file_id: str) -> bytes:
     def _call():
         from googleapiclient.http import MediaIoBaseDownload
 
-        service = _build_drive_service()
-        request = service.files().export_media(
+        svc = service if service is not None else _build_drive_service()
+        request = svc.files().export_media(
             fileId=file_id, mimeType="application/pdf"
         )
         buf = io.BytesIO()
@@ -959,7 +994,7 @@ async def _export_as_pdf(file_id: str) -> bytes:
     return await asyncio.get_event_loop().run_in_executor(None, _call)
 
 
-async def _download_file(file_id: str) -> bytes:
+async def _download_file(file_id: str, *, service=None) -> bytes:
     """Download a non-Google-native file's binary content."""
     import asyncio
     import io
@@ -967,8 +1002,8 @@ async def _download_file(file_id: str) -> bytes:
     def _call():
         from googleapiclient.http import MediaIoBaseDownload
 
-        service = _build_drive_service()
-        request = service.files().get_media(fileId=file_id)
+        svc = service if service is not None else _build_drive_service()
+        request = svc.files().get_media(fileId=file_id)
         buf = io.BytesIO()
         downloader = MediaIoBaseDownload(buf, request)
         done = False
@@ -979,7 +1014,7 @@ async def _download_file(file_id: str) -> bytes:
     return await asyncio.get_event_loop().run_in_executor(None, _call)
 
 
-async def _export_office_file_as_pdf(file_id: str, target_google_mime: str) -> bytes:
+async def _export_office_file_as_pdf(file_id: str, target_google_mime: str, *, service=None) -> bytes:
     """Copy an Office file to a Google-native format, export as PDF, then delete the copy.
 
     This lets us preview .docx/.pptx/.xlsx files by round-tripping through Google's
@@ -991,9 +1026,9 @@ async def _export_office_file_as_pdf(file_id: str, target_google_mime: str) -> b
     def _call():
         from googleapiclient.http import MediaIoBaseDownload
 
-        service = _build_drive_service()
+        svc = service if service is not None else _build_drive_service()
         # Step 1: copy the file as a Google-native format.
-        copy_meta = service.files().copy(
+        copy_meta = svc.files().copy(
             fileId=file_id,
             body={"mimeType": target_google_mime, "name": f"_myos_preview_{file_id}"},
         ).execute()
@@ -1001,7 +1036,7 @@ async def _export_office_file_as_pdf(file_id: str, target_google_mime: str) -> b
 
         try:
             # Step 2: export the copy as PDF.
-            request = service.files().export_media(
+            request = svc.files().export_media(
                 fileId=copy_id, mimeType="application/pdf"
             )
             buf = io.BytesIO()
@@ -1013,7 +1048,7 @@ async def _export_office_file_as_pdf(file_id: str, target_google_mime: str) -> b
         finally:
             # Step 3: always delete the temporary copy.
             try:
-                service.files().delete(fileId=copy_id).execute()
+                svc.files().delete(fileId=copy_id).execute()
             except Exception:
                 pass
 
@@ -1056,7 +1091,7 @@ def _enlarge_thumb(link: str | None) -> str | None:
     return link
 
 
-async def _export_sheet_csv(file_id: str) -> str:
+async def _export_sheet_csv(file_id: str, *, service=None) -> str:
     """Export a Google Sheet as CSV text."""
     import asyncio
     import io
@@ -1064,8 +1099,8 @@ async def _export_sheet_csv(file_id: str) -> str:
     def _call():
         from googleapiclient.http import MediaIoBaseDownload
 
-        service = _build_drive_service()
-        request = service.files().export_media(fileId=file_id, mimeType="text/csv")
+        svc = service if service is not None else _build_drive_service()
+        request = svc.files().export_media(fileId=file_id, mimeType="text/csv")
         buf = io.BytesIO()
         downloader = MediaIoBaseDownload(buf, request)
         done = False
@@ -1076,7 +1111,7 @@ async def _export_sheet_csv(file_id: str) -> str:
     return await asyncio.get_event_loop().run_in_executor(None, _call)
 
 
-async def _export_doc_text(file_id: str) -> str:
+async def _export_doc_text(file_id: str, *, service=None) -> str:
     """Export a Google Doc as plain text."""
     import asyncio
     import io
@@ -1084,8 +1119,8 @@ async def _export_doc_text(file_id: str) -> str:
     def _call():
         from googleapiclient.http import MediaIoBaseDownload
 
-        service = _build_drive_service()
-        request = service.files().export_media(fileId=file_id, mimeType="text/plain")
+        svc = service if service is not None else _build_drive_service()
+        request = svc.files().export_media(fileId=file_id, mimeType="text/plain")
         buf = io.BytesIO()
         downloader = MediaIoBaseDownload(buf, request)
         done = False
@@ -1276,7 +1311,7 @@ async def _export_all_sheets(file_id: str) -> list[dict]:
     return await asyncio.get_event_loop().run_in_executor(None, _call)
 
 
-async def _export_doc_html(file_id: str) -> str:
+async def _export_doc_html(file_id: str, *, service=None) -> str:
     """Export a Google Doc as HTML."""
     import asyncio
     import io
@@ -1284,8 +1319,8 @@ async def _export_doc_html(file_id: str) -> str:
     def _call():
         from googleapiclient.http import MediaIoBaseDownload
 
-        service = _build_drive_service()
-        request = service.files().export_media(fileId=file_id, mimeType="text/html")
+        svc = service if service is not None else _build_drive_service()
+        request = svc.files().export_media(fileId=file_id, mimeType="text/html")
         buf = io.BytesIO()
         downloader = MediaIoBaseDownload(buf, request)
         done = False
@@ -1322,8 +1357,23 @@ async def drive_file_structured_preview(file_id: str):
     if not is_authenticated():
         raise HTTPException(status_code=401, detail="Not connected to Google Drive.")
 
+    import asyncio
+
+    # Build service once; pass it to helpers that need the Drive API so each
+    # helper doesn't pay the build + token-read cost independently.
     try:
-        meta = await _get_file_meta(file_id)
+        svc = await asyncio.get_event_loop().run_in_executor(None, _build_drive_service)
+    except Exception as exc:
+        exc_str = str(exc).lower()
+        if "invalid_grant" in exc_str or "token has been expired" in exc_str or "revoked" in exc_str:
+            raise HTTPException(
+                status_code=401,
+                detail="Your Google connection expired. Please reconnect from the Drive page.",
+            ) from exc
+        raise HTTPException(status_code=500, detail=f"Could not connect to Drive: {exc}") from exc
+
+    try:
+        meta = await _get_file_meta(file_id, service=svc)
     except Exception as exc:
         exc_str = str(exc).lower()
         if "invalid_grant" in exc_str or "token has been expired" in exc_str or "revoked" in exc_str:
@@ -1349,9 +1399,9 @@ async def drive_file_structured_preview(file_id: str):
             sample = {"sheets": sheets}
         except Exception as _sheets_exc:
             logger.warning("Sheets API failed for %s, falling back to CSV: %s", file_id, _sheets_exc)
-            # Fall back to single-sheet CSV export.
+            # Fall back to single-sheet CSV export (reuses Drive service).
             try:
-                csv_text = await _export_sheet_csv(file_id)
+                csv_text = await _export_sheet_csv(file_id, service=svc)
                 single = _parse_csv_sample(csv_text)
                 sample = {"sheets": [{"name": "Sheet 1", **single}]}
             except Exception as _csv_exc:
@@ -1360,12 +1410,12 @@ async def drive_file_structured_preview(file_id: str):
 
     elif kind == "doc":
         try:
-            html = await _export_doc_html(file_id)
+            html = await _export_doc_html(file_id, service=svc)
             sample = {"html": html, "truncated": False}
         except Exception:
             # Fall back to plain-text block rendering.
             try:
-                doc_text = await _export_doc_text(file_id)
+                doc_text = await _export_doc_text(file_id, service=svc)
                 sample = _parse_doc_blocks(doc_text)
             except Exception:
                 sample = None

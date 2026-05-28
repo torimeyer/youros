@@ -686,6 +686,7 @@ async def test_drive_preview_cache_miss_exports_pdf(client, tmp_path):
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
         patch("routers.drive.DRIVE_CACHE_DIR", cache_dir),
+        patch("routers.drive._build_drive_service", return_value=MagicMock()),
         patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
         patch("routers.drive._export_as_pdf", new=AsyncMock(return_value=fake_pdf)),
     ):
@@ -718,6 +719,7 @@ async def test_drive_preview_non_exportable_returns_json(client, tmp_path):
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
         patch("routers.drive.DRIVE_CACHE_DIR", cache_dir),
+        patch("routers.drive._build_drive_service", return_value=MagicMock()),
         patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
     ):
         resp = await client.get("/api/drive/files/zip-id/preview")
@@ -1758,3 +1760,163 @@ async def test_drive_structured_preview_sheet_truncates_large_data(client, tmp_p
     sheet = data["sample"]["sheets"][0]
     assert sheet["truncated"] is True
     assert len(sheet["rows"]) <= 20
+
+
+# ---------------------------------------------------------------------------
+# Cold-path performance: service built once, mimeType shortcut (→1755)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_drive_preview_service_built_once_per_request(client, tmp_path):
+    """The Drive service must be built exactly once per cold-path preview
+    request — not once per helper call. Regression guard for →1755.
+    """
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    cache_dir = tmp_path / "drive_cache"
+    cache_dir.mkdir()
+
+    fake_meta = {
+        "id": "doc-id",
+        "name": "My Doc",
+        "mimeType": "application/vnd.google-apps.document",
+        "webViewLink": "https://docs.google.com/...",
+        "size": None,
+    }
+    fake_pdf = b"%PDF-1.4 service-once"
+
+    mock_build = MagicMock(return_value=MagicMock())
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive.DRIVE_CACHE_DIR", cache_dir),
+        patch("routers.drive._build_drive_service", mock_build),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+        patch("routers.drive._export_as_pdf", new=AsyncMock(return_value=fake_pdf)),
+    ):
+        resp = await client.get("/api/drive/files/doc-id/preview")
+
+    assert resp.status_code == 200
+    assert resp.content == fake_pdf
+    # Service must be built exactly once, not once per helper.
+    assert mock_build.call_count == 1, (
+        f"_build_drive_service called {mock_build.call_count} times; expected 1"
+    )
+
+
+@pytest.mark.asyncio
+async def test_drive_preview_mimetype_param_skips_meta_get(client, tmp_path):
+    """When ?mimeType= is provided for a Google-native type, the metadata
+    round-trip must be skipped entirely. This saves one API call on the
+    cold path when the frontend already has the MIME from the file list.
+    Regression guard for →1755.
+    """
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    cache_dir = tmp_path / "drive_cache"
+    cache_dir.mkdir()
+
+    fake_pdf = b"%PDF-1.4 mime-shortcut"
+    mock_get_meta = AsyncMock(return_value={})
+    mock_export = AsyncMock(return_value=fake_pdf)
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive.DRIVE_CACHE_DIR", cache_dir),
+        patch("routers.drive._build_drive_service", return_value=MagicMock()),
+        patch("routers.drive._get_file_meta", mock_get_meta),
+        patch("routers.drive._export_as_pdf", mock_export),
+    ):
+        resp = await client.get(
+            "/api/drive/files/doc-id/preview"
+            "?mimeType=application%2Fvnd.google-apps.document"
+        )
+
+    assert resp.status_code == 200
+    assert resp.content == fake_pdf
+    # Meta GET must be skipped entirely when mimeType is provided.
+    assert mock_get_meta.call_count == 0, (
+        "_get_file_meta was called even though mimeType was supplied; "
+        "the cold-path shortcut is broken"
+    )
+    assert mock_export.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_drive_preview_mimetype_param_ignored_for_non_exportable(client, tmp_path):
+    """When ?mimeType= is provided for a non-exportable type, the endpoint
+    must still fetch metadata (needed for size and webViewLink) and fall
+    through to the normal download/not-previewable path.
+    """
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    cache_dir = tmp_path / "drive_cache"
+    cache_dir.mkdir()
+
+    fake_meta = {
+        "id": "pdf-id",
+        "name": "report.pdf",
+        "mimeType": "application/pdf",
+        "webViewLink": "https://drive.google.com/...",
+        "size": "0",
+    }
+    mock_get_meta = AsyncMock(return_value=fake_meta)
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive.DRIVE_CACHE_DIR", cache_dir),
+        patch("routers.drive._build_drive_service", return_value=MagicMock()),
+        patch("routers.drive._get_file_meta", mock_get_meta),
+    ):
+        # mimeType=application/pdf is NOT in _EXPORTABLE_MIME, so meta is still needed.
+        resp = await client.get(
+            "/api/drive/files/pdf-id/preview?mimeType=application%2Fpdf"
+        )
+
+    assert resp.status_code == 200
+    # size=0 means not downloadable; should fall through to not-previewable JSON.
+    data = resp.json()
+    assert data["previewable"] is False
+    # Meta was fetched because the type is not directly exportable.
+    assert mock_get_meta.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_drive_structured_preview_service_built_once(client, tmp_path):
+    """drive_file_structured_preview must also build the service once
+    and share it with _get_file_meta and the export helpers. Regression
+    guard for →1755.
+    """
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_meta = {
+        "id": "doc-id",
+        "name": "My Doc",
+        "mimeType": "application/vnd.google-apps.document",
+        "webViewLink": "https://docs.google.com/...",
+        "thumbnailLink": None,
+        "size": None,
+    }
+    mock_build = MagicMock(return_value=MagicMock())
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._build_drive_service", mock_build),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+        patch("routers.drive._export_doc_html", new=AsyncMock(return_value="<p>hello</p>")),
+    ):
+        resp = await client.get("/api/drive/preview/doc-id")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["kind"] == "doc"
+    # Service must be built exactly once even though both _get_file_meta
+    # and _export_doc_html are drive-service consumers.
+    assert mock_build.call_count == 1, (
+        f"_build_drive_service called {mock_build.call_count} times; expected 1"
+    )
