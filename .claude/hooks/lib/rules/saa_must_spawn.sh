@@ -91,10 +91,13 @@ PY
 
   # Allow ancillary commands
   local ancillary_prefixes
-  ancillary_prefixes=$(rule_param "saa_must_spawn.ancillary_cmd_prefixes" '["scripts/dev-","scripts/run-vitest.sh","scripts/e2e_smoke.sh","ostk work "]')
+  ancillary_prefixes=$(rule_param "saa_must_spawn.ancillary_cmd_prefixes" '["scripts/dev-","scripts/run-vitest.sh","scripts/e2e_smoke.sh","ostk work ","git status","git log","git diff","git show","curl --connect-timeout"]')
   case "$cmd" in
     *scripts/dev-*|*scripts/run-vitest.sh*|*scripts/e2e_smoke.sh*) log_rule_fire "saa_must_spawn" "$tool" "allow" "ancillary command"; return 0 ;;
     *"ostk work "*) log_rule_fire "saa_must_spawn" "$tool" "allow" "ostk work ancillary"; return 0 ;;
+    # Read-only status probes — safe to run even when saa_must_spawn is active
+    *"git status"*|*"git log"*|*"git diff"*|*"git show"*) log_rule_fire "saa_must_spawn" "$tool" "allow" "read-only git probe"; return 0 ;;
+    *"curl --connect-timeout"*) log_rule_fire "saa_must_spawn" "$tool" "allow" "curl with timeout probe"; return 0 ;;
   esac
 
   local reason="the user said '$VERB'. Rule: spawn a subagent via Agent, no inline work."

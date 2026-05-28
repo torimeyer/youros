@@ -9,7 +9,12 @@
         "scripts/dev-",
         "scripts/run-vitest.sh",
         "scripts/e2e_smoke.sh",
-        "ostk work "
+        "ostk work ",
+        "git status",
+        "git log",
+        "git diff",
+        "git show",
+        "curl --connect-timeout"
       ],
       "_meta": {
         "title": "Always spawn agents for fix/diagnose/saa",
@@ -29,7 +34,7 @@
           "ancillary_cmd_prefixes": {
             "type": "list[str]",
             "label": "Ancillary command prefixes (always allowed)",
-            "help": "Bash command prefixes that are never blocked regardless of trigger word (e.g. scripts/dev-)."
+            "help": "Bash command prefixes that are never blocked regardless of trigger word (e.g. scripts/dev-). Read-only git probes (git status/log/diff/show) and curl with timeout are also always allowed."
           }
         }
       }
