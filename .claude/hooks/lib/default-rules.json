@@ -232,7 +232,7 @@
       }
     },
 
-    "needle_hygiene": {
+    "task_hygiene": {
       "enabled": true,
       "ban_words": ["misc", "stuff", "various", "wip", "todo"],
       "single_word_blocklist": [

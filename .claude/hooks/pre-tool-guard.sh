@@ -132,8 +132,8 @@ for line in reversed(lines):
 
     # --- mcp__ostk__needle* / mcp__ostk__add* ---
     mcp__ostk__needle*|mcp__ostk__add*)
-        . "$LIB/rules/needle_hygiene.sh"
-        if rule_enabled needle_hygiene; then
+        . "$LIB/rules/task_hygiene.sh"
+        if rule_enabled task_hygiene; then
             # Parse needle fields
             NHG_PARSED=$(INPUT_JSON="$INPUT" python3 -c "
 import os, json, sys
@@ -148,7 +148,7 @@ except Exception:
     pass
 " 2>/dev/null)
             IFS=$'\x1f' read -r NHG_TITLE NHG_PRIORITY NHG_AC <<<"${NHG_PARSED:-}"
-            _needle_hygiene_check "$TOOL" "${NHG_TITLE:-}" "${NHG_PRIORITY:-}" "${NHG_AC:-}"
+            _task_hygiene_check "$TOOL" "${NHG_TITLE:-}" "${NHG_PRIORITY:-}" "${NHG_AC:-}"
         fi
         ;;
 
