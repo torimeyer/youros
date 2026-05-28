@@ -248,7 +248,7 @@ describe('OnboardingWizard', () => {
     // Start by clicking Light so we have a known starting state, then Dark.
     fireEvent.click(screen.getByTestId('theme-light'))
     expect(document.documentElement.getAttribute('data-theme')).toBe('light')
-    expect((screen.getByTestId('onboarding-wizard') as HTMLElement).style.backgroundColor).toBe('rgb(249, 250, 251)')
+    expect((screen.getByTestId('onboarding-wizard') as HTMLElement).style.backgroundColor).toBe('rgb(248, 250, 252)')
 
     fireEvent.click(screen.getByTestId('theme-dark'))
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')

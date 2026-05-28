@@ -339,7 +339,7 @@ export default function OnboardingWizard() {
   // Keep DOM in sync with the wizard's theme choice
   useLayoutEffect(() => {
     document.documentElement.setAttribute('data-theme', effectiveDark ? 'dark' : 'light')
-    document.body.style.backgroundColor = effectiveDark ? '#020617' : '#f9fafb'
+    document.body.style.backgroundColor = effectiveDark ? '#020617' : '#f8fafc'
     return () => { document.body.style.backgroundColor = '' }
   }, [effectiveDark])
 
@@ -360,7 +360,8 @@ export default function OnboardingWizard() {
     <div
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-8"
       style={{
-        backgroundColor: effectiveDark ? '#020617' : '#f9fafb',
+        backgroundColor: effectiveDark ? '#020617' : '#f8fafc',
+        backgroundImage: effectiveDark ? 'none' : 'linear-gradient(to bottom, #f8fafc 0%, #ffffff 100%)',
         color: effectiveDark ? '#ffffff' : '#0f172a',
         transition: 'background-color 0.3s, color 0.3s',
       }}
