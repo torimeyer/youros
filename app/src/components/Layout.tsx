@@ -41,6 +41,8 @@ export function Layout() {
   const chatOpen = useAppStore((s) => s.chatOpen)
   const chatWidth = useAppStore((s) => s.chatWidth)
   const isResizing = useAppStore((s) => s.isResizing)
+  const sidebarWidth = useAppStore((s) => s.sidebarWidth)
+  const isSidebarResizing = useAppStore((s) => s.isSidebarResizing)
   const darkMode = useAppStore((s) => s.darkMode)
   const accentColor = useAppStore((s) => s.accentColor)
   const teamAccentColor = useAppStore((s) => s.teamAccentColor)
@@ -187,10 +189,11 @@ export function Layout() {
       )}
       <main
         data-testid="main-content"
-        className={`min-h-dvh min-w-0 overflow-x-hidden flex flex-col ${isResizing ? '' : 'transition-[margin] duration-200'} ${
-          sidebarPosition === 'right' ? 'ml-0 lg:mr-56' : 'ml-0 lg:ml-56'
-        }`}
-        style={chatOpen && isDesktop ? (sidebarPosition === 'right' ? { marginLeft: chatWidth } : { marginRight: chatWidth }) : undefined}
+        className={`min-h-dvh min-w-0 overflow-x-hidden flex flex-col ${isResizing || isSidebarResizing ? '' : 'transition-[margin] duration-200'}`}
+        style={{
+          ...(isDesktop ? (sidebarPosition === 'right' ? { marginRight: sidebarWidth } : { marginLeft: sidebarWidth }) : {}),
+          ...(chatOpen && isDesktop ? (sidebarPosition === 'right' ? { marginLeft: chatWidth } : { marginRight: chatWidth }) : {}),
+        }}
       >
         <div className="flex-1">
           <Outlet />
