@@ -2273,7 +2273,9 @@ def _reconcile_workflow_step_agents() -> bool:
 
 # Restore metadata from disk on startup, then recover any stale running agents.
 agent_metadata.update(_load_agent_state())
-_recover_stale_agents()
+# NOTE: _recover_stale_agents() depends on _resolve_transcript_source defined
+# later in this module. The bootstrap call was moved to the end of the file so
+# the definition exists when recovery runs. See call at file bottom.
 # Recover agents wrongly cancelled by a bulk cancel that swept actively-running
 # workers. This repairs the on-disk state immediately so the UI shows the correct
 # status on the first GET /agents after a server restart.
@@ -10266,3 +10268,14 @@ async def complete_chat_session(
         pass
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Deferred startup recovery (moved from earlier in module so that
+# _resolve_transcript_source is defined when _recover_stale_agents runs).
+# ---------------------------------------------------------------------------
+try:
+    _recover_stale_agents()
+except Exception as _e:  # noqa: BLE001
+    import logging
+    logging.getLogger(__name__).warning("startup recovery failed: %s", _e)
