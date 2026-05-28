@@ -64,6 +64,12 @@ if [ -n "$stale_pids" ]; then
 fi
 
 cd "$APP_DIR"
+
+# →1798 Nuke the Vite dep-optimization cache before every start so that
+# stale chunk hashes (caused by pnpm-lock / package-lock divergence) never
+# survive into a new dev session and trigger the Vite 8 blank-page 504.
+rm -rf "$APP_DIR/node_modules/.vite"
+
 # Run (not exec) so the shell wrapper stays alive. A non-zero exit from
 # Vite (e.g. after a failed config-change restart) propagates to the
 # caller, letting watch-frontend.sh detect the crash and re-launch.

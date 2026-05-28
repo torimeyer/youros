@@ -57,17 +57,24 @@ const backendAgent = new https.Agent({
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  // Needle 1145: after an idle period the browser reconnects with a burst
-  // of simultaneous module requests. Each request registers a transform,
-  // which resets vite's 50 ms crawl-end idle timer. With the default
-  // holdUntilCrawlEnd:true the timer never expires, so
-  // depOptimizationProcessing.promise never resolves and every request
-  // for a pre-bundled dep (react, react-dom, …) hangs forever.
-  // Setting false makes the optimizer apply results as soon as the initial
-  // scan finishes, regardless of ongoing transforms. Card-compass hit the
-  // same bug under concurrent Playwright workers (vite 5.4.21); same fix.
+  // →1798 Vite 8 blank-page fix: three-part defence against CJS chunk hash
+  // divergence.
+  //
+  // holdUntilCrawlEnd:true — wait for the full import-graph crawl before
+  // emitting the pre-bundled chunk so all modules receive the same
+  // browserHash in one shot. The Vite 5-era false value (needle 1145) was
+  // needed because the 50 ms crawl-end idle timer never expired under
+  // request bursts; Vite 8 replaced that timer with an accurate crawl
+  // barrier, so true is now safe and correct.
+  //
+  // ignoreOutdatedRequests:true — when a browser tab already loaded a chunk
+  // with an old hash and then the optimizer runs again (e.g. on first lazy-
+  // load), Vite 8 would normally throw a 504 "Outdated request" for the
+  // stale URL. With this flag set, Vite serves the fresh module instead of
+  // erroring, preventing the blank-page reload loop.
   optimizeDeps: {
-    holdUntilCrawlEnd: false,
+    holdUntilCrawlEnd: true,
+    ignoreOutdatedRequests: true,
     // Every breakroom game is lazy()-loaded. Without React pinned into the
     // initial pre-bundle, the first lazy game chunk can trigger a fresh dep
     // re-optimization that gives `react` a new browserHash while the already
