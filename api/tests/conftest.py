@@ -394,6 +394,34 @@ def _guard_audit_writes(tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _reset_ostk_singleton():
+    """Reset the services.ostk.ostk singleton state between tests.
+
+    The singleton carries two pieces of mutable state that leak across tests:
+
+    1. ``_socket_available`` (None/True/False): once a test drives it to False
+       (socket unavailable), all subsequent tests skip the socket path even when
+       they patch ostk_socket — because the flag is still False from the
+       previous test.
+
+    2. ``_audit_cache`` and ``_audit_tail`` (module-level dicts): keyed by
+       audit.jsonl path.  A test that reads the real audit.jsonl warms the
+       cache; the next test sees stale data even if it patches the audit path.
+
+    Clearing all three before and after each test guarantees a clean starting
+    state regardless of execution order.
+    """
+    import services.ostk as ostk_mod
+    ostk_mod.ostk._socket_available = None
+    ostk_mod._audit_cache.clear()
+    ostk_mod._audit_tail.clear()
+    yield
+    ostk_mod.ostk._socket_available = None
+    ostk_mod._audit_cache.clear()
+    ostk_mod._audit_tail.clear()
+
+
+@pytest.fixture(autouse=True)
 def _pin_myos_files_dir_to_tmp(tmp_path, monkeypatch):
     """Redirect ``MYOS_FILES_DIR`` to a tmp path for every test.
 
