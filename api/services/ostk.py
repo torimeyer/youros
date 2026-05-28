@@ -605,7 +605,7 @@ class OstkService:
         issues_path.write_text("\n".join(updated) + "\n")
         return f"reopened {task_id}"
 
-    async def set_needle_in_progress(self, needle_id: str) -> bool:
+    async def set_task_in_progress(self, needle_id: str) -> bool:
         """Persist in_progress status for a needle in issues.jsonl.
 
         Only transitions open → in_progress. Already in_progress or

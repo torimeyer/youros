@@ -4538,10 +4538,10 @@ def _extract_all_needle_ids(
     return list(seen.keys())
 
 
-def _fire_set_needle_in_progress(needle_id: str) -> None:
+def _fire_set_task_in_progress(needle_id: str) -> None:
     """Schedule a persistent in_progress write for *needle_id*, non-blocking.
 
-    Wraps ostk.set_needle_in_progress in a create_task so the spawn/register
+    Wraps ostk.set_task_in_progress in a create_task so the spawn/register
     hot path is never delayed. Swallows all errors so a JSONL write failure
     never disrupts agent registration.
     """
@@ -4549,14 +4549,14 @@ def _fire_set_needle_in_progress(needle_id: str) -> None:
         return
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(_set_needle_in_progress_async(needle_id))
+        loop.create_task(_set_task_in_progress_async(needle_id))
     except RuntimeError:
         pass
 
 
-async def _set_needle_in_progress_async(needle_id: str) -> None:
+async def _set_task_in_progress_async(needle_id: str) -> None:
     try:
-        await ostk.set_needle_in_progress(needle_id)
+        await ostk.set_task_in_progress(needle_id)
     except Exception:
         pass
 
@@ -6005,7 +6005,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
         # point the auto-merge path calls close_task (→1714).
         _spawn_nid = spawn_meta.get("needle_id")
         if _spawn_nid:
-            _fire_set_needle_in_progress(_spawn_nid)
+            _fire_set_task_in_progress(_spawn_nid)
 
         return {
             "result": f"Agent '{body.name}' spawned",
@@ -6569,7 +6569,7 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     # for it (→1714). Fire-and-forget so register latency is unaffected.
     _reg_nid = record.get("needle_id")
     if _reg_nid and status == "running":
-        _fire_set_needle_in_progress(_reg_nid)
+        _fire_set_task_in_progress(_reg_nid)
     # →1475: link session JSONL at register time so transcript_bytes is populated
     # immediately. If no file found yet (timing race), mark pending for retry.
     if source == "claude-code" and not record.get("transcript_path"):

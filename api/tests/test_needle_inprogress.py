@@ -180,7 +180,7 @@ def test_needle_overlay_arrow_id_normalization():
 
 
 # ---------------------------------------------------------------------------
-# Persistent set_needle_in_progress tests (→1714)
+# Persistent set_task_in_progress tests (→1714)
 # ---------------------------------------------------------------------------
 
 import asyncio
@@ -204,7 +204,7 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def test_set_needle_in_progress_open_to_in_progress(tmp_path):
+def test_set_task_in_progress_open_to_in_progress(tmp_path):
     """open needle transitions to in_progress and returns True."""
     from services.ostk import OstkService
 
@@ -212,7 +212,7 @@ def test_set_needle_in_progress_open_to_in_progress(tmp_path):
         {"id": "→1714", "status": "open", "title": "test needle"},
     ])
     svc = OstkService(cwd=str(tmp_path))
-    result = _run(svc.set_needle_in_progress("→1714"))
+    result = _run(svc.set_task_in_progress("→1714"))
     assert result is True
 
     lines = (tmp_path / ".ostk" / "needles" / "issues.jsonl").read_text().strip().splitlines()
@@ -221,7 +221,7 @@ def test_set_needle_in_progress_open_to_in_progress(tmp_path):
     assert "in_progress_at" in entry
 
 
-def test_set_needle_in_progress_bare_id(tmp_path):
+def test_set_task_in_progress_bare_id(tmp_path):
     """Bare id (no arrow) resolves the same needle as arrow-prefixed."""
     from services.ostk import OstkService
 
@@ -229,14 +229,14 @@ def test_set_needle_in_progress_bare_id(tmp_path):
         {"id": "→1714", "status": "open", "title": "test needle"},
     ])
     svc = OstkService(cwd=str(tmp_path))
-    result = _run(svc.set_needle_in_progress("1714"))
+    result = _run(svc.set_task_in_progress("1714"))
     assert result is True
 
     entry = json.loads((tmp_path / ".ostk" / "needles" / "issues.jsonl").read_text().strip().splitlines()[0])
     assert entry["status"] == "in_progress"
 
 
-def test_set_needle_in_progress_idempotent(tmp_path):
+def test_set_task_in_progress_idempotent(tmp_path):
     """Already-in_progress needle is left unchanged and returns False."""
     from services.ostk import OstkService
 
@@ -244,14 +244,14 @@ def test_set_needle_in_progress_idempotent(tmp_path):
         {"id": "→1714", "status": "in_progress", "title": "test needle", "in_progress_at": "2026-01-01T00:00:00+00:00"},
     ])
     svc = OstkService(cwd=str(tmp_path))
-    result = _run(svc.set_needle_in_progress("→1714"))
+    result = _run(svc.set_task_in_progress("→1714"))
     assert result is False
 
     entry = json.loads((tmp_path / ".ostk" / "needles" / "issues.jsonl").read_text().strip().splitlines()[0])
     assert entry["in_progress_at"] == "2026-01-01T00:00:00+00:00"
 
 
-def test_set_needle_in_progress_skips_closed(tmp_path):
+def test_set_task_in_progress_skips_closed(tmp_path):
     """Closed needle is left unchanged and returns False."""
     from services.ostk import OstkService
 
@@ -259,14 +259,14 @@ def test_set_needle_in_progress_skips_closed(tmp_path):
         {"id": "→1714", "status": "closed", "title": "done needle"},
     ])
     svc = OstkService(cwd=str(tmp_path))
-    result = _run(svc.set_needle_in_progress("→1714"))
+    result = _run(svc.set_task_in_progress("→1714"))
     assert result is False
 
     entry = json.loads((tmp_path / ".ostk" / "needles" / "issues.jsonl").read_text().strip().splitlines()[0])
     assert entry["status"] == "closed"
 
 
-def test_set_needle_in_progress_missing_needle(tmp_path):
+def test_set_task_in_progress_missing_needle(tmp_path):
     """Needle not in file returns False without modifying the file."""
     from services.ostk import OstkService
 
@@ -274,17 +274,17 @@ def test_set_needle_in_progress_missing_needle(tmp_path):
         {"id": "→9999", "status": "open", "title": "other needle"},
     ])
     svc = OstkService(cwd=str(tmp_path))
-    result = _run(svc.set_needle_in_progress("→1714"))
+    result = _run(svc.set_task_in_progress("→1714"))
     assert result is False
 
     entry = json.loads((tmp_path / ".ostk" / "needles" / "issues.jsonl").read_text().strip().splitlines()[0])
     assert entry["status"] == "open"
 
 
-def test_set_needle_in_progress_no_issues_file(tmp_path):
+def test_set_task_in_progress_no_issues_file(tmp_path):
     """Missing issues.jsonl returns False gracefully."""
     from services.ostk import OstkService
 
     svc = OstkService(cwd=str(tmp_path))
-    result = _run(svc.set_needle_in_progress("→1714"))
+    result = _run(svc.set_task_in_progress("→1714"))
     assert result is False
