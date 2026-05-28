@@ -481,11 +481,11 @@ fi
 
 # --- myOS repo accessible ---
 
-GH_STATUS=$(gh repo view torimeyer/myos --json name --jq '.name' 2>/dev/null || echo "")
+GH_STATUS=$(gh repo view torimeyer/youros --json name --jq '.name' 2>/dev/null || echo "")
 if [ "$GH_STATUS" = "myos" ]; then
-    assert "torimeyer/myos repo is accessible" 0
+    assert "torimeyer/youros repo is accessible" 0
 else
-    assert "torimeyer/myos repo is accessible" 1
+    assert "torimeyer/youros repo is accessible" 1
 fi
 
 # --- Release conventions check ---
