@@ -14,7 +14,7 @@ interface Suggestions {
   after_statement: string;
 }
 
-type Mode = "needle" | "spec";
+type Mode = "task" | "spec";
 
 const SPEC_STEPS = ["Problem", "Scope", "Produces", "Criteria", "Review"] as const;
 type SpecStep = typeof SPEC_STEPS[number];
@@ -31,11 +31,11 @@ const PRODUCES_OPTIONS: { value: ProducesOption; label: string; description: str
 ];
 
 export default function SpecWizard({ onComplete, onCancel }: Props) {
-  const [mode, setMode] = useState<Mode>("needle");
+  const [mode, setMode] = useState<Mode>("task");
 
-  // Needle fields
-  const [needleTitle, setNeedleTitle] = useState("");
-  const [needleDesc, setNeedleDesc] = useState("");
+  // Task fields
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskDesc, setTaskDesc] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Spec fields
@@ -57,15 +57,15 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
 
   const stepIndex = SPEC_STEPS.indexOf(step);
 
-  // --- Needle handlers ---
+  // --- Task handlers ---
 
-  const handleSaveNeedle = async () => {
-    if (!needleTitle.trim()) return;
+  const handleSaveTask = async () => {
+    if (!taskTitle.trim()) return;
     setSaving(true);
     try {
       await api.post("/specs/draft", {
-        title: needleTitle.trim(),
-        kind: "needle",
+        title: taskTitle.trim(),
+        kind: "task",
       });
       onComplete("");
     } catch {
@@ -215,16 +215,16 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
       <div className="flex items-center gap-1 mb-6">
         <div className="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-1 gap-1 flex-1">
           <button
-            onClick={() => setMode("needle")}
-            data-testid="mode-needle"
+            onClick={() => setMode("task")}
+            data-testid="mode-task"
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              mode === "needle"
+              mode === "task"
                 ? "bg-slate-200 dark:bg-slate-700 text-white"
                 : "text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
             }`}
           >
             <Icon name="add_task" size={16} />
-            Needle
+            Task
           </button>
           <button
             onClick={() => setMode("spec")}
@@ -244,9 +244,9 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
         </button>
       </div>
 
-      {/* Needle mode */}
-      {mode === "needle" && (
-        <div data-testid="needle-mode">
+      {/* Task mode */}
+      {mode === "task" && (
+        <div data-testid="task-mode">
           <p className="text-xs text-slate-500 mb-4">
             Use this for a bug fix, small feature, or anything a single agent can handle.
             Switch to Spec for multi-step features that need a problem statement and success criteria.
@@ -256,12 +256,12 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
               <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">What needs doing?</label>
               <input
                 type="text"
-                value={needleTitle}
-                onChange={(e) => setNeedleTitle(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && needleTitle.trim()) handleSaveNeedle(); }}
+                value={taskTitle}
+                onChange={(e) => setTaskTitle(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && taskTitle.trim()) handleSaveTask(); }}
                 placeholder="e.g. Fix dark mode flicker on settings page"
                 className="w-full bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                data-testid="needle-title"
+                data-testid="task-title"
                 autoFocus
               />
             </div>
@@ -271,11 +271,11 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
               </label>
               <input
                 type="text"
-                value={needleDesc}
-                onChange={(e) => setNeedleDesc(e.target.value)}
+                value={taskDesc}
+                onChange={(e) => setTaskDesc(e.target.value)}
                 placeholder="Any extra context..."
                 className="w-full bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                data-testid="needle-desc"
+                data-testid="task-desc"
               />
             </div>
           </div>
@@ -283,9 +283,9 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
             <Button
               variant="primary"
               size="md"
-              onClick={handleSaveNeedle}
-              disabled={!needleTitle.trim() || saving}
-              data-testid="needle-submit"
+              onClick={handleSaveTask}
+              disabled={!taskTitle.trim() || saving}
+              data-testid="task-submit"
             >
               {saving ? "Saving..." : "Add to my list"}
             </Button>

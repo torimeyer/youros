@@ -32,38 +32,38 @@ describe("SpecWizard", () => {
 
   it("renders in needle mode by default", () => {
     render(<SpecWizard {...defaultProps} />);
-    expect(screen.getByTestId("needle-mode")).toBeInTheDocument();
+    expect(screen.getByTestId("task-mode")).toBeInTheDocument();
     expect(screen.queryByTestId("wizard-problem")).not.toBeInTheDocument();
   });
 
   it("needle tab is active by default", () => {
     render(<SpecWizard {...defaultProps} />);
-    const needleTab = screen.getByTestId("mode-needle");
+    const needleTab = screen.getByTestId("mode-task");
     // active tab should have aria-pressed true or similar class; just verify it exists
     expect(needleTab).toBeInTheDocument();
   });
 
   it("needle mode shows title and optional description inputs", () => {
     render(<SpecWizard {...defaultProps} />);
-    expect(screen.getByTestId("needle-title")).toBeInTheDocument();
-    expect(screen.getByTestId("needle-desc")).toBeInTheDocument();
+    expect(screen.getByTestId("task-title")).toBeInTheDocument();
+    expect(screen.getByTestId("task-desc")).toBeInTheDocument();
   });
 
   it("needle submit calls POST /specs/draft with kind=needle", async () => {
-    mockedPost.mockResolvedValueOnce({ kind: "needle", task_id: "42" });
+    mockedPost.mockResolvedValueOnce({ kind: "task", task_id: "42" });
     const onComplete = vi.fn();
 
     render(<SpecWizard onComplete={onComplete} onCancel={vi.fn()} />);
 
-    fireEvent.change(screen.getByTestId("needle-title"), {
+    fireEvent.change(screen.getByTestId("task-title"), {
       target: { value: "Cache invalidation on logout" },
     });
-    fireEvent.click(screen.getByTestId("needle-submit"));
+    fireEvent.click(screen.getByTestId("task-submit"));
 
     await waitFor(() => {
       expect(mockedPost).toHaveBeenCalledWith("/specs/draft", {
         title: "Cache invalidation on logout",
-        kind: "needle",
+        kind: "task",
       });
     });
     expect(onComplete).toHaveBeenCalledWith("");
@@ -72,7 +72,7 @@ describe("SpecWizard", () => {
   it("needle submit does nothing when title is empty", async () => {
     render(<SpecWizard {...defaultProps} />);
 
-    fireEvent.click(screen.getByTestId("needle-submit"));
+    fireEvent.click(screen.getByTestId("task-submit"));
 
     await waitFor(() => {
       expect(mockedPost).not.toHaveBeenCalled();
@@ -80,20 +80,20 @@ describe("SpecWizard", () => {
   });
 
   it("needle description is optional and not sent when empty", async () => {
-    mockedPost.mockResolvedValueOnce({ kind: "needle", task_id: "7" });
+    mockedPost.mockResolvedValueOnce({ kind: "task", task_id: "7" });
 
     render(<SpecWizard {...defaultProps} />);
 
-    fireEvent.change(screen.getByTestId("needle-title"), {
+    fireEvent.change(screen.getByTestId("task-title"), {
       target: { value: "Fix footer overlap" },
     });
     // do NOT fill in needle-desc
-    fireEvent.click(screen.getByTestId("needle-submit"));
+    fireEvent.click(screen.getByTestId("task-submit"));
 
     await waitFor(() => {
       expect(mockedPost).toHaveBeenCalledWith("/specs/draft", {
         title: "Fix footer overlap",
-        kind: "needle",
+        kind: "task",
       });
     });
   });
@@ -107,7 +107,7 @@ describe("SpecWizard", () => {
 
     fireEvent.click(screen.getByTestId("mode-spec"));
 
-    expect(screen.queryByTestId("needle-mode")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("task-mode")).not.toBeInTheDocument();
     expect(screen.getByTestId("wizard-title")).toBeInTheDocument();
     expect(screen.getByTestId("wizard-problem")).toBeInTheDocument();
   });
@@ -182,8 +182,8 @@ describe("SpecWizard", () => {
     fireEvent.click(screen.getByTestId("mode-spec"));
     expect(screen.getByTestId("wizard-title")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("mode-needle"));
-    expect(screen.getByTestId("needle-mode")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("mode-task"));
+    expect(screen.getByTestId("task-mode")).toBeInTheDocument();
     expect(screen.queryByTestId("wizard-title")).not.toBeInTheDocument();
   });
 

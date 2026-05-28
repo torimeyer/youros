@@ -109,7 +109,7 @@ def test_create_empty_title_400():
 
 
 def test_create_empty_problem_400():
-    # Empty problem only raises 400 when kind='spec' (needle doesn't need it)
+    # Empty problem only raises 400 when kind='spec' (task doesn't need it)
     resp = client.post("/api/specs/wizard/create", json={
         "title": "Something",
         "problem": "",
@@ -195,11 +195,11 @@ def test_create_promote_failure_stays_draft():
         assert body["status"] == "draft"
 
 
-# --------------- kind=needle default path ---------------
+# --------------- kind=task default path ---------------
 
 
 def test_wizard_create_needle_default():
-    """No kind supplied -> defaults to needle. No spec file is created."""
+    """No kind supplied -> defaults to task. No spec file is created."""
     with patch("services.ostk.ostk.add_task", new_callable=AsyncMock, return_value="→1999 Add login page") as mock_add:
         resp = client.post("/api/specs/wizard/create", json={
             "title": "Add login page",
@@ -207,30 +207,30 @@ def test_wizard_create_needle_default():
         })
         assert resp.status_code == 200
         body = resp.json()
-        assert body["kind"] == "needle"
+        assert body["kind"] == "task"
         assert body["task_id"] == "1999"
         mock_add.assert_called_once()
 
 
 def test_wizard_create_needle_explicit():
-    """kind='needle' creates a task; problem is optional."""
+    """kind='task' creates a task; problem is optional."""
     with patch("services.ostk.ostk.add_task", new_callable=AsyncMock, return_value="→2001 Fix dark mode"):
         resp = client.post("/api/specs/wizard/create", json={
             "title": "Fix dark mode",
-            "kind": "needle",
+            "kind": "task",
         })
         assert resp.status_code == 200
         body = resp.json()
-        assert body["kind"] == "needle"
+        assert body["kind"] == "task"
 
 
 def test_draft_needle_default():
-    """POST /specs/draft with no kind creates a needle, not a spec file."""
+    """POST /specs/draft with no kind creates a task, not a spec file."""
     with patch("services.ostk.ostk.add_task", new_callable=AsyncMock, return_value="→2002 My quick task"):
         resp = client.post("/api/specs/draft", json={"title": "My quick task"})
         assert resp.status_code == 200
         body = resp.json()
-        assert body["kind"] == "needle"
+        assert body["kind"] == "task"
         assert body["task_id"] == "2002"
 
 

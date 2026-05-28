@@ -94,7 +94,7 @@ async def _ensure_decomposed(spec_path: str) -> list[dict]:
 async def _create_needle(title: str, description: str = "") -> dict:
     """Create a needle (task) and return a standard shape.
 
-    Used by the 5 creation endpoints when kind='needle'. Calls the same
+    Used by the 5 creation endpoints when kind='task'. Calls the same
     ostk.add_task primitive that POST /api/tasks uses, so needles created
     via the wizard or roadmap flow land in the same Tasks list.
     """
@@ -105,7 +105,7 @@ async def _create_needle(title: str, description: str = "") -> dict:
         if m:
             task_id = m.group(1)
             break
-    return {"kind": "needle", "task_id": task_id, "result": result}
+    return {"kind": "task", "task_id": task_id, "result": result}
 
 
 async def _delete_builder_task(task_id: str) -> bool:
@@ -645,15 +645,15 @@ async def get_specs_audit():
 
 @router.post("/specs/draft")
 async def create_draft(body: SpecDraft):
-    """Create a new draft document or a needle, depending on kind.
+    """Create a new draft document or a task, depending on kind.
 
-    When kind='needle' (default): adds a task to the needle store and
+    When kind='task' (default): adds a task to the task store and
     returns immediately. No doc file is created.
 
     When kind='spec': auto-generates acceptance criteria and promotes the
     draft to a plan so the user lands on a one-click build path.
     """
-    if body.kind == "needle":
+    if body.kind == "task":
         try:
             payload = await _create_needle(body.title)
         except OstkError as e:
@@ -775,7 +775,7 @@ class SpecFromTemplate(BaseModel):
     # When set, it is prepended to the template's goal body so the new
     # plan captures any extra context the user wanted to carry forward.
     note: Optional[str] = None
-    kind: str = "needle"  # "needle" (default) or "spec"
+    kind: str = "task"  # "task" (default) or "spec"
 
 
 @router.get("/specs/templates")
@@ -793,9 +793,9 @@ async def list_spec_templates_endpoint():
 
 @router.post("/specs/from-template")
 async def create_from_template(body: SpecFromTemplate):
-    """Create a plan from a starter template, or a needle when kind='needle'.
+    """Create a plan from a starter template, or a task when kind='task'.
 
-    When kind='needle' (default): drafts a needle using the template title
+    When kind='task' (default): drafts a task using the template title
     and the user's note as description.
 
     When kind='spec': creates a ready plan from the template's pre-written
@@ -818,7 +818,7 @@ async def create_from_template(body: SpecFromTemplate):
     if not title:
         title = template["name"]
 
-    if body.kind == "needle":
+    if body.kind == "task":
         description = (body.note or "").strip()
         try:
             payload = await _create_needle(title, description=description)
@@ -897,7 +897,7 @@ async def create_from_template(body: SpecFromTemplate):
 class SpeckitImport(BaseModel):
     yaml: str
     format: str = "speckit"
-    kind: str = "needle"  # "needle" (default) or "spec"
+    kind: str = "task"  # "task" (default) or "spec"
 
 
 @router.post("/specs/import")
@@ -920,7 +920,7 @@ async def import_spec(body: SpeckitImport):
         raise HTTPException(status_code=422, detail=str(exc))
     spec = {"title": parsed["name"], "description": parsed["description"], "tasks": parsed["tasks"]}
 
-    if body.kind == "needle":
+    if body.kind == "task":
         try:
             payload = await _create_needle(spec["title"], description=spec["description"] or "")
         except OstkError as e:
@@ -1500,7 +1500,7 @@ class SpecFromRoadmapLine(BaseModel):
     roadmap_path: str
     initiative_text: str
     title: Optional[str] = None
-    kind: str = "needle"  # "needle" (default) or "spec"
+    kind: str = "task"  # "task" (default) or "spec"
 
 
 @router.post("/specs/from-roadmap-line")
@@ -1544,7 +1544,7 @@ async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
     if len(title) > 80:
         title = title[:77].rstrip() + "..."
 
-    if body.kind == "needle":
+    if body.kind == "task":
         try:
             payload = await _create_needle(title, description=initiative)
         except OstkError as e:
@@ -2736,7 +2736,7 @@ class WizardCreateRequest(BaseModel):
     technical_context: Optional[str] = None
     api_contract: Optional[str] = None
     ui_requirements: Optional[str] = None
-    kind: str = "needle"  # "needle" (default) or "spec"
+    kind: str = "task"  # "task" (default) or "spec"
     produces: str = "code"  # "code"|"agent"|"document"|"slides"|"diagram"|"skill"
 
 
@@ -2885,7 +2885,7 @@ async def wizard_create(body: WizardCreateRequest):
     if not body.title.strip():
         raise HTTPException(status_code=400, detail="Title is required")
 
-    if body.kind == "needle":
+    if body.kind == "task":
         description = body.problem.strip()
         try:
             payload = await _create_needle(body.title.strip(), description=description)
