@@ -871,7 +871,7 @@ function WelcomeStep({ subtextCls }: { subtextCls: string }) {
   return (
     <div className="text-center" data-testid="step-welcome">
       <div className="mb-6">
-        <img src="/youros-logo-hero.jpeg" alt="yourOS" className="mx-auto w-32 h-auto" />
+        <img src="/youros-logo-hero.jpeg" alt="yourOS" className="mx-auto w-64 h-auto" />
       </div>
       <h1 className="text-3xl font-bold mb-1">Welcome!</h1>
       <p className="text-base font-bold text-center mb-1">an operating system for how you operate.</p>
