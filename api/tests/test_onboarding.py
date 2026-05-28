@@ -360,6 +360,37 @@ async def test_persist_tasks_skips_auto_labels_on_ostk_failure():
 
 
 
+# --- Shared AI mock for /onboarding/intent tests ---
+# autouse: dream tests override this with their own patch() inside each test body.
+
+@pytest.fixture(autouse=True)
+def _mock_intent_ai_client(monkeypatch):
+    """Patch get_ai_client so intent tests get realistic pack echoes without real API calls.
+
+    Dream tests use 'with patch(...)' inside the test body, which overrides this fixture
+    for the duration of that test. So dream assertions are unaffected.
+    """
+    import re
+    from routers.onboarding import _INTENT_PACKS
+
+    class _Block:
+        def __init__(self, text): self.text = text
+
+    class _Resp:
+        def __init__(self, items): self.content = [_Block(json.dumps({"items": items}))]
+
+    async def _create(*, model, max_tokens, system, messages, **kwargs):
+        user_msg = messages[-1]["content"] if messages else ""
+        m = re.search(r"User intent: (\w+)", user_msg)
+        intent = m.group(1) if m else "general"
+        pack_spec = _INTENT_PACKS.get(intent, _INTENT_PACKS.get("general", []))
+        items = [{"id": s["id"], "default_selected": s["default_selected"]} for s in pack_spec]
+        return _Resp(items)
+
+    mock_client = MagicMock()
+    mock_client.messages.create = AsyncMock(side_effect=_create)
+    monkeypatch.setattr("routers.onboarding.get_ai_client", AsyncMock(return_value=mock_client))
+
 
 # --- POST /api/onboarding/intent ---
 
@@ -518,6 +549,61 @@ async def test_intent_all_packs_resolve_to_non_empty_list(client):
         assert resp.status_code == 200, f"intent={intent} returned {resp.status_code}"
         pack = resp.json()["starter_pack"]
         assert len(pack) > 0, f"intent={intent} returned empty starter_pack"
+
+
+@pytest.mark.asyncio
+async def test_intent_no_ai_client_returns_503(client, monkeypatch):
+    """When no AI backend is configured, /intent returns 503 with an actionable message."""
+    monkeypatch.setattr("routers.onboarding.get_ai_client", AsyncMock(return_value=None))
+    resp = await client.post("/api/onboarding/intent", json={"intent": "coding"})
+    assert resp.status_code == 503
+    detail = resp.json()["detail"]
+    assert "API key" in detail or "Settings" in detail
+
+
+@pytest.mark.asyncio
+async def test_intent_llm_exception_returns_503(client, monkeypatch):
+    """When the LLM call raises, /intent returns 503 with actionable message."""
+    mock_client = MagicMock()
+    mock_client.messages.create = AsyncMock(side_effect=Exception("connection refused"))
+    monkeypatch.setattr("routers.onboarding.get_ai_client", AsyncMock(return_value=mock_client))
+    resp = await client.post("/api/onboarding/intent", json={"intent": "coding"})
+    assert resp.status_code == 503
+    detail = resp.json()["detail"]
+    assert "API key" in detail or "Settings" in detail
+
+
+@pytest.mark.asyncio
+async def test_intent_llm_bad_json_returns_502(client, monkeypatch):
+    """When the LLM returns non-JSON text, /intent returns 502."""
+    from types import SimpleNamespace
+    bad_resp = MagicMock()
+    bad_resp.content = [SimpleNamespace(text="not json at all")]
+    mock_client = MagicMock()
+    mock_client.messages.create = AsyncMock(return_value=bad_resp)
+    monkeypatch.setattr("routers.onboarding.get_ai_client", AsyncMock(return_value=mock_client))
+    resp = await client.post("/api/onboarding/intent", json={"intent": "coding"})
+    assert resp.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_intent_calls_ai_client_not_static(client):
+    """Verify /intent actually calls the AI client (not a static dict lookup)."""
+    from types import SimpleNamespace
+    items_payload = [{"id": "builtin-builder", "default_selected": True}]
+    good_resp = MagicMock()
+    good_resp.content = [SimpleNamespace(text=json.dumps({"items": items_payload}))]
+    mock_client = MagicMock()
+    mock_client.messages.create = AsyncMock(return_value=good_resp)
+
+    with patch("routers.onboarding.get_ai_client", new=AsyncMock(return_value=mock_client)):
+        resp = await client.post("/api/onboarding/intent", json={"intent": "coding"})
+
+    assert resp.status_code == 200
+    mock_client.messages.create.assert_awaited_once()
+    pack = resp.json()["starter_pack"]
+    assert len(pack) == 1
+    assert pack[0]["id"] == "builtin-builder"
 
 
 @pytest.mark.asyncio
