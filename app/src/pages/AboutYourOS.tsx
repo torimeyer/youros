@@ -8,7 +8,7 @@ interface Section {
   body: React.ReactNode
 }
 
-export default function AboutMyOS() {
+export default function AboutYourOS() {
   const [version, setVersion] = useState('')
   const [taskCount, setTaskCount] = useState<number | null>(null)
   const [agentCount, setAgentCount] = useState<number | null>(null)

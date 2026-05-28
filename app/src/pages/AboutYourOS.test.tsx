@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import AboutMyOS from './AboutMyOS'
+import AboutYourOS from './AboutYourOS'
 import { api } from '../lib/api'
 
 vi.mock('../lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
@@ -48,12 +48,12 @@ beforeAll(() => {
 function renderPage() {
   return render(
     <MemoryRouter>
-      <AboutMyOS />
+      <AboutYourOS />
     </MemoryRouter>
   )
 }
 
-describe('AboutMyOS page', () => {
+describe('AboutYourOS page', () => {
   beforeEach(() => {
     mockedGet.mockReset()
     mockApiResponses()

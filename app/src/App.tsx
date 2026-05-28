@@ -48,7 +48,7 @@ import AdminAuditTrail from './pages/admin/AuditTrail'
 import AdminSecurity from './pages/admin/Security'
 import InviteAccept from './pages/InviteAccept'
 import PrivacyPolicy from './pages/PrivacyPolicy'
-import AboutMyOS from './pages/AboutMyOS'
+import AboutYourOS from './pages/AboutYourOS'
 import AgentfileEditor from './pages/AgentfileEditor'
 import MySetup from './pages/MySetup'
 
@@ -200,7 +200,7 @@ export default function App() {
           <Route path="settings/rules" element={<SettingsRules />} />
           <Route path="settings/upgrade" element={<Upgrade />} />
           <Route path="privacy" element={<PrivacyPolicy />} />
-          <Route path="about" element={<AboutMyOS />} />
+          <Route path="about" element={<AboutYourOS />} />
           <Route path="my-setup" element={<MySetup />} />
           <Route path="gems" element={<MyGems />} />
 
