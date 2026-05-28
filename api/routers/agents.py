@@ -4597,6 +4597,15 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                 body.name, _brief_warning.trigger_word,
             )
 
+    # MYOS_SPAWN_USE_OSTK_RUN exit criteria (retire this fallback when ALL hold):
+    #   1. All 3 isolation modes (worktree, container, none) verified working via ostk run
+    #   2. Scaffold-commit watcher works on ostk run worktrees (worktree_path metadata threaded through)
+    #   3. Runtime probe passes for each provider (claude_code_provider, gemini_cli_provider)
+    #   4. scripts/e2e_smoke.sh green with MYOS_SPAWN_USE_OSTK_RUN=1 forced as default
+    # When all 4 hold: flip MYOS_SPAWN_USE_OSTK_RUN default to 1, delete bespoke path, delete this flag.
+    # See docs/adr/2026-05-28-myos-spawn-use-ostk-run-exit-criteria.md and spec AC3 in
+    # docs/spec/adopt-claude-code-s-good-ideas-into-myos-as-vendor-agnostic-abstractions.md
+    #
     # --- ostk run path: env-level canonical (MYOS_SPAWN_USE_OSTK_RUN=1, →1305) or per-request opt-in ---
     # MYOS_SPAWN_USE_OSTK_RUN=1 makes `ostk run <Agentfile>` the default for every spawn.
     # The bespoke claude-code subprocess path is the fallback when:
