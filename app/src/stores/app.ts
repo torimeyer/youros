@@ -116,6 +116,10 @@ interface AppState {
   setChatWidth: (w: number) => void
   isResizing: boolean
   setIsResizing: (v: boolean) => void
+  sidebarWidth: number
+  setSidebarWidth: (w: number) => void
+  isSidebarResizing: boolean
+  setIsSidebarResizing: (v: boolean) => void
   osName: string
   setOsName: (name: string) => void
   // Per-instance name. myOS is the product. Every user picks what their
@@ -215,6 +219,7 @@ const LS_KEYS = {
   customAgentTemplates: 'myos-custom-templates',
   dashboardWidgets: 'myos-dashboard-widgets',
   chatWidth: 'myos-chat-width',
+  sidebarWidth: 'myos-sidebar-width',
   featureOrder: 'myos-feature-order',
   sidebarPosition: 'myos-sidebar-position',
   compactMode: 'myos-compact-mode',
@@ -242,6 +247,14 @@ export const HYDRATION_ENTERPRISE_TIMEOUT_MS = 5000
 // plus a sliver of main content so nothing gets hidden behind the chat.
 export const CHAT_WIDTH_MIN = 280
 export const CHAT_WIDTH_RESERVED_FOR_REST = 320
+
+export const SIDEBAR_WIDTH_DEFAULT = 224
+export const SIDEBAR_WIDTH_MIN = 200
+export const SIDEBAR_WIDTH_MAX = 400
+
+export function clampSidebarWidth(width: number): number {
+  return Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, Math.round(width)))
+}
 
 export function clampChatWidth(width: number, viewportWidth: number): number {
   const ceiling = Math.max(CHAT_WIDTH_MIN, viewportWidth - CHAT_WIDTH_RESERVED_FOR_REST)
@@ -295,6 +308,17 @@ function readInitialChatWidth(): number {
   }
   return clampChatWidth(Math.floor(viewport / 3), viewport)
 }
+function readInitialSidebarWidth(): number {
+  const raw = lsGet(LS_KEYS.sidebarWidth)
+  if (raw) {
+    const parsed = Number(raw)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return clampSidebarWidth(parsed)
+    }
+  }
+  return SIDEBAR_WIDTH_DEFAULT
+}
+
 
 const initialOnboarded = lsGet(LS_KEYS.onboarded) === 'true'
 const initialDarkMode = lsGet(LS_KEYS.darkMode) !== 'false'
@@ -405,6 +429,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   isResizing: false,
   setIsResizing: (isResizing) => set({ isResizing }),
+  sidebarWidth: readInitialSidebarWidth(),
+  setSidebarWidth: (sidebarWidth) => {
+    const clamped = clampSidebarWidth(sidebarWidth)
+    lsSet(LS_KEYS.sidebarWidth, String(clamped))
+    set({ sidebarWidth: clamped })
+  },
+  isSidebarResizing: false,
+  setIsSidebarResizing: (isSidebarResizing) => set({ isSidebarResizing }),
   osName: initialOsName,
   setOsName: (osName) => {
     lsSet(LS_KEYS.osName, osName)

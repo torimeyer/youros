@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import {
   DndContext,
@@ -332,10 +332,18 @@ export function Sidebar() {
   const sidebarPosition = useAppStore((s) => s.sidebarPosition)
   const iconStyle = useAppStore((s) => s.iconStyle)
   const statusDotStyle = useAppStore((s) => s.statusDotStyle)
+  const sidebarWidth = useAppStore((s) => s.sidebarWidth)
+  const setSidebarWidth = useAppStore((s) => s.setSidebarWidth)
+  const isSidebarResizing = useAppStore((s) => s.isSidebarResizing)
+  const setIsSidebarResizing = useAppStore((s) => s.setIsSidebarResizing)
   const darkMode = useAppStore((s) => s.darkMode)
   const toggleDarkMode = useAppStore((s) => s.toggleDarkMode)
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
+
+  const handleSidebarMouseDown = useCallback(() => {
+    setIsSidebarResizing(true)
+  }, [setIsSidebarResizing])
 
   const activeAgents = useRunningAgentsStore((s) => s.count)
   const [openTasksCount, setOpenTasksCount] = useState(0)
@@ -379,6 +387,59 @@ export function Sidebar() {
       return next
     })
   }
+
+  useEffect(() => {
+    if (!isSidebarResizing) return
+
+    let pendingWidth: number | null = null
+    let rafId: number | null = null
+
+    const flush = () => {
+      rafId = null
+      if (pendingWidth !== null) {
+        setSidebarWidth(pendingWidth)
+        pendingWidth = null
+      }
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      pendingWidth = sidebarPosition === 'right'
+        ? window.innerWidth - e.clientX
+        : e.clientX
+      if (rafId === null) {
+        rafId = typeof requestAnimationFrame !== 'undefined'
+          ? requestAnimationFrame(flush)
+          : (setTimeout(flush, 16) as unknown as number)
+      }
+    }
+
+    const handleMouseUp = () => {
+      if (pendingWidth !== null) {
+        setSidebarWidth(pendingWidth)
+        pendingWidth = null
+      }
+      setIsSidebarResizing(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      if (rafId !== null) {
+        if (typeof cancelAnimationFrame !== 'undefined') {
+          cancelAnimationFrame(rafId)
+        } else {
+          clearTimeout(rafId)
+        }
+      }
+    }
+  }, [isSidebarResizing, setSidebarWidth, setIsSidebarResizing, sidebarPosition])
 
 
   useEffect(() => {
@@ -624,7 +685,12 @@ export function Sidebar() {
         />
       )}
 
-    <aside data-tour="sidebar" className={`h-dvh w-56 fixed top-0 ${sidebarPosition === 'right' ? 'right-0 border-l' : 'left-0 border-r'} border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50 transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : sidebarPosition === 'right' ? 'translate-x-full' : '-translate-x-full'} lg:translate-x-0`}>
+    <aside data-tour="sidebar" style={{ width: sidebarWidth }} className={`h-dvh fixed top-0 ${sidebarPosition === 'right' ? 'right-0 border-l' : 'left-0 border-r'} border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50 transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : sidebarPosition === 'right' ? 'translate-x-full' : '-translate-x-full'} lg:translate-x-0`}>
+      {/* Resize handle (hidden on mobile) */}
+      <div
+        onMouseDown={handleSidebarMouseDown}
+        className={`hidden lg:block absolute top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/30 transition-colors z-10 ${sidebarPosition === 'right' ? 'left-0' : 'right-0'}`}
+      />
       <div className="px-5 mb-8">
         <span data-testid="sidebar-os-name" className="text-xl font-black tracking-tight accent-text">{displayOsName}</span>
         {TEAM_MODE_VISIBLE && (
