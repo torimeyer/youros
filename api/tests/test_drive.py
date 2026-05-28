@@ -686,8 +686,10 @@ async def test_drive_preview_cache_miss_exports_pdf(client, tmp_path):
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
         patch("routers.drive.DRIVE_CACHE_DIR", cache_dir),
-        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
-        patch("routers.drive._export_as_pdf", new=AsyncMock(return_value=fake_pdf)),
+        patch(
+            "routers.drive._fetch_meta_and_pdf_if_exportable",
+            new=AsyncMock(return_value=(fake_meta, fake_pdf)),
+        ),
     ):
         resp = await client.get("/api/drive/files/doc-id/preview")
 
@@ -718,7 +720,10 @@ async def test_drive_preview_non_exportable_returns_json(client, tmp_path):
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
         patch("routers.drive.DRIVE_CACHE_DIR", cache_dir),
-        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+        patch(
+            "routers.drive._fetch_meta_and_pdf_if_exportable",
+            new=AsyncMock(return_value=(fake_meta, None)),
+        ),
     ):
         resp = await client.get("/api/drive/files/zip-id/preview")
 

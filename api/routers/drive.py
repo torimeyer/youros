@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import secrets
+import threading
 import time
 from pathlib import Path
 
@@ -363,6 +364,34 @@ def _build_drive_service():
     return build("drive", "v3", credentials=creds)
 
 
+# Module-scope cache for the Drive service object.
+# Keyed by (token_path, token_mtime) so it automatically invalidates when
+# the token file changes (OAuth refresh) or when tests swap TOKEN_PATH.
+_svc_cache: dict = {}
+_svc_lock = threading.Lock()
+
+
+def _get_cached_drive_service():
+    """Return a cached Drive service, rebuilding on token change or 30-min TTL."""
+    from services.google_auth import TOKEN_PATH as _tp
+    try:
+        mtime = _tp.stat().st_mtime if _tp.exists() else 0.0
+    except OSError:
+        mtime = 0.0
+    with _svc_lock:
+        c = _svc_cache
+        if (
+            c.get("tp") == _tp
+            and c.get("mt") == mtime
+            and time.time() < c.get("exp", 0.0)
+            and c.get("svc") is not None
+        ):
+            return c["svc"]
+        svc = _build_drive_service()
+        c.update({"tp": _tp, "mt": mtime, "exp": time.time() + 1800, "svc": svc})
+        return svc
+
+
 @router.get("/drive/files")
 async def drive_files(
     q: Optional[str] = Query(None, description="Search query"),
@@ -447,7 +476,7 @@ async def _fetch_drive_files(
     import asyncio
 
     def _call():
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         query_parts = ["trashed = false"]
         if q:
             query_parts.append(f"name contains '{q.replace(chr(39), '')}'" )
@@ -559,7 +588,7 @@ async def _get_or_create_myos_folder() -> str:
     import asyncio
 
     def _call():
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         for folder_name in (_YOUROS_FOLDER_NAME, _MYOS_FOLDER_NAME):
             results = (
                 service.files()
@@ -625,7 +654,7 @@ async def drive_upload_file(file: UploadFile = File(...)):
     def _call():
         from googleapiclient.http import MediaIoBaseUpload
 
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mime_type, resumable=False)
         meta = {"name": filename, "parents": [folder_id]}
         result = (
@@ -688,7 +717,7 @@ async def drive_create_folder(body: FolderCreateBody):
         raise HTTPException(status_code=400, detail="Folder name cannot be empty.")
 
     def _call():
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         meta = {
             "name": folder_name,
             "mimeType": "application/vnd.google-apps.folder",
@@ -739,7 +768,7 @@ async def drive_delete_file(file_id: str):
     import asyncio
 
     def _call():
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         service.files().update(fileId=file_id, body={"trashed": True}).execute()
 
     try:
@@ -838,9 +867,11 @@ async def drive_file_preview(file_id: str):
             pdf_bytes = cache_path.read_bytes()
             return Response(content=pdf_bytes, media_type="application/pdf")
 
-    # Fetch file metadata.
+    # Fetch metadata and, for Google-native files, export as PDF in a single
+    # executor call so we reuse the cached service and avoid a second thread-pool
+    # dispatch.  pdf_bytes is None for non-exportable mime types.
     try:
-        meta = await _get_file_meta(file_id)
+        meta, pdf_bytes = await _fetch_meta_and_pdf_if_exportable(file_id)
     except Exception as exc:
         exc_str = str(exc).lower()
         if "invalid_grant" in exc_str or "token has been expired" in exc_str or "revoked" in exc_str:
@@ -857,15 +888,6 @@ async def drive_file_preview(file_id: str):
     web_view_link = meta.get("webViewLink", "")
 
     if mime in _EXPORTABLE_MIME:
-        # Export as PDF via the Drive API.
-        try:
-            pdf_bytes = await _export_as_pdf(file_id)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Could not export file as PDF: {exc}",
-            ) from exc
-
         DRIVE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         cache_path.write_bytes(pdf_bytes)
         return Response(content=pdf_bytes, media_type="application/pdf")
@@ -933,7 +955,7 @@ async def _get_file_meta(file_id: str) -> dict:
     import asyncio
 
     def _call():
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         return (
             service.files()
             .get(
@@ -954,7 +976,7 @@ async def _export_as_pdf(file_id: str) -> bytes:
     def _call():
         from googleapiclient.http import MediaIoBaseDownload
 
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         request = service.files().export_media(
             fileId=file_id, mimeType="application/pdf"
         )
@@ -968,6 +990,41 @@ async def _export_as_pdf(file_id: str) -> bytes:
     return await asyncio.get_event_loop().run_in_executor(None, _call)
 
 
+async def _fetch_meta_and_pdf_if_exportable(file_id: str) -> tuple[dict, bytes | None]:
+    """Fetch metadata and, in the same executor call, export as PDF if the file is a
+    Google-native type.  Reuses the cached service for both operations so the cold
+    path pays only one service-build + one network round-trip to get metadata, then
+    immediately starts the export without a second thread-pool dispatch.
+
+    Returns (meta, pdf_bytes).  pdf_bytes is None for non-exportable mime types.
+    """
+    import asyncio
+    import io
+
+    def _call():
+        service = _get_cached_drive_service()
+        meta = (
+            service.files()
+            .get(
+                fileId=file_id,
+                fields="id,name,mimeType,webViewLink,size,thumbnailLink",
+            )
+            .execute()
+        )
+        if meta.get("mimeType", "") not in _EXPORTABLE_MIME:
+            return meta, None
+        from googleapiclient.http import MediaIoBaseDownload
+        request = service.files().export_media(fileId=file_id, mimeType="application/pdf")
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return meta, buf.getvalue()
+
+    return await asyncio.get_event_loop().run_in_executor(None, _call)
+
+
 async def _download_file(file_id: str) -> bytes:
     """Download a non-Google-native file's binary content."""
     import asyncio
@@ -976,7 +1033,7 @@ async def _download_file(file_id: str) -> bytes:
     def _call():
         from googleapiclient.http import MediaIoBaseDownload
 
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         request = service.files().get_media(fileId=file_id)
         buf = io.BytesIO()
         downloader = MediaIoBaseDownload(buf, request)
@@ -1000,7 +1057,7 @@ async def _export_office_file_as_pdf(file_id: str, target_google_mime: str) -> b
     def _call():
         from googleapiclient.http import MediaIoBaseDownload
 
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         # Step 1: copy the file as a Google-native format.
         copy_meta = service.files().copy(
             fileId=file_id,
@@ -1073,7 +1130,7 @@ async def _export_sheet_csv(file_id: str) -> str:
     def _call():
         from googleapiclient.http import MediaIoBaseDownload
 
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         request = service.files().export_media(fileId=file_id, mimeType="text/csv")
         buf = io.BytesIO()
         downloader = MediaIoBaseDownload(buf, request)
@@ -1093,7 +1150,7 @@ async def _export_doc_text(file_id: str) -> str:
     def _call():
         from googleapiclient.http import MediaIoBaseDownload
 
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         request = service.files().export_media(fileId=file_id, mimeType="text/plain")
         buf = io.BytesIO()
         downloader = MediaIoBaseDownload(buf, request)
@@ -1293,7 +1350,7 @@ async def _export_doc_html(file_id: str) -> str:
     def _call():
         from googleapiclient.http import MediaIoBaseDownload
 
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         request = service.files().export_media(fileId=file_id, mimeType="text/html")
         buf = io.BytesIO()
         downloader = MediaIoBaseDownload(buf, request)
@@ -1477,7 +1534,7 @@ async def create_doc_from_md(body: CreateDocFromMd):
         import io
         from googleapiclient.http import MediaIoBaseUpload
 
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         media = MediaIoBaseUpload(
             io.BytesIO(content),
             mimetype="text/markdown",
@@ -1525,7 +1582,7 @@ async def replace_doc_from_md(body: ReplaceDocFromMd):
         import io
         from googleapiclient.http import MediaIoBaseUpload
 
-        service = _build_drive_service()
+        service = _get_cached_drive_service()
         media = MediaIoBaseUpload(
             io.BytesIO(content),
             mimetype="text/markdown",
