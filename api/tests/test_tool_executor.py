@@ -69,6 +69,7 @@ class TestToolDefinitions:
             "build_from_recent_tasks",
             "chat_schedule_wakeup",
             "chat_monitor",
+            "semantic_search",
         }
         assert expected == names
 
@@ -984,3 +985,48 @@ class TestTorichatSpawnClosePrelude:
         # No stray placeholder names.
         assert "AGENT_NAME" not in prompt
         assert "<name>" not in prompt
+
+
+# ---- semantic_search ----
+
+class TestSemanticSearch:
+    def test_tool_registered(self):
+        """semantic_search must be in TOOL_DEFINITIONS."""
+        names = {t["name"] for t in TOOL_DEFINITIONS}
+        assert "semantic_search" in names
+
+    def test_tool_schema(self):
+        """semantic_search schema must have query (required) plus scope and limit."""
+        tool = next(t for t in TOOL_DEFINITIONS if t["name"] == "semantic_search")
+        props = tool["input_schema"]["properties"]
+        assert "query" in props
+        assert "scope" in props
+        assert "limit" in props
+        assert tool["input_schema"]["required"] == ["query"]
+
+    @pytest.mark.asyncio
+    async def test_falls_back_when_ostk_unavailable(self, tmp_path, monkeypatch):
+        """When ostk socket raises, semantic_search falls back to grep."""
+        monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
+        (tmp_path / "hello.py").write_text("def greet(): pass\n")
+
+        async def _fake_call_tool(name, arguments=None, timeout=5.0):
+            raise Exception("socket unavailable")
+
+        with patch("services.ostk_socket.call_tool", _fake_call_tool):
+            result = await execute_tool("semantic_search", {"query": "greet"})
+
+        assert "greet" in result
+
+    @pytest.mark.asyncio
+    async def test_returns_ostk_result_when_available(self, monkeypatch):
+        """When ostk socket succeeds, its result is returned directly."""
+        async def _fake_call_tool(name, arguments=None, timeout=5.0):
+            assert name == "search"
+            assert arguments["mode"] == "semantic"
+            return "ostk result: found greet in hello.py"
+
+        with patch("services.ostk_socket.call_tool", _fake_call_tool):
+            result = await execute_tool("semantic_search", {"query": "greet", "scope": "code"})
+
+        assert "ostk result" in result

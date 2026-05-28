@@ -1706,6 +1706,8 @@ def _system_prompt() -> str:
         "a shell or tool call. Just run it. "
         f"Use these tools to help {owner} with whatever they need. "
         "When you need information from the codebase, read files or search. "
+        "For concept-level questions ('how does auth work', 'where is the login flow') "
+        "use semantic_search. For exact pattern matches use search_files. "
         f"When {owner} asks you to change something, use the edit or write tools. "
         "When a task is complex or can run in parallel with other work, use spawn_agent to "
         "create a background agent. When the user says 'spawn' or asks you to run "
