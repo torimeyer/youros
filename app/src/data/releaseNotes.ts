@@ -10,6 +10,17 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v4.0.0
+  {
+    date: '2026-05-28',
+    label: 'May 28, 2026',
+    entries: [
+      {
+        title: 'yourOS',
+        description: 'The app is now yourOS: an OS that knows you. The name puts you at the center. Internal plumbing stays the same; every surface you see says yourOS.',
+      },
+    ],
+  },
   // v3.16.0
   {
     date: '2026-05-13',
@@ -21,15 +32,15 @@ const releaseNotes: ReleaseGroup[] = [
       },
       {
         title: 'iMessage contacts',
-        description: 'Your macOS contacts now show up in myOS so messages can be addressed by name. Loaded from your local Contacts app and stays on your machine.',
+        description: 'Your macOS contacts now show up in yourOS so messages can be addressed by name. Loaded from your local Contacts app and stays on your machine.',
       },
       {
         title: 'See your model usage',
-        description: 'The Costs page now shows your Claude Code subscription quota and Gemini equivalent next to the cost numbers, so you can see what you have left without leaving myOS.',
+        description: 'The Costs page now shows your Claude Code subscription quota and Gemini equivalent next to the cost numbers, so you can see what you have left without leaving yourOS.',
       },
       {
         title: 'PDF and Word doc support for Gems',
-        description: 'Drag a PDF or Word document into a Gem and myOS extracts the text and indexes it. No setup, no extra steps.',
+        description: 'Drag a PDF or Word document into a Gem and yourOS extracts the text and indexes it. No setup, no extra steps.',
       },
       {
         title: 'Rules page',
@@ -37,7 +48,7 @@ const releaseNotes: ReleaseGroup[] = [
       },
       {
         title: 'Delete all data button',
-        description: 'Settings now has a danger-zone button to wipe your local myOS data. Useful for starting fresh.',
+        description: 'Settings now has a danger-zone button to wipe your local yourOS data. Useful for starting fresh.',
       },
       {
         title: 'Faster app startup',
@@ -102,7 +113,7 @@ const releaseNotes: ReleaseGroup[] = [
       },
       {
         title: 'Gemini has its own identity',
-        description: 'When you switch to Gemini, it introduces itself as Gemini rather than taking on the myOS persona. Each AI now speaks as itself.',
+        description: 'When you switch to Gemini, it introduces itself as Gemini rather than taking on the yourOS persona. Each AI now speaks as itself.',
       },
       {
         title: 'Agent template aliases',
@@ -116,11 +127,11 @@ const releaseNotes: ReleaseGroup[] = [
     entries: [
       {
         title: 'ADHD Mode',
-        description: 'Turn it on in Settings and myOS checks in when you\'ve been away, welcomes you back with a summary of where things stand, and offers a focus mode that dims distractions while you\'re heads-down.',
+        description: 'Turn it on in Settings and yourOS checks in when you\'ve been away, welcomes you back with a summary of where things stand, and offers a focus mode that dims distractions while you\'re heads-down.',
       },
       {
         title: 'SDD Wizard',
-        description: 'A step-by-step wizard that drafts a Software Design Doc for any feature. Answer a few questions and myOS fills in context it already knows (open tasks, linked files, recent agents) and saves the spec to your library.',
+        description: 'A step-by-step wizard that drafts a Software Design Doc for any feature. Answer a few questions and yourOS fills in context it already knows (open tasks, linked files, recent agents) and saves the spec to your library.',
       },
       {
         title: 'Agents Insights Tab',
@@ -186,7 +197,7 @@ const releaseNotes: ReleaseGroup[] = [
       },
       {
         title: 'Setup that knows you',
-        description: 'The setup wizard now asks what you actually use myOS for and builds your starter pack around that. Pick your focus and your first agents, specs, and task suggestions are already calibrated to fit.',
+        description: 'The setup wizard now asks what you actually use yourOS for and builds your starter pack around that. Pick your focus and your first agents, specs, and task suggestions are already calibrated to fit.',
       },
       {
         title: 'Brainstorm',
@@ -194,7 +205,7 @@ const releaseNotes: ReleaseGroup[] = [
       },
       {
         title: 'Tasks that read the room',
-        description: 'Write "blocking" or "by Friday" in a task and myOS suggests the right priority for you. Tasks that sit untouched too long quietly drop a level so your urgent list doesn\'t turn into a graveyard.',
+        description: 'Write "blocking" or "by Friday" in a task and yourOS suggests the right priority for you. Tasks that sit untouched too long quietly drop a level so your urgent list doesn\'t turn into a graveyard.',
       },
       {
         title: 'Your AI setup, explained',
@@ -238,7 +249,7 @@ const releaseNotes: ReleaseGroup[] = [
     entries: [
       {
         title: 'Enterprise mode',
-        description: 'Set up an org, invite teammates with magic links or SSO, enforce budget limits and agent permissions, and monitor team usage from the admin dashboard. Everything an IT admin needs to roll out myOS to a team.',
+        description: 'Set up an org, invite teammates with magic links or SSO, enforce budget limits and agent permissions, and monitor team usage from the admin dashboard. Everything an IT admin needs to roll out yourOS to a team.',
       },
       {
         title: 'Smarter chat',
@@ -292,7 +303,7 @@ const releaseNotes: ReleaseGroup[] = [
       },
       {
         title: 'Linear and Jira import',
-        description: 'Migrating from another tool? Import your Linear or Jira issues into myOS with one click. Priorities, statuses, and labels all map over.',
+        description: 'Migrating from another tool? Import your Linear or Jira issues into yourOS with one click. Priorities, statuses, and labels all map over.',
       },
       {
         title: 'Smart briefing with actions',
@@ -300,7 +311,7 @@ const releaseNotes: ReleaseGroup[] = [
       },
       {
         title: 'Agent pattern learning',
-        description: 'myOS tracks which agent setups work well and which keep failing. Proven templates get a green badge. Failing ones get specific suggestions to fix them.',
+        description: 'yourOS tracks which agent setups work well and which keep failing. Proven templates get a green badge. Failing ones get specific suggestions to fix them.',
       },
       {
         title: 'Related context on tasks',

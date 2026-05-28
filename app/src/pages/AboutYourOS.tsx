@@ -146,7 +146,8 @@ export default function AboutYourOS() {
       <TopBar title="About" />
       <main className="pt-24 pb-16 px-8 max-w-3xl mx-auto">
         <div data-testid="about-hero" className="mb-10">
-          <h1 className="text-4xl font-bold text-slate-100 mb-3">yourOS</h1>
+          <h1 className="text-4xl font-bold text-slate-100 mb-1">yourOS</h1>
+          <p className="text-[13px] italic text-slate-500 mb-3">an OS that knows you.</p>
           <p className="text-lg text-slate-400">
             A workspace that remembers your work and coordinates AI agents on your behalf, all
             running locally on your machine.

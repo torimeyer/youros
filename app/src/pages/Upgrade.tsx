@@ -88,7 +88,7 @@ export default function Upgrade() {
         {!loading && !error && status && (
           <div className="flex flex-col gap-4">
             <ComponentCard
-              name="myOS"
+              name="yourOS"
               description="Your personal operating system"
               info={status.myos}
               onUpdate={() => runUpgrade('myos')}
@@ -96,7 +96,7 @@ export default function Upgrade() {
             />
             <ComponentCard
               name="System Engine"
-              description="The task and memory engine powering myOS"
+              description="The task and memory engine powering yourOS"
               info={status.ostk}
               onUpdate={() => runUpgrade('ostk')}
               updating={running === 'ostk' || running === 'both'}

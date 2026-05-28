@@ -873,7 +873,8 @@ function WelcomeStep({ subtextCls }: { subtextCls: string }) {
       <div className="mb-6">
         <Icon name="rocket_launch" size={48} className="text-blue-400" />
       </div>
-      <h1 className="text-3xl font-bold mb-4">Welcome!</h1>
+      <h1 className="text-3xl font-bold mb-1">Welcome!</h1>
+      <p className="text-xs italic text-slate-500 mb-4">an OS that knows you.</p>
       <p className={`${subtextCls} text-lg leading-relaxed`}>
         Let's set up your personal OS. This will only take a minute, and you can
         change everything later in settings.
