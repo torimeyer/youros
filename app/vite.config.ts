@@ -117,6 +117,7 @@ export default defineConfig({
         target: 'https://127.0.0.1:8000',
         secure: false,  // accept self-signed cert (backendAgent also sets rejectUnauthorized:false)
         changeOrigin: true,
+        proxyTimeout: 5000,
         // Also proxy WebSocket upgrade requests under /api (e.g.
         // /api/ws/agents/state). Without ws:true the proxy treats
         // WS handshakes as plain HTTP and the upgrade is rejected.
@@ -155,6 +156,7 @@ export default defineConfig({
         ws: true,
         secure: false,
         changeOrigin: true,
+        proxyTimeout: 5000,
         agent: backendAgent,
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {
