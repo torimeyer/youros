@@ -132,7 +132,7 @@ _ROADMAP_HEADING_RE = re.compile(
     r"milestones?|phases?|initiatives?|deliverables?|"
     r"goals?|epics?|features?|workstreams?|"
     r"q[1-4](?:\s+20\d{2})?"
-    r")\s*$",
+    r")\s*(?:[-—].*)?\s*$",
     re.IGNORECASE,
 )
 
@@ -272,6 +272,45 @@ def parse_roadmap_items(content: str) -> list[str]:
         m = _BULLET_LINE_RE.match(line)
         if m:
             _push(m.group(1))
+
+    # Table pass: scan for markdown tables with an "Initiatives" column.
+    # Handles format: | Quarter | Theme | Initiatives |
+    #                  |---------|-------|-------------|
+    #                  | Q2 2026 | Foo   | A · B · C   |
+    # Column header match is case-insensitive; cells split on · (U+00B7), comma, semicolon.
+    _TABLE_SEP_RE = re.compile(r"^:?-+:?$")
+    _INITIATIVES_HEADER_RE = re.compile(r"^initiatives?$", re.IGNORECASE)
+    _CELL_SPLIT_RE = re.compile(r"\s*[·,;]\s*")
+    initiatives_col: Optional[int] = None
+    separator_seen = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            initiatives_col = None
+            separator_seen = False
+            continue
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        if initiatives_col is None:
+            # Look for header row containing an Initiatives column.
+            for idx, cell in enumerate(cells):
+                clean_cell = re.sub(r"[*_`]", "", cell).strip()
+                if _INITIATIVES_HEADER_RE.match(clean_cell):
+                    initiatives_col = idx
+                    break
+            continue
+        if not separator_seen:
+            # Next row after header should be the separator (---|---|---).
+            if all(_TABLE_SEP_RE.match(c) for c in cells if c):
+                separator_seen = True
+            else:
+                initiatives_col = None
+            continue
+        # Data row: extract and split the initiatives cell.
+        if initiatives_col < len(cells):
+            for part in _CELL_SPLIT_RE.split(cells[initiatives_col]):
+                part = part.strip().strip("*_`").strip()
+                if part:
+                    _push(part)
 
     return items
 

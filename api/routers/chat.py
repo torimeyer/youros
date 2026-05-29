@@ -148,7 +148,8 @@ def _latest_roadmap_path() -> Optional[Path]:
     ``roadmap-*.md`` or any file whose front matter declares
     ``kind: roadmap``.
     """
-    base = MYOS_FILES_DIR
+    from services.files_dir import get_files_dir
+    base = get_files_dir()
     if not base.exists():
         return None
 
