@@ -66,7 +66,7 @@ Run through this before anyone is watching.
 **Say this (verbatim):**
 ```
 I can create a task directly any time I want, and for something bigger I start with a spec first, watch.
-I click Create Spec on this task. I get a draft with acceptance criteria.
+I click Create Spec on this task, and I get a draft with acceptance criteria.
 Each one is a checkbox, and on a spec-driven build the agent cannot start until I mark the spec ready.
 That is the discipline I reach for when the work is big enough to need it, the quick things I just turn straight into a task.
 ```
@@ -80,8 +80,7 @@ Click **Promote**, then on the promoted spec click **Mark Ready**, then click **
 
 **Say this (verbatim):**
 ```
-Now it is building. I don't touch the keyboard again. When every checkbox is done,
-the spec flips to complete automatically. I'll check back in a few minutes.
+Now it is building, and I don't touch the keyboard again, because when every checkbox is done the spec flips itself to complete, so I'll just check back in a few minutes.
 ```
 
 **Navigate away to step 2 immediately.**
@@ -112,9 +111,7 @@ create tasks from this roadmap
 
 **Say this (verbatim):**
 ```
-Two prompts. First I ask for the roadmap. Then I say create tasks from it.
-That's it. The roadmap is a file on my laptop. The tasks are in my queue.
-I didn't type a single task title. I described a direction and it broke it down.
+It's two prompts, first I ask for the roadmap, then I say create tasks from it, and that's really it, because the roadmap is now a file on my laptop and the tasks are in my queue, so I didn't type a single task title, I just described a direction and it broke the whole thing down for me.
 ```
 
 **How this works (because of ostk):** The roadmap command is a hard intercept in the chat layer, which means it never goes through the AI routing, it goes straight to a backend endpoint that reads the markdown file, parses each initiative into a structured task, and writes those tasks into ostk's work queue, so the handoff from "describe a direction" to "runnable tracked tasks" is lossless and auditable.
@@ -160,9 +157,7 @@ saa - add a sound that plays when a task finishes. i'm doing a live demo so make
 
 **Say this (verbatim):**
 ```
-A Gem is a persona I build. It has its own instructions, its own personality.
-It's not a task runner. It's someone I talk to.
-Watch. I'm making one called Weekend Planner.
+A Gem is a persona I build, it has its own instructions and its own personality, and it isn't a task runner, it's someone I talk to, so watch, I'm making one called Weekend Planner.
 ```
 
 **Action (continued):** In the name field, type:
@@ -183,7 +178,7 @@ Click Save. The new Gem appears in the list.
 
 **Say this (verbatim):**
 ```
-Now I'll talk to it.
+Okay, now I'll talk to it, and see what it does with what it already knows about me.
 ```
 
 Type and send:
@@ -220,8 +215,7 @@ That answer should make any skeptical engineer understand this is real software 
 
 **Say this (verbatim, after the responses stream in):**
 ```
-All of them. At the same time. I didn't pick a model first.
-I asked the question and both answered. Then I decide which one I keep.
+All of them at the same time, and I didn't pick a model first, I just asked the question and both of them answered, and then I get to decide which one I keep.
 ```
 
 **How this works (because of ostk):** The All pill hands a single message to ostk's coordination layer, which fans it out to every connected model in parallel and gathers the responses into the same thread, which means you are not locked to one model and you never have to switch tabs or re-type the question to compare answers.
@@ -242,8 +236,7 @@ I asked the question and both answered. Then I decide which one I keep.
 
 **Say this (verbatim):**
 ```
-This email has something I need to do. One button. It lands in my task queue,
-with the subject and sender already filled in. I don't touch the keyboard.
+This email has something I need to do, so it's one button, and it lands in my task queue with the subject and the sender already filled in, without me touching the keyboard.
 ```
 
 **Action:** Click **Create task** on any message.
@@ -269,8 +262,7 @@ add to calendar that Pepper and I have a hair appointment on June 6th at 11am
 
 **Say this (verbatim):**
 ```
-Natural language. No date picker. No form. I just said it.
-The event is in my Google Calendar right now, not in a separate app's calendar.
+It's just natural language, there's no date picker and no form, I simply said it, and the event is in my Google Calendar right now, not in some separate app's calendar.
 ```
 
 **Navigate to the Calendar page and show the June 6th event.**
@@ -293,8 +285,7 @@ The event is in my Google Calendar right now, not in a separate app's calendar.
 
 **Say this (verbatim):**
 ```
-This reads directly from the Messages database on this laptop.
-My actual conversations. Nothing is synced to a server.
+This reads directly from the Messages database on this laptop, so these are my actual conversations, and nothing is synced off to a server.
 ```
 
 **Action:** Type and send:
@@ -304,7 +295,7 @@ yayyy it's friday!
 
 **Say this (verbatim):**
 ```
-Sent. Real iMessage. From inside the app. Scott got that on his phone.
+And it's sent, a real iMessage from inside the app, so Scott just got that on his phone.
 ```
 
 **How this works (because of ostk):** The iMessage backend reads the macOS Messages database using the same SQLite file the Messages app writes to, and sends through AppleScript so the message goes through the real Messages app on your laptop, which means iMessage end-to-end encryption is intact and nothing touches an external server.
@@ -325,17 +316,14 @@ Sent. Real iMessage. From inside the app. Scott got that on his phone.
 
 **Say this (verbatim):**
 ```
-These are my custom commands. I type 'standup' in chat and it writes my update from recent activity.
-I type 'brainstorm' and it goes into idea mode. One word. I defined what it does.
+These are my custom commands, so I type standup in chat and it writes my update from my recent activity, or I type brainstorm and it drops into idea mode, and it's one word for me, because I defined what each one does.
 ```
 
 **Action (part 2):** Scroll to the **ADHD mode** section.
 
 **Say this (verbatim):**
 ```
-ADHD mode puts a pulse in the corner when an agent is running, so I don't forget
-it's there and go do something else for an hour. It also checks in with me at an interval I set.
-I built this because I needed it.
+ADHD mode puts a pulse in the corner whenever an agent is running, so I don't forget it's there and wander off for an hour, and it also checks in with me at an interval I set, and I built this one because I genuinely needed it.
 ```
 
 **How this works (because of ostk):** Custom verbs are stored in ostk's language layer, so when you type one in chat the routing layer expands it into the full instruction before the model ever sees it, which means the command is one word for you and a full prompt for the model, and adding a new one takes about 10 seconds in Settings.
@@ -358,9 +346,7 @@ I built this because I needed it.
 
 **Say this (verbatim):**
 ```
-This is the fleet. Every template declares the MCPs it leans on, these blue chips.
-A calendar agent highlights the calendar MCP, a coding agent the file system and shell.
-On top of what it declares, each agent also gets the MCPs I've enabled across my whole workspace.
+This is the fleet, and every template declares the MCPs it leans on, which are these blue chips, so a calendar agent highlights the calendar MCP, and a coding agent the file system and shell, and on top of what it declares, each agent also gets whatever MCPs I've enabled across my whole workspace.
 ```
 
 **How this works (because of ostk):** Each template declares the MCP servers it expects to use, which is what the blue chips show, and the note underneath lists the MCPs you've enabled workspace-wide that every agent also receives, so what a template shows you is its declared set plus your global set, not a hard lock to only the declared ones.
@@ -424,7 +410,7 @@ Use these as anchors. They are the things people repeat after.
 > "I'm going to kick off two things at the start that take a few minutes, and then show you everything else while those run. Watch."
 
 **Closing line (after step 10, when background jobs have landed):**
-> "Those finished while we were talking. Every step of what you just saw was built the same way. I directed it. I didn't write it. That is the whole point."
+> "Those finished while we were talking, and every step of what you just saw was built the same way, I directed it and I didn't write it, and that is the whole point."
 
 ---
 
