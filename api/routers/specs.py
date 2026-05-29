@@ -604,9 +604,13 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                 r = compute_spec_readiness(abs_path)
                 d["clear_to_build"] = r.ready
                 d["clear_to_build_checks"] = r.as_dict()["checks"]
-                if not r.ready:
+                # Readiness is a pre-build signal ("is this ready to build?").
+                # A spec that is already complete/done must never be flagged
+                # "needs clarity" — the build decision is moot once it shipped.
+                _status = d.get("status")
+                if not r.ready and _status not in ("complete", "done", "archived"):
                     d["needs_clarity"] = True
-                    if d.get("status") in ("ready", "spec"):
+                    if _status in ("ready", "spec"):
                         d["effective_status"] = "draft"
         except Exception:
             for d in docs:

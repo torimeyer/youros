@@ -543,9 +543,9 @@ async def test_from_template_creates_ready_plan(
     # displays them in the acceptance criteria section.
     assert "- [ ]" in body
 
-    # Decompose is NOT fired by this endpoint. It runs later when the
-    # user clicks Build it, which matches the Wave 2 create_draft path.
-    assert decompose_calls["count"] == 0
+    # Decompose fires at promote: every promoted spec gets tasks immediately
+    # (decompose-at-promote strategy), so this endpoint decomposes exactly once.
+    assert decompose_calls["count"] == 1
 
 
 @pytest.mark.asyncio
