@@ -1197,12 +1197,22 @@ async def _terminate_with_sigkill_fallback(proc) -> bool:
             # Still alive after grace period. Escalate to SIGKILL.
             try:
                 if hasattr(proc, 'kill'):
-                    proc.kill()  # SIGKILL
+                    proc.kill()  # SIGKILL to the process
                 elif hasattr(proc, 'pid'):
                     import os
                     os.kill(proc.pid, signal.SIGKILL)
             except (ProcessLookupError, OSError):
                 pass
+            # Kill the entire process group so children (e.g. a pytest run
+            # spawned directly by the agent subprocess) are not left as
+            # ppid=1 orphans. With start_new_session=True the agent's pgid
+            # equals its own pid; os.getpgid raises OSError if already gone.
+            if hasattr(proc, 'pid'):
+                try:
+                    import os as _os
+                    _os.killpg(_os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass
 
     asyncio.create_task(_ensure_dead())
     return True

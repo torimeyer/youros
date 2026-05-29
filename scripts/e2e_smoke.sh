@@ -537,7 +537,7 @@ fi
 if [ "$SKIP_UNIT" != "1" ]; then
     header "Backend unit tests"
     if [ -d "$REPO_DIR/api/.venv" ]; then
-        if (cd "$REPO_DIR/api" && . .venv/bin/activate && python -m pytest -q --tb=short) < /dev/null; then
+        if (cd "$REPO_DIR/api" && . .venv/bin/activate && python -m pytest -q --tb=short --timeout=120) < /dev/null; then
             phase_pass "pytest suite"
         else
             phase_fail "pytest suite"

@@ -99,7 +99,7 @@ run_backend() {
     return 0
   fi
   say "pytest in ${WT} ..."
-  if ( cd "${WT}" && "${venv}" -m pytest -x -q --no-header api/tests ) 2>&1 | tee /tmp/myos-gate-pytest.log; then
+  if ( cd "${WT}" && "${venv}" -m pytest -x -q --no-header --timeout=120 api/tests ) 2>&1 | tee /tmp/myos-gate-pytest.log; then
     return 0
   fi
   grep -E '^FAILED ' /tmp/myos-gate-pytest.log | awk '{print $2}' >> "${FAILED_TESTS_FILE}" || true

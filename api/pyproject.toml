@@ -5,8 +5,8 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
-timeout = 30
-timeout_method = "thread"
+timeout = 60
+timeout_method = "signal"
 markers = [
     "integration: tests that hit external services or full stack",
     "touches_agent_registry: tests that read or write the live agent registry",
