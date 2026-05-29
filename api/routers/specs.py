@@ -2449,10 +2449,19 @@ async def build_spec(spec_path: str, model: Optional[str] = None):
         }
 
     agent_configs = await _resolve_task_configs(spec_path)
+    # Builders run a Claude Code subprocess (claude --print), which cannot run
+    # Gemini: passing @gemini silently no-ops with a 142-byte transcript. If a
+    # Gemini build is requested, degrade to a Claude model and tell the user
+    # builds run on Claude (their Gemini preference still applies to chat). (->1933)
+    builds_on_claude_note = ""
+    effective_model = model
+    if effective_model in ("gemini", "@gemini"):
+        effective_model = None
+        builds_on_claude_note = " Builds run on Claude; your Gemini preference still applies to chat."
     # Override model on every cfg so _spawn_one picks it up.
-    if model and agent_configs:
+    if effective_model and agent_configs:
         for cfg in agent_configs:
-            cfg["model"] = model
+            cfg["model"] = effective_model
 
     if not agent_configs:
         # Cascade returned empty -> the spec has no unchecked ACs.
@@ -2565,6 +2574,9 @@ async def build_spec(spec_path: str, model: Optional[str] = None):
         # Claude model regardless of chat preference.
         cfg_model = cfg.get("model")
         chosen_model = cfg_model or "sonnet"
+        # Never hand a Gemini model to claude --print (142-byte no-op). (->1933)
+        if chosen_model in ("gemini", "@gemini"):
+            chosen_model = "sonnet"
         body = AgentSpawn(
             name=name,
             prompt=prompt_with_close,
@@ -2640,6 +2652,7 @@ async def build_spec(spec_path: str, model: Optional[str] = None):
     message = f"Spawned {count} agent{'s' if count != 1 else ''} to build this spec. Watch the Agents tab."
     if failures:
         message += f" {len(failures)} failed: {'; '.join(failures)}"
+    message += builds_on_claude_note
     return {"agents": spawned, "message": message, "task_ids": [
         cfg.get("task_id") for cfg in agent_configs if cfg.get("task_id")
     ]}

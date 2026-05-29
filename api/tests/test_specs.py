@@ -134,6 +134,40 @@ async def test_build_vision_spec_has_no_build_phase(client, tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_build_gemini_degrades_to_claude_with_note(client, tmp_path, monkeypatch):
+    """A Gemini build degrades to a Claude model with an honest note (phase 3 ->1933)."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+    import routers.agents as agents_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    spec = tmp_path / "docs" / "spec" / "gem-build.md"
+    spec.write_text(
+        "---\ntitle: Gem\nstatus: spec\ntype: engineering\n---\n\n- [ ] One\n"
+    )
+
+    async def fake_spec_build(path):
+        return {"agents": [{"name": "spec-gem-1", "task_id": "1", "task_title": "One", "prompt": "Build 1"}]}
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", fake_spec_build)
+
+    captured: dict = {}
+
+    async def fake_spawn_agent(body):
+        captured["model"] = body.model
+        return {"agent": body.name}
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    resp = await client.post("/api/specs/docs/spec/gem-build.md/build?model=gemini")
+    assert resp.status_code == 200
+    data = resp.json()
+    # Builder must NOT be handed a Gemini model (would 142-byte no-op on claude --print).
+    assert captured["model"] not in ("gemini", "@gemini")
+    assert "Builds run on Claude" in data["message"]
+
+
+@pytest.mark.asyncio
 async def test_create_draft_leaves_as_draft_when_ac_generation_fails(
     client, tmp_path, monkeypatch
 ):
@@ -3097,9 +3131,10 @@ async def test_doc_draft_refuses_hooks_shaped_titles():
 
 @pytest.mark.asyncio
 async def test_build_spec_with_gemini_model(client, tmp_path, monkeypatch):
-    """POST /api/specs/{path}/build?model=gemini routes the spawn payload
-    with model='gemini'. The model is injected into every cfg dict before
-    _spawn_one picks it up, so AgentSpawn.model ends up as 'gemini'."""
+    """POST /api/specs/{path}/build?model=gemini degrades to a Claude model.
+    Builders run a claude --print subprocess that cannot run Gemini, so the
+    @gemini model must NOT reach the spawn (it would silently no-op); the
+    response says builds run on Claude. (->1933)"""
     from services import ostk as ostk_module
     from routers import specs as specs_router
 
@@ -3142,9 +3177,12 @@ async def test_build_spec_with_gemini_model(client, tmp_path, monkeypatch):
     data = resp.json()
     assert data["agents"] == ["build-gemini-test-101"]
     assert len(spawned) == 1
-    assert spawned[0]["model"] == "gemini", (
-        f"Expected model='gemini', got {spawned[0]['model']!r}"
+    # Builders run claude --print, which cannot run Gemini; @gemini must NOT
+    # reach the spawn (it would silently no-op). It degrades to Claude. (->1933)
+    assert spawned[0]["model"] not in ("gemini", "@gemini"), (
+        f"Gemini must not reach claude --print; got {spawned[0]['model']!r}"
     )
+    assert "Builds run on Claude" in data["message"]
 
 
 @pytest.mark.asyncio
