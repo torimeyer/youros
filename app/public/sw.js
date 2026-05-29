@@ -186,7 +186,10 @@ self.addEventListener('push', function (event) {
     icon: '/favicon.svg',
     badge: '/favicon.svg',
     tag: data.tag || 'myos',
-    renotify: true,
+    renotify: false,
+    // Keep web push unobtrusive: no audible alert and no re-alert on repeat
+    // pushes. The in-app toast already surfaces the event visually.
+    silent: true,
     data: { url: data.url || '/' },
   };
 

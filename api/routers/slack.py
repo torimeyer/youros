@@ -190,6 +190,26 @@ async def save_slack_credentials(body: SlackCredentials):
     return {"ok": True, "configured": True}
 
 
+class SlackTokenConnect(BaseModel):
+    access_token: str
+    app_id: Optional[str] = ""
+
+
+@router.post("/slack/connect-token")
+async def slack_connect_token(body: SlackTokenConnect):
+    """Connect Slack by pasting a Bot Access Token + App ID.
+
+    Uses Slack's own terms: the user copies their Access Token (starts with
+    xoxb-) and App ID from their Slack app instead of running the OAuth
+    round-trip. The token is validated live against Slack before we store it.
+    """
+    try:
+        result = await slack_service.connect_with_token(body.access_token, body.app_id or "")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"connected": True, **result}
+
+
 @router.delete("/slack/disconnect")
 async def slack_disconnect(team_id: Optional[str] = None):
     """Remove Slack tokens and disconnect. Pass team_id to disconnect a specific workspace."""

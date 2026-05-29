@@ -367,3 +367,73 @@ class TestSlackService:
         assert "C2" in ids, "non-member public channel must be included (→1705 fix)"
         assert "C3" in ids, "member private channel must be included"
         assert "C4" in ids, "channel with no is_member field must be included"
+
+
+# --- POST /api/slack/connect-token (paste Access Token + App ID) ---
+
+@pytest.mark.asyncio
+async def test_connect_with_token_validates_and_stores():
+    """A live xoxb- token is validated via auth.test, then stored."""
+    from services import slack as slack_service
+
+    auth_resp = MagicMock()
+    auth_resp.json.return_value = {"ok": True, "team_id": "T123", "team": "Acme Inc", "user_id": "U1"}
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value.post = AsyncMock(return_value=auth_resp)
+
+    with patch("services.slack.httpx.AsyncClient", return_value=mock_client):
+        with patch("services.slack.add_workspace") as mock_add:
+            result = await slack_service.connect_with_token("xoxb-real", "A0APP")
+
+    assert result == {"team_id": "T123", "team_name": "Acme Inc"}
+    stored = mock_add.call_args[0][0]
+    assert stored["access_token"] == "xoxb-real"
+    assert stored["app_id"] == "A0APP"
+    assert stored["workspace_id"] == "T123"
+    assert stored["workspace_name"] == "Acme Inc"
+
+
+@pytest.mark.asyncio
+async def test_connect_with_token_rejects_dead_token():
+    """A dead token (auth.test ok=false) is rejected and never stored."""
+    from services import slack as slack_service
+
+    auth_resp = MagicMock()
+    auth_resp.json.return_value = {"ok": False, "error": "invalid_auth"}
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value.post = AsyncMock(return_value=auth_resp)
+
+    with patch("services.slack.httpx.AsyncClient", return_value=mock_client):
+        with patch("services.slack.add_workspace") as mock_add:
+            with pytest.raises(RuntimeError, match="invalid_auth"):
+                await slack_service.connect_with_token("xoxb-dead", "")
+    mock_add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_connect_with_token_requires_token():
+    """An empty token is rejected before any network call."""
+    from services import slack as slack_service
+
+    with pytest.raises(RuntimeError, match="xoxb-"):
+        await slack_service.connect_with_token("   ", "")
+
+
+@pytest.mark.asyncio
+async def test_connect_token_endpoint(client):
+    """POST /slack/connect-token returns connected:true on a good token."""
+    with patch("routers.slack.slack_service") as mock_svc:
+        mock_svc.connect_with_token = AsyncMock(return_value={"team_id": "T1", "team_name": "Acme"})
+        resp = await client.post("/api/slack/connect-token", json={"access_token": "xoxb-x", "app_id": "A1"})
+    assert resp.status_code == 200
+    assert resp.json() == {"connected": True, "team_id": "T1", "team_name": "Acme"}
+
+
+@pytest.mark.asyncio
+async def test_connect_token_endpoint_rejects_bad_token(client):
+    """A RuntimeError from the service becomes a 400 with the message."""
+    with patch("routers.slack.slack_service") as mock_svc:
+        mock_svc.connect_with_token = AsyncMock(side_effect=RuntimeError("Slack rejected that token: invalid_auth"))
+        resp = await client.post("/api/slack/connect-token", json={"access_token": "xoxb-dead"})
+    assert resp.status_code == 400
+    assert "invalid_auth" in resp.json()["detail"]

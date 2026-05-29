@@ -18,6 +18,7 @@ vi.mock('../lib/api', async () => {
 import { api } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
+const mockedApiPost = vi.mocked(api.post)
 const mockedApiDelete = vi.mocked(api.delete)
 
 Object.defineProperty(window, 'matchMedia', {
@@ -34,63 +35,50 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 })
 
-// Capture window.location.href assignments
-const locationHrefSetter = vi.fn()
-Object.defineProperty(window, 'location', {
-  value: { ...window.location, set href(v: string) { locationHrefSetter(v) } },
-  writable: true,
-})
-
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('SlackConnect — disconnected state', () => {
-  it('renders "Connect your Slack workspace" button when not connected', async () => {
-    mockedApiGet.mockResolvedValue({ connected: false, team_name: '', team_id: '', configured: true })
-
-    render(<MemoryRouter><SlackConnect /></MemoryRouter>)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('slack-connect-btn')).toBeInTheDocument()
-    })
-    expect(screen.getByText(/Connect your Slack workspace/i)).toBeInTheDocument()
-  })
-
-  it('navigates to /api/auth/slack/login when button is clicked', async () => {
-    mockedApiGet.mockResolvedValue({ connected: false, team_name: '', team_id: '', configured: true })
-
-    render(<MemoryRouter><SlackConnect /></MemoryRouter>)
-
-    await waitFor(() => screen.getByTestId('slack-connect-btn'))
-    fireEvent.click(screen.getByTestId('slack-connect-btn'))
-
-    expect(locationHrefSetter).toHaveBeenCalledWith('/api/auth/slack/login')
-  })
-
-  it('shows inline credential form when configured is false', async () => {
+describe('SlackConnect disconnected state', () => {
+  it('renders Access Token and App ID inputs when not connected', async () => {
     mockedApiGet.mockResolvedValue({ connected: false, team_name: '', team_id: '', configured: false })
 
     render(<MemoryRouter><SlackConnect /></MemoryRouter>)
 
     await waitFor(() => {
-      expect(screen.getByTestId('slack-client-id-input')).toBeInTheDocument()
-      expect(screen.getByTestId('slack-client-secret-input')).toBeInTheDocument()
+      expect(screen.getByTestId('slack-access-token-input')).toBeInTheDocument()
+      expect(screen.getByTestId('slack-app-id-input')).toBeInTheDocument()
     })
+    expect(screen.getByText(/Connect to Slack/i)).toBeInTheDocument()
   })
 
-  it('shows "One-click sign in" when configured is true', async () => {
-    mockedApiGet.mockResolvedValue({ connected: false, team_name: '', team_id: '', configured: true })
+  it('posts the access token and app id to /slack/connect-token on submit', async () => {
+    mockedApiGet.mockResolvedValue({ connected: false, team_name: '', team_id: '', configured: false })
+    mockedApiPost.mockResolvedValue({ connected: true, team_id: 'T1', team_name: 'Acme' })
 
     render(<MemoryRouter><SlackConnect /></MemoryRouter>)
 
+    await waitFor(() => screen.getByTestId('slack-access-token-input'))
+    fireEvent.change(screen.getByTestId('slack-access-token-input'), { target: { value: 'xoxb-abc' } })
+    fireEvent.change(screen.getByTestId('slack-app-id-input'), { target: { value: 'A001' } })
+    fireEvent.click(screen.getByTestId('slack-connect-btn'))
+
     await waitFor(() => {
-      expect(screen.getByText(/One-click sign in via Slack OAuth/i)).toBeInTheDocument()
+      expect(mockedApiPost).toHaveBeenCalledWith('/slack/connect-token', { access_token: 'xoxb-abc', app_id: 'A001' })
     })
+  })
+
+  it('does not submit when the access token is empty', async () => {
+    mockedApiGet.mockResolvedValue({ connected: false, team_name: '', team_id: '', configured: false })
+
+    render(<MemoryRouter><SlackConnect /></MemoryRouter>)
+
+    await waitFor(() => screen.getByTestId('slack-connect-btn'))
+    expect(screen.getByTestId('slack-connect-btn')).toBeDisabled()
   })
 })
 
-describe('SlackConnect — connected state', () => {
+describe('SlackConnect connected state', () => {
   it('shows workspace name when connected', async () => {
     mockedApiGet.mockResolvedValue({ connected: true, team_name: 'Acme Corp', team_id: 'T1', configured: true })
 

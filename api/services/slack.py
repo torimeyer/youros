@@ -375,3 +375,43 @@ async def exchange_code(
         }
         add_workspace(enriched)
         return enriched
+
+
+async def connect_with_token(access_token: str, app_id: str = "") -> dict:
+    """Connect a workspace by pasting a Slack bot Access Token + App ID.
+
+    This is the "paste your token" path: instead of running the OAuth
+    redirect, the user copies their Bot User OAuth Token (starts with
+    ``xoxb-``) and App ID straight from their Slack app config. We call
+    Slack's ``auth.test`` to (a) prove the token is live and (b) read the
+    workspace identity. A token that fails ``auth.test`` is rejected, so we
+    never store a dead token that makes the UI claim it is connected.
+    """
+    token = (access_token or "").strip()
+    if not token:
+        raise RuntimeError("Paste your Slack bot access token (it starts with xoxb-).")
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{SLACK_API_BASE}/auth.test",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            data = resp.json()
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Could not reach Slack: {exc}") from exc
+    if not data.get("ok"):
+        raise RuntimeError(f"Slack rejected that token: {data.get('error', 'invalid_auth')}")
+    team_id = data.get("team_id", "")
+    team_name = data.get("team", "")
+    enriched = {
+        "access_token": token,
+        "app_id": (app_id or "").strip(),
+        "token_type": "bot",
+        "connected_via": "access_token",
+        "team": {"id": team_id, "name": team_name},
+        "workspace_id": team_id,
+        "workspace_name": team_name,
+        "authed_user": {},
+    }
+    add_workspace(enriched)
+    return {"team_id": team_id, "team_name": team_name}

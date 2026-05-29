@@ -417,8 +417,8 @@ describe('Slack one-click OAuth button', () => {
     fireEvent.click(screen.getByTestId('slack-enter-credentials-link'))
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Client ID')).toBeInTheDocument()
-      expect(screen.getByLabelText('Client Secret')).toBeInTheDocument()
+      expect(screen.getByLabelText('Access Token')).toBeInTheDocument()
+      expect(screen.getByLabelText('App ID')).toBeInTheDocument()
     })
   })
 
@@ -460,7 +460,7 @@ describe('Slack one-click OAuth button', () => {
     renderSlack()
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Client ID')).toBeInTheDocument()
+      expect(screen.getByLabelText('Access Token')).toBeInTheDocument()
     })
 
     expect(screen.queryByTestId('slack-enter-credentials-link')).not.toBeInTheDocument()
@@ -542,8 +542,8 @@ describe('Slack configure form', () => {
     renderSlack()
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Client ID')).toBeInTheDocument()
-      expect(screen.getByLabelText('Client Secret')).toBeInTheDocument()
+      expect(screen.getByLabelText('Access Token')).toBeInTheDocument()
+      expect(screen.getByLabelText('App ID')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /Save/i })).toBeInTheDocument()
     })
   })
@@ -570,7 +570,7 @@ describe('Slack configure form', () => {
     })
   })
 
-  it('submitting the form calls /slack/credentials with entered credentials', async () => {
+  it('submitting the form calls /slack/connect-token with the access token', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path.includes('/slack/status')) {
         return Promise.resolve({ connected: false, team_name: '', team_id: '', configured: false })
@@ -582,17 +582,17 @@ describe('Slack configure form', () => {
     renderSlack()
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Client ID')).toBeInTheDocument()
+      expect(screen.getByLabelText('Access Token')).toBeInTheDocument()
     })
 
-    fireEvent.change(screen.getByLabelText('Client ID'), { target: { value: 'my-client-id' } })
-    fireEvent.change(screen.getByLabelText('Client Secret'), { target: { value: 'my-client-secret' } })
+    fireEvent.change(screen.getByLabelText('Access Token'), { target: { value: 'xoxb-my-token' } })
+    fireEvent.change(screen.getByLabelText('App ID'), { target: { value: 'A001' } })
     fireEvent.click(screen.getByRole('button', { name: /Save/i }))
 
     await waitFor(() => {
-      expect(mockedApiPost).toHaveBeenCalledWith('/slack/credentials', {
-        client_id: 'my-client-id',
-        client_secret: 'my-client-secret',
+      expect(mockedApiPost).toHaveBeenCalledWith('/slack/connect-token', {
+        access_token: 'xoxb-my-token',
+        app_id: 'A001',
       })
     })
   })

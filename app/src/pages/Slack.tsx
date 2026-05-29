@@ -34,7 +34,7 @@ interface SlackWorkspace {
   team_name: string
 }
 
-// Seed from localStorage for instant paint — keyed by team_id to prevent
+// Seed from localStorage for instant paint, keyed by team_id to prevent
 // stale channels from a prior workspace showing after reconnect (→1063).
 const SLACK_CHANNELS_CACHE_KEY = 'myos.slackChannels.v2'
 
@@ -92,8 +92,8 @@ export default function Slack() {
   const [flaggedTs, setFlaggedTs] = useState<Set<string>>(new Set())
   const [needledTs, setNeedledTs] = useState<Set<string>>(new Set())
   const [replyOpenTs, setReplyOpenTs] = useState<string | null>(null)
-  const [clientId, setClientId] = useState('')
-  const [clientSecret, setClientSecret] = useState('')
+  const [accessToken, setAccessToken] = useState('')
+  const [appId, setAppId] = useState('')
   const [configuring, setConfiguring] = useState(false)
   const [configureError, setConfigureError] = useState<string | null>(null)
   const [showCredForm, setShowCredForm] = useState(false)
@@ -205,14 +205,15 @@ export default function Slack() {
 
   const handleConfigure = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!clientId.trim() || !clientSecret.trim()) return
+    if (!accessToken.trim()) return
     setConfiguring(true)
     setConfigureError(null)
     try {
-      await api.post('/slack/credentials', { client_id: clientId.trim(), client_secret: clientSecret.trim() })
+      await api.post('/slack/connect-token', { access_token: accessToken.trim(), app_id: appId.trim() })
       await fetchStatus()
-    } catch {
-      setConfigureError('Could not save Slack credentials. Check that they are correct and try again.')
+    } catch (err) {
+      const detail = (err as { detail?: string })?.detail
+      setConfigureError(detail || 'Slack would not accept that token. Check it and try again.')
     } finally {
       setConfiguring(false)
     }
@@ -352,7 +353,7 @@ export default function Slack() {
                     data-testid="slack-enter-credentials-link"
                     className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline w-full text-center"
                   >
-                    Enter credentials manually
+                    Paste an access token instead
                   </button>
                 </div>
               ) : (
@@ -368,24 +369,24 @@ export default function Slack() {
                     </button>
                   )}
                   <div>
-                    <label htmlFor="slack-client-id" className="block text-slate-600 dark:text-slate-400 mb-1">Client ID</label>
+                    <label htmlFor="slack-access-token" className="block text-slate-600 dark:text-slate-400 mb-1">Access Token</label>
                     <input
-                      id="slack-client-id"
-                      type="text"
-                      value={clientId}
-                      onChange={(e) => setClientId(e.target.value)}
-                      placeholder="Your Slack app client ID"
+                      id="slack-access-token"
+                      type="password"
+                      value={accessToken}
+                      onChange={(e) => setAccessToken(e.target.value)}
+                      placeholder="xoxb-your-bot-access-token"
                       className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
                     />
                   </div>
                   <div>
-                    <label htmlFor="slack-client-secret" className="block text-slate-600 dark:text-slate-400 mb-1">Client Secret</label>
+                    <label htmlFor="slack-app-id" className="block text-slate-600 dark:text-slate-400 mb-1">App ID</label>
                     <input
-                      id="slack-client-secret"
-                      type="password"
-                      value={clientSecret}
-                      onChange={(e) => setClientSecret(e.target.value)}
-                      placeholder="Your Slack app client secret"
+                      id="slack-app-id"
+                      type="text"
+                      value={appId}
+                      onChange={(e) => setAppId(e.target.value)}
+                      placeholder="A0XXXXXXXXX"
                       className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
                     />
                   </div>
@@ -394,7 +395,7 @@ export default function Slack() {
                   )}
                   <button
                     type="submit"
-                    disabled={configuring || !clientId.trim() || !clientSecret.trim()}
+                    disabled={configuring || !accessToken.trim()}
                     className="w-full py-2 bg-purple-600 hover:bg-purple-700 rounded-lg font-medium transition-colors disabled:opacity-50"
                   >
                     {configuring ? 'Saving...' : 'Save'}
