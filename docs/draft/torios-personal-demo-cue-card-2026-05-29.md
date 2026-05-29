@@ -358,12 +358,12 @@ I built this because I needed it.
 
 **Say this (verbatim):**
 ```
-This is the fleet. Every template I can spawn declares which tools it's allowed to use.
-These blue chips are the MCPs. A calendar agent gets the calendar MCP.
-A coding agent gets the file system and shell. Nothing gets access to everything by default.
+This is the fleet. Every template declares the MCPs it leans on, these blue chips.
+A calendar agent highlights the calendar MCP, a coding agent the file system and shell.
+On top of what it declares, each agent also gets the MCPs I've enabled across my whole workspace.
 ```
 
-**How this works (because of ostk):** Agent templates are registered in ostk's catalog with an explicit list of MCP servers they're allowed to call, so when you spawn from a template the agent only gets the tools that template declared, and the workspace MCPs listed at the bottom are the ones enabled globally for every agent, which means access is scoped by design rather than by accident.
+**How this works (because of ostk):** Each template declares the MCP servers it expects to use, which is what the blue chips show, and the note underneath lists the MCPs you've enabled workspace-wide that every agent also receives, so what a template shows you is its declared set plus your global set, not a hard lock to only the declared ones.
 
 **Fallback:** If the Templates tab is empty, switch to Recent and walk through a completed agent transcript. "This agent ran, here is every step it took, here is the file it changed. This is the receipt."
 
@@ -418,7 +418,7 @@ Use these as anchors. They are the things people repeat after.
 7. "Natural language. No date picker. No form. I just said it."
 8. "Real iMessage. From inside the app."
 9. "I type 'standup' in chat and it writes my update from recent activity."
-10. "Nothing gets access to everything by default."
+10. "Every template shows the MCPs it leans on, and each agent also gets my workspace ones."
 
 **Opening line (before step 1):**
 > "I'm going to kick off two things at the start that take a few minutes, and then show you everything else while those run. Watch."
