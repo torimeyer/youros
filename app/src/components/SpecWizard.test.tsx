@@ -108,6 +108,9 @@ describe("SpecWizard", () => {
     fireEvent.click(screen.getByTestId("mode-spec"));
 
     expect(screen.queryByTestId("task-mode")).not.toBeInTheDocument();
+    // Spec mode opens on the Type step; advance to reach Problem.
+    expect(screen.getByTestId("wizard-type")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
     expect(screen.getByTestId("wizard-title")).toBeInTheDocument();
     expect(screen.getByTestId("wizard-problem")).toBeInTheDocument();
   });
@@ -116,7 +119,8 @@ describe("SpecWizard", () => {
     render(<SpecWizard {...defaultProps} />);
     fireEvent.click(screen.getByTestId("mode-spec"));
 
-    // Next button should be disabled or not advance without both fields
+    // Step 1 (Type) advances freely; the Problem step requires title + problem.
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
     const nextBtn = screen.getByRole("button", { name: /next/i });
     expect(nextBtn).toBeDisabled();
   });
@@ -132,7 +136,10 @@ describe("SpecWizard", () => {
     // Switch to spec mode
     fireEvent.click(screen.getByTestId("mode-spec"));
 
-    // Step 1: Problem
+    // Step 1: Type (default engineering) - advance to Problem
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Problem
     fireEvent.change(screen.getByTestId("wizard-title"), {
       target: { value: "Offline mode for mobile" },
     });
@@ -180,7 +187,7 @@ describe("SpecWizard", () => {
     render(<SpecWizard {...defaultProps} />);
 
     fireEvent.click(screen.getByTestId("mode-spec"));
-    expect(screen.getByTestId("wizard-title")).toBeInTheDocument();
+    expect(screen.getByTestId("wizard-type")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("mode-task"));
     expect(screen.getByTestId("task-mode")).toBeInTheDocument();
@@ -194,6 +201,7 @@ describe("SpecWizard", () => {
   it("spec mode shows Produces step between Scope and Criteria", async () => {
     render(<SpecWizard {...defaultProps} />);
     fireEvent.click(screen.getByTestId("mode-spec"));
+    fireEvent.click(screen.getByRole("button", { name: /next/i })); // past Type step
 
     // Fill Problem
     fireEvent.change(screen.getByTestId("wizard-title"), { target: { value: "Q3 strategy" } });
@@ -212,6 +220,7 @@ describe("SpecWizard", () => {
   it("produces step shows all 6 options with Code pre-selected", async () => {
     render(<SpecWizard {...defaultProps} />);
     fireEvent.click(screen.getByTestId("mode-spec"));
+    fireEvent.click(screen.getByRole("button", { name: /next/i })); // past Type step
     fireEvent.change(screen.getByTestId("wizard-title"), { target: { value: "My spec" } });
     fireEvent.change(screen.getByTestId("wizard-problem"), { target: { value: "Some problem" } });
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
@@ -234,6 +243,7 @@ describe("SpecWizard", () => {
 
     render(<SpecWizard {...defaultProps} />);
     fireEvent.click(screen.getByTestId("mode-spec"));
+    fireEvent.click(screen.getByRole("button", { name: /next/i })); // past Type step
 
     // Problem
     fireEvent.change(screen.getByTestId("wizard-title"), { target: { value: "Q3 strategy" } });
@@ -244,12 +254,12 @@ describe("SpecWizard", () => {
     await waitFor(() => expect(screen.getByTestId("wizard-in-scope")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
-    // Produces — pick Document and advance (suggest fires on next transition)
+    // Produces - pick Document and advance (suggest fires on next transition)
     await waitFor(() => expect(screen.getByTestId("produces-document")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("produces-document"));
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
-    // Criteria — auto-suggested via mock, wait for Next to enable
+    // Criteria - auto-suggested via mock, wait for Next to enable
     await waitFor(() => expect(screen.getByRole("button", { name: /next/i })).not.toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
@@ -272,6 +282,7 @@ describe("SpecWizard", () => {
 
     render(<SpecWizard {...defaultProps} />);
     fireEvent.click(screen.getByTestId("mode-spec"));
+    fireEvent.click(screen.getByRole("button", { name: /next/i })); // past Type step
 
     fireEvent.change(screen.getByTestId("wizard-title"), { target: { value: "Code feature" } });
     fireEvent.change(screen.getByTestId("wizard-problem"), { target: { value: "Need code" } });
@@ -281,11 +292,11 @@ describe("SpecWizard", () => {
     await waitFor(() => expect(screen.getByTestId("wizard-in-scope")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
-    // Produces — leave default (Code) and advance (suggest fires on next transition)
+    // Produces - leave default (Code) and advance (suggest fires on next transition)
     await waitFor(() => expect(screen.getByTestId("wizard-produces")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
-    // Criteria — auto-suggested via mock, wait for Next to enable
+    // Criteria - auto-suggested via mock, wait for Next to enable
     await waitFor(() => expect(screen.getByRole("button", { name: /next/i })).not.toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
 
@@ -297,6 +308,51 @@ describe("SpecWizard", () => {
       expect(mockedPost).toHaveBeenLastCalledWith(
         "/specs/wizard/create",
         expect.objectContaining({ produces: "code", kind: "spec" }),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // Type picker (phase 2)
+  // -------------------------------------------------------------------
+
+  it("selecting a spec type sends it in wizard create", async () => {
+    mockedPost
+      .mockResolvedValueOnce({ criteria: ["a"], non_goals: [], after_statement: "" }) // suggest
+      .mockResolvedValueOnce({ path: "docs/spec/vision.md" }); // create
+
+    render(<SpecWizard {...defaultProps} />);
+    fireEvent.click(screen.getByTestId("mode-spec"));
+
+    // Type step: pick Vision, then advance
+    fireEvent.click(screen.getByTestId("spec-type-vision"));
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Problem
+    fireEvent.change(screen.getByTestId("wizard-title"), { target: { value: "3yr vision" } });
+    fireEvent.change(screen.getByTestId("wizard-problem"), { target: { value: "Where we are headed" } });
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Scope
+    await waitFor(() => expect(screen.getByTestId("wizard-in-scope")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Produces
+    await waitFor(() => expect(screen.getByTestId("wizard-produces")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Criteria (vision needs only 1; auto-suggest provides it)
+    await waitFor(() => expect(screen.getByRole("button", { name: /next/i })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Review + submit
+    await waitFor(() => expect(screen.getByTestId("spec-submit")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("spec-submit"));
+
+    await waitFor(() => {
+      expect(mockedPost).toHaveBeenLastCalledWith(
+        "/specs/wizard/create",
+        expect.objectContaining({ type: "vision", kind: "spec" }),
       );
     });
   });

@@ -16,8 +16,17 @@ interface Suggestions {
 
 type Mode = "task" | "spec";
 
-const SPEC_STEPS = ["Problem", "Scope", "Produces", "Criteria", "Review"] as const;
+const SPEC_STEPS = ["Type", "Problem", "Scope", "Produces", "Criteria", "Review"] as const;
 type SpecStep = typeof SPEC_STEPS[number];
+
+type SpecType = "engineering" | "prototype" | "vision" | "customer_docs";
+
+const SPEC_TYPE_OPTIONS: { value: SpecType; label: string; description: string; icon: string }[] = [
+  { value: "engineering", label: "An engineering feature", description: "Code and tasks a builder can ship, with success criteria", icon: "code" },
+  { value: "prototype", label: "A quick prototype", description: "A spike to learn something fast, light on process", icon: "science" },
+  { value: "vision", label: "A vision or roadmap", description: "Where this is headed and how you'll know it's working", icon: "explore" },
+  { value: "customer_docs", label: "Customer-facing docs", description: "A guide or explainer written for a specific audience", icon: "menu_book" },
+];
 
 type ProducesOption = "code" | "agent" | "document" | "slides" | "diagram" | "skill";
 
@@ -39,7 +48,8 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
   const [saving, setSaving] = useState(false);
 
   // Spec fields
-  const [step, setStep] = useState<SpecStep>("Problem");
+  const [step, setStep] = useState<SpecStep>("Type");
+  const [specType, setSpecType] = useState<SpecType>("engineering");
   const [title, setTitle] = useState("");
   const [problem, setProblem] = useState("");
   const [afterStatement, setAfterStatement] = useState("");
@@ -56,6 +66,22 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
   const [creating, setCreating] = useState(false);
 
   const stepIndex = SPEC_STEPS.indexOf(step);
+
+  // Per-type prompts keep the wizard guided: a vision or docs spec is not asked
+  // for engineering-style acceptance criteria.
+  const problemPrompt = {
+    engineering: "What problem are you solving? Who has it?",
+    prototype: "What do you want to learn?",
+    vision: "Why does this matter, and where is it headed?",
+    customer_docs: "Who is this for, and what do they need to understand?",
+  }[specType];
+  const criteriaPrompt = {
+    engineering: "How will we know it works?",
+    prototype: "What will you build to learn this?",
+    vision: "How will you measure success?",
+    customer_docs: "What sections should it cover?",
+  }[specType];
+  const criteriaMin = specType === "engineering" ? 3 : 1;
 
   // --- Task handlers ---
 
@@ -76,10 +102,11 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
   // --- Spec wizard handlers ---
 
   const canAdvance = () => {
+    if (step === "Type") return true;
     if (step === "Problem") return title.trim().length > 0 && problem.trim().length > 0;
     if (step === "Scope") return true;
     if (step === "Produces") return true;
-    if (step === "Criteria") return criteria.length >= 3;
+    if (step === "Criteria") return criteria.length >= criteriaMin;
     return true;
   };
 
@@ -134,6 +161,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
         criteria,
         kind: "spec",
         produces,
+        type: specType,
       });
       onComplete(data.path || "");
     } catch {
@@ -331,6 +359,34 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
           </div>
 
           {/* Step content */}
+          {step === "Type" && (
+            <div data-testid="wizard-type" className="space-y-3">
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                What are you making? This shapes the template and what counts as "ready".
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {SPEC_TYPE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    data-testid={`spec-type-${opt.value}`}
+                    onClick={() => setSpecType(opt.value)}
+                    className={`flex items-start gap-3 rounded-xl border p-4 text-left transition-colors ${
+                      specType === opt.value
+                        ? "border-blue-500 bg-blue-500/10 text-white"
+                        : "border-slate-200 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/40 text-slate-700 dark:text-slate-300 hover:border-slate-500"
+                    }`}
+                  >
+                    <Icon name={opt.icon} size={20} className={specType === opt.value ? "text-blue-600 dark:text-blue-400" : "text-slate-500"} />
+                    <div>
+                      <div className="font-medium text-sm">{opt.label}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{opt.description}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {step === "Problem" && (
             <div className="space-y-4">
               <div>
@@ -347,7 +403,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
               </div>
               <div>
                 <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">
-                  What problem are you solving? Who has it?
+                  {problemPrompt}
                 </label>
                 <textarea
                   value={problem}
@@ -437,7 +493,7 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-sm text-slate-600 dark:text-slate-400">
-                    How will we know it works? <span className="text-slate-600">(need at least 3)</span>
+                    {criteriaPrompt} <span className="text-slate-600">(need at least {criteriaMin})</span>
                   </label>
                   <button
                     onClick={handleSuggest}
@@ -475,6 +531,11 @@ export default function SpecWizard({ onComplete, onCancel }: Props) {
           {step === "Review" && (
             <div className="space-y-4 text-sm">
               <h3 className="text-white font-semibold text-base">{title}</h3>
+
+              <div>
+                <h4 className="text-slate-600 dark:text-slate-400 text-xs uppercase tracking-wider mb-1">Type</h4>
+                <p className="text-slate-700 dark:text-slate-300">{SPEC_TYPE_OPTIONS.find(o => o.value === specType)?.label ?? specType}</p>
+              </div>
 
               <div>
                 <h4 className="text-slate-600 dark:text-slate-400 text-xs uppercase tracking-wider mb-1">Produces</h4>
