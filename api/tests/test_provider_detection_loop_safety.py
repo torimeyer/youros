@@ -180,3 +180,33 @@ async def test_detect_providers_caches_within_ttl(monkeypatch):
         f"but triggered {calls} gemini checks. "
         "Fix: add TTL cache to detect_providers()."
     )
+
+
+@pytest.mark.asyncio
+async def test_gemini_probe_runs_off_event_loop(monkeypatch):
+    """->1806: the availability probe must spawn its subprocess in a worker
+    thread (subprocess.run), NEVER via asyncio.create_subprocess_exec, which
+    forks the large backend process on the event-loop thread and wedges it
+    (stalled TLS handshakes -> 000 connect-timeouts during startup/polls).
+    """
+    import subprocess
+
+    _reset_gemini_cache()
+    monkeypatch.setattr(gemini_cli_provider.shutil, "which", lambda _n: "/usr/bin/gemini")
+
+    def _forks_on_loop(*_a, **_k):
+        raise AssertionError(
+            "availability probe used asyncio.create_subprocess_exec, which forks "
+            "on the event-loop thread (->1806). Use asyncio.to_thread(subprocess.run)."
+        )
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _forks_on_loop)
+
+    class _Result:
+        returncode = 0
+        stdout = b""
+        stderr = b""
+
+    monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: _Result())
+
+    assert await gemini_cli_provider.is_gemini_cli_available(force=True) is True

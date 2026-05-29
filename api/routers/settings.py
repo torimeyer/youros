@@ -120,7 +120,10 @@ async def chat_backend_status():
     they can flip to the subscription pathway.
     """
     claude_available = await claude_code_provider.is_claude_code_available(force=True)
-    gemini_available = await gemini_cli_provider.is_gemini_cli_available(force=True)
+    # No force=True: honor the cached result so a Settings poll never triggers a
+    # fresh gemini CLI fork. The startup probe + TTL keep this fresh enough for a
+    # ready/not-ready indicator, and it no longer wedges the loop (->1806).
+    gemini_available = await gemini_cli_provider.is_gemini_cli_available()
     preference = settings_store.get("chat_backend_preference", "auto")
     return {
         "claude_code_available": claude_available,

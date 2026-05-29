@@ -173,30 +173,28 @@ async def _run_auth_status(claude_path: str) -> Optional[dict]:
     command is considered broken on non-zero exit, timeout, or unparseable
     output.
     """
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            claude_path,
-            "auth",
-            "status",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=_build_subprocess_env(),
-        )
-    except (OSError, FileNotFoundError):
-        return None
+    # Run `claude auth status` in a worker thread so the fork+exec of this
+    # large backend process happens OFF the event-loop thread. Forking on the
+    # loop holds process-wide locks that stall TLS handshakes and wedge the
+    # backend during startup and on cache-miss settings polls (->1806).
+    import subprocess
 
-    try:
-        stdout, _stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=_AUTH_STATUS_TIMEOUT_SECONDS
-        )
-    except asyncio.TimeoutError:
+    def _probe() -> Optional[bytes]:
         try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-        return None
+            r = subprocess.run(
+                [claude_path, "auth", "status"],
+                capture_output=True,
+                timeout=_AUTH_STATUS_TIMEOUT_SECONDS,
+                env=_build_subprocess_env(),
+            )
+        except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+            return None
+        if r.returncode != 0:
+            return None
+        return r.stdout
 
-    if proc.returncode != 0:
+    stdout = await asyncio.to_thread(_probe)
+    if stdout is None:
         return None
 
     text = stdout.decode("utf-8", errors="replace").strip()

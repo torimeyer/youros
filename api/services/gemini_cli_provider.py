@@ -82,34 +82,41 @@ async def is_gemini_cli_available(force: bool = False) -> bool:
                 # Check auth status. gemini-cli v0.42.0 shows "Plan: ..." in help or start.
                 # There isn't a direct "auth status" command that returns JSON yet,
                 # so we'll check if we can run a simple prompt.
-                proc = await asyncio.create_subprocess_exec(
-                    gemini_path,
-                    "-p", "ping",
-                    "--output-format", "text",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=_build_subprocess_env(),
-                )
-                try:
-                    stdout, stderr = await asyncio.wait_for(
-                        proc.communicate(), timeout=_AUTH_STATUS_TIMEOUT_SECONDS
-                    )
-                    result = proc.returncode == 0
-                    err_text = stderr.decode("utf-8", errors="replace").lower()
+                # Run the probe in a worker thread so the fork+exec of the heavy
+                # gemini CLI happens OFF the event-loop thread. Forking on the
+                # loop stalled TLS handshakes and wedged the backend during
+                # startup and on every cache-miss settings poll (->1806).
+                import subprocess
+
+                def _probe() -> tuple[int, str]:
+                    try:
+                        r = subprocess.run(
+                            [gemini_path, "-p", "ping", "--output-format", "text"],
+                            capture_output=True,
+                            timeout=_AUTH_STATUS_TIMEOUT_SECONDS,
+                            env=_build_subprocess_env(),
+                        )
+                        return r.returncode, r.stderr.decode("utf-8", errors="replace").lower()
+                    except subprocess.TimeoutExpired:
+                        return -1, "__timeout__"
+                    except Exception:
+                        return -2, "__error__"
+
+                rc, err_text = await asyncio.to_thread(_probe)
+                if err_text == "__timeout__":
+                    _gemini_log.warning("Gemini CLI availability check timed out.")
+                    result = False
+                elif rc < 0:
+                    result = False
+                else:
+                    result = rc == 0
                     if "sign in" in err_text or "not authenticated" in err_text:
                         _gemini_log.info("Gemini CLI found but not authenticated.")
                         result = False
                     elif result:
                         _gemini_log.info("Gemini CLI is available and authenticated.")
                     else:
-                        _gemini_log.warning(f"Gemini CLI ping failed with exit code {proc.returncode}: {err_text}")
-                except asyncio.TimeoutError:
-                    _gemini_log.warning("Gemini CLI availability check timed out.")
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
-                    result = False
+                        _gemini_log.warning(f"Gemini CLI ping failed with exit code {rc}: {err_text}")
         except Exception:
             result = False
 
