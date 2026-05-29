@@ -370,6 +370,12 @@ The quickest way I put it is that a spec is a PRD for agents. A normal PRD is wr
 
 ---
 
+## If someone asks where the spec model came from
+
+We pulled from a few places, the WHAT-not-HOW split and the spec as a source of truth with acceptance criteria up front come from spec-driven development practice and from a real engineering team whose process we studied in depth, the freeze-after-review and the challenger-reviews-the-spec patterns come from that same practice and from GitHub Spec Kit, writing the customer story before code comes from Amazon Working Backwards, and the living-document shape comes from RFCs and design docs. What's different from most of them is that ours is typed so it works for prototypes, vision docs, and customer docs and not just engineering, and ours informs without ever blocking you, where a lot of spec-driven setups hard-gate the work.
+
+---
+
 ## Cuts if running long
 
 | Beat | Safe to cut | Replacement |
