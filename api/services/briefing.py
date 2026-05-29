@@ -433,6 +433,7 @@ async def _call_via_cli(prompt: str) -> str:
     """Use the local claude CLI binary for a non-streaming single call."""
     import asyncio
     import shutil
+    import subprocess
 
     claude_path = shutil.which("claude")
     if not claude_path:
@@ -451,21 +452,27 @@ async def _call_via_cli(prompt: str) -> str:
         "sonnet",
     ]
 
+    # ->1806: run the fork+wait inside a worker thread. Forking the heavy
+    # backend via asyncio.create_subprocess_exec ON the event-loop thread
+    # stalls TLS handshakes and wedges the worker (binds :8000, returns 000).
+    # subprocess.run releases the GIL across fork/exec/wait, so the loop stays
+    # responsive while this runs in the thread.
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
+        result = await asyncio.to_thread(
+            lambda: subprocess.run(
+                args,
+                capture_output=True,
+                timeout=60,
+                env=env,
+            )
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=60.0)
     except Exception:
         return ""
 
-    if proc.returncode != 0:
+    if result.returncode != 0:
         return ""
 
-    text = stdout.decode("utf-8", errors="replace").strip()
+    text = result.stdout.decode("utf-8", errors="replace").strip()
     # claude -p --output-format json returns a JSON object with a "result" field
     try:
         data = json.loads(text)

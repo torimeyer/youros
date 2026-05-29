@@ -134,7 +134,10 @@ async def scan_and_claim(
         seen_commits = _seen_commits
 
     slug_map = _get_slug_map(specs_dir)
-    commits = _recent_commits(repo_path)
+    # ->1806: _recent_commits runs a blocking `git log` subprocess. Offload it
+    # to a worker thread so the 60s scanner tick never blocks the event loop
+    # (forking git on the loop stalls TLS and re-wedges a healthy backend).
+    commits = await asyncio.to_thread(_recent_commits, repo_path)
 
     commits_scanned = 0
     claims_recorded = 0
