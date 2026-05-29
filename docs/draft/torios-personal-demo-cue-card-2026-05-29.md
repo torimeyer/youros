@@ -21,6 +21,7 @@
 Run through this before anyone is watching.
 
 - [ ] yourOS is running: `scripts/dev-backend.sh` (port 8000) + `scripts/dev-frontend.sh` (port 3010)
+- [ ] Demo mode ON so spawned agents are held to "works in the running app": `touch ~/.myos/.demo_mode` (turn off after with `rm ~/.myos/.demo_mode`). The backend must be running this branch so the rule is live.
 - [ ] Logged in. OS name shows as your name (set during onboarding via `OnboardingWizard.tsx`).
 - [ ] Dark mode on. Looks sharper in a demo.
 - [ ] iMessage authorized. macOS has granted accessibility access to the backend. Verify: `curl -sk https://127.0.0.1:8000/api/imessage/status` returns `{"authorized": true}`.
