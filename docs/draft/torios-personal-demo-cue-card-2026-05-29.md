@@ -142,7 +142,7 @@ I didn't type a single task title. I described a direction and it broke it down.
 
 **Say this (verbatim):**
 ```
-saa - when any task finishes, play a short celebratory sound. the backend already fires a needle_closed event on task close, hook into that. add a small frontend hook that plays a sound when the event arrives, with a test.
+saa - when any task finishes, play a short celebratory sound. the backend already fires a needle_closed event on task close, hook into that. use the browser built-in Web Audio so there is no new npm dependency, add a small frontend hook that plays the sound when the event arrives, with a test.
 ```
 
 **Visible:** A builder agent registers in the Active tab (`app/src/pages/Agents.tsx`) and starts working, and a few minutes later it lands a new frontend hook plus a sound asset. The event it listens for is real and already published (`api/routers/tasks.py:1745`, `needle_closed`).
@@ -150,6 +150,8 @@ saa - when any task finishes, play a short celebratory sound. the backend alread
 **How this works (because of ostk):** The backend already announces every task close on its event bus, so the agent only has to add the frontend ear that listens for that announcement and plays a sound, and because ostk tracks the build as its own task with its own files and tests, you get a real reviewable feature out of one sentence rather than a hack.
 
 **The payoff:** Once this lands and you reload, the tasks from steps 1 and 2 play the sound you just built as they complete, so the feature you spoke into existence is what announces the rest of the work finishing, and that is the best moment in the demo, so call it out when it happens.
+
+**Will it play on its own?** The frontend runs Vite with hot reload, so a pure code change shows up in the browser by itself, but only once it is in the branch Vite is serving. The agent builds in an isolated worktree that ToriOS does not auto-merge, so to make the sound actually fire you merge the build into the running app first, and then Vite reloads on its own or one refresh does it. Building with Web Audio and no new dependency is what keeps this a plain reload instead of an install and a restart, so leave a few minutes between firing this off and expecting the sound on the step 1 and 2 completions.
 
 **Fallback:** If the live build stalls, the proven version is in git history (task →1618, commits `73d53752` and `20fcf4d1`, a `useVictoryFanfare` hook that played a Gemini-composed MIDI through Tone.js), so you can say "here is the one I built before" and restore it, or just move on and let the visual notification be the cue.
 
