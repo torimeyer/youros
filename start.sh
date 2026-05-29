@@ -192,6 +192,17 @@ fi
 # in-flight chat WebSocket. Routers and services SHOULD still reload so real
 # code changes are picked up. Reload-delay batches back-to-back writes into
 # a single reload instead of many.
+
+# Pass SSL args to uvicorn when self-signed certs are present, so the
+# https://localhost:8000 launch URL above actually serves TLS. Mirrors
+# scripts/dev-backend.sh so the two launchers do not drift again.
+SSL_KEY="$HOME/.myos/localhost.key"
+SSL_CERT="$HOME/.myos/localhost.crt"
+SSL_ARGS=""
+if [ -f "$SSL_KEY" ] && [ -f "$SSL_CERT" ]; then
+    SSL_ARGS="--ssl-keyfile $SSL_KEY --ssl-certfile $SSL_CERT"
+    echo "SSL enabled (self-signed cert at $SSL_CERT)"
+fi
 exec uvicorn main:app \
     --host 127.0.0.1 \
     --port 8000 \
@@ -204,5 +215,14 @@ exec uvicorn main:app \
     --reload-exclude '**/.pytest_cache/*' \
     --reload-exclude '**/__pycache__/*' \
     --reload-exclude '**/*.pyc' \
-    --reload-delay 1.0 \
-    --no-access-log
+    --reload-exclude '**/*.tmp' \
+    --reload-exclude '**/.DS_Store' \
+    --reload-exclude '**/*.swp' \
+    --reload-exclude '**/*.swo' \
+    --reload-exclude '**/*~' \
+    --reload-exclude '.git/*' \
+    --reload-exclude '.git/**/*' \
+    --reload-exclude 'routers/agents.py' \
+    --reload-delay 10.0 \
+    --no-access-log \
+    $SSL_ARGS
