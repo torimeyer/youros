@@ -364,6 +364,12 @@ At the end of step 10, check whether steps 1 and 2 have completed:
 
 ---
 
+## If someone asks: how is a spec different from a PRD?
+
+Honestly a lot of it overlaps, both a spec and a PRD say what you're building and why, and neither says how, so if they know PRDs they already know most of this. The difference is what the document does once it exists, a PRD is written for people to read, but a spec here is also read by the agents that build from it, its acceptance criteria are not just a checklist because each one spawns a builder and the spec marks itself complete when they all land, an agent cannot even start until I mark the spec Ready, and it stays in sync with the work instead of going stale the day coding begins. So the short version is that a PRD is a spec written for humans, and a spec here is that same intent made executable and kept alive while the work runs.
+
+---
+
 ## Cuts if running long
 
 | Beat | Safe to cut | Replacement |
