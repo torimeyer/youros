@@ -644,7 +644,7 @@ async def test_promote_endpoint(client):
 
 @pytest.mark.asyncio
 async def test_promote_error_no_criteria(client):
-    """Promoting a draft with no checkboxes returns 400 with a checkbox hint."""
+    """Promote informs but never blocks: a draft with no checkboxes still promotes (200), and readiness is returned as information rather than a 422 gate."""
     from config import PROJECT_ROOT
 
     draft_dir = Path(PROJECT_ROOT) / "docs" / "draft"
@@ -658,8 +658,10 @@ async def test_promote_error_no_criteria(client):
             "/api/specs/promote",
             json={"path": "docs/draft/test-promote-no-ac-tmp.md"},
         )
-        assert resp.status_code == 422
-        assert resp.json()["detail"]["error"] == "needs_clarity"
+        # Promote no longer blocks on missing criteria; status is informational,
+        # the user proceeds (torios informs, never blocks). The draft promotes.
+        assert resp.status_code == 200
+        assert "result" in resp.json()
     finally:
         draft_path.unlink(missing_ok=True)
 

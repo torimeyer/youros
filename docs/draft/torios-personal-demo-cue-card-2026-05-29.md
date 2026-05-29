@@ -1,4 +1,4 @@
-# ToriOS Personal Demo Cue Card — 2026-05-29
+# ToriOS Personal Demo Cue Card, 2026-05-29
 
 > **Total target: ~12-15 min** | Ten beats, all personal, zero work content.
 >
@@ -26,7 +26,7 @@ Run through this before anyone is watching.
 
 ---
 
-## Beat 1 — Personal magic (1:30)
+## Beat 1: Personal magic (1:30)
 
 **Setup:** Dashboard is open on screen. The daily briefing card is visible. The calendar grid widget is visible.
 
@@ -40,6 +40,8 @@ Run through this before anyone is watching.
 **Narration (say this):**
 > "Every morning, this is the first thing I open. Not email. Not Slack. This. It reads my calendar overnight and writes me a little briefing. Here is what is on my plate today, here is what needs my attention first. That is mine. I did not configure that. I told it once how I like to start my day, and now it does it."
 
+**How this works (because of ostk):** The briefing is not regenerated guesswork each morning, because ostk holds your preferences and your calendar history as durable, audited state in `.ostk/`, so the same tracked records feed the briefing every day and it stays consistent across sessions rather than starting from scratch.
+
 **Lines:**
 1. "It already knows what today looks like."
 2. "I didn't build this view. I described what I wanted and it built it."
@@ -48,7 +50,7 @@ Run through this before anyone is watching.
 
 ---
 
-## Beat 2 — Ambient capture: iMessage (1:00)
+## Beat 2: Ambient capture, iMessage (1:00)
 
 **Setup:** Click to the iMessage page (`app/src/pages/IMessage.tsx`).
 
@@ -62,6 +64,8 @@ Run through this before anyone is watching.
 **Narration (say this):**
 > "Scott texted me this morning. It is right here. Not a synced app, not a notification mirror. It reads directly from the Messages database on this laptop. My conversations are on my machine. yourOS reads them locally. Nothing leaves."
 
+**How this works (because of ostk):** Every data read in yourOS runs through ostk's own audited file and shell layer, so when the app opens the Messages database that access happens locally on this machine and gets written to the audit trail, which is why your conversations stay on the laptop and nothing is shipped to a server.
+
 **Lines:**
 3. "My phone, my laptop, same conversations. No app to install."
 4. "This reads from my computer, not from Apple's servers."
@@ -70,7 +74,7 @@ Run through this before anyone is watching.
 
 ---
 
-## Beat 3 — Spawn (SAA): building something live (2:00)
+## Beat 3: Spawn (SAA), building something live (2:00)
 
 **Setup:** Open the chat panel. ADHD mode is on.
 
@@ -87,6 +91,8 @@ saa - write a bedtime story for the Fox and Mama Lego app. Fox and Mama go on an
 **Narration (say this):**
 > "SAA means spawn an agent. I don't write the story. I describe what I want, and an agent goes and does it. Right now it is running in the background. I will go do something else. When it is done, I will check back. That is the whole model. I direct. It builds."
 
+**How this works (because of ostk):** When you say SAA, ostk files the request as a tracked task in its work queue, spawns the agent in an isolated worktree so it can't collide with anything else, and records every file the agent touches in its gen_table, which means the whole run is reproducible and you can read back exactly what it did and undo it if you want.
+
 **Lines:**
 5. "SAA. Spawn an agent. One word and it is running."
 6. "I come back when it is done."
@@ -97,7 +103,7 @@ saa - write a bedtime story for the Fox and Mama Lego app. Fox and Mama go on an
 
 ---
 
-## Beat 4 — Memory recall (1:00)
+## Beat 4: Memory recall (1:00)
 
 **Setup:** Stay in the chat panel.
 
@@ -113,6 +119,8 @@ What do you know about me?
 **Narration (say this):**
 > "It knows I have a dog. It knows I hate when things are over-explained. It knows I prefer bullet points over paragraphs. I did not configure any of that in a settings form. I mentioned it in passing once and it remembered. Every new conversation starts with that context already loaded."
 
+**How this works (because of ostk):** Memory is one of ostk's core jobs, so the things you tell it are kept as durable entries in its store rather than in a chat that scrolls away, and the relevant ones are reloaded into context at the start of every session, which is why a fact you mentioned once is still there weeks later without you re-entering it.
+
 **Lines:**
 7. "I told it once. It remembered."
 8. "That is not a settings panel. That is just memory."
@@ -121,13 +129,13 @@ What do you know about me?
 
 ---
 
-## Beat 5 — Fan-out: the All pill (1:30)
+## Beat 5: Fan-out, the All pill (1:30)
 
 **Setup:** Still in the chat panel. Switch the model selector to "All."
 
 **Action:** With the All pill selected, ask something fun:
 ```
-Is a hot dog a sandwich? Make your case.
+Plan my ideal Saturday in three bullets.
 ```
 
 **Visible:**
@@ -135,7 +143,9 @@ Is a hot dog a sandwich? Make your case.
 - Live status pill showing "Asking Claude, Gemini..." while responses stream in
 
 **Narration (say this):**
-> "All sends to every model at the same time. Not in sequence. Right now Claude and Gemini are both writing their answer simultaneously. I read them both. I pick whichever one is more convincing. No toggling, no tab-switching."
+> "All sends to every model at the same time, not one after another, so right now Claude and Gemini are both planning my Saturday at once, and I read both and keep whichever one sounds more like me, with no toggling and no tab-switching."
+
+**How this works (because of ostk):** This is exactly what ostk is built for, because it is a coordination layer rather than a single model, so the All pill hands one question to ostk and ostk fans it out to every connected model in parallel and gathers the answers, which means the model you happen to use is interchangeable and you are never locked to one.
 
 **Lines:**
 9. "All of them. At once. Same question."
@@ -145,25 +155,25 @@ Is a hot dog a sandwich? Make your case.
 
 ---
 
-## Beat 6 — External montage: Calendar, Gmail, Slack (1:30)
+## Beat 6: External montage, Calendar, Gmail, Slack (1:30)
 
 Move quickly through three tabs. 20-25 seconds each.
 
-### 6a — Calendar
+### 6a. Calendar
 **Action:** Click to Calendar page (`app/src/pages/Calendar.tsx`).
 
 **Visible:** Google Calendar events in the app. Point to a personal appointment.
 
 **Say:** "My calendar, pulled from Google. Hair with Pepper is in there. Call with my mom on Saturday. I can see the week without opening Google."
 
-### 6b — Gmail
+### 6b. Gmail
 **Action:** Click to Gmail page (`app/src/pages/Gmail.tsx`).
 
 **Visible:** Inbox threads inside yourOS.
 
 **Say:** "My inbox is here too. I can read and reply without leaving. yourOS drafts replies for me if I ask." (Point to the reply composer if visible: source `app/src/components/GmailReplyComposer.tsx`, placeholder: "Write your reply, or let yourOS draft one for you.")
 
-### 6c — Slack
+### 6c. Slack
 **Action:** Click to Slack page (`app/src/pages/Slack.tsx`).
 
 **Visible:** Slack channels and messages.
@@ -173,11 +183,13 @@ Move quickly through three tabs. 20-25 seconds each.
 **Narration after the montage:**
 > "Calendar, email, messages, texts. All running locally. None of this goes to a cloud service. It is on my laptop."
 
+**How this works (because of ostk):** Each of these integrations sits behind ostk's audited service layer, so calendar, email, and Slack all flow through the one coordination kernel running on your laptop, and because you connect each service once and ostk holds the tokens locally, you are not handing a third-party cloud account the keys to everything.
+
 **Fallback for any disconnected service:** Show the connect card. "This is what it looks like before connecting. One-time setup, and then it is here every time I open the app."
 
 ---
 
-## Beat 7 — Fleet visibility: the Agents page (1:30)
+## Beat 7: Fleet visibility, the Agents page (1:30)
 
 **Setup:** Click to Agents page (`app/src/pages/Agents.tsx`).
 
@@ -192,6 +204,8 @@ Move quickly through three tabs. 20-25 seconds each.
 **Narration (say this):**
 > "This is the fleet. Every agent I have sent. Still running ones here, finished ones there. I can tap any of them and read the full transcript. Every decision it made, every file it touched. I can also send it a message mid-run. It gets my message and adjusts."
 
+**How this works (because of ostk):** ostk keeps a live registry of every agent it has spawned, each with its task, status, and full transcript, and because every agent checks a mailbox while it runs, a message you send mid-run is actually delivered and acted on, so the fleet view you are looking at is just that registry and mailbox made visible.
+
 **Lines:**
 11. "I sent it. It ran. Here is the receipt."
 12. "I can message it while it is still working."
@@ -202,13 +216,13 @@ Move quickly through three tabs. 20-25 seconds each.
 
 ---
 
-## Beat 8 — yourOS proof-of-work (2:30)
+## Beat 8: yourOS proof-of-work (2:30)
 
 *This is the serious beat. Let it land.*
 
 **Setup:** Click to Specs page (`app/src/pages/Specs.tsx`), then to GitHub page (`app/src/pages/GitHub.tsx`).
 
-**Action — Part 1 (Specs page):**
+**Action, Part 1 (Specs page):**
 Open a spec. Point to the acceptance criteria checkboxes.
 
 **Visible:**
@@ -219,7 +233,7 @@ Open a spec. Point to the acceptance criteria checkboxes.
 **Say:**
 > "Before any agent touches a feature, there is a spec. The spec has acceptance criteria. Each one is a checkbox. An agent cannot be spawned on this until the spec is marked ready. That is the discipline."
 
-**Action — Part 2 (GitHub page):**
+**Action, Part 2 (GitHub page):**
 Open a recent merged PR.
 
 **Visible:** PR description. Point to the footer.
@@ -229,12 +243,14 @@ Open a recent merged PR.
 **Say (adjusted to be accurate):**
 > "Every PR that ships gets a footer I write myself. It says: all the code in this PR was written by Claude. I managed and directed but did not write any code. That is literally true. I review the diff. I approve. I merge. I do not type the implementation."
 
-**Action — Part 3 (the discipline):**
+**Action, Part 3 (the discipline):**
 **Say:**
 > "Before anything ships: vitest runs, TypeScript compiles, and there is a live curl check against the endpoint. I do not push to production. I push to Staging. If the curl check passes live, then it ships. The test suite tells me the code is correct. The curl tells me the feature is actually working."
 
 **Narration (full beat):**
 > "I built this app the same way I use it. I wrote specs. I spawned agents. I reviewed the work and merged the PRs. The commit history is a record of every conversation. I have shipped over a hundred features to this app without writing a single line of code. Not because I couldn't. Because I didn't need to."
+
+**How this works (because of ostk):** This whole discipline is ostk's spec-and-work pipeline made real, because a spec becomes a tracked task with acceptance criteria, an agent can only be spawned once that task is marked ready, and every file the agent changes goes through ostk's conflict-detecting edit layer, so the commit history and the audit trail together form a complete record of who built what and when.
 
 **Lines:**
 13. "The spec is the contract. The agent fulfills it."
@@ -242,7 +258,7 @@ Open a recent merged PR.
 
 ---
 
-## Beat 9 — Adventure templates: what's next (1:00)
+## Beat 9: Adventure templates, what's next (1:00)
 
 **Setup:** Go back to Dashboard. Scroll to the Adventure card (source: `app/src/pages/Dashboard.tsx`, `AdventureTemplate` from `app/src/lib/adventures.ts`).
 
@@ -256,6 +272,8 @@ Open a recent merged PR.
 **Narration (say this):**
 > "When I want to start something new, I pick a template. I describe what I'm going for. It breaks it into tasks and kicks off the work. I come back to something started."
 
+**How this works (because of ostk):** Picking a template hands ostk a goal rather than a single instruction, and ostk decomposes that goal into individual tracked tasks in its work queue and spawns an agent against each one, so it is the same primitives as a single SAA, just fanned out from one click into a whole coordinated batch.
+
 **Lines:**
 15. "I describe what I want. It figures out the steps."
 
@@ -263,7 +281,7 @@ Open a recent merged PR.
 
 ---
 
-## Beat 10 — Meta-recursive close (0:30)
+## Beat 10: Meta-recursive close (0:30)
 
 **Setup:** Return to chat panel.
 
@@ -277,6 +295,8 @@ What should we build next for you?
 
 **Narration (say this):**
 > "I asked it what we should build next. For the app itself. It tells me. And then I probably will."
+
+**How this works (because of ostk):** Because ostk has tracked every task, decision, and file change while you built the app, asking what to build next is not a guess, it reads its own work history and the open backlog to answer, so the system proposing its own next improvement is really the same coordination loop closing back on itself.
 
 **Then:** Close the laptop lid (or just stop talking). Let the silence do the work.
 
@@ -309,7 +329,7 @@ If yourOS is not loading at all (blank screen, backend down):
 
 If you lose your place:
 
-> "Let me show you the one thing I want you to remember. [Go to Beat 8 only.] I do not write code. I build software. That distinction is the whole point of this."
+> "Let me show you the one thing I want you to remember. [Go to Beat 8 only.] I do not write code. I build software. That distinction is the whole point."
 
 ---
 
@@ -370,5 +390,5 @@ All beats grounded in the codebase. Verification sources:
 
 **⚠ UNVERIFIED beats (confirm before demoing):**
 
-1. **Beat 8 — PR footer text.** "All code in this PR was written by Claude. Tori managed and directed but did not write any code." is a practice, not a hardcoded UI string. Verify you actually write this in your PR descriptions before citing it live.
-2. **Beat 3 — "Fox and Mama's Best Days" as the Lego app name.** The tag `lego-app` is in the codebase (`api/routers/tasks.py`), but the name "Fox and Mama's Best Days" comes from memory, not a file. Confirm the app is still called this before using the name on stage.
+1. **Beat 8, PR footer text.** "All code in this PR was written by Claude. Tori managed and directed but did not write any code." is a practice, not a hardcoded UI string. Verify you actually write this in your PR descriptions before citing it live.
+2. **Beat 3, "Fox and Mama's Best Days" as the Lego app name.** The tag `lego-app` is in the codebase (`api/routers/tasks.py`), but the name "Fox and Mama's Best Days" comes from memory, not a file. Confirm the app is still called this before using the name on stage.
