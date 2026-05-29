@@ -18,6 +18,6 @@ if (typeof window !== 'undefined') {
       removeItem(k: string) { delete store[k] },
       key(n: number) { return Object.keys(store)[n] ?? null },
     }
-    Object.defineProperty(window, 'localStorage', { value: mock, writable: true })
+    Object.defineProperty(window, 'localStorage', { value: mock, writable: true, configurable: true })
   }
 }
