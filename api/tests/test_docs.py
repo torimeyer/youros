@@ -646,24 +646,31 @@ async def test_promote_endpoint(client):
 async def test_promote_error_no_criteria(client):
     """Promote informs but never blocks: a draft with no checkboxes still promotes (200), and readiness is returned as information rather than a 422 gate."""
     from config import PROJECT_ROOT
+    from services.ostk import USER_SPECS_DIR, ostk as _ostk_svc
 
     draft_dir = Path(PROJECT_ROOT) / "docs" / "draft"
     draft_dir.mkdir(parents=True, exist_ok=True)
+    USER_SPECS_DIR.mkdir(parents=True, exist_ok=True)
     draft_path = draft_dir / "test-promote-no-ac-tmp.md"
+    spec_path = USER_SPECS_DIR / "test-promote-no-ac-tmp.md"
     draft_path.write_text(
         "---\ntitle: No AC Draft\nstatus: draft\n---\n# No AC Draft\n\nNo checkboxes here.\n"
     )
     try:
-        resp = await client.post(
-            "/api/specs/promote",
-            json={"path": "docs/draft/test-promote-no-ac-tmp.md"},
-        )
+        # Mock doc_decompose so promote does not materialize real backlog tasks,
+        # the same isolation test_promote_endpoint uses (see the ->1918..->1923 leak).
+        with patch.object(_ostk_svc, "doc_decompose", new_callable=AsyncMock):
+            resp = await client.post(
+                "/api/specs/promote",
+                json={"path": "docs/draft/test-promote-no-ac-tmp.md"},
+            )
         # Promote no longer blocks on missing criteria; status is informational,
         # the user proceeds (torios informs, never blocks). The draft promotes.
         assert resp.status_code == 200
         assert "result" in resp.json()
     finally:
         draft_path.unlink(missing_ok=True)
+        spec_path.unlink(missing_ok=True)
 
 
 @pytest.mark.asyncio
