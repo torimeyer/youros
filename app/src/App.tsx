@@ -15,6 +15,7 @@ import Backlog from './pages/Backlog'
 import Tasks from './pages/Tasks'
 import Specs from './pages/Specs'
 import SpecImport from './pages/SpecImport'
+import SpecFaq from './pages/SpecFaq'
 import DocsRedirect from './pages/DocsRedirect'
 import Calendar from './pages/Calendar'
 import Gmail from './pages/Gmail'
@@ -159,6 +160,7 @@ export default function App() {
           <Route path="break" element={<BreakRoom />} />
           <Route path="specs" element={<Specs />} />
           <Route path="specs/import" element={<SpecImport />} />
+          <Route path="specs/faq" element={<SpecFaq />} />
           <Route path="files" element={<Files />} />
           <Route path="library" element={<Library />} />
           <Route path="ostk" element={<OstkFiles />} />
