@@ -2380,6 +2380,34 @@ def build_recheck_preamble(spawn_lock: list) -> str:
     )
 
 
+@router.get("/specs/{spec_path:path}/review")
+async def review_spec(spec_path: str):
+    """Read-only review surface (phase 5).
+
+    One place that summarizes a spec's readiness, its plan-vs-shipped drift,
+    and the project principles it inherits, so the user reviews the state
+    rather than re-reading the whole document (the read-overload fix).
+    Informational only; never blocks.
+    """
+    _validate_doc_path(spec_path)
+    full = Path(PROJECT_ROOT) / spec_path
+    if not full.exists():
+        raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
+    from services.gemini_ready import compute_spec_readiness
+    from services.spec_drift import compute_spec_drift
+    from services.spec_constitution import load_constitution, check_spec_text
+    text = full.read_text()
+    return {
+        "spec_path": spec_path,
+        "readiness": compute_spec_readiness(str(full)).as_dict(),
+        "drift": compute_spec_drift(str(full)),
+        "constitution": {
+            "principles": load_constitution(),
+            "violations": check_spec_text(text),
+        },
+    }
+
+
 @router.post("/specs/{spec_path:path}/build")
 async def build_spec(spec_path: str, model: Optional[str] = None):
     """One-click build: decompose if needed, then spawn a builder per open task.

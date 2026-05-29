@@ -168,6 +168,27 @@ async def test_build_gemini_degrades_to_claude_with_note(client, tmp_path, monke
 
 
 @pytest.mark.asyncio
+async def test_spec_review_surface(client, tmp_path, monkeypatch):
+    """The review surface returns readiness + drift + inherited principles (phase 5)."""
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    spec = tmp_path / "docs" / "spec" / "review.md"
+    spec.write_text(
+        "---\ntitle: R\nstatus: ready\ntype: engineering\n---\n\n"
+        "## Problem\nX\n\n## Acceptance criteria\n- [ ] do the thing clearly\n"
+    )
+    resp = await client.get("/api/specs/docs/spec/review.md/review")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "checks" in data["readiness"]
+    assert "drift" in data["drift"]
+    assert "principles" in data["constitution"]
+    assert "violations" in data["constitution"]
+
+
+@pytest.mark.asyncio
 async def test_create_draft_leaves_as_draft_when_ac_generation_fails(
     client, tmp_path, monkeypatch
 ):
