@@ -2793,6 +2793,7 @@ class WizardCreateRequest(BaseModel):
     ui_requirements: Optional[str] = None
     kind: str = "task"  # "task" (default) or "spec"
     produces: str = "code"  # "code"|"agent"|"document"|"slides"|"diagram"|"skill"
+    type: str = "engineering"  # engineering|prototype|vision|customer_docs
 
 
 # Maps produces value to the template agent name
@@ -2959,9 +2960,29 @@ async def wizard_create(body: WizardCreateRequest):
 
     draft_path = result.strip()
 
+    from services.spec_types import SPEC_TYPES
+    spec_type = body.type if body.type in SPEC_TYPES else "engineering"
+
+    # The problem field and the criteria list are framed under type-appropriate
+    # headings so each type's REQUIRED readiness section is present: vision needs
+    # Success measures, customer_docs needs Audience, prototype needs a Learning
+    # goal. Engineering keeps Problem + Acceptance criteria.
+    _PROBLEM_HEADING = {
+        "engineering": "Problem",
+        "prototype": "Learning goal",
+        "vision": "Why this matters",
+        "customer_docs": "Audience",
+    }
+    _CRITERIA_HEADING = {
+        "engineering": ("Acceptance criteria", True),
+        "prototype": ("What we'll build", False),
+        "vision": ("Success measures", False),
+        "customer_docs": ("Outline", False),
+    }
+
     sections: list[str] = []
 
-    sections.append("## Problem")
+    sections.append(f"## {_PROBLEM_HEADING[spec_type]}")
     sections.append(body.problem.strip())
     sections.append("")
 
@@ -2984,9 +3005,10 @@ async def wizard_create(body: WizardCreateRequest):
         sections.append("")
 
     if body.criteria:
-        sections.append("## Acceptance criteria")
+        crit_heading, as_checkbox = _CRITERIA_HEADING[spec_type]
+        sections.append(f"## {crit_heading}")
         for item in body.criteria:
-            sections.append(f"- [ ] {item}")
+            sections.append(f"- [ ] {item}" if as_checkbox else f"- {item}")
         sections.append("")
 
     if body.technical_context:
@@ -3011,6 +3033,8 @@ async def wizard_create(body: WizardCreateRequest):
     ac_written = False
     if full_path.exists() and full_path.is_relative_to(docs_root):
         content = full_path.read_text()
+        # Record the spec type so readiness uses the right per-type profile.
+        content = _inject_frontmatter_key(content, "type", spec_type)
         # Inject produces into YAML frontmatter when it's not the default "code"
         if body.produces and body.produces != "code":
             content = _inject_frontmatter_key(content, "produces", body.produces)
