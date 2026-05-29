@@ -227,7 +227,18 @@ fi
 
 echo "Setting up the backend..."
 cd "$INSTALL_DIR/api"
-python3 -m venv .venv
+PYTHON_BIN=""
+for cand in python3.13 python3.12 python3.11 python3.10; do
+    if command -v "$cand" >/dev/null 2>&1; then
+        PYTHON_BIN="$(command -v "$cand")"
+        break
+    fi
+done
+if [ -z "$PYTHON_BIN" ]; then
+    echo "Error: need Python 3.10 or newer (3.13 preferred). Install via 'brew install python@3.13'."
+    exit 1
+fi
+"$PYTHON_BIN" -m venv .venv
 source .venv/bin/activate
 pip install -q --upgrade pip
 pip install -q -r requirements.txt
