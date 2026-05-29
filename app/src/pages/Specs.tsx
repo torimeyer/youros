@@ -144,7 +144,7 @@ function StageChip({ stage, title }: { stage: string; title?: string }) {
   const style = STAGE_CHIP_STYLES[stage] ?? STAGE_CHIP_STYLES.draft;
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text}`}
+      className={`inline-flex items-center justify-center text-center px-2 py-1 min-h-[20px] rounded-full text-xs font-medium ${style.bg} ${style.text}`}
       data-testid="stage-chip"
       title={title}
     >

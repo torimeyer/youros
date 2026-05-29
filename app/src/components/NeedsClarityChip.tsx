@@ -174,15 +174,10 @@ export function NeedsClarityChip({
   }
 
   if (allPassed) {
-    return (
-      <span
-        data-testid="needs-clarity-chip"
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-400 border border-green-500/30"
-      >
-        <Icon name="check_circle" className="text-[10px]" />
-        Ready
-      </span>
-    )
+    // The StageChip ("Ready" / "Needs detail") is the single source of spec
+    // status. Returning null here removes the duplicate green "Ready" pill so
+    // a ready spec shows exactly one status pill.
+    return null
   }
 
   return (
