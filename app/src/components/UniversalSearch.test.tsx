@@ -46,6 +46,13 @@ describe('UniversalSearch', () => {
     expect(screen.getByTestId('universal-search-input')).toBeInTheDocument()
   })
 
+  it('surfaces matching agent templates (e.g. Roadmap) when searching', async () => {
+    renderSearch(true)
+    const input = screen.getByTestId('universal-search-input')
+    fireEvent.change(input, { target: { value: 'roadmap' } })
+    expect(await screen.findByTestId('template-item-roadmap')).toBeInTheDocument()
+  })
+
   it('calls onClose when Escape is pressed', () => {
     const onClose = vi.fn()
     renderSearch(true, onClose)

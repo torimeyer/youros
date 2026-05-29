@@ -4,6 +4,7 @@ import Icon from './Icon'
 import { useAppStore } from '../stores/app'
 import { api } from '../lib/api'
 import { reportError } from '../lib/reportError'
+import { AGENT_MARKETPLACE } from '../data/agentMarketplace'
 
 interface TaskResult {
   id: string
@@ -140,15 +141,37 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
     )
   }, [q, actions])
 
+  // Agent templates that match the query (client-side, instant). Dedupe by
+  // name because the same template can appear under several personas.
+  const filteredTemplates = useMemo(() => {
+    if (!q) return [] as { name: string; description: string; icon: string }[]
+    const lower = q.toLowerCase()
+    const seen = new Set<string>()
+    const out: { name: string; description: string; icon: string }[] = []
+    for (const cat of AGENT_MARKETPLACE) {
+      for (const tpl of cat.templates) {
+        const key = tpl.name.toLowerCase().trim()
+        if (seen.has(key)) continue
+        if (key.includes(lower) || tpl.description.toLowerCase().includes(lower)) {
+          seen.add(key)
+          out.push({ name: tpl.name, description: tpl.description, icon: tpl.icon })
+        }
+      }
+    }
+    return out
+  }, [q])
+
   // Section offsets for flat keyboard navigation
   const navCount = filteredNav.length
   const actionsCount = filteredActions.length
+  const templatesCount = filteredTemplates.length
   const tasksCount = q ? tasksResults.length : 0
   const deepCount = q ? deepResults.length : 0
   const recallCount = q ? recallResults.length : 0
 
   const actionsOffset = navCount
-  const tasksOffset = actionsOffset + actionsCount
+  const templatesOffset = actionsOffset + actionsCount
+  const tasksOffset = templatesOffset + templatesCount
   const deepOffset = tasksOffset + tasksCount
   const recallOffset = deepOffset + deepCount
   const totalItems = recallOffset + recallCount
@@ -242,8 +265,11 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
     if (selectedIndex < navCount) {
       navigate(filteredNav[selectedIndex].path)
       onClose()
-    } else if (selectedIndex < tasksOffset) {
+    } else if (selectedIndex < templatesOffset) {
       filteredActions[selectedIndex - actionsOffset].fn()
+    } else if (selectedIndex < tasksOffset) {
+      navigate('/agents')
+      onClose()
     } else if (selectedIndex < deepOffset) {
       navigate('/tasks')
       onClose()
@@ -254,7 +280,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       onClose()
     }
   }, [
-    selectedIndex, navCount, actionsOffset, tasksOffset, deepOffset, recallOffset, totalItems,
+    selectedIndex, navCount, actionsOffset, templatesOffset, tasksOffset, deepOffset, recallOffset, totalItems,
     filteredNav, filteredActions, navigate, onClose,
   ])
 
@@ -398,6 +424,32 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
             </div>
           )}
 
+          {/* Agent Templates */}
+          {filteredTemplates.length > 0 && (
+            <div data-testid="section-templates">
+              {sectionHeader('Agent Templates', 'text-green-600 dark:text-green-400', filteredNav.length > 0 || filteredActions.length > 0)}
+              {filteredTemplates.map((t, i) => {
+                const idx = templatesOffset + i
+                const sel = idx === selectedIndex
+                return (
+                  <button
+                    key={t.name}
+                    data-us-item
+                    onClick={() => { navigate('/agents'); onClose() }}
+                    onMouseEnter={() => setSelectedIndex(idx)}
+                    className={rowCls(idx)}
+                    data-testid={`template-item-${t.name.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    <Icon name={t.icon} className={`text-lg ${sel ? 'text-green-600 dark:text-green-400' : 'text-green-500/60'}`} />
+                    <span className="flex-1 text-left">
+                      <Highlight text={t.name} query={q} />
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           {/* Tasks */}
           {q && (
             tasksLoading
@@ -502,6 +554,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
           {/* Empty state: only when no nav/action matches AND no query results */}
           {filteredNav.length === 0 &&
             filteredActions.length === 0 &&
+            filteredTemplates.length === 0 &&
             !tasksLoading &&
             !deepLoading &&
             !recallLoading &&

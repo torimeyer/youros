@@ -31,6 +31,13 @@ describe('AGENT_MARKETPLACE data', () => {
     }
   })
 
+  it('includes the Roadmap template in the PM category', () => {
+    const pm = AGENT_MARKETPLACE.find((c) => c.id === 'pm')
+    expect(pm).toBeTruthy()
+    const names = pm!.templates.map((t) => t.name)
+    expect(names).toContain('Roadmap')
+  })
+
   it('every category has a non-empty templates array', () => {
     for (const cat of AGENT_MARKETPLACE) {
       expect(Array.isArray(cat.templates)).toBe(true)

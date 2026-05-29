@@ -35,6 +35,7 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
     category: 'Product managers',
     tagline: 'I ship features and work with teams.',
     templates: [
+      { name: 'Roadmap', description: 'Turn a list of initiatives into a quarter-by-quarter roadmap you can share.', icon: 'timeline', model: 'sonnet', budget: 3.0 },
       { name: 'Competitive Scan', description: 'When you need a market read. Outputs what competitors are shipping, the gap, and one concrete product move.', icon: 'monitor_heart', model: 'sonnet', budget: 3.0 },
       { name: 'PRD', description: 'When you have a feature idea to spec. Outputs a structured PRD ready to share with engineering.', icon: 'article', model: 'sonnet', budget: 3.0 },
       { name: 'Customer Interview Notes', description: 'When you finish an interview. Outputs themes with real quotes, the clearest unmet need, and follow-up questions.', icon: 'record_voice_over', model: 'sonnet', budget: 2.0 },
