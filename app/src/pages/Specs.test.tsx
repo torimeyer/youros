@@ -2349,6 +2349,27 @@ describe('E2E journey: specs list → pick → build (→1925 →1926 →1927)',
   // →1926: The build button is present and enabled; pressing it starts a build
   // whose outcome appears in the result panel (the in-page "activity" feed).
   it('→1926: build button is present and enabled; clicking it shows a build result with agent names', async () => {
+    // After a successful build the backend flips the spec to "in-progress".
+    // The component re-fetches /specs and auto-switches to the In Progress tab.
+    // Mirror that here so the spec stays visible after the tab switch.
+    let specsCallCount = 0
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') {
+        specsCallCount += 1
+        const base = { docs: [journeySpec, allDoneSpec] }
+        if (specsCallCount === 1) return Promise.resolve(base)
+        return Promise.resolve({
+          docs: base.docs.map(d =>
+            d.path === journeySpec.path ? { ...d, status: 'in-progress' } : d
+          ),
+        })
+      }
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('spawn-preflight')) return Promise.resolve({ conflicts: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
+      return Promise.resolve({})
+    })
+
     renderSpecs()
 
     await waitFor(() => expect(screen.getByText('e2e journey spec')).toBeInTheDocument())
