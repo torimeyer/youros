@@ -106,6 +106,25 @@ const sections: FaqSection[] = [
       </p>
     ),
   },
+  {
+    id: 'faq-q-where-from',
+    heading: 'Where the spec model comes from',
+    body: (
+      <p className="text-sm text-slate-400">
+        We pulled from a few places. The split between WHAT and HOW, the spec as a single source of
+        truth, and the habit of writing acceptance criteria and corner cases up front come from
+        spec-driven development practice, including a real engineering team whose process we studied
+        in depth. Freezing a spec after human review, and having a separate agent challenge the spec
+        for gaps, come from that same practice and from GitHub Spec Kit. Writing the customer-facing
+        story before any code comes from Amazon Working Backwards, and the idea of a living document
+        kept in sync over time comes from RFCs and engineering design docs. Two things here are
+        probably different from what you would expect. First, a spec is not only for engineers, it
+        can be a prototype, a vision or roadmap, or customer-facing docs, where most spec practice is
+        engineering-only. Second, a spec informs you but never blocks you, you can always proceed,
+        where many spec-driven setups hard-gate the work and forbid bypassing the spec.
+      </p>
+    ),
+  },
 ]
 
 export default function SpecFaq() {
