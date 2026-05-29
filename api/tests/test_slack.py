@@ -116,7 +116,7 @@ async def test_slack_status_cached_path_is_fast(client):
 
 
 @pytest.mark.asyncio
-async def test_slack_status_cache_invalidates_on_connect_and_disconnect():
+async def test_slack_status_cache_invalidates_on_connect_and_disconnect(tmp_path):
     """save_tokens must invalidate the status cache; disconnect must too."""
     from services import connections_cache, slack as slack_service
 
@@ -126,7 +126,11 @@ async def test_slack_status_cache_invalidates_on_connect_and_disconnect():
 
     # save_tokens is the connect path. It writes to TOKEN_PATH and drops
     # the cached status so the next poll is fresh.
-    with patch("services.slack.TOKEN_PATH") as mock_path:
+    # WORKSPACES_DIR is patched to a tmp dir alongside TOKEN_PATH so neither
+    # save_tokens nor disconnect can touch the real ~/.myos/slack_workspaces/
+    # (the user's live Slack tokens). See task ->1940.
+    with patch("services.slack.TOKEN_PATH") as mock_path, \
+         patch("services.slack.WORKSPACES_DIR", tmp_path / "slack_workspaces"):
         mock_path.exists.return_value = False
         with patch("services.slack.atomic_write_json"):
             slack_service.save_tokens({"access_token": "xoxb-abc"})
@@ -136,7 +140,8 @@ async def test_slack_status_cache_invalidates_on_connect_and_disconnect():
     connections_cache.set("slack_status", {"connected": True, "team_name": "x", "team_id": "y", "configured": True})
     assert connections_cache.get("slack_status") is not None
 
-    with patch("services.slack.TOKEN_PATH") as mock_path:
+    with patch("services.slack.TOKEN_PATH") as mock_path, \
+         patch("services.slack.WORKSPACES_DIR", tmp_path / "slack_workspaces"):
         mock_path.exists.return_value = False
         slack_service.disconnect()
     assert connections_cache.get("slack_status") is None
