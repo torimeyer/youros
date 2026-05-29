@@ -515,20 +515,26 @@ async def complete(
         prompt,
     ]
     env = _build_subprocess_env()
+    import subprocess
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-            cwd=str(_REPO_ROOT),
+        # ->1806: run the fork+wait inside a worker thread. Forking the heavy
+        # backend via create_subprocess_exec ON the event-loop thread stalls
+        # TLS handshakes and wedges the worker. subprocess.run releases the GIL
+        # across fork/exec/wait, so the loop stays responsive while this runs.
+        result = await asyncio.to_thread(
+            lambda: subprocess.run(
+                args,
+                capture_output=True,
+                timeout=30,
+                env=env,
+                cwd=str(_REPO_ROOT),
+            )
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
-        if proc.returncode != 0:
-            _claude_log.warning("claude_complete: CLI exited %d", proc.returncode)
+        if result.returncode != 0:
+            _claude_log.warning("claude_complete: CLI exited %d", result.returncode)
             return None
-        return stdout.decode("utf-8", errors="replace").strip()
-    except asyncio.TimeoutError:
+        return result.stdout.decode("utf-8", errors="replace").strip()
+    except subprocess.TimeoutExpired:
         _claude_log.warning("claude_complete: timed out after 30s")
         return None
     except Exception as exc:
