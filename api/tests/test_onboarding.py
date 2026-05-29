@@ -592,23 +592,21 @@ async def test_intent_llm_bad_json_returns_static_pack(client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_intent_calls_ai_client_not_static(client):
-    """Verify /intent actually calls the AI client (not a static dict lookup)."""
-    from types import SimpleNamespace
-    items_payload = [{"id": "builtin-builder", "default_selected": True}]
-    good_resp = MagicMock()
-    good_resp.content = [SimpleNamespace(text=json.dumps({"items": items_payload}))]
+async def test_intent_does_not_call_ai_client(client):
+    """/intent is deterministic: it must NOT call the LLM. The personalization
+    pass was removed because it made the starter-agents step show 'Loading' for
+    up to 6s; the deterministic pack is returned instantly instead."""
     mock_client = MagicMock()
-    mock_client.messages.create = AsyncMock(return_value=good_resp)
+    mock_client.messages.create = AsyncMock(side_effect=AssertionError("intent() must not call the LLM"))
 
     with patch("routers.onboarding.get_ai_client", new=AsyncMock(return_value=mock_client)):
         resp = await client.post("/api/onboarding/intent", json={"intent": "coding"})
 
     assert resp.status_code == 200
-    mock_client.messages.create.assert_awaited_once()
-    pack = resp.json()["starter_pack"]
-    assert len(pack) == 1
-    assert pack[0]["id"] == "builtin-builder"
+    mock_client.messages.create.assert_not_awaited()
+    ids = [item["id"] for item in resp.json()["starter_pack"]]
+    assert "builtin-builder" in ids
+    assert len(ids) > 1  # full deterministic coding pack, not a single LLM-selected item
 
 
 @pytest.mark.asyncio
