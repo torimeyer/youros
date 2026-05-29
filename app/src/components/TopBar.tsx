@@ -11,7 +11,9 @@ import { api } from '../lib/api'
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications'
 
 interface TopBarProps {
-  title: string
+  // Retained so existing pages can keep passing title=, but the small
+  // top-bar title is no longer rendered (one title per page: the large one).
+  title?: string
 }
 
 const isMac = () => navigator.platform.toUpperCase().includes('MAC') || navigator.userAgent.toUpperCase().includes('MAC OS')
@@ -127,7 +129,7 @@ function PersistentNotificationItem({
   )
 }
 
-export default function TopBar({ title }: TopBarProps) {
+export default function TopBar(_: TopBarProps) {
   const navigate = useNavigate()
   const toggleChat = useAppStore((s) => s.toggleChat)
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
@@ -297,9 +299,10 @@ export default function TopBar({ title }: TopBarProps) {
       className="fixed top-0 left-0 lg:left-56 h-14 sm:h-16 bg-white dark:bg-slate-950/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800/50 flex items-center justify-between px-4 sm:px-8 z-40 transition-[right] duration-200"
       style={{ right: chatOpen && isDesktop ? chatWidth : 0 }}
     >
-      <div className="flex items-center gap-4 pl-10 lg:pl-0">
-        <span className="font-bold text-slate-900 dark:text-slate-100 tracking-tight text-sm sm:text-base">{title}</span>
-      </div>
+      {/* Small top-bar page title removed for consistency: every page shows
+          exactly one title (the large per-page heading). The empty left slot
+          preserves the mobile menu-button offset. */}
+      <div className="flex items-center gap-4 pl-10 lg:pl-0" aria-hidden="true" />
 
       <div data-tour="search" className="flex-1 max-w-md mx-2 sm:mx-8 hidden sm:block">
         <button
