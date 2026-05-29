@@ -2271,3 +2271,135 @@ describe('stage chip tooltip for active claims (FR-014)', () => {
     expect(stageChip.title).toBeFalsy()
   })
 })
+
+// E2E journey tests for →1925, →1926, →1927
+// These walk the full specs journey as a user would: list → pick → build → result.
+describe('E2E journey: specs list → pick → build (→1925 →1926 →1927)', () => {
+  const journeySpec = {
+    path: 'docs/spec/e2e-journey.md',
+    filename: 'e2e-journey.md',
+    title: 'e2e journey spec',
+    status: 'spec' as const,
+    created_at: '2026-05-29T00:00:00Z',
+    promoted_at: '2026-05-29T00:00:00Z',
+    body: '## Goal\nVerify the full journey.\n\n- [ ] spec works end to end\n- [ ] build button is present',
+    acceptance_criteria: [
+      { text: 'spec works end to end', checked: false },
+      { text: 'build button is present', checked: false },
+    ],
+  }
+
+  const allDoneSpec = {
+    path: 'docs/spec/all-criteria-done.md',
+    filename: 'all-criteria-done.md',
+    title: 'all criteria done spec',
+    status: 'spec' as const,
+    created_at: '2026-05-29T00:00:00Z',
+    promoted_at: '2026-05-29T00:00:00Z',
+    body: '- [x] first criterion done\n- [x] second criterion done',
+    acceptance_criteria: [
+      { text: 'first criterion done', checked: true },
+      { text: 'second criterion done', checked: true },
+    ],
+  }
+
+  function mockApiForJourney() {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve({ docs: [journeySpec, allDoneSpec] })
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('spawn-preflight')) return Promise.resolve({ conflicts: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [], claims: [] })
+      return Promise.resolve({})
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiForJourney()
+    mockedApiPost.mockResolvedValue({ agents: ['builder-xyz'], message: 'Build started' })
+  })
+
+  // →1925: Opening a spec from the list shows its title and AC in the same
+  // view with no blank or error state.
+  it('→1925: specs list renders without blank state; clicking a spec shows title and acceptance criteria', async () => {
+    renderSpecs()
+
+    // List renders: at least one spec is visible, no empty-state placeholder
+    await waitFor(() => expect(screen.getByText('e2e journey spec')).toBeInTheDocument())
+    expect(screen.queryByText('No specs yet')).not.toBeInTheDocument()
+
+    // Click the spec card
+    const cards = screen.getAllByTestId('spec-card')
+    const card = cards.find(c => c.textContent?.includes('e2e journey spec'))!
+    expect(card).toBeDefined()
+    fireEvent.click(card)
+
+    // spec-detail opens immediately in the same view, no navigation, no blank
+    await waitFor(() => expect(screen.getByTestId('spec-detail')).toBeInTheDocument())
+
+    // Title is still visible
+    expect(screen.getByText('e2e journey spec')).toBeInTheDocument()
+
+    // Acceptance criteria section is present with the correct items
+    expect(screen.getByTestId('acceptance-criteria')).toBeInTheDocument()
+    expect(screen.getByText('spec works end to end')).toBeInTheDocument()
+    expect(screen.getByText('build button is present')).toBeInTheDocument()
+  })
+
+  // →1926: The build button is present and enabled; pressing it starts a build
+  // whose outcome appears in the result panel (the in-page "activity" feed).
+  it('→1926: build button is present and enabled; clicking it shows a build result with agent names', async () => {
+    renderSpecs()
+
+    await waitFor(() => expect(screen.getByText('e2e journey spec')).toBeInTheDocument())
+
+    const cards = screen.getAllByTestId('spec-card')
+    const card = cards.find(c => c.textContent?.includes('e2e journey spec'))!
+    fireEvent.click(card)
+
+    // Build button is present and not disabled
+    await waitFor(() => expect(screen.getByTestId('build-button')).toBeInTheDocument())
+    const btn = screen.getByTestId('build-button')
+    expect(btn).not.toBeDisabled()
+
+    // Click Build it
+    fireEvent.click(btn)
+
+    // Build result panel appears with the spawned agent name
+    await waitFor(() => expect(screen.getByTestId('build-result')).toBeInTheDocument())
+    const agentChip = screen.getByTestId('build-agent-name')
+    expect(agentChip.textContent).toBe('builder-xyz')
+
+    // "Watch in the Agents tab" link is present
+    expect(screen.getByTestId('build-agents-link')).toBeInTheDocument()
+  })
+
+  // →1927: A spec with all criteria checked shows a single "Ready" indicator
+  // and no duplicate or stale status pill.
+  it('→1927: spec with all criteria checked shows exactly one Ready stage chip and no status-badge duplicates', async () => {
+    renderSpecs()
+
+    await waitFor(() => expect(screen.getByText('all criteria done spec')).toBeInTheDocument())
+
+    const cards = screen.getAllByTestId('spec-card')
+    const card = cards.find(c => c.textContent?.includes('all criteria done spec'))!
+    expect(card).toBeDefined()
+
+    // Exactly one stage-chip on the card, saying "Ready"
+    const chips = card.querySelectorAll('[data-testid="stage-chip"]')
+    expect(chips).toHaveLength(1)
+    expect(chips[0].textContent).toBe('Ready')
+
+    // No separate status-badge (no duplicate pill)
+    expect(card.querySelectorAll('[data-testid="status-badge"]')).toHaveLength(0)
+
+    // Expand: detail opens, still only one stage-chip, still no status-badge
+    fireEvent.click(card)
+    await waitFor(() => expect(screen.getByTestId('spec-detail')).toBeInTheDocument())
+
+    const chipsAfterExpand = card.querySelectorAll('[data-testid="stage-chip"]')
+    expect(chipsAfterExpand).toHaveLength(1)
+    expect(chipsAfterExpand[0].textContent).toBe('Ready')
+    expect(screen.queryAllByTestId('status-badge')).toHaveLength(0)
+  })
+})
