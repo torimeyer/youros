@@ -95,6 +95,45 @@ async def test_create_draft_auto_promotes_when_ac_generation_succeeds(
 
 
 @pytest.mark.asyncio
+async def test_build_locked_spec_is_paused(client, tmp_path, monkeypatch):
+    """A locked/frozen spec returns an informational paused message, no agents (phase 5)."""
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    spec = tmp_path / "docs" / "spec" / "locked.md"
+    spec.write_text(
+        "---\ntitle: Locked\nstatus: ready\ntype: engineering\nlocked: true\n---\n\n"
+        "## Problem\nX\n\n## Acceptance criteria\n- [ ] do the thing\n"
+    )
+    resp = await client.post("/api/specs/docs/spec/locked.md/build", json={})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["locked"] is True
+    assert data["agents"] == []
+    assert "locked" in data["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_build_vision_spec_has_no_build_phase(client, tmp_path, monkeypatch):
+    """A vision spec is a planning doc - build short-circuits with no agents (phase 5)."""
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    spec = tmp_path / "docs" / "spec" / "vision.md"
+    spec.write_text(
+        "---\ntitle: 3yr vision\nstatus: ready\ntype: vision\n---\n\n"
+        "## Why this matters\nBig picture\n\n## Success measures\n- faster onboarding\n"
+    )
+    resp = await client.post("/api/specs/docs/spec/vision.md/build", json={})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["no_build_phase"] is True
+    assert data["agents"] == []
+
+
+@pytest.mark.asyncio
 async def test_create_draft_leaves_as_draft_when_ac_generation_fails(
     client, tmp_path, monkeypatch
 ):

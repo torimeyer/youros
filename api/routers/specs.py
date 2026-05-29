@@ -2417,11 +2417,36 @@ async def build_spec(spec_path: str, model: Optional[str] = None):
             status_code=404, detail=f"Spec not found: {spec_path}"
         )
 
+    spec_text = spec_full_path.read_text()
+    # Freeze/lock (phase 5): respect an explicit user lock. Informational, not
+    # an error - the user unlocks the spec when they want to build.
+    if (_read_frontmatter_value(spec_text, "frozen").lower() in ("true", "yes", "on")
+            or _read_frontmatter_value(spec_text, "locked").lower() in ("true", "yes", "on")):
+        return {
+            "agents": [],
+            "message": "This spec is locked, so building is paused. Unlock it in the spec to build.",
+            "has_unchecked_acs": False,
+            "locked": True,
+        }
     # Route non-code produces to a single template agent instead of task decomposition
-    produces = _read_frontmatter_produces(spec_full_path.read_text())
+    produces = _read_frontmatter_produces(spec_text)
     artifact_template = _PRODUCES_TEMPLATE.get(produces)
     if artifact_template:
         return await _build_artifact_agent(spec_path, spec_full_path, artifact_template, model)
+    # Scale to size (phase 5): a spec type with no "build" phase (e.g. a vision
+    # or roadmap) is a planning doc, not something to spawn builders for.
+    from services.spec_types import get_spec_type
+    _type_entry = get_spec_type(_read_frontmatter_value(spec_text, "type") or None)
+    if "build" not in _type_entry["pipeline_phases"]:
+        return {
+            "agents": [],
+            "message": (
+                f"This is a {_type_entry['display_name']} spec, a planning doc with no "
+                "build step. Break it into engineering specs when you are ready to build."
+            ),
+            "has_unchecked_acs": False,
+            "no_build_phase": True,
+        }
 
     agent_configs = await _resolve_task_configs(spec_path)
     # Override model on every cfg so _spawn_one picks it up.
@@ -2828,6 +2853,19 @@ def _inject_frontmatter_key(content: str, key: str, value: str) -> str:
         return content
     lines.insert(end_idx, f"{key}: {value}")
     return "\n".join(lines)
+
+
+def _read_frontmatter_value(text: str, key: str) -> str:
+    """Return a frontmatter scalar value for key, or "" if absent."""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return ""
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line.startswith(f"{key}:"):
+            return line.split(":", 1)[1].strip()
+    return ""
 
 
 def _read_frontmatter_produces(text: str) -> str:
