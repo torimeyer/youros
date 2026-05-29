@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
 import SpecTemplateDetailsModal, {
@@ -504,7 +504,7 @@ function SpecsOnboarding() {
   };
 
   return (
-    <div className="bg-slate-100 border border-slate-200 dark:bg-slate-800/40 dark:border-slate-700/50 rounded-xl px-5 py-4 mb-6 relative">
+    <div className="bg-slate-100 border border-slate-200 dark:bg-slate-800/40 dark:border-slate-700/50 rounded-xl px-5 py-4 mb-6 relative mt-4">
       <button
         onClick={handleDismiss}
         className="absolute top-3 right-3 text-slate-500 hover:text-slate-700 dark:hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
@@ -519,6 +519,13 @@ function SpecsOnboarding() {
       <p className="text-sm text-slate-700 dark:text-slate-400 leading-relaxed mt-1">
         The flow: Draft a spec with acceptance criteria &gt; Promote to lock it in &gt; Break into tasks &gt; Build with agents &gt; Verify the work.
       </p>
+      <Link
+        to="/specs/faq"
+        data-testid="specs-faq-link"
+        className="text-sm text-blue-600 dark:text-blue-400 hover:underline mt-2 inline-block"
+      >
+        Learn what a spec is (and isn&apos;t)
+      </Link>
     </div>
   );
 }
