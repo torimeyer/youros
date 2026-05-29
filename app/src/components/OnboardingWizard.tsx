@@ -1001,6 +1001,56 @@ function NameStep({
 }
 
 
+function FilesLocationStep({
+  filesDir,
+  setFilesDir,
+  defaultPath,
+  inputCls,
+  subtextCls,
+  onNext,
+}: {
+  filesDir: string
+  setFilesDir: (v: string) => void
+  defaultPath: string
+  inputCls: string
+  subtextCls: string
+  onNext: () => void
+}) {
+  const [changing, setChanging] = useState(false)
+
+  return (
+    <div data-testid="step-files-location">
+      <h2 className="text-2xl font-bold mb-2">Where your files live</h2>
+      <p className={`mb-4 ${subtextCls}`}>
+        This is the folder on your computer where yourOS saves your files, like briefs and roadmaps.
+      </p>
+      <div className="flex items-center gap-2 mb-3">
+        <code data-testid="files-dir-display" className="text-sm font-mono">{filesDir || defaultPath}</code>
+        <button
+          onClick={() => setChanging(v => !v)}
+          data-testid="files-location-change"
+          className={`text-xs ${subtextCls} hover:opacity-80 underline shrink-0`}
+        >
+          {changing ? 'Cancel' : 'Change location'}
+        </button>
+      </div>
+      {changing && (
+        <input
+          type="text"
+          value={filesDir}
+          onChange={(e) => setFilesDir(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') onNext() }}
+          placeholder={defaultPath}
+          data-testid="files-dir-input"
+          autoFocus
+          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+        />
+      )}
+    </div>
+  )
+}
+
+
 function ThemeStep({
   darkMode,
   onChoose,
