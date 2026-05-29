@@ -6,6 +6,7 @@ export interface ReadinessCheck {
   name: string
   passed: boolean
   detail: string
+  required?: boolean  // false = optional ("Enhance"); missing/true = required
 }
 
 interface NeedsClarityChipProps {
@@ -53,7 +54,8 @@ function mergeAcChecks(checks: ReadinessCheck[]): ReadinessCheck[] {
   // Use the primary failing check name so AI suggest targets the right endpoint
   const name = !ac.passed ? 'has_ac_checkboxes' : !vague.passed ? 'no_vague_ac' : 'has_ac_checkboxes'
 
-  const merged: ReadinessCheck = { name, passed, detail }
+  const required = (ac.required ?? true) || (vague.required ?? true)
+  const merged: ReadinessCheck = { name, passed, detail, required }
   const result = [...checks]
   result[acIdx] = merged
   result.splice(vagueIdx > acIdx ? vagueIdx : vagueIdx, 1)
@@ -97,6 +99,12 @@ export function NeedsClarityChip({
   const checkLines = visibleChecks.map((c) => `${c.passed ? '✓' : '✗'} ${CHECK_LABEL[c.name] ?? c.name}: ${c.detail}`)
 
   const failingChecks = visibleChecks.filter((c) => !c.passed)
+  // A check with no `required` field defaults to required (back-compat).
+  const failingRequired = failingChecks.filter((c) => c.required ?? true)
+  // Show the gentle "Enhance" affordance when the spec is already promoted
+  // (stage ready) OR when every still-failing check is optional. Otherwise a
+  // required gap remains, so show the stronger "Needs detail".
+  const onlyOptionalLeft = stage === 'ready' || failingRequired.length === 0
 
   async function handleFillAll() {
     if (fillingAll) return
@@ -182,10 +190,10 @@ export function NeedsClarityChip({
 
   return (
     <>
-      {stage === 'ready' ? (
-        // Ready specs already show the blue StageChip "Ready" on the row.
-        // Render ONLY the optional "Enhance" affordance here, never a second
-        // "Ready" pill (the double-"Ready" report).
+      {onlyOptionalLeft ? (
+        // Either the spec is promoted (blue StageChip "Ready" already shows) or
+        // only optional checks remain. Render ONLY the gentle "Enhance"
+        // affordance here, never a second "Ready" pill (the double-"Ready" report).
         <button
           type="button"
           data-testid="needs-clarity-chip"
@@ -297,6 +305,7 @@ export function NeedsClarityChip({
                         }`}
                       >
                         {CHECK_LABEL[check.name] ?? check.name}
+                        {(check.required ?? true) ? '' : ' (optional)'}
                       </p>
                       <p className="text-xs text-slate-400 mt-0.5">{check.detail}</p>
 
