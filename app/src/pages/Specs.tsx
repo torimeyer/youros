@@ -10,6 +10,7 @@ import { formatRelative } from "../lib/time";
 import { reportError } from '../lib/reportError';
 import { buildSpec } from "../lib/spawn";
 import { NeedsClarityChip, type ReadinessCheck } from "../components/NeedsClarityChip";
+import { SpecReview } from "../components/SpecReview";
 import { ClaimSourceChip } from "../components/ClaimSourceChip";
 import { SpawnGeminiModal } from "../components/SpawnGeminiModal";
 import { onSpecsChange, bumpAgents, bumpTasks } from "../lib/sidebarBus";
@@ -1473,6 +1474,9 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                           </div>
                         )}
                       </div>
+
+                      {/* Spec review surface (phase 5): readiness, drift, inherited principles */}
+                      <SpecReview specPath={doc.path} />
 
                       {/* Acceptance criteria */}
                       {criteria.length > 0 && (

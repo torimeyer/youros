@@ -58,7 +58,7 @@ export function SpecReview({ specPath }: { specPath: string }) {
     )
   }
 
-  if (error || !data) {
+  if (error || !data || !data.readiness) {
     return (
       <div
         data-testid="review-error"
@@ -70,7 +70,11 @@ export function SpecReview({ specPath }: { specPath: string }) {
   }
 
   const { readiness, drift, constitution } = data
-  const failingRequired = readiness.checks.filter((c) => !c.passed && c.required)
+  const checks = readiness.checks ?? []
+  const failingRequired = checks.filter((c) => !c.passed && c.required)
+  const driftItems = drift?.items ?? []
+  const principles = constitution?.principles ?? []
+  const violations = constitution?.violations ?? []
 
   return (
     <div className="space-y-3 text-sm">
@@ -86,9 +90,9 @@ export function SpecReview({ specPath }: { specPath: string }) {
       </div>
 
       <div data-testid="review-drift" className="space-y-1">
-        {drift.drift ? (
+        {drift?.drift ? (
           <ul className="space-y-1">
-            {drift.items.map((item, i) => (
+            {driftItems.map((item, i) => (
               <li key={i} className="text-slate-400 text-xs">
                 {item.detail}
               </li>
@@ -101,11 +105,11 @@ export function SpecReview({ specPath }: { specPath: string }) {
 
       <div data-testid="review-constitution" className="space-y-1">
         <span className="text-slate-400 text-xs">
-          Inherits {constitution.principles.length} project principle{constitution.principles.length === 1 ? '' : 's'}
+          Inherits {principles.length} project principle{principles.length === 1 ? '' : 's'}
         </span>
-        {constitution.violations.length > 0 && (
+        {violations.length > 0 && (
           <ul className="space-y-1 mt-1">
-            {constitution.violations.map((v, i) => (
+            {violations.map((v, i) => (
               <li key={i} className="text-red-400 text-xs">
                 {v.detail}
               </li>
