@@ -622,7 +622,7 @@ export default function Calendar() {
             description={
               authStatus?.needs_reauth
                 ? 'Reconnect your Google account to give yourOS permission to read your calendar. This uses the same account you already connected for Drive.'
-                : 'See your upcoming meetings and create needles from events. This uses the same Google account as Drive, so no extra credentials are needed.'
+                : 'See your upcoming meetings and create tasks from events. This uses the same Google account as Drive, so no extra credentials are needed.'
             }
             primaryAction={
               <div className="w-full space-y-3">
@@ -823,14 +823,15 @@ export default function Calendar() {
                           onClick={() => handleCreateTask(ev, 'Today', startTime)}
                           disabled={taskState === 'loading' || taskState === 'done'}
                           className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-xs transition-colors disabled:opacity-50"
-                          title="Create a prep needle"
+                          title="Create a task"
+                          data-testid={`create-task-button-${ev.id}`}
                         >
                           {taskState === 'done' ? (
                             <><Icon name="check" size={14} className="text-green-600 dark:text-green-400" /> Done</>
                           ) : taskState === 'error' ? (
                             <><Icon name="error" size={14} className="text-red-600 dark:text-red-400" /> Error</>
                           ) : (
-                            <><Icon name="add_task" size={14} /> Needle</>
+                            <><Icon name="add_task" size={14} /> Task</>
                           )}
                         </button>
                         <button
@@ -862,11 +863,11 @@ export default function Calendar() {
                             {briefingTaskStatus[ev.id] === 'loading' ? (
                               <><Icon name="progress_activity" size={12} className="animate-spin" /> Creating needles...</>
                             ) : briefingTaskStatus[ev.id] === 'done' ? (
-                              <><Icon name="check_circle" size={12} className="text-green-600 dark:text-green-400" /> {briefingTaskCount[ev.id] || 0} needles created</>
+                              <><Icon name="check_circle" size={12} className="text-green-600 dark:text-green-400" /> {briefingTaskCount[ev.id] || 0} tasks created</>
                             ) : briefingTaskStatus[ev.id] === 'error' ? (
                               <><Icon name="error" size={12} className="text-red-600 dark:text-red-400" /> Failed</>
                             ) : (
-                              <><Icon name="add_task" size={12} /> Create needles from briefing</>
+                              <><Icon name="add_task" size={12} /> Create tasks from briefing</>
                             )}
                           </button>
                         </div>
@@ -966,7 +967,8 @@ export default function Calendar() {
                                 onClick={() => handleCreateTask(ev, label, startTime)}
                                 disabled={taskState === 'loading' || taskState === 'done'}
                                 className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-xs transition-colors disabled:opacity-50"
-                                title="Create a prep needle"
+                                title="Create a task"
+                                data-testid={`create-task-button-${ev.id}`}
                               >
                                 {taskState === 'done' ? (
                                   <Icon name="check" size={12} className="text-green-600 dark:text-green-400" />
@@ -1004,11 +1006,11 @@ export default function Calendar() {
                                   {briefingTaskStatus[ev.id] === 'loading' ? (
                                     <><Icon name="progress_activity" size={11} className="animate-spin" /> Creating needles...</>
                                   ) : briefingTaskStatus[ev.id] === 'done' ? (
-                                    <><Icon name="check_circle" size={11} className="text-green-600 dark:text-green-400" /> {briefingTaskCount[ev.id] || 0} needles created</>
+                                    <><Icon name="check_circle" size={11} className="text-green-600 dark:text-green-400" /> {briefingTaskCount[ev.id] || 0} tasks created</>
                                   ) : briefingTaskStatus[ev.id] === 'error' ? (
                                     <><Icon name="error" size={11} className="text-red-600 dark:text-red-400" /> Failed</>
                                   ) : (
-                                    <><Icon name="add_task" size={11} /> Create needles from briefing</>
+                                    <><Icon name="add_task" size={11} /> Create tasks from briefing</>
                                   )}
                                 </button>
                               </div>

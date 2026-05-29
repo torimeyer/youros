@@ -21,7 +21,7 @@ export default function ConnectCard({
   return (
     <div
       data-testid="connect-card"
-      className="max-w-md mx-auto bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-5 sm:p-8 rounded-2xl flex flex-col items-center gap-6 text-center"
+      className="max-w-md mx-auto mt-16 sm:mt-20 bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-5 sm:p-8 rounded-2xl flex flex-col items-center gap-6 text-center"
     >
       <div
         className="p-4 rounded-2xl"

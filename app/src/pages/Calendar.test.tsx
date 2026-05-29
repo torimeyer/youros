@@ -1205,3 +1205,38 @@ describe('Calendar — Google OAuth connect button', () => {
     expect(screen.queryByTestId('connect-google-button-calendar')).not.toBeInTheDocument()
   })
 })
+
+describe('Calendar event card create-task button label', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.calendarCache.v1')
+  })
+
+  it('shows "Task" label on the create-task button, not "Needle"', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/calendar/events'))
+        return Promise.resolve({
+          events: [
+            {
+              id: 'evt-task-label-test',
+              summary: 'Team standup',
+              start: { dateTime: '2026-04-22T09:00:00-05:00' },
+              end: { dateTime: '2026-04-22T10:00:00-05:00' },
+            },
+          ],
+        })
+      return Promise.resolve({})
+    })
+    renderCalendar()
+    await waitFor(() => {
+      expect(screen.getByText('Team standup')).toBeInTheDocument()
+    })
+    const taskButtons = screen.getAllByTestId(/^create-task-button/)
+    expect(taskButtons.length).toBeGreaterThan(0)
+    taskButtons.forEach((btn) => {
+      expect(btn).toHaveTextContent('Task')
+      expect(btn).not.toHaveTextContent('Needle')
+    })
+  })
+})
