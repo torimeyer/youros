@@ -13,15 +13,11 @@ import textwrap
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-VENV_PY = REPO_ROOT / "api" / ".venv" / "bin" / "python3.11"
 
 
 def _venv_py() -> Path:
-    """Return venv python, skip if not found."""
-    if not VENV_PY.exists():
-        import pytest
-        pytest.skip(f"venv not found at {VENV_PY}")
-    return VENV_PY
+    """Return the python running this test — no venv hunting needed."""
+    return Path(sys.executable)
 
 
 def test_pytest_timeout_plugin_installed():
