@@ -33,6 +33,24 @@ const sections: FaqSection[] = [
     ),
   },
   {
+    id: 'faq-q-vs-prd',
+    heading: 'How is a spec different from a PRD?',
+    body: (
+      <p className="text-sm text-slate-400">
+        The quickest way to put it is that a spec is a PRD for agents. A normal PRD is written for
+        people, and people fill the gaps from context and a hallway conversation, but an agent does
+        exactly what is on the page, so writing for an agent is different in a few ways. The
+        acceptance criteria have to be concrete and checkable rather than vague adjectives like
+        premium or clean, the non-goals and constraints have to be written down rather than assumed,
+        and the spec has to be self-contained because the agent was not in the room. On top of that
+        the spec is executable, each criterion spawns a builder and the spec marks itself done when
+        they all land, and an agent cannot start until the spec is marked Ready. So a PRD is a spec
+        for humans, and a spec here is a PRD for agents, written precisely enough that something
+        non-human can build straight from it.
+      </p>
+    ),
+  },
+  {
     id: 'faq-q-kinds',
     heading: 'The kinds of specs',
     body: (
