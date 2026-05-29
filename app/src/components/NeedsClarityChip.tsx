@@ -183,23 +183,21 @@ export function NeedsClarityChip({
   return (
     <>
       {stage === 'ready' ? (
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-400 border border-green-500/30">
-            Ready
-          </span>
-          <button
-            type="button"
-            data-testid="needs-clarity-chip"
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-400/60 border border-amber-500/20 cursor-pointer hover:bg-amber-500/20 transition-colors"
-            title="Optional tips to strengthen this spec"
-            onClick={(e) => {
-              e.stopPropagation()
-              setOpen(true)
-            }}
-          >
-            Enhance
-          </button>
-        </span>
+        // Ready specs already show the blue StageChip "Ready" on the row.
+        // Render ONLY the optional "Enhance" affordance here, never a second
+        // "Ready" pill (the double-"Ready" report).
+        <button
+          type="button"
+          data-testid="needs-clarity-chip"
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-400/60 border border-amber-500/20 cursor-pointer hover:bg-amber-500/20 transition-colors"
+          title="Optional tips to strengthen this spec"
+          onClick={(e) => {
+            e.stopPropagation()
+            setOpen(true)
+          }}
+        >
+          Enhance
+        </button>
       ) : (
         <button
           type="button"

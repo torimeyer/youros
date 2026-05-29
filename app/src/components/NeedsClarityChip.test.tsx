@@ -68,6 +68,15 @@ describe('Chip wording and stage', () => {
     expect(screen.getByTestId('needs-clarity-modal')).toBeInTheDocument()
   })
 
+  it('when stage=ready does NOT render a duplicate "Ready" pill (only Enhance)', () => {
+    // Regression (Tori's screenshot): the row's StageChip already shows the
+    // blue "Ready". This chip must not render a SECOND green "Ready" next to
+    // "Enhance". A ready spec shows exactly one "Ready" pill.
+    render(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" stage="ready" />)
+    expect(screen.queryByText('Ready')).not.toBeInTheDocument()
+    expect(screen.getByTestId('needs-clarity-chip')).toHaveTextContent('Enhance')
+  })
+
   it('when no stage (default) chip shows "Needs detail" text', () => {
     render(<NeedsClarityChip checks={failingChecks} specPath="docs/spec/foo.md" />)
     expect(screen.getByTestId('needs-clarity-chip')).toHaveTextContent('Needs detail')
