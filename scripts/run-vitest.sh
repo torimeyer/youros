@@ -48,6 +48,7 @@ HOOK_TIMEOUT_MS=15000
 VITEST_PID=""
 VITEST_PGID=""
 WATCHDOG_PID=""
+PARENT_MONITOR_PID=""
 
 # Try to acquire the lock atomically. mkdir is atomic on macOS and Linux,
 # so this works without flock (flock is not on macOS by default).
@@ -65,8 +66,9 @@ date "+%H:%M:%S" > "${LOCK_DIR}/started_at"
 TIMEOUT_MARKER="${LOCK_DIR}/wall_clock_timeout"
 
 cleanup() {
-  # Cancel the watchdog so it doesn't race with our own cleanup.
-  [ -n "${WATCHDOG_PID:-}" ] && kill "${WATCHDOG_PID}" 2>/dev/null || true
+  # Cancel the watchdog and parent monitor so they don't race with us.
+  [ -n "${WATCHDOG_PID:-}" ]        && kill "${WATCHDOG_PID}" 2>/dev/null || true
+  [ -n "${PARENT_MONITOR_PID:-}" ]  && kill "${PARENT_MONITOR_PID}" 2>/dev/null || true
 
   # Kill the entire vitest process group (vitest + all node workers).
   if [ -n "${VITEST_PGID:-}" ]; then
@@ -136,6 +138,30 @@ VITEST_PGID="${VITEST_PID}"
   kill -KILL -- -"${PGID}" 2>/dev/null || true
 ) &
 WATCHDOG_PID=$!
+
+# Parent-death monitor: polls every 2s to detect if our caller died without
+# sending us a signal (e.g. the parent shell was SIGKILLed). When our ppid
+# becomes 1 (reparented to launchd), cleanup has not run — we do it here.
+# Guards against triggering if cleanup() already removed the lock dir.
+(
+  PGID="${VITEST_PGID}"
+  LOCK="${LOCK_DIR}"
+  while true; do
+    sleep 2
+    [ ! -d "${LOCK}" ] && break       # cleanup() already ran
+    MY_PPID="$(ps -o ppid= -p "$$" 2>/dev/null | tr -d ' ')" || break
+    [ -z "${MY_PPID}" ] && break      # our own process is gone
+    if [ "${MY_PPID}" = "1" ]; then
+      # Reparented to launchd — our parent died. Kill vitest group.
+      kill -TERM -- -"${PGID}" 2>/dev/null || true
+      sleep 5
+      kill -KILL -- -"${PGID}" 2>/dev/null || true
+      rm -rf "${LOCK}" 2>/dev/null || true
+      break
+    fi
+  done
+) &
+PARENT_MONITOR_PID=$!
 
 wait "${VITEST_PID}"
 STATUS=$?
