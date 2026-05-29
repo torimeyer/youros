@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import signal
@@ -11,6 +12,8 @@ from typing import Optional, Union
 
 from config import PROJECT_ROOT, OSTK_DIR as _OSTK_DIR
 from services.atomic_io import atomic_write_text
+
+_logger = logging.getLogger(__name__)
 
 PROJECT_DIR = os.environ.get("OSTK_PROJECT_ROOT", str(PROJECT_ROOT))
 OSTK_DIR = _OSTK_DIR
@@ -2362,6 +2365,11 @@ class OstkService:
             target, "\n".join(new_lines) + ("\n" if text.endswith("\n") else "")
         )
         source.unlink()
+
+        try:
+            await self.doc_decompose(str(target), auto=True)
+        except Exception as exc:
+            _logger.warning("doc_promote: decompose failed for %s: %s", target, exc)
 
         return str(target)
 
