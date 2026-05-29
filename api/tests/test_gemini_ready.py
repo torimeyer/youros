@@ -380,3 +380,79 @@ class TestSpecChecks:
             "has_file_paths", "ac_count_threshold", "referenced_files_exist",
         ):
             assert dropped not in names, f"Dropped check '{dropped}' still present in task"
+
+
+# ---------------------------------------------------------------------------
+# Typed-spec readiness (phase 2): per-type profiles + required/optional
+# ---------------------------------------------------------------------------
+
+class TestTypedSpecReadiness:
+    def _write(self, tmp_path, body: str) -> str:
+        p = tmp_path / "spec.md"
+        p.write_text(body, encoding="utf-8")
+        return str(p)
+
+    def test_required_field_in_as_dict(self):
+        d = compute_spec_readiness(str(FIXTURE_DIR / "pass_all.md")).as_dict()
+        assert all("required" in c for c in d["checks"])
+
+    def test_unknown_type_defaults_to_engineering(self, tmp_path):
+        body = "---\ntype: bogus\n---\n# Add a thing\n\n- [ ] When X happens, Y is the clear result\n"
+        names = [c.name for c in compute_spec_readiness(self._write(tmp_path, body)).checks]
+        assert names == [
+            "has_ac_checkboxes", "no_vague_ac", "has_file_paths",
+            "referenced_files_exist", "in_repo_scope",
+        ]
+
+    def test_engineering_file_paths_now_optional(self, tmp_path):
+        # AC present + concrete + in-scope, but no real file paths -> still ready,
+        # because file-path checks are optional for engineering specs now.
+        body = (
+            "---\ntype: engineering\n---\n# Add a save toast to the app\n\n"
+            "- [ ] When the user clicks save, the row persists\n"
+            "- [ ] When the row persists, a confirmation toast appears\n"
+        )
+        r = compute_spec_readiness(self._write(tmp_path, body))
+        by = {c.name: c for c in r.checks}
+        assert by["has_ac_checkboxes"].required is True
+        assert by["has_file_paths"].required is False
+        assert by["referenced_files_exist"].required is False
+        assert r.ready is True
+
+    def test_vision_skips_file_paths_requires_success_measures(self, tmp_path):
+        body = (
+            "---\ntype: vision\n---\n# Three year vision\n\n"
+            "## Success measures\n- Onboarding time cut in half by Q4\n"
+        )
+        r = compute_spec_readiness(self._write(tmp_path, body))
+        names = [c.name for c in r.checks]
+        assert "has_file_paths" not in names
+        assert "has_success_measures" in names
+        assert r.ready is True
+
+    def test_vision_missing_success_measures_not_ready(self, tmp_path):
+        body = "---\ntype: vision\n---\n# Vision\n\n## Why this matters\n- it matters a lot\n"
+        r = compute_spec_readiness(self._write(tmp_path, body))
+        sm = _get_check(r, "has_success_measures")
+        assert sm.passed is False and sm.required is True
+        assert r.ready is False
+
+    def test_customer_docs_requires_audience(self, tmp_path):
+        body = "---\ntype: customer_docs\n---\n# Getting started\n\n## Outline\n- intro\n"
+        r = compute_spec_readiness(self._write(tmp_path, body))
+        assert _get_check(r, "has_audience").required is True
+        assert r.ready is False
+        body2 = body + "\n## Audience\nNew users evaluating the product for the first time.\n"
+        assert compute_spec_readiness(self._write(tmp_path, body2)).ready is True
+
+    def test_prototype_requires_learning_goal(self, tmp_path):
+        body = "---\ntype: prototype\n---\n# Spike\n\n## Approach\n- just try it\n"
+        assert compute_spec_readiness(self._write(tmp_path, body)).ready is False
+        body2 = "---\ntype: prototype\n---\n# Spike\n\n## Learning goal\nCan we render 10k rows at 60fps?\n"
+        assert compute_spec_readiness(self._write(tmp_path, body2)).ready is True
+
+    def test_explicit_type_arg_overrides_frontmatter(self, tmp_path):
+        body = "---\ntype: engineering\n---\n# Doc\n\n## Audience\nEnd users.\n"
+        r = compute_spec_readiness(self._write(tmp_path, body), spec_type="customer_docs")
+        assert [c.name for c in r.checks] == ["has_audience", "has_outline"]
+        assert r.ready is True

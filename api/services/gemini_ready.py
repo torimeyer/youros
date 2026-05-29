@@ -22,20 +22,22 @@ class ReadinessCheck:
     name: str
     passed: bool
     detail: str  # one-line explanation shown in tooltip
+    required: bool = True  # False = optional ("Enhance"); does not block ready
 
 
 @dataclass
 class Readiness:
     ready: bool
     file_path: Optional[str]          # the linked plan/spec file (if found)
-    checks: list[ReadinessCheck] = field(default_factory=list)  # always 9
+    checks: list[ReadinessCheck] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
             "ready": self.ready,
             "file_path": self.file_path,
             "checks": [
-                {"name": c.name, "passed": c.passed, "detail": c.detail}
+                {"name": c.name, "passed": c.passed, "detail": c.detail,
+                 "required": c.required}
                 for c in self.checks
             ],
         }
@@ -260,6 +262,49 @@ def _check_outcome_concrete(title: str, description: str) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
+# Section-presence checks for typed specs (vision / customer_docs / prototype)
+# ---------------------------------------------------------------------------
+
+# Any markdown heading (used to slice section bodies)
+_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
+
+# Spec `type` read only from the leading YAML frontmatter block
+_FM_TYPE_RE = re.compile(r"^type:\s*([A-Za-z_]+)\s*$", re.MULTILINE)
+
+
+def _extract_spec_type(text: str) -> Optional[str]:
+    """Read the spec `type` from the leading --- frontmatter, if present."""
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    block = text[: end if end != -1 else 500]
+    m = _FM_TYPE_RE.search(block)
+    return m.group(1).lower() if m else None
+
+
+def _section_body(text: str, names: list[str]) -> Optional[str]:
+    """Return the body under the first heading whose text contains any name."""
+    headings = list(_HEADING_RE.finditer(text))
+    for i, m in enumerate(headings):
+        heading = m.group(1).strip().lower()
+        if any(n in heading for n in names):
+            start = m.end()
+            stop = headings[i + 1].start() if i + 1 < len(headings) else len(text)
+            return text[start:stop].strip()
+    return None
+
+
+def _check_section_present(text: str, names: list[str], label: str) -> tuple[bool, str]:
+    """Pass when a section matching one of `names` exists and has content."""
+    body = _section_body(text, [n.lower() for n in names])
+    if body is None:
+        return False, f"add a '{label}' section"
+    if not body:
+        return False, f"'{label}' section is empty"
+    return True, f"{label} provided"
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -293,15 +338,16 @@ def compute_task_readiness(task: dict) -> Readiness:
     return Readiness(ready=all(c.passed for c in checks), file_path=None, checks=checks)
 
 
-def compute_spec_readiness(spec_path: str) -> Readiness:
-    """Return Readiness for a spec document (5 checks as of →1564).
+def compute_spec_readiness(spec_path: str, spec_type: Optional[str] = None) -> Readiness:
+    """Return Readiness for a spec document, scoped to its type's profile.
 
-    Checks: has_ac_checkboxes, no_vague_ac, has_file_paths,
-    referenced_files_exist, in_repo_scope.
-    The spec is its own plan file; plan_path/file_exists/ac_count/is_unblocked
-    checks are dropped.
+    The spec's `type` (engineering / vision / customer_docs / prototype) selects
+    a readiness profile from services.spec_types: an ordered list of checks, each
+    tagged required or optional. Only those checks run. `ready` is True when every
+    REQUIRED check passes; optional checks surface as "Enhance" but never block.
+    Type is read from the spec frontmatter when not passed; defaults to engineering.
     """
-    checks: list[ReadinessCheck] = []
+    from services.spec_types import get_spec_type
 
     exists = Path(spec_path).exists()
     text = (_read_file(spec_path) or "") if exists else ""
@@ -310,51 +356,57 @@ def compute_spec_readiness(spec_path: str) -> Readiness:
     title_m = re.search(r"^#\s+(.+)$", text, re.MULTILINE)
     spec_title = title_m.group(1).strip() if title_m else ""
 
-    # Check 1: has AC checkboxes
-    # Count all AC lines — checked (- [x]) and unchecked (- [ ]) — so a spec
-    # where every item is already checked does not falsely report "no checkboxes".
+    if spec_type is None:
+        spec_type = _extract_spec_type(text)
+    profile = get_spec_type(spec_type)["readiness_profile"]
+
     ac = _ac_lines(text) if exists else []          # unchecked only
     all_ac = _all_ac_lines(text) if exists else []  # checked + unchecked
-    checks.append(ReadinessCheck(
-        name="has_ac_checkboxes",
-        passed=bool(all_ac),
-        detail=(
-            f"{len(ac)} items to check off" if ac
-            else f"all {len(all_ac)} items already checked" if all_ac
-            else (
-                "no checklist items found — add lines like: - [ ] When X happens, Y is the result"
-                if exists else "not evaluated — file missing"
+    missing = "not evaluated — file missing"
+
+    def _run(name: str) -> tuple[bool, str]:
+        if name == "has_ac_checkboxes":
+            return bool(all_ac), (
+                f"{len(ac)} items to check off" if ac
+                else f"all {len(all_ac)} items already checked" if all_ac
+                else ("no checklist items found — add lines like: - [ ] When X happens, Y is the result"
+                      if exists else missing)
             )
-        ),
-    ))
+        if name == "no_vague_ac":
+            clean = _has_clean_ac(all_ac)
+            vague = [ln for ln in all_ac if _VAGUE_TOKENS_RE.search(ln)]
+            return clean, (
+                "all checklist items are specific" if clean
+                else (f"too vague: {vague[0][:60]}" if vague else "not evaluated — no checklist items")
+            )
+        if name == "has_file_paths":
+            return _check_has_file_paths(text, spec_path) if exists else (False, missing)
+        if name == "referenced_files_exist":
+            return _check_referenced_files_exist(text, spec_path) if exists else (False, missing)
+        if name == "in_repo_scope":
+            return _check_in_repo_scope(text, spec_title)
+        if name == "has_success_measures":
+            return (_check_section_present(
+                text, ["success measures", "success measure", "how we'll measure", "how we will measure"],
+                "Success measures") if exists else (False, missing))
+        if name == "has_audience":
+            return (_check_section_present(
+                text, ["audience", "who is this for", "who it's for"],
+                "Audience") if exists else (False, missing))
+        if name == "has_learning_goal":
+            return (_check_section_present(
+                text, ["learning goal", "what we'll learn", "what we will learn"],
+                "Learning goal") if exists else (False, missing))
+        if name == "has_outline":
+            return (_check_section_present(text, ["outline"], "Outline") if exists else (False, missing))
+        return False, f"unknown check: {name}"
 
-    # Check 2: no vague AC — evaluate all AC lines, not just unchecked
-    clean = _has_clean_ac(all_ac)
-    vague = [ln for ln in all_ac if _VAGUE_TOKENS_RE.search(ln)]
-    checks.append(ReadinessCheck(
-        name="no_vague_ac",
-        passed=clean,
-        detail="all checklist items are specific" if clean else (
-            f"too vague: {vague[0][:60]}" if vague else "not evaluated — no checklist items"
-        ),
-    ))
+    checks: list[ReadinessCheck] = []
+    for item in profile:
+        name = item["check"]
+        passed, detail = _run(name)
+        checks.append(ReadinessCheck(name=name, passed=passed, detail=detail, required=item["required"]))
 
-    # Check 3: file body has non-self paths that resolve to real files
-    has_files, files_detail = (
-        _check_has_file_paths(text, spec_path) if exists
-        else (False, "not evaluated — file missing")
-    )
-    checks.append(ReadinessCheck(name="has_file_paths", passed=has_files, detail=files_detail))
-
-    # Check 4: referenced files exist at ≥50% threshold
-    ref_ok, ref_detail = (
-        _check_referenced_files_exist(text, spec_path) if exists
-        else (False, "not evaluated — file missing")
-    )
-    checks.append(ReadinessCheck(name="referenced_files_exist", passed=ref_ok, detail=ref_detail))
-
-    # Check 5: spec is scoped to this repo (check H1 title and body)
-    in_scope, scope_detail = _check_in_repo_scope(text, spec_title)
-    checks.append(ReadinessCheck(name="in_repo_scope", passed=in_scope, detail=scope_detail))
-
-    return Readiness(ready=all(c.passed for c in checks), file_path=spec_path, checks=checks)
+    # ready = every REQUIRED check passes; optional checks inform but never block
+    ready = all(c.passed for c in checks if c.required)
+    return Readiness(ready=ready, file_path=spec_path, checks=checks)
