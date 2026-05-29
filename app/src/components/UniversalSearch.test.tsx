@@ -141,10 +141,13 @@ describe('UniversalSearch search', () => {
     vi.useRealTimers()
   })
 
-  it('fires all 3 endpoints when typing', async () => {
+  it('fires all 6 endpoints when typing', async () => {
     mockedApiGet.mockImplementation((url: string) => {
       if ((url as string).includes('/search/deep')) return Promise.resolve([])
       if ((url as string).includes('/search/recall')) return Promise.resolve([])
+      if ((url as string).includes('/agents')) return Promise.resolve({ agents: [] })
+      if ((url as string).includes('/specs')) return Promise.resolve({ docs: [] })
+      if ((url as string).includes('/docs/recent')) return Promise.resolve({ files: [] })
       return Promise.resolve({ tasks: [], query: '' })
     })
 
@@ -157,8 +160,11 @@ describe('UniversalSearch search', () => {
       expect(mockedApiGet).toHaveBeenCalledWith('/search?q=hello')
       expect(mockedApiGet).toHaveBeenCalledWith('/search/deep?q=hello')
       expect(mockedApiGet).toHaveBeenCalledWith('/search/recall?q=hello')
+      expect(mockedApiGet).toHaveBeenCalledWith('/agents?user_spawned_only=true&summary=1')
+      expect(mockedApiGet).toHaveBeenCalledWith('/specs')
+      expect(mockedApiGet).toHaveBeenCalledWith('/docs/recent?limit=30')
     })
-    expect(mockedApiGet).toHaveBeenCalledTimes(3)
+    expect(mockedApiGet).toHaveBeenCalledTimes(6)
   })
 
   it('shows task results with priority badge', async () => {
@@ -241,6 +247,75 @@ describe('UniversalSearch search', () => {
     await waitFor(() => {
       expect(screen.getByTestId('section-transcripts')).toBeInTheDocument()
       expect(screen.getByTestId('transcript-item-0').textContent).toContain('Transcript: deploy convo')
+    })
+  })
+
+  it('surfaces matching running agents when searching', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if ((url as string).includes('/agents')) {
+        return Promise.resolve({ agents: [{ name: 'deploybot', status: 'running' }] })
+      }
+      if ((url as string).includes('/specs')) return Promise.resolve({ docs: [] })
+      if ((url as string).includes('/docs/recent')) return Promise.resolve({ files: [] })
+      if ((url as string).includes('/search/deep')) return Promise.resolve([])
+      if ((url as string).includes('/search/recall')) return Promise.resolve([])
+      return Promise.resolve({ tasks: [], query: '' })
+    })
+
+    renderSearch()
+    const input = screen.getByTestId('universal-search-input')
+    fireEvent.change(input, { target: { value: 'deploybot' } })
+    vi.advanceTimersByTime(200)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('section-agents')).toBeInTheDocument()
+      expect(screen.getByTestId('agent-item-deploybot')).toBeInTheDocument()
+    })
+  })
+
+  it('surfaces matching specs when searching', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if ((url as string).includes('/specs')) {
+        return Promise.resolve({ docs: [{ title: 'Onboarding redesign spec', path: 'docs/spec/onboard.md', status: 'ready' }] })
+      }
+      if ((url as string).includes('/agents')) return Promise.resolve({ agents: [] })
+      if ((url as string).includes('/docs/recent')) return Promise.resolve({ files: [] })
+      if ((url as string).includes('/search/deep')) return Promise.resolve([])
+      if ((url as string).includes('/search/recall')) return Promise.resolve([])
+      return Promise.resolve({ tasks: [], query: '' })
+    })
+
+    renderSearch()
+    const input = screen.getByTestId('universal-search-input')
+    fireEvent.change(input, { target: { value: 'onboarding redesign' } })
+    vi.advanceTimersByTime(200)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('section-specs')).toBeInTheDocument()
+      expect(screen.getByTestId('spec-item-0').textContent).toContain('Onboarding redesign spec')
+    })
+  })
+
+  it('surfaces matching files & documents when searching', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if ((url as string).includes('/docs/recent')) {
+        return Promise.resolve({ files: [{ name: 'roadmap-q3.md', path: 'docs/roadmap-q3.md', snippet: 'Q3 plan' }] })
+      }
+      if ((url as string).includes('/agents')) return Promise.resolve({ agents: [] })
+      if ((url as string).includes('/specs')) return Promise.resolve({ docs: [] })
+      if ((url as string).includes('/search/deep')) return Promise.resolve([])
+      if ((url as string).includes('/search/recall')) return Promise.resolve([])
+      return Promise.resolve({ tasks: [], query: '' })
+    })
+
+    renderSearch()
+    const input = screen.getByTestId('universal-search-input')
+    fireEvent.change(input, { target: { value: 'roadmap-q3' } })
+    vi.advanceTimersByTime(200)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('section-files')).toBeInTheDocument()
+      expect(screen.getByTestId('doc-item-0').textContent).toContain('roadmap-q3.md')
     })
   })
 

@@ -54,7 +54,7 @@ function flattenResponse(resp: unknown): AnyItem[] {
   if (!resp || typeof resp !== 'object') return []
   if (Array.isArray(resp)) return resp as AnyItem[]
   const obj = resp as Record<string, unknown>
-  for (const key of ['results', 'items', 'needles', 'events', 'hits', 'matches', 'entries']) {
+  for (const key of ['results', 'items', 'needles', 'events', 'hits', 'matches', 'entries', 'agents', 'docs', 'files']) {
     if (Array.isArray(obj[key])) return obj[key] as AnyItem[]
   }
   if (obj.title || obj.name || obj.id) return [obj as AnyItem]
@@ -93,9 +93,15 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
   const [tasksLoading, setTasksLoading] = useState(false)
   const [deepLoading, setDeepLoading] = useState(false)
   const [recallLoading, setRecallLoading] = useState(false)
+  const [agentsLoading, setAgentsLoading] = useState(false)
+  const [specsLoading, setSpecsLoading] = useState(false)
+  const [docsLoading, setDocsLoading] = useState(false)
   const [tasksResults, setTasksResults] = useState<TaskResult[]>([])
   const [deepResults, setDeepResults] = useState<AnyItem[]>([])
   const [recallResults, setRecallResults] = useState<AnyItem[]>([])
+  const [agentsResults, setAgentsResults] = useState<AnyItem[]>([])
+  const [specsResults, setSpecsResults] = useState<AnyItem[]>([])
+  const [docsResults, setDocsResults] = useState<AnyItem[]>([])
 
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -165,15 +171,21 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
   const navCount = filteredNav.length
   const actionsCount = filteredActions.length
   const templatesCount = filteredTemplates.length
+  const agentsCount = q ? agentsResults.length : 0
   const tasksCount = q ? tasksResults.length : 0
   const deepCount = q ? deepResults.length : 0
+  const specsCount = q ? specsResults.length : 0
+  const docsCount = q ? docsResults.length : 0
   const recallCount = q ? recallResults.length : 0
 
   const actionsOffset = navCount
   const templatesOffset = actionsOffset + actionsCount
-  const tasksOffset = templatesOffset + templatesCount
+  const agentsOffset = templatesOffset + templatesCount
+  const tasksOffset = agentsOffset + agentsCount
   const deepOffset = tasksOffset + tasksCount
-  const recallOffset = deepOffset + deepCount
+  const specsOffset = deepOffset + deepCount
+  const docsOffset = specsOffset + specsCount
+  const recallOffset = docsOffset + docsCount
   const totalItems = recallOffset + recallCount
 
   // Debounced parallel search across all 3 endpoints
@@ -184,22 +196,35 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       setTasksResults([])
       setDeepResults([])
       setRecallResults([])
+      setAgentsResults([])
+      setSpecsResults([])
+      setDocsResults([])
       setTasksLoading(false)
       setDeepLoading(false)
       setRecallLoading(false)
+      setAgentsLoading(false)
+      setSpecsLoading(false)
+      setDocsLoading(false)
       return
     }
 
     setTasksLoading(true)
     setDeepLoading(true)
     setRecallLoading(true)
+    setAgentsLoading(true)
+    setSpecsLoading(true)
+    setDocsLoading(true)
 
     debounceRef.current = setTimeout(async () => {
       const encoded = encodeURIComponent(q)
-      const [tr, dr, rr] = await Promise.allSettled([
+      const lower = q.toLowerCase()
+      const [tr, dr, rr, ar, sr, fr] = await Promise.allSettled([
         api.get<{ tasks: TaskResult[]; query: string }>(`/search?q=${encoded}`),
         api.get<unknown>(`/search/deep?q=${encoded}`),
         api.get<unknown>(`/search/recall?q=${encoded}`),
+        api.get<unknown>(`/agents?user_spawned_only=true&summary=1`),
+        api.get<unknown>(`/specs`),
+        api.get<unknown>(`/docs/recent?limit=30`),
       ])
 
       if (tr.status === 'fulfilled') {
@@ -225,6 +250,47 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
         setRecallResults([])
       }
       setRecallLoading(false)
+
+      // Running agents: filter the bounded list client-side by name.
+      if (ar.status === 'fulfilled') {
+        setAgentsResults(
+          flattenResponse(ar.value).filter((a) =>
+            String(a.name ?? '').toLowerCase().includes(lower)
+          )
+        )
+      } else {
+        reportError('Agents search failed', ar.reason)
+        setAgentsResults([])
+      }
+      setAgentsLoading(false)
+
+      // Specs: filter by title or path.
+      if (sr.status === 'fulfilled') {
+        setSpecsResults(
+          flattenResponse(sr.value).filter((d) =>
+            `${String(d.title ?? '')} ${String(d.path ?? '')}`.toLowerCase().includes(lower)
+          )
+        )
+      } else {
+        reportError('Specs search failed', sr.reason)
+        setSpecsResults([])
+      }
+      setSpecsLoading(false)
+
+      // Files & documents: filter by name, path, or preview snippet.
+      if (fr.status === 'fulfilled') {
+        setDocsResults(
+          flattenResponse(fr.value).filter((f) =>
+            `${String(f.name ?? '')} ${String(f.path ?? '')} ${String(f.snippet ?? '')}`
+              .toLowerCase()
+              .includes(lower)
+          )
+        )
+      } else {
+        reportError('Files search failed', fr.reason)
+        setDocsResults([])
+      }
+      setDocsLoading(false)
     }, 150)
 
     return () => {
@@ -240,9 +306,15 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       setTasksResults([])
       setDeepResults([])
       setRecallResults([])
+      setAgentsResults([])
+      setSpecsResults([])
+      setDocsResults([])
       setTasksLoading(false)
       setDeepLoading(false)
       setRecallLoading(false)
+      setAgentsLoading(false)
+      setSpecsLoading(false)
+      setDocsLoading(false)
       requestAnimationFrame(() => inputRef.current?.focus())
     }
   }, [open])
@@ -267,20 +339,29 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       onClose()
     } else if (selectedIndex < templatesOffset) {
       filteredActions[selectedIndex - actionsOffset].fn()
+    } else if (selectedIndex < agentsOffset) {
+      navigate('/agents') // agent templates
+      onClose()
     } else if (selectedIndex < tasksOffset) {
-      navigate('/agents')
+      navigate('/agents') // running agents
       onClose()
     } else if (selectedIndex < deepOffset) {
       navigate('/tasks')
       onClose()
-    } else if (selectedIndex < recallOffset) {
+    } else if (selectedIndex < specsOffset) {
       // audit/needle items — no dedicated route
+    } else if (selectedIndex < docsOffset) {
+      navigate('/specs')
+      onClose()
+    } else if (selectedIndex < recallOffset) {
+      navigate('/files')
+      onClose()
     } else if (selectedIndex < totalItems) {
       navigate('/transcripts')
       onClose()
     }
   }, [
-    selectedIndex, navCount, actionsOffset, templatesOffset, tasksOffset, deepOffset, recallOffset, totalItems,
+    selectedIndex, navCount, actionsOffset, templatesOffset, agentsOffset, tasksOffset, deepOffset, specsOffset, docsOffset, recallOffset, totalItems,
     filteredNav, filteredActions, navigate, onClose,
   ])
 
@@ -450,6 +531,43 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
             </div>
           )}
 
+          {/* Running Agents */}
+          {q && (
+            agentsLoading
+              ? spinnerRow('Searching agents...', 'agents-loading')
+              : agentsResults.length > 0
+                ? (
+                  <div data-testid="section-agents">
+                    {sectionHeader('Agents', 'text-indigo-600 dark:text-indigo-400')}
+                    {agentsResults.map((a, i) => {
+                      const idx = agentsOffset + i
+                      const sel = idx === selectedIndex
+                      const name = String(a.name ?? a.id ?? 'agent')
+                      const status = String(a.status ?? '')
+                      return (
+                        <button
+                          key={`${name}-${i}`}
+                          data-us-item
+                          onClick={() => { navigate('/agents'); onClose() }}
+                          onMouseEnter={() => setSelectedIndex(idx)}
+                          className={rowCls(idx)}
+                          data-testid={`agent-item-${name.toLowerCase().replace(/\s+/g, '-')}`}
+                        >
+                          <Icon name="smart_toy" className={`text-lg ${sel ? 'text-indigo-600 dark:text-indigo-400' : 'text-indigo-500/60'}`} />
+                          <span className="flex-1 text-left">
+                            <Highlight text={name} query={q} />
+                          </span>
+                          {status && (
+                            <span className="text-xs font-medium text-slate-500">{status}</span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )
+                : null
+          )}
+
           {/* Tasks */}
           {q && (
             tasksLoading
@@ -518,6 +636,72 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
                 : null
           )}
 
+          {/* Specs */}
+          {q && (
+            specsLoading
+              ? spinnerRow('Searching specs...', 'specs-loading')
+              : specsResults.length > 0
+                ? (
+                  <div data-testid="section-specs">
+                    {sectionHeader('Specs', 'text-amber-600 dark:text-amber-400')}
+                    {specsResults.map((d, i) => {
+                      const idx = specsOffset + i
+                      const sel = idx === selectedIndex
+                      const label = extractLabel(d)
+                      return (
+                        <button
+                          key={`spec-${i}`}
+                          data-us-item
+                          onClick={() => { navigate('/specs'); onClose() }}
+                          onMouseEnter={() => setSelectedIndex(idx)}
+                          className={rowCls(idx)}
+                          data-testid={`spec-item-${i}`}
+                        >
+                          <Icon name="description" className={`text-lg ${sel ? 'text-amber-600 dark:text-amber-400' : 'text-amber-500/60'}`} />
+                          <span className="flex-1 text-left">
+                            <Highlight text={label} query={q} />
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )
+                : null
+          )}
+
+          {/* Files & Documents */}
+          {q && (
+            docsLoading
+              ? spinnerRow('Searching files...', 'docs-loading')
+              : docsResults.length > 0
+                ? (
+                  <div data-testid="section-files">
+                    {sectionHeader('Files & Documents', 'text-teal-600 dark:text-teal-400')}
+                    {docsResults.map((f, i) => {
+                      const idx = docsOffset + i
+                      const sel = idx === selectedIndex
+                      const label = extractLabel(f)
+                      return (
+                        <button
+                          key={`doc-${i}`}
+                          data-us-item
+                          onClick={() => { navigate('/files'); onClose() }}
+                          onMouseEnter={() => setSelectedIndex(idx)}
+                          className={rowCls(idx)}
+                          data-testid={`doc-item-${i}`}
+                        >
+                          <Icon name="folder" className={`text-lg ${sel ? 'text-teal-600 dark:text-teal-400' : 'text-teal-500/60'}`} />
+                          <span className="flex-1 text-left">
+                            <Highlight text={label} query={q} />
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )
+                : null
+          )}
+
           {/* Transcripts */}
           {q && (
             recallLoading
@@ -558,9 +742,15 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
             !tasksLoading &&
             !deepLoading &&
             !recallLoading &&
+            !agentsLoading &&
+            !specsLoading &&
+            !docsLoading &&
             tasksResults.length === 0 &&
             deepResults.length === 0 &&
-            recallResults.length === 0 && (
+            recallResults.length === 0 &&
+            agentsResults.length === 0 &&
+            specsResults.length === 0 &&
+            docsResults.length === 0 && (
               <div className="px-4 py-8 text-center text-sm text-slate-500">
                 No results
               </div>
