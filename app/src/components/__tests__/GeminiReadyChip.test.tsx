@@ -1,7 +1,9 @@
 // GeminiReadyChip was renamed to NeedsClarityChip (→1515).
 // GeminiReadyChip.tsx re-exports NeedsClarityChip as GeminiReadyChip for compat.
-// Tests updated to match current interface: no `ready`/`onClick` props,
-// testid is now `needs-clarity-chip` for both states.
+// Tests updated to match current interface: no `ready`/`onClick` props.
+// A ready spec (all checks pass) renders nothing here on purpose (needs-clarity
+// demotion, →1515): the ready state is shown by a single status pill
+// elsewhere, not by this chip. The chip only appears when clarity is needed.
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -26,11 +28,10 @@ const failingChecks = [
 ]
 
 describe('GeminiReadyChip', () => {
-  it('renders green chip when all checks pass', () => {
-    render(<GeminiReadyChip checks={passingChecks} />)
-    const chip = screen.getByTestId('needs-clarity-chip')
-    expect(chip).toBeInTheDocument()
-    expect(chip.textContent).toContain('Ready')
+  it('renders nothing when all checks pass (ready shows one status pill, not a chip)', () => {
+    const { container } = render(<GeminiReadyChip checks={passingChecks} />)
+    expect(screen.queryByTestId('needs-clarity-chip')).not.toBeInTheDocument()
+    expect(container.firstChild).toBeNull()
   })
 
   it('renders not-ready chip when some checks fail', () => {
@@ -52,13 +53,6 @@ describe('GeminiReadyChip', () => {
     const title = chip.getAttribute('title') ?? ''
     expect(title).toContain("Steps to verify it's done")
     expect(title).toContain('Names the files it touches')
-  })
-
-  it('ready chip renders without crashing when clicked', async () => {
-    render(<GeminiReadyChip checks={passingChecks} />)
-    await expect(
-      userEvent.click(screen.getByTestId('needs-clarity-chip'))
-    ).resolves.not.toThrow()
   })
 
   it('renders nothing when no checks prop is passed', () => {
