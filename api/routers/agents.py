@@ -764,6 +764,40 @@ def agent_mailbox_instruction_short(agent_name: str, model: str = "sonnet") -> s
     )
 
 
+def _demo_mode_active() -> bool:
+    """True when the live-demo build rule should be appended to spawn prompts.
+
+    Off by default. Turned on by creating ~/.myos/.demo_mode (the file the
+    user toggles before a live demo) or by setting MYOS_DEMO_MODE=1. When on,
+    every agent ToriOS spawns is told to deliver a feature that actually works
+    in the running app, not just one that passes tests.
+    """
+    if os.environ.get("MYOS_DEMO_MODE") == "1":
+        return True
+    try:
+        return os.path.exists(os.path.expanduser("~/.myos/.demo_mode"))
+    except Exception:
+        return False
+
+
+_DEMO_BUILD_RULE = (
+    "\n\n## DEMO MODE: deliver it working in the running app\n\n"
+    "You are building during a LIVE DEMO, so \"done\" means the feature "
+    "actually works in the running app on screen, not just that the tests "
+    "pass. Hold yourself to all of this:\n"
+    "- Prefer NO new dependencies, and reach for what the browser or runtime "
+    "already has (for example the built-in Web Audio API instead of adding a "
+    "library), so the frontend hot-reloads instead of needing an install and "
+    "a dev-server restart that can break on stage.\n"
+    "- Reuse the events and endpoints that already fire rather than rebuilding "
+    "them.\n"
+    "- Get your change into the running app, because agent worktrees are not "
+    "auto-merged, so merge your work into the served branch before you finish.\n"
+    "- Verify the feature actually works in the running app before you report "
+    "it done.\n"
+)
+
+
 def agent_mailbox_instruction(agent_name: str, model: str = "sonnet") -> str:
     """Return the standard mailbox checking prompt block for a spawned agent.
 
@@ -5085,6 +5119,8 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
         mailbox_block = agent_mailbox_instruction_short(body.name)
     else:
         mailbox_block = agent_mailbox_instruction(body.name)
+    if _demo_mode_active():
+        mailbox_block += _DEMO_BUILD_RULE
     if prompt_with_memory:
         prompt_with_memory = mailbox_block + "\n\n---\n\n" + prompt_with_memory
     else:
