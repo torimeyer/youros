@@ -59,6 +59,9 @@ _PLAN_PATH_RE = re.compile(
 # Matches unchecked AC checkbox lines
 _AC_RE = re.compile(r"^\s*-\s+\[\s\]\s+(.+)$", re.MULTILINE)
 
+# Matches all AC checkbox lines (checked and unchecked)
+_ALL_AC_RE = re.compile(r"^\s*-\s+\[[ xX]\]\s+(.+)$", re.MULTILINE)
+
 # Tokens that indicate vagueness (case-insensitive).
 # Narrowed in →1564: dropped "either", "consider", "explore", "review", "depends"
 # (false positives on normal English); changed bare "decide" to "decide what".
@@ -152,6 +155,11 @@ def _read_file(path: str) -> Optional[str]:
 
 def _ac_lines(text: str) -> list[str]:
     return _AC_RE.findall(text)
+
+
+def _all_ac_lines(text: str) -> list[str]:
+    """Return all AC lines — both checked (- [x]) and unchecked (- [ ])."""
+    return _ALL_AC_RE.findall(text)
 
 
 def _has_clean_ac(lines: list[str]) -> bool:
@@ -303,18 +311,26 @@ def compute_spec_readiness(spec_path: str) -> Readiness:
     spec_title = title_m.group(1).strip() if title_m else ""
 
     # Check 1: has AC checkboxes
-    ac = _ac_lines(text) if exists else []
+    # Count all AC lines — checked (- [x]) and unchecked (- [ ]) — so a spec
+    # where every item is already checked does not falsely report "no checkboxes".
+    ac = _ac_lines(text) if exists else []          # unchecked only
+    all_ac = _all_ac_lines(text) if exists else []  # checked + unchecked
     checks.append(ReadinessCheck(
         name="has_ac_checkboxes",
-        passed=bool(ac),
-        detail=f"{len(ac)} items to check off" if ac else (
-            "no checklist items found — add lines like: - [ ] When X happens, Y is the result" if exists else "not evaluated — file missing"
+        passed=bool(all_ac),
+        detail=(
+            f"{len(ac)} items to check off" if ac
+            else f"all {len(all_ac)} items already checked" if all_ac
+            else (
+                "no checklist items found — add lines like: - [ ] When X happens, Y is the result"
+                if exists else "not evaluated — file missing"
+            )
         ),
     ))
 
-    # Check 2: no vague AC
-    clean = _has_clean_ac(ac)
-    vague = [ln for ln in ac if _VAGUE_TOKENS_RE.search(ln)]
+    # Check 2: no vague AC — evaluate all AC lines, not just unchecked
+    clean = _has_clean_ac(all_ac)
+    vague = [ln for ln in all_ac if _VAGUE_TOKENS_RE.search(ln)]
     checks.append(ReadinessCheck(
         name="no_vague_ac",
         passed=clean,

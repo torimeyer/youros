@@ -3132,7 +3132,14 @@ class OstkService:
         # "Done. Every task closed and the feature is live." with a
         # still-open task sitting right above it.
         if base_status in ("complete", "done"):
-            if all_tasks_closed and not has_active_claim:
+            # Absent task IDs mean the task was purged/archived — treat as closed.
+            # Only tasks that are explicitly present in the store with a non-closed
+            # status keep this spec in-progress.
+            any_present_open = any(
+                task_statuses.get(tid) is not None and task_statuses[tid] != "closed"
+                for tid in task_ids
+            )
+            if not any_present_open and not has_active_claim:
                 return "complete"
             return "in-progress"
 
