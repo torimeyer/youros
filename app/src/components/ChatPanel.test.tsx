@@ -512,9 +512,12 @@ describe('ChatPanel', () => {
       expect(userMsgContainer).not.toBeNull()
       expect(assistantMsgContainer).not.toBeNull()
 
-      // User message outer container should use flex-col items-end so the
-      // bubble sits on the right side of the panel, like iMessage.
+      // User message outer container should use flex-col items-end AND w-full
+      // so the bubble sits on the right side of the panel, like iMessage.
+      // w-full gives max-w-[75%] a fixed parent width to cap against so long
+      // bubbles wrap instead of growing and drifting left (regression: →1584).
       expect(userMsgContainer!.className).toContain('items-end')
+      expect(userMsgContainer!.className).toContain('w-full')
       // Assistant message container should NOT have items-end.
       expect(assistantMsgContainer!.className).not.toContain('items-end')
 
@@ -2357,6 +2360,30 @@ describe('ChatPanel', () => {
       // tool-only-done must NOT appear on a bubble with real content.
       const doneFallback = screen.queryByTestId('tool-only-done')
       expect(doneFallback).toBeNull()
+    })
+
+    it('hides the empty assistant bubble during the grace window when done fires with no tokens or tool calls', () => {
+      // Regression: Tori typed "what do you know about me and my working style?"
+      // and saw an empty rounded bubble under the CLAUDE label. The backend
+      // returned done with no tokens and no tool calls. During the 500ms grace
+      // window the placeholder had isEmpty=true, isStreaming=false, and
+      // placeholderAwaitingServer=false. All three clear, so the guard must suppress it.
+      vi.useFakeTimers()
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByTestId('chat-input')
+      fireEvent.change(input, { target: { value: 'what do you know about me?' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Backend sends done with no tokens and no tool calls
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+
+      // During the grace window the empty assistant bubble must NOT be in the DOM.
+      // test-uuid-1 = initial tab id, test-uuid-2 = user message, test-uuid-3 = assistant placeholder
+      expect(screen.queryByTestId('bubble-test-uuid-3')).toBeNull()
+
+      vi.useRealTimers()
     })
 
     it('does not render a blank assistant label when a purely empty placeholder is left behind after streaming', () => {

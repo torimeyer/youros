@@ -2711,11 +2711,13 @@ export function ChatPanel() {
           ) => {
             const isEmpty = !msg.content && !msg.toolCalls?.length && !msg.gifUrl && !msg.imageUrl
             if (isEmpty && msg.role === 'assistant' && multiAiStatus && globalIdx === messages.length - 1) return null
-            // Suppress truly empty finalized assistant bubbles. These appear when
-            // sendMessage pushes a placeholder that was never filled (e.g. the
-            // second bubble in a pure tool-use turn). Only suppress when not
-            // streaming so we never hide a bubble that is still waiting for tokens.
-            if (isEmpty && msg.role === 'assistant' && !isStreaming && globalIdx !== messages.length - 1) return null
+            // Suppress empty assistant bubbles once both streaming flags are clear.
+            // isStreaming=false means the stream ended; placeholderAwaitingServer=false
+            // means the first server event arrived. Once both are false, an empty
+            // bubble has nothing to show (no dots, no content). Hide it rather than
+            // rendering a blank rounded shape. Covers the 500ms grace-window flash
+            // where done fires before the timer sets "No response received." content.
+            if (isEmpty && msg.role === 'assistant' && !isStreaming && !placeholderAwaitingServer) return null
             return (
               <div
                 key={msg.id}
