@@ -229,6 +229,11 @@ def _refresh_if_needed(tokens: dict) -> dict:
         new_tokens.pop("revoked", None)
         # Merge: keep the refresh token (Google doesn't re-issue it every time).
         new_tokens.setdefault("refresh_token", refresh_token)
+        # Preserve scope from the original token. Google's refresh response
+        # omits scope when it hasn't changed; without this setdefault,
+        # has_gmail_scope() falls back to False and shows a spurious
+        # "Gmail access needs to be updated" reconnect prompt.
+        new_tokens.setdefault("scope", tokens.get("scope", ""))
         expires_in = new_tokens.get("expires_in", 3600)
         new_tokens["expires_at"] = time.time() + int(expires_in)
         atomic_write_text(TOKEN_PATH, json.dumps(new_tokens))
@@ -267,6 +272,13 @@ def get_credentials() -> dict:
         raise RuntimeError("Not authenticated. Connect your Google account first.")
     tokens = _read_tokens()
     return _refresh_if_needed(tokens)
+
+
+def save_token(tokens: dict) -> None:
+    """Persist a token dict to TOKEN_PATH and invalidate connection caches."""
+    _ensure_dirs()
+    atomic_write_text(TOKEN_PATH, json.dumps(tokens))
+    _invalidate_google_status_cache()
 
 
 def is_authenticated() -> bool:

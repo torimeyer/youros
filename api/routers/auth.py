@@ -11,6 +11,8 @@ from fastapi.responses import RedirectResponse
 from routers.drive import _prewarm_all_google_caches
 from services.google_auth import build_redirect_uri as _google_redirect_uri
 from services.google_auth import exchange_code as _drive_exchange_code
+from services.google_auth import SCOPES as _DRIVE_SCOPES
+from services.google_auth import save_token as _save_google_token
 from services.oauth_state import (
     drive_oauth_states as _drive_oauth_states,
     load_drive_oauth_states,
@@ -27,7 +29,12 @@ def _frontend_url(request: Request) -> str:
     return os.environ.get("FRONTEND_URL", FRONTEND_URL_DEFAULT)
 
 
-GOOGLE_SCOPES = "https://www.googleapis.com/auth/cloud-platform"
+# Unified scope set: Drive/Calendar/Gmail surfaces share one consent with Gemini AI.
+# Using the same SCOPES list as the Drive flow ensures one Google connection covers
+# all surfaces, so users never see a separate "reconnect Gmail" prompt.
+GOOGLE_SCOPES = " ".join(
+    _DRIVE_SCOPES + ["https://www.googleapis.com/auth/cloud-platform"]
+)
 
 SLACK_BOT_SCOPES = "channels:read,channels:history,chat:write,groups:read,groups:history,users:read"
 SLACK_USER_SCOPES = "search:read"
@@ -60,7 +67,7 @@ async def google_auth(request: Request):
         f"?client_id={client_id}"
         f"&redirect_uri={redirect_uri}"
         f"&response_type=code"
-        f"&scope={GOOGLE_SCOPES}"
+        f"&scope={urllib.parse.quote(GOOGLE_SCOPES)}"
         f"&access_type=offline"
         f"&prompt=consent"
         f"&state={state}"
@@ -136,6 +143,11 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
         "gemini_oauth_refresh_token": tokens.get("refresh_token", ""),
         "gemini_auth_method": "oauth",
     })
+    # If the token includes Drive/Calendar/Gmail scopes, persist to google_token.json
+    # so all Google surfaces are connected from this single consent.
+    scope = tokens.get("scope", "")
+    if any(s in scope for s in ("drive", "calendar", "gmail")):
+        _save_google_token(tokens)
     return RedirectResponse(f"{frontend_url}/?auth_success=google", status_code=302)
 
 

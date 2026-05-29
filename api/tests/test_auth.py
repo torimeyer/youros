@@ -34,6 +34,23 @@ async def test_google_auth_includes_correct_scopes(client):
 
 
 @pytest.mark.asyncio
+async def test_google_auth_includes_unified_google_scopes(client):
+    """The redirect URL must include gmail, calendar, and drive scopes.
+
+    One Google consent should cover all surfaces. Before the fix,
+    GOOGLE_SCOPES was cloud-platform only, leaving Gmail and Calendar
+    needing separate reconnect steps even when Drive was already connected.
+    """
+    with patch("routers.auth._google_client_id", return_value="test-client-id"):
+        resp = await client.get("/api/auth/google", follow_redirects=False)
+
+    location = resp.headers["location"]
+    assert "gmail" in location, "Gmail scope missing from Google OAuth URL"
+    assert "calendar" in location, "Calendar scope missing from Google OAuth URL"
+    assert "drive" in location, "Drive scope missing from Google OAuth URL"
+
+
+@pytest.mark.asyncio
 async def test_google_auth_includes_state_parameter(client):
     """The redirect should include a state parameter for CSRF protection."""
     with patch("routers.auth._google_client_id", return_value="test-client-id"):
@@ -888,3 +905,126 @@ def test_read_tokens_recovers_from_trailing_byte_corruption(tmp_path, monkeypatc
 
     # Self-heal: the file is rewritten clean, so a plain json.loads now works.
     json.loads(tok.read_text())
+
+
+def test_refresh_preserves_scope_when_google_omits_it(tmp_path, monkeypatch):
+    """Token refresh must carry the scope field forward when Google omits it.
+
+    Google's refresh response does not always include 'scope' — it is often
+    absent when the granted scope is unchanged.  _refresh_if_needed used to
+    write new_tokens directly, silently wiping scope.  The next call to
+    has_gmail_scope() would then return False and show the 'Gmail access needs
+    to be updated' banner even though the user had already consented.
+
+    Fix: setdefault("scope", tokens["scope"]) before writing the new token,
+    the same pattern already used for refresh_token.
+    """
+    import json as _json
+    import urllib.request
+    from unittest.mock import MagicMock, patch
+    import services.google_auth as ga
+
+    tok = tmp_path / "google_token.json"
+    original = {
+        "access_token": "old_access",
+        "refresh_token": "rt",
+        "expires_at": 0,  # force a refresh
+        "scope": (
+            "openid "
+            "https://www.googleapis.com/auth/drive "
+            "https://www.googleapis.com/auth/calendar "
+            "https://www.googleapis.com/auth/gmail.readonly"
+        ),
+        "token_type": "Bearer",
+    }
+    tok.write_text(_json.dumps(original))
+    monkeypatch.setattr(ga, "TOKEN_PATH", tok)
+
+    # Google's refresh response intentionally omits 'scope'
+    refresh_resp = {
+        "access_token": "new_access",
+        "expires_in": 3600,
+        "token_type": "Bearer",
+    }
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = _json.dumps(refresh_resp).encode()
+    mock_resp.__enter__ = lambda s: s
+    mock_resp.__exit__ = MagicMock(return_value=False)
+
+    with (
+        patch.object(ga, "_load_client_config", return_value={"client_id": "cid", "client_secret": "sec"}),
+        patch("urllib.request.urlopen", return_value=mock_resp),
+    ):
+        ga._refresh_if_needed(original)
+
+    saved = _json.loads(tok.read_text())
+    assert "gmail.readonly" in saved.get("scope", ""), (
+        "scope must be preserved after token refresh when Google omits it; "
+        "without this, has_gmail_scope() returns False and shows spurious reconnect banner"
+    )
+
+
+# --- Unified Google OAuth scope (Drive + Calendar + Gmail in one consent) ---
+
+
+@pytest.mark.asyncio
+async def test_drive_auth_url_includes_gmail_scope(client, tmp_path):
+    """GET /drive/auth/url must request gmail.readonly so one Google consent
+    covers Drive, Calendar, AND Gmail.  Prevents the "reconnect Gmail" banner
+    from appearing after a user connects Drive.
+    """
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text(
+        '{"web": {"client_id": "test-id", "client_secret": "test-secret", '
+        '"redirect_uris": ["http://localhost"]}}'
+    )
+    with patch("services.google_auth.CREDENTIALS_PATH", creds_path):
+        resp = await client.get("/api/drive/auth/url")
+    assert resp.status_code == 200
+    url = resp.json()["url"]
+    assert "gmail.readonly" in url, (
+        f"drive auth URL must include gmail.readonly scope so one connection "
+        f"covers Gmail; got: {url}"
+    )
+    assert "calendar" in url, f"drive auth URL must include calendar scope; got: {url}"
+    assert "drive" in url, f"drive auth URL must include drive scope; got: {url}"
+
+
+@pytest.mark.asyncio
+async def test_gmail_auth_url_endpoint_includes_gmail_scope(client, tmp_path):
+    """GET /drive/auth/url/gmail must also request gmail.readonly.
+    The Gmail reconnect button calls this endpoint; it must use the same
+    unified scope set so reconnecting Gmail does not strip Drive or Calendar.
+    """
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text(
+        '{"web": {"client_id": "test-id", "client_secret": "test-secret", '
+        '"redirect_uris": ["http://localhost"]}}'
+    )
+    with patch("services.google_auth.CREDENTIALS_PATH", creds_path):
+        resp = await client.get("/api/drive/auth/url/gmail")
+    assert resp.status_code == 200
+    url = resp.json()["url"]
+    assert "gmail.readonly" in url, (
+        f"gmail auth URL must include gmail.readonly scope; got: {url}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_calendar_auth_url_endpoint_includes_gmail_scope(client, tmp_path):
+    """GET /drive/auth/url/calendar must include gmail.readonly.
+    Reconnecting from the Calendar page grants the full unified scope set,
+    so the user never needs a separate Gmail reconnect step.
+    """
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text(
+        '{"web": {"client_id": "test-id", "client_secret": "test-secret", '
+        '"redirect_uris": ["http://localhost"]}}'
+    )
+    with patch("services.google_auth.CREDENTIALS_PATH", creds_path):
+        resp = await client.get("/api/drive/auth/url/calendar")
+    assert resp.status_code == 200
+    url = resp.json()["url"]
+    assert "gmail.readonly" in url, (
+        f"calendar auth URL must include gmail.readonly scope; got: {url}"
+    )
