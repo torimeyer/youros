@@ -174,6 +174,23 @@ describe('Specs page', () => {
     expect(screen.getByTestId('stage-filter-in_progress')).toBeInTheDocument()
   })
 
+  it('complete spec renders StageChip with "Done" not "In Progress"', async () => {
+    renderSpecs()
+    await waitFor(() => expect(screen.getByText('settings page')).toBeInTheDocument())
+    const cards = screen.getAllByTestId('spec-card')
+    const settingsCard = cards.find(c => c.textContent?.includes('settings page'))!
+    const chip = settingsCard.querySelector('[data-testid="stage-chip"]')
+    expect(chip).not.toBeNull()
+    expect(chip!.textContent).toBe('Done')
+    expect(chip!.textContent).not.toBe('In Progress')
+  })
+
+  it('shows stage-filter-complete pill for filtering completed specs', async () => {
+    renderSpecs()
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    expect(screen.getByTestId('stage-filter-complete')).toBeInTheDocument()
+  })
+
   it('New Spec button is always enabled', async () => {
     renderSpecs()
 

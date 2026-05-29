@@ -3133,17 +3133,18 @@ async def test_build_spec_invalid_model_rejected(client, tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_promotion_blocked_when_needs_clarity(client, tmp_path, monkeypatch):
-    """POST /specs/promote returns 422 when draft is missing acceptance criteria.
+async def test_promotion_succeeds_when_needs_clarity(client, tmp_path, monkeypatch):
+    """POST /specs/promote returns 200 even when the draft fails readiness checks.
 
-    A draft with no '- [ ]' checkbox lines fails the readiness check and
-    must not be promoted. The response body carries error='needs_clarity'
-    and a failing_checks list so the frontend knows which checks failed.
+    Readiness is informational, not a gate. A draft with no acceptance criteria
+    must still be promoted. The response includes clear_to_build=False and the
+    failing checks so the frontend can surface the information without blocking.
     """
     from services import ostk as ostk_module
     from routers import specs as specs_router
 
     (tmp_path / "docs" / "draft").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
 
@@ -3154,17 +3155,67 @@ async def test_promotion_blocked_when_needs_clarity(client, tmp_path, monkeypatc
         "It references api/routers/specs.py which exists.\n"
     )
 
+    spec_dest = tmp_path / "docs" / "spec" / "no-ac.md"
+
+    async def fake_doc_promote(path):
+        spec_dest.write_text(
+            draft_file.read_text().replace("status: draft", "status: spec")
+        )
+        draft_file.unlink()
+        return str(spec_dest.relative_to(tmp_path))
+
+    monkeypatch.setattr(ostk_module.ostk, "doc_promote", fake_doc_promote)
+
     resp = await client.post(
         "/api/specs/promote",
         json={"path": "docs/draft/no-ac.md"},
     )
 
-    assert resp.status_code == 422, resp.text
+    assert resp.status_code == 200, resp.text
     body = resp.json()
-    detail = body.get("detail", {})
-    assert detail.get("error") == "needs_clarity"
-    failing_names = [c["name"] for c in detail.get("failing_checks", [])]
+    assert body.get("promoted_path") is not None
+    assert body.get("clear_to_build") is False
+    failing_names = [c["name"] for c in body.get("clear_to_build_checks", [])]
     assert "has_ac_checkboxes" in failing_names
+
+
+@pytest.mark.asyncio
+async def test_ready_spec_effective_status_not_downgraded(client, tmp_path, monkeypatch):
+    """GET /specs must not downgrade a ready spec that fails readiness.
+
+    Readiness is informational. A status=ready spec that fails clear_to_build
+    must still report effective_status==ready. The old code silently set it to
+    draft, hiding the spec from the ready view.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "no-user-specs")
+
+    spec_file = tmp_path / "docs" / "spec" / "failing-ready.md"
+    spec_file.write_text(
+        "---\ntitle: Failing ready spec\nstatus: ready\n---\n\n"
+        "No acceptance criteria here.\n"
+    )
+
+    monkeypatch.setattr(ostk_module.ostk, "list_tasks", AsyncMock(return_value=[]))
+
+    resp = await client.get("/api/specs")
+    assert resp.status_code == 200
+    docs = resp.json()["docs"]
+    matching = [d for d in docs if "failing-ready" in d.get("path", "")]
+    assert matching, "spec not found in list response"
+    doc = matching[0]
+
+    effective = doc.get("effective_status", doc.get("status"))
+    assert effective == "ready", (
+        f"expected effective_status==ready, got {effective!r}. "
+        f"Readiness must not downgrade a spec's visible status."
+    )
+    assert doc.get("clear_to_build") is False
 
 
 @pytest.mark.asyncio

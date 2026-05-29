@@ -124,12 +124,13 @@ export function displayStatus(backendStatus: string): "Draft" | "Ready" | "Build
   return "Draft";
 }
 
-type StageFilter = "all" | "draft" | "ready" | "in_progress";
+type StageFilter = "all" | "draft" | "ready" | "in_progress" | "complete";
 
 function getDocStage(doc: Spec): string {
   if (doc.stage) return doc.stage;
   const s = doc.status;
-  if (s === "complete" || s === "in-progress") return "in_progress";
+  if (s === "complete") return "complete";
+  if (s === "in-progress") return "in_progress";
   if (s === "ready") return "ready";
   return "draft";
 }
@@ -138,6 +139,7 @@ const STAGE_CHIP_STYLES: Record<string, { bg: string; text: string; label: strin
   draft:       { bg: "bg-slate-500/20",  text: "text-slate-600 dark:text-slate-400",  label: "Draft" },
   ready:       { bg: "bg-blue-500/20",   text: "text-blue-600 dark:text-blue-400",   label: "Ready" },
   in_progress: { bg: "bg-yellow-500/20", text: "text-yellow-600 dark:text-yellow-400", label: "In Progress" },
+  complete:    { bg: "bg-green-500/20",  text: "text-green-600 dark:text-green-400",  label: "Done" },
 };
 
 function StageChip({ stage, title }: { stage: string; title?: string }) {
@@ -1082,6 +1084,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
     { key: "draft",       label: "Draft" },
     { key: "ready",       label: "Ready" },
     { key: "in_progress", label: "In Progress" },
+    { key: "complete",    label: "Done" },
   ];
 
   // Husks in the current stage-filtered view

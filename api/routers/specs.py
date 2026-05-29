@@ -609,9 +609,9 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                 # "needs clarity" — the build decision is moot once it shipped.
                 _status = d.get("status")
                 if not r.ready and _status not in ("complete", "done", "archived"):
+                    # Surface needs_clarity as information; never downgrade the
+                    # spec's status. Readiness informs, it does not block.
                     d["needs_clarity"] = True
-                    if _status in ("ready", "spec"):
-                        d["effective_status"] = "draft"
         except Exception:
             for d in docs:
                 d.setdefault("clear_to_build", False)
@@ -1149,21 +1149,19 @@ async def promote_draft(body: SpecPromote):
             detail="Only drafts can be promoted. Path must start with docs/draft/.",
         )
 
-    # Gate: block promotion when the draft still needs clarity
+    # Readiness is informational: compute it but never block promotion.
+    # (yourOS informs, it does not block.)
+    _readiness_payload: dict = {}
     try:
         from services.gemini_ready import compute_spec_readiness
         abs_path = str(Path(PROJECT_ROOT) / body.path)
         r = compute_spec_readiness(abs_path)
-        if not r.ready:
-            failing = [c for c in r.as_dict()["checks"] if not c["passed"]]
-            raise HTTPException(
-                status_code=422,
-                detail={"error": "needs_clarity", "failing_checks": failing},
-            )
-    except HTTPException:
-        raise
+        _readiness_payload = {
+            "clear_to_build": r.ready,
+            "clear_to_build_checks": r.as_dict()["checks"],
+        }
     except Exception:
-        pass  # if readiness check errors, don't block promotion
+        pass  # readiness errors never block promotion
 
     # Append any missing canonical headings before promoting (→1600).
     _CANONICAL_HEADINGS = [
@@ -1198,7 +1196,7 @@ async def promote_draft(body: SpecPromote):
 
     try:
         target_path = await ostk.doc_promote(body.path)
-        return {"result": target_path, "promoted_path": target_path}
+        return {"result": target_path, "promoted_path": target_path, **_readiness_payload}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
