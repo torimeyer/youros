@@ -4403,15 +4403,59 @@ def _spawn_quick_mode(body: "AgentSpawn") -> bool:
 _LIVE_AGENT_STATUSES = {"running", "spawned", "in_progress"}
 
 
+def _is_agent_genuinely_live(meta: dict) -> bool:
+    """Return True only when the agent row has evidence of being alive.
+
+    A status string in _LIVE_AGENT_STATUSES is necessary but not
+    sufficient.  Stale/abandoned rows keep their status string after the
+    process dies, which causes their needle_ids to stay overlaid as
+    in_progress forever (→1930, →1804, →1754).
+
+    An agent is considered genuinely live when AT LEAST ONE of:
+      A. Its recorded pid passes os.kill(pid, 0).  A dead pid is
+         definitive evidence of death and short-circuits to False
+         immediately; no timestamp check is done.
+      B. Its last_heartbeat_at or spawned_at is within
+         STALE_AGENT_TIMEOUT_SECONDS of now.
+
+    Agents with no pid and no timestamps (bare rows) return False so
+    they do not pin tasks indefinitely.
+    """
+    pid = meta.get("pid")
+    if pid:
+        try:
+            pid_int = int(pid)
+        except (TypeError, ValueError):
+            pid_int = None
+        if pid_int is not None:
+            if _is_pid_alive(pid_int):
+                return True  # Signal A: live pid.
+            return False  # Signal A: dead pid — skip timestamp check.
+
+    # No pid recorded: fall back to heartbeat/spawn recency.
+    now = datetime.now(timezone.utc)
+    for field in ("last_heartbeat_at", "spawned_at"):
+        raw = meta.get(field)
+        if not isinstance(raw, str):
+            continue
+        ts = _parse_iso(raw)
+        if ts is None:
+            continue
+        if (now - ts).total_seconds() <= STALE_AGENT_TIMEOUT_SECONDS:
+            return True  # Signal B: recent timestamp.
+
+    return False
+
+
 def get_running_task_ids() -> set[str]:
     """Return the set of task ids that have at least one live agent.
 
     "Live" means an agent row in ``agent_metadata`` whose ``status`` is
-    in ``_LIVE_AGENT_STATUSES`` AND which has no ``completed_at``
-    timestamp stamped. The Tasks list endpoint uses this to force a
-    task's effective status to ``in_progress`` whenever any agent
-    spawned for it is still working, regardless of which spawn path
-    created the agent. See AgentSpawn.task_id in models/schemas.py for
+    in ``_LIVE_AGENT_STATUSES``, which has no ``completed_at`` timestamp,
+    AND which passes ``_is_agent_genuinely_live`` (live pid or recent
+    heartbeat). The Tasks list endpoint uses this to force a task's
+    effective status to ``in_progress`` whenever any agent spawned for it
+    is still working. See AgentSpawn.task_id in models/schemas.py for
     how the link is recorded.
     """
     live: set[str] = set()
@@ -4424,7 +4468,7 @@ def get_running_task_ids() -> set[str]:
         if meta.get("completed_at"):
             continue
         status = str(meta.get("status") or "").lower()
-        if status in _LIVE_AGENT_STATUSES:
+        if status in _LIVE_AGENT_STATUSES and _is_agent_genuinely_live(meta):
             live.add(str(tid))
     return live
 
@@ -4438,6 +4482,10 @@ def get_running_needle_ids() -> set[str]:
 
     Checks both ``needle_id`` (primary, first match) and ``needle_ids``
     (all →NNN tokens extracted at register time, →1204).
+
+    Only counts an agent as live if it passes ``_is_agent_genuinely_live``
+    (live pid or recent heartbeat), so stale/abandoned rows with dead pids
+    no longer pin tasks as in_progress indefinitely.
     """
     live: set[str] = set()
     for _name, meta in agent_metadata.items():
@@ -4447,6 +4495,8 @@ def get_running_needle_ids() -> set[str]:
             continue
         status = str(meta.get("status") or "").lower()
         if status not in _LIVE_AGENT_STATUSES:
+            continue
+        if not _is_agent_genuinely_live(meta):
             continue
         nid = meta.get("needle_id")
         if nid:

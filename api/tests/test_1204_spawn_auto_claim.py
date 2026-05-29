@@ -8,6 +8,7 @@ without the agent needing to call ostk work pull/claim.
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,9 @@ from routers.agents import (
     agent_metadata,
     get_running_needle_ids,
 )
+
+# Convenience: a spawned_at that is definitely within the stale window.
+_FRESH_TS = datetime.now(timezone.utc).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +126,7 @@ def test_get_running_needle_ids_single(monkeypatch):
     agent_metadata["test-live-1204"] = {
         "status": "running",
         "needle_ids": ["1204"],
+        "spawned_at": _FRESH_TS,
     }
     result = get_running_needle_ids()
     assert "1204" in result
@@ -134,6 +139,7 @@ def test_get_running_needle_ids_multi(monkeypatch):
     agent_metadata["test-live-multi"] = {
         "status": "running",
         "needle_ids": ["1199", "1200", "1201"],
+        "spawned_at": _FRESH_TS,
     }
     result = get_running_needle_ids()
     assert {"1199", "1200", "1201"}.issubset(result)
@@ -147,6 +153,7 @@ def test_get_running_needle_ids_completed_excluded():
         "status": "completed",
         "completed_at": "2026-05-12T00:00:00Z",
         "needle_ids": ["1204"],
+        "spawned_at": _FRESH_TS,
     }
     result = get_running_needle_ids()
     assert "1204" not in result
@@ -158,6 +165,7 @@ def test_get_running_needle_ids_no_needles():
     agent_metadata.clear()
     agent_metadata["test-no-needles"] = {
         "status": "running",
+        "spawned_at": _FRESH_TS,
     }
     result = get_running_needle_ids()
     assert len(result) == 0
@@ -171,7 +179,71 @@ def test_get_running_needle_ids_merges_needle_id_and_needle_ids():
         "status": "running",
         "needle_id": "1000",
         "needle_ids": ["1204", "1205"],
+        "spawned_at": _FRESH_TS,
     }
     result = get_running_needle_ids()
     assert {"1000", "1204", "1205"}.issubset(result)
+    agent_metadata.clear()
+
+
+# ---------------------------------------------------------------------------
+# Dead-pid / stale-heartbeat exclusion (fix for →1930, →1804, →1754)
+# ---------------------------------------------------------------------------
+
+def test_get_running_needle_ids_dead_pid_excluded():
+    """Agent in 'spawned' status with a dead pid must NOT overlay in_progress."""
+    agent_metadata.clear()
+    agent_metadata["test-dead-pid-spawned"] = {
+        "status": "spawned",
+        "pid": 999999999,  # implausible PID; os.kill(pid, 0) will raise
+        "needle_ids": ["1930"],
+        "spawned_at": _FRESH_TS,
+    }
+    result = get_running_needle_ids()
+    assert "1930" not in result, "Dead-pid agent must not overlay in_progress"
+    agent_metadata.clear()
+
+
+def test_get_running_needle_ids_in_progress_dead_pid_excluded():
+    """Agent in 'in_progress' status with a dead pid must NOT overlay in_progress."""
+    agent_metadata.clear()
+    agent_metadata["test-dead-pid-inprogress"] = {
+        "status": "in_progress",
+        "pid": 999999999,
+        "needle_ids": ["1804"],
+        "last_heartbeat_at": _FRESH_TS,
+    }
+    result = get_running_needle_ids()
+    assert "1804" not in result, "Dead-pid in_progress agent must not overlay"
+    agent_metadata.clear()
+
+
+def test_get_running_needle_ids_stale_heartbeat_no_pid_excluded():
+    """Agent with no pid and a heartbeat older than STALE_AGENT_TIMEOUT_SECONDS must not overlay."""
+    from routers.agents import STALE_AGENT_TIMEOUT_SECONDS
+    agent_metadata.clear()
+    stale_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 60)
+    ).isoformat()
+    agent_metadata["test-stale-heartbeat"] = {
+        "status": "running",
+        "needle_ids": ["1754"],
+        "last_heartbeat_at": stale_ts,
+    }
+    result = get_running_needle_ids()
+    assert "1754" not in result, "Stale-heartbeat agent must not overlay in_progress"
+    agent_metadata.clear()
+
+
+def test_get_running_needle_ids_live_heartbeat_no_pid_included():
+    """Agent with no pid but a fresh heartbeat IS considered live."""
+    agent_metadata.clear()
+    agent_metadata["test-fresh-heartbeat"] = {
+        "status": "running",
+        "needle_ids": ["9999"],
+        "last_heartbeat_at": _FRESH_TS,
+    }
+    result = get_running_needle_ids()
+    assert "9999" in result, "Fresh-heartbeat agent (no pid) should overlay in_progress"
     agent_metadata.clear()
