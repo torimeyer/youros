@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-import api.services.spec_constitution as sc_mod
-from api.services.spec_constitution import check_spec_text, load_constitution
+import services.spec_constitution as sc_mod
+from services.spec_constitution import check_spec_text, load_constitution
 
 
 @pytest.fixture()
