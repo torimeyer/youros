@@ -207,12 +207,16 @@ async def suggest_clarification(
         failing_check=check_name,
     )
 
-    from services.chat_providers import _resolve_api_key, _get_anthropic_client
-    api_key = await _resolve_api_key("anthropic_api_key")
-    if not api_key:
-        raise ValueError("No Anthropic API key configured. Add one in Settings to use AI suggestions.")
-
-    client = _get_anthropic_client(api_key)
+    # Route through the shared AI backend so suggestions work on a Claude
+    # subscription (CLI) OR an API key, instead of hard-requiring an Anthropic
+    # key. Matches the wizard_suggest path and degrades with a clear, vendor
+    # neutral message when no backend is connected.
+    from services.ai_backend import get_ai_client
+    client = await get_ai_client()
+    if client is None:
+        raise ValueError(
+            "No AI backend is connected. Connect Claude or add an API key in Settings to use AI suggestions."
+        )
 
     response = await client.messages.create(
         model=model,

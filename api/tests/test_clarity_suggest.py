@@ -77,10 +77,7 @@ async def test_suggest_clarification_uses_outcome_concrete_template():
     fake_client = MagicMock()
     fake_client.messages.create = fake_create
 
-    with (
-        patch("services.chat_providers._resolve_api_key", AsyncMock(return_value="sk-test")),
-        patch("services.chat_providers._get_anthropic_client", return_value=fake_client),
-    ):
+    with patch("services.ai_backend.get_ai_client", AsyncMock(return_value=fake_client)):
         result = await clarity_suggest.suggest_clarification(
             "outcome_concrete",
             {"kind": "task", "title": "Fix something", "description": "TBD", "file_text": ""},
@@ -104,10 +101,7 @@ async def test_suggest_clarification_uses_has_ac_checkboxes_template():
     fake_client = MagicMock()
     fake_client.messages.create = fake_create
 
-    with (
-        patch("services.chat_providers._resolve_api_key", AsyncMock(return_value="sk-test")),
-        patch("services.chat_providers._get_anthropic_client", return_value=fake_client),
-    ):
+    with patch("services.ai_backend.get_ai_client", AsyncMock(return_value=fake_client)):
         result = await clarity_suggest.suggest_clarification(
             "has_ac_checkboxes",
             {"kind": "spec", "title": "My Spec", "description": "", "file_text": "# My Spec\n"},
@@ -130,10 +124,7 @@ async def test_suggest_clarification_unknown_check_uses_fallback_prompt():
     fake_client = MagicMock()
     fake_client.messages.create = fake_create
 
-    with (
-        patch("services.chat_providers._resolve_api_key", AsyncMock(return_value="sk-test")),
-        patch("services.chat_providers._get_anthropic_client", return_value=fake_client),
-    ):
+    with patch("services.ai_backend.get_ai_client", AsyncMock(return_value=fake_client)):
         result = await clarity_suggest.suggest_clarification(
             "unknown_check_xyz",
             {"kind": "task", "title": "T", "description": "D", "file_text": ""},
@@ -147,8 +138,8 @@ async def test_suggest_clarification_unknown_check_uses_fallback_prompt():
 async def test_suggest_clarification_raises_on_missing_api_key():
     from services import clarity_suggest
 
-    with patch("services.chat_providers._resolve_api_key", AsyncMock(return_value="")):
-        with pytest.raises(ValueError, match="No Anthropic API key"):
+    with patch("services.ai_backend.get_ai_client", AsyncMock(return_value=None)):
+        with pytest.raises(ValueError, match="No AI backend"):
             await clarity_suggest.suggest_clarification(
                 "outcome_concrete",
                 {"kind": "task", "title": "T", "description": "D", "file_text": ""},
@@ -168,10 +159,7 @@ async def test_suggest_clarification_passes_correct_model():
     fake_client = MagicMock()
     fake_client.messages.create = fake_create
 
-    with (
-        patch("services.chat_providers._resolve_api_key", AsyncMock(return_value="sk-test")),
-        patch("services.chat_providers._get_anthropic_client", return_value=fake_client),
-    ):
+    with patch("services.ai_backend.get_ai_client", AsyncMock(return_value=fake_client)):
         await clarity_suggest.suggest_clarification(
             "in_repo_scope",
             {"kind": "task", "title": "T", "description": "D", "file_text": ""},
