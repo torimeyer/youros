@@ -63,8 +63,6 @@ Run through this before anyone is watching.
 
 **Action:** Find a throwaway open task (or create one by typing in chat: "add a task: add a last updated timestamp to the about page"). On that task row, click the **Create Spec** button.
 
-**Visible:** A spec draft opens in the Specs page (source: `app/src/pages/Tasks.tsx:2378`, `POST /specs/from-task`). A SpecWizard modal appears asking for acceptance criteria (source: `app/src/components/SpecWizard.tsx`).
-
 **Say this (verbatim):**
 ```
 I can create a task directly any time I want, and for something bigger I start with a spec first, watch.
@@ -79,8 +77,6 @@ That is the discipline I reach for when the work is big enough to need it, the q
 - [ ] The format matches the rest of the app
 ```
 Click **Promote**, then on the promoted spec click **Mark Ready**, then click **Build**.
-
-**Visible:** The spec status changes to `in_progress`, and the Agents page Active tab shows one or more builder agents starting (source: `api/routers/specs.py`, `_advance_spec_status_if_all_builder_tasks_closed`). ADHD mode pulse appears in the corner.
 
 **Say this (verbatim):**
 ```
@@ -109,14 +105,10 @@ the spec flips to complete automatically. I'll check back in a few minutes.
 generate a 6-month roadmap for yourOS focused on personal quality-of-life improvements
 ```
 
-**Visible:** The model streams a response and writes `~/Documents/roadmap.md` and `roadmap.json`. A notification appears with the roadmap summary and a note to type "create tasks" (source: `app/src/stores/notifications.ts:13`, `app/src/lib/roadmapChatCommand.ts`).
-
 **Action (part 2):** Once the response finishes, immediately type and send:
 ```
 create tasks from this roadmap
 ```
-
-**Visible:** ChatPanel intercepts that exact phrase, calls `POST /chat/roadmap/create-tasks`, and the backend parses `roadmap.md` and creates tasks in the work queue. The reply lists the tasks created (source: `app/src/components/ChatPanel.tsx:2062-2082`, `app/src/lib/roadmapChatCommand.ts`).
 
 **Say this (verbatim):**
 ```
@@ -146,15 +138,13 @@ I didn't type a single task title. I described a direction and it broke it down.
 saa - add a sound that plays when a task finishes. i'm doing a live demo so make sure it actually plays.
 ```
 
-**Visible:** A builder agent registers in the Active tab (`app/src/pages/Agents.tsx`) and starts working, and a few minutes later it lands a new frontend hook plus a sound asset. The event it listens for is real and already published (`api/routers/tasks.py:1745`, `needle_closed`).
-
 **How this works (because of ostk):** The backend already announces every task close on its event bus, so the agent only has to add the frontend ear that listens for that announcement and plays a sound, and because ostk tracks the build as its own task with its own files and tests, you get a real reviewable feature out of one sentence rather than a hack.
 
 **The payoff:** Once this lands and you reload, the tasks from steps 1 and 2 play the sound you just built as they complete, so the feature you spoke into existence is what announces the rest of the work finishing, and that is the best moment in the demo, so call it out when it happens.
 
 **What that one line does (you do not say any of this):** "make sure it actually plays" is the whole instruction, and torios handles the rest, it builds with the browser built-in Web Audio so there is no new dependency, hooks the needle_closed event the backend already fires, merges the work into the running app because agent worktrees are not auto-merged, and confirms it plays before calling it done rather than stopping at "the tests pass." The frontend runs Vite with hot reload, so once the build is merged it shows up by itself or with one refresh. Fire this off early alongside steps 1 and 2 so it is live by the time those tasks complete and they play the sound as they land.
 
-**Fallback:** If the live build stalls, the proven version is in git history (task →1618, commits `73d53752` and `20fcf4d1`, a `useVictoryFanfare` hook that played a Gemini-composed MIDI through Tone.js), so you can say "here is the one I built before" and restore it, or just move on and let the visual notification be the cue.
+**Fallback:** If the live build stalls, just move on, do not try to recover it on stage. The on-screen notification still marks the task finishing, and you can say you will wire the sound up after the demo.
 
 ---
 
@@ -167,8 +157,6 @@ saa - add a sound that plays when a task finishes. i'm doing a live demo so make
 **Setup:** Navigate to My Gems (sidebar).
 
 **Action:** Click the **Create Gem** button (source: `app/src/pages/MyGems.tsx`, `data-testid="create-gem-button"`).
-
-**Visible:** A form asking for a name and system instructions. Each gem shows its name and a preview of its system prompt (source: `app/src/pages/MyGems.tsx:255`).
 
 **Say this (verbatim):**
 ```
@@ -203,8 +191,6 @@ Type and send:
 what should Saturday look like this week? Pepper needs a long walk.
 ```
 
-**Visible:** The gem responds with a specific Saturday plan drawing on its instructions, not on the main model's defaults (source: `app/src/components/GemChatPanel.tsx:82`, `POST /api/gems/{id}/chat`).
-
 **How this works (because of ostk):** Gems are stored as tracked entities in the backend with their own chat history, so the conversation you have with a gem accumulates over time, and because the gem's instructions travel with every request rather than being typed into a prompt each time, the persona stays consistent across days and sessions without you re-explaining it.
 
 **Fallback:** If gem creation fails, show an existing gem in the list and click it to start a chat. "This one I made last week. It already knows my context from our last conversation."
@@ -219,16 +205,12 @@ what should Saturday look like this week? Pepper needs a long walk.
 
 **Setup:** Navigate to the main chat panel. Click the model selector and switch to **All**.
 
-**Visible:** The All pill activates, showing a pulse animation (source: `app/src/components/ChatPanel.tsx:486-492`, `allPillPulse`, `sideBySideEnabled`).
-
 **Say this (verbatim, this is also the question to type):**
 ```
 what do you know about me when it comes to how I use myos
 ```
 
 Type and send that exact question.
-
-**Visible:** Claude and Gemini respond simultaneously, side by side, each streaming its own answer (source: `app/src/components/ChatPanel.tsx:2051`, parallel broadcast fan-out).
 
 **Expected ideal answer (what a well-loaded model should surface):**
 
@@ -266,8 +248,6 @@ with the subject and sender already filled in. I don't touch the keyboard.
 
 **Action:** Click **Create task** on any message.
 
-**Visible:** The button shows "Creating task..." then "Task created" with a check mark. A confirmation line appears below the message with the task title (source: `app/src/pages/Gmail.tsx:643-690`, `POST /gmail/to-task`).
-
 **How this works (because of ostk):** The backend reads the email content and subject through the Gmail integration, passes them to the model to extract an action, creates a task in ostk's work queue with that title and a link back to the thread, so the task is traceable to the email that generated it without you manually typing anything.
 
 **Fallback:** If the button doesn't appear, click into any single message. "The button shows up inside a thread. Let me open one." If the creation errors, show the empty success state. "It created, just the badge animation glitched. It's in the queue."
@@ -286,8 +266,6 @@ with the subject and sender already filled in. I don't touch the keyboard.
 ```
 add to calendar that Pepper and I have a hair appointment on June 6th at 11am
 ```
-
-**Visible:** The model calls the `create_calendar_event` tool, the response confirms the event was added, and if the Calendar page is visible in another tab it refreshes automatically (source: `app/src/pages/Calendar.tsx:515`, "chat creates an event, Sync fires", `api/routers/calendar.py`).
 
 **Say this (verbatim):**
 ```
@@ -324,8 +302,6 @@ My actual conversations. Nothing is synced to a server.
 hey, anything funny happen this week? I need a laugh before the weekend.
 ```
 
-**Visible:** The message sends via the backend's AppleScript integration, using `POST /imessage/send` (source: `api/routers/imessage.py:173`). The thread updates with the sent message.
-
 **Say this (verbatim):**
 ```
 Sent. Real iMessage. From inside the app. Scott got that on his phone.
@@ -347,8 +323,6 @@ Sent. Real iMessage. From inside the app. Scott got that on his phone.
 
 **Action (part 1):** Scroll to the **Custom tack commands** section (source: `app/src/pages/Settings.tsx:1724`, `<CustomVerbs />` component, `/ostk/language/verbs`).
 
-**Visible:** A list of named verbs with descriptions, like "standup: Write a daily standup update from recent activity" or "brainstorm: Generate ideas for a feature or problem."
-
 **Say this (verbatim):**
 ```
 These are my custom commands. I type 'standup' in chat and it writes my update from recent activity.
@@ -356,8 +330,6 @@ I type 'brainstorm' and it goes into idea mode. One word. I defined what it does
 ```
 
 **Action (part 2):** Scroll to the **ADHD mode** section (source: `app/src/pages/Settings.tsx:2014`, `data-testid="adhd-toggle"`).
-
-**Visible:** A toggle for ADHD mode, a slider for check-in interval, and a focus mode sub-toggle.
 
 **Say this (verbatim):**
 ```
@@ -383,8 +355,6 @@ I built this because I needed it.
 **Action (part 1):** Check the **Active** tab first. If step 1 or 2 agents are still running, point to them. "Those are the ones I kicked off at the start. Still going." If they've completed, go to the **Recent** tab and read a task name out loud.
 
 **Action (part 2):** Click the **Templates** tab. Expand any template.
-
-**Visible:** Each template shows its declared MCPs as chip badges (source: `app/src/pages/Agents.tsx:800-802`, `data-testid="declared-mcp-chip"`). Below the chips, a note shows "Plus all enabled MCPs in your workspace: [list]" (source: `app/src/pages/Agents.tsx:821-822`).
 
 **Say this (verbatim):**
 ```
