@@ -2,16 +2,15 @@
 
 ---
 
-> ⚠ BLOCKER BEFORE YOU READ ANYTHING ELSE
+> ⚠ READ FIRST: THE FINISHING SOUND IS BUILT LIVE
 >
-> **THE TASK-FINISHING SOUND DOES NOT EXIST.**
-> A thorough search of `app/src/` and `api/` found zero audio files, zero `new Audio()` calls, and zero `.play()` references in any app or backend source file. Step 3 in this card is marked accordingly. Remove any mention of a completion sound from your talking points before going live, because it will not happen and you will look like you missed a bug.
+> The task-finishing sound is not in the codebase right now, on purpose, because you scrubbed it in another session so you can rebuild it live on stage. The backend still fires a `needle_closed` event on every task close (`api/routers/tasks.py:1745`), so step 3 has you build the small frontend piece that listens for that event and plays a sound, and once it lands the tasks from steps 1 and 2 play it as they finish.
 
 ---
 
-> **Total target: ~12-15 min** | Nine live beats, all personal, zero work content.
+> **Total target: ~12-15 min** | Ten live beats, all personal, zero work content.
 >
-> Arc: two slow background actions kick off first and cook while you do seven quick foreground ones. By the time you wrap the foreground loop, one or both background jobs will have landed.
+> Arc: three slow background actions kick off first and cook while you do seven quick foreground ones, and one of those three is you building the finishing sound from scratch. By the time you wrap the foreground loop, one or both background jobs will have landed.
 >
 > All beats verified against the codebase unless marked ⚠ UNVERIFIED.
 
@@ -40,7 +39,7 @@ Run through this before anyone is watching.
 |------|--------|-----------|------|
 | 1 | Task → Spec → Build (agents spawn, run in background) | 4-5 min background | Kick off first |
 | 2 | Generate roadmap in chat, then create tasks from it | 2-3 min background | Kick off second |
-| 3 | ⚠ Sound on task complete | DOES NOT EXIST | Skip |
+| 3 | Build the task-finishing sound live (saa) | ~3-4 min background | Kick off with 1 & 2 |
 | 4 | Create a Gem and chat with it | ~2 min foreground | Medium |
 | 5 | Ask "All" a question | ~1 min foreground | Short |
 | 6 | Gmail: create a task from an email | ~30 sec foreground | Short |
@@ -49,7 +48,7 @@ Run through this before anyone is watching.
 | 9 | Settings: Custom Commands and ADHD mode | ~20 sec foreground | Short |
 | 10 | Agents page: MCP servers attached to agents | ~20 sec foreground | Short |
 
-**Do steps 1 and 2 back-to-back at the very start.** Both run agents in the background. Steps 4-10 fill the time while those agents work. The background completions land as natural punctuation at the end.
+**Do steps 1, 2, and 3 back-to-back at the very start.** All three spawn agents that run in the background, and step 3 builds the finishing sound itself, so once it lands and you reload, every task that completes after it plays the sound you just built. Steps 4 through 10 fill the time while the agents work, and the background completions land as natural punctuation near the end.
 
 ---
 
@@ -67,10 +66,10 @@ Run through this before anyone is watching.
 
 **Say this (verbatim):**
 ```
-Before any agent touches a feature, there is a spec. Watch.
+I can create a task directly any time I want, and for something bigger I start with a spec first, watch.
 I click Create Spec on this task. I get a draft with acceptance criteria.
-Each one is a checkbox. The agent cannot start until this spec is marked ready.
-That is the discipline that makes this work.
+Each one is a checkbox, and on a spec-driven build the agent cannot start until I mark the spec ready.
+That is the discipline I reach for when the work is big enough to need it, the quick things I just turn straight into a task.
 ```
 
 **Action (continued):** In the SpecWizard, type two acceptance criteria:
@@ -133,13 +132,26 @@ I didn't type a single task title. I described a direction and it broke it down.
 
 ---
 
-## Step 3: Task-finishing sound
+## Step 3: Build the task-finishing sound live (LONG, kick off with 1 and 2)
 
-> ⚠ THIS STEP DOES NOT EXIST IN THE CODEBASE.
->
-> No audio files, no `new Audio()` calls, and no `.play()` references appear anywhere in `app/src/` or `api/`. There is no task-completion sound. Do not demo or describe this beat. Skip it entirely.
->
-> If a sound ships before you do this demo, it would play automatically when steps 1 and 2 complete, making it a natural punctuation mark between the background and foreground halves of the demo. Until then, the visual notification is the only cue.
+*~3-4 min background. You spawn it in the opening burst with steps 1 and 2, and it builds a real feature from scratch while you do the quick foreground steps.*
+
+**Duration note:** This is a genuine feature build, so it spawns a builder agent that writes a frontend hook, wires it in, adds a sound, and tests it, which takes a few minutes. You scrubbed the old version in another session on purpose, so you are building it fresh on stage, and the backend half it depends on is already there.
+
+**Setup:** Stay in the chat panel, right after firing off steps 1 and 2.
+
+**Say this (verbatim):**
+```
+saa - when any task finishes, play a short celebratory sound. the backend already fires a needle_closed event on task close, hook into that. add a small frontend hook that plays a sound when the event arrives, with a test.
+```
+
+**Visible:** A builder agent registers in the Active tab (`app/src/pages/Agents.tsx`) and starts working, and a few minutes later it lands a new frontend hook plus a sound asset. The event it listens for is real and already published (`api/routers/tasks.py:1745`, `needle_closed`).
+
+**How this works (because of ostk):** The backend already announces every task close on its event bus, so the agent only has to add the frontend ear that listens for that announcement and plays a sound, and because ostk tracks the build as its own task with its own files and tests, you get a real reviewable feature out of one sentence rather than a hack.
+
+**The payoff:** Once this lands and you reload, the tasks from steps 1 and 2 play the sound you just built as they complete, so the feature you spoke into existence is what announces the rest of the work finishing, and that is the best moment in the demo, so call it out when it happens.
+
+**Fallback:** If the live build stalls, the proven version is in git history (task →1618, commits `73d53752` and `20fcf4d1`, a `useVictoryFanfare` hook that played a Gemini-composed MIDI through Tone.js), so you can say "here is the one I built before" and restore it, or just move on and let the visual notification be the cue.
 
 ---
 
@@ -217,7 +229,7 @@ Type and send that exact question.
 
 **Expected ideal answer (what a well-loaded model should surface):**
 
-> You write a failing test first, then write the minimum code to pass it, and never write production code before a failing test exists. Every spec gets written before any agent touches a feature, and an agent cannot be spawned on a spec until you mark it ready. Before anything ships, vitest runs, TypeScript compiles, and there is a live curl against the endpoint, and you push only to Staging, never directly to production. You read and review every diff, you merge deliberately, and when a bug appears you root-cause it instead of patching the symptom. ostk gives you the receipts for all of this: a full audit trail of every file touch, gen-tracked files with conflict detection, and an isolated worktree per agent so parallel agents cannot collide.
+> You write a failing test first, then write the minimum code to pass it, and never write production code before a failing test exists. You create tasks directly for quick work, and for larger features you write a spec first, where an agent cannot be spawned until you mark the spec ready. Before anything ships, vitest runs, TypeScript compiles, and there is a live curl against the endpoint, and you push only to Staging, never directly to production. You read and review every diff, you merge deliberately, and when a bug appears you root-cause it instead of patching the symptom. ostk gives you the receipts for all of this: a full audit trail of every file touch, gen-tracked files with conflict detection, and an isolated worktree per agent so parallel agents cannot collide.
 
 That answer should make any skeptical engineer understand this is real software engineering practice, not vibe-coding, because every claim in it is checkable from the commit history and the ostk audit log.
 
@@ -424,8 +436,8 @@ If you lose your place:
 
 Use these as anchors. They are the things people repeat after.
 
-1. "Before any agent touches a feature, there is a spec."
-2. "The agent cannot start until this spec is marked ready."
+1. "For the big stuff I start with a spec, the quick stuff I just turn into a task."
+2. "On a spec build, the agent cannot start until I mark it ready."
 3. "Two prompts. First I ask for the roadmap. Then I say create tasks from it."
 4. "A Gem is a persona I build."
 5. "All of them. At the same time. I didn't pick a model first."
