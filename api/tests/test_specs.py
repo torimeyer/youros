@@ -189,6 +189,40 @@ async def test_spec_review_surface(client, tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_build_preview_returns_breakdown_without_spawning(client, tmp_path, monkeypatch):
+    """preview=true returns the planned breakdown and spawns nothing (phase 5 gate)."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+    import routers.agents as agents_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    spec = tmp_path / "docs" / "spec" / "preview.md"
+    spec.write_text("---\ntitle: P\nstatus: spec\ntype: engineering\n---\n\n- [ ] One\n")
+
+    async def fake_spec_build(path):
+        return {"agents": [{"name": "spec-prev-1", "task_id": "1", "task_title": "One", "prompt": "Build 1"}]}
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", fake_spec_build)
+
+    spawned: list[str] = []
+
+    async def fake_spawn_agent(body):
+        spawned.append(body.name)
+        return {"agent": body.name}
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    resp = await client.post("/api/specs/docs/spec/preview.md/build?preview=true")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["preview"] is True
+    assert data["agents"] == []
+    assert spawned == []  # nothing spawned during preview
+    assert len(data["breakdown"]) == 1
+    assert data["breakdown"][0]["task_id"] == "1"
+
+
+@pytest.mark.asyncio
 async def test_create_draft_leaves_as_draft_when_ac_generation_fails(
     client, tmp_path, monkeypatch
 ):

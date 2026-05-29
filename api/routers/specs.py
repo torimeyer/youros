@@ -2409,7 +2409,7 @@ async def review_spec(spec_path: str):
 
 
 @router.post("/specs/{spec_path:path}/build")
-async def build_spec(spec_path: str, model: Optional[str] = None):
+async def build_spec(spec_path: str, model: Optional[str] = None, preview: bool = False):
     """One-click build: decompose if needed, then spawn a builder per open task.
 
     Loads open tasks from the spec's front matter, asks ostk for the
@@ -2503,6 +2503,24 @@ async def build_spec(spec_path: str, model: Optional[str] = None):
                 "at least one, then click Build."
             ),
             "has_unchecked_acs": False,
+        }
+
+    # Breakdown-review gate (phase 5): when preview=true, return the planned
+    # task breakdown WITHOUT spawning, so the user can review what will be built
+    # before committing. Opt-in and informational; it never blocks a real build.
+    if preview:
+        return {
+            "preview": True,
+            "agents": [],
+            "breakdown": [
+                {"task_id": cfg.get("task_id"), "task_title": cfg.get("task_title", "")}
+                for cfg in agent_configs
+            ],
+            "message": (
+                f"This will start {len(agent_configs)} "
+                f"builder{'s' if len(agent_configs) != 1 else ''}. "
+                "Review the breakdown, then Build to begin."
+            ),
         }
 
     # Spawn a Builder subagent for each open task. We call the in-process
