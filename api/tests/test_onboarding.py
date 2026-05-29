@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -552,30 +553,33 @@ async def test_intent_all_packs_resolve_to_non_empty_list(client):
 
 
 @pytest.mark.asyncio
-async def test_intent_no_ai_client_returns_503(client, monkeypatch):
-    """When no AI backend is configured, /intent returns 503 with an actionable message."""
+async def test_intent_no_ai_client_returns_static_pack(client, monkeypatch):
+    """No AI backend configured: /intent returns the deterministic pack (200), not
+    503. Onboarding's starter-agents step must never require an LLM (->1807)."""
     monkeypatch.setattr("routers.onboarding.get_ai_client", AsyncMock(return_value=None))
     resp = await client.post("/api/onboarding/intent", json={"intent": "coding"})
-    assert resp.status_code == 503
-    detail = resp.json()["detail"]
-    assert "API key" in detail or "Settings" in detail
+    assert resp.status_code == 200
+    ids = [item["id"] for item in resp.json()["starter_pack"]]
+    assert "builtin-builder" in ids
 
 
 @pytest.mark.asyncio
-async def test_intent_llm_exception_returns_503(client, monkeypatch):
-    """When the LLM call raises, /intent returns 503 with actionable message."""
+async def test_intent_llm_exception_returns_static_pack(client, monkeypatch):
+    """When the LLM call raises, /intent falls back to the deterministic pack (200),
+    not 503 (->1807)."""
     mock_client = MagicMock()
     mock_client.messages.create = AsyncMock(side_effect=Exception("connection refused"))
     monkeypatch.setattr("routers.onboarding.get_ai_client", AsyncMock(return_value=mock_client))
     resp = await client.post("/api/onboarding/intent", json={"intent": "coding"})
-    assert resp.status_code == 503
-    detail = resp.json()["detail"]
-    assert "API key" in detail or "Settings" in detail
+    assert resp.status_code == 200
+    ids = [item["id"] for item in resp.json()["starter_pack"]]
+    assert "builtin-builder" in ids
 
 
 @pytest.mark.asyncio
-async def test_intent_llm_bad_json_returns_502(client, monkeypatch):
-    """When the LLM returns non-JSON text, /intent returns 502."""
+async def test_intent_llm_bad_json_returns_static_pack(client, monkeypatch):
+    """When the LLM returns non-JSON text, /intent falls back to the deterministic
+    pack (200), not 502 (->1807)."""
     from types import SimpleNamespace
     bad_resp = MagicMock()
     bad_resp.content = [SimpleNamespace(text="not json at all")]
@@ -583,7 +587,8 @@ async def test_intent_llm_bad_json_returns_502(client, monkeypatch):
     mock_client.messages.create = AsyncMock(return_value=bad_resp)
     monkeypatch.setattr("routers.onboarding.get_ai_client", AsyncMock(return_value=mock_client))
     resp = await client.post("/api/onboarding/intent", json={"intent": "coding"})
-    assert resp.status_code == 502
+    assert resp.status_code == 200
+    assert len(resp.json()["starter_pack"]) > 0
 
 
 @pytest.mark.asyncio
@@ -755,3 +760,18 @@ async def test_intent_returns_422_for_unknown_intent(client):
     """An unrecognised intent value is rejected with 422, not 500."""
     resp = await client.post("/api/onboarding/intent", json={"intent": "personal_productivity"})
     assert resp.status_code == 422
+
+
+# --- /onboarding/intent resilience: never hang for a valid intent (->1807) ---
+
+@pytest.mark.asyncio
+async def test_intent_falls_back_to_static_pack_on_llm_timeout(client):
+    """LLM call times out: fall back to the deterministic pack rather than 504,
+    which would strand the starter-agents step on 'Loading...' (->1807)."""
+    slow = MagicMock()
+    slow.messages.create = AsyncMock(side_effect=asyncio.TimeoutError())
+    with patch("routers.onboarding.get_ai_client", new=AsyncMock(return_value=slow)):
+        resp = await client.post("/api/onboarding/intent", json={"intent": "coding"})
+    assert resp.status_code == 200
+    ids = [item["id"] for item in resp.json()["starter_pack"]]
+    assert "builtin-builder" in ids

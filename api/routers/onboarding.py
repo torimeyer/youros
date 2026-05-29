@@ -363,33 +363,60 @@ async def enable_myos_hooks(body: EnableHooksRequest = EnableHooksRequest()):
     return {"enabled": True, "method": body.scope or "track"}
 
 
-@router.post("/onboarding/intent", response_model=IntentResponse)
-async def intent(body: IntentRequest):
-    """Return a personalized starter pack via LLM based on the user's intent and role."""
+def _build_static_pack(intent_id: str) -> list[StarterPackItem]:
+    """Deterministic starter pack from _INTENT_PACKS + BUILTIN_AGENT_TEMPLATES.
+
+    No LLM, no network. This is the guaranteed result for a known intent so the
+    onboarding "Your starter agents" step always resolves instantly, even with
+    no API key or a slow or unavailable model.
+    """
     from services.agent_templates_store import BUILTIN_AGENT_TEMPLATES
 
     by_id = {t["id"]: t for t in BUILTIN_AGENT_TEMPLATES}
-    pack_spec = _INTENT_PACKS.get(body.intent, [])
-    candidates = [
-        {
-            "id": s["id"],
-            "name": by_id[s["id"]]["name"],
-            "description": by_id[s["id"]]["description"],
-        }
-        for s in pack_spec
-        if s["id"] in by_id
-    ]
+    pack: list[StarterPackItem] = []
+    for spec in _INTENT_PACKS.get(intent_id, []):
+        tpl = by_id.get(spec["id"])
+        if tpl is None:
+            continue
+        pack.append(StarterPackItem(
+            kind="agent",
+            id=tpl["id"],
+            name=tpl["name"],
+            description=tpl["description"],
+            default_selected=bool(spec.get("default_selected", True)),
+        ))
+    return pack
 
-    if not candidates:
+
+@router.post("/onboarding/intent", response_model=IntentResponse)
+async def intent(body: IntentRequest):
+    """Return a starter pack for the user's intent.
+
+    The pack is built deterministically from _INTENT_PACKS so the onboarding
+    "Your starter agents" step always resolves instantly. An optional LLM pass
+    (Haiku) may re-order or re-select the agents to personalize the list, but
+    any failure or slowness falls back to the deterministic pack rather than
+    blocking onboarding. For a valid intent the step must never hang or error.
+    """
+    from services.agent_templates_store import BUILTIN_AGENT_TEMPLATES
+
+    static_pack = _build_static_pack(body.intent)
+    if not static_pack:
+        # body.intent is constrained by IntentRequest's Literal, so every value
+        # has a pack. This guard is defensive against a future intent added to
+        # the Literal but not to _INTENT_PACKS.
         raise HTTPException(status_code=404, detail=f"No starter pack defined for intent '{body.intent}'.")
 
     ai_client = await get_ai_client()
     if ai_client is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Add an Anthropic API key in Settings to get a personalized starter pack.",
-        )
+        # No API key configured: the deterministic pack is a complete experience.
+        return IntentResponse(starter_pack=static_pack)
 
+    by_id = {t["id"]: t for t in BUILTIN_AGENT_TEMPLATES}
+    candidates = [
+        {"id": item.id, "name": item.name, "description": item.description}
+        for item in static_pack
+    ]
     role_hint = f" The user's role is: {body.role}." if body.role else ""
     system_prompt = (
         "You are an onboarding assistant for yourOS, an AI productivity app. "
@@ -403,6 +430,10 @@ async def intent(body: IntentRequest):
         "Select 3-6 agents. Pre-check (default_selected: true) the 2-4 most important ones."
     )
 
+    # LLM personalization is best-effort. On timeout, network error, bad JSON,
+    # or an empty result, fall back to the deterministic pack so onboarding
+    # never hangs or shows an error. The 6s cap keeps the spinner short; the
+    # deterministic pack is the floor under every failure path.
     try:
         response = await asyncio.wait_for(
             ai_client.messages.create(
@@ -411,32 +442,26 @@ async def intent(body: IntentRequest):
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
             ),
-            timeout=15.0,
+            timeout=6.0,
         )
-    except asyncio.TimeoutError:
-        logger.error("LLM timeout in /onboarding/intent for intent=%s", body.intent)
-        raise HTTPException(status_code=504, detail="Request took too long. Please try again.")
-    except Exception:
-        logger.exception("LLM error in /onboarding/intent for intent=%s", body.intent)
-        raise HTTPException(
-            status_code=503,
-            detail="AI service unavailable. Check your Anthropic API key in Settings.",
-        )
-
-    text = "".join(getattr(block, "text", "") for block in response.content)
-
-    try:
+        text = "".join(getattr(block, "text", "") for block in response.content)
         data = json.loads(text)
         raw_items = data["items"]
         if not isinstance(raw_items, list):
             raise ValueError("items must be a list")
-    except (json.JSONDecodeError, KeyError, ValueError):
-        logger.error("LLM returned invalid JSON in /onboarding/intent: %s", text[:300])
-        raise HTTPException(status_code=502, detail="AI returned unexpected format. Please try again.")
+    except Exception:
+        logger.warning(
+            "onboarding/intent personalization failed for intent=%s; using deterministic pack",
+            body.intent,
+            exc_info=True,
+        )
+        return IntentResponse(starter_pack=static_pack)
 
-    result = []
+    result: list[StarterPackItem] = []
     seen_ids: set[str] = set()
     for item in raw_items:
+        if not isinstance(item, dict):
+            continue
         agent_id = item.get("id", "")
         if agent_id in seen_ids:
             continue
@@ -453,7 +478,7 @@ async def intent(body: IntentRequest):
         ))
 
     if not result:
-        logger.error("LLM returned no valid agent IDs for intent=%s: %s", body.intent, text[:300])
-        raise HTTPException(status_code=502, detail="AI returned no valid agents. Please try again.")
+        # Model returned no recognizable agents: deterministic pack is the floor.
+        return IntentResponse(starter_pack=static_pack)
 
     return IntentResponse(starter_pack=result)
