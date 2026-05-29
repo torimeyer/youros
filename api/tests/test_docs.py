@@ -609,7 +609,7 @@ async def test_create_draft_error(client):
 async def test_promote_endpoint(client):
     """Promote moves the file from docs/draft/ to ~/.myos/specs/ and returns the new path."""
     from config import PROJECT_ROOT
-    from services.ostk import USER_SPECS_DIR
+    from services.ostk import USER_SPECS_DIR, ostk as _ostk_svc
 
     draft_dir = Path(PROJECT_ROOT) / "docs" / "draft"
     draft_dir.mkdir(parents=True, exist_ok=True)
@@ -621,10 +621,14 @@ async def test_promote_endpoint(client):
         "See api/services/receipts_gate.py for implementation.\n\n- [ ] AC item\n"
     )
     try:
-        resp = await client.post(
-            "/api/specs/promote",
-            json={"path": "docs/draft/test-promote-endpoint-tmp.md"},
-        )
+        # doc_promote calls self.doc_decompose which materializes real backlog tasks on
+        # every pre-commit run (leaked ->1918..->1923, same class as ->1940). Mock it
+        # out; file-move assertions below still exercise the real promote logic.
+        with patch.object(_ostk_svc, "doc_decompose", new_callable=AsyncMock):
+            resp = await client.post(
+                "/api/specs/promote",
+                json={"path": "docs/draft/test-promote-endpoint-tmp.md"},
+            )
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert data["result"] == str(spec_path)
@@ -963,7 +967,7 @@ async def test_create_draft_compat_endpoint(client):
 async def test_promote_compat_endpoint(client):
     """Compat /api/docs/promote delegates to promote_draft (same pure-Python path)."""
     from config import PROJECT_ROOT
-    from services.ostk import USER_SPECS_DIR
+    from services.ostk import USER_SPECS_DIR, ostk as _ostk_svc
 
     draft_dir = Path(PROJECT_ROOT) / "docs" / "draft"
     draft_dir.mkdir(parents=True, exist_ok=True)
@@ -975,10 +979,12 @@ async def test_promote_compat_endpoint(client):
         "See api/services/receipts_gate.py for implementation.\n\n- [ ] AC item\n"
     )
     try:
-        resp = await client.post(
-            "/api/docs/promote",
-            json={"path": "docs/draft/test-compat-promote-tmp.md"},
-        )
+        # Same class as ->1940: doc_promote calls doc_decompose which leaks real tasks.
+        with patch.object(_ostk_svc, "doc_decompose", new_callable=AsyncMock):
+            resp = await client.post(
+                "/api/docs/promote",
+                json={"path": "docs/draft/test-compat-promote-tmp.md"},
+            )
         assert resp.status_code == 200, resp.text
         assert resp.json()["result"] == str(spec_path)
     finally:
