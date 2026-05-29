@@ -4,7 +4,7 @@
 
 > ⚠ READ FIRST: THE FINISHING SOUND IS BUILT LIVE
 >
-> The task-finishing sound is not in the codebase right now, on purpose, because you scrubbed it in another session so you can rebuild it live on stage. The backend still fires a `needle_closed` event on every task close (`api/routers/tasks.py:1745`), so step 3 has you build the small frontend piece that listens for that event and plays a sound, and once it lands the tasks from steps 1 and 2 play it as they finish.
+> The task-finishing sound is not in the codebase right now, on purpose, because you scrubbed it in another session so you can rebuild it live on stage. The backend still fires a `needle_closed` event on every task close, so step 3 has you build the small frontend piece that listens for that event and plays a sound, and once it lands the tasks from steps 1 and 2 play it as they finish.
 
 ---
 
@@ -156,7 +156,7 @@ saa - add a sound that plays when a task finishes. i'm doing a live demo so make
 
 **Setup:** Navigate to My Gems (sidebar).
 
-**Action:** Click the **Create Gem** button (source: `app/src/pages/MyGems.tsx`, `data-testid="create-gem-button"`).
+**Action:** Click the **Create Gem** button.
 
 **Say this (verbatim):**
 ```
@@ -179,7 +179,7 @@ No productivity advice.
 
 Click Save. The new Gem appears in the list.
 
-**Action (continued):** Click the **Weekend Planner** gem. A chat panel opens (source: `app/src/components/GemChatPanel.tsx`, `/api/gems/{gem.id}/chat`).
+**Action (continued):** Click the **Weekend Planner** gem. A chat panel opens.
 
 **Say this (verbatim):**
 ```
@@ -188,7 +188,7 @@ Now I'll talk to it.
 
 Type and send:
 ```
-what should Saturday look like this week? Pepper needs a long walk.
+plan me a fun but low-key saturday, with at least one thing that gets me outside.
 ```
 
 **How this works (because of ostk):** Gems are stored as tracked entities in the backend with their own chat history, so the conversation you have with a gem accumulates over time, and because the gem's instructions travel with every request rather than being typed into a prompt each time, the persona stays consistent across days and sessions without you re-explaining it.
@@ -236,9 +236,9 @@ I asked the question and both answered. Then I decide which one I keep.
 
 **Duration note:** One click, instant feedback. Short on purpose because email is a transition beat, not a headline.
 
-**Setup:** Navigate to Gmail page (source: `app/src/pages/Gmail.tsx`).
+**Setup:** Navigate to Gmail page.
 
-**Action:** Open any thread that looks like it has an action item. Point to the **Create task** button that appears on each message (source: `app/src/pages/Gmail.tsx:639`, `data-testid` tied to `handleCreateTask`).
+**Action:** Open any thread that looks like it has an action item. Point to the **Create task** button that appears on each message.
 
 **Say this (verbatim):**
 ```
@@ -287,7 +287,7 @@ The event is in my Google Calendar right now, not in a separate app's calendar.
 
 **Duration note:** Short because it is a demonstration of reach (reading from the local Messages database and writing back to it via AppleScript) rather than a feature with a long visible payoff.
 
-**Setup:** Navigate to the iMessage page (source: `app/src/pages/IMessage.tsx`).
+**Setup:** Navigate to the iMessage page.
 
 **Action:** Find Scott's thread in the conversation list. Open it.
 
@@ -299,7 +299,7 @@ My actual conversations. Nothing is synced to a server.
 
 **Action:** Type and send:
 ```
-hey, anything funny happen this week? I need a laugh before the weekend.
+yayyy it's friday!
 ```
 
 **Say this (verbatim):**
@@ -319,9 +319,9 @@ Sent. Real iMessage. From inside the app. Scott got that on his phone.
 
 **Duration note:** Minimal interaction. The point is to show that yourOS has its own preferences and they're yours, not platform defaults.
 
-**Setup:** Navigate to Settings > Preferences (source: `app/src/pages/Settings.tsx`).
+**Setup:** Navigate to Settings > Preferences.
 
-**Action (part 1):** Scroll to the **Custom tack commands** section (source: `app/src/pages/Settings.tsx:1724`, `<CustomVerbs />` component, `/ostk/language/verbs`).
+**Action (part 1):** Scroll to the **Custom tack commands** section.
 
 **Say this (verbatim):**
 ```
@@ -329,7 +329,7 @@ These are my custom commands. I type 'standup' in chat and it writes my update f
 I type 'brainstorm' and it goes into idea mode. One word. I defined what it does.
 ```
 
-**Action (part 2):** Scroll to the **ADHD mode** section (source: `app/src/pages/Settings.tsx:2014`, `data-testid="adhd-toggle"`).
+**Action (part 2):** Scroll to the **ADHD mode** section.
 
 **Say this (verbatim):**
 ```
@@ -350,7 +350,7 @@ I built this because I needed it.
 
 **Duration note:** The shortest beat. By this point the background jobs from steps 1 and 2 may have landed, so you can also check the Active and Recent tabs for live evidence.
 
-**Setup:** Navigate to the Agents page (source: `app/src/pages/Agents.tsx`).
+**Setup:** Navigate to the Agents page.
 
 **Action (part 1):** Check the **Active** tab first. If step 1 or 2 agents are still running, point to them. "Those are the ones I kicked off at the start. Still going." If they've completed, go to the **Recent** tab and read a task name out loud.
 
@@ -428,32 +428,7 @@ Use these as anchors. They are the things people repeat after.
 
 ---
 
-## Feature verification index
-
-All steps grounded in the codebase. Verification sources:
-
-| Step | Feature | Verified via |
-|------|---------|-------------|
-| 1 | Task → Create Spec button | `app/src/pages/Tasks.tsx:2378`, `POST /specs/from-task` |
-| 1 | SpecWizard modal | `app/src/components/SpecWizard.tsx` |
-| 1 | Spec Build endpoint | `api/routers/specs.py` (`/specs/{path}/build`) |
-| 1 | Auto-complete on builder task close | `api/routers/specs.py:2008` (`_advance_spec_status_if_all_builder_tasks_closed`) |
-| 2 | Roadmap → tasks chat command | `app/src/lib/roadmapChatCommand.ts` (PATTERNS, `isRoadmapToTasksRequest`) |
-| 2 | Chat intercept + backend call | `app/src/components/ChatPanel.tsx:2062-2082`, `POST /chat/roadmap/create-tasks` |
-| 2 | roadmap.md file location | `/Users/torimeyer/Documents/roadmap.md` (gen_table confirmed) |
-| 3 | ⚠ Task-finishing sound | NOT FOUND in `app/src/` or `api/` |
-| 4 | My Gems page + Create Gem button | `app/src/pages/MyGems.tsx`, `data-testid="create-gem-button"` |
-| 4 | Gem chat panel | `app/src/components/GemChatPanel.tsx`, `POST /api/gems/{id}/chat` |
-| 5 | All pill / parallel broadcast | `app/src/components/ChatPanel.tsx:486-492` (`allPillPulse`), line 2051 (`sideBySideEnabled`) |
-| 6 | Gmail → Create task | `app/src/pages/Gmail.tsx:119-130` (`handleCreateTask`, `POST /gmail/to-task`) |
-| 7 | Calendar event via chat | `app/src/pages/Calendar.tsx:515` (sync on `create_calendar_event` tool), `api/routers/calendar.py` |
-| 8 | iMessage send | `api/routers/imessage.py:173` (`POST /imessage/send`, AppleScript) |
-| 9 | Custom tack commands | `app/src/pages/Settings.tsx:1724` (`<CustomVerbs />`, `/ostk/language/verbs`) |
-| 9 | ADHD mode toggle | `app/src/pages/Settings.tsx:2014` (`data-testid="adhd-toggle"`) |
-| 10 | Agents Templates, declared MCP chips | `app/src/pages/Agents.tsx:800-802` (`declared-mcp-chip`) |
-| 10 | Workspace MCPs note | `app/src/pages/Agents.tsx:821-822` |
-
 **⚠ UNVERIFIED / REMOVED beats:**
 
 1. **Step 3, task-finishing sound.** Does not exist in the codebase. Zero audio files or play() calls found in app or backend source. Removed from demo.
-2. **Step 7, calendar event creation.** The creation goes through the model's tool-calling layer, not a direct form in `Calendar.tsx`. If the model's calendar tool is disabled or not configured, the event will not be created. Verify `api/routers/calendar.py` is returning a working `create_event` tool before the demo.
+2. **Step 7, calendar event creation.** The event is created through the model's calendar tool, not a direct form, so if that tool is disabled or not configured the event will not be created. Test that adding a calendar event works before the demo.
