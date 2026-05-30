@@ -16,7 +16,7 @@
 #
 # Parallel updates, then splash, then servers, then (optional) agent.
 tori() {
-  cd ~/claude/torios || return 1
+  cd ~/torios || return 1
   setopt LOCAL_OPTIONS NO_MONITOR
 
   # --- Updates (parallel, non-blocking) ---
@@ -88,7 +88,7 @@ tori() {
         # automatically pick up the new binary. Read the PID from anchor.pid;
         # if the recorded ostk_version differs from what we just installed,
         # send SIGTERM so the next `ostk boot` starts a fresh daemon.
-        local _anchor="$HOME/claude/torios/.ostk/anchor.pid"
+        local _anchor="$HOME/torios/.ostk/anchor.pid"
         if [[ -f "$_anchor" ]]; then
           local _daemon_ver _daemon_pid
           _daemon_ver=$(python3 -c "import json,sys; d=json.load(open('$_anchor')); print(d.get('ostk_version',''))" 2>/dev/null)
@@ -108,16 +108,16 @@ tori() {
     # (which hangs silently in a background subshell).
     # http.connectTimeout / lowSpeedLimit / lowSpeedTime: bound HTTPS fetch
     # duration via libcurl so a stalled connection exits instead of hanging.
-    GIT_TERMINAL_PROMPT=0 git -C ~/claude/torios \
+    GIT_TERMINAL_PROMPT=0 git -C ~/torios \
       -c http.connectTimeout=10 -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 \
       fetch origin main 2>/dev/null || true
-    myos_behind=$(git -C ~/claude/torios rev-list HEAD..origin/main --count 2>/dev/null || echo 0)
+    myos_behind=$(git -C ~/torios rev-list HEAD..origin/main --count 2>/dev/null || echo 0)
     # Skip pull when local has unpushed commits: ff-only would fail anyway,
     # and git pull runs a second fetch that can hang (root cause of ->1776).
-    _ahead=$(git -C ~/claude/torios rev-list origin/main..HEAD --count 2>/dev/null || echo 0)
+    _ahead=$(git -C ~/torios rev-list origin/main..HEAD --count 2>/dev/null || echo 0)
     if [[ "${myos_behind:-0}" -gt 0 && "${_ahead:-0}" -eq 0 ]]; then
       printf '\033[38;2;140;140;140m  Updating myOS (%s new commits)...\033[0m\n' "$myos_behind"
-      GIT_TERMINAL_PROMPT=0 git -C ~/claude/torios \
+      GIT_TERMINAL_PROMPT=0 git -C ~/torios \
         -c http.connectTimeout=10 -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 \
         pull --ff-only origin main >/dev/null 2>&1 || true
     fi
@@ -132,7 +132,7 @@ tori() {
 
   # --- Splash ---
   local myos_version
-  myos_version=$(git -C ~/claude/torios describe --tags --abbrev=0 --match 'v*' 2>/dev/null)
+  myos_version=$(git -C ~/torios describe --tags --abbrev=0 --match 'v*' 2>/dev/null)
 
   printf '\n'
   printf '\033[38;2;255;105;180m  ████████╗ \033[38;2;255;140;50m ██████╗  \033[38;2;180;100;255m██████╗  \033[38;2;100;149;237m██╗  \033[38;2;255;105;180m ██████╗  \033[38;2;255;140;50m███████╗\033[0m\n'
@@ -147,9 +147,9 @@ tori() {
   printf '\n'
 
   # --- Start ToriOS servers ---
-  ~/claude/torios/scripts/dev-backend.sh </dev/null >/dev/null 2>&1 &
+  ~/torios/scripts/dev-backend.sh </dev/null >/dev/null 2>&1 &
   be_pid=$!
-  ~/claude/torios/scripts/dev-frontend.sh </dev/null >/dev/null 2>&1 &
+  ~/torios/scripts/dev-frontend.sh </dev/null >/dev/null 2>&1 &
   fe_pid=$!
 
   # Poll for backend readiness (5s ceiling).
@@ -248,9 +248,9 @@ tori() {
 
   # Show a human-friendly summary instead
   local _open _p0 _p1
-  _open=$(grep -c '"status":"open"' ~/claude/torios/.ostk/needles.jsonl 2>/dev/null) || _open=0
-  _p0=$(grep '"status":"open"' ~/claude/torios/.ostk/needles.jsonl 2>/dev/null | grep -c '"priority":"P0"') || _p0=0
-  _p1=$(grep '"status":"open"' ~/claude/torios/.ostk/needles.jsonl 2>/dev/null | grep -c '"priority":"P1"') || _p1=0
+  _open=$(grep -c '"status":"open"' ~/torios/.ostk/needles.jsonl 2>/dev/null) || _open=0
+  _p0=$(grep '"status":"open"' ~/torios/.ostk/needles.jsonl 2>/dev/null | grep -c '"priority":"P0"') || _p0=0
+  _p1=$(grep '"status":"open"' ~/torios/.ostk/needles.jsonl 2>/dev/null | grep -c '"priority":"P1"') || _p1=0
 
   if [ "$_p0" -gt 0 ]; then
     printf '\033[38;2;255;80;80m  ⚠ %s urgent task%s need attention\033[0m\n' "$_p0" "$([ $_p0 -gt 1 ] && echo s)"
