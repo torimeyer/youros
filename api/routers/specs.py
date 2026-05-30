@@ -129,7 +129,7 @@ async def _ensure_decomposed(spec_path: str) -> list[dict]:
 async def _create_needle(title: str, description: str = "") -> dict:
     """Create a task and return a standard shape.
 
-    Used by the 5 creation endpoints when kind='needle'. Calls the same
+    Used by the 5 creation endpoints when kind='task'. Calls the same
     ostk.add_task primitive that POST /api/tasks uses, so tasks created
     via the wizard or roadmap flow land in the same Tasks list.
     """
@@ -702,7 +702,7 @@ async def get_specs_audit():
 async def create_draft(body: SpecDraft):
     """Create a new draft document or a task, depending on kind.
 
-    When kind='needle' (default): adds a task to the task store and
+    When kind='task' (default): adds a task to the task store and
     returns immediately. No doc file is created.
 
     When kind='spec': auto-generates acceptance criteria and promotes the
@@ -850,7 +850,7 @@ async def list_spec_templates_endpoint():
 async def create_from_template(body: SpecFromTemplate):
     """Create a plan from a starter template, or a task when kind='task'.
 
-    When kind='needle' (default): creates a task using the template title
+    When kind='task' (default): creates a task using the template title
     and the user's note as description.
 
     When kind='spec': creates a ready plan from the template's pre-written
@@ -959,7 +959,7 @@ class SpeckitImport(BaseModel):
 async def import_spec(body: SpeckitImport):
     """Import a spec from spec-kit YAML, or create a task when kind='task'.
 
-    When kind='needle' (default): parses the YAML and creates a single
+    When kind='task' (default): parses the YAML and creates a single
     task from the spec name and description.
 
     When kind='spec': parses the YAML, creates a spec draft via ostk,
@@ -1560,7 +1560,7 @@ class SpecFromRoadmapLine(BaseModel):
 async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
     """Create a task or a ready plan from a single roadmap initiative line.
 
-    When kind='needle' (default): validates the roadmap file exists, then
+    When kind='task' (default): validates the roadmap file exists, then
     adds a task using the initiative text as the title. Fast path.
 
     When kind='spec': drafts a plan whose goal is the initiative text,
@@ -3028,7 +3028,7 @@ async def wizard_suggest(body: WizardSuggestRequest):
 async def wizard_create(body: WizardCreateRequest):
     """Create a task or a rich SDD spec from wizard inputs.
 
-    When kind='needle' (default): creates a task from the title and
+    When kind='task' (default): creates a task from the title and
     optional description. No spec file is written.
 
     When kind='spec': assembles a structured markdown spec from the wizard
