@@ -92,8 +92,8 @@ def check_receipts(reply_text: str) -> Optional[ReceiptsWarning]:
     return ReceiptsWarning(
         trigger_word=trigger_word,
         message=(
-            f"This reply says '{trigger_word}' but I don't see a commit hash, "
-            "test output, or file reference as evidence."
+            f"I said '{trigger_word}' but didn't show any proof. "
+            "Don't take my word for it. Ask me to back it up."
         ),
     )
 
@@ -116,7 +116,7 @@ def check_brief_receipts(brief_text: str) -> Optional[ReceiptsWarning]:
     return ReceiptsWarning(
         trigger_word=trigger_word,
         message=(
-            f"This brief says '{trigger_word}' but I don't see a commit hash, "
-            "test output, or file reference as evidence."
+            f"This task says '{trigger_word}' but shows no proof. "
+            "Ask for the change, test result, or file before trusting it."
         ),
     )

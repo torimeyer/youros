@@ -62,6 +62,17 @@ class TestCheckReceipts:
         assert warning is not None
         assert "done" in warning.message.lower()
 
+    def test_warning_message_is_plain_language(self):
+        # The warning shows in the user's chat; it must not use engineer jargon.
+        warning = self.check("PR done")
+        assert warning is not None
+        msg = warning.message.lower()
+        assert "proof" in msg
+        assert "back it up" in msg
+        # No jargon the user can't parse.
+        for jargon in ("commit hash", "test output", "file reference", "testid"):
+            assert jargon not in msg
+
     # --- no code-context signals → no warning (→1608 false-positive fix) ---
 
     def test_shipped_no_code_signals_no_warning(self):
