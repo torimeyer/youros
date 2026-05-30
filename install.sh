@@ -141,9 +141,6 @@ if ! command -v ostk &> /dev/null; then
 
     if [ -n "$OS_TAG" ]; then
         PLATFORM="${ARCH}-${OS_TAG}"
-        if [ "$OS_TAG" = "apple-darwin" ]; then
-            PLATFORM="darwin-universal"
-        fi
         OSTK_REPO="os-tack/ostk.ai"
         VERSION=$(curl -fsSL "https://api.github.com/repos/${OSTK_REPO}/releases/latest" \
             | grep '"tag_name"' | head -1 | cut -d'"' -f4)
@@ -235,7 +232,7 @@ for cand in python3.13 python3.12 python3.11 python3.10; do
     fi
 done
 if [ -z "$PYTHON_BIN" ]; then
-    echo "Error: need Python 3.10 or newer (3.13 preferred). Install via 'brew install python@3.13'."
+    echo "Error: need Python 3.11 or newer. Install it with your system package manager or via pyenv, then re-run ./install.sh."
     exit 1
 fi
 "$PYTHON_BIN" -m venv .venv
