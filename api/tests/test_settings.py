@@ -879,3 +879,26 @@ async def test_patch_onboarding_step_null_clears_value(client, settings_file):
         resp = await client.get("/api/settings")
 
     assert resp.json()["onboarding_step"] is None
+
+
+# --- os_name default tests (→2004) ---
+
+
+def test_os_name_schema_default_is_yourOS():
+    """Settings schema must default os_name to 'yourOS', not 'myOS'."""
+    from models.schemas import Settings
+    assert Settings().os_name == "yourOS"
+
+
+@pytest.mark.asyncio
+async def test_os_name_defaults_to_yourOS_when_absent_from_file(client, tmp_path):
+    """When os_name is missing from the settings file, GET /api/settings must
+    backfill it with 'yourOS' — the canonical product default."""
+    sf = tmp_path / "settings.json"
+    sf.write_text(json.dumps({"onboarded": True, "dark_mode": False}))
+
+    with patch("services.settings_store.SETTINGS_PATH", sf):
+        resp = await client.get("/api/settings")
+
+    assert resp.status_code == 200
+    assert resp.json()["os_name"] == "yourOS"
