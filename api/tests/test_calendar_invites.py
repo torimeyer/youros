@@ -12,7 +12,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from httpx import AsyncClient
+
 
 
 # ---------------------------------------------------------------------------
@@ -30,17 +30,17 @@ def test_contacts_readonly_scope_present():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_contact_search_returns_matches(async_client: AsyncClient):
+async def test_contact_search_returns_matches(client):
     """GET /calendar/contacts?q=alice returns matching contacts."""
     fake_contacts = [
         {"name": "Alice Smith", "email": "alice@example.com"},
         {"name": "Alice Jones", "email": "alicejones@example.com"},
     ]
     with (
-        patch("services.google_auth.is_authenticated", return_value=True),
+        patch("routers.calendar.is_authenticated", return_value=True),
         patch("services.calendar.search_contacts", new_callable=AsyncMock, return_value=fake_contacts),
     ):
-        resp = await async_client.get("/api/calendar/contacts?q=alice")
+        resp = await client.get("/api/calendar/contacts?q=alice")
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data["contacts"], list)
@@ -49,10 +49,10 @@ async def test_contact_search_returns_matches(async_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_contact_search_requires_auth(async_client: AsyncClient):
+async def test_contact_search_requires_auth(client):
     """GET /calendar/contacts returns 401 when not authenticated."""
-    with patch("services.google_auth.is_authenticated", return_value=False):
-        resp = await async_client.get("/api/calendar/contacts?q=alice")
+    with patch("routers.calendar.is_authenticated", return_value=False):
+        resp = await client.get("/api/calendar/contacts?q=alice")
     assert resp.status_code == 401
 
 
@@ -61,10 +61,10 @@ async def test_contact_search_requires_auth(async_client: AsyncClient):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_freebusy_returns_suggestions(async_client: AsyncClient):
+async def test_freebusy_returns_suggestions(client):
     """POST /calendar/freebusy returns up to 5 suggested slots."""
     with (
-        patch("services.google_auth.is_authenticated", return_value=True),
+        patch("routers.calendar.is_authenticated", return_value=True),
         patch(
             "services.calendar.suggest_meeting_times",
             new_callable=AsyncMock,
@@ -74,7 +74,7 @@ async def test_freebusy_returns_suggestions(async_client: AsyncClient):
             ],
         ),
     ):
-        resp = await async_client.post(
+        resp = await client.post(
             "/api/calendar/freebusy",
             json={
                 "attendees": ["bob@example.com"],
@@ -92,10 +92,10 @@ async def test_freebusy_returns_suggestions(async_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_freebusy_ranks_by_fewest_busy(async_client: AsyncClient):
+async def test_freebusy_ranks_by_fewest_busy(client):
     """When no slot is fully free, suggestions are ranked fewest-busy first."""
     with (
-        patch("services.google_auth.is_authenticated", return_value=True),
+        patch("routers.calendar.is_authenticated", return_value=True),
         patch(
             "services.calendar.suggest_meeting_times",
             new_callable=AsyncMock,
@@ -106,7 +106,7 @@ async def test_freebusy_ranks_by_fewest_busy(async_client: AsyncClient):
             ],
         ),
     ):
-        resp = await async_client.post(
+        resp = await client.post(
             "/api/calendar/freebusy",
             json={
                 "attendees": ["bob@example.com", "carol@example.com", "dave@example.com"],
@@ -127,7 +127,7 @@ async def test_freebusy_ranks_by_fewest_busy(async_client: AsyncClient):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_create_event_with_attendees(async_client: AsyncClient):
+async def test_create_event_with_attendees(client):
     """POST /calendar/events with attendees sends them to the Google API."""
     inserted_body = {}
 
@@ -149,11 +149,11 @@ async def test_create_event_with_attendees(async_client: AsyncClient):
     fake_service.events.return_value.insert.side_effect = _fake_insert
 
     with (
-        patch("services.google_auth.is_authenticated", return_value=True),
+        patch("routers.calendar.is_authenticated", return_value=True),
         patch("services.calendar._build_calendar_service", return_value=fake_service),
         patch("services.calendar._clear_cache"),
     ):
-        resp = await async_client.post(
+        resp = await client.post(
             "/api/calendar/events",
             json={
                 "summary": "Team meeting",
@@ -173,7 +173,7 @@ async def test_create_event_with_attendees(async_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_create_event_without_attendees_still_works(async_client: AsyncClient):
+async def test_create_event_without_attendees_still_works(client):
     """POST /calendar/events with no attendees field works exactly as before."""
     fake_service = MagicMock()
     fake_service.events.return_value.insert.return_value.execute.return_value = {
@@ -185,11 +185,11 @@ async def test_create_event_without_attendees_still_works(async_client: AsyncCli
     }
 
     with (
-        patch("services.google_auth.is_authenticated", return_value=True),
+        patch("routers.calendar.is_authenticated", return_value=True),
         patch("services.calendar._build_calendar_service", return_value=fake_service),
         patch("services.calendar._clear_cache"),
     ):
-        resp = await async_client.post(
+        resp = await client.post(
             "/api/calendar/events",
             json={"summary": "Solo event", "start": "2026-06-01T09:00:00"},
         )
@@ -204,8 +204,8 @@ async def test_create_event_without_attendees_still_works(async_client: AsyncCli
 
 def test_create_calendar_event_tool_has_attendees_property():
     """The create_calendar_event AI tool schema must include an attendees array."""
-    from services.tool_executor import TOOLS
-    tool = next((t for t in TOOLS if t["name"] == "create_calendar_event"), None)
+    from services.tool_executor import TOOL_DEFINITIONS
+    tool = next((t for t in TOOL_DEFINITIONS if t["name"] == "create_calendar_event"), None)
     assert tool is not None, "create_calendar_event tool not found"
     props = tool["input_schema"]["properties"]
     assert "attendees" in props, "attendees property missing from create_calendar_event schema"

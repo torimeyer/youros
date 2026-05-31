@@ -361,7 +361,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "Create a new event on the user's Google Calendar. "
             "Use this when the user asks to add something to their calendar, schedule a meeting, or create a reminder. "
             "For all-day events (field trips, birthdays, holidays), set all_day to true and use YYYY-MM-DD for the date. "
-            "For timed events, use ISO datetime format like 2026-04-28T09:00:00."
+            "For timed events, use ISO datetime format like 2026-04-28T09:00:00. "
+            "When the user names specific people to invite, include their emails in attendees."
         ),
         "input_schema": {
             "type": "object",
@@ -389,6 +390,11 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "location": {
                     "type": "string",
                     "description": "Optional event location.",
+                },
+                "attendees": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of attendee email addresses. Google Calendar sends each one an invite.",
                 },
             },
             "required": ["title", "start"],
@@ -659,6 +665,7 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
                 all_day=input_data.get("all_day", False),
                 description=input_data.get("description", ""),
                 location=input_data.get("location", ""),
+                attendees=input_data.get("attendees"),
             )
         elif name == "send_email":
             return await _send_email(
@@ -1540,6 +1547,7 @@ async def _create_calendar_event(
     all_day: bool = False,
     description: str = "",
     location: str = "",
+    attendees: list | None = None,
 ) -> str:
     """Create a Google Calendar event via the calendar service."""
     try:
@@ -1557,6 +1565,7 @@ async def _create_calendar_event(
             all_day=all_day,
             description=description,
             location=location,
+            attendees=attendees or [],
         )
         summary = event.get("summary", title)
         link = event.get("htmlLink", "")
