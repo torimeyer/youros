@@ -49,3 +49,6 @@ docs/spec/
 
 # user runtime data (custom verbs, etc.) — not committed
 config/
+
+# transient scratch dumps (Drive exports, session notes); never commit
+.tmp/
