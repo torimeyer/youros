@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch, MagicMock
 
@@ -291,6 +292,7 @@ def test_get_running_needle_ids_includes_inferred():
         "implement-968": {
             "status": "running",
             "needle_id": "968",
+            "spawned_at": datetime.now(timezone.utc).isoformat(),
         }
     }
     with patch("routers.agents.agent_metadata", fake_meta):

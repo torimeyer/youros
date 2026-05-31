@@ -15,6 +15,7 @@ Tests:
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,13 +23,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# Convenience: a spawned_at that is definitely within the stale window.
+_FRESH_TS = datetime.now(timezone.utc).isoformat()
+
 
 # ---------------------------------------------------------------------------
 # Unit tests: get_running_needle_ids
 # ---------------------------------------------------------------------------
 
 def _make_meta(needle_id: str | None, status: str, completed: bool = False) -> dict:
-    m: dict = {"status": status}
+    m: dict = {"status": status, "spawned_at": _FRESH_TS}
     if needle_id:
         m["needle_id"] = needle_id
     if completed:
