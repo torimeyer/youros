@@ -880,6 +880,8 @@ describe('ChatPanel', () => {
       mockLastMessage = { type: 'done' }
       rerender(<ChatPanel />)
 
+      // Expand the toggle so tool block internals are visible (collapsed by default per →2002).
+      fireEvent.click(document.querySelector('[data-testid^="tool-calls-toggle-"]')!)
       // The tool block should show a check icon, not a spinner, after done.
       // check_circle is rendered by Icon which outputs the material symbol text.
       const checkIcons = document.querySelectorAll('[class*="text-green-500"]')
@@ -1029,6 +1031,8 @@ describe('ChatPanel', () => {
       expect(anchors.length).toBe(1)
       expect(anchors[0].textContent).toBe('View in Calendar')
 
+      // Expand the toggle so tool block internals are visible (collapsed by default per →2002).
+      fireEvent.click(document.querySelector('[data-testid^="tool-calls-toggle-"]')!)
       // The tool block should still render above the prose. Tool blocks use
       // the tool name text in their header (mcp__ prefix collapsed or raw).
       // We look for the tool block container by finding the green check
