@@ -124,6 +124,39 @@ assert_block() {
     fi
 }
 
+assert_advise() {
+    local label="$1" tool="$2" cmd="$3"
+    local rc stderr_out
+    rc=$(run_check "$tool" "$cmd")
+    # Capture stderr separately: the Advice: message goes to stderr from advise()
+    stderr_out=$(
+        (
+            export HOME="$FAKE_HOME"
+            export CLAUDE_PROJECT_DIR="$FAKE_PROJ"
+
+            deny()         { exit 2; }
+            log_rule_fire() { :; }
+            init_deny_traps() { :; }
+            _LOAD_RULE_DIR="$LIB"
+
+            # shellcheck source=/dev/null
+            source "$LIB/deny.sh"      2>/dev/null || true
+            source "$LIB/log-fire.sh"  2>/dev/null || true
+            source "$LIB/load-rule.sh" 2>/dev/null || true
+            source "$RULE"             2>/dev/null || true
+
+            _saa_must_spawn_check "$tool" "$cmd"
+        ) 2>&1
+    )
+    if [ "$rc" = "0" ] && echo "$stderr_out" | grep -q "Advice:"; then
+        pass "$label"
+    elif [ "$rc" != "0" ]; then
+        fail "$label — expected advise (exit 0), got exit $rc"
+    else
+        fail "$label — expected 'Advice:' in stderr, got: $(echo "$stderr_out" | head -1)"
+    fi
+}
+
 # New allowlist entries
 assert_allow "git status is allowed"                   mcp__ostk__bash "git status"
 assert_allow "git status -s is allowed"                mcp__ostk__bash "git status -s"
@@ -137,8 +170,8 @@ assert_allow "curl --connect-timeout is allowed"       mcp__ostk__bash \
 assert_allow "scripts/e2e_smoke.sh still allowed"      mcp__ostk__bash "bash scripts/e2e_smoke.sh"
 assert_allow "ostk work list still allowed"            mcp__ostk__bash "ostk work list --status open"
 
-# Sanity: a non-ancillary inline command must still be blocked
-assert_block "inline echo blocked (sanity)"            mcp__ostk__bash "echo hello"
+# Sanity: a non-ancillary inline command must still fire advisory (rule is advisory since →1288)
+assert_advise "inline echo advises (sanity)"           mcp__ostk__bash "echo hello"
 
 echo ""
 if [ "$FAILED" -eq 0 ]; then
