@@ -74,7 +74,7 @@ class TestSpecsFieldRename:
 
         doc = resp.json()["docs"][0]
         assert doc["clear_to_build"] is False
-        assert doc["effective_status"] == "draft", "ready+fails_clarity should have effective_status=draft"
+        # specs surface needs_clarity (informs, never blocks — b4fba786); effective_status not set
         assert doc["needs_clarity"] is True
 
     @pytest.mark.asyncio
