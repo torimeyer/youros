@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
 import GoogleSetupGuideModal from '../components/GoogleSetupGuideModal'
+import NewEventModal from '../components/NewEventModal'
 import { ConnectCard, LoadingState, EmptyState } from '../components/ui'
 import { api } from '../lib/api'
 import { reportError } from '../lib/reportError'
@@ -306,6 +307,7 @@ export default function Calendar() {
   // Show the shared Google setup guide modal when the user clicks the
   // secondary "Need setup help?" link on the connect panel.
   const [showSetupGuide, setShowSetupGuide] = useState(false)
+  const [showNewEvent, setShowNewEvent] = useState(false)
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
   // Ticker that forces the countdown subtitle to refresh once a minute.
   // A minute is fine grained enough for "Starts in 12 minutes" to stay
@@ -715,6 +717,14 @@ export default function Calendar() {
               </span>
             )}
             <button
+              onClick={() => setShowNewEvent(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors font-medium"
+              data-testid="new-event-button"
+            >
+              <Icon name="add" size={16} />
+              New event
+            </button>
+            <button
               onClick={handleSync}
               disabled={syncing}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm transition-colors disabled:opacity-50"
@@ -1049,6 +1059,16 @@ export default function Calendar() {
             Undo
           </button>
         </div>
+      )}
+
+      {showNewEvent && (
+        <NewEventModal
+          onClose={() => setShowNewEvent(false)}
+          onCreated={() => {
+            setShowNewEvent(false)
+            handleSync()
+          }}
+        />
       )}
     </div>
   )
