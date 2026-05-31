@@ -560,12 +560,29 @@ _WAVE_STOPWORDS = {
     "all", "any", "its", "not", "are", "can", "has", "was", "had", "will",
     "make", "move", "show", "them", "then", "only", "each", "more", "some",
     "need", "work", "task", "open", "page", "data", "list", "item", "view",
+    # Generic English that leaked through as false scope-conflict tokens
+    # (they are 5+ chars so the length gate alone never caught them).
+    # Curated from the 2026-05-31 over-split: unrelated tasks were colliding
+    # on words like "api", "action", "actually", "cause". Domain nouns
+    # (auth, login, dashboard, chat, agent file paths) are deliberately NOT
+    # listed so genuine scope overlap still forces a split.
+    "action", "actions", "actually", "after", "before", "alone", "across",
+    "access", "about", "agent", "agents", "because", "cause", "broken",
+    "change", "changed", "actively", "depend", "dependent", "where",
+    "which", "while", "would", "could", "should", "these", "those",
+    "their", "there", "enable", "rename", "update", "parser", "audit",
+    "parity", "stale", "neutral", "internal", "terminal", "likely",
+    "whole", "hidden", "folder", "flag", "gaps", "dead",
 }
 
 # Heuristic v1: three signal classes
 _WAVE_FILE_RE = re.compile(r"[a-z][a-z0-9_/]*\.(?:py|tsx|ts|rs|sh|json|yaml|yml|toml|md)")
+# 'api' and 'app' were removed: they are too broad and matched generic
+# prose like "Google Docs API" or "the app", colliding unrelated tasks.
+# Real api/ or app/ scope is still captured precisely by _WAVE_FILE_RE
+# (e.g. 'app/src/pages/Settings.tsx', 'routers/tasks.py').
 _WAVE_DIR_RE = re.compile(
-    r"\b(?:frontend|backend|api|app|haystack|scripts|services|routers|models|tests|hooks|tools|components|stores|pages|lib)\b"
+    r"\b(?:frontend|backend|haystack|scripts|services|routers|models|tests|hooks|tools|components|stores|pages|lib)\b"
 )
 _WAVE_TOKEN_RE = re.compile(r"\b[a-z][a-z0-9_]{3,}\b")
 
