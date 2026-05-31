@@ -393,7 +393,8 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     // ever visit when the cache is empty, and the initial useState
     // value handles that case.
     try {
-      const res = await api.get<TasksResponse>("/tasks");
+      const url = selectedStatus === "closed" ? "/tasks?include_closed=true" : "/tasks";
+      const res = await api.get<TasksResponse>(url);
       const nextTasks = res.tasks ?? [];
       const pending = pendingDeleteIdsRef.current;
       const visible = pending.size === 0
@@ -408,7 +409,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedStatus]);
 
   const fetchLabels = useCallback(async () => {
     try {
@@ -1029,13 +1030,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   // "plan" keeps the old one-shot plan agent.
   // "comprehensive" runs the full build pattern: plan, build, write tests,
   // run tests, run pytest and tsc, only report done when everything is green.
-  // "quick" is the legacy one-shot that just writes code with
-  // no tests and no gates. Kept as an escape hatch for fast drafts.
   //
   // The backend accepts template="comprehensive" as the primary name
   // and template="saa" as an alias, to match Tori's muscle memory.
   // We post "comprehensive" from the UI to keep telemetry clean.
-  type SpawnMode = "plan" | "comprehensive" | "quick";
+  type SpawnMode = "plan" | "comprehensive";
 
   const spawnAgentForTask = async (taskId: string, mode: SpawnMode) => {
     const task = tasks.find((t) => t.id === taskId);
@@ -1078,28 +1077,27 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         bannerLabel = "Plan";
         body.locks = ["*"];
         body.isolation = "none";
-      } else if (mode === "comprehensive") {
+      } else {
         prompt = `Implement this task: "${task.title}". Follow the comprehensive build pattern. Plan the approach, build the solution, write tests, run them, and only report done when everything is green.`;
         namePrefix = "implement";
-        bannerLabel = "Comprehensive build";
+        bannerLabel = "Build";
         body.template = "comprehensive";
-        body.locks = BUILD_LOCKS;
-      } else {
-        prompt = `Implement this task: "${task.title}". Write the code, tests, and documentation needed.`;
-        namePrefix = "implement";
-        bannerLabel = "Quick build";
         body.locks = BUILD_LOCKS;
       }
 
       body.name = `${namePrefix}-${taskId.replace(/[^a-zA-Z0-9]/g, "")}`;
       body.prompt = prompt;
 
-      await api.post("/agents/spawn", body);
-      setBanner(`${bannerLabel} started for "${task.title}".`);
+      const spawnRes = await api.post<{ build_state?: string }>("/agents/spawn", body);
+      if (spawnRes?.build_state === "queued") {
+        setBanner(`Another build is running. This one is queued and will start when that one finishes.`);
+      } else {
+        setBanner(`${bannerLabel} started for "${task.title}".`);
+      }
       setTimeout(() => setBanner(null), 4000);
     } catch (e) {
       reportError(`Failed to spawn ${mode} agent`, e);
-      const label = mode === "plan" ? "plan" : mode === "comprehensive" ? "Comprehensive build" : "Quick build";
+      const label = mode === "plan" ? "plan" : "Build";
       const detail =
         e != null &&
         typeof e === 'object' &&
@@ -2316,7 +2314,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                             <Icon name="description" className="text-sm text-purple-600 dark:text-purple-400" />
                             Plan
                           </button>
-                          {/* Comprehensive build (default) plus quick escape hatch. */}
                           <div className="flex items-center w-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
                             <button
                               onClick={() => handleSpawnWithGate(task.id, "comprehensive")}
@@ -2324,7 +2321,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                               className="flex-1 text-left px-3 py-1.5 text-xs flex items-center gap-2 text-slate-700 dark:text-slate-300"
                             >
                               <Icon name="code" className="text-sm text-green-600 dark:text-green-400" />
-                              Comprehensive build
+                              Build
                             </button>
                             <button
                               onClick={(e) => {
@@ -2338,14 +2335,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                               <Icon name="help_outline" className="text-sm" />
                             </button>
                           </div>
-                          <button
-                            onClick={() => handleSpawnWithGate(task.id, "quick")}
-                            disabled={actionLoading === task.id}
-                            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
-                          >
-                            <Icon name="bolt" className="text-sm text-yellow-600 dark:text-yellow-400" />
-                            Quick build
-                          </button>
                           {openBuildHelp === task.id && (
                             <div
                               ref={buildHelpRef}
@@ -2355,7 +2344,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                               onClick={(e) => e.stopPropagation()}
                             >
                               <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm">What does this do?</div>
-                              <p>Comprehensive build spawns an agent that works the way you would want it to:</p>
+                              <p>Build spawns an agent that works the way you would want it to:</p>
                               <ol className="list-decimal list-inside space-y-0.5">
                                 <li>Loads workspace context.</li>
                                 <li>Reads the needle and plans the approach.</li>
@@ -2365,10 +2354,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                                 <li>Runs pytest and tsc to catch regressions.</li>
                                 <li>Only reports done when everything is green.</li>
                               </ol>
-                              <p>
-                                Use "Comprehensive build" when you want it done right.
-                                Use "Quick build" for a fast draft without tests or gates.
-                              </p>
+                              <p>Use "Build" when you want it done right.</p>
                             </div>
                           )}
                           <button
@@ -2485,7 +2471,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-500/20 text-green-600 dark:text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-50"
                         >
                           <Icon name="code" className="text-sm" />
-                          Comprehensive build
+                          Build
                         </button>
                         <button
                           onClick={() => handleSpawnWithGate(task.id, "plan")}
@@ -2494,14 +2480,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         >
                           <Icon name="description" className="text-sm" />
                           Plan
-                        </button>
-                        <button
-                          onClick={() => handleSpawnWithGate(task.id, "quick")}
-                          disabled={actionLoading === task.id}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
-                        >
-                          <Icon name="bolt" className="text-sm" />
-                          Quick build
                         </button>
                       </div>
                       {/* Tab bar */}
