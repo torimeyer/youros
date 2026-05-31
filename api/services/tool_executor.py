@@ -19,7 +19,7 @@ from services.ostk import ostk
 from config import PROJECT_ROOT
 
 WORKSPACE = PROJECT_ROOT
-COMMAND_TIMEOUT = 30  # seconds
+COMMAND_TIMEOUT = 120  # seconds
 
 
 def _safe_path(raw_path: str) -> Path:

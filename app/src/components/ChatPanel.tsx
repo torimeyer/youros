@@ -284,6 +284,24 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
   )
 }
 
+function ToolCallGroup({ calls, msgId }: { calls: ToolCall[]; msgId: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="mb-2">
+      <button
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        data-testid={`tool-calls-toggle-${msgId}`}
+        className="flex items-center gap-1.5 px-2 py-1 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/50 rounded transition-colors"
+      >
+        <Icon name={open ? 'expand_more' : 'chevron_right'} className="text-sm" />
+        {open ? 'Hide' : 'Show'} tool calls ({calls.length})
+      </button>
+      {open && calls.map((tc) => <ToolCallBlock key={tc.id} call={tc} />)}
+    </div>
+  )
+}
+
 function ThinkingDots({ etaSeconds }: { etaSeconds?: number | null } = {}) {
   return (
     <span
@@ -2807,11 +2825,7 @@ export function ChatPanel() {
                     ) : (
                       <>
                         {msg.toolCalls && msg.toolCalls.length > 0 && (
-                          <div className="mb-2">
-                            {msg.toolCalls.map((tc) => (
-                              <ToolCallBlock key={tc.id} call={tc} />
-                            ))}
-                          </div>
+                          <ToolCallGroup calls={msg.toolCalls} msgId={msg.id} />
                         )}
                         {msg.content?.trim() && (
                           <CollapsibleText
