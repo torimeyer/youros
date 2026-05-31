@@ -200,3 +200,74 @@ def _write_vocab_observations(user_message: str, vocab_path: Path) -> None:
             _append_bullet(vocab_path, bullet)
             # Update seen so we don't duplicate within the same turn
             seen = seen | {token.lower()}
+
+
+# ---------------------------------------------------------------------------
+# Reader (v2) — pulls patterns from ostk-recall before each turn
+# ---------------------------------------------------------------------------
+
+import json as _json
+import subprocess as _subprocess
+
+
+def _call_recall_fault(
+    query: str,
+    intent: str = "narrative",
+    limit: int = 5,
+) -> Optional[str]:
+    """Call ostk dispatch mem.fault_recall. Extracted for test mocking."""
+    payload = _json.dumps({"query": query, "intent": intent, "limit": limit})
+    result = _subprocess.run(
+        ["ostk", "dispatch", "mem.fault_recall", payload],
+        capture_output=True,
+        text=True,
+        timeout=2,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return None
+
+
+def read_context_for_turn(user_message: str) -> Optional[str]:
+    """Return labeled recall context for the current turn, or None if unavailable.
+
+    Calls _call_recall_fault with intent='narrative', limit=5. Returns None
+    (without raising) on any failure or timeout so the turn always proceeds.
+    """
+    try:
+        content = _call_recall_fault(user_message[:200], intent="narrative", limit=5)
+        if content:
+            return f"WHAT MYOS HAS LEARNED ABOUT YOU THAT MIGHT BE RELEVANT\n{content}"
+    except Exception:
+        _log.debug("pattern_watcher: reader skipped (recall unavailable)")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Tier promotion (v2) — writes pattern:tier:<cluster_id> decision
+# ---------------------------------------------------------------------------
+
+_TIER_REASONS: dict[int, str] = {
+    2: "user confirmed in panel",
+    3: "user approved silent action",
+}
+
+
+def promote_tier(cluster_id: str, tier: int) -> bool:
+    """Write a tier promotion decision for the given cluster.
+
+    Calls: ostk decide pattern:tier:<cluster_id> <tier> <reason>
+    Returns True on success, False on any failure.
+    """
+    try:
+        reason = _TIER_REASONS.get(tier, f"tier={tier}")
+        result = _subprocess.run(
+            ["ostk", "decide", f"pattern:tier:{cluster_id}", str(tier), reason],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        _log.exception("pattern_watcher: tier promotion failed for cluster=%s tier=%d", cluster_id, tier)
+        return False
