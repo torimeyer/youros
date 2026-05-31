@@ -28,7 +28,7 @@ from services.task_labeling import (
 from services import session_task_map
 from services.notifications_events import bus as _notifications_events_bus
 from services import recent_deletes
-from services.task_visibility import is_session_task
+from services.task_visibility import is_session_task, is_ac_child_task
 from services.tracing import trace_event
 
 logger = logging.getLogger(__name__)
@@ -208,6 +208,7 @@ async def list_tasks(
     priority: Optional[str] = None,
     include_test_data: bool = False,
     include_session_tasks: bool = False,
+    include_ac_children: bool = False,
     source: Optional[str] = None,
     clear_to_build: Optional[bool] = None,
     include_closed: bool = False,
@@ -302,6 +303,13 @@ async def list_tasks(
         # ?include_session_tasks=true explicitly.
         if not include_session_tasks:
             tasks = [t for t in tasks if not is_session_task(t)]
+        # Hide spec-derived AC child tasks by default. These are per-requirement
+        # rows auto-created when ostk breaks a spec into acceptance criteria. The
+        # _read_active_store_ids filter in ostk.list_tasks already excludes them in
+        # production (they live outside issues.jsonl). This filter makes the
+        # exclusion explicit so test environments and future code paths stay correct.
+        if not include_ac_children:
+            tasks = [t for t in tasks if not is_ac_child_task(t)]
         if source is not None:
             tasks = [t for t in tasks if t.get("source") == source]
         # Add compound scores (how many tasks each one unblocks)
@@ -391,7 +399,10 @@ async def task_counts():
         tasks = await ostk.list_tasks(status="open")
         open_count = sum(
             1 for t in tasks
-            if _is_active(t) and not _is_session_task(t) and not _is_e2e_task(t)
+            if _is_active(t)
+            and not _is_session_task(t)
+            and not _is_e2e_task(t)
+            and not is_ac_child_task(t)
         )
         return {"open": open_count}
     except OstkError as e:
