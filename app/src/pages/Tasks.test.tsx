@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Tasks, { getFirstSentence } from './Tasks'
 import { useAppStore } from '../stores/app'
@@ -3537,5 +3537,45 @@ describe('Sort by wave (→1523)', () => {
     )
     expect(infiniteLoopErrors).toHaveLength(0)
     consoleError.mockRestore()
+  })
+})
+
+describe('Create Spec action (→1942)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      return Promise.resolve({})
+    })
+  })
+
+  async function clickCreateSpec() {
+    renderTasks()
+    await waitFor(() => expect(screen.getByTestId('task-row-1')).toBeInTheDocument())
+    const row = screen.getByTestId('task-row-1')
+    fireEvent.click(within(row).getByTitle('Actions'))
+    fireEvent.click(await within(row).findByTestId('task-action-create-spec'))
+  }
+
+  it('posts to /specs/from-task with the task id and shows success feedback', async () => {
+    mockedApiPost.mockResolvedValueOnce({ result: 'docs/draft/fix-login-bug.md' })
+    await clickCreateSpec()
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/specs/from-task', { task_id: '1' })
+    })
+    await waitFor(() => {
+      expect(screen.getByText(/Spec created from/i)).toBeInTheDocument()
+    })
+  })
+
+  it('surfaces an error banner instead of failing silently', async () => {
+    mockedApiPost.mockRejectedValueOnce(new Error('boom'))
+    await clickCreateSpec()
+    await waitFor(() => {
+      expect(screen.getByText(/Couldn't create the spec/i)).toBeInTheDocument()
+    })
   })
 })

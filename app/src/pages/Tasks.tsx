@@ -2372,14 +2372,29 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                             </div>
                           )}
                           <button
+                            data-testid="task-action-create-spec"
                             onClick={async () => {
                               setOpenActionMenu(null);
+                              setBanner(`Creating a spec from "${task.title}"…`);
                               try {
-                                await api.post('/specs/from-task', { task_id: task.id });
-                                // Navigate to specs page to see the new draft
-                                navigate('/specs');
+                                const res = await api.post<{ result?: string }>(
+                                  '/specs/from-task',
+                                  { task_id: task.id }
+                                );
+                                setBanner(`Spec created from "${task.title}". Opening it…`);
+                                setTimeout(() => setBanner(null), 3000);
+                                // Land on the new draft (the endpoint returns its
+                                // path); the Specs page reads ?highlight= to expand
+                                // and scroll to it. Fall back to the list if the
+                                // path is missing.
+                                navigate(
+                                  res?.result
+                                    ? `/specs?highlight=${encodeURIComponent(res.result)}`
+                                    : '/specs'
+                                );
                               } catch {
-                                // silently fail if specs endpoint isn't ready
+                                setBanner("Couldn't create the spec. Please try again.");
+                                setTimeout(() => setBanner(null), 4000);
                               }
                             }}
                             className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
