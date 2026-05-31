@@ -2727,7 +2727,7 @@ export function ChatPanel() {
             isThread: boolean,
             inBroadcastColumn: boolean = false,
           ) => {
-            const isEmpty = !msg.content && !msg.toolCalls?.length && !msg.gifUrl && !msg.imageUrl
+            const isEmpty = !msg.content?.trim() && !msg.toolCalls?.length && !msg.gifUrl && !msg.imageUrl
             if (isEmpty && msg.role === 'assistant' && multiAiStatus && globalIdx === messages.length - 1) return null
             // Suppress empty assistant bubbles once both streaming flags are clear.
             // isStreaming=false means the stream ended; placeholderAwaitingServer=false
@@ -2736,6 +2736,7 @@ export function ChatPanel() {
             // rendering a blank rounded shape. Covers the 500ms grace-window flash
             // where done fires before the timer sets "No response received." content.
             if (isEmpty && msg.role === 'assistant' && !isStreaming && !placeholderAwaitingServer) return null
+            if (isEmpty && msg.role === 'user') return null
             return (
               <div
                 key={msg.id}
@@ -2790,11 +2791,11 @@ export function ChatPanel() {
                   </div>
                 )}
 
-                <div className={`relative ${msg.role === 'user' ? 'ml-auto max-w-[75%] w-fit' : inBroadcastColumn ? 'w-full min-w-0' : 'max-w-[85%]'}`}>
+                <div className={msg.role === 'user' ? 'relative flex flex-col items-end' : `relative ${inBroadcastColumn ? 'w-full min-w-0' : 'max-w-[85%]'}`}>
                   <div
                     className={
                       msg.role === 'user'
-                        ? 'inline-block bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm text-sm break-words overflow-hidden'
+                        ? 'max-w-[75%] bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm text-sm break-words overflow-hidden'
                         : `${inBroadcastColumn ? 'block w-full' : 'block w-fit max-w-full'} border px-4 py-3 rounded-xl text-sm text-slate-700 dark:text-slate-300 overflow-hidden break-words ${
                             msg.model ? MODEL_BG[msg.model] ?? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
                           }`
@@ -2876,7 +2877,7 @@ export function ChatPanel() {
                             one. Without this the second model in the
                             fan-out appears as a blank bubble while only
                             the first shows activity. */}
-                        {activeStreamingBubbleIds.has(msg.id) && !msg.content?.trim() && !msg.toolCalls?.length && (
+                        {activeStreamingBubbleIds.has(msg.id) && !msg.content?.trim() && !msg.toolCalls?.some(tc => tc.result === undefined) && (
                           <ThinkingDots />
                         )}
                         {isStreaming && globalIdx === messages.length - 1 && (msg.toolCalls?.some(tc => tc.result === undefined)) && (
