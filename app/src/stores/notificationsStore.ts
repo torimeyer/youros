@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { shallowEqualArray } from './storeEquality'
 
 export interface Notification {
   id: string
@@ -30,7 +31,12 @@ export const useNotificationsStore = create<NotificationsState>((set) => ({
   notifications: [],
   wsConnected: false,
   snapshotReceived: false,
-  setNotifications: (notifications) => set({ notifications }),
+  setNotifications: (notifications) =>
+    set((prev) =>
+      shallowEqualArray(prev.notifications, notifications)
+        ? prev
+        : { notifications },
+    ),
   setWsConnected: (connected) => set({ wsConnected: connected }),
   setSnapshotReceived: (received) => set({ snapshotReceived: received }),
 }))

@@ -48,4 +48,30 @@ describe('useRunningAgentsStore', () => {
     expect(s.count).toBe(1)
     expect(s.agents).toHaveLength(1)
   })
+
+  it('content-equal snapshot keeps the same agents reference (→1730)', () => {
+    const { setSnapshot } = useRunningAgentsStore.getState()
+    setSnapshot(2, [
+      { name: 'a', status: 'running' },
+      { name: 'b', status: 'spawned' },
+    ])
+    const first = useRunningAgentsStore.getState().agents
+    const firstUpdatedAt = useRunningAgentsStore.getState().lastUpdatedAt
+    // New array, identical content -> store must not swap the reference.
+    setSnapshot(2, [
+      { name: 'a', status: 'running' },
+      { name: 'b', status: 'spawned' },
+    ])
+    expect(useRunningAgentsStore.getState().agents).toBe(first)
+    expect(useRunningAgentsStore.getState().lastUpdatedAt).toBe(firstUpdatedAt)
+  })
+
+  it('a real change swaps the agents reference', () => {
+    const { setSnapshot } = useRunningAgentsStore.getState()
+    setSnapshot(1, [{ name: 'a', status: 'running' }])
+    const first = useRunningAgentsStore.getState().agents
+    setSnapshot(1, [{ name: 'a', status: 'completed' }])
+    expect(useRunningAgentsStore.getState().agents).not.toBe(first)
+    expect(useRunningAgentsStore.getState().agents[0].status).toBe('completed')
+  })
 })
