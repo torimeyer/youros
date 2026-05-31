@@ -576,7 +576,7 @@ describe('QuickLook - Docs edit mode (→1939)', () => {
       )
     })
     await waitFor(() => {
-      expect(screen.getByText(/saved/i)).toBeInTheDocument()
+      expect(screen.getAllByText(/saved/i).length).toBeGreaterThan(0)
     })
   })
 
