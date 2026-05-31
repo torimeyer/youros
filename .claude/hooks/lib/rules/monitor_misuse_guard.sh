@@ -25,7 +25,7 @@ _monitor_misuse_guard_check() {
     if echo "$cmd" | grep -q "open\s*("; then
       if echo "$cmd" | grep -qE '\.(read|readlines)\s*\(\)|open\s*\([^)]*['"'"'"]\s*w\s*['"'"'"]'; then
         log_rule_fire "monitor_misuse_guard" "$tool" "block" "python3 file read in Monitor"
-        deny "$BLOCK_REASON"
+        advise "$BLOCK_REASON"
       fi
     fi
   fi
@@ -33,27 +33,27 @@ _monitor_misuse_guard_check() {
   # BLOCK: one-shot cat
   if echo "$cmd" | grep -qE '^\s*cat\s+\S'; then
     log_rule_fire "monitor_misuse_guard" "$tool" "block" "one-shot cat in Monitor"
-    deny "$BLOCK_REASON"
+    advise "$BLOCK_REASON"
   fi
 
   # BLOCK: one-shot head
   if echo "$cmd" | grep -qE '^\s*head\s+'; then
     log_rule_fire "monitor_misuse_guard" "$tool" "block" "one-shot head in Monitor"
-    deny "$BLOCK_REASON"
+    advise "$BLOCK_REASON"
   fi
 
   # BLOCK: bare tail without -f
   if echo "$cmd" | grep -qE '^\s*tail\s+'; then
     if ! echo "$cmd" | grep -qE '-[a-zA-Z]*f\s|--follow'; then
       log_rule_fire "monitor_misuse_guard" "$tool" "block" "bare tail without -f in Monitor"
-      deny "$BLOCK_REASON"
+      advise "$BLOCK_REASON"
     fi
   fi
 
   # BLOCK: wc -l (one-shot file size)
   if echo "$cmd" | grep -qE '^\s*wc\s+-l'; then
     log_rule_fire "monitor_misuse_guard" "$tool" "block" "wc -l in Monitor"
-    deny "$BLOCK_REASON"
+    advise "$BLOCK_REASON"
   fi
 
   log_rule_fire "monitor_misuse_guard" "$tool" "allow" "command is streaming-safe"

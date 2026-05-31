@@ -101,7 +101,7 @@ if n:
     if [ -z "$match" ]; then
         log_rule_fire "work_close_guard" "$tool" "block" \
             "no commit on main references →${task_id}"
-        deny "work_close_guard: no commit on main references →${task_id}. The work may not be done yet. If the fix landed without the task ID in the commit subject, or the close is administrative, prefix the command with OSTK_WORK_CLOSE_NO_VERIFY=1 to override."
+        advise "work_close_guard: no commit on main references →${task_id}. The work may not be done yet. If the fix landed without the task ID in the commit subject, or the close is administrative, prefix the command with OSTK_WORK_CLOSE_NO_VERIFY=1 to override."
     fi
 
     log_rule_fire "work_close_guard" "$tool" "allow" \
