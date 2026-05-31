@@ -444,3 +444,156 @@ describe('QuickLook - Drive mode', () => {
     expect(screen.queryByTestId('quicklook-open-native')).not.toBeInTheDocument()
   })
 })
+
+// ---------------------------------------------------------------------------
+// →1938: Slides PDF fallback + reconnect prompt
+// ---------------------------------------------------------------------------
+
+describe('QuickLook - Slides PDF fallback (→1938)', () => {
+  it('shows PDF iframe fallback when slides are empty but export_url exists', () => {
+    render(<QuickLook {...driveBase} driveData={makeDriveData({
+      kind: 'slides',
+      name: 'Deck.gslides',
+      mime_type: 'application/vnd.google-apps.presentation',
+      export_url: '/api/drive/files/test-file-id/preview',
+      sample: { slides: [], truncated: false },
+    })} />)
+    // Should NOT show the old "not available" message
+    expect(screen.queryByText(/slide preview is not available/i)).not.toBeInTheDocument()
+    // Should show an iframe with the export URL
+    expect(screen.getByTestId('quicklook-slides-pdf-fallback')).toBeInTheDocument()
+  })
+
+  it('shows reconnect prompt when slides empty and no export_url', () => {
+    render(<QuickLook {...driveBase} driveData={makeDriveData({
+      kind: 'slides',
+      name: 'Deck.gslides',
+      mime_type: 'application/vnd.google-apps.presentation',
+      export_url: '',
+      sample: { slides: [], truncated: false },
+    })} />)
+    expect(screen.getByTestId('quicklook-slides-reconnect')).toBeInTheDocument()
+    expect(screen.getByText(/reconnect/i)).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// →1939: Docs edit mode
+// ---------------------------------------------------------------------------
+
+describe('QuickLook - Docs edit mode (→1939)', () => {
+  function makeDocDriveData(html = '<p>Hello</p>', plainText = 'Hello') {
+    return makeDriveData({
+      kind: 'doc',
+      name: 'Plan.gdoc',
+      mime_type: 'application/vnd.google-apps.document',
+      sample: { html, truncated: false },
+    })
+  }
+
+  it('shows Edit button for doc kind', () => {
+    render(<QuickLook {...driveBase} driveData={makeDocDriveData()} />)
+    expect(screen.getByTestId('doc-edit-btn')).toBeInTheDocument()
+  })
+
+  it('does NOT show Edit button for slides kind', () => {
+    render(<QuickLook {...driveBase} driveData={makeDriveData({
+      kind: 'slides',
+      sample: { slides: [{ slide_id: 'p1', thumbnail_url: 'https://img/1' }], truncated: false },
+    })} />)
+    expect(screen.queryByTestId('doc-edit-btn')).not.toBeInTheDocument()
+  })
+
+  it('does NOT show Edit button for sheet kind', () => {
+    render(<QuickLook {...driveBase} driveData={makeDriveData({
+      kind: 'sheet',
+      sample: { sheets: [{ name: 'S1', headers: [], rows: [], truncated: false }] },
+    })} />)
+    expect(screen.queryByTestId('doc-edit-btn')).not.toBeInTheDocument()
+  })
+
+  it('clicking Edit enters edit mode and shows textarea', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('Hello plain text'),
+    }))
+    render(<QuickLook {...driveBase} driveData={makeDocDriveData()} />)
+    fireEvent.click(screen.getByTestId('doc-edit-btn'))
+    await waitFor(() => {
+      expect(screen.getByTestId('doc-edit-textarea')).toBeInTheDocument()
+      expect(screen.getByTestId('doc-save-btn')).toBeInTheDocument()
+      expect(screen.getByTestId('doc-cancel-btn')).toBeInTheDocument()
+    })
+  })
+
+  it('clicking Cancel with no changes returns to read view immediately', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('Hello'),
+    }))
+    render(<QuickLook {...driveBase} driveData={makeDocDriveData()} />)
+    fireEvent.click(screen.getByTestId('doc-edit-btn'))
+    await waitFor(() => expect(screen.getByTestId('doc-cancel-btn')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('doc-cancel-btn'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('doc-edit-textarea')).not.toBeInTheDocument()
+      expect(screen.getByTestId('quicklook-doc')).toBeInTheDocument()
+    })
+  })
+
+  it('clicking Cancel after typing shows discard confirmation', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('Original'),
+    }))
+    render(<QuickLook {...driveBase} driveData={makeDocDriveData()} />)
+    fireEvent.click(screen.getByTestId('doc-edit-btn'))
+    await waitFor(() => expect(screen.getByTestId('doc-edit-textarea')).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('doc-edit-textarea'), { target: { value: 'Changed text' } })
+    fireEvent.click(screen.getByTestId('doc-cancel-btn'))
+    await waitFor(() => {
+      expect(screen.getByTestId('doc-discard-confirm')).toBeInTheDocument()
+    })
+  })
+
+  it('Save calls POST /api/drive/docs/{id}/update-text and shows Saved', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, text: () => Promise.resolve('Original') })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ ok: true, doc_id: 'test-file-id' }) })
+    vi.stubGlobal('fetch', mockFetch)
+    render(<QuickLook {...driveBase} driveData={makeDocDriveData()} />)
+    fireEvent.click(screen.getByTestId('doc-edit-btn'))
+    await waitFor(() => expect(screen.getByTestId('doc-edit-textarea')).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('doc-edit-textarea'), { target: { value: 'New content' } })
+    fireEvent.click(screen.getByTestId('doc-save-btn'))
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/drive/docs/test-file-id/update-text',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ text: 'New content' }),
+        }),
+      )
+    })
+    await waitFor(() => {
+      expect(screen.getByText(/saved/i)).toBeInTheDocument()
+    })
+  })
+
+  it('Save error keeps edit view open and shows error message', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, text: () => Promise.resolve('Original') })
+      .mockResolvedValueOnce({ ok: false, json: () => Promise.resolve({ detail: 'Token expired' }) })
+    vi.stubGlobal('fetch', mockFetch)
+    render(<QuickLook {...driveBase} driveData={makeDocDriveData()} />)
+    fireEvent.click(screen.getByTestId('doc-edit-btn'))
+    await waitFor(() => expect(screen.getByTestId('doc-edit-textarea')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('doc-save-btn'))
+    await waitFor(() => {
+      // Edit view stays open (textarea still visible)
+      expect(screen.getByTestId('doc-edit-textarea')).toBeInTheDocument()
+      // Error shown
+      expect(screen.getByText(/token expired/i)).toBeInTheDocument()
+    })
+  })
+})
