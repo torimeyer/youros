@@ -46,8 +46,11 @@ MIN_SIZE_BYTES = 512  # proxy min_size_threshold default
 
 # Default candidate files (highest savings value from →1335 retro)
 HOME = Path.home()
+# Claude Code keys per-project memory by the project path with '/' -> '-'.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_PROJECT_SLUG = str(_REPO_ROOT).replace("/", "-")
 DEFAULT_FILES = [
-    HOME / ".claude/projects/-Users-torimeyer-claude-torios/memory/MEMORY.md",
+    HOME / f".claude/projects/{_PROJECT_SLUG}/memory/MEMORY.md",
     HOME / "claude/CLAUDE.md",
     HOME / "claude/torios/CLAUDE.md",
 ]

@@ -324,6 +324,7 @@ function readInitialSidebarWidth(): number {
 
 
 const initialOnboarded = lsGet(LS_KEYS.onboarded) === 'true'
+// Dark is the intentional product default when no preference is stored.
 const initialDarkMode = lsGet(LS_KEYS.darkMode) !== 'false'
 const initialAccentColor = (lsGet(LS_KEYS.accentColor) as AccentColor) || 'blue'
 const initialOsName = lsGet(LS_KEYS.osName) || 'yourOS'
