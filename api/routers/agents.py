@@ -2581,6 +2581,17 @@ def _reset_per_agent_bytes_cache() -> None:
 # level without consuming a thread-pool slot (→1144: thread-pool saturation).
 _enrich_async_lock: asyncio.Lock = asyncio.Lock()
 
+# →2018: serialize _autocomplete_exited_subagents and _sweep_stale_running_agents
+# between the snapshot loop (500 ms) and _reconcile_loop (60 s). Both call these
+# via asyncio.to_thread; concurrent GIL-heavy threads starve the event loop.
+# With this lock only one sweep runs at a time.
+_sweep_pass_lock: asyncio.Lock = asyncio.Lock()
+# Monotonic timestamp of the last autocomplete pass. Used to throttle the
+# snapshot loop from running autocomplete 2/sec (its natural cadence) to at
+# most once every 5 s — the reconcile loop covers the finer-grained checks.
+_last_autocomplete_mono: float = 0.0
+_AUTOCOMPLETE_MIN_INTERVAL: float = 5.0
+
 # Fields in agent dicts whose string values may contain raw control bytes
 # (e.g. from heartbeat step messages, spawn prompts, or shell output).
 # json.dumps escapes these correctly in most cases, but certain code paths
@@ -4105,7 +4116,20 @@ async def _compute_agents_snapshot_async() -> dict:
     if sweep_changed or persisted_pass_changed:
         await _save_agent_state_async()
 
-    ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
+    # →2018: throttle autocomplete to at most once per 5 s and serialize with
+    # _reconcile_loop's sweep. Running asyncio.to_thread for GIL-heavy work at
+    # 2/sec (the natural 500 ms snapshot cadence) starves the event loop; only
+    # one pass may run at a time.
+    global _last_autocomplete_mono
+    ac_changed = False
+    _loop_time = asyncio.get_running_loop().time()
+    if (
+        _loop_time - _last_autocomplete_mono >= _AUTOCOMPLETE_MIN_INTERVAL
+        and not _sweep_pass_lock.locked()
+    ):
+        async with _sweep_pass_lock:
+            ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
+            _last_autocomplete_mono = asyncio.get_running_loop().time()
     if ac_changed:
         await _save_agent_state_async()
         await _agent_events_bus.publish("sweep", {})
@@ -8300,8 +8324,15 @@ async def _reconcile_loop():
     await asyncio.sleep(1)
     while True:
         try:
-            stale_changed = _sweep_stale_running_agents()
-            ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
+            # →2018: move both sweep functions off the event loop and serialize
+            # with the snapshot loop's autocomplete via _sweep_pass_lock. Before
+            # this fix, _sweep_stale_running_agents() ran directly on the event
+            # loop (blocking it for stat × N agents) and two concurrent
+            # asyncio.to_thread(_autocomplete_exited_subagents) calls competed
+            # for the GIL, starving all request handling.
+            async with _sweep_pass_lock:
+                stale_changed = await asyncio.to_thread(_sweep_stale_running_agents)
+                ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
             if stale_changed or ac_changed:
                 await _save_agent_state_async()
                 await _agent_events_bus.publish("sweep", {})

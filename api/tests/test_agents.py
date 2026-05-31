@@ -4613,6 +4613,11 @@ async def test_spawn_with_task_id_does_not_override_terminal_status(tmp_path, mo
     class _FakeProc:
         pid = 424242
         returncode = None
+        # The spawn path drains proc.stdout/proc.stderr; a real Popen exposes
+        # them. None is the supported "no pipe" signal (_drain_* breaks on it),
+        # so the fake must define them or the drainers raise AttributeError.
+        stdout = None
+        stderr = None
 
         def __init__(self):
             self.stdin = _FakeStdin()
@@ -13301,6 +13306,11 @@ async def test_template_spawn_appears_in_running_snapshot(tmp_path, monkeypatch)
     class _FakeProc:
         pid = 424242
         returncode = None
+        # The spawn path drains proc.stdout/proc.stderr; a real Popen exposes
+        # them. None is the supported "no pipe" signal (_drain_* breaks on it),
+        # so the fake must define them or the drainers raise AttributeError.
+        stdout = None
+        stderr = None
 
         def __init__(self):
             self.stdin = _FakeStdin()
