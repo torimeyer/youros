@@ -880,6 +880,8 @@ describe('ChatPanel', () => {
       mockLastMessage = { type: 'done' }
       rerender(<ChatPanel />)
 
+      // Expand the toggle so tool block internals are visible (collapsed by default per →2002).
+      fireEvent.click(document.querySelector('[data-testid^="tool-calls-toggle-"]')!)
       // The tool block should show a check icon, not a spinner, after done.
       // check_circle is rendered by Icon which outputs the material symbol text.
       const checkIcons = document.querySelectorAll('[class*="text-green-500"]')
@@ -1029,6 +1031,8 @@ describe('ChatPanel', () => {
       expect(anchors.length).toBe(1)
       expect(anchors[0].textContent).toBe('View in Calendar')
 
+      // Expand the toggle so tool block internals are visible (collapsed by default per →2002).
+      fireEvent.click(document.querySelector('[data-testid^="tool-calls-toggle-"]')!)
       // The tool block should still render above the prose. Tool blocks use
       // the tool name text in their header (mcp__ prefix collapsed or raw).
       // We look for the tool block container by finding the green check
@@ -3322,7 +3326,10 @@ describe('ChatPanel', () => {
       mockLastMessage = { type: 'done' }
       rerender(<ChatPanel />)
 
-      // Pill must be visible.
+      // Expand the group toggle first (collapsed by default per →2002).
+      fireEvent.click(document.querySelector('[data-testid^="tool-calls-toggle-"]')!)
+
+      // Pill must be visible after expanding.
       const pill = screen.getByTestId('tool-call-pill')
       expect(pill).toBeTruthy()
 
@@ -3365,6 +3372,7 @@ describe('ChatPanel', () => {
       mockLastMessage = { type: 'done' }
       rerender(<ChatPanel />)
 
+      fireEvent.click(document.querySelector('[data-testid^="tool-calls-toggle-"]')!)
       const pill = screen.getByTestId('tool-call-pill')
       expect(pill.textContent).toContain('Run command')
       expect(pill.textContent).toContain('scripts/run-vitest.sh src/components/')
@@ -3392,10 +3400,75 @@ describe('ChatPanel', () => {
       mockLastMessage = { type: 'done' }
       rerender(<ChatPanel />)
 
+      fireEvent.click(document.querySelector('[data-testid^="tool-calls-toggle-"]')!)
       const pill = screen.getByTestId('tool-call-pill')
       expect(pill.textContent).toContain('Search')
       expect(pill.textContent).toContain('ToolCallBlock')
       expect(pill.textContent).not.toContain('ostk: search')
+    })
+  })
+
+  describe('Tool call group toggle (→2002)', () => {
+    it('collapses 2+ tool calls under a single toggle by default', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByTestId('chat-input')
+      fireEvent.change(input, { target: { value: 'do two things' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'mcp_tool_use',
+        data: { tool: 'bash', server: 'ostk', id: 'tc-1', input: { cmd: 'ls' } },
+      }
+      rerender(<ChatPanel />)
+
+      mockLastMessage = {
+        type: 'mcp_tool_use',
+        data: { tool: 'bash', server: 'ostk', id: 'tc-2', input: { cmd: 'pwd' } },
+      }
+      rerender(<ChatPanel />)
+
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+
+      // Toggle button is present showing count
+      const toggle = document.querySelector('[data-testid^="tool-calls-toggle-"]') as HTMLElement
+      expect(toggle).toBeTruthy()
+      expect(toggle.textContent).toContain('2')
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+      // Individual pills not rendered while collapsed
+      expect(screen.queryByTestId('tool-call-pill')).toBeNull()
+    })
+
+    it('expands to show individual tool call pills on toggle click', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByTestId('chat-input')
+      fireEvent.change(input, { target: { value: 'do two things' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'mcp_tool_use',
+        data: { tool: 'bash', server: 'ostk', id: 'tc-a', input: { cmd: 'echo hello' } },
+      }
+      rerender(<ChatPanel />)
+
+      mockLastMessage = {
+        type: 'mcp_tool_use',
+        data: { tool: 'search', server: 'ostk', id: 'tc-b', input: { query: 'foo' } },
+      }
+      rerender(<ChatPanel />)
+
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+
+      const toggle = document.querySelector('[data-testid^="tool-calls-toggle-"]') as HTMLElement
+      fireEvent.click(toggle)
+
+      expect(toggle.getAttribute('aria-expanded')).toBe('true')
+      const pills = screen.getAllByTestId('tool-call-pill')
+      expect(pills.length).toBe(2)
     })
   })
 
