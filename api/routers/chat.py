@@ -766,6 +766,9 @@ async def clear_chat_history():
     return {"result": "cleared"}
 
 
+CHAT_ASGI_TIMEOUT_S = 120.0
+
+
 async def _spawn_roadmap_agent() -> Optional[str]:
     """Spawn a Roadmap agent via the internal ASGI app. Returns agent name or None."""
     import time as _time
@@ -775,7 +778,7 @@ async def _spawn_roadmap_agent() -> Optional[str]:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=_app),
             base_url="http://testserver",
-            timeout=10.0,
+            timeout=CHAT_ASGI_TIMEOUT_S,
         ) as client:
             resp = await client.post(
                 "/agents/spawn",
