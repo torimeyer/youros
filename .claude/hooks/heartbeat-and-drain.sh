@@ -75,7 +75,7 @@ disown 2>/dev/null || true
     IDLE_SWEEP_INTERVAL="${MYOS_IDLE_SWEEP_INTERVAL:-60}"
     IDLE_LOG="${MYOS_IDLE_COMPLETE_LOG:-/tmp/idle-complete.log}"
     AGENTS_URL="${MYOS_AGENTS_URL:-https://127.0.0.1:8000/api/agents}"
-    HEARTBEAT_IDLE_PY="${MYOS_HEARTBEAT_IDLE_PY:-${CLAUDE_PROJECT_DIR:-$HOME/claude/torios}/api/services/heartbeat_idle.py}"
+    HEARTBEAT_IDLE_PY="${MYOS_HEARTBEAT_IDLE_PY:-${CLAUDE_PROJECT_DIR:-$HOME/torios}/api/services/heartbeat_idle.py}"
 
     if [ "${MYOS_IDLE_SWEEP_FORCE:-0}" != "1" ] && [ -f "$IDLE_SWEEP_STAMP" ]; then
         now=$(date +%s)

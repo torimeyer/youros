@@ -3138,7 +3138,7 @@ async def test_validate_write_doc_path_allows_docs_draft(client):
 async def test_doc_draft_refuses_hooks_shaped_titles():
     """ostk.doc_draft must refuse titles that look like hooks reviews.
 
-    Per ~/.claude/projects/-Users-torimeyer-claude-torios/memory/
+    Per the Claude project's memory dir (~/.claude/projects/<project>/memory/)
     feedback_hooks_at_user_scope.md: hooks reviews live in ~/.myos/hooks/,
     never under docs/draft/. When a user (or model) calls doc_draft with
     a title containing 'hook', refuse with a message redirecting to the
@@ -3540,12 +3540,12 @@ async def test_claim_accepts_source_passive(client, tmp_path, monkeypatch):
 
     resp = await client.post(
         "/api/specs/docs/spec/my-passive-spec.md/claim",
-        json={"agent": "passive/Tori Meyer", "source": "passive"},
+        json={"agent": "passive/Test User", "source": "passive"},
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["claim"]["source"] == "passive"
-    assert data["claim"]["agent"] == "passive/Tori Meyer"
+    assert data["claim"]["agent"] == "passive/Test User"
 
     # Verify the claim landed in the in-memory registry.
     spec_path = "docs/spec/my-passive-spec.md"
