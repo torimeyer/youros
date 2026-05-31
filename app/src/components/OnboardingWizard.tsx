@@ -799,7 +799,10 @@ function CustomizeStep({
     let cancelled = false
     let timeoutId: ReturnType<typeof setTimeout> | undefined
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error('timeout')), 30_000)
+      // Safety net for a fully-wedged backend only. Must stay ABOVE api.ts
+      // REQUEST_TIMEOUT_MS (30s) so the request's own ApiTimeoutError fires first
+      // with a specific message; 30s here collided with it (simultaneous reject).
+      timeoutId = setTimeout(() => reject(new Error('timeout')), 35_000)
     })
     Promise.race([
       api.post<{ starter_pack: StarterPackItem[] }>('/onboarding/intent', { intent: intentId }),
