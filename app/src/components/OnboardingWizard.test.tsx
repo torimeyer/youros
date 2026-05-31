@@ -131,8 +131,18 @@ describe('OnboardingWizard', () => {
   it('shows progress dots equal to the number of steps', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    // 10 steps: Welcome, You, Name, FilesLocation, Profile, Customize, Theme, Tracking, Connect, Ready
-    expect(dots.children).toHaveLength(10)
+    // 9 steps: Welcome, You, Name, FilesLocation, Profile, Theme, Tracking, Connect, Ready
+    expect(dots.children).toHaveLength(9)
+  })
+
+  it('does not include a starter-agents step in the wizard flow', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    // Walk the entire flow and confirm step-customize never appears
+    for (let i = 0; i < 9; i++) {
+      expect(screen.queryByTestId('step-customize')).not.toBeInTheDocument()
+      if (i < 8) fireEvent.click(screen.getByTestId('next-button'))
+    }
   })
 
   it('does not show Back button on Welcome step', () => {
@@ -218,14 +228,14 @@ describe('OnboardingWizard', () => {
   it('advances to Theme step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(6) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize -> Theme
+    clickNext(5) // Welcome -> You -> Name -> FilesLocation -> Profile -> Theme
     expect(screen.getByTestId('step-theme')).toBeInTheDocument()
   })
 
   it('toggles dark mode on Theme step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(6)
+    clickNext(5)
 
     const BLUE = 'rgb(59, 130, 246)'
 
@@ -243,7 +253,7 @@ describe('OnboardingWizard', () => {
   it('clicking Dark flips wizard background and data-theme to dark', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(6)
+    clickNext(5)
 
     // Start by clicking Light so we have a known starting state, then Dark.
     fireEvent.click(screen.getByTestId('theme-light'))
@@ -258,7 +268,7 @@ describe('OnboardingWizard', () => {
   it('dark preview card always renders dark even in light theme', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(6)
+    clickNext(5)
     fireEvent.click(screen.getByTestId('theme-light'))
     // Inline style bypasses [data-theme="light"] global overrides on bg-slate-950.
     const preview = screen.getByTestId('theme-dark-preview') as HTMLElement
@@ -268,14 +278,14 @@ describe('OnboardingWizard', () => {
   it('advances to Connect step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize -> Theme -> Tracking -> Connect
+    clickNext(7) // Welcome -> You -> Name -> FilesLocation -> Profile -> Theme -> Tracking -> Connect
     expect(screen.getByTestId('step-connect')).toBeInTheDocument()
   })
 
   it('shows Anthropic connect option by default', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(7)
     expect(screen.getByTestId('connect-anthropic')).toBeInTheDocument()
     expect(screen.getByTestId('api-key-input')).toBeInTheDocument()
   })
@@ -283,7 +293,7 @@ describe('OnboardingWizard', () => {
   it('switches provider when Gemini is selected', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(7)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
     // Anthropic connect button should no longer be visible
     expect(screen.queryByTestId('connect-anthropic')).not.toBeInTheDocument()
@@ -292,7 +302,7 @@ describe('OnboardingWizard', () => {
   it('shows both Gemini key paths (Cloud Console recommended, AI Studio fallback) when Gemini is selected', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(7)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
     const helper = screen.getByTestId('gemini-key-help')
     expect(helper).toBeInTheDocument()
@@ -307,7 +317,7 @@ describe('OnboardingWizard', () => {
   it('shows "Paste AI Studio key (for personal use)" label when Gemini is selected', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(7)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
     expect(screen.getByText(/Paste AI Studio key \(for personal use\)/i)).toBeInTheDocument()
   })
@@ -315,7 +325,7 @@ describe('OnboardingWizard', () => {
   it('Connect step sections show Anthropic, Google, Confluence, GitHub headings', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(7)
     const connectEl = screen.getByTestId('step-connect')
     expect(connectEl).toHaveTextContent(/Anthropic/i)
     expect(connectEl).toHaveTextContent(/Google/i)
@@ -331,7 +341,7 @@ describe('OnboardingWizard', () => {
   it('advances to Ready step with summary', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize -> Theme -> Tracking -> Connect -> Ready
+    clickNext(8) // Welcome -> You -> Name -> FilesLocation -> Profile -> Theme -> Tracking -> Connect -> Ready
 
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
     expect(screen.getByTestId('summary-os-name')).toHaveTextContent('yourOS')
@@ -345,7 +355,7 @@ describe('OnboardingWizard', () => {
     useAppStore.setState({ onboarded: false, osName: 'yourOS', darkMode: true })
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9) // skip through all steps including Theme and Tracking without touching them
+    clickNext(8) // skip through all steps including Theme and Tracking without touching them
     expect(screen.getByTestId('summary-theme')).toHaveTextContent('Dark')
   })
 
@@ -353,14 +363,14 @@ describe('OnboardingWizard', () => {
     useAppStore.setState({ onboarded: false, osName: 'yourOS', darkMode: false })
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
     expect(screen.getByTestId('summary-theme')).toHaveTextContent('Light')
   })
 
   it('does not show Skip button on Ready step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
 
     expect(screen.queryByTestId('skip-button')).not.toBeInTheDocument()
   })
@@ -368,7 +378,7 @@ describe('OnboardingWizard', () => {
   it('shows "Get started" button on Ready step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
 
     expect(screen.getByTestId('finish-button')).toHaveTextContent('Get started')
   })
@@ -376,7 +386,7 @@ describe('OnboardingWizard', () => {
   it('sets onboarded to true and persists to localStorage when finished', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
     fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
 
     expect(useAppStore.getState().onboarded).toBe(true)
@@ -390,7 +400,7 @@ describe('OnboardingWizard', () => {
     const before = Date.now()
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
     fireEvent.click(screen.getByTestId('finish-button'))
     const after = Date.now()
 
@@ -406,7 +416,7 @@ describe('OnboardingWizard', () => {
 
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
     fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
 
     expect(window.location.pathname).toBe('/')
@@ -423,7 +433,7 @@ describe('OnboardingWizard', () => {
     const personaCard = screen.getByText(firstPersona.category)
     fireEvent.click(personaCard)
 
-    clickNext(5) // Profile -> Customize -> Theme -> Tracking -> Connect -> Ready
+    clickNext(4) // Profile -> Theme -> Tracking -> Connect -> Ready
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
 
@@ -443,7 +453,7 @@ describe('OnboardingWizard', () => {
     try {
       render(<OnboardingWizard />)
       choosePersonalMode()
-      clickNext(9)
+      clickNext(8)
       fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
     } finally {
       unsubscribe()
@@ -474,7 +484,7 @@ describe('OnboardingWizard', () => {
   it('does not show Back button on Ready step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
 
     expect(screen.queryByTestId('back-button')).not.toBeInTheDocument()
   })
@@ -482,7 +492,7 @@ describe('OnboardingWizard', () => {
   it('Connect step is skippable', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8) // Get to Connect step
+    clickNext(7) // Get to Connect step
     expect(screen.getByTestId('step-connect')).toBeInTheDocument()
     expect(screen.getByTestId('skip-button')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('skip-button'))
@@ -492,8 +502,8 @@ describe('OnboardingWizard', () => {
   it('wizard flow does not include any adventure step names', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    // Walk all 8 steps (Welcome, You, Name, FilesLocation, Profile, Customize, Theme, Tracking, Connect)
-    for (let i = 0; i < 9; i++) {
+    // Walk all 8 steps (Welcome, You, Name, FilesLocation, Profile, Theme, Tracking, Connect)
+    for (let i = 0; i < 8; i++) {
       expect(screen.queryByTestId('step-adventure')).not.toBeInTheDocument()
       fireEvent.click(screen.getByTestId('next-button'))
     }
@@ -522,13 +532,13 @@ describe('OnboardingWizard', () => {
     expect(screen.getByText('Other')).toBeInTheDocument()
   })
 
-  it('Profile step is skippable and goes to Customize', () => {
+  it('Profile step is skippable and goes to Theme', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(4)
     expect(screen.getByTestId('skip-button')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('skip-button'))
-    expect(screen.getByTestId('step-customize')).toBeInTheDocument()
+    expect(screen.getByTestId('step-theme')).toBeInTheDocument()
   })
 
   it('clicking a persona clears customAgentTemplates so marketplace picks do not appear as custom', () => {
@@ -633,10 +643,10 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('other-role-input')).not.toBeInTheDocument()
   })
 
-  it('step count for personal mode is 10', () => {
+  it('step count for personal mode is 9', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    expect(dots.children).toHaveLength(10)
+    expect(dots.children).toHaveLength(9)
   })
 })
 
@@ -687,7 +697,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     })
   })
 
-  it('Enter on the other-role input in Profile step advances to Customize step', async () => {
+  it('Enter on the other-role input in Profile step advances to Theme step', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(4) // Welcome -> You -> Name -> FilesLocation -> Profile
@@ -698,7 +708,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     fireEvent.keyDown(roleInput, { key: 'Enter' })
 
     await waitFor(() => {
-      expect(screen.getByTestId('step-customize')).toBeInTheDocument()
+      expect(screen.getByTestId('step-theme')).toBeInTheDocument()
     })
   })
 
@@ -716,7 +726,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
   it('Enter on the Theme step advances to Tracking step', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(6) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize -> Theme
+    clickNext(5) // Welcome -> You -> Name -> FilesLocation -> Profile -> Theme
 
     const wizard = screen.getByTestId('onboarding-wizard')
     fireEvent.keyDown(wizard, { key: 'Enter' })
@@ -726,7 +736,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     })
   })
 
-  it('Enter on the Profile step advances to Customize step', async () => {
+  it('Enter on the Profile step advances to Theme step', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(4) // Welcome -> You -> Name -> FilesLocation -> Profile
@@ -735,14 +745,14 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     fireEvent.keyDown(wizard, { key: 'Enter' })
 
     await waitFor(() => {
-      expect(screen.getByTestId('step-customize')).toBeInTheDocument()
+      expect(screen.getByTestId('step-theme')).toBeInTheDocument()
     })
   })
 
   it('Enter on the Connect API key input saves and advances to Ready step', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8) // Welcome -> ... -> Tracking -> Connect
+    clickNext(7) // Welcome -> ... -> Tracking -> Connect
 
     const keyInput = screen.getByTestId('api-key-input')
     fireEvent.change(keyInput, { target: { value: 'sk-ant-test123' } })
@@ -756,7 +766,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
   it('Enter on the Ready step finishes onboarding', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9) // Welcome -> ... -> Ready
+    clickNext(8) // Welcome -> ... -> Ready
 
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
 
@@ -784,7 +794,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     expect(screen.queryByTestId('onboarding-files-location-note')).not.toBeInTheDocument()
   })
 
-  it('privacy footer is visible on every step including Customize', async () => {
+  it('privacy footer is visible on every step including Theme', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     // Step 1: Welcome
@@ -792,9 +802,9 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     // Step 2: You
     fireEvent.click(screen.getByTestId('next-button'))
     expect(screen.getByTestId('onboarding-privacy-link')).toBeInTheDocument()
-    // Step 4: Customize (skip through Name, FilesLocation, Profile)
+    // Step 4: Theme (skip through Name, FilesLocation, Profile)
     for (let i = 0; i < 4; i++) fireEvent.click(screen.getByTestId('skip-button'))
-    expect(screen.getByTestId('step-customize')).toBeInTheDocument()
+    expect(screen.getByTestId('step-theme')).toBeInTheDocument()
     expect(screen.getByTestId('onboarding-privacy-link')).toBeInTheDocument()
     expect(screen.getByTestId('onboarding-privacy-link')).toHaveAttribute('href', '/privacy')
   })
@@ -834,23 +844,10 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     })
   })
 
-  it('Enter on the Customize step (window) advances to Theme', async () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(5) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize
-
-    expect(screen.getByTestId('step-customize')).toBeInTheDocument()
-    fireEvent.keyDown(window, { key: 'Enter' })
-
-    await waitFor(() => {
-      expect(screen.getByTestId('step-theme')).toBeInTheDocument()
-    })
-  })
-
   it('Enter on the Tracking step (window) advances to Connect', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(7) // Welcome -> ... -> Tracking
+    clickNext(6) // Welcome -> ... -> Tracking
 
     expect(screen.getByTestId('step-tracking')).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Enter' })
@@ -862,97 +859,13 @@ describe('OnboardingWizard - Enter key advances steps', () => {
 
 })
 
-describe('OnboardingWizard — Customize step starter pack', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    localStorageMock.clear()
-    vi.mocked(api.get).mockResolvedValue(MOCK_ADVENTURES)
-    vi.mocked(api.post).mockResolvedValue({})
-    useAppStore.setState({
-      onboarded: false,
-      osName: 'yourOS',
-      darkMode: true,
-      defaultChatModel: 'claude',
-      instanceMode: 'personal',
-      orgName: '',
-    })
-  })
-
-  it('Customize step renders without error when no persona is selected', () => {
-    render(<OnboardingWizard />)
-    clickNext(5) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize
-    expect(screen.getByTestId('step-customize')).toBeInTheDocument()
-    expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
-    expect(screen.getByTestId('customize-no-persona')).toBeInTheDocument()
-  })
-
-  it('Customize step fetches starter pack when a mapped persona is selected', async () => {
-    vi.mocked(api.post).mockImplementation((path: string) => {
-      if (path === '/onboarding/intent') {
-        return Promise.resolve({
-          starter_pack: [
-            { kind: 'agent', id: 'builtin-marketing-campaign-brief', name: 'Campaign Brief', description: 'desc', default_selected: true },
-          ],
-        })
-      }
-      return Promise.resolve({})
-    })
-
-    render(<OnboardingWizard />)
-    clickNext(4) // Welcome -> You -> Name -> FilesLocation -> Profile
-
-    const marketingCat = AGENT_MARKETPLACE.find((c) => c.id === 'marketing')!
-    fireEvent.click(screen.getByText(marketingCat.category))
-
-    clickNext(1) // Profile -> Customize
-    expect(screen.getByTestId('step-customize')).toBeInTheDocument()
-
-    await waitFor(() => {
-      expect(screen.getByTestId('pack-item-builtin-marketing-campaign-brief')).toBeInTheDocument()
-    })
-    expect(screen.queryByTestId('customize-load-error')).not.toBeInTheDocument()
-  })
-
-  it('Customize step shows an actionable error when the API call fails (no silent fallback)', async () => {
-    vi.mocked(api.post).mockImplementation((path: string) => {
-      if (path === '/onboarding/intent') {
-        return Promise.reject(new Error('network error'))
-      }
-      return Promise.resolve({})
-    })
-
-    render(<OnboardingWizard />)
-    clickNext(4)
-
-    const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
-    fireEvent.click(screen.getByText(pmCat.category))
-    clickNext(1)
-
-    // Per #27: no silent fallback. User must see actionable error.
-    await waitFor(() => {
-      expect(screen.queryByTestId('pack-item-builtin-builder')).not.toBeInTheDocument()
-    })
-  })
-
-  it('all Wave 8 persona IDs map to a valid intent (no blank Customize step)', () => {
-    const wave8PersonaIds = ['marketing', 'founder', 'support', 'designer']
-    // These are the persona IDs added in commit 5df0b25; each must have an entry in PERSONA_TO_INTENT
-    // We verify by checking that clicking the persona then navigating to Customize
-    // does NOT leave the step in the "no persona" state (which only shows when intentId is null).
-    for (const personaId of wave8PersonaIds) {
-      const cat = AGENT_MARKETPLACE.find((c) => c.id === personaId)
-      expect(cat).toBeTruthy()
-    }
-  })
-})
-
 
 describe('OnboardingWizard — provider auto-detection (→931)', () => {
   function navigateToAfterTheme() {
 
     fireEvent.click(screen.getByTestId('next-button'))   // Welcome → You
-    for (let i = 0; i < 7; i++) {
-      fireEvent.click(screen.getByTestId('skip-button')) // You/Name/FilesLocation/Profile/Customize/Theme
+    for (let i = 0; i < 6; i++) {
+      fireEvent.click(screen.getByTestId('skip-button')) // You/Name/FilesLocation/Profile/Theme
     }
   }
 
@@ -1064,172 +977,12 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
 })
 
 
-describe('OnboardingWizard — Customize agents step', () => {
-  // Navigate to the Customize step: Welcome → You → Name → FilesLocation → Profile → Customize
-  function navigateToCustomize() {
-
-    // Welcome
-    fireEvent.click(screen.getByTestId('next-button'))
-    // You → Name → FilesLocation → Profile (4 skips)
-    for (let i = 0; i < 4; i++) {
-      fireEvent.click(screen.getByTestId('skip-button'))
-    }
-  }
-
-  const MOCK_PACK = {
-    starter_pack: [
-      { kind: 'agent', id: 'builtin-pm-prd', name: 'PRD Writer', description: 'Write product requirements', default_selected: true },
-      { kind: 'agent', id: 'builtin-pm-competitive-scan', name: 'Competitive Scan', description: 'Scan competitors', default_selected: true },
-      { kind: 'agent', id: 'builtin-pm-roadmap', name: 'Roadmap', description: 'Plan your roadmap', default_selected: false },
-    ],
-  }
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    vi.mocked(api.get).mockResolvedValue({})
-    vi.mocked(api.post).mockResolvedValue({})
-    vi.mocked(api.patch).mockResolvedValue({})
-    useAppStore.setState({ onboarded: false, osName: '', darkMode: false })
-  })
-
-  it('renders the Customize step after Profile', () => {
-    render(<OnboardingWizard />)
-    navigateToCustomize()
-    expect(screen.getByTestId('step-customize')).toBeInTheDocument()
-    expect(screen.getByText('Your starter agents')).toBeInTheDocument()
-  })
-
-  it('shows a no-persona message when no persona was picked', () => {
-    render(<OnboardingWizard />)
-    navigateToCustomize()
-    expect(screen.getByTestId('customize-no-persona')).toBeInTheDocument()
-  })
-
-  it('loads and shows the persona-driven starter pack when a persona is picked', async () => {
-    vi.mocked(api.post).mockResolvedValue(MOCK_PACK)
-
-    render(<OnboardingWizard />)
-    // Choose personal, advance to Profile
-
-    fireEvent.click(screen.getByTestId('next-button')) // Welcome
-    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByTestId('skip-button')) // You, Name, FilesLocation
-
-    // Pick pm persona on Profile
-    const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
-    fireEvent.click(screen.getByText(pmCat.category))
-
-    // Advance to Customize
-    fireEvent.click(screen.getByTestId('next-button'))
-
-    // Should have POSTed to /onboarding/intent with work_role (pm maps to work_role)
-    await waitFor(() => {
-      expect(vi.mocked(api.post)).toHaveBeenCalledWith('/onboarding/intent', { intent: 'work_role' })
-    })
-
-    await waitFor(() => expect(screen.getByTestId('pack-item-builtin-pm-prd')).toBeInTheDocument())
-    expect(screen.getByTestId('pack-item-builtin-pm-competitive-scan')).toBeInTheDocument()
-    expect(screen.getByTestId('pack-item-builtin-pm-roadmap')).toBeInTheDocument()
-  })
-
-  it('default-selected items have their checkbox checked, others unchecked', async () => {
-    vi.mocked(api.post).mockResolvedValue(MOCK_PACK)
-
-    render(<OnboardingWizard />)
-    
-    fireEvent.click(screen.getByTestId('next-button'))
-    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByTestId('skip-button'))
-
-    const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
-    fireEvent.click(screen.getByText(pmCat.category))
-    fireEvent.click(screen.getByTestId('next-button'))
-
-    await waitFor(() => expect(screen.getByTestId('pack-checkbox-builtin-pm-prd')).toBeInTheDocument())
-
-    const prdCheckbox = screen.getByTestId('pack-checkbox-builtin-pm-prd') as HTMLInputElement
-    expect(prdCheckbox.checked).toBe(true)
-
-    const roadmapCheckbox = screen.getByTestId('pack-checkbox-builtin-pm-roadmap') as HTMLInputElement
-    expect(roadmapCheckbox.checked).toBe(false)
-  })
-
-  it('unchecking an item deselects it', async () => {
-    vi.mocked(api.post).mockResolvedValue(MOCK_PACK)
-
-    render(<OnboardingWizard />)
-    
-    fireEvent.click(screen.getByTestId('next-button'))
-    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByTestId('skip-button'))
-
-    const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
-    fireEvent.click(screen.getByText(pmCat.category))
-    fireEvent.click(screen.getByTestId('next-button'))
-
-    await waitFor(() => expect(screen.getByTestId('pack-checkbox-builtin-pm-prd')).toBeInTheDocument())
-
-    const prdCheckbox = screen.getByTestId('pack-checkbox-builtin-pm-prd') as HTMLInputElement
-    expect(prdCheckbox.checked).toBe(true)
-
-    // Uncheck it
-    fireEvent.click(prdCheckbox)
-    expect((screen.getByTestId('pack-checkbox-builtin-pm-prd') as HTMLInputElement).checked).toBe(false)
-  })
-
-  it('checking an unchecked item selects it', async () => {
-    vi.mocked(api.post).mockResolvedValue(MOCK_PACK)
-
-    render(<OnboardingWizard />)
-    
-    fireEvent.click(screen.getByTestId('next-button'))
-    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByTestId('skip-button'))
-
-    const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
-    fireEvent.click(screen.getByText(pmCat.category))
-    fireEvent.click(screen.getByTestId('next-button'))
-
-    await waitFor(() => expect(screen.getByTestId('pack-checkbox-builtin-pm-roadmap')).toBeInTheDocument())
-
-    const roadmapCheckbox = screen.getByTestId('pack-checkbox-builtin-pm-roadmap') as HTMLInputElement
-    expect(roadmapCheckbox.checked).toBe(false)
-
-    fireEvent.click(roadmapCheckbox)
-    expect((screen.getByTestId('pack-checkbox-builtin-pm-roadmap') as HTMLInputElement).checked).toBe(true)
-  })
-
-  it('Customize step is skippable and advances to Theme', () => {
-    render(<OnboardingWizard />)
-    navigateToCustomize()
-    expect(screen.getByTestId('step-customize')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('skip-button'))
-    expect(screen.getByTestId('step-theme')).toBeInTheDocument()
-  })
-
-  it('engineer persona maps to coding intent', async () => {
-    vi.mocked(api.post).mockResolvedValue({ starter_pack: [] })
-
-    render(<OnboardingWizard />)
-
-    fireEvent.click(screen.getByTestId('next-button'))
-    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByTestId('skip-button'))
-
-    const engineerCat = AGENT_MARKETPLACE.find((c) => c.id === 'engineer')!
-    fireEvent.click(screen.getByText(engineerCat.category))
-    fireEvent.click(screen.getByTestId('next-button'))
-
-    await waitFor(() => {
-      expect(vi.mocked(api.post)).toHaveBeenCalledWith('/onboarding/intent', { intent: 'coding' })
-    })
-  })
-
-  // Deleted per #27: previous behavior was "render fallback on timeout, never error."
-  // New behavior: surface real errors to the user instead of silently falling back.
-})
-
 
 describe('OnboardingWizard — Google Workspace OAuth button on Connect step', () => {
   function navigateToConnect() {
     fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
-    for (let i = 0; i < 7; i++) {
-      fireEvent.click(screen.getByTestId('skip-button')) // You/Name/FilesLocation/Profile/Customize/Theme → Connect
+    for (let i = 0; i < 6; i++) {
+      fireEvent.click(screen.getByTestId('skip-button')) // You/Name/FilesLocation/Profile/Theme → Connect
     }
   }
 
@@ -1283,8 +1036,8 @@ describe('OnboardingWizard — Google Workspace OAuth button on Connect step', (
 describe('OnboardingWizard — Atlassian and GitHub setup cards', () => {
   function navigateToConnect() {
     fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
-    for (let i = 0; i < 7; i++) {
-      fireEvent.click(screen.getByTestId('skip-button')) // You/Name/FilesLocation/Profile/Customize/Theme → Connect
+    for (let i = 0; i < 6; i++) {
+      fireEvent.click(screen.getByTestId('skip-button')) // You/Name/FilesLocation/Profile/Theme → Connect
     }
   }
 
@@ -1472,7 +1225,7 @@ describe('OnboardingWizard — FilesLocation step', () => {
     render(<OnboardingWizard />)
     clickNext(3)
     const input = await screen.findByTestId('files-dir-input') as HTMLInputElement
-    await waitFor(() => expect(input.value).toBe('~/.myos/files'))
+    await waitFor(() => expect(input.value).toBe('~/.youros/files'))
   })
 
   it('Use default button resets input to ~/.myos/files', async () => {
@@ -1481,7 +1234,7 @@ describe('OnboardingWizard — FilesLocation step', () => {
     const input = await screen.findByTestId('files-dir-input') as HTMLInputElement
     await waitFor(() => expect(input.value).toBe('/Users/me/custom'))
     fireEvent.click(screen.getByTestId('files-location-use-default'))
-    expect((screen.getByTestId('files-dir-input') as HTMLInputElement).value).toBe('~/.myos/files')
+    expect((screen.getByTestId('files-dir-input') as HTMLInputElement).value).toBe('~/.youros/files')
   })
 
   it('Next button PUTs files_dir to /settings then advances to Profile', async () => {
@@ -1548,7 +1301,7 @@ describe('OnboardingWizard — TrackingStep repo path (→1520)', () => {
   it('tracking-folder-input is a text input, not a file picker', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(7) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize -> Theme -> Tracking
+    clickNext(6) // Welcome -> You -> Name -> FilesLocation -> Profile -> Theme -> Tracking
 
     fireEvent.click(screen.getByTestId('tracking-option-repo'))
 
@@ -1559,7 +1312,7 @@ describe('OnboardingWizard — TrackingStep repo path (→1520)', () => {
   it('captures the full absolute path typed by the user and sends it to the backend', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(7) // -> Tracking
+    clickNext(6) // -> Tracking
 
     fireEvent.click(screen.getByTestId('tracking-option-repo'))
 
@@ -1606,7 +1359,7 @@ describe('OnboardingWizard — step persistence via localStorage (→1518)', () 
   it('clears localStorage when wizard finishes', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8) // Welcome → … → Connect
+    clickNext(7) // Welcome → … → Connect
     fireEvent.click(screen.getByTestId('skip-button')) // → Ready
     fireEvent.click(screen.getByTestId('finish-button'))
     await waitFor(() => {
@@ -1710,7 +1463,7 @@ describe('OnboardingWizard — persona install deferred to Next click (→1521)'
 describe('OnboardingWizard - provider-select effect (→1703)', () => {
   function navigateToConnect() {
     fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 6; i++) {
       fireEvent.click(screen.getByTestId('skip-button'))
     }
   }
@@ -1758,7 +1511,7 @@ describe('OnboardingWizard - provider-select effect (→1703)', () => {
 describe('OnboardingWizard - GitHub step functional (→1693)', () => {
   function navigateToConnect() {
     fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 6; i++) {
       fireEvent.click(screen.getByTestId('skip-button'))
     }
   }

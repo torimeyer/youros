@@ -15,10 +15,10 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
-const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
 
-const DEFAULT_FILES_DIR = '~/.myos/files'
+const DEFAULT_FILES_DIR = '~/.youros/files'
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
 
@@ -552,13 +552,6 @@ export default function OnboardingWizard() {
               </div>
             </div>
           )}
-          {step === 'Customize' && (
-            <CustomizeStep
-              selectedPersonaId={selectedPersonaId}
-              subtextCls={subtextCls}
-              cardCls={cardCls}
-            />
-          )}
           {step === 'Theme' && (
             <ThemeStep darkMode={pickedDark} onChoose={handleDarkModeChoice} subtextCls={subtextCls} />
           )}
@@ -772,7 +765,7 @@ const PERSONA_TO_INTENT: Record<string, string> = {
   designer: 'designer',
 }
 
-function CustomizeStep({
+export function CustomizeStep({
   selectedPersonaId,
   subtextCls,
   cardCls,
@@ -1139,8 +1132,8 @@ function TrackingStep({
     },
     {
       id: 'repo' as const,
-      label: "I always want tracking when I'm in my work repo.",
-      subtitle: 'Only conversations inside your work project show up in yourOS. Other projects stay untouched.',
+      label: 'Track one specific project.',
+      subtitle: 'Only conversations inside the project you choose show up in yourOS. Other projects stay untouched.',
     },
     {
       id: 'myos-only' as const,
@@ -1174,7 +1167,7 @@ function TrackingStep({
       </div>
       {selectedOption === 'repo' && (
         <div className="mt-4" data-testid="tracking-folder-picker">
-          <p className={`text-xs mb-2 ${subtextCls}`}>Paste the full path to your work project folder:</p>
+          <p className={`text-xs mb-2 ${subtextCls}`}>Paste the full path to your project folder:</p>
           <input
             type="text"
             data-testid="tracking-folder-input"
