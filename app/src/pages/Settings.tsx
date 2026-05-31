@@ -821,11 +821,11 @@ export default function Settings() {
         </nav>
 
         {/* Main content */}
-        <div className="flex-1 min-w-0 px-4 pb-8 sm:px-6 lg:pr-8 space-y-10">
-          <PageHeader title="Settings" />
+        <div className="flex-1 min-w-0 px-4 pb-8 sm:px-6 lg:pr-8 grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          <div className="lg:col-span-2"><PageHeader title="Settings" /></div>
 
           {/* ── Instructions ─────────────────────── */}
-          <div id="section-instructions" className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+          <div id="section-instructions" className={`lg:col-span-2 ${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
           <div
             ref={standingSectionRef}
             id="standing-instructions"
@@ -1492,7 +1492,7 @@ export default function Settings() {
           </div>
 
           {/* ── Connections Tab ──────────────────────── */}
-          <div id="section-connections" className={`space-y-6${activeSection !== 'section-connections' ? ' hidden' : ''}`}>
+          <div id="section-connections" className={`lg:col-span-2 space-y-6${activeSection !== 'section-connections' ? ' hidden' : ''}`}>
           <div className="space-y-4">
             {/* Google pill */}
             <button
@@ -2052,7 +2052,7 @@ export default function Settings() {
           </div>
 
           {/* ── Shortcuts ────────────────────────── */}
-          <div id="section-shortcuts" className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+          <div id="section-shortcuts" className={`lg:col-span-2 ${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
             <div className={cardClass}>
               <h2 className="text-lg font-semibold mb-5">Shortcuts</h2>
               <p className="text-xs text-slate-500 mb-4">Click any key badge to change it.</p>
