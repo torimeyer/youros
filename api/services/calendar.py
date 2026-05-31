@@ -239,6 +239,138 @@ async def get_today_events() -> list[dict]:
     return result
 
 
+def _rank_slots_by_busy(slots: list[dict]) -> list[dict]:
+    """Return slots sorted ascending by busy_count (fewest attendees busy first)."""
+    return sorted(slots, key=lambda s: s.get("busy_count", 0))
+
+
+async def search_contacts(query: str, max_results: int = 10) -> list[dict]:
+    """Search the user's Google contacts via the People API.
+
+    Returns a list of dicts with ``name`` and ``email`` keys.
+    Requires the contacts.readonly OAuth scope.
+    """
+    def _search_sync() -> list[dict]:
+        try:
+            from googleapiclient.discovery import build
+            from google.oauth2.credentials import Credentials
+        except ImportError as exc:
+            raise RuntimeError("Google API client is not available.") from exc
+
+        tokens = get_credentials()
+        client_config = {}
+        try:
+            from services.google_auth import _load_client_config
+            client_config = _load_client_config()
+        except Exception:
+            pass
+
+        creds = Credentials(
+            token=tokens.get("token"),
+            refresh_token=tokens.get("refresh_token"),
+            token_uri=tokens.get("token_uri", "https://oauth2.googleapis.com/token"),
+            client_id=client_config.get("client_id") or tokens.get("client_id"),
+            client_secret=client_config.get("client_secret") or tokens.get("client_secret"),
+            scopes=tokens.get("scopes"),
+        )
+        service = build("people", "v1", credentials=creds, cache_discovery=False)
+        result = (
+            service.people()
+            .searchContacts(
+                query=query,
+                readMask="names,emailAddresses",
+                pageSize=max_results,
+            )
+            .execute()
+        )
+        contacts = []
+        for person in result.get("results", []):
+            p = person.get("person", {})
+            names = p.get("names", [])
+            emails = p.get("emailAddresses", [])
+            name = names[0].get("displayName", "") if names else ""
+            for email_entry in emails:
+                email = email_entry.get("value", "")
+                if email:
+                    contacts.append({"name": name, "email": email})
+                    break
+        return contacts
+
+    return await asyncio.get_event_loop().run_in_executor(None, _search_sync)
+
+
+async def suggest_meeting_times(
+    attendees: list[str],
+    time_min: str,
+    time_max: str,
+    duration_minutes: int = 60,
+    max_slots: int = 5,
+) -> list[dict]:
+    """Query Google Calendar freebusy and return suggested meeting slots.
+
+    When all attendees are free, returns those slots first.
+    When no slot is fully free, returns slots ranked by fewest-busy attendees.
+    """
+    def _freebusy_sync() -> dict:
+        service = _build_calendar_service()
+        calendars = [{"id": "primary"}] + [{"id": a} for a in attendees]
+        body = {
+            "timeMin": time_min if "T" in time_min else time_min + "T00:00:00Z",
+            "timeMax": time_max if "T" in time_max else time_max + "T00:00:00Z",
+            "items": calendars,
+        }
+        return service.freebusy().query(body=body).execute()
+
+    fb = await asyncio.get_event_loop().run_in_executor(None, _freebusy_sync)
+
+    # Collect all busy intervals per calendar
+    busy_by_cal: dict[str, list[tuple[float, float]]] = {}
+    for cal_id, cal_info in fb.get("calendars", {}).items():
+        intervals = []
+        for b in cal_info.get("busy", []):
+            try:
+                from datetime import datetime as _dt
+                s = _dt.fromisoformat(b["start"].replace("Z", "+00:00")).timestamp()
+                e = _dt.fromisoformat(b["end"].replace("Z", "+00:00")).timestamp()
+                intervals.append((s, e))
+            except (KeyError, ValueError):
+                pass
+        busy_by_cal[cal_id] = intervals
+
+    # Generate candidate slots of duration_minutes every 30 minutes
+    from datetime import datetime as _dt, timedelta as _td
+    import time as _time
+    fmt = "%Y-%m-%dT%H:%M:%S"
+    try:
+        t_min = _dt.fromisoformat(time_min.replace("Z", "+00:00"))
+        t_max = _dt.fromisoformat(time_max.replace("Z", "+00:00"))
+    except ValueError:
+        return []
+
+    step = _td(minutes=30)
+    dur = _td(minutes=duration_minutes)
+    slots = []
+    cur = t_min
+    while cur + dur <= t_max:
+        slot_start = cur.timestamp()
+        slot_end = (cur + dur).timestamp()
+        busy_count = 0
+        for cal_id, intervals in busy_by_cal.items():
+            for b_start, b_end in intervals:
+                if b_start < slot_end and b_end > slot_start:
+                    busy_count += 1
+                    break
+        slots.append({
+            "start": cur.isoformat(),
+            "end": (cur + dur).isoformat(),
+            "busy_count": busy_count,
+        })
+        cur += step
+
+    ranked = _rank_slots_by_busy(slots)
+    return ranked[:max_slots]
+
+
 async def create_event(
     *,
     summary: str,
@@ -247,6 +379,7 @@ async def create_event(
     all_day: bool = False,
     description: str = "",
     location: str = "",
+    attendees: list[str] | None = None,
 ) -> dict:
     """Create a new event on the user's primary Google Calendar.
 
@@ -272,6 +405,8 @@ async def create_event(
         body["description"] = description
     if location:
         body["location"] = location
+    if attendees:
+        body["attendees"] = [{"email": e} for e in attendees if e]
 
     if all_day or (len(start) == 10 and "T" not in start):
         # All-day event: use date fields.

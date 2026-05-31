@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 
 from services.google_auth import get_email, is_authenticated
 from services import calendar as calendar_service
@@ -36,6 +36,14 @@ class CreateEventBody(BaseModel):
     all_day: bool = False
     description: str = ""
     location: str = ""
+    attendees: List[str] = []
+
+
+class FreeBusyBody(BaseModel):
+    attendees: List[str]
+    time_min: str
+    time_max: str
+    duration_minutes: int = 60
 
 
 def _compute_calendar_status() -> dict:
@@ -154,6 +162,7 @@ async def calendar_create_event(body: CreateEventBody):
             all_day=body.all_day,
             description=body.description,
             location=body.location,
+            attendees=body.attendees or [],
         )
     except Exception as exc:
         msg = str(exc).lower()
@@ -183,6 +192,66 @@ async def calendar_create_event(body: CreateEventBody):
             "htmlLink": event.get("htmlLink"),
         },
     }
+
+
+@router.post("/calendar/freebusy")
+async def calendar_freebusy(body: FreeBusyBody):
+    """Return up to 5 suggested meeting times for the given attendees.
+
+    Slots are ordered by fewest attendees busy. Fully free slots come first.
+    Returns 401 if not authenticated.
+    """
+    if not is_authenticated():
+        raise HTTPException(status_code=401, detail="Not connected to Google Calendar.")
+
+    try:
+        suggestions = await calendar_service.suggest_meeting_times(
+            attendees=body.attendees,
+            time_min=body.time_min,
+            time_max=body.time_max,
+            duration_minutes=body.duration_minutes,
+        )
+    except Exception as exc:
+        msg = str(exc).lower()
+        if "insufficientpermissions" in msg or "insufficient authentication scopes" in msg:
+            raise HTTPException(
+                status_code=403,
+                detail={"needs_reauth": True, "message": str(exc)},
+            ) from exc
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not query free/busy data: {exc}",
+        ) from exc
+
+    sorted_suggestions = sorted(suggestions, key=lambda s: s.get("busy_count", 0))
+    return {"suggestions": sorted_suggestions}
+
+
+@router.get("/calendar/contacts")
+async def calendar_contacts(q: str = Query(min_length=1)):
+    """Search the user's Google contacts by name or email.
+
+    Returns a list of matching contacts. Requires contacts.readonly scope.
+    Returns 401 if not authenticated.
+    """
+    if not is_authenticated():
+        raise HTTPException(status_code=401, detail="Not connected to Google Calendar.")
+
+    try:
+        contacts = await calendar_service.search_contacts(query=q)
+    except Exception as exc:
+        msg = str(exc).lower()
+        if "insufficientpermissions" in msg or "insufficient authentication scopes" in msg:
+            raise HTTPException(
+                status_code=403,
+                detail={"needs_reauth": True, "message": "Reconnect your account to allow contact search."},
+            ) from exc
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not search contacts: {exc}",
+        ) from exc
+
+    return {"contacts": contacts}
 
 
 @router.delete("/calendar/events/{event_id}")
