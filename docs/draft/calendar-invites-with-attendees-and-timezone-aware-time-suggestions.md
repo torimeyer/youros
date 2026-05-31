@@ -132,3 +132,10 @@ The app reads the user's time zone from the browser or from the event's `timeZon
 - No existing `freebusy` or `suggest_time` function exists anywhere in `api/services/` or `api/routers/` (confirmed by grep returning 0 matches).
 - No existing directory or contacts service exists (grep for `people`, `directory`, `contacts` in `api/services/google_auth.py` returned scope lines only, no API calls).
 - `api/services/meeting_prep.py:174-176` reads `attendees` from existing Google Calendar events but does not write them, confirming the data model is understood but not yet written on event creation.
+
+## DECISION (2026-05-31, confirmed by Tori)
+Resolves the NEEDS CLARIFICATION above for v1:
+1. UI surface: Both — extend the existing Calendar "New event" form AND support the chat flow.
+2. Attendee suggestions: the user's own Google contacts (People API, contacts.readonly scope). Org-wide directory deferred. Requires a one-time Google reconnect for the new scope.
+3. Conflict ranking: when no fully-free slot exists, rank by fewest attendees busy.
+4. Per-attendee time zones: skipped in v1; all times shown in the user's own time zone.

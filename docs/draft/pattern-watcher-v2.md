@@ -385,3 +385,11 @@ When there are no observation clusters (fresh install, day one), should the
 panel be hidden from the sidebar entirely, or show a placeholder? Hiding it
 avoids clutter but makes it harder to discover. A placeholder ("Nothing learned
 yet...") makes the feature visible but adds a zero-state to maintain.
+
+## DECISION (2026-05-31, confirmed by Tori)
+Resolves NEEDS CLARIFICATION above:
+- NC-1 (reader injection): Option (a) — appended as a system-message segment before the user message (least disruptive to the chat pipeline).
+- NC-2 (recall install): Resolved — ostk-recall is installed (~/.local/bin/ostk-recall) and configured (~/.config/ostk-recall/config.toml). Reader (→1835) + integration test (→1837) can run.
+- NC-3 (cluster ID): use the ID returned by ostk-recall if present; fall back to a hash of the representative observation text. Confirm against engine output at build time.
+- NC-4 (writer scope): v2 handles 'defer' only (matches AC →1827). Remaining sub-kinds (accept, re-prompt, close, priority change) deferred to a later phase.
+- NC-5 (empty state): show the "Nothing learned yet…" placeholder per the draft's specified wording.
