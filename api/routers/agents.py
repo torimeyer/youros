@@ -2586,6 +2586,13 @@ _enrich_async_lock: asyncio.Lock = asyncio.Lock()
 # via asyncio.to_thread; concurrent GIL-heavy threads starve the event loop.
 # With this lock only one sweep runs at a time.
 _sweep_pass_lock: asyncio.Lock = asyncio.Lock()
+# →2018: the 500 ms snapshot loop throttles its autocomplete pass to at most
+# once per this interval so the GIL-heavy to_thread sweep does not starve the
+# event loop. The per-request cold-cache path and tests still run autocomplete
+# unconditionally (run_autocomplete=True) so dead agents flip to completed on
+# read with no added delay.
+_last_autocomplete_mono: float = 0.0
+_AUTOCOMPLETE_MIN_INTERVAL: float = 5.0
 
 # Fields in agent dicts whose string values may contain raw control bytes
 # (e.g. from heartbeat step messages, spawn prompts, or shell output).
@@ -3761,7 +3768,7 @@ async def agent_duration_stats():
     return get_duration_stats()
 
 
-async def _compute_agents_snapshot_async() -> dict:
+async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
     """Build the full unfiltered, enriched agent list.
 
     Called by the background snapshotter every 500 ms (→1219). All the
@@ -4113,11 +4120,13 @@ async def _compute_agents_snapshot_async() -> dict:
 
     # →2018: serialize autocomplete with _reconcile_loop's sweep via
     # _sweep_pass_lock so two GIL-heavy asyncio.to_thread passes never run
-    # concurrently (that contention starved the event loop and returned HTTP
-    # 000). Skip only when a sweep is already in flight; otherwise run every
-    # tick so dead agents still flip to completed on read with no added delay.
+    # concurrently (that contention returned HTTP 000). The 500 ms snapshot
+    # loop passes run_autocomplete=False on most ticks (it throttles to once
+    # per _AUTOCOMPLETE_MIN_INTERVAL) so it does not starve the loop; the
+    # cold-cache request path and tests use the default True so dead agents
+    # flip on read. Skip when a sweep already holds the lock (no pile-up).
     ac_changed = False
-    if not _sweep_pass_lock.locked():
+    if run_autocomplete and not _sweep_pass_lock.locked():
         async with _sweep_pass_lock:
             ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
     if ac_changed:
@@ -4204,11 +4213,21 @@ async def _compute_agents_snapshot_async() -> dict:
 
 
 async def _agents_snapshot_loop() -> None:
-    """Background task: refresh the agent snapshot every 500 ms (→1219)."""
-    global _cached_snapshot
+    """Background task: refresh the agent snapshot every 500 ms (→1219).
+
+    The snapshot itself refreshes every 500 ms, but the GIL-heavy autocomplete
+    sweep is throttled to once per _AUTOCOMPLETE_MIN_INTERVAL here so the 2/sec
+    cadence does not starve the event loop (→2018). The reconcile loop (60 s)
+    is the slower backstop for the same sweep.
+    """
+    global _cached_snapshot, _last_autocomplete_mono
     while True:
         try:
-            snapshot = await _compute_agents_snapshot_async()
+            now = asyncio.get_running_loop().time()
+            do_autocomplete = (now - _last_autocomplete_mono) >= _AUTOCOMPLETE_MIN_INTERVAL
+            snapshot = await _compute_agents_snapshot_async(run_autocomplete=do_autocomplete)
+            if do_autocomplete:
+                _last_autocomplete_mono = now
             async with _snapshot_lock:
                 _cached_snapshot = snapshot
         except Exception:

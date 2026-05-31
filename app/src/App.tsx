@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useNotificationStore } from './stores/notifications'
 import { Layout } from './components/Layout'
 import OnboardingWizard from './components/OnboardingWizard'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
 import Timeline from './pages/Timeline'
 import Agents from './pages/Agents'
@@ -142,7 +143,14 @@ export default function App() {
   // Post-hydration: server truth now in the store. Show the wizard if
   // onboarded is still false after the fetch landed.
   if (!onboarded) {
-    return <OnboardingWizard />
+    // Wrapped so a wizard render crash shows a recoverable error card
+    // instead of blanking the whole app (the wizard renders above the
+    // route-level boundary, so without this a throw = white screen).
+    return (
+      <ErrorBoundary>
+        <OnboardingWizard />
+      </ErrorBoundary>
+    )
   }
 
   return (
