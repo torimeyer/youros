@@ -46,3 +46,6 @@ frontend/test-results/
 .l1.5/
 
 docs/spec/
+
+# user runtime data (custom verbs, etc.) — not committed
+config/
