@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import PatternPanel from "../components/PatternPanel";
 import Icon from "../components/Icon";
 import TopBar from "../components/TopBar";
 import { api } from "../lib/api";
@@ -25,7 +26,7 @@ interface ActivityResponse {
   count: number;
 }
 
-type Tab = "events" | "transcripts";
+type Tab = "events" | "transcripts" | "learned";
 
 function formatTime(iso: string): string {
   try {
@@ -378,6 +379,17 @@ export default function Activity() {
               >
                 Transcripts
               </button>
+              <button
+                data-testid="learned-tab"
+                onClick={() => setTab("learned")}
+                className={`px-3 py-2 text-sm font-medium transition-colors border-b-2 ${
+                  tab === "learned"
+                    ? "border-blue-500 text-white"
+                    : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+                }`}
+              >
+                What I learned
+              </button>
             </div>
           </div>
 
@@ -438,7 +450,9 @@ export default function Activity() {
 
 
         {/* Tab content */}
-        {tab === "transcripts" ? (
+        {tab === "learned" ? (
+          <PatternPanel />
+        ) : tab === "transcripts" ? (
           <Suspense fallback={<div className="text-slate-500 text-center py-12">Loading transcripts...</div>}>
             <Transcripts embedded />
           </Suspense>

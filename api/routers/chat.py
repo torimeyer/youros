@@ -1514,6 +1514,17 @@ async def chat_websocket(websocket: WebSocket):
             if memory_msgs:
                 messages = memory_msgs + messages
 
+            # --- Pattern watcher v2: inject learned-patterns context (→1835 NC-1) ---
+            # Appended as a system-message segment before the user message.
+            # Skips silently if recall is unavailable or times out.
+            try:
+                from services.pattern_watcher import read_context_for_turn as _pw_read
+                _learned = _pw_read(last_text if isinstance(last_text, str) else "")
+                if _learned:
+                    messages = [{"role": "user", "content": _learned}] + messages
+            except Exception:
+                pass
+
             # Clean up tool-heavy history to prevent context pollution.
             # When a prior turn used tools (Bash, Read, etc.), the message
             # list contains dozens of tool_use/tool_result blocks that bloat
