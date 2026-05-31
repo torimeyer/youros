@@ -1,4 +1,4 @@
-import { Suspense, type ReactNode } from 'react'
+import { Suspense, useEffect, type ReactNode } from 'react'
 import Icon from '../Icon'
 import { ErrorBoundary } from '../ErrorBoundary'
 
@@ -12,6 +12,7 @@ export default function GameShell({
   icon,
   onExit,
   onRestart,
+  onHelp,
   status,
   children,
 }: {
@@ -20,9 +21,24 @@ export default function GameShell({
   icon?: string
   onExit: () => void
   onRestart?: () => void
+  onHelp?: () => void
   status?: ReactNode
   children: ReactNode
 }) {
+  // Escape restarts the current game, but defers to any open overlay (a
+  // how-to-play splash or a win/lose dialog) so it doesn't fire underneath one.
+  useEffect(() => {
+    if (!onRestart) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (document.querySelector('[role="dialog"]')) return
+      e.preventDefault()
+      onRestart()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onRestart])
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3">
@@ -38,6 +54,17 @@ export default function GameShell({
         <span className="text-lg font-semibold text-slate-900 dark:text-white">{title}</span>
         <div className="ml-auto flex items-center gap-3">
           {status}
+          {onHelp && (
+            <button
+              type="button"
+              data-testid="breakroom-help"
+              onClick={onHelp}
+              aria-label="How to play"
+              className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <Icon name="help" className="text-lg" /> How to play
+            </button>
+          )}
           {onRestart && (
             <button
               type="button"

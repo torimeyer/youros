@@ -72,7 +72,7 @@ export default function ConfirmModal({
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full max-w-sm p-6 shadow-2xl">
         <h2
           id="confirm-modal-title"
-          className="text-white font-semibold text-base mb-2"
+          className="text-slate-900 dark:text-white font-semibold text-base mb-2"
         >
           {title}
         </h2>

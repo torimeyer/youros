@@ -50,3 +50,36 @@ export function recordBestTime(gameId: string, ms: number): boolean {
   saveBest(gameId, { bestMs: ms })
   return true
 }
+
+// --- How-to-play splash visibility (per game) ---
+
+function howToKey(gameId: string): string {
+  return `myos.breakroom.${gameId}.howto.v1`
+}
+
+/** True once the user has chosen "don't show again" for this game's how-to-play. */
+export function hasSeenHowTo(gameId: string): boolean {
+  try {
+    return localStorage.getItem(howToKey(gameId)) === 'hidden'
+  } catch {
+    return false
+  }
+}
+
+/** Remember not to auto-show this game's how-to-play splash again. */
+export function setNeverShowHowTo(gameId: string): void {
+  try {
+    localStorage.setItem(howToKey(gameId), 'hidden')
+  } catch {
+    // ignore (private mode / quota)
+  }
+}
+
+/**
+ * True while any modal/dialog overlay is open. Game loops call this to pause
+ * themselves while the how-to-play splash or a win/lose dialog is showing.
+ */
+export function isOverlayOpen(): boolean {
+  if (typeof document === 'undefined') return false
+  return !!document.querySelector('[role="dialog"]')
+}
