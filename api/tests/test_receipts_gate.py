@@ -105,22 +105,21 @@ class TestCheckReceipts:
     def test_done_with_long_hash_no_warning(self):
         assert self.check("fixed — commit a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2") is None
 
-    # --- →1765: backtick-wrapped hashes must NOT count as evidence ---
+    # --- →1765: backtick-wrapped hashes MUST count as evidence (consistent with receipts_check) ---
+    # receipts_check.check() explicitly documents: "evidence may live in backtick spans, e.g. `abc1234`"
+    # Gate must match that behavior.
 
-    def test_backtick_direct_hash_returns_warning(self):
-        # `abc1234` directly after backtick — should not satisfy receipt gate.
-        warning = self.check("done. see `abc1234def5`")
-        assert warning is not None, "backtick-direct hash must not count as receipt evidence"
+    def test_backtick_direct_hash_no_warning(self):
+        # `abc1234` in backticks is valid evidence — gate must not warn.
+        assert self.check("done. see `abc1234def5678`") is None
 
-    def test_backtick_mid_span_hash_returns_warning(self):
-        # Hash mid-span (not immediately after opening backtick) — was the bug.
-        warning = self.check("done. `commit abc1234def5` in the log")
-        assert warning is not None, "hash inside backtick span must not count as receipt evidence"
+    def test_backtick_mid_span_hash_no_warning(self):
+        # Hash mid-span (not immediately after opening backtick) — also valid evidence.
+        assert self.check("done. `commit abc1234def5` in the log") is None
 
-    def test_code_fence_hash_returns_warning(self):
-        # Hash inside a triple-backtick fence.
-        warning = self.check("done.\n```\nabc1234def5\n```\n see `api/foo.py`")
-        assert warning is not None, "hash inside code fence must not count as receipt evidence"
+    def test_code_fence_hash_no_warning(self):
+        # Hash inside a triple-backtick fence also counts.
+        assert self.check("done.\n```\nabc1234def5678\n```\nsee `api/foo.py`") is None
 
     def test_bare_hash_still_accepted(self):
         # A bare (non-backtick-wrapped) hash must still clear the gate.
