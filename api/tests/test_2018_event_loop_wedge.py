@@ -7,8 +7,10 @@ GIL-heavy threads starved the event loop, causing all endpoints to stall.
 Additionally _sweep_stale_running_agents() ran synchronously on the event loop,
 blocking it for stat×N agents every 60 s.
 
-Fix: _sweep_pass_lock serializes concurrent autocomplete/sweep calls; autocomplete
-is throttled to at most once per 5 s in the snapshot loop; sweep moves to a thread.
+Fix: _sweep_pass_lock serializes concurrent autocomplete/sweep calls so two
+GIL-heavy asyncio.to_thread passes never run at once; the snapshot loop skips
+autocomplete only while a sweep is already in flight (otherwise it runs every
+tick so dead agents still flip to completed on read); sweep moves to a thread.
 """
 
 import asyncio
@@ -17,24 +19,22 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# 1. Verify the new lock and throttle globals exist and have correct types
+# 1. Verify the serialization lock exists and has the correct type
 # ---------------------------------------------------------------------------
 
 def test_sweep_pass_lock_exists():
-    from routers.agents import _sweep_pass_lock, _AUTOCOMPLETE_MIN_INTERVAL, _last_autocomplete_mono
+    from routers.agents import _sweep_pass_lock
     assert isinstance(_sweep_pass_lock, asyncio.Lock), "_sweep_pass_lock must be asyncio.Lock"
-    assert _AUTOCOMPLETE_MIN_INTERVAL == 5.0, "interval must be 5 s"
-    assert isinstance(_last_autocomplete_mono, float)
 
 
 # ---------------------------------------------------------------------------
-# 2. Verify autocomplete throttle: second call within 5 s skips the pass
+# 2. Snapshot loop runs autocomplete when the lock is free, and skips it only
+#    while a sweep is already in flight. No time-based throttle: a dead agent
+#    must still flip to completed on the next read, not 5 s later.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_autocomplete_throttled_in_snapshot_loop():
-    """If _last_autocomplete_mono was just set, the snapshot loop should skip
-    the autocomplete pass and return ac_changed=False without running the fn."""
+async def test_autocomplete_runs_when_free_skips_when_sweep_in_flight():
     import routers.agents as ag
 
     call_count = 0
@@ -45,29 +45,27 @@ async def test_autocomplete_throttled_in_snapshot_loop():
         return False
 
     original_fn = ag._autocomplete_exited_subagents
-    original_mono = ag._last_autocomplete_mono
-
     try:
         ag._autocomplete_exited_subagents = fake_autocomplete
-        # Simulate: last autocomplete was 1 s ago (within 5 s throttle window)
-        ag._last_autocomplete_mono = asyncio.get_running_loop().time() - 1.0
 
-        # Replicate the throttle logic from _compute_agents_snapshot_async
-        ac_changed = False
-        loop_time = asyncio.get_running_loop().time()
-        if (
-            loop_time - ag._last_autocomplete_mono >= ag._AUTOCOMPLETE_MIN_INTERVAL
-            and not ag._sweep_pass_lock.locked()
-        ):
-            async with ag._sweep_pass_lock:
-                ac_changed = await asyncio.to_thread(ag._autocomplete_exited_subagents)
-                ag._last_autocomplete_mono = asyncio.get_running_loop().time()
+        # Replicate the snapshot-loop gate from _compute_agents_snapshot_async.
+        async def snapshot_gate():
+            ac_changed = False
+            if not ag._sweep_pass_lock.locked():
+                async with ag._sweep_pass_lock:
+                    ac_changed = await asyncio.to_thread(ag._autocomplete_exited_subagents)
+            return ac_changed
 
-        assert call_count == 0, "autocomplete must be skipped when within 5 s window"
-        assert ac_changed is False
+        # Lock free -> autocomplete runs on the read path.
+        await snapshot_gate()
+        assert call_count == 1, "autocomplete must run when no sweep is in flight"
+
+        # Lock held (a sweep is in flight) -> snapshot skips, no pile-up.
+        async with ag._sweep_pass_lock:
+            await snapshot_gate()
+        assert call_count == 1, "autocomplete must be skipped while a sweep holds the lock"
     finally:
         ag._autocomplete_exited_subagents = original_fn
-        ag._last_autocomplete_mono = original_mono
 
 
 # ---------------------------------------------------------------------------

@@ -2586,11 +2586,6 @@ _enrich_async_lock: asyncio.Lock = asyncio.Lock()
 # via asyncio.to_thread; concurrent GIL-heavy threads starve the event loop.
 # With this lock only one sweep runs at a time.
 _sweep_pass_lock: asyncio.Lock = asyncio.Lock()
-# Monotonic timestamp of the last autocomplete pass. Used to throttle the
-# snapshot loop from running autocomplete 2/sec (its natural cadence) to at
-# most once every 5 s — the reconcile loop covers the finer-grained checks.
-_last_autocomplete_mono: float = 0.0
-_AUTOCOMPLETE_MIN_INTERVAL: float = 5.0
 
 # Fields in agent dicts whose string values may contain raw control bytes
 # (e.g. from heartbeat step messages, spawn prompts, or shell output).
@@ -4116,20 +4111,15 @@ async def _compute_agents_snapshot_async() -> dict:
     if sweep_changed or persisted_pass_changed:
         await _save_agent_state_async()
 
-    # →2018: throttle autocomplete to at most once per 5 s and serialize with
-    # _reconcile_loop's sweep. Running asyncio.to_thread for GIL-heavy work at
-    # 2/sec (the natural 500 ms snapshot cadence) starves the event loop; only
-    # one pass may run at a time.
-    global _last_autocomplete_mono
+    # →2018: serialize autocomplete with _reconcile_loop's sweep via
+    # _sweep_pass_lock so two GIL-heavy asyncio.to_thread passes never run
+    # concurrently (that contention starved the event loop and returned HTTP
+    # 000). Skip only when a sweep is already in flight; otherwise run every
+    # tick so dead agents still flip to completed on read with no added delay.
     ac_changed = False
-    _loop_time = asyncio.get_running_loop().time()
-    if (
-        _loop_time - _last_autocomplete_mono >= _AUTOCOMPLETE_MIN_INTERVAL
-        and not _sweep_pass_lock.locked()
-    ):
+    if not _sweep_pass_lock.locked():
         async with _sweep_pass_lock:
             ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
-            _last_autocomplete_mono = asyncio.get_running_loop().time()
     if ac_changed:
         await _save_agent_state_async()
         await _agent_events_bus.publish("sweep", {})
