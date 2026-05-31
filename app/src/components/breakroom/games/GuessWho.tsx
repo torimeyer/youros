@@ -204,7 +204,7 @@ export default function GuessWho() {
       )}
 
       {/* Board */}
-      <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+      <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
         {items.map((it) => {
           const down = flipped.has(it.id)
           return (
@@ -214,7 +214,7 @@ export default function GuessWho() {
               data-testid={`gw-tile-${it.id}`}
               onClick={() => tileClick(it)}
               className={[
-                'flex flex-col items-center justify-center gap-1 rounded-xl border p-2 transition',
+                'flex flex-col items-center justify-center gap-2 rounded-2xl border p-4 transition',
                 guessMode
                   ? 'border-pink-400 ring-2 ring-pink-300 hover:bg-pink-50 dark:hover:bg-pink-950'
                   : 'border-slate-200 dark:border-slate-700',
@@ -223,8 +223,8 @@ export default function GuessWho() {
                   : 'bg-white hover:-translate-y-0.5 hover:shadow-md dark:bg-slate-900',
               ].join(' ')}
             >
-              <span className="text-3xl leading-none">{it.emoji}</span>
-              <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300">{it.name}</span>
+              <span className="text-5xl leading-none">{it.emoji}</span>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{it.name}</span>
             </button>
           )
         })}
