@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import Activity from './Activity'
 import { buildStream, groupByDay, bundleEntries, isInternalAgent } from '../lib/activityStream'
 import { useAppStore } from '../stores/app'
+import { useWebSocket } from '../hooks/useWebSocket'
 
 vi.mock('../lib/api', () => ({
   api: {
@@ -13,6 +14,10 @@ vi.mock('../lib/api', () => ({
     put: vi.fn(),
     patch: vi.fn(),
   },
+}))
+
+vi.mock('../hooks/useWebSocket', () => ({
+  useWebSocket: vi.fn(() => ({ lastMessage: null, isConnected: false })),
 }))
 
 Object.defineProperty(window, 'matchMedia', {
@@ -692,6 +697,77 @@ describe('Activity page - bundling', () => {
     })
     expect(screen.queryByTestId('stream-bundle')).not.toBeInTheDocument()
     expect(screen.queryByTestId('bundle-count')).not.toBeInTheDocument()
+  })
+})
+
+// ─── WebSocket live update tests ─────────────────────────────────────────────
+
+describe('Activity page – WebSocket live updates', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
+    vi.mocked(useWebSocket).mockReturnValue({ lastMessage: null, isConnected: false })
+  })
+
+  it('re-fetches activity when WebSocket delivers a terminal agent event', async () => {
+    // First call: initial empty load
+    mockedApiGet.mockResolvedValueOnce({ events: [], count: 0 })
+    // Second call: after the WS event triggers a re-fetch
+    mockedApiGet.mockResolvedValueOnce({
+      events: [{
+        timestamp: '2026-06-01T10:00:00Z',
+        event: 'agent.completed',
+        label: 'Agent finished',
+        category: 'agent',
+        detail: 'name="fix-login-bug"',
+      }],
+      count: 1,
+    })
+
+    const { rerender } = renderActivity()
+
+    // Wait for the initial load to complete
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledTimes(1))
+
+    // Simulate WS delivering a terminal agent delta frame
+    vi.mocked(useWebSocket).mockReturnValue({
+      lastMessage: {
+        type: 'delta',
+        changed: { name: 'fix-login-bug', status: 'completed', terminal: true },
+      } as any,
+      isConnected: true,
+    })
+    rerender(
+      <MemoryRouter>
+        <Activity />
+      </MemoryRouter>
+    )
+
+    // The WS-triggered re-fetch should fire without waiting 10 seconds
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledTimes(2), { timeout: 2000 })
+    await waitFor(() => {
+      expect(screen.getByText('Finished: Fix Login Bug')).toBeInTheDocument()
+    })
+  })
+
+  it('shows plain-language "agent finished" label with no jargon', async () => {
+    mockedApiGet.mockResolvedValue({
+      events: [{
+        timestamp: '2026-06-01T10:00:00Z',
+        event: 'agent.completed',
+        label: 'Agent finished',
+        category: 'agent',
+        detail: 'name="build-release-notes"',
+      }],
+      count: 1,
+    })
+    renderActivity()
+    await waitFor(() => {
+      expect(screen.getByText('Finished: Build Release Notes')).toBeInTheDocument()
+    })
+    // Row should have the agent kind on it
+    const row = screen.getByTestId('stream-row')
+    expect(row).toHaveAttribute('data-kind', 'agent.finished')
   })
 })
 

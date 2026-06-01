@@ -3,6 +3,7 @@ import PatternPanel from "../components/PatternPanel";
 import Icon from "../components/Icon";
 import TopBar from "../components/TopBar";
 import { api } from "../lib/api";
+import { useWebSocket } from "../hooks/useWebSocket";
 import { reportError } from '../lib/reportError';
 import { LoadingState, EmptyState } from "../components/ui";
 import {
@@ -308,6 +309,17 @@ export default function Activity() {
     const id = setInterval(() => fetchActivity(true), 10_000);
     return () => clearInterval(id);
   }, [tab, fetchActivity]);
+
+  // Re-fetch immediately when the agent WS delivers a terminal event so
+  // new agent.completed / agent.failed rows appear in under 2 seconds.
+  const { lastMessage } = useWebSocket("/api/ws/agents/state", true);
+  useEffect(() => {
+    if (!lastMessage) return;
+    const frame = lastMessage as any;
+    if (frame.type === "delta" && frame.changed?.terminal === true) {
+      fetchActivity(true);
+    }
+  }, [lastMessage, fetchActivity]);
 
   const toggleKey = (key: string) => {
     setExpandedKeys((prev) => {
