@@ -52,14 +52,6 @@ export function recordBestTime(gameId: string, ms: number): boolean {
   return true
 }
 
-/** Record a lower-is-better roll count. Returns true if it beat the previous best. */
-export function recordFewestRolls(gameId: string, rolls: number): boolean {
-  const prev = loadBest(gameId)
-  if (prev?.bestRolls != null && prev.bestRolls <= rolls) return false
-  saveBest(gameId, { bestRolls: rolls })
-  return true
-}
-
 // --- How-to-play splash visibility (per game) ---
 
 function howToKey(gameId: string): string {

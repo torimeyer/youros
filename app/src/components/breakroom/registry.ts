@@ -137,19 +137,4 @@ export const GAMES: GameDef[] = [
     ],
     component: lazy(() => import('./games/Frogger')),
   },
-  {
-    id: 'catsandsnakes',
-    name: 'Cats & Snakes',
-    icon: 'pets',
-    lane: 'retro',
-    blurb: 'Ride cats up, dodge snakes down, race to square 100.',
-    howTo: [
-      'Tap Roll to roll the die and move your pawn.',
-      'Land on a cat and you ride it up the board.',
-      'Land on a snake and it pulls you back down.',
-      'First to reach square 100 wins, but you must land on it exactly.',
-      'Win in the fewest rolls to set your best score.',
-    ],
-    component: lazy(() => import('./games/CatsAndSnakes')),
-  },
 ]
