@@ -793,6 +793,57 @@ class OstkService:
 
         return await asyncio.to_thread(_sync_update)
 
+    def release_needle_sync(self, needle_id: str) -> bool:
+        """Synchronously reset a needle from in_progress back to open.
+
+        Only acts on needles whose current stored status is ``in_progress``.
+        Closed, shelved, or already-open needles are left unchanged. Returns
+        True if a write happened, False if no change was needed.
+
+        Called synchronously from _fire_release_needle_if_orphaned in agents.py
+        so no asyncio task is created and no extra event loop cycles are added.
+        """
+        issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+        if not issues_path.exists():
+            return False
+
+        norm_id = self._normalize_task_id(needle_id)
+        raw_content = issues_path.read_text()
+        # Fast path: skip JSON parsing when needle_id clearly absent.
+        bare = needle_id.lstrip("→").strip()
+        if needle_id not in raw_content and bare not in raw_content:
+            return False
+        lines = raw_content.strip().splitlines()
+        found = False
+        changed = False
+        updated: list[str] = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                updated.append(line)
+                continue
+            raw_id = str(entry.get("id", ""))
+            if self._normalize_task_id(raw_id) == norm_id:
+                found = True
+                if entry.get("status") == "in_progress":
+                    entry["status"] = "open"
+                    entry.pop("in_progress_at", None)
+                    changed = True
+            updated.append(json.dumps(entry, ensure_ascii=False))
+
+        if not found or not changed:
+            return False
+
+        issues_path.write_text("\n".join(updated) + "\n")
+        return True
+
+    async def release_needle(self, needle_id: str) -> bool:
+        """Async wrapper around release_needle_sync — used by tests and async callers."""
+        return self.release_needle_sync(needle_id)
+
     async def delete_task(self, task_id: str) -> str:
         """Permanently remove a task from issues.jsonl.
 

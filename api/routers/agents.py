@@ -75,6 +75,16 @@ def _set_agent_status(name: str, new_status: str, **extra_fields) -> None:
     for k, v in extra_fields.items():
         meta[k] = v
     _fire_delta(name, new_status)
+    if new_status in _TERMINAL_STATUSES:
+        # Reset any in_progress needle(s) this agent held back to open, so a task
+        # never sticks at in_progress after its agent dies without closing it
+        # (→2039). Skips needles still claimed by another live agent.
+        nid = meta.get("needle_id")
+        if nid:
+            _fire_release_needle_if_orphaned(nid)
+        for _extra_nid in meta.get("needle_ids") or []:
+            if _extra_nid:
+                _fire_release_needle_if_orphaned(_extra_nid)
 
 
 class AgentMemorySave(BaseModel):
@@ -4725,6 +4735,51 @@ def _fire_set_task_in_progress(needle_id: str) -> None:
 async def _set_task_in_progress_async(needle_id: str) -> None:
     try:
         await ostk.set_task_in_progress(needle_id)
+    except Exception:
+        pass
+
+
+def _fire_release_needle_if_orphaned(needle_id: str) -> None:
+    """Synchronously reset needle_id to open if no other agent claims to hold it.
+
+    Called from _set_agent_status when an agent transitions to a terminal status.
+    Done synchronously (no create_task) so no extra event loop cycles are added.
+
+    Checks by STATUS only (skips _is_agent_genuinely_live / os.kill) to avoid
+    iterating all live agents' PIDs — that could add 100+ ms of syscall overhead.
+    Stale agents that claim a needle but have dead PIDs will be swept by the
+    stale-agent loop, which will call _fire_release_needle_if_orphaned again.
+    """
+    if not needle_id:
+        return
+    bare = needle_id.lstrip("→").strip()
+    for _name, meta in agent_metadata.items():
+        if not isinstance(meta, dict):
+            continue
+        status = str(meta.get("status") or "").lower()
+        if status not in _LIVE_AGENT_STATUSES:
+            continue
+        nid = str(meta.get("needle_id") or "")
+        if nid and (nid == needle_id or nid.lstrip("→").strip() == bare):
+            return
+        for extra_nid in meta.get("needle_ids") or []:
+            s = str(extra_nid)
+            if s == needle_id or s.lstrip("→").strip() == bare:
+                return
+    try:
+        ostk.release_needle_sync(needle_id)
+    except Exception:
+        pass
+
+
+async def _release_needle_if_orphaned_async(needle_id: str) -> None:
+    """Async version — used by tests to verify orphan-check logic."""
+    live = get_running_needle_ids()
+    bare = needle_id.lstrip("→").strip()
+    if needle_id in live or bare in live:
+        return
+    try:
+        await ostk.release_needle(needle_id)
     except Exception:
         pass
 
