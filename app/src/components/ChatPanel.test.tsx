@@ -521,12 +521,12 @@ describe('ChatPanel', () => {
       // Assistant message container should NOT have items-end.
       expect(assistantMsgContainer!.className).not.toContain('items-end')
 
-      // User bubble wrapper should have ml-auto and a max width to keep it
-      // from spanning the whole panel.
+      // User bubble wrapper right-aligns via items-end (this replaced the old
+      // ml-auto approach). The width cap (max-w-[75%]) now lives on the bubble.
       const userBubbleWrapper = userMsgContainer!.querySelector('.relative')
       expect(userBubbleWrapper).not.toBeNull()
-      expect(userBubbleWrapper!.className).toContain('ml-auto')
-      expect(userBubbleWrapper!.className).toContain('max-w-[75%]')
+      expect(userBubbleWrapper!.className).toContain('items-end')
+      expect(userMsgContainer!.innerHTML).toContain('max-w-[75%]')
 
       // Assistant bubble wrapper should NOT have ml-auto.
       const assistantBubbleWrapper = assistantMsgContainer!.querySelector('.relative')
