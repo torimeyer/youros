@@ -1,13 +1,12 @@
 import { useEffect } from 'react'
-import { useCalendarStore } from '../stores/calendarStore'
+import { useCalendarStore, type CalendarEvent } from '../stores/calendarStore'
+import { subscribeSharedSocket } from '../lib/sharedSocket'
 import { reportError } from '../lib/reportError'
 
 const POLL_MS = 5000
 
 export function useCalendarFeed() {
   useEffect(() => {
-    let ws: WebSocket | null = null
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let pollTimer: ReturnType<typeof setTimeout> | null = null
     let controller: AbortController | null = null
     let cancelled = false
@@ -50,50 +49,32 @@ export function useCalendarFeed() {
       tick()
     }
 
-    const connect = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const url = `${protocol}//${window.location.host}/api/ws/calendar/events`
-
-      ws = new WebSocket(url)
-
-      ws.onopen = () => {
+    // Share the single calendar socket. The shared manager owns reconnect
+    // timing, so a dropped socket can never leave two live connections for
+    // this channel. The HTTP poll below only runs while the socket is down.
+    const unsubscribe = subscribeSharedSocket('/api/ws/calendar/events', {
+      onOpen: () => {
         useCalendarStore.setState({ wsConnected: true })
         stopPolling()
-      }
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data)
-          if (msg.type === 'snapshot') {
-            useCalendarStore.setState({
-              events: msg.events || [],
-            })
-          } else if (msg.type === 'ping') {
-            // Keepalive received
-          }
-        } catch (e) {
-          reportError('Calendar WS message parse error', e)
+      },
+      onMessage: (msg) => {
+        const m = msg as { type?: string; events?: CalendarEvent[] }
+        if (m.type === 'snapshot') {
+          useCalendarStore.setState({
+            events: m.events || [],
+          })
         }
-      }
-
-      ws.onerror = () => {
-        useCalendarStore.setState({ wsConnected: false })
-      }
-
-      ws.onclose = () => {
+      },
+      onClose: () => {
         useCalendarStore.setState({ wsConnected: false })
         startPolling()
-        reconnectTimer = setTimeout(connect, 5000)
-      }
-    }
-
-    connect()
+      },
+    })
 
     return () => {
       cancelled = true
-      if (reconnectTimer) clearTimeout(reconnectTimer)
       stopPolling()
-      if (ws) ws.close()
+      unsubscribe()
     }
   }, [])
 }

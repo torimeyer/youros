@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { shallowEqualArray } from './storeEquality'
 
-interface CalendarEvent {
+export interface CalendarEvent {
   id: string
   summary?: string
   start: { dateTime?: string; date?: string }

@@ -197,10 +197,16 @@ export default function ReleaseNotesWatcher() {
       }
     }
 
-    // Initial + 2s poll. Matches the cadence the Specs page uses
-    // during an active build, so transitions land within 2s.
+    // Initial check, then a steady background poll. The spec-change bus
+    // (onSpecsChange below) is the fast path: any spec write made inside
+    // the app nudges us to refetch in the same frame, so a completed
+    // build is caught right away. This timer is only the safety net for
+    // changes that happen entirely server-side, so it can run at a calm
+    // cadence instead of hammering /specs every couple of seconds. The
+    // old 2s cadence sent 30 requests a minute for the whole app session
+    // and was a real contributor to backend load under agent activity.
     check()
-    const interval = window.setInterval(check, 2000)
+    const interval = window.setInterval(check, 5000)
     // Bus hook: any write to /specs/* anywhere in the app also nudges
     // us so we refetch within a single frame of the write that caused
     // the transition.
