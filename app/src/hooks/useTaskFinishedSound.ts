@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { reportError } from '../lib/reportError'
+import { subscribeSharedSocket } from '../lib/sharedSocket'
 
 /**
  * Plays a short, pleasant two-note chime using the Web Audio API.
@@ -59,58 +60,30 @@ export function playTaskFinishedSound(
 }
 
 /**
- * Subscribes to the existing notifications WebSocket (the same
+ * Listens to the existing notifications channel (the same
  * `/api/ws/notifications` channel that `useNotificationsFeed` uses) and
  * plays a short chime whenever the backend emits a `needle_closed`
  * event. The backend publishes this event from the task-close handler
  * (api/routers/tasks.py) onto the notifications event bus, which the WS
  * endpoint forwards verbatim as `{ "type": "needle_closed", ... }`.
  *
- * Mount once at app level. It opens its own lightweight read-only socket
- * and reconnects on drop, mirroring the notifications feed's behaviour.
+ * Mount once at app level. It shares the single notifications socket via
+ * the shared-socket manager rather than opening its own, so the
+ * notifications channel never holds more than one connection.
  */
 export function useTaskFinishedSound(): void {
   useEffect(() => {
-    let ws: WebSocket | null = null
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-    let cancelled = false
-
-    const connect = () => {
-      if (cancelled) return
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const url = `${protocol}//${window.location.host}/api/ws/notifications`
-
-      try {
-        ws = new WebSocket(url)
-      } catch (e) {
-        reportError('Task-finished sound WS connect error', e)
-        return
-      }
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data)
-          if (msg && msg.type === 'needle_closed') {
-            playTaskFinishedSound()
-          }
-        } catch {
-          // Ignore non-JSON / unrelated frames; the notifications feed
-          // owns parse-error reporting for this channel.
+    const unsubscribe = subscribeSharedSocket('/api/ws/notifications', {
+      onMessage: (msg) => {
+        const m = msg as { type?: string }
+        if (m && m.type === 'needle_closed') {
+          playTaskFinishedSound()
         }
-      }
-
-      ws.onclose = () => {
-        if (cancelled) return
-        reconnectTimer = setTimeout(connect, 5000)
-      }
-    }
-
-    connect()
+      },
+    })
 
     return () => {
-      cancelled = true
-      if (reconnectTimer) clearTimeout(reconnectTimer)
-      if (ws) ws.close()
+      unsubscribe()
     }
   }, [])
 }

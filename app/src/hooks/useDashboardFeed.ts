@@ -1,13 +1,12 @@
 import { useEffect } from 'react'
 import { useDashboardStore } from '../stores/dashboardStore'
+import { subscribeSharedSocket } from '../lib/sharedSocket'
 import { reportError } from '../lib/reportError'
 
 const POLL_MS = 5000
 
 export function useDashboardFeed() {
   useEffect(() => {
-    let ws: WebSocket | null = null
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let pollTimer: ReturnType<typeof setTimeout> | null = null
     let controller: AbortController | null = null
     let cancelled = false
@@ -51,52 +50,39 @@ export function useDashboardFeed() {
       tick()
     }
 
-    const connect = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const url = `${protocol}//${window.location.host}/api/ws/dashboard/data`
-
-      ws = new WebSocket(url)
-
-      ws.onopen = () => {
+    // Share the single dashboard socket. This feed is mounted both at the
+    // app shell and on the dashboard page; the shared manager makes both
+    // mounts ride on ONE connection instead of opening a second.
+    const unsubscribe = subscribeSharedSocket('/api/ws/dashboard/data', {
+      onOpen: () => {
         useDashboardStore.setState({ wsConnected: true })
         stopPolling()
-      }
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data)
-          if (msg.type === 'snapshot') {
-            useDashboardStore.setState({
-              agentsCount: msg.agents_count || 0,
-              tasksCount: msg.tasks_count || 0,
-              lastSyncAt: msg.last_sync_at,
-            })
-          } else if (msg.type === 'ping') {
-            // Keepalive received
-          }
-        } catch (e) {
-          reportError('Dashboard WS message parse error', e)
+      },
+      onMessage: (msg) => {
+        const m = msg as {
+          type?: string
+          agents_count?: number
+          tasks_count?: number
+          last_sync_at?: string
         }
-      }
-
-      ws.onerror = () => {
-        useDashboardStore.setState({ wsConnected: false })
-      }
-
-      ws.onclose = () => {
+        if (m.type === 'snapshot') {
+          useDashboardStore.setState({
+            agentsCount: m.agents_count || 0,
+            tasksCount: m.tasks_count || 0,
+            lastSyncAt: m.last_sync_at,
+          })
+        }
+      },
+      onClose: () => {
         useDashboardStore.setState({ wsConnected: false })
         startPolling()
-        reconnectTimer = setTimeout(connect, 5000)
-      }
-    }
-
-    connect()
+      },
+    })
 
     return () => {
       cancelled = true
-      if (reconnectTimer) clearTimeout(reconnectTimer)
       stopPolling()
-      if (ws) ws.close()
+      unsubscribe()
     }
   }, [])
 }

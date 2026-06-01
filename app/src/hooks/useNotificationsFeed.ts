@@ -1,13 +1,12 @@
 import { useEffect } from 'react'
-import { useNotificationsStore } from '../stores/notificationsStore'
+import { useNotificationsStore, type Notification } from '../stores/notificationsStore'
+import { subscribeSharedSocket } from '../lib/sharedSocket'
 import { reportError } from '../lib/reportError'
 
 const POLL_MS = 5000
 
 export function useNotificationsFeed() {
   useEffect(() => {
-    let ws: WebSocket | null = null
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let pollTimer: ReturnType<typeof setTimeout> | null = null
     let controller: AbortController | null = null
     let cancelled = false
@@ -53,54 +52,37 @@ export function useNotificationsFeed() {
       tick()
     }
 
-    const connect = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const url = `${protocol}//${window.location.host}/api/ws/notifications`
-
-      ws = new WebSocket(url)
-
-      ws.onopen = () => {
+    // Share the single notifications socket. Several places listen to this
+    // channel (this feed and the task-finished chime); the shared manager
+    // makes sure they all ride on ONE connection instead of opening their
+    // own. The HTTP poll below only runs while that socket is down.
+    const unsubscribe = subscribeSharedSocket('/api/ws/notifications', {
+      onOpen: () => {
         useNotificationsStore.setState({ wsConnected: true })
         stopPolling()
-      }
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data)
-          if (msg.type === 'snapshot') {
-            useNotificationsStore.setState({
-              notifications: msg.notifications || [],
-              // Signal that the initial snapshot has been delivered so
-              // TopBar can seed seenNotifIdsRef from the real list, not
-              // from an empty Set that was built before the WS connected.
-              snapshotReceived: true,
-            })
-          } else if (msg.type === 'ping') {
-            // Keepalive received
-          }
-        } catch (e) {
-          reportError('Notifications WS message parse error', e)
+      },
+      onMessage: (msg) => {
+        const m = msg as { type?: string; notifications?: Notification[] }
+        if (m.type === 'snapshot') {
+          useNotificationsStore.setState({
+            notifications: m.notifications || [],
+            // Signal that the initial snapshot has been delivered so
+            // TopBar can seed seenNotifIdsRef from the real list, not
+            // from an empty Set that was built before the WS connected.
+            snapshotReceived: true,
+          })
         }
-      }
-
-      ws.onerror = () => {
-        useNotificationsStore.setState({ wsConnected: false })
-      }
-
-      ws.onclose = () => {
+      },
+      onClose: () => {
         useNotificationsStore.setState({ wsConnected: false })
         startPolling()
-        reconnectTimer = setTimeout(connect, 5000)
-      }
-    }
-
-    connect()
+      },
+    })
 
     return () => {
       cancelled = true
-      if (reconnectTimer) clearTimeout(reconnectTimer)
       stopPolling()
-      if (ws) ws.close()
+      unsubscribe()
     }
   }, [])
 }
