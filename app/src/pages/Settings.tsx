@@ -13,6 +13,7 @@ import SlackConnect from '../components/SlackConnect';
 import { AtlassianSetupCard, GithubSetupCard, CustomizeStep } from '../components/OnboardingWizard';
 import { AGENT_MARKETPLACE, type MarketplaceCategory } from '../data/agentMarketplace';
 import CustomVerbs from '../components/CustomVerbs';
+import ChannelRoutingPanel from '../components/ChannelRoutingPanel';
 import { parseMemoryProvenance } from '../lib/parseMemoryProvenance';
 
 
@@ -1726,6 +1727,11 @@ export default function Settings() {
             {/* Custom tack commands */}
             <div className={cardClass} data-testid="custom-verbs-section">
               <CustomVerbs />
+            </div>
+
+            {/* Channel routing (Wave 6, →1872) */}
+            <div className={cardClass} data-testid="channel-routing-section">
+              <ChannelRoutingPanel />
             </div>
           </div>
 
