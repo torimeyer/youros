@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import signal
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
@@ -260,6 +261,101 @@ async def _coalesce_call(key: tuple, coro_factory):
         _inflight_calls.pop(key, None)
 
 
+# Short-TTL result cache for hot read-only ostk calls (→2018).
+#
+# `_coalesce_call` only dedupes requests that *overlap in time*. The
+# dashboard polls /api/tasks/counts, /api/specs/counts, /api/agents and
+# friends on a few-second interval, and several of those endpoints call
+# the SAME underlying ostk primitive (e.g. ``list_tasks``) back to back
+# rather than at the exact same instant. With coalescing alone every one
+# of those serial pollers re-spawns the heavy work (subprocess + JSON
+# parse of ~1400 needles), and when many land together the GIL-heavy
+# parsing starves the event loop until requests time out (HTTP 000).
+#
+# The TTL cache closes that gap: the first caller in a short window
+# computes the result; everyone else within ``ttl`` seconds gets the
+# already-computed value with zero ostk work. ``_coalesce_call`` still
+# wraps the producer so that even the *first* concurrent burst shares one
+# computation. Cache is keyed on (method, cwd, args) exactly like the
+# coalesce key, so filtered variants never collide. Returns the shared
+# object; callers that mutate must copy (same contract as before).
+_ttl_cache: dict[tuple, tuple[float, object]] = {}
+
+
+def _mtime_ns_or_zero(path: "Optional[Path]") -> int:
+    """Return ``path``'s mtime in ns, or 0 if it does not exist / no path.
+    Used to make the TTL cache self-invalidate when the backing file is
+    written, so a task mutation (which rewrites issues.jsonl) is reflected
+    immediately rather than after the TTL expires."""
+    if path is None:
+        return 0
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
+async def _ttl_cached_call(
+    key: tuple,
+    coro_factory,
+    ttl: float = 2.0,
+    mtime_of: "Optional[Path]" = None,
+):
+    """Return a cached result for ``key`` if it is younger than ``ttl``
+    seconds AND the optional ``mtime_of`` file is unchanged; otherwise
+    compute via ``coro_factory`` (coalesced so a concurrent burst shares
+    one computation) and cache it.
+
+    ``mtime_of`` makes the cache exact for writes: any mutation that
+    rewrites that file (e.g. issues.jsonl) busts the cache on the next
+    read regardless of TTL, so the dashboard never shows a stale count
+    after add/close/shelve. ``ttl`` still bounds how long a burst of pure
+    reads may share one computed result.
+
+    A ``ttl`` of 0 disables caching (always recompute).
+    """
+    cur_mtime = _mtime_ns_or_zero(mtime_of)
+    if ttl > 0:
+        cached = _ttl_cache.get(key)
+        if cached is not None:
+            ts, cached_mtime, value = cached
+            if cached_mtime == cur_mtime and (time.monotonic() - ts) < ttl:
+                return value
+
+    async def _produce():
+        result = await coro_factory()
+        if ttl > 0:
+            # Re-read mtime after producing so a write that landed during
+            # the (awaited) computation invalidates the entry next time.
+            _ttl_cache[key] = (time.monotonic(), _mtime_ns_or_zero(mtime_of), result)
+        return result
+
+    # Coalesce so a simultaneous burst (the exact case that wedges the
+    # loop) still collapses to a single producer even on a cold cache.
+    return await _coalesce_call(key, _produce)
+
+
+# ostk subcommands that change the task store. After any of these succeed
+# we drop the cached ``list_tasks`` result so the next read recomputes
+# rather than serving a stale count for up to the TTL window.
+_TASK_WRITE_VERBS = {"add", "close", "delete", "update", "claim", "reopen", "shelve", "unshelve", "priority", "status"}
+
+
+def _maybe_invalidate_after_write(args: tuple) -> None:
+    """If ``args`` is a task-mutating ostk command, drop cached task reads."""
+    if len(args) >= 2 and args[0] == "work" and args[1] in _TASK_WRITE_VERBS:
+        invalidate_ttl_cache("list_tasks")
+
+
+def invalidate_ttl_cache(prefix: Optional[str] = None) -> None:
+    """Drop cached entries. With no prefix, clears everything; with a
+    prefix (e.g. ``"list_tasks"``) clears only matching method keys so a
+    write (add/close task) can force the next read to recompute."""
+    if prefix is None:
+        _ttl_cache.clear()
+        return
+    for k in [k for k in _ttl_cache if k and k[0] == prefix]:
+        _ttl_cache.pop(k, None)
 
 
 def _spec_audit_enrich_sync(
@@ -434,6 +530,7 @@ class OstkService:
             try:
                 result = await self._run_socket(*args, timeout=timeout)
                 self._socket_available = True
+                _maybe_invalidate_after_write(args)
                 return result
             except Exception:
                 self._socket_available = False
@@ -457,6 +554,7 @@ class OstkService:
         if result.returncode != 0:
             err = result.stderr.strip() or output
             raise OstkError(err)
+        _maybe_invalidate_after_write(args)
         return output
 
     async def _run_json(self, *args: str) -> Union[list, dict]:
@@ -504,7 +602,14 @@ class OstkService:
                 seen = {k: v for k, v in seen.items() if k in active_ids}
             return list(seen.values())
 
-        shared = await _coalesce_call(key, _do_call)
+        # →2018: TTL-cache this hot read so the dashboard's concurrent
+        # pollers (task_counts + specs/counts both call list_tasks) share
+        # one computed result within a short window instead of each
+        # re-spawning the ~1400-needle parse and starving the loop.
+        # Keyed on issues.jsonl's mtime so any task write busts the cache
+        # immediately (even direct-file writers like shelve/update_status).
+        issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+        shared = await _ttl_cached_call(key, _do_call, ttl=2.0, mtime_of=issues_path)
         return list(shared)
 
     async def add_task(
@@ -899,6 +1004,9 @@ class OstkService:
             raise OstkError(f"task '{task_id}' not found")
 
         issues_path.write_text("\n".join(updated) + "\n")
+        # →2018: this writer bypasses _run (writes issues.jsonl directly),
+        # so invalidate the cached task list here too.
+        invalidate_ttl_cache("list_tasks")
         return f"shelved {task_id}"
 
     async def unshelve_task(self, task_id: str) -> str:
@@ -928,6 +1036,8 @@ class OstkService:
             raise OstkError(f"task '{task_id}' not found")
 
         issues_path.write_text("\n".join(updated) + "\n")
+        # →2018: bypasses _run; invalidate cached task list.
+        invalidate_ttl_cache("list_tasks")
         return f"unshelved {task_id}"
 
     async def link_tasks(self, source: str, relation: str, target: str) -> str:
