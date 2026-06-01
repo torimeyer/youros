@@ -7,6 +7,15 @@ from dotenv import load_dotenv
 # GOOGLE_CLIENT_ID) are available when modules read them at import time.
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
+# →2042 diagnostics: dump every Python thread's stack on SIGUSR1. sample(1)
+# cannot unwind CPython frames, so an event-loop freeze is invisible at the
+# Python level without this. `kill -USR1 <worker-pid>` prints all stacks to
+# stderr (captured in the dev-backend log). Cheap and safe; the registration
+# itself does nothing until the signal arrives.
+import faulthandler as _faulthandler
+import signal as _signal
+_faulthandler.register(_signal.SIGUSR1, all_threads=True)
+
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -44,6 +53,13 @@ from routers import turn_audit as turn_audit_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # →2042: route all logging through a background queue FIRST, before any
+    # other startup work logs anything. Without this, a logger.warning() on the
+    # event loop (e.g. SlowCallMiddleware's per-slow-request warning) writes to
+    # stderr — a pipe under dev-backend.sh — and a full pipe buffer blocks the
+    # write while holding the global logging lock, freezing the whole loop.
+    from services.nonblocking_logging import install_nonblocking_logging
+    install_nonblocking_logging()
     await prune_stale_agent_state()
     await fix_audit_watermark()
     await schedule_upgrade_check()
@@ -93,6 +109,10 @@ async def lifespan(app: FastAPI):
             t.cancel()
     if _STARTUP_TASKS:
         await asyncio.gather(*_STARTUP_TASKS, return_exceptions=True)
+    # →2042: drain and stop the logging queue listener last, so shutdown logs
+    # still flush.
+    from services.nonblocking_logging import shutdown_nonblocking_logging
+    shutdown_nonblocking_logging()
 
 
 app = FastAPI(title="yourOS API", lifespan=lifespan)
