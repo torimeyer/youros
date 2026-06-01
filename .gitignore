@@ -31,9 +31,8 @@ workspaces/
 coverage/
 e2e-screenshots/*.png
 
-# User-local specs live in ~/.myos/specs/, not in the repo (→1377)
-# Use `ostk doc promote` to write there; never commit docs/spec/ contents.
-docs/spec/
+# Promoted specs in docs/spec/ are tracked in git (→2015) so the team can
+# review and share them. Personal/local-only specs belong in ~/.myos/specs/.
 
 # NR-internal strategy content should live outside the repo (~/.myos/) — never commit
 nr-workspaces-saved/
@@ -44,8 +43,6 @@ frontend/test-results/
 .ostk/rewrite-events.jsonl
 .ostk/file_cache.jsonl
 .l1.5/
-
-docs/spec/
 
 # user runtime data (custom verbs, etc.) — not committed
 config/
