@@ -664,6 +664,15 @@ export function ChatPanel() {
   // Held in a ref so updating it does not re-run the lastMessage
   // effect, which would otherwise loop on the same event.
   const currentBubbleIdRef = useRef<string | null>(null)
+  // Turn queue: if a second message is sent while the first is still
+  // streaming, it goes here and fires after the done event clears the
+  // in-flight flag. Prevents two simultaneous turns from colliding on
+  // the shared currentBubbleIdRef and routing tokens to the wrong bubble.
+  const turnQueueRef = useRef<string[]>([])
+  const turnInFlightRef = useRef(false)
+  // Stable ref to the latest sendMessage so the done-handler drain can
+  // call it without capturing a stale closure.
+  const sendMessageRef = useRef<(text: string) => void>(() => {})
   const tackKeyHandlerRef = useRef<((e: React.KeyboardEvent) => boolean) | null>(null)
   // Maps model name ("claude", "gemini") to the bubble id currently
   // receiving that model's tokens. Populated on multi_ai_turn_start and
@@ -1415,6 +1424,11 @@ export function ChatPanel() {
       // crashed mid-stream) do not leak into the next turn.
       bubbleIdByModelRef.current.clear()
       setActiveStreamingBubbleIds(new Set())
+      // Mark the turn as finished. The drain useEffect below picks up
+      // any queued messages when both isStreaming and placeholderAwaitingServer
+      // settle to false — this covers done AND all other terminal paths
+      // (error, plan_banner, timeout) without needing per-handler cleanup.
+      turnInFlightRef.current = false
       // Start the 500ms grace window before showing "Done." in the bubble.
       // Some providers (Gemini) can flush a `done` event slightly before
       // their last text tokens reach the client, so we delay the fallback
@@ -1594,6 +1608,18 @@ export function ChatPanel() {
     return () => clearInterval(id)
   }, [isStreaming, placeholderAwaitingServer])
 
+  // Drain the turn queue: when a turn finishes for any reason (done,
+  // error, timeout, plan_banner, etc.), isStreaming and
+  // placeholderAwaitingServer both settle to false. This effect fires at
+  // that point and sends the next queued message so callers never need to
+  // think about the queue — they just call sendMessage and it happens.
+  useEffect(() => {
+    if (isStreaming || placeholderAwaitingServer) return
+    turnInFlightRef.current = false
+    const next = turnQueueRef.current.shift()
+    if (next !== undefined) sendMessageRef.current(next)
+  }, [isStreaming, placeholderAwaitingServer])
+
   // Reset all per-turn streaming state when the active tab changes.
   // Without this, switching tabs carries over multiAiStatus ("Claude is
   // speaking round X of Y"), isStreaming, stepProgress, etc. from the
@@ -1611,6 +1637,8 @@ export function ChatPanel() {
     setStepProgress(null)
     currentBubbleIdRef.current = null
     bubbleIdByModelRef.current.clear()
+    turnQueueRef.current = []
+    turnInFlightRef.current = false
     receivedAnyServerEventRef.current = false
     setEtaMs(null)
     turnStartRef.current = null
@@ -1955,6 +1983,12 @@ export function ChatPanel() {
     }
 
     if (!text.trim() && !pendingImage && !pendingAttachment) return
+    // If a turn is already in flight, hold this message until done fires.
+    if (turnInFlightRef.current) {
+      turnQueueRef.current.push(text)
+      return
+    }
+    turnInFlightRef.current = true
     // Clear any prior template badge so the next response shows its own.
     setActiveTemplate(null)
     // Clear the previous-turn cache ratio — a new turn starts now.
@@ -2076,6 +2110,10 @@ export function ChatPanel() {
       plan_mode: localStorage.getItem('plan_mode') === '1',
     })
   }
+
+  // Keep ref pointing at the latest closure so the done-handler drain
+  // can call sendMessage after state has settled from the done event.
+  sendMessageRef.current = sendMessage
 
   // Intercept the "create tasks from this roadmap" chat command. The
   // user's message is appended as a normal user bubble, the backend

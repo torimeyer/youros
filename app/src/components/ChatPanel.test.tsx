@@ -3694,4 +3694,61 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('Turn queue: concurrent sends do not collide on bubble id ref', () => {
+    it('holds a second send in the queue until the first turn completes', () => {
+      const { rerender } = render(<ChatPanel />)
+      const input = screen.getByTestId('chat-input')
+
+      // Turn 1: user sends first message
+      fireEvent.change(input, { target: { value: 'first question' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(mockSend).toHaveBeenCalledTimes(1)
+
+      // Turn 1 still in flight — send second message immediately
+      fireEvent.change(input, { target: { value: 'second question' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Second send must be queued, NOT fired yet
+      expect(mockSend).toHaveBeenCalledTimes(1)
+
+      // Turn 1 token arrives — must land in turn 1's assistant bubble
+      mockLastMessage = { type: 'token', data: 'Answer one.' }
+      rerender(<ChatPanel />)
+      expect(screen.getByText('Answer one.')).toBeTruthy()
+
+      // Turn 1 completes
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+
+      // Queue drains: second send fires immediately after done
+      expect(mockSend).toHaveBeenCalledTimes(2)
+      const secondPayload = mockSend.mock.calls[1][0] as { messages: { role: string; content: string }[] }
+      const lastUserMsg = secondPayload.messages[secondPayload.messages.length - 1]
+      expect(lastUserMsg.role).toBe('user')
+      expect(lastUserMsg.content).toBe('second question')
+
+      // Turn 2 token arrives — must land in turn 2's bubble
+      mockLastMessage = { type: 'token', data: 'Answer two.' }
+      rerender(<ChatPanel />)
+      expect(screen.getByText('Answer two.')).toBeTruthy()
+
+      // Turn 1's answer is still visible in its own bubble
+      expect(screen.getByText('Answer one.')).toBeTruthy()
+    })
+
+    it('single-message path is unchanged: send fires immediately when idle', () => {
+      const { rerender } = render(<ChatPanel />)
+      const input = screen.getByTestId('chat-input')
+
+      fireEvent.change(input, { target: { value: 'only message' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      expect(mockSend).toHaveBeenCalledTimes(1)
+
+      mockLastMessage = { type: 'token', data: 'Only answer.' }
+      rerender(<ChatPanel />)
+      expect(screen.getByText('Only answer.')).toBeTruthy()
+    })
+  })
+
 })
