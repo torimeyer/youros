@@ -32,6 +32,7 @@ from routers import patterns as patterns_router
 from routers import git as git_router
 from routers import adhd as adhd_router
 from routers import memory as memory_router
+from routers import events as events_router
 from routers import user_memory as user_memory_router
 from routers import ostk as ostk_router
 from routers import agent_uploads as agent_uploads_router
@@ -163,6 +164,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LoopbackGuardMiddleware)
 
 app.include_router(tasks.router, prefix="/api")
+app.include_router(events_router.router)
 app.include_router(task_audit.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(adoption.router, prefix="/api")
