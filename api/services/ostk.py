@@ -2552,67 +2552,82 @@ class OstkService:
         from datetime import datetime, timezone as _tz
 
         docs_dir = Path(self.cwd) / "docs"
-        results: list[dict] = []
 
-        # 1. Project-local docs (shared)
-        for subdir, status in [("draft", "draft"), ("spec", "spec")]:
-            target = docs_dir / subdir
-            if not target.is_dir():
-                continue
-            for md in sorted(target.glob("*.md")):
-                doc = self._parse_doc_frontmatter(md, status)
-                results.append(doc)
+        # →2018 (live freeze): the frontmatter scan below globs docs/draft,
+        # docs/spec and ~/.myos/specs and calls read_text()+parse on every
+        # file, plus a transcripts scan. That is pure synchronous filesystem
+        # I/O. Running it on the event loop blocks every other request and
+        # WebSocket publish tick for the full scan duration — under the
+        # dashboard's repeated /api/specs polling the loop never catches up
+        # and the server wedges. Offload the whole scan to a worker thread so
+        # the loop stays responsive (GIL is released during the os.stat / read
+        # syscalls, so to_thread is effective). Mirrors the stage-enrichment
+        # offload already added below at _spec_audit_enrich_sync.
+        def _scan_docs_sync() -> list[dict]:
+            scanned: list[dict] = []
 
-        # 2. User-local specs (private/promoted)
-        if USER_SPECS_DIR.is_dir():
-            for md in sorted(USER_SPECS_DIR.glob("*.md")):
-                doc = self._parse_doc_frontmatter(md, "spec")
-                # Mark as user-local so the UI knows where it lives
-                doc["is_user_local"] = True
-                results.append(doc)
+            # 1. Project-local docs (shared)
+            for subdir, status in [("draft", "draft"), ("spec", "spec")]:
+                target = docs_dir / subdir
+                if not target.is_dir():
+                    continue
+                for md in sorted(target.glob("*.md")):
+                    doc = self._parse_doc_frontmatter(md, status)
+                    scanned.append(doc)
 
-        # 3. Transcripts/plans
-        # These are written by the Plan skill and should surface in Recent
-        # Documents alongside specs. They use status="plan" to distinguish
-        # them visually in the widget.
-        _plan_re = _re.compile(r"^plan-(\d+)\.md$")
-        transcripts_dir = Path(self.cwd) / "transcripts"
-        if transcripts_dir.is_dir():
-            for md in sorted(transcripts_dir.glob("plan-*.md")):
-                m = _plan_re.match(md.name)
-                if not m:
-                    continue
-                needle_id = m.group(1)
-                try:
-                    text = md.read_text(errors="replace")
-                    mtime = md.stat().st_mtime
-                    mtime_ms = int(mtime * 1000)
-                    created_at = datetime.fromtimestamp(mtime, tz=_tz.utc).isoformat()
-                except OSError:
-                    continue
-                if self._is_orphan_plan_transcript(text):
-                    continue
-                # Derive title from the first non-blank, non-heartbeat line.
-                title = f"Plan for →{needle_id}"
-                for line in text.split("\n"):
-                    stripped = line.strip()
-                    if stripped and not stripped.startswith("[heartbeat"):
-                        candidate = stripped.lstrip("#").lstrip("*").rstrip("*").strip()
-                        if candidate and candidate != "---":
-                            title = candidate[:80]
-                            break
-                results.append({
-                    "path": f"transcripts/{md.name}",
-                    "filename": md.name,
-                    "title": title,
-                    "status": "plan",
-                    "created_at": created_at,
-                    "promoted_at": "",
-                    "updated_at_ms": mtime_ms,
-                    "body": text[:2000],
-                    "task_ids": [needle_id],
-                    "acceptance_criteria": [],
-                })
+            # 2. User-local specs (private/promoted)
+            if USER_SPECS_DIR.is_dir():
+                for md in sorted(USER_SPECS_DIR.glob("*.md")):
+                    doc = self._parse_doc_frontmatter(md, "spec")
+                    # Mark as user-local so the UI knows where it lives
+                    doc["is_user_local"] = True
+                    scanned.append(doc)
+
+            # 3. Transcripts/plans
+            # These are written by the Plan skill and should surface in Recent
+            # Documents alongside specs. They use status="plan" to distinguish
+            # them visually in the widget.
+            _plan_re = _re.compile(r"^plan-(\d+)\.md$")
+            transcripts_dir = Path(self.cwd) / "transcripts"
+            if transcripts_dir.is_dir():
+                for md in sorted(transcripts_dir.glob("plan-*.md")):
+                    m = _plan_re.match(md.name)
+                    if not m:
+                        continue
+                    needle_id = m.group(1)
+                    try:
+                        text = md.read_text(errors="replace")
+                        mtime = md.stat().st_mtime
+                        mtime_ms = int(mtime * 1000)
+                        created_at = datetime.fromtimestamp(mtime, tz=_tz.utc).isoformat()
+                    except OSError:
+                        continue
+                    if self._is_orphan_plan_transcript(text):
+                        continue
+                    # Derive title from the first non-blank, non-heartbeat line.
+                    title = f"Plan for →{needle_id}"
+                    for line in text.split("\n"):
+                        stripped = line.strip()
+                        if stripped and not stripped.startswith("[heartbeat"):
+                            candidate = stripped.lstrip("#").lstrip("*").rstrip("*").strip()
+                            if candidate and candidate != "---":
+                                title = candidate[:80]
+                                break
+                    scanned.append({
+                        "path": f"transcripts/{md.name}",
+                        "filename": md.name,
+                        "title": title,
+                        "status": "plan",
+                        "created_at": created_at,
+                        "promoted_at": "",
+                        "updated_at_ms": mtime_ms,
+                        "body": text[:2000],
+                        "task_ids": [needle_id],
+                        "acceptance_criteria": [],
+                    })
+            return scanned
+
+        results: list[dict] = await asyncio.to_thread(_scan_docs_sync)
 
         # Collect all task IDs referenced by any spec. Spec front matter
         # stores bare numeric IDs ("407") but ostk returns IDs prefixed with
