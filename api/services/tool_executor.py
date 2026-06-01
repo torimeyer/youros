@@ -26,9 +26,11 @@ def _safe_path(raw_path: str) -> Path:
     """Resolve a path and ensure it stays within the workspace.
 
     Raises ValueError if the resolved path escapes the workspace.
+    Uses config.PROJECT_ROOT at call time so monkeypatching in tests works.
     """
+    import config as _cfg
     resolved = Path(raw_path).expanduser().resolve()
-    workspace_resolved = WORKSPACE.resolve()
+    workspace_resolved = Path(_cfg.PROJECT_ROOT).resolve()
     if not (resolved == workspace_resolved or str(resolved).startswith(str(workspace_resolved) + os.sep)):
         raise ValueError(f"Path is outside the workspace: {raw_path}")
     return resolved
@@ -856,8 +858,12 @@ async def _semantic_search(query: str, scope: str = "code", limit: int = 20) -> 
         )
         return raw or f"No semantic search results for: {query}"
     except Exception:
-        # ostk unavailable — fall back to literal grep so the tool still works
-        return await _search_files(query, "")
+        # ostk unavailable — fall back to literal grep so the tool still works.
+        # Re-read config.PROJECT_ROOT at call time so monkeypatching in tests
+        # (and future runtime root changes) takes effect instead of using the
+        # module-level WORKSPACE constant that was captured at import time.
+        import config as _cfg
+        return await _search_files(query, str(_cfg.PROJECT_ROOT))
 
 
 async def _list_tasks() -> str:
