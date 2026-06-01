@@ -289,17 +289,20 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('connect-anthropic')).not.toBeInTheDocument()
   })
 
-  it('shows both Gemini key paths (Cloud Console recommended, AI Studio fallback) when Gemini is selected', () => {
+  it('shows Gemini Cloud setup instructions only after the Advanced toggle is clicked', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(8)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
+    // Advanced instructions are collapsed by default
+    expect(screen.queryByTestId('gemini-key-help')).not.toBeInTheDocument()
+    expect(screen.getByTestId('gemini-advanced-toggle')).toBeInTheDocument()
+    // Click to expand
+    fireEvent.click(screen.getByTestId('gemini-advanced-toggle'))
     const helper = screen.getByTestId('gemini-key-help')
     expect(helper).toBeInTheDocument()
     expect(helper).toHaveTextContent(/Google AI Studio/i)
     expect(helper).toHaveTextContent(/Google Cloud project/i)
-    expect(helper).toHaveTextContent(/Recommended\./i)
-    expect(helper).toHaveTextContent(/Chat only\./i)
     expect(helper).toHaveTextContent(/Enable/)
     expect(helper).toHaveTextContent(/Generative Language API/i)
   })
@@ -310,6 +313,14 @@ describe('OnboardingWizard', () => {
     clickNext(8)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
     expect(screen.getByText(/Paste AI Studio key \(for personal use\)/i)).toBeInTheDocument()
+  })
+
+  it('shows Gemini subscription note when Gemini is selected', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(8)
+    fireEvent.click(screen.getByTestId('provider-Google Gemini'))
+    expect(screen.getByTestId('step-connect')).toHaveTextContent(/Gemini Advanced.*doesn't include API access/i)
   })
 
   it('Connect step sections show Anthropic, Google, Confluence, GitHub headings', async () => {
@@ -1276,6 +1287,65 @@ describe('OnboardingWizard — Google Workspace OAuth button on Connect step', (
     // Switch to Gemini — button should still be present
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
     expect(screen.getByTestId('connect-google-workspace')).toBeInTheDocument()
+  })
+
+  it('shows "Connect your Google apps (optional)" section when google_oauth_available is true', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      return Promise.resolve({ google_oauth_available: true })
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => {
+      expect(screen.getByTestId('step-connect')).toHaveTextContent(/Connect your Google apps \(optional\)/i)
+    })
+    expect(screen.getByTestId('step-connect')).toHaveTextContent(/This connects Drive, Calendar, and Gmail/i)
+  })
+
+  it('does not show "Connect your Google apps" section when google_oauth_available is false', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      return Promise.resolve({ google_oauth_available: false })
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => {
+      expect(screen.getByTestId('step-connect')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/Connect your Google apps/i)).not.toBeInTheDocument()
+  })
+
+  it('shows "Google account" label when connected email is @gmail.com', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/drive/auth/status') return Promise.resolve({ authenticated: true, email: 'user@gmail.com' })
+      return Promise.resolve({ google_oauth_available: true })
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => {
+      expect(screen.getByTestId('onboarding-google-workspace-card')).toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('onboarding-google-workspace-card')).toHaveTextContent(/Google account/i)
+    })
+    expect(screen.getByTestId('onboarding-google-workspace-card')).not.toHaveTextContent(/Google Workspace/i)
+  })
+
+  it('shows "Google Workspace" label when connected email is a work domain', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/drive/auth/status') return Promise.resolve({ authenticated: true, email: 'user@company.com' })
+      return Promise.resolve({ google_oauth_available: true })
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => {
+      expect(screen.getByTestId('onboarding-google-workspace-card')).toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('onboarding-google-workspace-card')).toHaveTextContent(/Google Workspace/i)
+    })
   })
 })
 
