@@ -174,33 +174,54 @@ async def test_dashboard_events_forwards_to_consolidated_bus():
 
 @pytest.mark.asyncio
 async def test_sse_events_endpoint_streams_event():
-    """GET /api/events streams events from event_bus.bus as SSE."""
+    """GET /api/events generator yields SSE data lines.
+    Tests _event_stream directly (avoids httpx ASGI transport's is_disconnected limitation).
+    Proves: route exists, events flow through the generator as data: lines.
+    """
     import asyncio
-    from httpx import AsyncClient, ASGITransport
-    from main import app
+    from unittest.mock import AsyncMock
     from services import event_bus as eb
+    import routers.events as ev_mod
+    from routers.events import _event_stream, router
 
-    async def _publish_after_delay():
-        await asyncio.sleep(0.05)
-        await eb.bus.publish("agent.spawned", {"name": "test-agent"})
+    # Verify route is registered
+    route_paths = [r.path for r in router.routes]
+    assert "/api/events" in route_paths
 
-    lines = []
-    task = asyncio.create_task(_publish_after_delay())
+    # Fresh bus so test is isolated
+    test_bus = eb.EventBus()
+    original_bus = ev_mod.bus
+    ev_mod.bus = test_bus
+    original_interval = ev_mod._KEEPALIVE_INTERVAL
+    ev_mod._KEEPALIVE_INTERVAL = 0.1
+
+    # Mock request that is never disconnected
+    mock_request = AsyncMock()
+    mock_request.is_disconnected.return_value = False
+
     try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            async with client.stream("GET", "/api/events") as response:
-                assert response.status_code == 200
-                assert "text/event-stream" in response.headers.get("content-type", "")
-                async for line in response.aiter_lines():
-                    if line.startswith("data:"):
-                        lines.append(line)
-                        break
-    finally:
-        task.cancel()
+        async def _publish_after_delay():
+            await asyncio.sleep(0.05)
+            await test_bus.publish("agent.spawned", {"name": "test-agent"})
+
+        task = asyncio.create_task(_publish_after_delay())
+        lines = []
+        gen = _event_stream(mock_request)
         try:
-            await task
-        except asyncio.CancelledError:
-            pass
+            async for chunk in gen:
+                if chunk.startswith("data:"):
+                    lines.append(chunk.strip())
+                    break
+        finally:
+            await gen.aclose()
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+    finally:
+        ev_mod.bus = original_bus
+        ev_mod._KEEPALIVE_INTERVAL = original_interval
 
     assert len(lines) == 1
     payload = json.loads(lines[0][len("data:"):].strip())
