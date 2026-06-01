@@ -377,7 +377,7 @@ export default function Gmail() {
 
   if (loading || authStatus === null) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="Gmail" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
@@ -388,7 +388,7 @@ export default function Gmail() {
 
   if (!authStatus?.authenticated || authStatus.needs_reauth) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="Gmail" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
@@ -437,7 +437,7 @@ export default function Gmail() {
 
   if (apiNotEnabled) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="Gmail" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
@@ -473,7 +473,7 @@ export default function Gmail() {
   }
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
       <TopBar title="Gmail" />
       <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header row */}

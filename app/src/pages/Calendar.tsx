@@ -603,7 +603,7 @@ export default function Calendar() {
 
   if (loading || authStatus === null) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="Calendar" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
@@ -614,7 +614,7 @@ export default function Calendar() {
 
   if (!authStatus?.authenticated || authStatus.needs_reauth) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="Calendar" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
@@ -663,7 +663,7 @@ export default function Calendar() {
 
   if (apiNotEnabled) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="Calendar" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
@@ -699,7 +699,7 @@ export default function Calendar() {
   }
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
       <TopBar title="Calendar" />
       <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header row */}

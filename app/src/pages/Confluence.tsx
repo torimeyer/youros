@@ -151,7 +151,7 @@ export default function Confluence() {
 
   if (loading) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="Confluence" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
@@ -162,7 +162,7 @@ export default function Confluence() {
 
   if (!status?.connected) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white" data-testid="confluence-page">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white" data-testid="confluence-page">
         <TopBar title="Confluence" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
@@ -251,7 +251,7 @@ export default function Confluence() {
   // Detail view
   if (pageId) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white" data-testid="confluence-page">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white" data-testid="confluence-page">
         <TopBar title="Confluence" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <button
@@ -306,7 +306,7 @@ export default function Confluence() {
 
   // List view
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white" data-testid="confluence-page">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white" data-testid="confluence-page">
       <TopBar title="Confluence" />
       <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">

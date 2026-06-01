@@ -178,7 +178,7 @@ export default function GitHub() {
 
   if (loading) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="GitHub" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
@@ -229,7 +229,7 @@ export default function GitHub() {
       }
     }
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="GitHub" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
@@ -271,7 +271,7 @@ export default function GitHub() {
 
   if (showConnectCard) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="GitHub" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
@@ -325,7 +325,7 @@ export default function GitHub() {
   }
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
       <TopBar title="GitHub" />
       <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header */}

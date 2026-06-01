@@ -2636,7 +2636,7 @@ export function ChatPanel() {
             onClick={() => handleSwitchTab(tab.id)}
             className={`group/tab flex items-center gap-1 px-3 py-1.5 text-xs rounded-t-lg transition-colors max-w-[160px] ${
               tab.id === activeTabId
-                ? 'bg-white dark:bg-slate-900 text-white border-t border-x border-slate-200 dark:border-slate-700'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white border-t border-x border-slate-200 dark:border-slate-700'
                 : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-white dark:hover:bg-slate-900/50'
             }`}
             title={tab.name}

@@ -507,7 +507,7 @@ export default function IMessage() {
 
   if (connectionState === 'loading' && conversations.length === 0) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="People" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
@@ -518,7 +518,7 @@ export default function IMessage() {
 
   if (connectionState === 'not_connected') {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="People" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
@@ -547,7 +547,7 @@ export default function IMessage() {
   }
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
       <TopBar title="People" />
       <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header */}
@@ -609,7 +609,7 @@ export default function IMessage() {
               onSelectConversation={handleSelectChat}
               contacts={contacts}
               conversations={conversations}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
             <div className="flex gap-2">
               <input
@@ -623,7 +623,7 @@ export default function IMessage() {
                     handleSend(sendRecipient, sendText)
                   }
                 }}
-                className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
               <button
                 onClick={() => handleSend(sendRecipient, sendText)}
@@ -727,7 +727,7 @@ export default function IMessage() {
                                       if (e.key === 'Escape') { setSaveContactChatId(null); setSaveContactName('') }
                                     }}
                                     autoFocus
-                                    className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                                    className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                                   />
                                   <button
                                     data-testid="save-contact-submit"

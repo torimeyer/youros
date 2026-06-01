@@ -34,6 +34,14 @@ export { friendlyAgentName, isMainSession, isUserSpawnedAgent } from "../lib/age
 
 const BASE_TABS = ["Active", "Recent", "Templates"];
 
+// Tori runs Claude on a subscription (the `claude` CLI), so agents whose
+// source falls through to the autonomous-backend default of "api" should be
+// shown as "Subscription" in the UI. See app/src/lib/budgetDisplay.ts.
+function formatAgentSource(source: string | undefined | null): string {
+  if (!source || source === "api" || source === "claude-code") return "Subscription";
+  return source;
+}
+
 // Every backend status that means "this agent is no longer running".
 // Keep this in sync with ``_TERMINAL_FROM_META`` in api/routers/agents.py.
 // The Recent tab and the Active-to-Recent transition both read from this
@@ -137,7 +145,7 @@ function IconPicker({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search icons..."
-            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-2"
+            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-2"
             data-testid="icon-picker-search"
             autoFocus
           />
@@ -4301,11 +4309,7 @@ export default function Agents() {
                           <div className="grid grid-cols-2 gap-4 text-xs mb-4">
                             <div>
                               <span className="text-slate-500">Source</span>
-                              <p className="text-white mt-1">{agent.source}</p>
-                            </div>
-                            <div>
-                              <span className="text-slate-500">Messages sent</span>
-                              <p className="text-white mt-1">{agentNudges.length}</p>
+                              <p className="text-slate-900 dark:text-white mt-1">{formatAgentSource(agent.source)}</p>
                             </div>
                           </div>
                           <AgentMemorySection

@@ -93,7 +93,7 @@ export default function Timeline() {
       : "px-3 py-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300";
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white flex flex-col">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white flex flex-col">
       <TopBar title="Timeline" />
 
       <div className="px-4 pb-4 sm:px-8 sm:pb-8 flex-1 flex flex-col">

@@ -187,7 +187,7 @@ export default function Jira() {
 
   if (loading) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="Jira" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
@@ -198,7 +198,7 @@ export default function Jira() {
 
   if (!status?.connected) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white" data-testid="jira-page">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white" data-testid="jira-page">
         <TopBar title="Jira" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <ConnectCard
@@ -287,7 +287,7 @@ export default function Jira() {
   // Detail view
   if (key) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white" data-testid="jira-page">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white" data-testid="jira-page">
         <TopBar title="Jira" />
         <div className="px-4 pb-4 sm:px-8 sm:pb-8">
           <button
@@ -432,7 +432,7 @@ export default function Jira() {
 
   // List view
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white" data-testid="jira-page">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white" data-testid="jira-page">
       <TopBar title="Jira" />
       <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">

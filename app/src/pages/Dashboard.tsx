@@ -957,7 +957,7 @@ export default function Dashboard() {
                 onKeyDown={(e) => { if (e.key === 'Enter' && !adventureLoading) handleSpawnAdventure(); }}
                 placeholder={adventureSelected ? adventureSelected.placeholder : 'Describe what you want to do...'}
                 data-testid="adventure-description-input"
-                className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+                className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
               />
               <button
                 onClick={handleSpawnAdventure}
@@ -1059,7 +1059,7 @@ export default function Dashboard() {
 
   return (
     <div
-      className="min-h-dvh bg-white dark:bg-slate-950 text-white"
+      className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
       data-live-agents={String(liveAgentsCount)}
       data-live-tasks={String(liveTasksCount)}
     >

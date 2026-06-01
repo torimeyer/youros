@@ -63,7 +63,7 @@ export default function Adoption() {
 
   if (loading || error || !data) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
         <TopBar title="What's working" />
         <div className="px-6 pb-6 max-w-2xl mx-auto">
           <p className="text-slate-600 dark:text-slate-400 text-sm py-8">
@@ -77,7 +77,7 @@ export default function Adoption() {
   const hasActivity = data.top_skills.length > 0
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
       <TopBar title="What's working" />
       <div className="px-6 pb-6 max-w-2xl mx-auto space-y-8">
       <div>

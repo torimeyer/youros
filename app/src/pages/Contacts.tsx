@@ -46,7 +46,7 @@ export default function Contacts() {
   }, [contacts, search])
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
       <TopBar title="Contacts" />
       <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header */}
@@ -83,7 +83,7 @@ export default function Contacts() {
               placeholder="Search by name, phone, or email…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
             {search && (
               <button

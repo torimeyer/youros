@@ -783,7 +783,7 @@ export default function Settings() {
   // No IntersectionObserver needed: tabs show one section at a time.
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
       <TopBar title="Settings" />
 
       {/* Mobile horizontal nav */}
@@ -810,7 +810,7 @@ export default function Settings() {
               onClick={() => setActiveSection(item.id)}
               className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm text-left transition-colors ${
                 activeSection === item.id
-                  ? 'bg-slate-100 dark:bg-slate-800 text-white font-medium'
+                  ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-medium'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50'
               }`}
             >
@@ -893,7 +893,7 @@ export default function Settings() {
                       setSuggestions(next);
                     }}
                     data-testid={`standing-instructions-suggestion-text-${i}`}
-                    className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500"
+                    className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
               ))}
@@ -910,7 +910,7 @@ export default function Settings() {
                   type="button"
                   onClick={() => { setSuggestions([]); setSuggestError(null); }}
                   data-testid="standing-instructions-dismiss-suggestions"
-                  className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 rounded-lg text-white text-sm font-medium transition-colors"
+                  className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-900 dark:text-white text-sm font-medium transition-colors"
                 >
                   Dismiss
                 </button>
@@ -923,7 +923,7 @@ export default function Settings() {
             rows={6}
             data-testid="standing-instructions-textarea"
             placeholder="For example: always explain things in plain language, prefer Google Calendar over iCal, keep replies short unless I ask for detail."
-            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
           />
           <div className="flex items-center gap-3 mt-3">
             <button
@@ -1068,7 +1068,7 @@ export default function Settings() {
                 <div className="group relative">
                   <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-help" />
                   <div className="absolute left-0 top-full mt-1 w-80 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-xs text-slate-700 dark:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
-                    <p className="font-semibold text-white mb-1">What this unlocks</p>
+                    <p className="font-semibold text-slate-900 dark:text-white mb-1">What this unlocks</p>
                     <p className="mb-2"><strong>Delegate tab:</strong> see suggested tasks an agent could pick up and hand them off with one click.</p>
                     <p className="mb-2"><strong>Shared Workspace tab:</strong> a message board where multiple agents leave each other notes mid-task, so they can build on each other's findings.</p>
                     <p className="mb-2"><strong>ostk browser:</strong> read-only view of the underlying kernel files (decisions, tasks history, audit log) for verifying what actually happened.</p>
@@ -1139,7 +1139,7 @@ export default function Settings() {
                 ) : googleOAuthAvailable ? (
                   <button
                     onClick={() => window.open('/api/auth/google', '_self')}
-                    className="w-full mb-3 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
+                    className="w-full mb-3 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-900 dark:text-white hover:border-blue-500 transition-colors flex items-center gap-2"
                   >
                     <Icon name="login" size={18} />
                     Sign in with Google
@@ -1152,7 +1152,7 @@ export default function Settings() {
               ) : (
                 <button
                   onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}
-                  className="w-full mb-3 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
+                  className="w-full mb-3 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-900 dark:text-white hover:border-blue-500 transition-colors flex items-center gap-2"
                 >
                   <Icon name="open_in_new" size={18} />
                   Get a key from Anthropic
@@ -1271,7 +1271,7 @@ export default function Settings() {
                     placeholder={keyAvailable[selectedProvider]
                       ? 'Paste a new key to replace the current one'
                       : (selectedProvider === 'Anthropic' ? 'Paste API key (sk-ant-xxxx...)' : 'Paste API key (AIzaSy...)')}
-                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
                   />
                   <button
                     onClick={() => setApiKeyVisible(!apiKeyVisible)}
@@ -1394,7 +1394,7 @@ export default function Settings() {
             </div>
             {claudeCodeReady === false && (
               <div className="mt-3 p-3 rounded-lg bg-slate-50/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-sm text-slate-700 dark:text-slate-300" data-testid="claude-login-instructions">
-                <p className="font-medium text-white mb-1">To sign in with Claude Pro or Max</p>
+                <p className="font-medium text-slate-900 dark:text-white mb-1">To sign in with Claude Pro or Max</p>
                 <p>Open your Terminal app and run:</p>
                 <code className="block mt-1.5 px-2 py-1 bg-white dark:bg-slate-900 rounded text-green-600 dark:text-green-400 font-mono text-xs select-all">claude login</code>
                 <p className="mt-2 text-slate-600 dark:text-slate-400 text-xs">Then click Re-check above to confirm it worked.</p>
@@ -1663,7 +1663,7 @@ export default function Settings() {
                 </div>
                 <GithubSetupCard
                   darkMode={true}
-                  inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white"
+                  inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
                   subtextCls="text-slate-600 dark:text-slate-400"
                 />
               </div>
@@ -1691,7 +1691,7 @@ export default function Settings() {
                   </div>
                   <AtlassianSetupCard
                     darkMode={true}
-                    inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white"
+                    inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
                     subtextCls="text-slate-600 dark:text-slate-400"
                   />
                 </div>
@@ -1711,7 +1711,7 @@ export default function Settings() {
                       }}
                       placeholder="e.g. IAM"
                       data-testid="default-confluence-space-input"
-                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
                     />
                     <p className="text-xs text-slate-500 mt-1">
                       Paste a space shortcut (like IAM) or a full Confluence URL. The widget will show pages from this space only.

@@ -54,7 +54,7 @@ export default function Projects() {
   }, [fetchProjects]);
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
       <TopBar title="Projects" />
 
       <div className="px-4 pb-4 sm:px-8 sm:pb-8">

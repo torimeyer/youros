@@ -170,7 +170,7 @@ export default function MyGems() {
   };
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
+    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
       <TopBar title="My Gems" />
 
       <div className="px-4 pb-4 sm:px-8 sm:pb-8 max-w-4xl mx-auto">
