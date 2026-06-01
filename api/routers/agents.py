@@ -1100,21 +1100,38 @@ def _serialize_and_write_snapshot(snapshot: dict) -> None:
     _write_state_content(content)
 
 
-async def _save_agent_state_async() -> None:
-    """Non-blocking save for use inside async handlers.
+# Coalescing write gate (→2018): prevents N concurrent heartbeats from each
+# spawning their own json.dumps thread and stacking GIL contention.
+# _save_pending=True means at least one mutation arrived after the in-flight
+# save took its snapshot; the loop does one extra pass to capture it.
+# At most 1 thread in-flight at any time; at most 1 extra queued pass.
+_save_inflight: bool = False
+_save_pending: bool = False
 
-    A per-agent dict copy is taken on the event loop while no await can
-    interleave, guaranteeing a consistent snapshot. Both json.dumps (~10-30ms
-    for 1500 rows) and the file write + fsync run inside asyncio.to_thread so
-    the event loop is free during GIL-heavy serialization and disk I/O.
-    Without this, parallel heartbeat calls and standing-rules poll loops block
-    the loop long enough for TLS handshakes to time out (→1086, →1192).
+
+async def _save_agent_state_async() -> None:
+    """Non-blocking, coalescing save for use inside async handlers.
+
+    Collapses N concurrent heartbeat/register saves into at most 2 serialized
+    writes: one in-flight and one queued pass to capture mutations that arrived
+    while the thread was running. Without coalescing, N concurrent heartbeats
+    each spawn their own asyncio.to_thread(json.dumps) call; the GIL shuffles
+    between them, saturating the thread pool and starving the event loop for
+    TLS/HTTP work (→2018).
     """
-    # Snapshot on the event loop: no await can interleave here, so the dict
-    # is consistent. Per-agent dict() copy is enough since primitive field
-    # values (str/int/bool) are immutable.
-    snapshot = {k: dict(v) for k, v in agent_metadata.items()}
-    await asyncio.to_thread(_serialize_and_write_snapshot, snapshot)
+    global _save_inflight, _save_pending
+    _save_pending = True
+    if _save_inflight:
+        return  # the in-flight loop will re-check _save_pending on its next iteration
+    _save_inflight = True
+    try:
+        while _save_pending:
+            _save_pending = False
+            # Snapshot taken on the event loop: no await can interleave here.
+            snapshot = {k: dict(v) for k, v in agent_metadata.items()}
+            await asyncio.to_thread(_serialize_and_write_snapshot, snapshot)
+    finally:
+        _save_inflight = False
 
 
 def _is_pid_alive(pid: int) -> bool:

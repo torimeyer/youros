@@ -159,3 +159,67 @@ async def test_event_loop_not_stalled_under_concurrent_background_work():
         f"p95 event-loop lag {p95_lag:.1f} ms >= {MAX_ALLOWED_STALL_MS} ms — "
         "background work is stalling the loop"
     )
+
+
+# ---------------------------------------------------------------------------
+# 6. Save coalescing: N concurrent _save_agent_state_async calls must
+#    produce at most 2 serialized writes, not N concurrent threads (→2018)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_save_agent_state_async_coalesces_concurrent_saves():
+    """N concurrent callers must collapse into at most 2 serialized writes.
+
+    Pre-fix: every heartbeat spawned its own asyncio.to_thread(json.dumps)
+    call; N concurrent heartbeats = N threads each holding the GIL in turn,
+    starving the event loop. Post-fix: a single in-flight write plus at most
+    one queued pass capture all pending mutations.
+    """
+    import routers.agents as ag
+
+    write_starts: list[float] = []
+    max_concurrent = 0
+    currently_writing = 0
+
+    original_fn = ag._serialize_and_write_snapshot
+
+    def counting_write(snapshot: dict) -> None:
+        nonlocal currently_writing, max_concurrent
+        currently_writing += 1
+        max_concurrent = max(max_concurrent, currently_writing)
+        write_starts.append(time.monotonic())
+        # Simulate json.dumps + disk write (~5ms)
+        import time as _time
+        _time.sleep(0.005)
+        currently_writing -= 1
+
+    try:
+        ag._serialize_and_write_snapshot = counting_write
+        # Also reset the gate for a clean test
+        ag._save_inflight = False
+        ag._save_pending = False
+
+        # Fire 10 concurrent save requests (simulates 10 agents heartbeating)
+        await asyncio.gather(*[ag._save_agent_state_async() for _ in range(10)])
+
+        # Must never exceed 1 write in-flight simultaneously
+        assert max_concurrent <= 1, (
+            f"max concurrent writes = {max_concurrent}; coalescing gate broken"
+        )
+        # Must use far fewer than 10 writes (at most 2: one in-flight + one queued)
+        assert len(write_starts) <= 2, (
+            f"{len(write_starts)} writes fired for 10 concurrent calls; "
+            "expected at most 2 (in-flight + one queued pass)"
+        )
+    finally:
+        ag._serialize_and_write_snapshot = original_fn
+        ag._save_inflight = False
+        ag._save_pending = False
+
+
+@pytest.mark.asyncio
+async def test_save_agent_state_async_flags_exist():
+    """Verify the coalescing gate globals are present and have correct types."""
+    import routers.agents as ag
+    assert isinstance(ag._save_inflight, bool), "_save_inflight must be a bool"
+    assert isinstance(ag._save_pending, bool), "_save_pending must be a bool"
