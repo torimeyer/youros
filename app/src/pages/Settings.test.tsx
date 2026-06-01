@@ -219,13 +219,14 @@ describe('Settings', () => {
       expect(setupCard).toBeTruthy()
       fireEvent.click(setupCard!.closest('div[class*="cursor-pointer"]')!)
 
-      // Helper block is a decision tree: Cloud Console is recommended,
-      // AI Studio is the chat-only fallback. Both paths must still appear.
-      expect(screen.getByText(/Where to get a Gemini API key/i)).toBeInTheDocument()
+      // Cloud setup instructions are behind the Advanced toggle (collapsed by default).
+      // Expand it first, then verify both paths still appear.
+      const toggle = screen.getByTestId('gemini-advanced-toggle')
+      expect(toggle).toBeInTheDocument()
+      fireEvent.click(toggle)
+      expect(screen.getByTestId('gemini-key-help')).toBeInTheDocument()
       expect(screen.getByText(/Google AI Studio/i)).toBeInTheDocument()
       expect(screen.getByText(/Google Cloud project/i)).toBeInTheDocument()
-      expect(screen.getByText(/Recommended\./i)).toBeInTheDocument()
-      expect(screen.getByText(/Chat only\./i)).toBeInTheDocument()
       // Users must be told to enable the Generative Language API FIRST,
       // otherwise the restriction dropdown is empty when they try to lock
       // the key down.
@@ -1479,5 +1480,52 @@ describe('Settings — Memory provenance (F4)', () => {
     render(<MemoryRouter><Settings /></MemoryRouter>)
     await waitFor(() => expect(screen.getByTestId('gemini-cli-toggle')).toBeInTheDocument())
     expect(screen.queryByText('Experimental')).not.toBeInTheDocument()
+  })
+})
+
+describe('Settings — Gemini provider clarity', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ osName: 'yourOS', darkMode: false, accentColor: 'blue', features: [] })
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/settings') return Promise.resolve({ provider: 'Google Gemini' })
+      if (path === '/secrets/key-status') return Promise.resolve({
+        google_oauth_available: false, google_connected: false,
+        anthropic: false, gemini: false, anthropic_source: 'none', gemini_source: 'none',
+      })
+      return Promise.resolve({})
+    })
+  })
+
+  it('shows subscription note when Google Gemini is selected', async () => {
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('api-key-setup-section')).toBeInTheDocument())
+    expect(screen.getByTestId('api-key-setup-section')).toHaveTextContent(/Gemini Advanced.*doesn't include API access/i)
+  })
+
+  it('Advanced toggle exists for Gemini and Cloud instructions are hidden by default', async () => {
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('gemini-advanced-toggle')).toBeInTheDocument())
+    expect(screen.queryByTestId('gemini-key-help')).not.toBeInTheDocument()
+  })
+
+  it('clicking the Advanced toggle reveals Cloud setup instructions', async () => {
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('gemini-advanced-toggle')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('gemini-advanced-toggle'))
+    await waitFor(() => expect(screen.getByTestId('gemini-key-help')).toBeInTheDocument())
+    expect(screen.getByTestId('gemini-key-help')).toHaveTextContent(/Google Cloud project/i)
+    expect(screen.getByTestId('gemini-key-help')).toHaveTextContent(/Generative Language API/i)
+  })
+
+  it('Anthropic provider does not show the subscription note or Advanced toggle', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/settings') return Promise.resolve({ provider: 'Anthropic' })
+      return Promise.resolve({})
+    })
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('api-key-setup-section')).toBeInTheDocument())
+    expect(screen.queryByTestId('gemini-advanced-toggle')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Gemini Advanced/i)).not.toBeInTheDocument()
   })
 })

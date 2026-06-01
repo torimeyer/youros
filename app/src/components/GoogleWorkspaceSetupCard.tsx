@@ -8,7 +8,16 @@ interface DriveAuthStatus {
   email: string | null
 }
 
-export function GoogleWorkspaceSetupCard({
+function googleAccountLabel(email: string | null): string {
+  if (!email) return 'Google account'
+  const lower = email.toLowerCase()
+  if (lower.endsWith('@gmail.com') || lower.endsWith('@googlemail.com')) {
+    return 'Google account'
+  }
+  return 'Google Workspace'
+}
+
+export function GoogleAccountSetupCard({
   darkMode,
   subtextCls,
   stepIndex,
@@ -44,7 +53,7 @@ export function GoogleWorkspaceSetupCard({
       <div className={cardBase} data-testid="onboarding-google-workspace-card">
         <div className="flex items-center gap-2 text-sm">
           <div className="w-2.5 h-2.5 rounded-full bg-slate-600 animate-pulse" />
-          <span className={subtextCls}>Checking Google Workspace...</span>
+          <span className={subtextCls}>Checking Google account...</span>
         </div>
       </div>
     )
@@ -57,7 +66,7 @@ export function GoogleWorkspaceSetupCard({
           <div className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium">Google Workspace</p>
+              <p className="text-sm font-medium">{googleAccountLabel(email)}</p>
               {email && <p className={`text-xs ${subtextCls}`}>{email}</p>}
             </div>
           </div>
@@ -75,13 +84,13 @@ export function GoogleWorkspaceSetupCard({
   return (
     <div className={cardBase} data-testid="onboarding-google-workspace-card">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-medium">Google Workspace (Drive, Calendar, Gmail)</p>
+        <p className="text-sm font-medium">{googleAccountLabel(null)} (Drive, Calendar, Gmail)</p>
         <button
           onClick={() => {
             if (stepIndex !== undefined) api.patch('/settings', { onboarding_step: stepIndex }).catch(() => {})
             api.get<{ url: string }>('/drive/auth/url?return_to=%2F')
               .then((res) => { window.location.href = res.url })
-              .catch((e) => reportError('Google Workspace OAuth failed to start', e))
+              .catch((e) => reportError('Google account OAuth failed to start', e))
           }}
           className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors ${
             darkMode
@@ -95,8 +104,10 @@ export function GoogleWorkspaceSetupCard({
         </button>
       </div>
       <p className={`text-xs mt-1.5 ${subtextCls}`}>
-        One click — Google will ask for permission, then bring you back here.
+        One click. Google will ask for permission, then bring you back here.
       </p>
     </div>
   )
 }
+
+export { GoogleAccountSetupCard as GoogleWorkspaceSetupCard }

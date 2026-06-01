@@ -144,6 +144,7 @@ export default function Settings() {
   const [googleConnected, setGoogleConnected] = useState(false);
   const [keyAvailable, setKeyAvailable] = useState<Record<string, boolean>>({ Anthropic: false, 'Google Gemini': false });
   const [keySource, setKeySource] = useState<Record<string, string>>({});
+  const [geminiAdvancedOpen, setGeminiAdvancedOpen] = useState(false);
   const [keyStatusLoading, setKeyStatusLoading] = useState(true);
   // Gemini Enterprise provider state
   interface GeminiStatus {
@@ -1159,59 +1160,73 @@ export default function Settings() {
                 </button>
               )}
 
-              {/* Gemini: recommend Cloud Console first, AI Studio as fallback */}
+              {/* Gemini: subscription note + Advanced toggle for Cloud setup */}
               {selectedProvider === 'Google Gemini' && (
-                <div
-                  className={`mb-3 p-3 rounded-lg text-xs space-y-2 border bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border-blue-500/30 ${
-                    darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-700'
-                  }`}
-                >
-                  <p className={`font-medium ${darkMode ? 'text-white' : 'text-slate-900'}`}>Where to get a Gemini API key</p>
-                  <p>
-                    <span className={`font-medium ${darkMode ? 'text-white' : 'text-slate-900'}`}>Recommended.</span>{' '}
-                    Use the same{' '}
-                    <a
-                      href="https://console.cloud.google.com"
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`underline ${darkMode ? 'text-blue-700 dark:text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
-                    >
-                      Google Cloud project
-                    </a>{' '}
-                    you already set up for Drive, Calendar, or Gmail. Three steps:
+                <>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                    A paid Gemini app subscription (Gemini Advanced) doesn't include API access, so it can't be used here. The free key below works with the same Google account.
                   </p>
-                  <ol className="list-decimal ml-5 space-y-1">
-                    <li>
-                      Enable{' '}
-                      <a
-                        href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com"
-                        target="_blank"
-                        rel="noreferrer"
-                        className={`underline ${darkMode ? 'text-blue-700 dark:text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                  <div className="mb-3">
+                    <button
+                      data-testid="gemini-advanced-toggle"
+                      onClick={() => setGeminiAdvancedOpen((v) => !v)}
+                      className="text-xs text-slate-500 dark:text-slate-400 underline hover:opacity-80"
+                    >
+                      {geminiAdvancedOpen ? 'Hide Google Cloud setup' : 'Advanced: set up through Google Cloud'}
+                    </button>
+                    {geminiAdvancedOpen && (
+                      <div
+                        className={`mt-2 p-3 rounded-lg text-xs space-y-2 border bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border-blue-500/30 ${
+                          darkMode ? 'text-slate-800 dark:text-slate-200' : 'text-slate-700'
+                        }`}
+                        data-testid="gemini-key-help"
                       >
-                        "Generative Language API"
-                      </a>{' '}
-                      in the API library. It takes about 30 seconds.
-                    </li>
-                    <li>Open Credentials and click Create credentials, API key.</li>
-                    <li>
-                      Edit the new key and restrict it to "Generative Language API" under API restrictions. It only appears in the dropdown after step 1.
-                    </li>
-                  </ol>
-                  <p>
-                    <span className={`font-medium ${darkMode ? 'text-white' : 'text-slate-900'}`}>Chat only.</span>{' '}
-                    Only using Gemini chat and nothing else from Google? Grab a free key at{' '}
-                    <a
-                      href="https://aistudio.google.com/apikey"
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`underline ${darkMode ? 'text-blue-700 dark:text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
-                    >
-                      Google AI Studio
-                    </a>{' '}
-                    instead. It ties to your personal Google account and is one click.
-                  </p>
-                </div>
+                        <p>
+                          Use the same{' '}
+                          <a
+                            href="https://console.cloud.google.com"
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`underline ${darkMode ? 'text-blue-700 dark:text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                          >
+                            Google Cloud project
+                          </a>{' '}
+                          you set up for Drive, Calendar, or Gmail. Three steps:
+                        </p>
+                        <ol className="list-decimal ml-5 space-y-1">
+                          <li>
+                            Enable{' '}
+                            <a
+                              href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com"
+                              target="_blank"
+                              rel="noreferrer"
+                              className={`underline ${darkMode ? 'text-blue-700 dark:text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                            >
+                              "Generative Language API"
+                            </a>{' '}
+                            in the API library. It takes about 30 seconds.
+                          </li>
+                          <li>Open Credentials and click Create credentials, API key.</li>
+                          <li>
+                            Edit the new key and restrict it to "Generative Language API" under API restrictions. It only appears in the dropdown after step 1.
+                          </li>
+                        </ol>
+                        <p>
+                          Only using Gemini for chat? Grab a free key at{' '}
+                          <a
+                            href="https://aistudio.google.com/apikey"
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`underline ${darkMode ? 'text-blue-700 dark:text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                          >
+                            Google AI Studio
+                          </a>{' '}
+                          instead. It's one click and ties to your personal Google account.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
 
               {/* Gemini CLI Toggle */}
