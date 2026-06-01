@@ -45,7 +45,6 @@ export const USER_SELECTABLE_STATUSES = ["open", "closed"] as const;
 import ConfirmModal from "../components/ConfirmModal";
 import { ComprehensiveBuildPill } from "../components/ComprehensiveBuild";
 import { NeedsClarityChip, type ReadinessCheck } from "../components/NeedsClarityChip";
-import { SpawnGeminiModal } from "../components/SpawnGeminiModal";
 import { useRunningAgentsStore } from "../stores/runningAgents";
 
 interface Task {
@@ -347,7 +346,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   // anchored next to the right row.
   const [openBuildHelp, setOpenBuildHelp] = useState<string | null>(null);
   const [showNeedsClarity, setShowNeedsClarity] = useState(false);
-  const [spawnGeminiTask, setSpawnGeminiTask] = useState<{ path: string; title: string; checks?: ReadinessCheck[] } | null>(null);
   const [pendingClaritySpawn, setPendingClaritySpawn] = useState<{
     taskId: string;
     spawnMode: SpawnMode;
@@ -393,7 +391,11 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     // ever visit when the cache is empty, and the initial useState
     // value handles that case.
     try {
-      const url = "/tasks";
+      // The live /tasks endpoint is active-only by default so the 3s poll never
+      // ships ~1400 closed needles. Only when the user explicitly opens the
+      // Closed tab do we ask the backend for closed rows. The default and All
+      // views keep the lean active-only poll. (→2026 GROUP 2)
+      const url = selectedStatus === "closed" ? "/tasks?include_closed=true" : "/tasks";
       const res = await api.get<TasksResponse>(url);
       const nextTasks = res.tasks ?? [];
       const pending = pendingDeleteIdsRef.current;
@@ -3324,15 +3326,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         </div>
       )}
 
-      {spawnGeminiTask && (
-        <SpawnGeminiModal
-          path={spawnGeminiTask.path}
-          title={spawnGeminiTask.title}
-          checks={spawnGeminiTask.checks}
-          onClose={() => setSpawnGeminiTask(null)}
-          onSpawned={() => setSpawnGeminiTask(null)}
-        />
-      )}
       {undoDelete && (
         <div
           data-testid="undo-delete-task-toast"
