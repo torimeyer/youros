@@ -7735,6 +7735,29 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
 
     _set_agent_status(name, "completed")
 
+    # Auto-close the needle(s) associated with this agent on completion (→2042).
+    # The auto-merge block above closes the needle only for non-claude-code
+    # worktree agents when the ff-merge succeeds. All other agents (especially
+    # source="claude-code" subagents, the most common case) have no close path,
+    # leaving tasks stuck open/in_progress until the next server restart.
+    # close_task is idempotent — a double-close from the merge path is safe.
+    _cn_meta = agent_metadata.get(name) or existing_meta
+    _cn_nid = _cn_meta.get("needle_id")
+    _cn_extra = list(_cn_meta.get("needle_ids") or [])
+    _cn_all: list[str] = []
+    if _cn_nid:
+        _cn_all.append(str(_cn_nid))
+    for _n in _cn_extra:
+        if str(_n) not in _cn_all:
+            _cn_all.append(str(_n))
+    if _cn_all:
+        for _n in _cn_all:
+            try:
+                _arrow_n = f"→{_n.lstrip('→')}"
+                await ostk.close_task(_arrow_n, closed_reason="completed")
+            except Exception:
+                pass  # best-effort; never block completion
+
     # Auto-close the spec builder task if this agent was spawned from a
     # Build it click. The spec_build prompt tells the agent to edit
     # files directly and NOT run `ostk work close` itself, so /complete
