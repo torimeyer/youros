@@ -10,7 +10,7 @@ import { api } from '../lib/api';
 import { reportError } from '../lib/reportError';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 import SlackConnect from '../components/SlackConnect';
-import { AtlassianSetupCard, GithubSetupCard, CustomizeStep, AGENT_MARKETPLACE } from '../components/OnboardingWizard';
+import { AtlassianSetupCard, GithubSetupCard } from '../components/OnboardingWizard';
 import CustomVerbs from '../components/CustomVerbs';
 import { parseMemoryProvenance } from '../lib/parseMemoryProvenance';
 
@@ -190,7 +190,6 @@ export default function Settings() {
   const [adhdFocusMode, setAdhdFocusMode] = useState(false);
 
   const [activeSection, setActiveSection] = useState('section-connections');
-  const [settingsPersonaId, setSettingsPersonaId] = useState<string | null>(null);
   const [expandedConnection, setExpandedConnection] = useState<string | null>(null);
   const [defaultConfluenceSpace, setDefaultConfluenceSpace] = useState('');
   const [wipeDataError, setWipeDataError] = useState<string | null>(null);
@@ -1081,35 +1080,6 @@ export default function Settings() {
             </div>
             <p className="text-xs text-slate-500 mt-2">Shows advanced agent tabs (Delegate, Shared Workspace) and the ostk browser in the sidebar.</p>
           </div>
-          </div>
-          </div>
-
-          {/* ── Starter agents (moved from onboarding wizard →2019) ───────────────────────────────── */}
-          <div id="section-starter-agents" className={`lg:col-span-2${activeSection !== 'section-preferences' ? ' hidden' : ''}`}>
-          <div className={cardClass} data-testid="settings-starter-agents-section">
-            <h2 className="text-lg font-semibold mb-2">Your starter agents</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-              Choose your profile to see suggested agents you can add.
-            </p>
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-2 text-slate-600 dark:text-slate-400">What best describes you?</label>
-              <select
-                value={settingsPersonaId ?? ''}
-                onChange={(e) => setSettingsPersonaId(e.target.value || null)}
-                className="w-full border rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 focus:outline-none focus:border-blue-500"
-                data-testid="settings-persona-select"
-              >
-                <option value="">Select a profile...</option>
-                {AGENT_MARKETPLACE.map((cat) => (
-                  <option key={cat.id} value={cat.id}>{cat.category}</option>
-                ))}
-              </select>
-            </div>
-            <CustomizeStep
-              selectedPersonaId={settingsPersonaId}
-              subtextCls="text-slate-500 dark:text-slate-400"
-              cardCls="border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-            />
           </div>
           </div>
 
