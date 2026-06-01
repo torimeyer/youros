@@ -5881,6 +5881,10 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                             line, _json_buf = _json_buf.split(b"\n", 1)
                             if not line.strip():
                                 continue
+                            if len(line) > 1_000_000:
+                                # Pathologically large stream line: skip parsing entirely to avoid
+                                # deep-recursion / huge-traceback event-loop wedges (->2018).
+                                continue
                             try:
                                 event = json.loads(line.decode("utf-8", errors="replace"))
                                 etype = event.get("type")
@@ -5910,9 +5914,11 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                                     if etype == "tool_result":
                                         _open_tool_calls[0] = max(0, _open_tool_calls[0] - 1)
                                 # system/hook events: _had_any_byte already set; skip transcript
-                            except (json.JSONDecodeError, UnicodeDecodeError):
-                                # Non-JSON line: write raw (backward compat / plain-text fallback)
-                                if line.strip():
+                            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, ValueError):
+                                # Non-JSON / pathological line. RecursionError + ValueError are caught here
+                                # so a deeply-nested payload can never escape to uvloop's default exception
+                                # handler and wedge the event loop with a huge traceback write (->2018).
+                                if line.strip() and len(line) <= 1_000_000:
                                     try:
                                         tfh.write(line + b"\n")
                                         tfh.flush()
