@@ -581,6 +581,12 @@ def _prune_reaped_worktree_agents() -> int:
 # GET /nudges does NOT refresh the heartbeat because the frontend also
 # polls it, which would keep dead agents alive forever.
 STALE_AGENT_TIMEOUT_SECONDS = 900
+# Agents that were spawned within this window are treated as live even when
+# their subprocess pid is already dead (e.g. empty-transcript fast exit).
+# This covers the gap between /spawn returning 200 and the first heartbeat
+# arriving (→1950/→2020). Stale rows are unaffected because their spawned_at
+# timestamps are far outside this window.
+SPAWN_GRACE_PERIOD_SECONDS = 30
 
 # Shorter stale-sweep threshold for Claude Code Agent-tool subagents
 # (source="claude-code"). These agents do NOT run pytest/tsc the way
@@ -4511,10 +4517,26 @@ def _is_agent_genuinely_live(meta: dict) -> bool:
          immediately; no timestamp check is done.
       B. Its last_heartbeat_at or spawned_at is within
          STALE_AGENT_TIMEOUT_SECONDS of now.
+      C. Its spawned_at is within SPAWN_GRACE_PERIOD_SECONDS of now.
+         This is checked before Signal A so that an immediately-exiting
+         subprocess (e.g. empty-transcript fast exit) does not cause the
+         just-spawned task linkage to disappear (→1950/→2020). Stale rows
+         are unaffected because their spawned_at is outside the window.
 
     Agents with no pid and no timestamps (bare rows) return False so
     they do not pin tasks indefinitely.
     """
+    # Signal C: spawn grace window — checked first so a dead pid on a
+    # freshly-spawned row does not short-circuit the check. Stale rows
+    # with old spawned_at timestamps fall through unaffected.
+    _spawned_raw = meta.get("spawned_at")
+    if isinstance(_spawned_raw, str):
+        _spawned_ts = _parse_iso(_spawned_raw)
+        if _spawned_ts is not None:
+            _grace_now = datetime.now(timezone.utc)
+            if (_grace_now - _spawned_ts).total_seconds() <= SPAWN_GRACE_PERIOD_SECONDS:
+                return True  # Signal C: within spawn grace window.
+
     pid = meta.get("pid")
     if pid:
         try:
