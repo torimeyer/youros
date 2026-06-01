@@ -219,13 +219,14 @@ describe('Settings', () => {
       expect(setupCard).toBeTruthy()
       fireEvent.click(setupCard!.closest('div[class*="cursor-pointer"]')!)
 
-      // Helper block is a decision tree: Cloud Console is recommended,
-      // AI Studio is the chat-only fallback. Both paths must still appear.
-      expect(screen.getByText(/Where to get a Gemini API key/i)).toBeInTheDocument()
+      // Cloud setup instructions are behind the Advanced toggle (collapsed by default).
+      // Expand it first, then verify both paths still appear.
+      const toggle = screen.getByTestId('gemini-advanced-toggle')
+      expect(toggle).toBeInTheDocument()
+      fireEvent.click(toggle)
+      expect(screen.getByTestId('gemini-key-help')).toBeInTheDocument()
       expect(screen.getByText(/Google AI Studio/i)).toBeInTheDocument()
       expect(screen.getByText(/Google Cloud project/i)).toBeInTheDocument()
-      expect(screen.getByText(/Recommended\./i)).toBeInTheDocument()
-      expect(screen.getByText(/Chat only\./i)).toBeInTheDocument()
       // Users must be told to enable the Generative Language API FIRST,
       // otherwise the restriction dropdown is empty when they try to lock
       // the key down.
