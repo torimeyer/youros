@@ -462,12 +462,21 @@ async def get_coordination():
     return await _coordination_snapshot()
 
 
-@router.get("/sessions/active")
-async def get_active_sessions():
-    """Return all sessions that have written events in the last 30 minutes,
-    merged with every live agent record (Claude Code tabs, torichat turns,
-    spawned fleet members). Without the merge the counter was always zero
-    for tabs that never ran an ostk command.
+def _build_active_sessions() -> dict:
+    """Synchronous body of GET /api/sessions/active.
+
+    Runs ALL of the disk-walking work: _get_sessions() opens+tails every
+    .ostk/sessions/*/events.jsonl and json.loads each tail line, and
+    _claude_code_transcript_sessions() globs+stat()s every Claude Code
+    transcript. On a busy box (dozens of sessions/transcripts) this is
+    ~tens of ms per call, and the live frontend polls it from several
+    sockets at once. Run on the event-loop thread (as it was), each poll
+    blocked the single uvicorn loop long enough to starve every other
+    request and WebSocket publish -- the ->2018 live freeze.
+
+    This is pulled into a plain sync function so get_active_sessions can
+    hand it to asyncio.to_thread() and keep the loop free, mirroring the
+    offload the specs scan got in be3496a8.
     """
     sessions = _get_sessions()
     seen = {s["session_id"] for s in sessions}
@@ -493,3 +502,18 @@ async def get_active_sessions():
         "active_count": sum(1 for s in sessions if s["status"] == "active"),
         "idle_count": sum(1 for s in sessions if s["status"] == "idle"),
     }
+
+
+@router.get("/sessions/active")
+async def get_active_sessions():
+    """Return all sessions that have written events in the last 30 minutes,
+    merged with every live agent record (Claude Code tabs, torichat turns,
+    spawned fleet members). Without the merge the counter was always zero
+    for tabs that never ran an ostk command.
+
+    The actual scan does synchronous file I/O over every session dir and
+    Claude Code transcript, so it is offloaded to a worker thread
+    (->2018): on the event loop it blocked every other request and WS
+    publish under the live frontend's multi-socket polling.
+    """
+    return await asyncio.to_thread(_build_active_sessions)
