@@ -44,15 +44,30 @@ from fastapi import WebSocket
 _claude_log = logging.getLogger("myos.chat.claude_code")
 
 
-# Anthropic env vars that force API-key auth when present.
-# These MUST be stripped from the subprocess environment before spawning
-# ``claude``. Leaving them in place makes the local program bypass the
-# subscription and bill against the paid API instead, which defeats the
-# entire purpose of this provider.
+# Env vars stripped from the subprocess env before running ``claude auth status``
+# or spawning ``claude`` for chat.
+#
+# ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / CLAUDE_API_KEY: force API-key
+# billing inside the child process; stripping them makes the subscription path win.
+#
+# ANTHROPIC_BASE_URL: when the backend runs inside Claude Code the parent sets
+# this to a local ostk proxy (127.0.0.1:8080). The Claude CLI routes its
+# startup through that URL; if the proxy is busy or slow the ``auth status``
+# call can exceed the 3-second timeout and return a false negative.
+#
+# CLAUDECODE / CLAUDE_CODE_SESSION_ID / CLAUDE_CODE_ENTRYPOINT / AI_AGENT:
+# these tell the Claude CLI it is running inside a Claude Code session, causing
+# it to attempt IPC with the parent session. That IPC can hang when the parent
+# is processing a long request, again pushing the subprocess past the timeout.
 BLOCKED_AUTH_ENV_KEYS: frozenset[str] = frozenset({
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
     "CLAUDE_API_KEY",
+    "CLAUDECODE",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "AI_AGENT",
 })
 
 
@@ -97,7 +112,10 @@ def _session_id_for_tab(tab_id: str) -> str:
 _DETECTION_CACHE_TTL_SECONDS: float = 600.0
 
 # How long to wait on ``claude auth status`` before declaring it broken.
-_AUTH_STATUS_TIMEOUT_SECONDS: float = 3.0
+# 8 s gives room for thread-pool saturation (the coroutine queues behind other
+# workers before asyncio.to_thread finally dispatches it) without making the
+# Settings page feel unresponsive on a normal laptop.
+_AUTH_STATUS_TIMEOUT_SECONDS: float = 8.0
 
 # Cap on how long a single chat turn may run before we kill the subprocess.
 # 1800 s (30 min) gives even very complex multi-tool sessions room to finish
