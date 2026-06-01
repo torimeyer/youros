@@ -4708,10 +4708,18 @@ def _extract_all_needle_ids(
     for every referenced needle, not just the first (→1204).
     """
     seen: dict[str, None] = {}
-    for text in (task, description, prompt):
+    for text in (task, description):
         if not text:
             continue
         for m in _ARROW_NEEDLE_RE.finditer(text):
+            seen.setdefault(m.group(1), None)
+    # Only scan prompt when both task and description are absent entirely.
+    # If task or description is present (even with no needle IDs), the
+    # agent's "what I'm doing" is captured there and the prompt is just
+    # the instructions brief, which may contain many →NNN IDs as context.
+    # Extracting those would overlay unrelated tasks as in_progress.
+    if not task and not description and prompt:
+        for m in _ARROW_NEEDLE_RE.finditer(prompt):
             seen.setdefault(m.group(1), None)
     return list(seen.keys())
 
