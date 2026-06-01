@@ -291,16 +291,6 @@
       }
     },
 
-    "task_state_hygiene": {
-      "enabled": false,
-      "_meta": {
-        "title": "Keep task states accurate",
-        "description": "Enforces that in_progress tasks are actually being worked on this turn, pending means waiting on the user, and completed means the deliverable is done and verified.",
-        "category": "quality",
-        "params": {}
-      }
-    },
-
     "monitor_misuse_guard": {
       "enabled": false,
       "_meta": {
