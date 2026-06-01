@@ -2,7 +2,7 @@
 # link-memory-to-rules.sh
 #
 # Wave 6 of plan →1288. Adds `enforces_rule:` frontmatter to memory files
-# under ~/.claude/projects/-Users-torimeyer-claude-torios/memory/ so the
+# under the Claude Code project memory dir for this repo so the
 # kernel can cite the matching rationale doc when a rule fires. Also
 # generates .claude/hooks/lib/rule-to-memory.json (reverse-index used by
 # the loader and the rule-settings UI).
@@ -22,7 +22,11 @@
 set -eo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MEMORY_DIR="${HOME}/.claude/projects/-Users-torimeyer-claude-torios/memory"
+# Claude Code encodes a project's path into ~/.claude/projects/ by replacing
+# every "/" with "-". Derive the slug from this repo's path so the script
+# works for any user/checkout. MYOS_MEMORY_DIR overrides if needed.
+PROJECT_SLUG="${REPO_ROOT//\//-}"
+MEMORY_DIR="${MYOS_MEMORY_DIR:-${HOME}/.claude/projects/${PROJECT_SLUG}/memory}"
 REVERSE_INDEX="${REPO_ROOT}/.claude/hooks/lib/rule-to-memory.json"
 
 if [[ ! -d "${MEMORY_DIR}" ]]; then

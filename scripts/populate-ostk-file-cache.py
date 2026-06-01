@@ -46,10 +46,15 @@ MIN_SIZE_BYTES = 512  # proxy min_size_threshold default
 
 # Default candidate files (highest savings value from →1335 retro)
 HOME = Path.home()
+REPO_ROOT = Path(__file__).resolve().parent.parent
+# Claude Code encodes a project's path into ~/.claude/projects/ by replacing
+# every "/" with "-". Derive the slug from this repo's path so the defaults
+# work for any user/checkout instead of a hardcoded personal path.
+_PROJECT_SLUG = str(REPO_ROOT).replace("/", "-")
 DEFAULT_FILES = [
-    HOME / ".claude/projects/-Users-torimeyer-claude-torios/memory/MEMORY.md",
-    HOME / "claude/CLAUDE.md",
-    HOME / "claude/torios/CLAUDE.md",
+    HOME / f".claude/projects/{_PROJECT_SLUG}/memory/MEMORY.md",
+    REPO_ROOT.parent / "CLAUDE.md",
+    REPO_ROOT / "CLAUDE.md",
 ]
 
 # .ostk/ directory — relative to this script's repo root or explicit OSTK_DIR

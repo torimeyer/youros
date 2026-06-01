@@ -6,7 +6,7 @@ See the plan at `~/.claude/plans/i-bought-it-on-groovy-sun.md` for context.
 
 ## Files
 
-- `index.html` — the holding page. Sunset-gradient wordmark (v7 logo lifted from `/tmp/myos-logo-v7.html` and adapted to "y[sunset-O]uros"), dark navy background (`#020617` from `app/src/index.css`), brand colors (pink `#ec4899`, purple `#8b5cf6`, amber `#fbbf24`). Real "Download youros" CTA pointing at `https://github.com/torimeyer/youros/releases/latest`. Swap the href to a dedicated `/install` page once one exists.
+- `index.html` — the holding page. Sunset-gradient wordmark (v7 logo lifted from `/tmp/myos-logo-v7.html` and adapted to "y[sunset-O]uros"), dark navy background (`#020617` from `app/src/index.css`), brand colors (pink `#ec4899`, purple `#8b5cf6`, amber `#fbbf24`). Real "Download youros" CTA pointing at `https://github.com/os-tack/youros/releases/latest`. Swap the href to a dedicated `/install` page once one exists.
 - `favicon.svg` — just the sunset disc. Renders crisp at any size.
 - `robots.txt` — allow all crawlers, points to sitemap
 - `sitemap.xml` — single-URL sitemap for faster Google indexing
@@ -65,7 +65,7 @@ In the Cloudflare dashboard for `getyouros.com`:
 
 1. **Email → Email Routing → Get started**
 2. Cloudflare auto-adds MX + TXT records
-3. **Custom addresses → Create address:** `hello` → forward to your real email (e.g., `torimeyer25@gmail.com`)
+3. **Custom addresses → Create address:** `hello` → forward to your real email (e.g., `you@example.com`)
 4. Verify the destination via the email Cloudflare sends
 
 ## Enable Cloudflare Web Analytics
