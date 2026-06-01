@@ -10,7 +10,8 @@ import { api } from '../lib/api';
 import { reportError } from '../lib/reportError';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 import SlackConnect from '../components/SlackConnect';
-import { AtlassianSetupCard, GithubSetupCard } from '../components/OnboardingWizard';
+import { AtlassianSetupCard, GithubSetupCard, CustomizeStep } from '../components/OnboardingWizard';
+import { AGENT_MARKETPLACE, type MarketplaceCategory } from '../data/agentMarketplace';
 import CustomVerbs from '../components/CustomVerbs';
 import { parseMemoryProvenance } from '../lib/parseMemoryProvenance';
 
@@ -188,6 +189,7 @@ export default function Settings() {
   const [adhdEnabled, setAdhdEnabled] = useState(false);
   const [adhdCheckInSeconds, setAdhdCheckInSeconds] = useState(30);
   const [adhdFocusMode, setAdhdFocusMode] = useState(false);
+  const [settingsPersonaId, setSettingsPersonaId] = useState<string | null>(null);
 
   const [activeSection, setActiveSection] = useState('section-connections');
   const [expandedConnection, setExpandedConnection] = useState<string | null>(null);
@@ -1813,7 +1815,7 @@ export default function Settings() {
 
           {/* ── Team Admin (gated) ──────────────────── */}
           {instanceMode === 'team' && (
-          <div id="section-team-admin" className={activeSection !== 'section-team-admin' ? 'hidden' : ''}>
+          <div id="section-team-admin" className={`lg:col-span-2${activeSection !== 'section-team-admin' ? ' hidden' : ''}`}>
           <div className={cardClass}>
             <div className="flex items-center gap-2 mb-3">
               <Icon name="admin_panel_settings" size={22} className="text-indigo-600 dark:text-indigo-400" />
@@ -2048,6 +2050,34 @@ export default function Settings() {
                   <Toggle checked={adhdFocusMode} onChange={handleAdhdFocusModeToggle} testId="adhd-focus-toggle" />
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* ── Starter agents (→2019/→2021) ────────────────────────── */}
+          <div id="section-starter-agents" className={`lg:col-span-2${activeSection !== 'section-preferences' ? ' hidden' : ''}`}>
+            <div className={cardClass} data-testid="settings-starter-agents-section">
+              <h2 className="text-lg font-semibold mb-2">Your starter agents</h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                Choose your profile to see suggested agents you can add.
+              </p>
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-2 text-slate-600 dark:text-slate-400">What best describes you?</label>
+                <select
+                  value={settingsPersonaId ?? ''}
+                  onChange={(e) => setSettingsPersonaId(e.target.value || null)}
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">Select a profile...</option>
+                  {AGENT_MARKETPLACE.map((cat: MarketplaceCategory) => (
+                    <option key={cat.id} value={cat.id}>{cat.category}</option>
+                  ))}
+                </select>
+              </div>
+              <CustomizeStep
+                selectedPersonaId={settingsPersonaId}
+                subtextCls="text-slate-500 dark:text-slate-400"
+                cardCls="border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+              />
             </div>
           </div>
 

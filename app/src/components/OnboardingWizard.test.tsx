@@ -96,6 +96,9 @@ function clickNext(n: number) {
 
 describe('OnboardingWizard', () => {
   beforeEach(() => {
+    // Reset URL so a navigation test that fails mid-way can't leave a path or
+    // query param that the OAuth-redirect useEffect misinterprets on the next test.
+    window.history.replaceState({}, '', '/')
     localStorageMock.clear()
     useAppStore.setState({
       onboarded: false,
@@ -112,9 +115,11 @@ describe('OnboardingWizard', () => {
     })
     vi.mocked(api.get).mockReset()
     vi.mocked(api.post).mockReset()
+    vi.mocked(api.patch).mockReset()
     // Default: api.get returns the adventure templates for the Adventure step
     vi.mocked(api.get).mockResolvedValue(MOCK_ADVENTURES)
     vi.mocked(api.post).mockResolvedValue({})
+    vi.mocked(api.patch).mockResolvedValue({})
   })
 
   it('renders the wizard', () => {

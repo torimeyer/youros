@@ -315,7 +315,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   const [banner, setBanner] = useState<string | null>(null);
   const [openPriorityDropdown, setOpenPriorityDropdown] = useState<string | null>(null);
   const [openLabelDropdown, setOpenLabelDropdown] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"tasks" | "labels" | "health">("tasks");
+  const [activeTab, setActiveTab] = useState<"tasks" | "labels" | "health" | "kanban">("tasks");
   const [openLinkDropdown, setOpenLinkDropdown] = useState<string | null>(null);
   const [linkTarget, setLinkTarget] = useState("");
   const [commitTaskId, setCommitTaskId] = useState<string | null>(null);
@@ -393,7 +393,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     // ever visit when the cache is empty, and the initial useState
     // value handles that case.
     try {
-      const url = selectedStatus === "closed" ? "/tasks?include_closed=true" : "/tasks";
+      const url = "/tasks";
       const res = await api.get<TasksResponse>(url);
       const nextTasks = res.tasks ?? [];
       const pending = pendingDeleteIdsRef.current;
@@ -1034,7 +1034,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   // The backend accepts template="comprehensive" as the primary name
   // and template="saa" as an alias, to match Tori's muscle memory.
   // We post "comprehensive" from the UI to keep telemetry clean.
-  type SpawnMode = "plan" | "comprehensive";
+  type SpawnMode = "plan" | "comprehensive" | "quick";
 
   const spawnAgentForTask = async (taskId: string, mode: SpawnMode) => {
     const task = tasks.find((t) => t.id === taskId);
@@ -1077,11 +1077,16 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         bannerLabel = "Plan";
         body.locks = ["*"];
         body.isolation = "none";
-      } else {
+      } else if (mode === "comprehensive") {
         prompt = `Implement this task: "${task.title}". Follow the comprehensive build pattern. Plan the approach, build the solution, write tests, run them, and only report done when everything is green.`;
         namePrefix = "implement";
-        bannerLabel = "Build";
+        bannerLabel = "Comprehensive build";
         body.template = "comprehensive";
+        body.locks = BUILD_LOCKS;
+      } else {
+        prompt = `Implement this task: "${task.title}".`;
+        namePrefix = "implement";
+        bannerLabel = "Quick build";
         body.locks = BUILD_LOCKS;
       }
 
@@ -1097,7 +1102,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       setTimeout(() => setBanner(null), 4000);
     } catch (e) {
       reportError(`Failed to spawn ${mode} agent`, e);
-      const label = mode === "plan" ? "plan" : "Build";
+      const label = mode === "plan" ? "plan" : mode === "comprehensive" ? "Comprehensive build" : "Quick build";
       const detail =
         e != null &&
         typeof e === 'object' &&
@@ -1742,6 +1747,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             <button onClick={() => setActiveTab("tasks")} className={activeTab === "tasks" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Tasks</button>
             <button onClick={() => setActiveTab("labels")} className={activeTab === "labels" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Labels</button>
             <button onClick={() => setActiveTab("health")} className={activeTab === "health" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Health</button>
+            <button onClick={() => setActiveTab("kanban")} className={activeTab === "kanban" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Kanban</button>
           </div>
 
           {/* Primary AI action */}
@@ -1890,6 +1896,39 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
         {activeTab === "health" ? (
           <HealthCheckView />
+        ) : activeTab === "kanban" ? (
+          <div data-testid="kanban-view" className="flex gap-4 overflow-x-auto pb-4">
+            {(["open", "in_progress", "closed"] as const).map((col) => {
+              const colLabel = col === "in_progress" ? "In Progress" : col === "open" ? "Open" : "Closed";
+              const colTasks = tasks.filter((t) => t.status === col);
+              return (
+                <div
+                  key={col}
+                  data-testid={`kanban-column-${col}`}
+                  className="flex-1 min-w-[220px] bg-slate-100 dark:bg-slate-800/60 rounded-xl p-3"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">{colLabel}</span>
+                    <span className="text-xs text-slate-500 bg-slate-200 dark:bg-slate-700 rounded-full px-2 py-0.5">{colTasks.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {colTasks.map((t) => (
+                      <div
+                        key={t.id}
+                        className="bg-white dark:bg-slate-800 rounded-lg px-3 py-2 shadow-sm border border-slate-200 dark:border-slate-700 text-sm text-slate-800 dark:text-slate-200"
+                      >
+                        <span className="text-[10px] font-mono text-slate-400 mr-1">#{t.id}</span>
+                        {t.title}
+                      </div>
+                    ))}
+                    {colTasks.length === 0 && (
+                      <div className="text-xs text-slate-400 italic text-center py-2">No tasks</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : activeTab === "labels" ? (
           <LabelsView
             onFilterByLabel={(id) => {
@@ -2321,7 +2360,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                               className="flex-1 text-left px-3 py-1.5 text-xs flex items-center gap-2 text-slate-700 dark:text-slate-300"
                             >
                               <Icon name="code" className="text-sm text-green-600 dark:text-green-400" />
-                              Build
+                              Comprehensive build
                             </button>
                             <button
                               onClick={(e) => {
@@ -2335,6 +2374,14 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                               <Icon name="help_outline" className="text-sm" />
                             </button>
                           </div>
+                          <button
+                            onClick={() => handleSpawnWithGate(task.id, "quick")}
+                            disabled={actionLoading === task.id}
+                            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
+                          >
+                            <Icon name="flash_on" className="text-sm text-yellow-600 dark:text-yellow-400" />
+                            Quick build
+                          </button>
                           {openBuildHelp === task.id && (
                             <div
                               ref={buildHelpRef}

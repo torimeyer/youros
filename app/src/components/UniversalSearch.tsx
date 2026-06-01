@@ -346,12 +346,18 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       navigate('/agents') // running agents
       onClose()
     } else if (selectedIndex < deepOffset) {
-      navigate('/tasks')
+      const task = tasksResults[selectedIndex - tasksOffset]
+      navigate(task ? `/tasks?focus=${encodeURIComponent(task.id)}` : '/tasks')
       onClose()
     } else if (selectedIndex < specsOffset) {
-      // audit/needle items — no dedicated route
+      const item = deepResults[selectedIndex - deepOffset]
+      const deepId = item?.id ? String(item.id) : null
+      navigate(deepId ? `/tasks?focus=${encodeURIComponent(deepId)}` : '/tasks')
+      onClose()
     } else if (selectedIndex < docsOffset) {
-      navigate('/specs')
+      const spec = specsResults[selectedIndex - specsOffset]
+      const specPath = spec?.path ? String(spec.path) : null
+      navigate(specPath ? `/specs?focus=${encodeURIComponent(specPath)}` : '/specs')
       onClose()
     } else if (selectedIndex < recallOffset) {
       navigate('/files')
@@ -362,7 +368,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
     }
   }, [
     selectedIndex, navCount, actionsOffset, templatesOffset, agentsOffset, tasksOffset, deepOffset, specsOffset, docsOffset, recallOffset, totalItems,
-    filteredNav, filteredActions, navigate, onClose,
+    filteredNav, filteredActions, tasksResults, deepResults, specsResults, navigate, onClose,
   ])
 
   const handleKeyDown = useCallback(
@@ -583,7 +589,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
                         <button
                           key={t.id}
                           data-us-item
-                          onClick={() => { navigate('/tasks'); onClose() }}
+                          onClick={() => { navigate(`/tasks?focus=${encodeURIComponent(t.id)}`); onClose() }}
                           onMouseEnter={() => setSelectedIndex(idx)}
                           className={rowCls(idx)}
                           data-testid={`task-item-${t.id}`}
@@ -619,7 +625,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
                         <button
                           key={i}
                           data-us-item
-                          onClick={() => {}}
+                          onClick={() => { const deepId = d.id ? String(d.id) : null; navigate(deepId ? `/tasks?focus=${encodeURIComponent(deepId)}` : '/tasks'); onClose() }}
                           onMouseEnter={() => setSelectedIndex(idx)}
                           className={rowCls(idx)}
                           data-testid={`deep-item-${i}`}
@@ -652,7 +658,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
                         <button
                           key={`spec-${i}`}
                           data-us-item
-                          onClick={() => { navigate('/specs'); onClose() }}
+                          onClick={() => { const specPath = d.path ? String(d.path) : null; navigate(specPath ? `/specs?focus=${encodeURIComponent(specPath)}` : '/specs'); onClose() }}
                           onMouseEnter={() => setSelectedIndex(idx)}
                           className={rowCls(idx)}
                           data-testid={`spec-item-${i}`}

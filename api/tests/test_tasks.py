@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -4542,6 +4543,7 @@ async def test_list_tasks_overlay_forces_in_progress_when_agent_is_live(client):
     agent_metadata["agent-live-1"] = {
         "status": "running",
         "task_id": "task-live",
+        "spawned_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
         with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
@@ -4648,8 +4650,9 @@ async def test_list_tasks_overlay_survives_multiple_agents_on_one_task(client):
     for _name in [k for k, v in agent_metadata.items()
                   if isinstance(v, dict) and v.get("task_id") == tid]:
         agent_metadata.pop(_name, None)
-    agent_metadata["agent-A-overlay-xyz"] = {"status": "running", "task_id": tid}
-    agent_metadata["agent-B-overlay-xyz"] = {"status": "running", "task_id": tid}
+    _now = datetime.now(timezone.utc).isoformat()
+    agent_metadata["agent-A-overlay-xyz"] = {"status": "running", "task_id": tid, "spawned_at": _now}
+    agent_metadata["agent-B-overlay-xyz"] = {"status": "running", "task_id": tid, "spawned_at": _now}
     try:
         # Both live: overlay forces in_progress.
         with _patch_ostk_and_labels(list_tasks=AsyncMock(side_effect=lambda **kw: _fresh_tasks())):

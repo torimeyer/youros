@@ -2773,7 +2773,7 @@ export function ChatPanel() {
             // bubble has nothing to show (no dots, no content). Hide it rather than
             // rendering a blank rounded shape. Covers the 500ms grace-window flash
             // where done fires before the timer sets "No response received." content.
-            if (isEmpty && msg.role === 'assistant' && !isStreaming && !placeholderAwaitingServer) return null
+            if (isEmpty && msg.role === 'assistant' && !isStreaming && !placeholderAwaitingServer && !confirmedDoneIds.has(msg.id)) return null
             if (isEmpty && msg.role === 'user') return null
             return (
               <div

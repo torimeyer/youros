@@ -31,6 +31,7 @@ from routers import gemini_capture as gemini_capture_router
 from routers import internal as internal_router
 from routers import narrative as narrative_router
 from routers import coordination as coordination_router
+from routers import reminders as reminders_router
 from routers import rules as rules_router
 from routers import intel as intel_router
 from routers import usage as usage_router
@@ -81,6 +82,8 @@ async def lifespan(app: FastAPI):
     await install_signal_shutdown_hook()
     from services.ostk import start_clock_refresher
     _keep(await start_clock_refresher())
+    from services.reminders import start_reminder_scheduler
+    _keep(await start_reminder_scheduler())
     yield
     await notify_chat_clients_on_shutdown()
     # →1569: cancel background tasks started via _keep() so async tests using
@@ -235,6 +238,7 @@ app.include_router(ostk_router.router, prefix="/api")
 app.include_router(internal_router.router, prefix="/api")
 app.include_router(narrative_router.router, prefix="/api")
 app.include_router(coordination_router.router, prefix="/api")
+app.include_router(reminders_router.router, prefix="/api")
 
 
 async def prune_stale_agent_state():

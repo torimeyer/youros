@@ -169,8 +169,8 @@ describe('ChatPanel tabs', () => {
 
     // The second tab (newly created) should be active and have white text class
     const tabButtons = screen.getAllByText('New Chat')
-    // The second one is the new active tab
-    expect(tabButtons[1].closest('button')).toHaveClass('text-white')
+    // The second one is the new active tab (themed: slate-900 in light, white in dark)
+    expect(tabButtons[1].closest('button')).toHaveClass('dark:text-white')
     // The first one should be inactive
     expect(tabButtons[0].closest('button')).toHaveClass('text-slate-500')
   })

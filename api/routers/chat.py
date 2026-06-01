@@ -148,8 +148,8 @@ def _latest_roadmap_path() -> Optional[Path]:
     ``roadmap-*.md`` or any file whose front matter declares
     ``kind: roadmap``.
     """
-    import sys as _sys
-    base = Path(_sys.modules[__name__].MYOS_FILES_DIR)
+    from services.files_dir import get_files_dir
+    base = get_files_dir()
     if not base.exists():
         return None
 
@@ -1291,6 +1291,32 @@ class _TerminalTrackingWS:
         return getattr(self._inner, name)
 
 
+async def _handle_remind_me(text: str, websocket: WebSocket, tab_id: str = "", data: dict = None) -> bool:
+    """Detect 'remind me to X at TIME' and create a reminder without hitting the AI."""
+    import re as _re
+    if not _re.search(r"\bremind\s+me\s+to\b", text, _re.IGNORECASE):
+        return False
+    try:
+        from services import reminders as _rem
+        from services.settings_store import settings_store as _ss
+        tz = _ss.get("time_zone") or _ss.get("timezone") or "America/Chicago"
+        parsed = _rem.parse_reminder(text, tz=tz)
+        r = _rem.create_reminder(
+            text=parsed["text"],
+            fire_at_utc=parsed["fire_at_utc"],
+            time_zone=tz,
+            channel=parsed.get("channel", "default"),
+        )
+        fire_local = parsed["fire_at_utc"].astimezone(__import__("zoneinfo").ZoneInfo(tz))
+        time_str = fire_local.strftime("%-I:%M %p on %a, %b %-d")
+        msg = f"Got it. I'll remind you to {r['text'].lower()} at {time_str}."
+        await websocket.send_json({"type": "token", "data": msg})
+        await websocket.send_json({"type": "done"})
+        return True
+    except Exception:
+        return False
+
+
 @router.websocket("/ws/chat")
 async def chat_websocket(websocket: WebSocket):
     await websocket.accept()
@@ -1379,6 +1405,13 @@ async def chat_websocket(websocket: WebSocket):
                 _slash_tab = data.get("tab_id", "")
                 handled = await _handle_slash_command(last_text.strip(), websocket, tab_id=_slash_tab)
                 if handled:
+                    continue
+
+            # --- Remind-me: intercept "remind me to X at TIME" ---
+            if isinstance(last_text, str):
+                _remind_tab = data.get("tab_id", "")
+                _remind_handled = await _handle_remind_me(last_text.strip(), websocket, tab_id=_remind_tab, data=data)
+                if _remind_handled:
                     continue
 
             # --- Memory trigger: detect "remember X", "from now on X", etc. ---
