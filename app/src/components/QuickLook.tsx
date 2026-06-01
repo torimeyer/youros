@@ -133,6 +133,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
   const [docSaveStatus, setDocSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [docSaveError, setDocSaveError] = useState<string | null>(null)
   const [docDiscardPending, setDocDiscardPending] = useState(false)
+  const [docLoadError, setDocLoadError] = useState<string | null>(null)
 
   const isDriveMode = !!driveFileId
   const kind = isDriveMode ? null : classify(fileType, filePath)
