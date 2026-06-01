@@ -681,10 +681,10 @@ async def test_callback_success_redirect_uses_frontend_url(client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_callback_redirect_defaults_to_frontend_port_when_no_frontend_url(client):
-    """When FRONTEND_URL is unset, the callback defaults to https://localhost:3010 (→1141).
+    """When FRONTEND_URL is unset, the callback defaults to https://localhost:8000 (→1141).
 
-    Previously it fell back to request.base_url (backend port 8000), causing
-    OAuth to land users on the backend instead of the frontend.
+    Since v4.1.0 frontend+backend are unified on port 8000. The old Vite dev
+    server port 3010 no longer listens on fresh installs.
     """
     import os
 
@@ -698,8 +698,8 @@ async def test_callback_redirect_defaults_to_frontend_port_when_no_frontend_url(
 
     assert resp.status_code == 302
     location = resp.headers["location"]
-    assert location.startswith("https://localhost:3010"), (
-        f"When FRONTEND_URL is unset, redirect must default to https://localhost:3010, got: {location}"
+    assert location.startswith("https://localhost:8000"), (
+        f"When FRONTEND_URL is unset, redirect must default to https://localhost:8000, got: {location}"
     )
 
 
@@ -742,8 +742,8 @@ async def test_drive_oauth_callback_redirects_to_frontend_url(client):
 async def test_drive_auth_url_return_to_uses_frontend_url(client):
     """GET /drive/auth/url must produce a return_to URL rooted at the frontend (→1141).
 
-    When FRONTEND_URL is not set, the return_to must default to https://localhost:3010,
-    not the backend's own base URL (https://localhost:8000).
+    When FRONTEND_URL is not set, the return_to must default to https://localhost:8000
+    (the unified frontend+backend port since v4.1.0).
     """
     import os
     import urllib.parse
@@ -773,8 +773,8 @@ async def test_drive_auth_url_return_to_uses_frontend_url(client):
             break
 
     assert found_return_to is not None, "No return_to was stored in drive_oauth_states"
-    assert found_return_to.startswith("https://localhost:3010"), (
-        f"return_to must be rooted at https://localhost:3010, got: {found_return_to}"
+    assert found_return_to.startswith("https://localhost:8000"), (
+        f"return_to must be rooted at https://localhost:8000, got: {found_return_to}"
     )
 
 
