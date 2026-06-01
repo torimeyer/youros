@@ -1755,3 +1755,22 @@ async def update_doc_text(doc_id: str, body: UpdateDocText):
         ) from exc
 
     return {"ok": True, "doc_id": doc_id}
+
+
+@router.get("/drive/docs/{doc_id}/export-text")
+async def export_doc_text_endpoint(doc_id: str):
+    """Return a Google Doc's current body as plain text.
+
+    The in-app editor (→1939) calls this to pre-fill the edit box with the
+    doc's current text. Without it the box would open empty and saving would
+    erase the document, so we surface a clear error rather than empty content.
+    """
+    try:
+        text = await _export_doc_text(doc_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not read Google Doc content: {exc}",
+        ) from exc
+
+    return Response(content=text, media_type="text/plain")

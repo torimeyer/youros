@@ -580,6 +580,26 @@ describe('QuickLook - Docs edit mode (→1939)', () => {
     })
   })
 
+  it('does NOT open an empty editor when loading the doc text fails', async () => {
+    // If export-text fails (expired token, 500), opening an empty editor and
+    // letting the user Save would wipe the doc. Stay in read view and warn.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: () => Promise.resolve('Could not read Google Doc content'),
+      json: () => Promise.resolve({ detail: 'Could not read Google Doc content' }),
+    }))
+    render(<QuickLook {...driveBase} driveData={makeDocDriveData()} />)
+    fireEvent.click(screen.getByTestId('doc-edit-btn'))
+    await waitFor(() => {
+      expect(screen.getByTestId('doc-load-error')).toBeInTheDocument()
+    })
+    // Editor must NOT be open
+    expect(screen.queryByTestId('doc-edit-textarea')).not.toBeInTheDocument()
+    // Read view still present
+    expect(screen.getByTestId('quicklook-doc')).toBeInTheDocument()
+  })
+
   it('Save error keeps edit view open and shows error message', async () => {
     const mockFetch = vi.fn()
       .mockResolvedValueOnce({ ok: true, text: () => Promise.resolve('Original') })

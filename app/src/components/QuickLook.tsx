@@ -133,6 +133,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
   const [docSaveStatus, setDocSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [docSaveError, setDocSaveError] = useState<string | null>(null)
   const [docDiscardPending, setDocDiscardPending] = useState(false)
+  const [docLoadError, setDocLoadError] = useState<string | null>(null)
 
   const isDriveMode = !!driveFileId
   const kind = isDriveMode ? null : classify(fileType, filePath)
@@ -624,9 +625,14 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
 
                     const handleEditClick = () => {
                       const plainTextUrl = `/api/drive/docs/${driveFileId}/export-text`
+                      setDocLoadError(null)
                       fetch(plainTextUrl)
-                        .then((r) => r.text())
-                        .then((t) => {
+                        .then(async (r) => {
+                          if (!r.ok) {
+                            const detail = await r.text().catch(() => '')
+                            throw new Error(detail || 'Could not read this document.')
+                          }
+                          const t = await r.text()
                           setDocEditText(t)
                           setDocDirty(false)
                           setDocSaveStatus('idle')
@@ -634,13 +640,16 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                           setDocDiscardPending(false)
                           setDocEditMode(true)
                         })
-                        .catch(() => {
-                          setDocEditText('')
-                          setDocDirty(false)
-                          setDocSaveStatus('idle')
-                          setDocSaveError(null)
-                          setDocDiscardPending(false)
-                          setDocEditMode(true)
+                        .catch((err: unknown) => {
+                          // Loading the current text failed. Opening an empty
+                          // editor here would let a Save wipe the document, so
+                          // stay in read view and show a clear message.
+                          setDocEditMode(false)
+                          setDocLoadError(
+                            err instanceof Error && err.message
+                              ? err.message
+                              : 'Could not open this document for editing.',
+                          )
                         })
                     }
 
@@ -746,6 +755,9 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                     if (sample.html) {
                       return (
                         <div data-testid="quicklook-doc" className="p-4 overflow-auto">
+                          {docLoadError && (
+                            <p data-testid="doc-load-error" className="text-sm text-red-500 mb-2 text-right">{docLoadError}</p>
+                          )}
                           <div className="flex justify-end mb-2">
                             <button data-testid="doc-edit-btn" onClick={handleEditClick} className="p-1 text-slate-500 hover:text-white" title="Edit">
                               <span className="material-symbols-outlined text-[18px]">edit</span>
@@ -778,6 +790,9 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                     }
                     return (
                       <div data-testid="quicklook-doc" className="p-4 text-slate-800 dark:text-slate-200 max-w-3xl mx-auto">
+                        {docLoadError && (
+                          <p data-testid="doc-load-error" className="text-sm text-red-500 mb-2 text-right">{docLoadError}</p>
+                        )}
                         <div className="flex justify-end mb-2">
                           <button data-testid="doc-edit-btn" onClick={handleEditClick} className="p-1 text-slate-500 hover:text-white" title="Edit">
                             <span className="material-symbols-outlined text-[18px]">edit</span>
