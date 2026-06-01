@@ -2423,4 +2423,72 @@ describe('E2E journey: specs list → pick → build (→1925 →1926 →1927)',
     expect(chipsAfterExpand[0].textContent).toBe('Ready')
     expect(screen.queryAllByTestId('status-badge')).toHaveLength(0)
   })
+
+  // A#7: specs with task_summary show an inline task-count pill
+  it('A#7: spec with task_summary shows task-count pill with correct count', async () => {
+    // Override E2E mock: use the full mockDocsResponse which has auth-system with task_summary
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+    renderSpecs()
+
+    // Wait for API to load, then show all stages (matches pattern of 'renders specs from API data' test)
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
+
+    // auth-system has task_summary: { total: 2, open: 2, closed: 0 }
+    await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    expect(authCard).toBeDefined()
+
+    const pill = authCard.querySelector('[data-testid="task-count-pill"]')
+    expect(pill).not.toBeNull()
+    expect(pill!.textContent).toBe('2 tasks')
+
+    // onboarding-flow has no task_summary, so no pill
+    const onboardingCard = cards.find(c => c.textContent?.includes('onboarding flow'))!
+    expect(onboardingCard.querySelector('[data-testid="task-count-pill"]')).toBeNull()
+  })
+
+  // B5: "Review spec" button opens SpawnGeminiModal
+  it('B5: review-spec-button opens SpawnGeminiModal for that spec', async () => {
+    // Override E2E mock: use the full mockDocsResponse which has auth-system
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+    renderSpecs()
+
+    // Wait for API to load, then show all stages
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
+
+    await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    expect(authCard).toBeDefined()
+
+    const reviewBtn = authCard.querySelector('[data-testid="review-spec-button"]') as HTMLButtonElement
+    expect(reviewBtn).not.toBeNull()
+
+    // Modal is not visible yet
+    expect(screen.queryByTestId('spawn-gemini-modal')).toBeNull()
+
+    // Click review button. stopPropagation prevents the card from also expanding.
+    fireEvent.click(reviewBtn)
+
+    // Modal appears
+    await waitFor(() => expect(screen.getByTestId('spawn-gemini-modal')).toBeInTheDocument())
+
+    // Title inside the modal matches the spec title
+    expect(screen.getByTestId('spawn-gemini-modal').textContent).toContain('auth system')
+  })
 })
