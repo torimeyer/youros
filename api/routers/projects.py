@@ -34,6 +34,31 @@ def _resolve_safe_path(relative_path: str) -> Path:
     return resolved
 
 
+def _resolve_browsable_path(path_str: str) -> Path:
+    """Resolve a path for the browse endpoint.
+
+    Extends _resolve_safe_path to also accept absolute paths under ~/.myos/collections.
+    Raises HTTPException 403 if path is outside all allowed roots.
+    Raises HTTPException 404 if path does not exist.
+    """
+    workspace_root = TORIOS_DIR.resolve()
+    collections_root = (Path.home() / ".myos" / "collections").resolve()
+
+    incoming = Path(path_str)
+    if incoming.is_absolute():
+        resolved = incoming.resolve()
+    else:
+        resolved = (TORIOS_DIR / incoming).resolve()
+
+    in_workspace = str(resolved).startswith(str(workspace_root))
+    in_collections = resolved == collections_root or str(resolved).startswith(str(collections_root) + os.sep)
+    if not in_workspace and not in_collections:
+        raise HTTPException(status_code=403, detail="Path is outside the workspace.")
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail="Path not found.")
+    return resolved
+
+
 def _resolve_readable_path(path_str: str) -> Path:
     """Resolve a path for read-only preview endpoints.
 
@@ -158,9 +183,20 @@ async def list_projects():
     return {"projects": projects}
 
 
+@router.get("/files/collections-root")
+async def collections_root():
+    """Return the absolute path to ~/.myos/collections.
+
+    The frontend uses this to initialize the Docs page at the collections directory.
+    Returns {path: str, exists: bool}.
+    """
+    path = Path.home() / ".myos" / "collections"
+    return {"path": str(path), "exists": path.exists()}
+
+
 @router.get("/projects/browse")
-async def browse_directory(path: str = Query("", description="Relative path within the workspace")):
-    """List contents of a directory within the ToriOS workspace.
+async def browse_directory(path: str = Query("", description="Relative path within the workspace or absolute path under ~/.myos/collections")):
+    """List contents of a directory within the ToriOS workspace or ~/.myos/collections.
 
     Returns folders first (sorted), then files (sorted), each with metadata.
     """
@@ -168,7 +204,7 @@ async def browse_directory(path: str = Query("", description="Relative path with
         raise HTTPException(status_code=400, detail="Path parameter is required.")
 
     workspace_root = TORIOS_DIR.resolve()
-    resolved = _resolve_safe_path(path)
+    resolved = _resolve_browsable_path(path)
 
     if not resolved.is_dir():
         raise HTTPException(status_code=400, detail="Path is not a directory.")

@@ -114,8 +114,8 @@ export default function Files() {
   // File share modal state
   const [shareTarget, setShareTarget] = useState<{ path: string; name: string } | null>(null);
 
-  // null means we're at the root (project list), a string means we're browsing a directory
-  const [currentPath, setCurrentPath] = useState<string | null>(null);
+  // null = root project list, string = browsing a directory, undefined = awaiting initial collections path
+  const [currentPath, setCurrentPath] = useState<string | null | undefined>(undefined);
 
   // Project list state (root view)
   const [projects, setProjects] = useState<Project[]>([]);
@@ -195,11 +195,18 @@ export default function Files() {
   }, []);
 
   // Load data on mount and whenever path changes
+  // On mount, navigate to ~/.myos/collections as the default root.
+  useEffect(() => {
+    api.get<{ path: string; exists: boolean }>('/files/collections-root')
+      .then(({ path }) => setCurrentPath(path))
+      .catch(() => { /* fall back to project list view */ });
+  }, []);
+
   useEffect(() => {
     if (currentPath === null) {
       fetchProjects();
       fetchRecentDocs();
-    } else {
+    } else if (currentPath !== undefined) {
       fetchDirectory(currentPath);
     }
   }, [currentPath, fetchProjects, fetchRecentDocs, fetchDirectory]);
@@ -208,7 +215,7 @@ export default function Files() {
     if (currentPath === null) {
       fetchProjects();
       fetchRecentDocs();
-    } else {
+    } else if (currentPath !== undefined) {
       fetchDirectory(currentPath);
     }
   };
@@ -256,7 +263,7 @@ export default function Files() {
     <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
       <TopBar title="Files" />
 
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto">
+      <div className="px-4 pt-4 pb-4 sm:px-8 sm:pt-6 sm:pb-8 max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-3">
