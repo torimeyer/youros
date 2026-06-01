@@ -7,6 +7,7 @@ OAuth endpoints: /github/auth, /github/callback, /github/defaults.
 from __future__ import annotations
 
 import os
+import re
 import secrets
 
 import httpx
@@ -38,8 +39,13 @@ async def github_connect(req: GitHubConnectRequest):
         already saved a token; the user is now picking which repo to
         track. We reuse the saved token in that case.
     """
-    if not req.repo.strip():
+    repo = req.repo.strip()
+    if not repo:
         raise HTTPException(status_code=400, detail="Repository cannot be empty.")
+    if repo.lower() == "owner/repo":
+        raise HTTPException(status_code=400, detail="Enter your actual repository, e.g. acme/website.")
+    if not re.match(r"^[^/\s]+/[^/\s]+$", repo):
+        raise HTTPException(status_code=400, detail="Repository must be in owner/repo format, e.g. acme/website.")
 
     token = req.token.strip()
     if not token:
@@ -57,7 +63,7 @@ async def github_connect(req: GitHubConnectRequest):
         if not token:
             raise HTTPException(status_code=400, detail="Saved token missing. Reconnect.")
 
-    github_service.save_config(token, req.repo.strip())
+    github_service.save_config(token, repo)
 
     try:
         user = await github_service.verify_token()

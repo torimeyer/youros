@@ -64,6 +64,25 @@ export default function GithubConnect() {
   }
 
   if (status.connected) {
+    if (status.repo === 'owner/repo') {
+      return (
+        <div data-testid="github-connect-disconnected">
+          <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
+            GitHub setup is incomplete. No repo was saved. Click below to reconnect with your real repository.
+          </p>
+          <button
+            onClick={handleDisconnect}
+            disabled={disconnecting}
+            data-testid="github-reconnect-btn"
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 border border-amber-400 hover:border-amber-500 disabled:opacity-50 rounded-lg text-sm font-medium text-slate-900 dark:text-white transition-colors"
+          >
+            <Icon name="settings" size={16} />
+            {disconnecting ? 'Clearing…' : 'Set up GitHub connection'}
+          </button>
+        </div>
+      )
+    }
+
     return (
       <div className="flex items-center justify-between" data-testid="github-connect-connected">
         <div className="flex items-center gap-2">
@@ -133,6 +152,9 @@ export default function GithubConnect() {
           className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
           data-testid="github-repo-input"
         />
+        {ownerRepo.trim().toLowerCase() === 'owner/repo' && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">Enter your actual repo, e.g. acme/website</p>
+        )}
         <input
           type="password"
           value={token}
@@ -145,7 +167,7 @@ export default function GithubConnect() {
         <div className="flex items-center gap-3">
           <button
             onClick={handleConnect}
-            disabled={connectStatus === 'connecting' || connectStatus === 'done' || !ownerRepo.trim()}
+            disabled={connectStatus === 'connecting' || connectStatus === 'done' || !ownerRepo.trim() || ownerRepo.trim().toLowerCase() === 'owner/repo'}
             className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-slate-500 disabled:opacity-50 rounded-lg text-sm font-medium text-slate-900 dark:text-white transition-colors"
             data-testid="github-connect-btn"
           >
