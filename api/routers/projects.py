@@ -19,40 +19,31 @@ TORIOS_DIR = PROJECT_ROOT
 SKIP = {".git", ".ostk", ".vite", ".claude", ".DS_Store", "node_modules", "__pycache__"}
 
 
-def _resolve_safe_path(relative_path: str) -> Path:
-    """Resolve a path and ensure it stays within the workspace root.
+def _projects_root() -> Path:
+    """Return the canonical projects directory.
 
-    Raises HTTPException 403 if the resolved path escapes the workspace.
+    Priority: ~/.myos/projects > ~/.myos/collections > TORIOS_DIR.
+    Checked at request time so the user can rename the folder without a restart.
+    """
+    for candidate in [
+        Path.home() / ".myos" / "projects",
+        Path.home() / ".myos" / "collections",
+    ]:
+        if candidate.is_dir():
+            return candidate
+    return TORIOS_DIR
+
+
+def _resolve_safe_path(relative_path: str) -> Path:
+    """Resolve a path and ensure it stays within the projects root.
+
+    Raises HTTPException 403 if the resolved path escapes the projects root.
     Raises HTTPException 404 if the path does not exist.
     """
-    workspace_root = TORIOS_DIR.resolve()
-    resolved = (TORIOS_DIR / relative_path).resolve()
+    projects_root = _projects_root()
+    workspace_root = projects_root.resolve()
+    resolved = (projects_root / relative_path).resolve()
     if not str(resolved).startswith(str(workspace_root)):
-        raise HTTPException(status_code=403, detail="Path is outside the workspace.")
-    if not resolved.exists():
-        raise HTTPException(status_code=404, detail="Path not found.")
-    return resolved
-
-
-def _resolve_browsable_path(path_str: str) -> Path:
-    """Resolve a path for the browse endpoint.
-
-    Extends _resolve_safe_path to also accept absolute paths under ~/.myos/collections.
-    Raises HTTPException 403 if path is outside all allowed roots.
-    Raises HTTPException 404 if path does not exist.
-    """
-    workspace_root = TORIOS_DIR.resolve()
-    collections_root = (Path.home() / ".myos" / "collections").resolve()
-
-    incoming = Path(path_str)
-    if incoming.is_absolute():
-        resolved = incoming.resolve()
-    else:
-        resolved = (TORIOS_DIR / incoming).resolve()
-
-    in_workspace = str(resolved).startswith(str(workspace_root))
-    in_collections = resolved == collections_root or str(resolved).startswith(str(collections_root) + os.sep)
-    if not in_workspace and not in_collections:
         raise HTTPException(status_code=403, detail="Path is outside the workspace.")
     if not resolved.exists():
         raise HTTPException(status_code=404, detail="Path not found.")
@@ -118,10 +109,11 @@ def _format_size(size_bytes: int) -> str:
 async def list_projects():
     projects = []
 
-    if not TORIOS_DIR.exists():
+    projects_dir = _projects_root()
+    if not projects_dir.exists():
         return {"projects": []}
 
-    for entry in sorted(TORIOS_DIR.iterdir()):
+    for entry in sorted(projects_dir.iterdir()):
         name = entry.name
 
         # Skip hidden dirs, files, and known non-project items
@@ -183,28 +175,17 @@ async def list_projects():
     return {"projects": projects}
 
 
-@router.get("/files/collections-root")
-async def collections_root():
-    """Return the absolute path to ~/.myos/collections.
-
-    The frontend uses this to initialize the Docs page at the collections directory.
-    Returns {path: str, exists: bool}.
-    """
-    path = Path.home() / ".myos" / "collections"
-    return {"path": str(path), "exists": path.exists()}
-
-
 @router.get("/projects/browse")
-async def browse_directory(path: str = Query("", description="Relative path within the workspace or absolute path under ~/.myos/collections")):
-    """List contents of a directory within the ToriOS workspace or ~/.myos/collections.
+async def browse_directory(path: str = Query("", description="Relative path within the workspace")):
+    """List contents of a directory within the ToriOS workspace.
 
     Returns folders first (sorted), then files (sorted), each with metadata.
     """
     if not path:
         raise HTTPException(status_code=400, detail="Path parameter is required.")
 
-    workspace_root = TORIOS_DIR.resolve()
-    resolved = _resolve_browsable_path(path)
+    workspace_root = _projects_root().resolve()
+    resolved = _resolve_safe_path(path)
 
     if not resolved.is_dir():
         raise HTTPException(status_code=400, detail="Path is not a directory.")

@@ -1404,10 +1404,10 @@ describe('Jira and Confluence sidebar entries', () => {
 })
 
 describe('Files and Drive sidebar entries', () => {
-  it('shows Docs entry in Integrations group (renamed from Files)', () => {
+  it('shows Projects entry in Integrations group', () => {
     renderSidebar()
     expandAllGroups()
-    expect(screen.getByText('Docs')).toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
     expect(screen.queryByText('Files')).not.toBeInTheDocument()
   })
 
@@ -1526,17 +1526,17 @@ describe('nav rename and reorder', () => {
     })
   })
 
-  it('Files label is renamed to Docs', () => {
+  it('Files label is renamed to Projects', () => {
     renderSidebar()
     expandAllGroups()
     expect(screen.queryByText('Files')).not.toBeInTheDocument()
-    expect(screen.getByText('Docs')).toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
   })
 
-  it('Docs nav link points to /files route', () => {
+  it('Projects nav link points to /files route', () => {
     renderSidebar()
     expandAllGroups()
-    const link = screen.getByText('Docs').closest('a')
+    const link = screen.getByText('Projects').closest('a')
     expect(link).toHaveAttribute('href', '/files')
   })
 

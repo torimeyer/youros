@@ -261,13 +261,13 @@ export default function Files() {
 
   return (
     <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-      <TopBar title="Files" />
+      <TopBar title="Projects" />
 
       <div className="px-4 pt-4 pb-4 sm:px-8 sm:pt-6 sm:pb-8 max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-3">
-            <h1 className="text-xl sm:text-2xl font-bold">Files</h1>
+            <h1 className="text-xl sm:text-2xl font-bold">Projects</h1>
           </div>
           <div className="flex items-center gap-2">
             <button

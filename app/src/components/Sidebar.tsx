@@ -61,7 +61,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: 'hub',
     items: [
       { to: '/gems', icon: 'auto_awesome', label: 'Gems', featureLabel: 'Gems', iconColor: 'text-yellow-600 dark:text-yellow-400' },
-      { to: '/files', icon: 'folder', label: 'Docs', featureLabel: 'Projects', iconColor: 'text-blue-600 dark:text-blue-400' },
+      { to: '/files', icon: 'folder', label: 'Projects', featureLabel: 'Projects', iconColor: 'text-blue-600 dark:text-blue-400' },
       { to: '/ostk', icon: 'terminal', label: 'ostk', featureLabel: 'ostk', iconColor: 'text-green-600 dark:text-green-400' },
       { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive', iconColor: 'text-indigo-600 dark:text-indigo-400' },
       { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: 'Gmail', gmailBadge: true, iconColor: 'text-red-600 dark:text-red-400' },
