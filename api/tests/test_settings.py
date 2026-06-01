@@ -46,6 +46,56 @@ async def test_get_settings(client, settings_file):
 
 
 @pytest.mark.asyncio
+async def test_settings_defaults_plans_specs_and_imessage_routing(client, settings_file):
+    """The two new behavior settings backfill from schema defaults.
+
+    plans_become_specs defaults on (matches the spec-first workflow);
+    inbound_imessage_routing_enabled defaults off (acting on incoming
+    texts is side-effectful and must be opted into).
+    """
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.get("/api/settings")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["plans_become_specs"] is True
+    assert data["inbound_imessage_routing_enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_inbound_imessage_poller_gated_by_setting(monkeypatch, settings_file):
+    """schedule_inbound_imessage_routing starts the poller only when the
+    setting is on, and never when off (the default)."""
+    import main
+
+    calls = {"start": 0}
+
+    class _FakePoller:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            calls["start"] += 1
+
+    monkeypatch.setattr(
+        "services.channel_intent_parser.InboundPoller", _FakePoller
+    )
+
+    # Default (disabled): no poller is started.
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        await main.schedule_inbound_imessage_routing()
+    assert calls["start"] == 0
+
+    # Enabled: the poller is constructed and started exactly once.
+    data = json.loads(settings_file.read_text())
+    data["inbound_imessage_routing_enabled"] = True
+    settings_file.write_text(json.dumps(data))
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        await main.schedule_inbound_imessage_routing()
+    assert calls["start"] == 1
+
+
+@pytest.mark.asyncio
 async def test_put_settings(client, settings_file):
     new_settings = {
         "os_name": "CustomOS",

@@ -94,6 +94,7 @@ async def lifespan(app: FastAPI):
     await schedule_test_artifact_sweep()
     await schedule_test_artifact_spec_sweep()
     await schedule_atlassian_sync()
+    await schedule_inbound_imessage_routing()
     await schedule_merge_debt_watcher()
     await schedule_spec_commit_scanner()
     await install_signal_shutdown_hook()
@@ -1049,6 +1050,31 @@ async def schedule_atlassian_sync():
     from services import atlassian_sync as _atlassian_sync
 
     _keep(asyncio.create_task(_atlassian_sync.start_loop()))
+
+
+async def schedule_inbound_imessage_routing():
+    """Start the inbound iMessage routing poller only if the user opted in.
+
+    Unlike the Atlassian poller (which self-gates each tick), acting on
+    inbound texts is side-effectful -- a text like "spawn diagnose for task
+    1654" actually starts an agent -- so we require an explicit opt-in via
+    the ``inbound_imessage_routing_enabled`` setting (off by default). The
+    poller baselines on its first pass, so enabling it never replays the
+    backlog as a burst of spawns.
+    """
+    from services.settings_store import settings_store
+
+    if not settings_store.get("inbound_imessage_routing_enabled", False):
+        return
+
+    from routers.channel_routing import build_default_router
+    from services.channel_intent_parser import InboundPoller
+
+    router = build_default_router()
+    poller = InboundPoller(handler=router.handle_inbound_message)
+    poller.start()
+    # Keep a reference so the poller (and its background task) is not GC'd.
+    app.state.inbound_imessage_poller = poller
 
 
 async def install_signal_shutdown_hook():

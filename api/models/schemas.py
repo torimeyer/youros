@@ -108,6 +108,15 @@ class Settings(BaseModel):
         "Transcripts": True,
     }
     power_user_mode: bool = False
+    # When on, an approved plan is turned into a spec first (the spec-first
+    # workflow) before any implementation. On by default.
+    plans_become_specs: bool = True
+    # When on, ToriOS watches incoming iMessages and may act on them (e.g. a
+    # text like "spawn diagnose for task 1654" starts an agent). Off by
+    # default: acting on inbound messages is side-effectful and must be opted
+    # into. The poller baselines on first pass, so enabling never replays the
+    # backlog as a spawn burst.
+    inbound_imessage_routing_enabled: bool = False
     notifications: Dict[str, bool] = {
         "agent_complete": True, "agent_needs_input": True,
         "agent_failed": True, "approval_needed": True,
