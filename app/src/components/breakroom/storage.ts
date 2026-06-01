@@ -9,6 +9,7 @@ export interface BestRecord {
   updatedAt: number
   best?: number // higher-is-better (Set count, Snake length, Pong wins)
   bestMs?: number // lower-is-better (Solitaire / Minesweeper completion time)
+  bestRolls?: number // lower-is-better (Cats & Snakes fewest rolls to finish)
 }
 
 function keyFor(gameId: string): string {
@@ -48,6 +49,14 @@ export function recordBestTime(gameId: string, ms: number): boolean {
   const prev = loadBest(gameId)
   if (prev?.bestMs != null && prev.bestMs <= ms) return false
   saveBest(gameId, { bestMs: ms })
+  return true
+}
+
+/** Record a lower-is-better roll count. Returns true if it beat the previous best. */
+export function recordFewestRolls(gameId: string, rolls: number): boolean {
+  const prev = loadBest(gameId)
+  if (prev?.bestRolls != null && prev.bestRolls <= rolls) return false
+  saveBest(gameId, { bestRolls: rolls })
   return true
 }
 
