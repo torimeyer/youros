@@ -230,3 +230,138 @@ async def test_suggest_meeting_times_prefers_free_slots():
     assert ranked[0]["busy_count"] == 0
     assert ranked[1]["busy_count"] == 1
     assert ranked[2]["busy_count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Timezone-aware free/busy logic (the hard part — →1941)
+#
+# These exercise the REAL suggest_meeting_times slot-generation + overlap
+# math, mocking only the Google freebusy network call. They prove that busy
+# intervals expressed in one timezone correctly block a candidate slot that
+# the requester expressed in a different timezone, and that the comparison
+# survives a daylight-saving-time transition.
+# ---------------------------------------------------------------------------
+
+def _fake_service_with_busy(busy_intervals: dict[str, list[dict]]):
+    """Build a MagicMock Calendar service whose freebusy().query().execute()
+    returns the given per-calendar busy intervals.
+
+    busy_intervals maps a calendar id to a list of {"start","end"} dicts in
+    RFC3339 (with offset or Z).
+    """
+    calendars = {
+        cal_id: {"busy": intervals} for cal_id, intervals in busy_intervals.items()
+    }
+    fake_service = MagicMock()
+    fake_service.freebusy.return_value.query.return_value.execute.return_value = {
+        "calendars": calendars
+    }
+    return fake_service
+
+
+@pytest.mark.asyncio
+async def test_busy_interval_in_other_timezone_blocks_overlapping_slot():
+    """An attendee busy 09:00-10:00 in New York (-04:00) must block a slot
+    that the requester expressed as 13:00-14:00 UTC — they are the same
+    wall-clock hour, so the slot is not free for that attendee."""
+    from services import calendar as cal
+
+    # Requester window 12:00-16:00 UTC on a single day.
+    # Attendee "ny@example.com" is busy 09:00-10:00 America/New_York,
+    # which is 13:00-14:00 UTC.
+    busy = {
+        "primary": [],
+        "ny@example.com": [
+            {"start": "2026-06-01T09:00:00-04:00", "end": "2026-06-01T10:00:00-04:00"},
+        ],
+    }
+    with patch.object(cal, "_build_calendar_service", return_value=_fake_service_with_busy(busy)):
+        slots = await cal.suggest_meeting_times(
+            attendees=["ny@example.com"],
+            time_min="2026-06-01T12:00:00+00:00",
+            time_max="2026-06-01T16:00:00+00:00",
+            duration_minutes=60,
+            max_slots=20,
+        )
+
+    by_start = {s["start"]: s for s in slots}
+    # The 13:00 UTC slot overlaps the NY busy block -> busy_count == 1.
+    slot_1300 = by_start.get("2026-06-01T13:00:00+00:00")
+    assert slot_1300 is not None, "expected a 13:00 UTC candidate slot"
+    assert slot_1300["busy_count"] == 1, "NY-timezone busy block must mark the same UTC hour busy"
+
+    # A clearly non-overlapping slot (15:00 UTC) must be free.
+    slot_1500 = by_start.get("2026-06-01T15:00:00+00:00")
+    assert slot_1500 is not None
+    assert slot_1500["busy_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_multiple_attendees_different_timezones_rank_fewest_busy():
+    """Requester in UTC, one attendee busy in Tokyo, one busy in London,
+    overlapping different UTC hours. Slots must rank fewest-busy first and
+    each busy block must count only against the hour it actually covers."""
+    from services import calendar as cal
+
+    # Window 08:00-12:00 UTC.
+    # tokyo busy 17:00-18:00 Asia/Tokyo (+09:00) == 08:00-09:00 UTC.
+    # london busy 10:00-11:00 Europe/London (+01:00 BST) == 09:00-10:00 UTC.
+    busy = {
+        "primary": [],
+        "tokyo@example.com": [
+            {"start": "2026-06-01T17:00:00+09:00", "end": "2026-06-01T18:00:00+09:00"},
+        ],
+        "london@example.com": [
+            {"start": "2026-06-01T10:00:00+01:00", "end": "2026-06-01T11:00:00+01:00"},
+        ],
+    }
+    with patch.object(cal, "_build_calendar_service", return_value=_fake_service_with_busy(busy)):
+        slots = await cal.suggest_meeting_times(
+            attendees=["tokyo@example.com", "london@example.com"],
+            time_min="2026-06-01T08:00:00+00:00",
+            time_max="2026-06-01T12:00:00+00:00",
+            duration_minutes=60,
+            max_slots=20,
+        )
+
+    by_start = {s["start"]: s for s in slots}
+    assert by_start["2026-06-01T08:00:00+00:00"]["busy_count"] == 1  # tokyo
+    assert by_start["2026-06-01T09:00:00+00:00"]["busy_count"] == 1  # london
+    assert by_start["2026-06-01T10:00:00+00:00"]["busy_count"] == 0  # free
+    assert by_start["2026-06-01T11:00:00+00:00"]["busy_count"] == 0  # free
+
+    # Ranking: the two free slots come first (busy_count 0).
+    counts = [s["busy_count"] for s in slots]
+    assert counts == sorted(counts)
+    assert slots[0]["busy_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_dst_spring_forward_edge_overlap():
+    """Across the US spring-forward DST jump (2026-03-08, 02:00 -> 03:00 local),
+    a busy block expressed in local New York time still correctly blocks the
+    matching UTC slot. Before the jump NY is -05:00 (EST); after it is -04:00
+    (EDT). A 09:00-10:00 EDT busy block == 13:00-14:00 UTC and must block the
+    13:00 UTC slot, not the 14:00 UTC slot (which it would, wrongly, if the
+    code assumed a fixed -05:00 offset)."""
+    from services import calendar as cal
+
+    busy = {
+        "primary": [],
+        "ny@example.com": [
+            # 2026-03-08 is after the spring-forward, so NY is on EDT (-04:00).
+            {"start": "2026-03-08T09:00:00-04:00", "end": "2026-03-08T10:00:00-04:00"},
+        ],
+    }
+    with patch.object(cal, "_build_calendar_service", return_value=_fake_service_with_busy(busy)):
+        slots = await cal.suggest_meeting_times(
+            attendees=["ny@example.com"],
+            time_min="2026-03-08T12:00:00+00:00",
+            time_max="2026-03-08T16:00:00+00:00",
+            duration_minutes=60,
+            max_slots=20,
+        )
+
+    by_start = {s["start"]: s for s in slots}
+    assert by_start["2026-03-08T13:00:00+00:00"]["busy_count"] == 1, "EDT busy block must map to 13:00 UTC"
+    assert by_start["2026-03-08T14:00:00+00:00"]["busy_count"] == 0, "14:00 UTC must be free (no fixed-offset bug)"
