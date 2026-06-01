@@ -195,6 +195,37 @@ def _read_active_store_ids(root: Path) -> Optional[set]:
     return ids
 
 
+# Statuses that mark a needle as terminal/archived. Everything else
+# (open, in_progress, ready, ...) is live work the daemon is authoritative
+# about and must never be filtered out by the active-store reconcile.
+_TERMINAL_STATUSES = {"closed", "shelved"}
+
+
+def _reconcile_active(seen: dict, active_ids: Optional[set]) -> list:
+    """Reconcile daemon-returned needles against the active on-disk store.
+
+    →1694: the ostk daemon reads both issues.jsonl (active) AND
+    issues.jsonl.1 (rotated historical archive), so its output includes
+    1400+ historical CLOSED entries. We suppress those archive-only closed
+    entries so the API never serves rotated-archive noise.
+
+    →2050 (store-rotation resilience): suppression applies ONLY to terminal
+    (closed/shelved) entries. A needle the daemon reports as live
+    (open/in_progress/ready/...) is always kept, even when its id is absent
+    from the active issues.jsonl. That absence means the active store was
+    rotated (2026-06-01: an overnight rotation left the active file with 2
+    closed entries while ~140 open needles sat in issues.jsonl.1), not that
+    the needle is gone. The daemon is authoritative for what is open.
+    """
+    if active_ids is None:
+        return list(seen.values())
+    return [
+        v for k, v in seen.items()
+        if k in active_ids
+        or (v.get("status") or "").lower() not in _TERMINAL_STATUSES
+    ]
+
+
 def invalidate_audit_cache(audit_path: Optional[Path] = None) -> None:
     """Drop the cached parse for an audit.jsonl file. Call this right
     after appending an entry so the next reader sees the new line.
@@ -598,9 +629,7 @@ class OstkService:
             # long-lived project. Filter to only IDs present in the
             # active file so the API never serves rotated-archive noise.
             active_ids = _read_active_store_ids(Path(self.cwd))
-            if active_ids is not None:
-                seen = {k: v for k, v in seen.items() if k in active_ids}
-            return list(seen.values())
+            return _reconcile_active(seen, active_ids)
 
         # →2018: TTL-cache this hot read so the dashboard's concurrent
         # pollers (task_counts + specs/counts both call list_tasks) share
