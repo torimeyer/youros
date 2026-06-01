@@ -111,8 +111,8 @@ describe('GithubSetupCard OAuth branching', () => {
 })
 
 // Connect step index in PERSONAL_STEPS_NO_FORK (TEAM_MODE_VISIBLE=false):
-// ['Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready']
-const CONNECT_STEP_IDX = 8
+// ['Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Theme', 'Tracking', 'Connect', 'Ready']
+const CONNECT_STEP_IDX = 7
 
 function setupWizardStore() {
   useAppStore.setState({
@@ -173,14 +173,14 @@ describe('OnboardingWizard restore-step after OAuth', () => {
     expect(vi.mocked(api.patch)).toHaveBeenCalledWith('/settings', { onboarding_step: null })
   })
 
-  it('restores to step 9 from backend settings on OAuth return', async () => {
-    mockGetResponses['/settings'] = { onboarding_step: 9 }
+  it('restores to the Ready step from backend settings on OAuth return', async () => {
+    // index 8 = 'Ready' (last step) in PERSONAL_STEPS_NO_FORK (0-indexed)
+    mockGetResponses['/settings'] = { onboarding_step: 8 }
     window.history.pushState({}, '', '/?connected=true')
 
     render(<OnboardingWizard />)
 
     await waitFor(() => {
-      // step 9 = 'Ready' in PERSONAL_STEPS_NO_FORK (0-indexed)
       expect(screen.getByTestId('step-ready')).toBeTruthy()
     })
     expect(screen.queryByTestId('step-welcome')).toBeNull()
