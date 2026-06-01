@@ -57,6 +57,7 @@ import MySetup from './pages/MySetup'
 import MyGems from './pages/MyGems'
 import BreakRoom from './pages/BreakRoom'
 import Library from './pages/Library'
+import Projects from './pages/Projects'
 
 export default function App() {
   useRunningAgentsFeed()
@@ -173,6 +174,7 @@ export default function App() {
           <Route path="specs/faq" element={<SpecFaq />} />
           <Route path="files" element={<Files />} />
           <Route path="library" element={<Library />} />
+          <Route path="projects" element={<Projects />} />
           <Route path="ostk" element={<OstkFiles />} />
           <Route path="sessions" element={<Sessions />} />
           <Route path="drive" element={<Drive />} />
