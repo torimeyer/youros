@@ -127,7 +127,7 @@ function PersistentNotificationItem({
   )
 }
 
-export default function TopBar(_props: TopBarProps) {
+export default function TopBar({ title }: TopBarProps) {
   const navigate = useNavigate()
   const toggleChat = useAppStore((s) => s.toggleChat)
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
@@ -298,6 +298,7 @@ export default function TopBar(_props: TopBarProps) {
       style={{ right: chatOpen && isDesktop ? chatWidth : 0 }}
     >
       <div className="flex items-center gap-4 pl-10 lg:pl-0">
+        <h1 className="text-lg font-semibold text-slate-900 dark:text-white" data-testid="topbar-title">{title}</h1>
       </div>
 
       <div data-tour="search" className="flex-1 max-w-md mx-2 sm:mx-8 hidden sm:block">
