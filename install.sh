@@ -59,7 +59,7 @@ done
 INSTALL_DIR="${MYOS_DIR:-$HOME/myos}"
 # Repo to clone from. Override with MYOS_REPO=<org/name> to install from your
 # own fork or mirror. Defaults to the canonical upstream.
-MYOS_REPO="${MYOS_REPO:-os-tack/youros}"
+MYOS_REPO="${MYOS_REPO:-torimeyer/youros}"
 
 echo ""
 echo -e "${BLUE}=== myOS Installer ===${NC}"
