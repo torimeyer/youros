@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatRelative } from '../lib/time';
 import Icon from '../components/Icon';
-import TopBar from '../components/TopBar';
+import PageShell from '../components/PageShell';
 import ConfirmModal from '../components/ConfirmModal';
 import QuickLook from '../components/QuickLook';
 import FileShareModal from '../components/FileShareModal';
@@ -253,10 +253,7 @@ export default function Files() {
   // --- Render ---
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-      <TopBar title="Projects" />
-
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto">
+    <PageShell title="Projects">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-3">
@@ -535,7 +532,6 @@ export default function Files() {
             )}
 
           </>
-      </div>
 
       {/* QuickLook modal */}
       {quickLookTarget && (
@@ -589,6 +585,6 @@ export default function Files() {
           </button>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { formatRelative } from '../lib/time';
 import Icon from '../components/Icon';
-import TopBar from '../components/TopBar';
+import PageShell from '../components/PageShell';
 import { LoadingState, ErrorBanner, EmptyState } from '../components/ui';
 import { api, ApiError } from '../lib/api';
 import GoogleSetupGuideModal from '../components/GoogleSetupGuideModal';
@@ -754,10 +754,7 @@ export default function Drive() {
   };
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-      <TopBar title="Drive" />
-
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto">
+    <PageShell title="Drive">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl sm:text-2xl font-bold">Google Drive</h1>
         </div>
@@ -1176,7 +1173,6 @@ export default function Drive() {
             )}
           </>
         )}
-      </div>
 
       {/* Drive preview panel */}
       {previewFile && (
@@ -1223,6 +1219,6 @@ export default function Drive() {
           </button>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }
