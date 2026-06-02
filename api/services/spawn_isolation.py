@@ -700,6 +700,25 @@ async def create_worktree(
         # mode is inactive and guarantees a full source tree when it is.
         await _run_git("sparse-checkout", "disable", cwd=str(wt), timeout=5.0)
 
+        # Symlink app/node_modules from the main repo so node tooling (vitest,
+        # tsc, vite) works immediately without a fresh npm install (→2040).
+        _src_nm = _P(project_root) / "app" / "node_modules"
+        _wt_app = wt / "app"
+        _wt_nm = _wt_app / "node_modules"
+        if _src_nm.exists() and not _wt_nm.exists() and not _wt_nm.is_symlink():
+            try:
+                _wt_app.mkdir(parents=True, exist_ok=True)
+                _wt_nm.symlink_to(str(_src_nm))
+                logger.info(
+                    "spawn.worktree.node_modules_symlinked path=%s -> %s",
+                    _wt_nm, _src_nm,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "spawn.worktree.node_modules_symlink_failed path=%s err=%s",
+                    _wt_nm, exc,
+                )
+
     logger.info(
         "spawn.worktree.created name=%s path=%s branch=%s",
         agent_name, wt, branch,
