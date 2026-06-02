@@ -54,7 +54,7 @@ def _resolve_readable_path(path_str: str) -> Path:
         raise HTTPException(status_code=400, detail="Path is required.")
 
     workspace_root = TORIOS_DIR.resolve()
-    myos_files_root = (Path.home() / ".myos" / "files").resolve()
+    myos_files_root = (Path.home() / ".myos" / "collections").resolve()
 
     incoming = Path(path_str)
     if incoming.is_absolute():
@@ -70,7 +70,7 @@ def _resolve_readable_path(path_str: str) -> Path:
     if not in_allowed_root:
         raise HTTPException(
             status_code=403,
-            detail="Path must live inside the workspace or ~/.myos/files.",
+            detail="Path must live inside the workspace or ~/.myos/collections.",
         )
     if not resolved.exists():
         raise HTTPException(status_code=404, detail="Path not found.")
@@ -464,10 +464,10 @@ async def recent_docs(limit: int = Query(10, ge=1, le=50, description="Max files
     # page can render them with its existing tree navigation.
     _collect(workspace, lambda p: str(p.relative_to(workspace)))
 
-    # Secondary source: ~/.myos/files. Template-generated docs live
+    # Secondary source: ~/.myos/collections. User-curated docs live
     # here so a `git pull` can never clobber them. Paths are absolute
     # so the frontend knows to read them via the raw endpoint.
-    myos_files = (Path.home() / ".myos" / "files").resolve()
+    myos_files = (Path.home() / ".myos" / "collections").resolve()
     if myos_files.exists() and myos_files != workspace:
         _collect(myos_files, lambda p: str(p))
 
@@ -493,10 +493,10 @@ async def delete_recent_doc(path: str = Query(..., description="Path of the .md 
         raise HTTPException(status_code=400, detail="Path is required.")
 
     workspace_root = TORIOS_DIR.resolve()
-    myos_files_root = (Path.home() / ".myos" / "files").resolve()
+    myos_files_root = (Path.home() / ".myos" / "collections").resolve()
 
     incoming = Path(path)
-    # Accept either an absolute path (~/.myos/files/...) or a path
+    # Accept either an absolute path (~/.myos/collections/...) or a path
     # relative to the workspace. Anchor relative paths to the workspace
     # before resolving so "../" tricks still land outside the root and
     # trip the safety check below.
@@ -516,7 +516,7 @@ async def delete_recent_doc(path: str = Query(..., description="Path of the .md 
     if not in_allowed_root:
         raise HTTPException(
             status_code=400,
-            detail="Path must live inside the workspace or ~/.myos/files.",
+            detail="Path must live inside the workspace or ~/.myos/collections.",
         )
 
     # Only .md files are deletable through this endpoint. This keeps
