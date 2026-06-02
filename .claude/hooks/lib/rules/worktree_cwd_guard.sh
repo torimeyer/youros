@@ -67,7 +67,7 @@ except Exception:
   if [ -z "$cwd_val" ]; then
     log_rule_fire "worktree_cwd_guard" "$tool" "block" \
       "git-write bash without cwd= in worktree agent"
-    deny "git operation without cwd= in a worktree agent: the ostk daemon runs git from the main checkout. Add cwd=\"${wt_path}\" so the commit lands on your branch, not main. (→1311)"
+    advise "git operation without cwd= in a worktree agent: the ostk daemon runs git from the main checkout. Add cwd=\"${wt_path}\" so the commit lands on your branch, not main. (→1311)"
   # Block when cwd= explicitly points at the parent repo root (or any subdir
   # not under the worktree). This catches the second leak path where an agent
   # sets cwd= to the parent repo rather than omitting it entirely.
@@ -75,7 +75,7 @@ except Exception:
     if [[ "$cwd_val" != "${wt_path}"* ]]; then
       log_rule_fire "worktree_cwd_guard" "$tool" "block" \
         "git-write bash with parent repo cwd in worktree agent"
-      deny "git operation with cwd='${cwd_val}' points to the parent repo, not your worktree. Use cwd=\"${wt_path}\" so the commit lands on your branch, not main. (→1311)"
+      advise "git operation with cwd='${cwd_val}' points to the parent repo, not your worktree. Use cwd=\"${wt_path}\" so the commit lands on your branch, not main. (→1311)"
     fi
   fi
 }
@@ -114,6 +114,6 @@ except Exception:
     local corrected="${wt_path}/${suffix}"
     log_rule_fire "worktree_cwd_guard" "$tool" "block" \
       "fs_ops path under parent repo not worktree"
-    deny "fs_ops path '${path_val}' points to the parent repo checkout, not your worktree. Use '${corrected}' instead. (→1311)"
+    advise "fs_ops path '${path_val}' points to the parent repo checkout, not your worktree. Use '${corrected}' instead. (→1311)"
   fi
 }

@@ -129,7 +129,7 @@ else:
   case "${LOCKS_STATUS:-missing}" in
     empty|wildcard)
       log_rule_fire "isolation_bridge" "$tool" "block" "Locks: [] or Locks: [*]"
-      deny "edit-capable spawn declared \`Locks: []\` or \`Locks: [*]\`. Name only the specific files this agent will write, e.g. \`Locks: [/tmp/my-task.log]\`."
+      advise "edit-capable spawn declared \`Locks: []\` or \`Locks: [*]\`. Name only the specific files this agent will write, e.g. \`Locks: [/tmp/my-task.log]\`."
       ;;
     missing)
       local AUTO_LOCK
@@ -224,7 +224,7 @@ PY
 
   if [ -z "$BODY" ]; then
     log_rule_fire "isolation_bridge" "$tool" "block" "could not build spawn body"
-    deny "task-isolation-bridge could not build spawn body."
+    advise "task-isolation-bridge could not build spawn body."
   fi
 
   # Fast health probe: 3 retries at 300 ms each — survives a transient connect blip
@@ -240,7 +240,7 @@ PY
     local _CPD="${CLAUDE_PROJECT_DIR:-.}"
     if [ -d "${_CPD}/.ostk" ]; then
       log_rule_fire "isolation_bridge" "$tool" "block" "backend health probe failed 3× (has .ostk)"
-      deny "myOS backend unreachable at ${API_BASE}. Native Task would leak subagent commits into the parent checkout because no .ostk/ is created in the worktree without the REST spawn path (→1200). Restart the backend (scripts/dev-backend.sh) and retry."
+      advise "myOS backend unreachable at ${API_BASE}. Native Task would leak subagent commits into the parent checkout because no .ostk/ is created in the worktree without the REST spawn path (→1200). Restart the backend (scripts/dev-backend.sh) and retry."
     fi
     echo "task-isolation-bridge: myOS backend unreachable at ${API_BASE} after 3 health probes." >&2
     echo "Allowing native Task tool. Worktree isolation skipped — sequential edits only." >&2
@@ -282,7 +282,7 @@ print(json.dumps({"name": os.environ["SPAWN_NAME"], "ts": datetime.now(timezone.
       local _CPD="${CLAUDE_PROJECT_DIR:-.}"
       if [ -d "${_CPD}/.ostk" ]; then
         log_rule_fire "isolation_bridge" "$tool" "block" "backend unreachable, fail-closed (has .ostk)"
-        deny "myOS backend unreachable at ${API_BASE}. Native Task would leak subagent commits into the parent checkout because no .ostk/ is created in the worktree without the REST spawn path (→1200). Restart the backend (scripts/dev-backend.sh) and retry."
+        advise "myOS backend unreachable at ${API_BASE}. Native Task would leak subagent commits into the parent checkout because no .ostk/ is created in the worktree without the REST spawn path (→1200). Restart the backend (scripts/dev-backend.sh) and retry."
       fi
       echo "task-isolation-bridge: myOS backend unreachable at ${API_BASE} (connect-timeout/refused)." >&2
       echo "Allowing native Task tool. Worktree isolation skipped — sequential edits only." >&2
@@ -306,7 +306,7 @@ except Exception:
       fi
       rm -f "$RESP_BODY"
       log_rule_fire "isolation_bridge" "$tool" "block" "backend HTTP $HTTP_CODE"
-      deny "/api/agents/spawn returned HTTP ${HTTP_CODE}. Native Task tool would silently write to the parent checkout. Fix the backend error and retry."
+      advise "/api/agents/spawn returned HTTP ${HTTP_CODE}. Native Task tool would silently write to the parent checkout. Fix the backend error and retry."
       ;;
   esac
 }

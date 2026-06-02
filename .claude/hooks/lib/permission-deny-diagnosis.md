@@ -14,11 +14,11 @@ Tori did **not** click Deny. The rejection happens silently between model and su
 
 ## Root Causes (Ranked)
 
-### 1. `saa-must-spawn.sh` exits 2 after saa/diagnose/fix messages
+### 1. `pre-tool-guard.sh` exits 2 after saa/diagnose/fix messages
 
-**File:** `.claude/hooks/saa-must-spawn.sh`  
+**File:** `.claude/hooks/pre-tool-guard.sh` (the `saa_must_spawn` rule; logic in `lib/rules/saa_must_spawn.sh`)  
 **Trigger:** PreToolUse for `Bash|Read|Edit|Write|Grep|Glob`  
-**When it fires:** `~/.myos/config.json` has `enable_tori_rules: true` AND the last user
+**When it fires:** the `saa_must_spawn` rule is enabled (`rule_enabled saa_must_spawn`) AND the last user
 message in the JSONL log starts with `saa `, `diagnose `, or `fix `.
 
 ```bash

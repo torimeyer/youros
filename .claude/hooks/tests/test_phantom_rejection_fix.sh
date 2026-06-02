@@ -1,17 +1,16 @@
 #!/bin/bash
-# Tests that phantom tool-use rejections are fixed.
+# Tests that bash_guards advisory rules emit "Advice:" on stderr and exit 0.
 #
-# Verifies:
-#   1. bash-guards.sh writes block messages to STDERR (not STDOUT)
-#      so Claude Code shows the real reason instead of "No stderr output".
-#   2. settings.local.json allow patterns cover bash scripts/* and
-#      curl with --connect-timeout so hooks are bypassed for these commands.
+# (Previously tested bash-guards.sh standalone; that hook was folded into
+# pre-tool-guard.sh + lib/rules/bash_guards.sh in →1288. All guard rules now
+# use advise() → exit 0 + "Advice:" on stderr instead of deny() → exit 2.)
 #
-# See: .claude/hooks/lib/permission-deny-diagnosis.md
+# Also verifies: settings.local.json allow patterns cover canonical commands.
 
 set -u
 HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJ_DIR="$(cd "$HOOKS_DIR/../.." && pwd)"
+LIB="$HOOKS_DIR/lib"
 PASS=0
 FAIL=0
 
@@ -36,48 +35,61 @@ assert_empty() {
   fi
 }
 
-echo "=== bash-guards: block messages go to STDERR, not STDOUT ==="
+# Helper: invoke _bash_guards_check in a controlled subshell.
+# Returns: exit code on stdout
+run_bg() {
+  local tool="$1" cmd="$2"
+  (
+    rule_enabled()  { return 0; }
+    log_rule_fire() { :; }
+    rule_param()    { echo "${3:-}"; }
+    . "$LIB/deny.sh" 2>/dev/null || true
+    . "$LIB/rules/bash_guards.sh" 2>/dev/null || true
+    _bash_guards_check "$tool" "$cmd"
+  )
+  echo $?
+}
 
-# When a block fires, stdout must be EMPTY and stderr must contain "Blocked:"
+# Helper: capture stderr only
+run_bg_stderr() {
+  local tool="$1" cmd="$2"
+  (
+    rule_enabled()  { return 0; }
+    log_rule_fire() { :; }
+    rule_param()    { echo "${3:-}"; }
+    . "$LIB/deny.sh" 2>/dev/null || true
+    . "$LIB/rules/bash_guards.sh" 2>/dev/null || true
+    _bash_guards_check "$tool" "$cmd"
+  ) 2>&1 >/dev/null
+}
 
-# curl without --connect-timeout
-INPUT='{"tool_name":"Bash","tool_input":{"command":"curl https://api.example.com/data"}}'
-STDOUT_OUT=$(printf '%s' "$INPUT" | bash "$HOOKS_DIR/bash-guards.sh" 2>/dev/null)
-STDERR_OUT=$(printf '%s' "$INPUT" | bash "$HOOKS_DIR/bash-guards.sh" 2>&1 >/dev/null)
-RC=$(printf '%s' "$INPUT" | bash "$HOOKS_DIR/bash-guards.sh" >/dev/null 2>&1; echo $?)
+echo "=== bash-guards: advisory messages go to STDERR, exit 0 ==="
 
-assert_eq "curl-no-timeout: exits 2" "2" "$RC"
-assert_empty "curl-no-timeout: stdout is empty (no 'No stderr output' confusion)" "$STDOUT_OUT"
-assert_contains "curl-no-timeout: stderr has Blocked message" "Blocked" "$STDERR_OUT"
+# curl without --connect-timeout → advisory (exit 0, "Advice:" on stderr)
+RC=$(run_bg "Bash" "curl https://api.example.com/data")
+ERR=$(run_bg_stderr "Bash" "curl https://api.example.com/data")
+assert_eq "curl-no-timeout: exits 0" "0" "$RC"
+assert_contains "curl-no-timeout: stderr has Advice" "Advice" "$ERR"
 
 # zsh reserved var: status=
-INPUT='{"tool_name":"Bash","tool_input":{"command":"status=$(date)"}}'
-STDOUT_OUT=$(printf '%s' "$INPUT" | bash "$HOOKS_DIR/bash-guards.sh" 2>/dev/null)
-STDERR_OUT=$(printf '%s' "$INPUT" | bash "$HOOKS_DIR/bash-guards.sh" 2>&1 >/dev/null)
-RC=$(printf '%s' "$INPUT" | bash "$HOOKS_DIR/bash-guards.sh" >/dev/null 2>&1; echo $?)
-
-assert_eq "zsh-reserved status=: exits 2" "2" "$RC"
-assert_empty "zsh-reserved status=: stdout is empty" "$STDOUT_OUT"
-assert_contains "zsh-reserved status=: stderr has Blocked" "Blocked" "$STDERR_OUT"
+RC=$(run_bg "Bash" 'status=$(date)')
+ERR=$(run_bg_stderr "Bash" 'status=$(date)')
+assert_eq "zsh-reserved status=: exits 0" "0" "$RC"
+assert_contains "zsh-reserved status=: stderr has Advice" "Advice" "$ERR"
 
 # open source file
-INPUT='{"tool_name":"Bash","tool_input":{"command":"open api/main.py"}}'
-STDOUT_OUT=$(printf '%s' "$INPUT" | bash "$HOOKS_DIR/bash-guards.sh" 2>/dev/null)
-STDERR_OUT=$(printf '%s' "$INPUT" | bash "$HOOKS_DIR/bash-guards.sh" 2>&1 >/dev/null)
-RC=$(printf '%s' "$INPUT" | bash "$HOOKS_DIR/bash-guards.sh" >/dev/null 2>&1; echo $?)
+RC=$(run_bg "Bash" "open api/main.py")
+ERR=$(run_bg_stderr "Bash" "open api/main.py")
+assert_eq "open-source-file: exits 0" "0" "$RC"
+assert_contains "open-source-file: stderr has Advice" "Advice" "$ERR"
 
-assert_eq "open-source-file: exits 2" "2" "$RC"
-assert_empty "open-source-file: stdout is empty" "$STDOUT_OUT"
-assert_contains "open-source-file: stderr has Blocked" "Blocked" "$STDERR_OUT"
+# allowed command: bash scripts/restart-backend.sh
+RC=$(run_bg "Bash" "bash scripts/restart-backend.sh")
+assert_eq "bash-scripts-restart: exits 0" "0" "$RC"
 
-# allowed command produces exit 0 with no output
-INPUT='{"tool_name":"Bash","tool_input":{"command":"bash scripts/restart-backend.sh"}}'
-RC=$(printf '%s' "$INPUT" | bash "$HOOKS_DIR/bash-guards.sh" >/dev/null 2>&1; echo $?)
-assert_eq "bash-scripts-restart: bash-guards exits 0" "0" "$RC"
-
-INPUT='{"tool_name":"Bash","tool_input":{"command":"curl -sSk --connect-timeout 3 -m 5 https://127.0.0.1:8000/api/agents"}}'
-RC=$(printf '%s' "$INPUT" | bash "$HOOKS_DIR/bash-guards.sh" >/dev/null 2>&1; echo $?)
-assert_eq "curl-with-timeout: bash-guards exits 0" "0" "$RC"
+# allowed command: curl with --connect-timeout
+RC=$(run_bg "Bash" "curl -sSk --connect-timeout 3 -m 5 https://127.0.0.1:8000/api/agents")
+assert_eq "curl-with-timeout: exits 0" "0" "$RC"
 
 echo
 echo "=== settings.local.json allow patterns cover canonical commands ==="
@@ -95,19 +107,16 @@ allows = d.get('permissions', {}).get('allow', [])
 print('\n'.join(allows))
 " "$SETTINGS_LOCAL" 2>/dev/null)
 
-  # Check for broad bash scripts/* pattern
   case "$ALLOWS" in
     *"bash scripts/*"*) echo "  PASS: allow list covers bash scripts/*"; PASS=$((PASS+1)) ;;
     *) echo "  FAIL: allow list missing bash scripts/*"; FAIL=$((FAIL+1)) ;;
   esac
 
-  # Check for curl with --connect-timeout pattern
   case "$ALLOWS" in
     *"--connect-timeout"*) echo "  PASS: allow list covers curl --connect-timeout"; PASS=$((PASS+1)) ;;
     *) echo "  FAIL: allow list missing curl --connect-timeout pattern"; FAIL=$((FAIL+1)) ;;
   esac
 
-  # Check for scripts/* (direct invocation without bash prefix)
   case "$ALLOWS" in
     *"scripts/*"*) echo "  PASS: allow list covers scripts/*"; PASS=$((PASS+1)) ;;
     *) echo "  FAIL: allow list missing scripts/*"; FAIL=$((FAIL+1)) ;;
