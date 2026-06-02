@@ -87,12 +87,27 @@ def _extract_user_email(creds) -> str | None:
     return None
 
 
+def _is_reauth_error(exc: Exception) -> bool:
+    """True when exc indicates valid-but-expired/invalid ADC credentials."""
+    try:
+        import google.auth.exceptions
+        return isinstance(exc, (google.auth.exceptions.RefreshError, google.auth.exceptions.TransportError))
+    except Exception:
+        return False
+
+
 async def detect_vertex_gemini() -> dict:
-    """Return {available, project, location, identity_email, hosted_domain} or {available: False}."""
+    """Return {available, project, location, identity_email, hosted_domain, vertex_ai_needs_reauth}.
+
+    vertex_ai_needs_reauth is True when ADC exists but is expired or invalid,
+    so the UI can distinguish 'not set up' from 'needs re-authentication'.
+    Plain availability is NOT gated on hosted_domain or any vendor-specific field.
+    """
     if not await detect_vertex_ai():
-        return {"available": False}
+        return {"available": False, "vertex_ai_needs_reauth": False}
     try:
         import google.auth
+        import google.auth.exceptions  # noqa: F401 — imported so except clauses can reference it
 
         # google.auth.default() does synchronous file I/O (reads ADC json, keyfile,
         # or calls gcloud) and can block for hundreds of milliseconds on cold caches.
@@ -113,9 +128,12 @@ async def detect_vertex_gemini() -> dict:
             "identity_email": getattr(creds, "service_account_email", None)
             or _extract_user_email(creds),
             "hosted_domain": hosted_domain,
+            "vertex_ai_needs_reauth": False,
         }
-    except Exception:
-        return {"available": False}
+    except ImportError:
+        return {"available": False, "vertex_ai_needs_reauth": False}
+    except Exception as exc:
+        return {"available": False, "vertex_ai_needs_reauth": _is_reauth_error(exc)}
 
 
 async def detect_bedrock() -> bool:
@@ -158,6 +176,7 @@ async def _run_full_detection() -> dict[str, bool]:
         "gemini_key": gemini_key,
         "vertex_ai": vx.get("available", False),
         "vertex_ai_project": vx.get("project"),
+        "vertex_ai_needs_reauth": vx.get("vertex_ai_needs_reauth", False),
         "bedrock": await detect_bedrock(),
     }
 
