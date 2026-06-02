@@ -697,12 +697,22 @@ async def spec_counts():
             "spec": "ready",
             "in-progress": "in_progress",
             "building": "in_progress",
-            "complete": "in_progress",
+            "complete": "complete",
         }
         by_stage: dict[str, int] = {}
         for d in real_specs:
-            stage = d.get("stage") or _status_to_stage.get(d.get("status", "draft"), "draft")
+            raw_status = d.get("status", "draft")
+            stage = d.get("stage") or _status_to_stage.get(raw_status, "draft")
+            # Normalise: any stage we don't know maps to "draft" so it still counts as
+            # unfinished but doesn't silently inflate the in_progress bucket.
+            if stage not in ("draft", "ready", "in_progress", "complete"):
+                stage = "draft"
+            # The `stage` field from list_docs() can lag behind explicit status changes.
+            # Always honour status:complete — a spec the user marked done is done.
+            if raw_status == "complete":
+                stage = "complete"
             by_stage[stage] = by_stage.get(stage, 0) + 1
+        # complete docs are done; only ready + in_progress are unfinished
         unfinished = by_stage.get("ready", 0) + by_stage.get("in_progress", 0)
         return {"unfinished": unfinished, "total": total, "by_stage": by_stage}
     except OstkError as e:
