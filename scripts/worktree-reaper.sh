@@ -338,11 +338,18 @@ PYEOF
       echo "  error: worktree gone but branch $br could not be deleted" >&2
       removal_fail=$((removal_fail + 1))
     fi
+  elif git worktree remove --force --force "$pa" >/dev/null 2>&1; then
+    # --force --force is required for worktrees that were created with --lock
+    # or that git still considers locked after the unlock attempt above.
+    if git branch -D "$br" >/dev/null 2>&1; then
+      echo "  removed $br (locked worktree, used --force --force)"
+    else
+      echo "  error: worktree gone but branch $br could not be deleted" >&2
+      removal_fail=$((removal_fail + 1))
+    fi
   else
-    # git worktree remove --force can fail when the worktree dir has
-    # untracked files that need --force --force to remove. Fall back to
-    # rm -rf (which handles .ostk/ sockets and state files that git
-    # won't touch) then deregister via git worktree prune.
+    # Both git worktree remove attempts failed (e.g. .ostk/ sockets or state
+    # files that git won't touch). Fall back to rm -rf then prune.
     if rm -rf "$pa" 2>/dev/null; then
       git worktree prune >/dev/null 2>&1 || true
       if git branch -D "$br" >/dev/null 2>&1; then
