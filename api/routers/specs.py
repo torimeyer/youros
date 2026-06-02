@@ -802,6 +802,8 @@ async def create_draft(body: SpecDraft):
         # Inject the full 8-section canonical template so the user has
         # a proper scaffold to fill in manually (→1600). The draft stays
         # in "draft" state — not auto-promoted — until the user reviews it.
+        # Guard: doc_draft() already injects the scaffold when the binary
+        # leaves a frontmatter-only file (→2038), so skip if body exists.
         logger.warning(
             "create_draft: AC generation skipped for %r (no API key or error). "
             "Injecting canonical template.",
@@ -813,7 +815,9 @@ async def create_draft(body: SpecDraft):
         _docs_root = (Path(ostk.cwd) / "docs").resolve()
         _full_path = (Path(ostk.cwd) / _draft_path).resolve()
         if _full_path.exists() and _full_path.is_relative_to(_docs_root):
-            _full_path.write_text(_full_path.read_text() + "\n" + canonical_spec_template_body())
+            _content = _full_path.read_text()
+            if "## " not in _content:
+                _full_path.write_text(_content + "\n" + canonical_spec_template_body())
 
     # When the caller requests fallback_ac (e.g. smoke tests that run
     # without a live AI model), write a minimal placeholder checkbox so
