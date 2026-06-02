@@ -18,7 +18,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import Icon from "../components/Icon";
-import TopBar from "../components/TopBar";
+import PageShell from "../components/PageShell";
 import { LoadingState, EmptyState } from "../components/ui";
 import LabelsView from "../components/LabelsView";
 import HealthCheckView from "../components/HealthCheckView";
@@ -261,7 +261,7 @@ function SortableTaskWrapper({ taskId, children }: SortableTaskWrapperProps) {
   );
 }
 
-export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
+export default function Tasks() {
   const inputRef = useRef<HTMLInputElement>(null);
   const taskRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1721,10 +1721,8 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   };
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-      {!embedded && <TopBar title="Tasks" />}
-
-      <div data-tour="tasks" className={`px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
+    <PageShell title="Tasks" data-testid="tasks-page">
+      <div data-tour="tasks">
         {/* Banner */}
         {banner && banner.trim() && (
           <div className="mb-4 px-4 py-3 bg-purple-500/20 border border-purple-500/40 rounded-lg text-sm text-purple-200 flex items-center justify-between">
@@ -3065,7 +3063,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             </div>
           </>
         )}
-      </div>
 
       <TasksAuditModal
         open={auditModalOpen}
@@ -3342,5 +3339,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         </div>
       )}
     </div>
+    </PageShell>
   );
 }

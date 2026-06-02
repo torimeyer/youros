@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import Icon from '../components/Icon'
 import { api } from '../lib/api'
 import { Button, EmptyState, Card, ErrorBanner } from '../components/ui'
@@ -699,10 +699,7 @@ export default function Workflows() {
   }
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-      <TopBar title="Automations" />
-
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+    <PageShell title="Automations">
         {/* Header row */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
@@ -890,7 +887,6 @@ export default function Workflows() {
             })}
           </div>
         )}
-      </div>
 
       {/* Modals */}
       {showNew && (
@@ -904,6 +900,6 @@ export default function Workflows() {
           onDelete={handleDelete}
         />
       )}
-    </div>
+    </PageShell>
   )
 }

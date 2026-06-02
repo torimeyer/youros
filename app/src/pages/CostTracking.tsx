@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import Icon from '../components/Icon'
 import TimeFilter, { type TimePeriod as Period } from '../components/TimeFilter'
 import { api } from '../lib/api'
@@ -1102,10 +1102,7 @@ export default function CostTracking() {
   }
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-      <TopBar title="Usage" />
-
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+    <PageShell title="Usage">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4 sm:mb-6">
           <div>
@@ -1645,7 +1642,6 @@ export default function CostTracking() {
             )}
           </div>
         )}
-      </div>
-    </div>
+    </PageShell>
   )
 }
