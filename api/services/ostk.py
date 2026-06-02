@@ -715,6 +715,39 @@ class OstkService:
                         for eid in seen_order
                     ) + "\n"
                 )
+
+            # Two-file consistency: a close must leave NO open record in the
+            # rotated archive either. The merged daemon read hides this (the
+            # active "closed" line overrides the archive "open" on a
+            # last-occurrence-wins scan), but the archive entry still reads
+            # "open" — so a later store rotation can re-surface the stale open.
+            # That is the mechanism behind the board never clearing. Flip the
+            # matching archive entry to closed (mirrors delete_task's →1694
+            # archive handling, but preserves the record as closed for history).
+            rotated_path = issues_path.with_suffix(".jsonl.1")
+            if rotated_path.exists():
+                rot_lines = rotated_path.read_text().strip().splitlines()
+                rot_changed = False
+                rot_updated: list[str] = []
+                for line in rot_lines:
+                    if not line.strip():
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        rot_updated.append(line)
+                        continue
+                    if (
+                        self._normalize_task_id(str(entry.get("id", ""))) == norm_target
+                        and entry.get("status") not in ("closed", "shelved")
+                    ):
+                        entry["status"] = "closed"
+                        if closed_reason is not None:
+                            entry["closed_reason"] = closed_reason
+                        rot_changed = True
+                    rot_updated.append(json.dumps(entry, ensure_ascii=False))
+                if rot_changed:
+                    rotated_path.write_text("\n".join(rot_updated) + "\n")
             return result
 
     async def reopen_task(self, task_id: str) -> str:

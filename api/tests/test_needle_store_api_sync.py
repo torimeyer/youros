@@ -471,3 +471,67 @@ async def test_backfill_clears_stuck_in_progress_from_rotated_file(tmp_repo: Pat
         f"open_ids: {open_ids}, issues.jsonl contents: {issues_path.read_text()}"
     )
     assert "->9931" in open_ids, "genuinely open task should still be open"
+
+
+# ─── Test 7: close neutralizes the archive entry (two-file consistency) ───────
+
+
+def _rotated_status_for(rotated_path: Path, task_id: str) -> str | None:
+    """Return the last-seen status of task_id in the rotated file, or None."""
+    status = None
+    for line in rotated_path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            entry = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        if str(entry.get("id", "")).lstrip("→") == str(task_id).lstrip("→"):
+            status = entry.get("status")
+    return status
+
+
+@pytest.mark.asyncio
+async def test_close_neutralizes_open_entry_in_rotated_archive(tmp_repo: Path):
+    """Closing a needle must leave NO 'open' record in issues.jsonl.1 either.
+
+    The merged daemon view can hide an inconsistency: the active file says
+    'closed' and overrides the archive's 'open' on a last-occurrence-wins read.
+    But that leaves the archive entry reading 'open', so a later store rotation
+    can re-surface the stale open. close_task must make both files internally
+    consistent: after a close, the rotated archive entry for that id must not be
+    'open' (flipped to closed or removed). Regression for the stale-board bug
+    where ~138 archive-only opens never cleared.
+    """
+    needles_dir = tmp_repo / ".ostk" / "needles"
+    issues_path = needles_dir / "issues.jsonl"
+    rotated_path = needles_dir / "issues.jsonl.1"
+
+    # The id exists ONLY in the rotated archive, as open (the real-world case).
+    _write_issues(
+        rotated_path,
+        [{"id": "->9940", "title": "archive-only open", "status": "open",
+          "priority": "P1", "created_at": "2026-05-10T00:00:00Z"}],
+    )
+    # Active file holds an unrelated open task.
+    _write_issues(
+        issues_path,
+        [{"id": "->9941", "title": "unrelated", "status": "open",
+          "priority": "P2", "created_at": "2026-05-12T00:00:00Z"}],
+    )
+
+    svc = OstkService(cwd=str(tmp_repo))
+    fake_close = _make_fake_close(issues_path, "->9940")
+
+    with patch.object(svc, "_run", side_effect=fake_close):
+        await svc.close_task("->9940", closed_reason="completed")
+
+    rotated_status = _rotated_status_for(rotated_path, "->9940")
+    assert rotated_status != "open", (
+        f"->9940 still reads 'open' in issues.jsonl.1 after close "
+        f"(status={rotated_status!r}); a rotation could re-surface it. "
+        f"rotated contents: {rotated_path.read_text()}"
+    )
+    # The unrelated archive-free task is untouched.
+    assert _rotated_status_for(rotated_path, "->9941") is None
