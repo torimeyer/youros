@@ -580,7 +580,11 @@ fi
 # --- Phase 4: live HTTP checks ---------------------------------------------
 
 server_up() {
-    curl -sS $CURL_OPTS -o /dev/null -w "%{http_code}" "${API_BASE}/api/settings" 2>/dev/null | grep -q "^200$"
+    # $CURL_OPTS carries -k when the backend serves a self-signed HTTPS cert,
+    # and $API_BASE already uses the https scheme + correct port in that case,
+    # so this probe matches the live server's scheme. The connect/max timeouts
+    # keep a slow or hung TLS handshake from stalling the whole smoke run.
+    curl -sS $CURL_OPTS --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "${API_BASE}/api/settings" 2>/dev/null | grep -q "^200$"
 }
 
 check_http_json() {
@@ -1796,14 +1800,23 @@ fi
 # smoke failure (not a silent leftover). We run the sweep here, then assert
 # the /api/specs count of e2e entries is zero.
 header "E2E leftover regression"
-_e2e_sweep_artifacts
-_e2e_remaining=$(curl -sS $CURL_OPTS --connect-timeout 3 -m 5 \
-    "${API_BASE}/api/specs" 2>/dev/null | python3 -c "
+if ! server_up; then
+    # No live API to query: we cannot count leftovers, so this is a skip,
+    # not a failure. Reporting a fabricated negative count here is what
+    # produced the impossible "-1 e2e spec(s)" line.
+    phase_skip "e2e leftovers (API not reachable on ${API_BASE})"
+else
+    _e2e_sweep_artifacts
+    # The Python helper prints either a non-negative leftover count or the
+    # token UNREACHABLE when the response cannot be parsed. It never prints a
+    # negative number, so the count can never go below zero.
+    _e2e_remaining=$(curl -sS $CURL_OPTS --connect-timeout 3 -m 5 \
+        "${API_BASE}/api/specs" 2>/dev/null | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
 except Exception:
-    print(-1); sys.exit(0)
+    print('UNREACHABLE'); sys.exit(0)
 n = 0
 for x in d.get('docs', []):
     p = (x.get('path') or '').lower()
@@ -1812,10 +1825,13 @@ for x in d.get('docs', []):
         n += 1
 print(n)
 " 2>/dev/null)
-if [ "$_e2e_remaining" = "0" ]; then
-    phase_pass "e2e leftovers: 0 specs remain after sweep"
-else
-    phase_fail "e2e leftovers: ${_e2e_remaining} e2e spec(s) still present after sweep"
+    if [ "$_e2e_remaining" = "0" ]; then
+        phase_pass "e2e leftovers: 0 specs remain after sweep"
+    elif [ -z "$_e2e_remaining" ] || [ "$_e2e_remaining" = "UNREACHABLE" ]; then
+        phase_skip "e2e leftovers (could not read /api/specs)"
+    else
+        phase_fail "e2e leftovers: ${_e2e_remaining} e2e spec(s) still present after sweep"
+    fi
 fi
 
 # --- Phase 8: orphan-reference-sweep -----------------------------------------

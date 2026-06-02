@@ -8,7 +8,7 @@ Verifies that _escape_applescript_text correctly handles:
 """
 
 import pytest
-from api.services.imessage import _escape_applescript_text
+from services.imessage import _escape_applescript_text
 
 
 def test_newline_becomes_applescript_return():
