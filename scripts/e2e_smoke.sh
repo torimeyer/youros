@@ -607,6 +607,10 @@ check_http_json() {
 if [ "$SKIP_LIVE" != "1" ]; then
     header "Live HTTP checks"
     if ! server_up; then
+        if [ "${RELEASE_MODE:-}" = "1" ]; then
+            echo "ERROR: RELEASE_MODE=1 but server is not reachable at ${API_BASE}" >&2
+            exit 1
+        fi
         phase_skip "API not reachable on ${API_BASE}; start it with start.sh and re-run"
     else
         check_http_json "GET /api/settings has tour_complete"        "/api/settings"              '"tour_complete"'
@@ -1721,6 +1725,10 @@ fi
 if [ "$SKIP_LIVE" != "1" ]; then
     header "WebSocket chat round trips"
     if ! server_up; then
+        if [ "${RELEASE_MODE:-}" = "1" ]; then
+            echo "ERROR: RELEASE_MODE=1 but server is not reachable at ${API_BASE}" >&2
+            exit 1
+        fi
         phase_skip "WebSocket chat (API not reachable)"
     elif ! command -v python3 > /dev/null 2>&1; then
         phase_skip "WebSocket chat (python3 not installed)"
