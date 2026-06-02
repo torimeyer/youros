@@ -49,7 +49,7 @@ _GOAL_LABELS: dict[str, str] = {
     "projects": "Projects",
     "polish": "Polish",
     "lego-app": "Lego App",
-    "torios": "ToriOS",
+    "torios": "yourOS",
     "myos": "myOS",
     "guess-who": "Guess Who",
 }
@@ -1182,7 +1182,7 @@ def _clean_task_title(title: str) -> str:
         "venmo": "Venmo",
         "paypal": "PayPal",
         "stripe": "Stripe",
-        "torios": "ToriOS",
+        "torios": "yourOS",
         "myos": "myOS",
         "ostk": "ostk",
         "claude": "Claude",
