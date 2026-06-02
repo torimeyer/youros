@@ -207,14 +207,21 @@ if [ -z "$AGENT_NAME" ]; then
 fi
 
 # --- Bridge guard (→922 Bug A, →935 regression) ------------------------
-# task-isolation-bridge.sh fires alongside this hook for every Agent/Task
-# call. When the prompt contains an edit verb, the bridge routes the call
-# to /api/agents/spawn and registers a hex-suffixed name. If we also
-# register here we produce a second unsuffixed ghost row that inflates the
-# nav badge and the Active Agents count by 1. Mirror the bridge's verb
-# detection and bail out early so only one row appears per Task spawn.
+# pre-agent-guard.sh (which absorbed task-isolation-bridge.sh) fires
+# alongside this hook for every Agent/Task call in the torios project.
+# When the prompt contains an edit verb, the bridge routes the call to
+# /api/agents/spawn and registers a hex-suffixed name. If we also register
+# here we produce a second unsuffixed ghost row that inflates the nav badge
+# and the Active Agents count by 1. Mirror the bridge's verb detection and
+# bail out early so only one row appears per Task spawn.
+#
+# GUARD CONDITION (→2027): only activate the bridge-skip when the bridge
+# hook actually exists at $CLAUDE_PROJECT_DIR/.claude/hooks/pre-agent-guard.sh.
+# When the bridge is absent (non-torios project, worktree without the hook,
+# or $CLAUDE_PROJECT_DIR unset), the bridge never fires and we must fall
+# through to normal registration — otherwise edit-verb agents are invisible.
 # When the bridge is explicitly disabled (TASK_ISOLATION_BRIDGE_DISABLE=1)
-# fall through so we register normally.
+# fall through so we register normally regardless.
 #
 # IMPORTANT: use $INPUT (the raw JSON) not the pre-parsed $PROMPT. The
 # PARSED step truncates the prompt to 500 chars for the registration
@@ -223,7 +230,9 @@ fi
 # $PROMPT misses it while the bridge sees the full prompt and routes to
 # /spawn — producing a dual-register entry. Reading $INPUT directly
 # matches what the bridge does. (→935 root cause)
-if [ "${TASK_ISOLATION_BRIDGE_DISABLE:-}" != "1" ]; then
+if [ "${TASK_ISOLATION_BRIDGE_DISABLE:-}" != "1" ] \
+        && [ -n "${CLAUDE_PROJECT_DIR:-}" ] \
+        && [ -f "${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-agent-guard.sh" ]; then
     _BRIDGE_SKIP=$(INPUT_JSON="$INPUT" python3 -c "
 import os, re, json
 raw = os.environ.get('INPUT_JSON', '')

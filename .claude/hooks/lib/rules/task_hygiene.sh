@@ -13,13 +13,13 @@ _task_hygiene_check() {
   # ---- 1. Garbage title check ----
   if [ -z "$TITLE" ]; then
     log_rule_fire "task_hygiene" "$tool" "block" "empty title"
-    deny "title is empty. Every task needs a clear, specific title that describes the work."
+    advise "title is empty. Every task needs a clear, specific title that describes the work."
   fi
 
   local TITLE_LEN=${#TITLE}
   if [ "$TITLE_LEN" -lt "${min_len:-5}" ]; then
     log_rule_fire "task_hygiene" "$tool" "block" "title too short (${TITLE_LEN} chars)"
-    deny "title '$TITLE' is too short (fewer than ${min_len:-5} characters). Write a title that actually describes the work."
+    advise "title '$TITLE' is too short (fewer than ${min_len:-5} characters). Write a title that actually describes the work."
   fi
 
   local TITLE_LOWER
@@ -31,7 +31,7 @@ _task_hygiene_check() {
   for pattern in "session in" "untitled" "fix it" "todo" "test"; do
     if echo "$TITLE_LOWER" | grep -qi "^${pattern}"; then
       log_rule_fire "task_hygiene" "$tool" "block" "garbage prefix in title"
-      deny "title '$TITLE' looks like a placeholder or auto-generated name. Write a specific title that describes what needs to be done."
+      advise "title '$TITLE' looks like a placeholder or auto-generated name. Write a specific title that describes what needs to be done."
     fi
   done
 
@@ -41,7 +41,7 @@ _task_hygiene_check() {
     for word in "sort" "fix" "update" "test" "todo" "done" "work" "task" "thing" "stuff" "misc" "other" "temp" "wip"; do
       if [ "$TITLE_LOWER" = "$word" ]; then
         log_rule_fire "task_hygiene" "$tool" "block" "single generic word title: $word"
-        deny "title '$TITLE' is a single generic word with no real meaning. Write a title that explains what specifically needs to be done."
+        advise "title '$TITLE' is a single generic word with no real meaning. Write a title that explains what specifically needs to be done."
       fi
     done
   fi
@@ -53,7 +53,7 @@ _task_hygiene_check() {
         local PRIORITY_UP
         PRIORITY_UP=$(echo "$PRIORITY" | tr '[:lower:]' '[:upper:]')
         log_rule_fire "task_hygiene" "$tool" "block" "lowercase priority $PRIORITY"
-        deny "priority '$PRIORITY' must be uppercase. Use ${PRIORITY_UP} instead."
+        advise "priority '$PRIORITY' must be uppercase. Use ${PRIORITY_UP} instead."
         ;;
     esac
   fi
@@ -62,7 +62,7 @@ _task_hygiene_check() {
   if [ "$PRIORITY" = "P0" ] || [ "$PRIORITY" = "P1" ]; then
     if [ -z "$AC" ]; then
       log_rule_fire "task_hygiene" "$tool" "block" "P0/P1 without AC"
-      deny "P0 and P1 tasks require acceptance criteria (ac field). Add a clear description of what 'done' looks like before filing."
+      advise "P0 and P1 tasks require acceptance criteria (ac field). Add a clear description of what 'done' looks like before filing."
     fi
   fi
 

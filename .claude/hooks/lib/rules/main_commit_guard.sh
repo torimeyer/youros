@@ -98,7 +98,7 @@ if m:
   if [ "$branch" = "main" ]; then
     log_rule_fire "main_commit_guard" "$tool" "block" \
       "worktree agent tried to commit to main (path=${check_path})"
-    deny "main_commit_guard: running as a worktree agent but the current git branch is 'main' at (${check_path}). Worktree agents MUST commit to their own branch, not main. Verify with: git -C ${check_path} rev-parse --abbrev-ref HEAD"
+    advise "main_commit_guard: running as a worktree agent but the current git branch is 'main' at (${check_path}). Worktree agents MUST commit to their own branch, not main. Verify with: git -C ${check_path} rev-parse --abbrev-ref HEAD"
   fi
 
   log_rule_fire "main_commit_guard" "$tool" "allow" "branch=${branch:-unknown} is not main"

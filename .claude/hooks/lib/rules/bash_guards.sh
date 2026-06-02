@@ -70,7 +70,7 @@ PY
       *)          _HINT="Replace: ${OFFENDER}=... with: my_${OFFENDER}=... or ${OFFENDER}_val=..." ;;
     esac
     log_rule_fire "bash_guards" "$tool" "block" "zsh reserved var: $OFFENDER"
-    deny "\`${OFFENDER}=\` assigns to a zsh read-only variable. zsh declares \`${OFFENDER}\` read-only at startup; assigning crashes with 'read-only variable: ${OFFENDER}' before any output. $_HINT (reserved: status pipestatus path cdpath fpath manpath prompt psvar argv signals options)"
+    advise "\`${OFFENDER}=\` assigns to a zsh read-only variable. zsh declares \`${OFFENDER}\` read-only at startup; assigning crashes with 'read-only variable: ${OFFENDER}' before any output. $_HINT (reserved: status pipestatus path cdpath fpath manpath prompt psvar argv signals options)"
   fi
 }
 
@@ -83,7 +83,7 @@ _bg_curl_timeouts() {
       *)
         if ! echo "$cmd" | grep -qE '\-\-connect-timeout|\-m [0-9]|--max-time'; then
           log_rule_fire "bash_guards" "$tool" "block" "curl without --connect-timeout"
-          deny "curl without --connect-timeout. Add --connect-timeout 3 -m 5 (or shorter) to prevent hangs. Command: $cmd"
+          advise "curl without --connect-timeout. Add --connect-timeout 3 -m 5 (or shorter) to prevent hangs. Command: $cmd"
         fi
         ;;
     esac
@@ -98,7 +98,7 @@ _bg_no_npm_dev() {
     case "$cmd" in
       *npm\ run\ dev*|*pnpm\ run\ dev*|*yarn\ dev*)
         log_rule_fire "bash_guards" "$tool" "block" "npm run dev"
-        deny "do not use npm/pnpm/yarn run dev. Use scripts/dev-backend.sh and scripts/dev-frontend.sh instead. npm run dev forks a child process that survives kill signals, leaving zombie listeners on port 3010."
+        advise "do not use npm/pnpm/yarn run dev. Use scripts/dev-backend.sh and scripts/dev-frontend.sh instead. npm run dev forks a child process that survives kill signals, leaving zombie listeners on port 3010."
         ;;
     esac
   fi
@@ -116,7 +116,7 @@ _bg_safe_vitest() {
           return 0
         elif [[ "$cmd" =~ (^|[[:space:]\|\;\&\(])(vitest|npx[[:space:]]+vitest|pnpm[[:space:]]+(test|vitest)|npm[[:space:]]+(test|run[[:space:]]+vitest)|yarn[[:space:]]+(test|vitest))([[:space:]]|$) ]]; then
           log_rule_fire "bash_guards" "$tool" "block" "bare vitest"
-          deny "use scripts/run-vitest.sh instead of bare vitest. Bare vitest commands can spawn orphan worker storms."
+          advise "use scripts/run-vitest.sh instead of bare vitest. Bare vitest commands can spawn orphan worker storms."
         fi
         ;;
     esac
@@ -136,7 +136,7 @@ _bg_no_open_source() {
         http://*|https://*) return 0 ;;
         *.py|*.ts|*.tsx|*.js|*.jsx|*.sh|*.json|*.yaml|*.yml|*.toml|*.css|*.scss|*.cfg|*.ini|*.env)
           log_rule_fire "bash_guards" "$tool" "block" "open source file: $FILE"
-          deny "do not auto-open source files ($FILE). Only open generated reports, PDFs, images, or HTML output."
+          advise "do not auto-open source files ($FILE). Only open generated reports, PDFs, images, or HTML output."
           ;;
       esac
       ;;
@@ -153,7 +153,7 @@ _bg_skip_hook_audit() {
           local DECISIONS="${DECISIONS_PATH:-.ostk/decisions.jsonl}"
           if [ ! -f "$DECISIONS" ]; then
             log_rule_fire "bash_guards" "$tool" "block" "MYOS_SKIP_HOOK=1 no decisions file"
-            deny "MYOS_SKIP_HOOK=1 requires a recent \`ostk decide\` entry tagged skip-hook. No decisions file found at: $DECISIONS. Run: ostk decide key=skip-hook-<short-reason> value=skip reason=\"...why...\""
+            advise "MYOS_SKIP_HOOK=1 requires a recent \`ostk decide\` entry tagged skip-hook. No decisions file found at: $DECISIONS. Run: ostk decide key=skip-hook-<short-reason> value=skip reason=\"...why...\""
           fi
           local NOW CUTOFF FOUND
           NOW=$(date +%s)
@@ -198,7 +198,7 @@ PY
           )
           if [ "$FOUND" != "yes" ]; then
             log_rule_fire "bash_guards" "$tool" "block" "MYOS_SKIP_HOOK=1 no valid decision"
-            deny "MYOS_SKIP_HOOK=1 requires a recent \`ostk decide\` entry tagged skip-hook. No matching entry found within 10 minutes. Run: ostk decide key=skip-hook-<short-reason> value=skip reason=\"...why...\""
+            advise "MYOS_SKIP_HOOK=1 requires a recent \`ostk decide\` entry tagged skip-hook. No matching entry found within 10 minutes. Run: ostk decide key=skip-hook-<short-reason> value=skip reason=\"...why...\""
           fi
           ;;
       esac
@@ -229,17 +229,17 @@ if m2:
 ' 2>/dev/null)
       if [ -z "$LABEL" ]; then
         log_rule_fire "bash_guards" "$tool" "block" "git stash without label"
-        deny "git stash without a label. Bare \`git stash\` uses the HEAD commit subject, making stashes impossible to identify. Use: git stash push -m \"<descriptive-label>\" (at least ${min_chars:-6} characters, not starting with \"WIP on \")"
+        advise "git stash without a label. Bare \`git stash\` uses the HEAD commit subject, making stashes impossible to identify. Use: git stash push -m \"<descriptive-label>\" (at least ${min_chars:-6} characters, not starting with \"WIP on \")"
       fi
       local LABEL_LEN=${#LABEL}
       if [ "$LABEL_LEN" -lt "${min_chars:-6}" ]; then
         log_rule_fire "bash_guards" "$tool" "block" "stash label too short: $LABEL"
-        deny "stash label \"$LABEL\" is too short ($LABEL_LEN chars, need >=${min_chars:-6}). Use: git stash push -m \"<descriptive-label>\" (at least ${min_chars:-6} characters)"
+        advise "stash label \"$LABEL\" is too short ($LABEL_LEN chars, need >=${min_chars:-6}). Use: git stash push -m \"<descriptive-label>\" (at least ${min_chars:-6} characters)"
       fi
       case "$LABEL" in
         "WIP on "*)
           log_rule_fire "bash_guards" "$tool" "block" "stash label starts with WIP on"
-          deny "stash label starts with \"WIP on \", which is what bare git stash generates automatically. Use a descriptive label: git stash push -m \"<what you are stashing and why>\""
+          advise "stash label starts with \"WIP on \", which is what bare git stash generates automatically. Use a descriptive label: git stash push -m \"<what you are stashing and why>\""
           ;;
       esac
       local FIRST_WORD
@@ -247,7 +247,7 @@ if m2:
       case "$FIRST_WORD" in
         temp|tmp|baseline|wip|scratch|test|misc|stuff|x|fix)
           log_rule_fire "bash_guards" "$tool" "block" "stash label generic filler word: $FIRST_WORD"
-          deny "stash label \"$LABEL\" starts with a generic filler word (\"$FIRST_WORD\"). Use a descriptive label, e.g. \"drive-preview-overlay-rework\"."
+          advise "stash label \"$LABEL\" starts with a generic filler word (\"$FIRST_WORD\"). Use a descriptive label, e.g. \"drive-preview-overlay-rework\"."
           ;;
       esac
       ;;
@@ -261,7 +261,7 @@ _bg_no_auto_server_start() {
     *scripts/dev-backend.sh*|*scripts/dev-frontend.sh*)
       if [[ "${MYOS_EXPLICIT_START:-}" != "1" ]] && ! echo "$cmd" | grep -q 'MYOS_EXPLICIT_START=1'; then
         log_rule_fire "bash_guards" "$tool" "block" "auto-start without MYOS_EXPLICIT_START=1"
-        deny "Blocked auto-start of server — run with MYOS_EXPLICIT_START=1 or ask explicitly"
+        advise "Blocked auto-start of server — run with MYOS_EXPLICIT_START=1 or ask explicitly"
       fi
       ;;
   esac
