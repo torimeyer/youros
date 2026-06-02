@@ -1,4 +1,11 @@
 #!/bin/bash
+# --- trunk guard: yourOS serves from main. Warn (do not block) if not. ---
+_GB="$(git -C "$(dirname "$0")/.." branch --show-current 2>/dev/null)"
+if [ -n "$_GB" ] && [ "$_GB" != "main" ]; then
+  printf '\033[33mWARNING: serving backend from branch "%s", not main. Work merged to main will NOT appear here. Run: git checkout main (ALLOW_NONMAIN=1 silences this).\033[0m\n' "$_GB" >&2
+  [ -n "$ALLOW_NONMAIN" ] || sleep 2
+fi
+# --- end trunk guard ---
 # Dev-only helper to start the FastAPI backend via uvicorn with the
 # correct --reload exclusions and a belt-and-braces stale-listener
 # cleanup on port 8000. Parallel to scripts/dev-frontend.sh.
