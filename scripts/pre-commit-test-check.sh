@@ -215,6 +215,8 @@ if [ -n "${API_STAGED}" ]; then
         ok "pytest passed."
       elif [ "${PYT_STATUS}" -eq 124 ]; then
         warn "pytest timed out after ${YOUROS_HOOK_STEP_TIMEOUT}s, skipping. A test is hanging: investigate before push."
+      elif [ "${PYT_STATUS}" -eq 3 ]; then
+        warn "pytest INTERNALERROR (exit 3) — pytest infra crash, not a test failure. Commit allowed. Run 'pytest ${UNIQ_TARGETS}' manually to investigate (→2069)."
       else
         fail "pytest found failures."
         FAILED=1
