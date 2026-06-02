@@ -21,7 +21,6 @@ const mockedApiGet = vi.mocked(api.get)
 
 const DEFAULT_FEATURES = [
   { label: 'Chat', enabled: true },
-  { label: 'Backlog', enabled: true },
   { label: 'Agents', enabled: true },
   { label: 'Activity', enabled: true },
   { label: 'Projects', enabled: true },
@@ -171,7 +170,6 @@ describe('Sidebar', () => {
       Home: '/',
       Tasks: '/tasks',
       Specs: '/specs',
-      'Kanban view': '/backlog',
       Agents: '/agents',
       Calendar: '/calendar',
       Gmail: '/gmail',
@@ -845,7 +843,6 @@ describe('Sidebar grouped nav', () => {
       { label: 'Home', href: '/' },
       { label: 'Tasks', href: '/tasks' },
       { label: 'Specs', href: '/specs' },
-      { label: 'Kanban view', href: '/backlog' },
       { label: 'Agents', href: '/agents' },
       { label: 'Gmail', href: '/gmail' },
       { label: 'Calendar', href: '/calendar' },
@@ -1462,14 +1459,6 @@ describe('Sidebar — nav restructure (→1489)', () => {
     })
   })
 
-  it('renders Kanban view as a top-level nav item linking to /backlog', () => {
-    renderSidebar()
-    expandAllGroups()
-    const kanbanLink = screen.getByText('Kanban view').closest('a')
-    expect(kanbanLink).toBeInTheDocument()
-    expect(kanbanLink?.getAttribute('href')).toBe('/backlog')
-  })
-
   it('renders Tasks as a standalone nav item linking to /tasks', () => {
     renderSidebar()
     expandAllGroups()
@@ -1573,20 +1562,17 @@ describe('nav rename and reorder', () => {
     expect(directLinks[0]?.getAttribute('href')).toBe('/')
   })
 
-  it('Tasks and Specs appear before Agents, Agents before Kanban view', () => {
+  it('Tasks and Specs appear before Agents in the nav order', () => {
     renderSidebar()
     const primaryNav = screen.getByTestId('primary-nav')
     const allLinks = Array.from(primaryNav.querySelectorAll('a'))
     const tasksIdx = allLinks.findIndex((l) => l.getAttribute('href') === '/tasks')
     const specsIdx = allLinks.findIndex((l) => l.getAttribute('href') === '/specs')
     const agentsIdx = allLinks.findIndex((l) => l.getAttribute('href') === '/agents')
-    const backlogIdx = allLinks.findIndex((l) => l.getAttribute('href') === '/backlog')
     expect(tasksIdx).toBeGreaterThan(-1)
     expect(specsIdx).toBeGreaterThan(-1)
     expect(agentsIdx).toBeGreaterThan(-1)
-    expect(backlogIdx).toBeGreaterThan(-1)
     expect(tasksIdx).toBeLessThan(agentsIdx)
     expect(specsIdx).toBeLessThan(agentsIdx)
-    expect(agentsIdx).toBeLessThan(backlogIdx)
   })
 })

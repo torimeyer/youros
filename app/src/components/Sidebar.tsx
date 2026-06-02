@@ -52,7 +52,7 @@ interface NavGroup {
 // Value is a JSON object: { [groupId]: boolean }
 const COLLAPSED_KEY = 'sidebar-group-collapsed'
 
-const TOP_LEVEL_ROUTES = new Set(['/', '/backlog', '/agents', '/tasks', '/specs', '/break'])
+const TOP_LEVEL_ROUTES = new Set(['/', '/agents', '/tasks', '/specs', '/break'])
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -81,7 +81,6 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks', tasksBadge: true },
   { to: '/specs', icon: 'article', label: 'Specs', featureLabel: 'Specs', specsBadge: true },
   { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
-  { to: '/backlog', icon: 'inventory_2', label: 'Kanban view', featureLabel: 'Backlog' },
   { to: '/break', icon: 'sports_esports', label: 'The Arcade', featureLabel: 'The Arcade' },
   ...NAV_GROUPS.flatMap((g) => g.items),
 ]
@@ -640,7 +639,7 @@ export function Sidebar() {
 
   // Top-level items (Home + Tasks + Agents) that are not in any group
   const topLevelItems = ALL_NAV_ITEMS.filter((i) => TOP_LEVEL_ROUTES.has(i.to) && isEnabled(i)).sort((a, b) => {
-    const order = ['/', '/tasks', '/specs', '/agents', '/backlog', '/break']
+    const order = ['/', '/tasks', '/specs', '/agents', '/break']
     return order.indexOf(a.to) - order.indexOf(b.to)
   })
 
