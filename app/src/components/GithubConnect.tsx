@@ -64,6 +64,25 @@ export default function GithubConnect() {
   }
 
   if (status.connected) {
+    if (status.repo === 'owner/repo') {
+      return (
+        <div data-testid="github-connect-disconnected">
+          <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
+            GitHub setup is incomplete. No repo was saved. Click below to reconnect with your real repository.
+          </p>
+          <button
+            onClick={handleDisconnect}
+            disabled={disconnecting}
+            data-testid="github-reconnect-btn"
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 border border-amber-400 hover:border-amber-500 disabled:opacity-50 rounded-lg text-sm font-medium text-slate-900 dark:text-white transition-colors"
+          >
+            <Icon name="settings" size={16} />
+            {disconnecting ? 'Clearing…' : 'Set up GitHub connection'}
+          </button>
+        </div>
+      )
+    }
+
     return (
       <div className="flex items-center justify-between" data-testid="github-connect-connected">
         <div className="flex items-center gap-2">
@@ -93,8 +112,17 @@ export default function GithubConnect() {
         </p>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { window.location.href = '/api/github/auth' }}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-slate-500 rounded-lg text-sm font-medium text-white transition-colors"
+            onClick={async () => {
+              try {
+                const res = await api.get<{ url: string }>('/github/auth-url')
+                window.location.href = res.url
+              } catch (e: any) {
+                // Fall back to the manual token form and surface the reason.
+                setError(e?.message ?? 'Could not start the GitHub connection.')
+                setForceTokenForm(true)
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-slate-500 rounded-lg text-sm font-medium text-slate-900 dark:text-white transition-colors"
             data-testid="github-oauth-btn"
           >
             <Icon name="code" size={16} />
@@ -116,6 +144,9 @@ export default function GithubConnect() {
     <div data-testid="github-connect-disconnected">
       <div className="space-y-2">
         <p className="text-xs text-slate-500">
+          Manual setup: connect with a personal access token and repository.
+        </p>
+        <p className="text-xs text-slate-500">
           <a
             href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=yourOS"
             target="_blank"
@@ -130,23 +161,26 @@ export default function GithubConnect() {
           value={ownerRepo}
           onChange={(e) => setOwnerRepo(e.target.value)}
           placeholder="owner/repo (e.g. acme/website)"
-          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
           data-testid="github-repo-input"
         />
+        {ownerRepo.trim().toLowerCase() === 'owner/repo' && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">Enter your actual repo, e.g. acme/website</p>
+        )}
         <input
           type="password"
           value={token}
           onChange={(e) => setToken(e.target.value)}
           placeholder="Personal access token"
-          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+          className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
           data-testid="github-token-input"
         />
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
         <div className="flex items-center gap-3">
           <button
             onClick={handleConnect}
-            disabled={connectStatus === 'connecting' || connectStatus === 'done' || !ownerRepo.trim()}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-slate-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white transition-colors"
+            disabled={connectStatus === 'connecting' || connectStatus === 'done' || !ownerRepo.trim() || ownerRepo.trim().toLowerCase() === 'owner/repo'}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-slate-500 disabled:opacity-50 rounded-lg text-sm font-medium text-slate-900 dark:text-white transition-colors"
             data-testid="github-connect-btn"
           >
             <Icon name="code" size={16} />

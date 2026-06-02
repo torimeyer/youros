@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { formatRelative } from '../lib/time';
 import { useNavigate } from "react-router-dom";
-import TopBar from "../components/TopBar";
+import PageShell from "../components/PageShell";
 import { EmptyState } from "../components/ui";
 
 interface TeamItem {
@@ -153,17 +153,16 @@ export default function Team() {
 
   if (status === null) {
     return (
-      <div className="min-h-screen bg-white dark:bg-slate-950">
-        <TopBar title="Team" />
-      </div>
+      <PageShell title="Team">
+        <div className="flex items-center justify-center py-20 text-slate-500 dark:text-slate-400">Loading...</div>
+      </PageShell>
     );
   }
 
   if (!status.configured) {
     return (
-      <div className="min-h-screen bg-white dark:bg-slate-950">
-        <TopBar title="Team" />
-        <div className="px-4 sm:px-8 max-w-2xl mx-auto mt-16">
+      <PageShell title="Team">
+        <div className="max-w-2xl mx-auto mt-16">
           <EmptyState
             icon="group"
             title="Team mode isn't set up yet"
@@ -174,16 +173,15 @@ export default function Team() {
             }}
           />
         </div>
-      </div>
+      </PageShell>
     );
   }
 
   const showResults = query.trim().length > 0;
 
   return (
-    <div className="min-h-screen bg-white dark:bg-slate-950">
-      <TopBar title="Team" />
-      <div className="px-4 sm:px-8 max-w-4xl mx-auto py-6">
+    <PageShell title="Team">
+      <div className="max-w-4xl mx-auto py-6">
         <div className="mb-4 px-3 py-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 text-sm">
           Team features are in beta. Some things may change.
         </div>
@@ -211,7 +209,7 @@ export default function Team() {
               }
             }}
             placeholder="Search your team's knowledge..."
-            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
             data-testid="team-search-input"
           />
         </div>
@@ -262,6 +260,6 @@ export default function Team() {
           </div>
         )}
       </div>
-    </div>
+    </PageShell>
   );
 }

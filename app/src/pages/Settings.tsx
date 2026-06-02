@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAppStore, PROVIDER_TO_MODEL, type AccentColor } from '../stores/app';
 import Icon from '../components/Icon';
-import TopBar from '../components/TopBar';
-import { PageHeader } from '../components/ui';
+import PageShell from '../components/PageShell';
+import TopNavTabs from '../components/TopNavTabs';
 import ConfirmModal from '../components/ConfirmModal';
 import { useConfirm } from '../hooks/useConfirm';
 import { api } from '../lib/api';
@@ -12,6 +12,7 @@ import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe 
 import SlackConnect from '../components/SlackConnect';
 import { AtlassianSetupCard, GithubSetupCard } from '../components/OnboardingWizard';
 import CustomVerbs from '../components/CustomVerbs';
+import ChannelRoutingPanel from '../components/ChannelRoutingPanel';
 import { parseMemoryProvenance } from '../lib/parseMemoryProvenance';
 
 
@@ -46,7 +47,6 @@ const featureIcons: Record<string, string> = {
 
 // Display names for features. Internal keys use ostk terminology that users should not see.
 const featureDisplayNames: Record<string, string> = {
-  'Projects': 'Files',
   'Transcripts': 'History',
   'Cost Tracking': 'Usage',
 };
@@ -83,7 +83,6 @@ export default function Settings() {
     instanceMode,
     compactMode, setCompactMode,
     greetingStyle, setGreetingStyle,
-    showBudgetCaps, setShowBudgetCaps,
   } = useAppStore();
 
   const { confirm, confirmProps } = useConfirm();
@@ -192,6 +191,9 @@ export default function Settings() {
 
   const [activeSection, setActiveSection] = useState('section-connections');
   const [expandedConnection, setExpandedConnection] = useState<string | null>(null);
+  const [filesDir, setFilesDir] = useState<string>('');
+  const [plansBecomesSpecs, setPlansBecomesSpecs] = useState<boolean>(true);
+  const [inboundImessageRoutingEnabled, setInboundImessageRoutingEnabled] = useState<boolean>(false);
   const [defaultConfluenceSpace, setDefaultConfluenceSpace] = useState('');
   const [wipeDataError, setWipeDataError] = useState<string | null>(null);
 
@@ -244,6 +246,9 @@ export default function Settings() {
           );
         }
         if (data.quiet_hours !== undefined) setQuietHours(data.quiet_hours);
+        if ((data as any).files_dir) setFilesDir((data as any).files_dir);
+        if ((data as any).plans_become_specs !== undefined) setPlansBecomesSpecs(!!(data as any).plans_become_specs);
+        if ((data as any).inbound_imessage_routing_enabled !== undefined) setInboundImessageRoutingEnabled(!!(data as any).inbound_imessage_routing_enabled);
         if ((data as any).shortcuts) setCustomShortcuts((data as any).shortcuts);
         if ((data as any).auto_template_matching !== undefined) {
           setAutoTemplateMatching((data as any).auto_template_matching);
@@ -394,22 +399,7 @@ export default function Settings() {
     { color: 'bg-orange-500', name: 'orange' },
   ];
 
-  const shortcuts = [
-    { label: 'Command Palette', keys: '\u2318K' },
-    { label: 'Toggle Chat', keys: '\u2318L' },
-    { label: 'New Task', keys: '\u2318N' },
-  ];
 
-  const allShortcuts = [
-    ...shortcuts,
-    { label: 'Go to Home', keys: '\u23181' },
-    { label: 'Go to Tasks', keys: '\u23182' },
-    { label: 'Go to Timeline', keys: '\u23183' },
-    { label: 'Go to Agents', keys: '\u23184' },
-    { label: 'Go to Files', keys: '\u23185' },
-    { label: 'Go to Transcripts', keys: '\u23186' },
-    { label: 'Go to Settings', keys: '\u23187' },
-  ];
 
   const providers = [
     { name: 'Anthropic', model: 'Claude' },
@@ -784,56 +774,75 @@ export default function Settings() {
   // No IntersectionObserver needed: tabs show one section at a time.
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-      <TopBar title="Settings" />
+    <PageShell title="Settings">
 
-      {/* Mobile horizontal nav */}
-      <div className="lg:hidden overflow-x-auto flex gap-2 px-4 py-2 border-b border-slate-200 dark:border-slate-800 sticky top-16 bg-white dark:bg-slate-950 z-10">
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setActiveSection(item.id)}
-            className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium flex-shrink-0 transition-colors ${
-              activeSection === item.id ? 'bg-slate-200 dark:bg-slate-700 text-white' : 'bg-slate-50/60 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 hover:text-white'
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      <TopNavTabs
+        tabs={navItems.map((n) => ({ key: n.id, label: n.label }))}
+        active={activeSection}
+        onChange={setActiveSection}
+      />
 
-      <div className="flex">
-        {/* Left nav rail — sticky on desktop */}
-        <nav className="hidden lg:flex flex-col sticky top-20 self-start w-52 shrink-0 pl-4 py-6 space-y-0.5">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveSection(item.id)}
-              className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm text-left transition-colors ${
-                activeSection === item.id
-                  ? 'bg-slate-100 dark:bg-slate-800 text-white font-medium'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50'
-              }`}
-            >
-              <Icon name={item.icon} size={15} className="shrink-0" />
-              {item.label}
-            </button>
-          ))}
-        </nav>
+      {/* Main content */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
-        {/* Main content */}
-        <div className="flex-1 min-w-0 px-4 pb-8 sm:px-6 lg:pr-8 space-y-10">
-          <PageHeader title="Settings" />
+          {/* ── How torios works ─────────────────── */}
+          <div className={`lg:col-span-2 ${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
+          <div className={cardClass}>
+            <h2 className="text-lg font-semibold mb-4">How torios works</h2>
+            <div className="space-y-4">
+              {/* Plans → specs toggle */}
+              <div className="flex items-center justify-between">
+                <div className="pr-3">
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Turn plans into specs automatically</p>
+                  <p className="text-xs text-slate-500">When on, approved plans become tracked spec documents instead of one-off files.</p>
+                </div>
+                <Toggle checked={plansBecomesSpecs} onChange={() => {
+                  const next = !plansBecomesSpecs;
+                  setPlansBecomesSpecs(next);
+                  api.patch('/settings', { plans_become_specs: next }).catch(() => {});
+                }} testId="plans-become-specs-toggle" />
+              </div>
+              {/* iMessage routing toggle */}
+              <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-800">
+                <div className="pr-3">
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Act on incoming messages</p>
+                  <p className="text-xs text-slate-500">When on, torios reads new iMessages and can kick off tasks from them automatically.</p>
+                </div>
+                <Toggle checked={inboundImessageRoutingEnabled} onChange={() => {
+                  const next = !inboundImessageRoutingEnabled;
+                  setInboundImessageRoutingEnabled(next);
+                  api.patch('/settings', { inbound_imessage_routing_enabled: next }).catch(() => {});
+                }} testId="inbound-imessage-toggle" />
+              </div>
+              {/* Files location */}
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-1">Where files are saved</p>
+                <p className="text-xs text-slate-500 mb-2">torios saves documents, exports, and attachments here.</p>
+                <input
+                  type="text"
+                  value={filesDir}
+                  onChange={(e) => setFilesDir(e.target.value)}
+                  onBlur={() => api.patch('/settings', { files_dir: filesDir }).catch(() => {})}
+                  onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { files_dir: filesDir }).catch(() => {}); }}
+                  placeholder="~/myos-files"
+                  data-testid="files-dir-input"
+                  className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+            </div>
+          </div>
+          </div>
 
-          {/* ── Instructions ─────────────────────── */}
-          <div id="section-instructions" className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+          {/* ── AI behavior ──────────────────────── */}
+          <div id="section-instructions" className={`lg:col-span-2 ${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
           <div
             ref={standingSectionRef}
             id="standing-instructions"
             className={cardClass}
             data-testid="standing-instructions-section"
           >
-          <h2 className="text-lg font-semibold mb-2">Standing instructions</h2>
+          <h2 className="text-lg font-semibold mb-4">AI behavior</h2>
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Your instructions</p>
           <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
             Write instructions once and every chat, agent run, and task will follow them. Examples: your preferred tone, what apps to prefer, how you want code explained.
           </p>
@@ -894,7 +903,7 @@ export default function Settings() {
                       setSuggestions(next);
                     }}
                     data-testid={`standing-instructions-suggestion-text-${i}`}
-                    className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500"
+                    className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
               ))}
@@ -911,7 +920,7 @@ export default function Settings() {
                   type="button"
                   onClick={() => { setSuggestions([]); setSuggestError(null); }}
                   data-testid="standing-instructions-dismiss-suggestions"
-                  className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 rounded-lg text-white text-sm font-medium transition-colors"
+                  className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-900 dark:text-white text-sm font-medium transition-colors"
                 >
                   Dismiss
                 </button>
@@ -924,7 +933,7 @@ export default function Settings() {
             rows={6}
             data-testid="standing-instructions-textarea"
             placeholder="For example: always explain things in plain language, prefer Google Calendar over iCal, keep replies short unless I ask for detail."
-            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
           />
           <div className="flex items-center gap-3 mt-3">
             <button
@@ -943,6 +952,65 @@ export default function Settings() {
                 {standingSaveStatus}
               </span>
             )}
+          </div>
+
+          {/* Rules link (E) */}
+          <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-700 dark:text-slate-300">Rules</p>
+              <p className="text-xs text-slate-500">The rules your agents always follow.</p>
+            </div>
+            <NavLink
+              to="/settings/rules"
+              data-testid="settings-rules-link"
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors"
+            >
+              Open
+            </NavLink>
+          </div>
+
+          {/* What it's learned (D) */}
+          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-800">
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">What it's learned</p>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">Things you've told me to remember. Edit or remove anytime.</p>
+            {memoryOverflow?.hard_cap && (
+              <div data-testid="memory-hard-cap-banner" className="mb-4 rounded-lg bg-red-900/40 border border-red-700 px-4 py-3 text-sm text-red-200">
+                Your memory file is very large ({memoryOverflow.total_kb.toFixed(0)} KB). Remove anything outdated.
+              </div>
+            )}
+            {(() => {
+              const bullets = parseMemoryProvenance(memoryContent);
+              if (bullets.length > 0) {
+                return (
+                  <ul data-testid="memory-bullet-list" className="mb-4 space-y-2">
+                    {bullets.map((bullet, i) => {
+                      const label = bullet.added
+                        ? `added ${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(bullet.added)}`
+                        : 'edited manually';
+                      return (
+                        <li key={i} className="flex items-baseline gap-3">
+                          <span className="text-sm text-slate-800 dark:text-slate-200 flex-1">{bullet.text}</span>
+                          <span data-testid={`memory-provenance-${i}`} className="text-xs text-slate-500 shrink-0">{label}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                );
+              }
+              return null;
+            })()}
+            <textarea
+              data-testid="memory-editor"
+              value={memoryContent}
+              onChange={(e) => setMemoryContent(e.target.value)}
+              placeholder="Things you tell me to remember will show up here."
+              rows={8}
+              className="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm text-slate-800 dark:text-slate-200 px-3 py-2 font-mono resize-y focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <div className="mt-3 flex items-center gap-3">
+              <button data-testid="memory-save-button" onClick={handleSaveMemory} className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">Save</button>
+              {memorySaveStatus && <span className="text-xs text-slate-600 dark:text-slate-400">{memorySaveStatus}</span>}
+            </div>
           </div>
           </div>
           </div>
@@ -1035,9 +1103,9 @@ export default function Settings() {
 
           </div>
 
-          {/* System Features */}
+          {/* Features (F) */}
           <div className={cardClass}>
-          <h2 className="text-lg font-semibold mb-5">System Features</h2>
+          <h2 className="text-lg font-semibold mb-5">Features</h2>
           <p className="text-xs text-slate-500 mb-3">Toggle to show or hide in the sidebar. Drag items in the sidebar itself to reorder.</p>
           <div className="space-y-1.5">
             {features.map((f: { label: string; enabled: boolean }, index: number) => (
@@ -1052,24 +1120,19 @@ export default function Settings() {
             ))}
           </div>
 
-          {/* Budget Caps toggle */}
-          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-800">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Show budget caps</span>
-              <Toggle checked={showBudgetCaps} onChange={() => setShowBudgetCaps(!showBudgetCaps)} testId="budget-caps-toggle" />
-            </div>
-            <p className="text-xs text-slate-500 mt-2">Shows budget cap columns in Usage. Off by default since caps are not real spend.</p>
+          </div>
           </div>
 
-          {/* Power user mode toggle */}
-          <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
-            <div className="flex items-center justify-between">
+          {/* ── Power user (G) ────────────────────── */}
+          <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+          <div className={cardClass}>
+            <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Power user mode</span>
+                <h2 className="text-lg font-semibold">Power user mode</h2>
                 <div className="group relative">
                   <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-help" />
                   <div className="absolute left-0 top-full mt-1 w-80 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-xs text-slate-700 dark:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
-                    <p className="font-semibold text-white mb-1">What this unlocks</p>
+                    <p className="font-semibold text-slate-900 dark:text-white mb-1">What this unlocks</p>
                     <p className="mb-2"><strong>Delegate tab:</strong> see suggested tasks an agent could pick up and hand them off with one click.</p>
                     <p className="mb-2"><strong>Shared Workspace tab:</strong> a message board where multiple agents leave each other notes mid-task, so they can build on each other's findings.</p>
                     <p className="mb-2"><strong>ostk browser:</strong> read-only view of the underlying kernel files (decisions, tasks history, audit log) for verifying what actually happened.</p>
@@ -1079,8 +1142,7 @@ export default function Settings() {
               </div>
               <Toggle checked={powerUserMode} onChange={() => setPowerUserMode(!powerUserMode)} testId="power-user-toggle" />
             </div>
-            <p className="text-xs text-slate-500 mt-2">Shows advanced agent tabs (Delegate, Shared Workspace) and the ostk browser in the sidebar.</p>
-          </div>
+            <p className="text-xs text-slate-500">Shows advanced agent tabs (Delegate, Shared Workspace) and the ostk browser in the sidebar.</p>
           </div>
           </div>
 
@@ -1140,7 +1202,7 @@ export default function Settings() {
                 ) : googleOAuthAvailable ? (
                   <button
                     onClick={() => window.open('/api/auth/google', '_self')}
-                    className="w-full mb-3 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
+                    className="w-full mb-3 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-900 dark:text-white hover:border-blue-500 transition-colors flex items-center gap-2"
                   >
                     <Icon name="login" size={18} />
                     Sign in with Google
@@ -1153,7 +1215,7 @@ export default function Settings() {
               ) : (
                 <button
                   onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}
-                  className="w-full mb-3 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
+                  className="w-full mb-3 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-900 dark:text-white hover:border-blue-500 transition-colors flex items-center gap-2"
                 >
                   <Icon name="open_in_new" size={18} />
                   Get a key from Anthropic
@@ -1286,7 +1348,7 @@ export default function Settings() {
                     placeholder={keyAvailable[selectedProvider]
                       ? 'Paste a new key to replace the current one'
                       : (selectedProvider === 'Anthropic' ? 'Paste API key (sk-ant-xxxx...)' : 'Paste API key (AIzaSy...)')}
-                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
                   />
                   <button
                     onClick={() => setApiKeyVisible(!apiKeyVisible)}
@@ -1409,7 +1471,7 @@ export default function Settings() {
             </div>
             {claudeCodeReady === false && (
               <div className="mt-3 p-3 rounded-lg bg-slate-50/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-sm text-slate-700 dark:text-slate-300" data-testid="claude-login-instructions">
-                <p className="font-medium text-white mb-1">To sign in with Claude Pro or Max</p>
+                <p className="font-medium text-slate-900 dark:text-white mb-1">To sign in with Claude Pro or Max</p>
                 <p>Open your Terminal app and run:</p>
                 <code className="block mt-1.5 px-2 py-1 bg-white dark:bg-slate-900 rounded text-green-600 dark:text-green-400 font-mono text-xs select-all">claude login</code>
                 <p className="mt-2 text-slate-600 dark:text-slate-400 text-xs">Then click Re-check above to confirm it worked.</p>
@@ -1507,7 +1569,7 @@ export default function Settings() {
           </div>
 
           {/* ── Connections Tab ──────────────────────── */}
-          <div id="section-connections" className={`space-y-6${activeSection !== 'section-connections' ? ' hidden' : ''}`}>
+          <div id="section-connections" className={`lg:col-span-2 space-y-6${activeSection !== 'section-connections' ? ' hidden' : ''}`}>
           <div className="space-y-4">
             {/* Google pill */}
             <button
@@ -1678,7 +1740,7 @@ export default function Settings() {
                 </div>
                 <GithubSetupCard
                   darkMode={true}
-                  inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white"
+                  inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
                   subtextCls="text-slate-600 dark:text-slate-400"
                 />
               </div>
@@ -1706,7 +1768,7 @@ export default function Settings() {
                   </div>
                   <AtlassianSetupCard
                     darkMode={true}
-                    inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-white"
+                    inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
                     subtextCls="text-slate-600 dark:text-slate-400"
                   />
                 </div>
@@ -1726,7 +1788,7 @@ export default function Settings() {
                       }}
                       placeholder="e.g. IAM"
                       data-testid="default-confluence-space-input"
-                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
                     />
                     <p className="text-xs text-slate-500 mt-1">
                       Paste a space shortcut (like IAM) or a full Confluence URL. The widget will show pages from this space only.
@@ -1739,6 +1801,11 @@ export default function Settings() {
             {/* Custom tack commands */}
             <div className={cardClass} data-testid="custom-verbs-section">
               <CustomVerbs />
+            </div>
+
+            {/* Channel routing (Wave 6, →1872) */}
+            <div className={cardClass} data-testid="channel-routing-section">
+              <ChannelRoutingPanel />
             </div>
           </div>
 
@@ -1828,7 +1895,7 @@ export default function Settings() {
 
           {/* ── Team Admin (gated) ──────────────────── */}
           {instanceMode === 'team' && (
-          <div id="section-team-admin" className={activeSection !== 'section-team-admin' ? 'hidden' : ''}>
+          <div id="section-team-admin" className={`lg:col-span-2${activeSection !== 'section-team-admin' ? ' hidden' : ''}`}>
           <div className={cardClass}>
             <div className="flex items-center gap-2 mb-3">
               <Icon name="admin_panel_settings" size={22} className="text-indigo-600 dark:text-indigo-400" />
@@ -1920,8 +1987,8 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Memory editor */}
-          <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+          {/* Memory editor: content merged into AI behavior section above */}
+          <div className="hidden">
             <div className={cardClass}>
               <h2 className="text-lg font-semibold mb-1">Memory</h2>
               <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
@@ -2066,118 +2133,65 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* ── Shortcuts ────────────────────────── */}
-          <div id="section-shortcuts" className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+          {/* ── Shortcuts (I) ────────────────────── */}
+          <div id="section-shortcuts" className={`lg:col-span-2 ${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
             <div className={cardClass}>
-              <h2 className="text-lg font-semibold mb-5">Shortcuts</h2>
-              <p className="text-xs text-slate-500 mb-4">Click any key badge to change it.</p>
-              <div className="space-y-1">
-                {allShortcuts.map((s) => {
-                  const currentKey = customShortcuts[s.label] ?? s.keys;
-                  const isEditing = editingShortcut === s.label;
-                  const isCustom = !!customShortcuts[s.label];
-                  return (
-                    <div key={s.label} className="flex items-center justify-between py-2">
-                      <span className="text-sm text-slate-700 dark:text-slate-300">{s.label}</span>
-                      <div className="flex items-center gap-2">
-                        {isCustom && !isEditing && (
-                          <button
-                            type="button"
-                            onClick={() => handleShortcutReset(s.label)}
-                            className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
-                            title="Reset to default"
-                          >
-                            ×
-                          </button>
-                        )}
-                        {isEditing ? (
-                          <kbd
-                            className="px-2.5 py-1 bg-slate-200 dark:bg-slate-700 border border-blue-500 rounded-md text-xs text-blue-700 dark:text-blue-300 font-mono min-w-[72px] text-center"
-                            onKeyDown={(e) => {
-                              e.preventDefault();
-                              if (e.key === 'Escape') { setEditingShortcut(null); return; }
-                              const parts: string[] = [];
-                              if (e.metaKey) parts.push('⌘');
-                              if (e.ctrlKey) parts.push('⌃');
-                              if (e.altKey) parts.push('⌥');
-                              if (e.shiftKey) parts.push('⇧');
-                              const k = e.key;
-                              if (!['Meta','Control','Alt','Shift'].includes(k)) {
-                                parts.push(k.length === 1 ? k.toUpperCase() : k);
-                              }
-                              if (parts.length > 1 || (parts.length === 1 && !['⌘','⌃','⌥','⇧'].includes(parts[0]))) {
-                                handleShortcutEdit(s.label, parts.join(''));
-                              }
-                            }}
-                            tabIndex={0}
-                            // eslint-disable-next-line jsx-a11y/no-autofocus
-                            autoFocus
-                            onBlur={() => setEditingShortcut(null)}
-                          >
-                            Press keys…
-                          </kbd>
-                        ) : (
-                          <kbd
-                            className={`px-2.5 py-1 rounded-md text-xs font-mono cursor-pointer transition-colors hover:border-slate-500 ${isCustom ? 'bg-slate-100 dark:bg-slate-800 border border-blue-500/50 text-blue-700 dark:text-blue-300' : 'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'}`}
-                            onClick={() => setEditingShortcut(s.label)}
-                            title="Click to edit"
-                          >
-                            {currentKey}
-                          </kbd>
-                        )}
+              <h2 className="text-lg font-semibold mb-4">Shortcuts</h2>
+              {Object.keys(customShortcuts).length === 0 ? (
+                <div className="text-center py-6">
+                  <p className="text-sm text-slate-500 mb-3">No custom shortcuts yet.</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const label = prompt('Shortcut name (e.g. "Open Tasks")');
+                      if (!label) return;
+                      const next = { ...customShortcuts, [label]: '' };
+                      setCustomShortcuts(next);
+                      setEditingShortcut(label);
+                    }}
+                    className="px-3 py-1.5 text-sm font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors"
+                  >
+                    Add shortcut
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {Object.entries(customShortcuts).map(([label, keys]) => {
+                    const isEditing = editingShortcut === label;
+                    return (
+                      <div key={label} className="flex items-center justify-between py-2">
+                        <span className="text-sm text-slate-700 dark:text-slate-300">{label}</span>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={() => handleShortcutReset(label)} className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors" title="Remove">×</button>
+                          {isEditing ? (
+                            <kbd className="px-2.5 py-1 bg-slate-200 dark:bg-slate-700 border border-blue-500 rounded-md text-xs text-blue-700 dark:text-blue-300 font-mono min-w-[72px] text-center" onKeyDown={(e) => { e.preventDefault(); if (e.key === 'Escape') { setEditingShortcut(null); return; } const parts: string[] = []; if (e.metaKey) parts.push('⌘'); if (e.ctrlKey) parts.push('⌃'); if (e.altKey) parts.push('⌥'); if (e.shiftKey) parts.push('⇧'); const k = e.key; if (!['Meta','Control','Alt','Shift'].includes(k)) { parts.push(k.length === 1 ? k.toUpperCase() : k); } if (parts.length > 1 || (parts.length === 1 && !['⌘','⌃','⌥','⇧'].includes(parts[0]))) { handleShortcutEdit(label, parts.join('')); } }} tabIndex={0} autoFocus onBlur={() => setEditingShortcut(null)}>Press keys…</kbd>
+                          ) : (
+                            <kbd className="px-2.5 py-1 rounded-md text-xs font-mono cursor-pointer bg-slate-100 dark:bg-slate-800 border border-blue-500/50 text-blue-700 dark:text-blue-300" onClick={() => setEditingShortcut(label)} title="Click to edit">{keys || '…'}</kbd>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                  <button type="button" onClick={() => { const label = prompt('Shortcut name'); if (!label) return; const next = { ...customShortcuts, [label]: '' }; setCustomShortcuts(next); setEditingShortcut(label); }} className="mt-2 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors">Add shortcut</button>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* ── Help ────────────────────────── */}
+          {/* ── Take the tour (J - Help dissolved, Tour standalone) ── */}
           <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
-            <div className={cardClass}>
-              <h2 className="text-lg font-semibold mb-5">Help</h2>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-700 dark:text-slate-300">Take the tour</p>
-                    <p className="text-xs text-slate-500">Walk through what yourOS can do, step by step.</p>
-                  </div>
-                  <button
-                    data-testid="settings-tour-button"
-                    onClick={() => useAppStore.getState().setShowTour(true)}
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors"
-                  >
-                    Start
-                  </button>
-                </div>
-                <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-700 dark:text-slate-300">Open activity log</p>
-                    <p className="text-xs text-slate-500">See everything yourOS has done recently.</p>
-                  </div>
-                  <NavLink
-                    data-testid="settings-activity-link"
-                    to="/activity"
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors"
-                  >
-                    Open
-                  </NavLink>
-                </div>
-                <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-700 dark:text-slate-300">Rules</p>
-                    <p className="text-xs text-slate-500">View and edit the rules your agents follow.</p>
-                  </div>
-                  <NavLink
-                    data-testid="settings-rules-link"
-                    to="/settings/rules"
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors"
-                  >
-                    Open
-                  </NavLink>
-                </div>
+            <div className="flex items-center justify-between py-2">
+              <div>
+                <p className="text-sm text-slate-700 dark:text-slate-300">Take the tour</p>
+                <p className="text-xs text-slate-500">Walk through what yourOS can do, step by step.</p>
               </div>
+              <button
+                data-testid="settings-tour-button"
+                onClick={() => useAppStore.getState().setShowTour(true)}
+                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors"
+              >
+                Start
+              </button>
             </div>
           </div>
 
@@ -2201,9 +2215,8 @@ export default function Settings() {
               </button>
             </div>
           </div>
-        </div>
       </div>
       <ConfirmModal {...confirmProps} />
-    </div>
+    </PageShell>
   );
 }

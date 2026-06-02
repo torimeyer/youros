@@ -15,10 +15,9 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
-const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'Profile', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
 
-const DEFAULT_FILES_DIR = '~/.myos/files'
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
 
@@ -48,7 +47,6 @@ export default function OnboardingWizard() {
 
   // Local state
   const [userName, setUserName] = useState('')
-  const [filesDir, setFilesDir] = useState(DEFAULT_FILES_DIR)
   const [selectedProvider, setSelectedProvider] = useState('Anthropic')
   const [apiKey, setApiKey] = useState('')
   const [keySaved, setKeySaved] = useState(false)
@@ -116,12 +114,6 @@ export default function OnboardingWizard() {
         window.history.replaceState({}, '', '/')
       })
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    api.get<{ files_dir?: string | null }>('/settings')
-      .then((data) => setFilesDir(data.files_dir ?? DEFAULT_FILES_DIR))
-      .catch(() => setFilesDir(DEFAULT_FILES_DIR))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Restore step from localStorage on mount (→1518)
@@ -273,13 +265,6 @@ export default function OnboardingWizard() {
     setOnboarded(true)
   }
 
-  const handleFilesLocationNext = () => {
-    api.put('/settings', { files_dir: filesDir || null }).catch(
-      (e) => reportError('Failed to save files_dir during onboarding', e)
-    )
-    next()
-  }
-
   const handleProviderSelect = (name: string) => {
     setSelectedProvider(name)
     setApiKey('')
@@ -312,8 +297,6 @@ export default function OnboardingWizard() {
     // TeamReady and Ready both finish.
     if (step === 'TeamReady') { finish(); return }
     if (step === 'Ready') { finish(); return }
-    // FilesLocation saves the dir before advancing.
-    if (step === 'FilesLocation') { handleFilesLocationNext(); return }
     // Profile fires persona install on advance.
     if (step === 'Profile') { handleProfileNext(); return }
     next()
@@ -450,16 +433,6 @@ export default function OnboardingWizard() {
               subtextCls={subtextCls}
             />
           )}
-          {step === 'FilesLocation' && (
-            <FilesLocationStep
-              filesDir={filesDir}
-              setFilesDir={setFilesDir}
-              defaultPath={DEFAULT_FILES_DIR}
-              inputCls={inputCls}
-              subtextCls={subtextCls}
-              onNext={handleFilesLocationNext}
-            />
-          )}
           {step === 'Profile' && (
             <div data-testid="step-profile">
               <h2 className="text-2xl font-bold mb-2">Tell {osName || 'your OS'} about you</h2>
@@ -551,13 +524,6 @@ export default function OnboardingWizard() {
                 </div>
               </div>
             </div>
-          )}
-          {step === 'Customize' && (
-            <CustomizeStep
-              selectedPersonaId={selectedPersonaId}
-              subtextCls={subtextCls}
-              cardCls={cardCls}
-            />
           )}
           {step === 'Theme' && (
             <ThemeStep darkMode={pickedDark} onChoose={handleDarkModeChoice} subtextCls={subtextCls} />
@@ -667,7 +633,7 @@ export default function OnboardingWizard() {
               </button>
             ) : (
               <button
-                onClick={step === 'FilesLocation' ? handleFilesLocationNext : step === 'Profile' ? handleProfileNext : next}
+                onClick={step === 'Profile' ? handleProfileNext : next}
                 className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-semibold text-white transition-colors"
                 data-testid="next-button"
               >
@@ -772,7 +738,7 @@ const PERSONA_TO_INTENT: Record<string, string> = {
   designer: 'designer',
 }
 
-function CustomizeStep({
+export function CustomizeStep({
   selectedPersonaId,
   subtextCls,
   cardCls,
@@ -979,49 +945,6 @@ function NameStep({
 }
 
 
-function FilesLocationStep({
-  filesDir,
-  setFilesDir,
-  defaultPath,
-  inputCls,
-  subtextCls,
-  onNext,
-}: {
-  filesDir: string
-  setFilesDir: (v: string) => void
-  defaultPath: string
-  inputCls: string
-  subtextCls: string
-  onNext: () => void
-}) {
-  return (
-    <div data-testid="step-files-location">
-      <h2 className="text-2xl font-bold mb-2">Where should your files go?</h2>
-      <p className={`mb-4 ${subtextCls}`}>
-        This is the folder on your computer where yourOS saves your files, like briefs and roadmaps.
-      </p>
-      <div className="mb-3">
-        <input
-          type="text"
-          value={filesDir}
-          onChange={(e) => setFilesDir(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') onNext() }}
-          placeholder={defaultPath}
-          data-testid="files-dir-input"
-          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
-        />
-      </div>
-      <button
-        onClick={() => setFilesDir(defaultPath)}
-        data-testid="files-location-use-default"
-        className={`text-xs ${subtextCls} hover:opacity-80 underline`}
-      >
-        Use default ({defaultPath})
-      </button>
-    </div>
-  )
-}
-
 function ThemeStep({
   darkMode,
   onChoose,
@@ -1139,8 +1062,8 @@ function TrackingStep({
     },
     {
       id: 'repo' as const,
-      label: "I always want tracking when I'm in my work repo.",
-      subtitle: 'Only conversations inside your work project show up in yourOS. Other projects stay untouched.',
+      label: 'Track one specific project.',
+      subtitle: 'Only conversations inside the project you choose show up in yourOS. Other projects stay untouched.',
     },
     {
       id: 'myos-only' as const,
@@ -1174,7 +1097,7 @@ function TrackingStep({
       </div>
       {selectedOption === 'repo' && (
         <div className="mt-4" data-testid="tracking-folder-picker">
-          <p className={`text-xs mb-2 ${subtextCls}`}>Paste the full path to your work project folder:</p>
+          <p className={`text-xs mb-2 ${subtextCls}`}>Paste the full path to your project folder:</p>
           <input
             type="text"
             data-testid="tracking-folder-input"

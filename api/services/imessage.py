@@ -761,6 +761,19 @@ async def search_messages(query: str, limit: int = 50) -> list[dict]:
     )
 
 
+def _escape_applescript_text(text: str) -> str:
+    """Escape text for embedding inside an AppleScript double-quoted string.
+
+    Order matters: backslash and quote escaping must happen before the newline
+    substitution so the injected '& return &' delimiters are never double-escaped.
+    """
+    safe = text.replace("\\", "\\\\").replace('"', '\\"')
+    # Newlines cannot appear inside an AppleScript string literal; replace with
+    # AppleScript's built-in return constant, concatenated around the string.
+    safe = safe.replace("\n", '" & return & "')
+    return safe
+
+
 def send_message_sync(recipient: str, text: str) -> dict:
     """Send an iMessage via AppleScript.
 
@@ -774,8 +787,8 @@ def send_message_sync(recipient: str, text: str) -> dict:
         raise ValueError("Both recipient and message text are required.")
 
     # Sanitize inputs for AppleScript
-    safe_text = text.replace("\\", "\\\\").replace('"', '\\"')
-    safe_recipient = recipient.replace("\\", "\\\\").replace('"', '\\"')
+    safe_text = _escape_applescript_text(text)
+    safe_recipient = _escape_applescript_text(recipient)
 
     # send_message is for NEW messages to a phone number or email only.
     # Replies to existing conversations go through reply_to_chat_sync.
@@ -870,8 +883,8 @@ def reply_to_chat_sync(chat_id: int, text: str) -> dict:
     if not identifier:
         raise ValueError("Conversation has no identifier.")
 
-    safe_text = text.replace("\\", "\\\\").replace('"', '\\"')
-    safe_identifier = identifier.replace("\\", "\\\\").replace('"', '\\"')
+    safe_text = _escape_applescript_text(text)
+    safe_identifier = _escape_applescript_text(identifier)
 
     if _is_direct_identifier(identifier):
         service_type = "SMS" if "sms" in service_name else "iMessage"

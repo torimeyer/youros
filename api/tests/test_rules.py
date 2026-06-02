@@ -94,6 +94,21 @@ async def test_get_rules_each_row_has_required_fields(http):
         assert "_meta" not in row["params"]
 
 
+def test_default_rules_drops_dead_task_state_hygiene():
+    """task_state_hygiene shipped with no hook implementation and was off by
+    default; it duplicated the task-quality concern of task_hygiene and the
+    state-accuracy guidance that already lives in memory. It is removed as a
+    dedup (17 -> 16 rules). task_hygiene, which has a real implementation,
+    remains.
+    """
+    from routers.rules import DEFAULT_RULES_PATH
+
+    data = json.loads(DEFAULT_RULES_PATH.read_text())
+    rules = data["rules"]
+    assert "task_state_hygiene" not in rules
+    assert "task_hygiene" in rules
+
+
 @pytest.mark.asyncio
 async def test_get_rules_marks_default_source_when_no_user_file(http, isolated_paths):
     assert not isolated_paths["user"].exists()

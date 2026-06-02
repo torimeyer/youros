@@ -13,6 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from config import FRONTEND_URL_DEFAULT
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -228,7 +230,7 @@ async def test_drive_auth_callback_error_param(client):
     )
     assert resp.status_code == 302
     assert "access_denied" in resp.headers["location"]
-    assert resp.headers["location"].startswith("https://localhost:3010/")
+    assert resp.headers["location"].startswith(f"{FRONTEND_URL_DEFAULT}/")
 
 
 @pytest.mark.asyncio
@@ -240,7 +242,7 @@ async def test_drive_auth_callback_invalid_state(client):
     )
     assert resp.status_code == 302
     assert "invalid_state" in resp.headers["location"]
-    assert resp.headers["location"].startswith("https://localhost:3010/")
+    assert resp.headers["location"].startswith(f"{FRONTEND_URL_DEFAULT}/")
 
 
 @pytest.mark.asyncio
@@ -736,6 +738,118 @@ async def test_drive_preview_non_exportable_returns_json(client, tmp_path):
 # ---------------------------------------------------------------------------
 # Sync
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_drive_preview_native_pdf_cold_cache_streams_response(client, tmp_path):
+    """Cold-cache preview of a native application/pdf file uses _stream_download_file,
+    returns the correct bytes with application/pdf content-type, and caches to disk.
+
+    This is the regression test for the "PDFs load forever" bug: the old code called
+    _download_file which buffered the entire file before sending a single byte.
+    The fix replaces it with _stream_download_file + StreamingResponse so the browser
+    starts receiving data immediately.
+
+    Fails on the un-patched code (AttributeError: routers.drive._stream_download_file
+    does not exist) and passes after the fix.
+    """
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    cache_dir = tmp_path / "drive_cache"
+    cache_dir.mkdir()
+
+    fake_pdf = b"%PDF-1.4 native-pdf-content"
+    fake_meta = {
+        "id": "pdf-cold-id",
+        "name": "report.pdf",
+        "mimeType": "application/pdf",
+        "webViewLink": "https://drive.google.com/file/d/pdf-cold-id/view",
+        "size": str(len(fake_pdf)),
+    }
+
+    async def _fake_stream(file_id: str):
+        yield fake_pdf
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive.DRIVE_CACHE_DIR", cache_dir),
+        patch(
+            "routers.drive._fetch_meta_and_pdf_if_exportable",
+            new=AsyncMock(return_value=(fake_meta, None)),
+        ),
+        patch("routers.drive._stream_download_file", _fake_stream),
+    ):
+        resp = await client.get("/api/drive/files/pdf-cold-id/preview")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/pdf")
+    assert resp.content == fake_pdf
+    # Verify the bytes were cached to disk for subsequent warm-cache loads.
+    cached = (cache_dir / "pdf-cold-id.pdf").read_bytes()
+    assert cached == fake_pdf
+
+
+@pytest.mark.asyncio
+async def test_drive_preview_upload_uses_native_pdf_mimetype(client, tmp_path):
+    """Uploading a PDF file must store it as application/pdf in Drive,
+    not as a Google Doc type. Wrong mimeType causes Drive to slow-render or
+    reject the file as unpreviewable.
+
+    Verifies the Drive create call receives the correct mimeType from the
+    upload request's Content-Type header.
+    """
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    cache_dir = tmp_path / "drive_cache"
+    cache_dir.mkdir()
+
+    fake_file_result = {
+        "id": "new-pdf-id",
+        "name": "deck.pdf",
+        "webViewLink": "https://drive.google.com/file/d/new-pdf-id/view",
+    }
+
+    captured: dict = {}
+
+    def _fake_create(body, media_body, fields):
+        captured["mimetype"] = media_body.mimetype()
+        captured["body_mimetype"] = body.get("mimeType")
+
+        class _Exec:
+            def execute(self):
+                return fake_file_result
+
+        return _Exec()
+
+    mock_service = MagicMock()
+    mock_service.files().create.side_effect = _fake_create
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.CREDENTIALS_PATH", tmp_path / "creds.json"),
+        patch("routers.drive.DRIVE_CACHE_DIR", cache_dir),
+        patch("routers.drive._get_cached_drive_service", return_value=mock_service),
+        patch(
+            "routers.drive._get_or_create_myos_folder",
+            new=AsyncMock(return_value="folder-id"),
+        ),
+        patch("routers.drive._sync_file_list", new=AsyncMock()),
+        patch("routers.drive.has_write_scope", return_value=True),
+    ):
+        resp = await client.post(
+            "/api/drive/files/upload",
+            files={"file": ("deck.pdf", b"%PDF-1.4 fake", "application/pdf")},
+        )
+
+    assert resp.status_code == 200
+    # The media upload must use application/pdf, NOT a Google Apps conversion type.
+    assert captured["mimetype"] == "application/pdf"
+    assert captured["body_mimetype"] is None, (
+        "body must NOT include a mimeType field — that would trigger "
+        "Drive conversion and corrupt the PDF"
+    )
 
 
 @pytest.mark.asyncio

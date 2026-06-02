@@ -1,8 +1,12 @@
 """Regression tests for the worktree cwd-leak guard (→1311).
 
 Two leak paths are tested:
-  1. mcp__ostk__bash with a git write op and no cwd= in a worktree agent → blocked.
-  2. mcp__ostk__fs_ops with an absolute path under the parent repo root   → blocked.
+  1. mcp__ostk__bash with a git write op and no cwd= in a worktree agent → advised.
+  2. mcp__ostk__fs_ops with an absolute path under the parent repo root   → advised.
+
+The guard is ADVISORY (exit 0 + a cwd/worktree hint on stderr), not a hard
+block, since the deny→advise reclassification. The tests assert the guard
+fires (the hint reaches stderr) and that it no longer blocks (exit 0).
 
 The guard lives in .claude/hooks/lib/rules/worktree_cwd_guard.sh and is
 wired into pre-tool-guard.sh. These tests invoke the hook script directly
@@ -58,37 +62,40 @@ def _run_hook(tool_name: str, tool_input: dict, *, in_worktree: bool = True) -> 
 class TestWorktreeBashGuard:
     """mcp__ostk__bash: git write ops must include cwd= pointing to worktree."""
 
-    def test_git_commit_without_cwd_is_blocked(self):
+    def test_git_commit_without_cwd_is_advised(self):
         result = _run_hook(
             "mcp__ostk__bash",
             {"cmd": "git commit -m 'feat: something'"},
         )
-        assert result.returncode == 2, (
-            f"Expected block (exit 2), got {result.returncode}. "
+        # Advisory now (was exit-2 block): guard informs via stderr, exits 0.
+        assert result.returncode == 0, (
+            f"Expected advise (exit 0), got {result.returncode}. "
             f"stderr: {result.stderr[:300]}"
         )
         assert "cwd=" in result.stderr or "worktree" in result.stderr.lower()
 
-    def test_git_add_without_cwd_is_blocked(self):
+    def test_git_add_without_cwd_is_advised(self):
         result = _run_hook(
             "mcp__ostk__bash",
             {"cmd": "git add api/routers/foo.py"},
         )
-        assert result.returncode == 2
+        assert result.returncode == 0
+        assert "cwd=" in result.stderr or "worktree" in result.stderr.lower()
 
-    def test_git_push_without_cwd_is_blocked(self):
+    def test_git_push_without_cwd_is_advised(self):
         result = _run_hook(
             "mcp__ostk__bash",
             {"cmd": "git push origin my-branch"},
         )
-        assert result.returncode == 2
+        assert result.returncode == 0
+        assert "cwd=" in result.stderr or "worktree" in result.stderr.lower()
 
-    def test_git_commit_with_parent_repo_cwd_is_blocked(self):
+    def test_git_commit_with_parent_repo_cwd_is_advised(self):
         result = _run_hook(
             "mcp__ostk__bash",
             {"cmd": "git commit -m 'fix: landed on main'", "cwd": FAKE_PARENT},
         )
-        assert result.returncode == 2
+        assert result.returncode == 0
         assert "parent" in result.stderr.lower() or "worktree" in result.stderr.lower()
 
     def test_git_commit_with_correct_worktree_cwd_is_allowed(self):
@@ -129,13 +136,14 @@ class TestWorktreeBashGuard:
 class TestWorktreeFsOpsGuard:
     """mcp__ostk__fs_ops: absolute paths must be under the worktree, not main repo."""
 
-    def test_parent_repo_path_is_blocked(self):
+    def test_parent_repo_path_is_advised(self):
         result = _run_hook(
             "mcp__ostk__fs_ops",
             {"path": f"{FAKE_PARENT}/api/routers/imessage.py", "new_str": "# stub"},
         )
-        assert result.returncode == 2, (
-            f"Expected block (exit 2), got {result.returncode}. "
+        # Advisory now (was exit-2 block): guard informs via stderr, exits 0.
+        assert result.returncode == 0, (
+            f"Expected advise (exit 0), got {result.returncode}. "
             f"stderr: {result.stderr[:300]}"
         )
         assert FAKE_WORKTREE in result.stderr or "worktree" in result.stderr.lower()

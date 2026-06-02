@@ -138,7 +138,7 @@ fi
 # --- Clone URL ---
 # Must use SSH for private repo access
 
-if grep -q 'git clone git@github.com:' "$DIR/install.sh"; then
+if grep -q 'git@github.com:' "$DIR/install.sh"; then
     assert "install.sh uses SSH clone URL" 0
 else
     assert "install.sh uses SSH clone URL" 1
@@ -481,11 +481,14 @@ fi
 
 # --- myOS repo accessible ---
 
-GH_STATUS=$(gh repo view torimeyer/youros --json name --jq '.name' 2>/dev/null || echo "")
-if [ "$GH_STATUS" = "youros" ]; then
-    assert "torimeyer/youros repo is accessible" 0
+# Override with MYOS_REPO=<org/name> to point at your own fork or mirror.
+MYOS_REPO="${MYOS_REPO:-torimeyer/youros}"
+MYOS_REPO_NAME="${MYOS_REPO##*/}"
+GH_STATUS=$(gh repo view "$MYOS_REPO" --json name --jq '.name' 2>/dev/null || echo "")
+if [ "$GH_STATUS" = "$MYOS_REPO_NAME" ]; then
+    assert "$MYOS_REPO repo is accessible" 0
 else
-    assert "torimeyer/youros repo is accessible" 1
+    assert "$MYOS_REPO repo is accessible" 1
 fi
 
 # --- Release conventions check ---

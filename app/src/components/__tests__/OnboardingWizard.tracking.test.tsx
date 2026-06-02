@@ -26,7 +26,7 @@ const localStorageMock = (() => {
 })()
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
-// Navigate to Tracking step (index 7 in PERSONAL_STEPS_NO_FORK)
+// Navigate to Tracking step (index 5 in PERSONAL_STEPS_NO_FORK)
 function clickNext(n: number) {
   for (let i = 0; i < n; i++) {
     fireEvent.click(screen.getByTestId('next-button'))
@@ -34,7 +34,7 @@ function clickNext(n: number) {
 }
 
 function goToTrackingStep() {
-  clickNext(7) // Welcome(0)->You->Name->FilesLocation->Profile->Customize->Theme->Tracking(7)
+  clickNext(5) // Welcome(0)->You->Name->Profile->Theme->Tracking(5)
 }
 
 describe('OnboardingWizard - Tracking step', () => {
@@ -86,8 +86,8 @@ describe('OnboardingWizard - Tracking step', () => {
     render(<OnboardingWizard />)
     goToTrackingStep()
     const opt = screen.getByTestId('tracking-option-repo')
-    expect(opt).toHaveTextContent("I always want tracking when I'm in my work repo.")
-    expect(opt).toHaveTextContent('Only conversations inside your work project show up in yourOS. Other projects stay untouched.')
+    expect(opt).toHaveTextContent('Track one specific project.')
+    expect(opt).toHaveTextContent('Only conversations inside the project you choose show up in yourOS. Other projects stay untouched.')
   })
 
   it('shows exact copy for option 3', () => {

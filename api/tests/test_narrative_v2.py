@@ -10,6 +10,7 @@ RED tests for →1658 added below (draft body must be non-trivial, heading must 
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -329,12 +330,13 @@ async def test_gather_sources_includes_closed_needles(tmp_path):
     from routers.narrative import _gather_sources
     from unittest.mock import AsyncMock
 
+    recent_closed_at = (datetime.now(timezone.utc) - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
     mock_closed_tasks = [
         {
             "id": "1001",
             "title": "Ship calendar default month feature",
             "status": "closed",
-            "closed_at": "2026-05-22T10:00:00Z",
+            "closed_at": recent_closed_at,
             "priority": "P1",
         },
     ]

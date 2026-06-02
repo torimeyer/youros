@@ -6,22 +6,37 @@ from dotenv import load_dotenv
 # Load .env before any router imports so that environment variables (like
 # GOOGLE_CLIENT_ID) are available when modules read them at import time.
 load_dotenv(Path(__file__).resolve().parent / ".env")
+# Also load the repo-root .env. Some OAuth client IDs (SLACK_CLIENT_ID,
+# GITHUB_CLIENT_ID) live there alongside api/.env. load_dotenv does not
+# override already-set keys, so api/.env still wins on the rare overlap.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+# →2042 diagnostics: dump every Python thread's stack on SIGUSR1. sample(1)
+# cannot unwind CPython frames, so an event-loop freeze is invisible at the
+# Python level without this. `kill -USR1 <worker-pid>` prints all stacks to
+# stderr (captured in the dev-backend log). Cheap and safe; the registration
+# itself does nothing until the signal arrives.
+import faulthandler as _faulthandler
+import signal as _signal
+_faulthandler.register(_signal.SIGUSR1, all_threads=True)
 
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from services.staticfiles_ws_guard import StaticFilesWSGuard
+from services.staticfiles_ws_guard import StaticFilesWSGuard, SPAStaticFiles
 from services.request_trace import TraceMiddleware
 from services.loopback_guard import LoopbackGuardMiddleware
 from services.security_headers import SecurityHeadersMiddleware
 from services.slow_call_middleware import SlowCallMiddleware
 
-from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, onboarding_pack, search, threads, secrets, activity, specs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, gmail_triage, meeting_prep, meeting_tasks as meeting_tasks_router, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, project_import, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace, providers, adoption, since_you_last_looked, agent_undo, mcp_catalog, team_catalog, org_settings, team_home, my_setup, gemini as gemini_router, inbox as inbox_router, team as team_router, atlassian, spec_drive, meeting_tasks
+from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, onboarding_pack, search, threads, secrets, activity, specs, adventures, guesswho, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, gmail_triage, meeting_prep, meeting_tasks as meeting_tasks_router, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, project_import, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace, providers, adoption, since_you_last_looked, agent_undo, mcp_catalog, team_catalog, org_settings, team_home, my_setup, gemini as gemini_router, inbox as inbox_router, team as team_router, atlassian, spec_drive, meeting_tasks
+from routers import patterns as patterns_router
 from routers import git as git_router
 from routers import adhd as adhd_router
 from routers import memory as memory_router
+from routers import events as events_router
 from routers import user_memory as user_memory_router
 from routers import ostk as ostk_router
 from routers import agent_uploads as agent_uploads_router
@@ -30,6 +45,7 @@ from routers import gemini_capture as gemini_capture_router
 from routers import internal as internal_router
 from routers import narrative as narrative_router
 from routers import coordination as coordination_router
+from routers import reminders as reminders_router
 from routers import rules as rules_router
 from routers import intel as intel_router
 from routers import usage as usage_router
@@ -42,6 +58,13 @@ from routers import turn_audit as turn_audit_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # →2042: route all logging through a background queue FIRST, before any
+    # other startup work logs anything. Without this, a logger.warning() on the
+    # event loop (e.g. SlowCallMiddleware's per-slow-request warning) writes to
+    # stderr — a pipe under dev-backend.sh — and a full pipe buffer blocks the
+    # write while holding the global logging lock, freezing the whole loop.
+    from services.nonblocking_logging import install_nonblocking_logging
+    install_nonblocking_logging()
     await prune_stale_agent_state()
     await fix_audit_watermark()
     await schedule_upgrade_check()
@@ -75,11 +98,14 @@ async def lifespan(app: FastAPI):
     await schedule_test_artifact_sweep()
     await schedule_test_artifact_spec_sweep()
     await schedule_atlassian_sync()
+    await schedule_inbound_imessage_routing()
     await schedule_merge_debt_watcher()
     await schedule_spec_commit_scanner()
     await install_signal_shutdown_hook()
     from services.ostk import start_clock_refresher
     _keep(await start_clock_refresher())
+    from services.reminders import start_reminder_scheduler
+    _keep(await start_reminder_scheduler())
     yield
     await notify_chat_clients_on_shutdown()
     # →1569: cancel background tasks started via _keep() so async tests using
@@ -89,6 +115,10 @@ async def lifespan(app: FastAPI):
             t.cancel()
     if _STARTUP_TASKS:
         await asyncio.gather(*_STARTUP_TASKS, return_exceptions=True)
+    # →2042: drain and stop the logging queue listener last, so shutdown logs
+    # still flush.
+    from services.nonblocking_logging import shutdown_nonblocking_logging
+    shutdown_nonblocking_logging()
 
 
 app = FastAPI(title="yourOS API", lifespan=lifespan)
@@ -139,6 +169,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LoopbackGuardMiddleware)
 
 app.include_router(tasks.router, prefix="/api")
+app.include_router(events_router.router)
 app.include_router(task_audit.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(adoption.router, prefix="/api")
@@ -170,6 +201,7 @@ app.include_router(specs.router, prefix="/api")
 app.include_router(specs._compat, prefix="/api")
 app.include_router(spec_drive.router, prefix="/api")
 app.include_router(adventures.router, prefix="/api")
+app.include_router(guesswho.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
 app.include_router(agent_uploads_router.router, prefix="/api")
 app.include_router(beautify.router, prefix="/api")
@@ -193,6 +225,7 @@ app.include_router(export.router, prefix="/api")
 app.include_router(task_suggestions_router.router, prefix="/api")
 app.include_router(recurring_tasks_router.router, prefix="/api")
 app.include_router(agent_patterns.router, prefix="/api")
+app.include_router(patterns_router.router, prefix="/api")
 app.include_router(agentfiles.router, prefix="/api")
 app.include_router(indexing.router, prefix="/api")
 app.include_router(knowledge.router, prefix="/api")
@@ -208,6 +241,8 @@ app.include_router(decisions.router, prefix="/api")
 app.include_router(team_dashboard.router, prefix="/api")
 app.include_router(sessions.router, prefix="/api")
 app.include_router(imessage.router, prefix="/api")
+from routers import channel_routing as channel_routing_router  # Wave 6 (→1872)
+app.include_router(channel_routing_router.router, prefix="/api")
 app.include_router(contacts_router.router, prefix="/api")
 app.include_router(skills_router.router, prefix="/api")
 app.include_router(time_router.router, prefix="/api")
@@ -232,6 +267,7 @@ app.include_router(ostk_router.router, prefix="/api")
 app.include_router(internal_router.router, prefix="/api")
 app.include_router(narrative_router.router, prefix="/api")
 app.include_router(coordination_router.router, prefix="/api")
+app.include_router(reminders_router.router, prefix="/api")
 
 
 async def prune_stale_agent_state():
@@ -1020,6 +1056,31 @@ async def schedule_atlassian_sync():
     _keep(asyncio.create_task(_atlassian_sync.start_loop()))
 
 
+async def schedule_inbound_imessage_routing():
+    """Start the inbound iMessage routing poller only if the user opted in.
+
+    Unlike the Atlassian poller (which self-gates each tick), acting on
+    inbound texts is side-effectful -- a text like "spawn diagnose for task
+    1654" actually starts an agent -- so we require an explicit opt-in via
+    the ``inbound_imessage_routing_enabled`` setting (off by default). The
+    poller baselines on its first pass, so enabling it never replays the
+    backlog as a burst of spawns.
+    """
+    from services.settings_store import settings_store
+
+    if not settings_store.get("inbound_imessage_routing_enabled", False):
+        return
+
+    from routers.channel_routing import build_default_router
+    from services.channel_intent_parser import InboundPoller
+
+    router = build_default_router()
+    poller = InboundPoller(handler=router.handle_inbound_message)
+    poller.start()
+    # Keep a reference so the poller (and its background task) is not GC'd.
+    app.state.inbound_imessage_poller = poller
+
+
 async def install_signal_shutdown_hook():
     """Install a SIGTERM/SIGINT handler that notifies chat WebSockets.
 
@@ -1112,4 +1173,4 @@ async def health():
 # the whole app run from a single server process.
 _dist = Path(__file__).resolve().parent.parent / "app" / "dist"
 if _dist.is_dir():
-    app.mount("/", StaticFilesWSGuard(StaticFiles(directory=str(_dist), html=True)), name="frontend")
+    app.mount("/", StaticFilesWSGuard(SPAStaticFiles(directory=str(_dist), html=True)), name="frontend")

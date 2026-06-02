@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { shallowEqualArray } from './storeEquality'
 
 export interface WorkflowStepSnapshot {
   id: string
@@ -29,5 +30,8 @@ interface WorkflowsState {
 
 export const useWorkflowsStore = create<WorkflowsState>((set) => ({
   workflows: [],
-  setWorkflows: (workflows) => set({ workflows }),
+  setWorkflows: (workflows) =>
+    set((prev) =>
+      shallowEqualArray(prev.workflows, workflows) ? prev : { workflows },
+    ),
 }))

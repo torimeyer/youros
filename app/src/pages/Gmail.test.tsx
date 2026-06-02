@@ -272,7 +272,8 @@ describe('Gmail page inbox rendering', () => {
     expect(screen.getByText('Read subject 1')).toBeInTheDocument()
 
     // The badge should reflect the unread count (2), not the total (3).
-    const header = screen.getByRole('heading', { name: 'Gmail' }).parentElement
+    const headings = screen.getAllByRole('heading', { name: 'Gmail' })
+    const header = (headings.find(h => h.getAttribute('data-testid') !== 'topbar-title') ?? headings[0]).parentElement
     expect(header).not.toBeNull()
     // The badge is a sibling span with the unread count.
     expect(header!.textContent).toContain('2')

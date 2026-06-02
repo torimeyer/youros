@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -471,151 +472,171 @@ async def list_specs(clear_to_build: Optional[bool] = None):
     ~/.myos/specs/archive/ and excluded from the list.
     """
     try:
+        # →2018 (live freeze): list_specs used to run ALL of its per-doc
+        # enrichment — compute_spec_status re-apply, _read_umbrella_fields,
+        # the auto-archive scan (compute_shipped), scratch-note cleanup, and
+        # compute_spec_readiness — synchronously on the event loop. Each of
+        # those does read_text/exists/glob per file. Under the dashboard's
+        # repeated /api/specs polling that synchronous work blocked the single
+        # event loop for the full scan duration on every request, so other
+        # requests and WebSocket publish ticks piled up behind it and the
+        # server wedged (HTTP 000) until restart. Fix: resolve the two async
+        # dependencies (list_docs, list_tasks) first, then run the entire
+        # synchronous enrichment body in a worker thread so the loop stays
+        # responsive. list_docs itself now offloads its own file scan too.
         docs = await ostk.list_docs()
         docs = [d for d in docs if d.get("status") != "plan"]
-        # Exclude subagent scratch notes (→1749): files in docs/draft/ that are
-        # diagnosis/debug notes, not real specs with Problem/Goals/ACs.
-        # Collect filtered-out scratch notes for lifecycle cleanup below.
-        _scratch_notes: list[dict] = []
-        _filtered_docs: list[dict] = []
-        for _d in docs:
-            if _is_scratch_note(_d.get("path", ""), _d.get("title", ""), _d):
-                _scratch_notes.append(_d)
-            else:
-                _filtered_docs.append(_d)
-        docs = _filtered_docs
-        # Also exclude test-artifact specs (→1751) and agent-written audit/report
-        # docs. Tori's rule: specs are only created when she asks; agent reports
-        # (cut audits, regression checks, root-cause writeups, date-stamped triage
-        # files) must not appear here.
-        docs = [
-            d for d in docs
-            if not _is_test_artifact_spec(d.get("path", ""), d.get("title", ""))
-        ]
 
-        # Re-apply compute_spec_status with active claims from _spec_claims.
-        # list_docs() calls compute_spec_status without claims so its returned
-        # status ignores terminal-agent activity.  We correct that here by
-        # re-running it for any doc that has registered claims.
-        for _d in docs:
-            _path = _d.get("path", "")
-            if not _path:
-                continue
-            _claims = _spec_claims.get(_path, [])
-            if not _claims:
-                continue
-            _raw_ids = _d.get("task_ids", [])
-            _norm_ids = [ostk._normalize_task_id(t) for t in _raw_ids]
-            _summary = _d.get("task_summary", {})
-            _n_open = _summary.get("open", len(_norm_ids))
-            _task_map = (
-                {tid: "closed" for tid in _norm_ids}
-                if _norm_ids and _n_open == 0
-                else {}
-            )
-            _d["status"] = ostk.compute_spec_status(
-                _d["status"], _norm_ids, _task_map, claims=_claims
-            )
-
-        # Umbrella / leaf hierarchy enrichment
-        for d in docs:
-            d.update(_read_umbrella_fields(d.get("path", "")))
-
-        # Silent auto-archive: move specs that are fully done off the board.
+        # Resolve task statuses up front (the only other await in the body) so
+        # the heavy synchronous enrichment below can run entirely off-loop.
+        needle_statuses: dict[str, str] = {}
         try:
-            from services.ostk import USER_SPECS_DIR as _USER_SPECS_DIR
-            from services.spec_audit import _REPO_ROOT as _SPEC_REPO_ROOT
-            needle_statuses: dict[str, str] = {}
-            try:
-                raw_tasks = await ostk.list_tasks()
-                for t in raw_tasks:
-                    nid = str(t.get("id", ""))
-                    if nid:
-                        needle_statuses[nid] = t.get("status", "open")
-            except Exception:
-                pass
-            archive_dir = _USER_SPECS_DIR / "archive"
-            surviving: list[dict] = []
-            for d in docs:
-                raw_path = d.get("path", "")
-                if not raw_path:
-                    surviving.append(d)
-                    continue
-                abs_path = (
-                    Path(raw_path) if raw_path.startswith("/") or raw_path.startswith("~")
-                    else _USER_SPECS_DIR / raw_path
-                )
-                shipped = compute_shipped(abs_path, _SPEC_REPO_ROOT, needle_statuses)
-                if shipped.is_shipped and abs_path.exists():
-                    # Move to archive
-                    archive_dir.mkdir(parents=True, exist_ok=True)
-                    import datetime as _dt
-                    ts = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
-                    slug = abs_path.stem
-                    dest = archive_dir / f"{ts}-{slug}.md"
-                    try:
-                        abs_path.rename(dest)
-                        trace_event("spec_auto_archive", slug=slug, path=str(dest))
-                        logger.info("auto-archived spec %s → %s", slug, dest)
-                    except Exception as mv_err:
-                        logger.warning("auto-archive failed for %s: %s", raw_path, mv_err)
-                        surviving.append(d)
-                else:
-                    surviving.append(d)
-            docs = surviving
-
-            # Lifecycle cleanup (→1749-b): delete scratch notes whose originating
-            # needle is now closed. They linger in docs/draft/ after needle close
-            # because nothing else removes them.
-            for _sn in _scratch_notes:
-                _sn_path = _sn.get("path", "")
-                if not _sn_path.startswith("docs/draft/"):
-                    continue
-                _needle_match = _SCRATCH_NOTE_NEEDLE_PREFIX.search(_sn_path)
-                if not _needle_match:
-                    continue
-                # Extract the numeric needle ID from the capturing group.
-                _nid = _needle_match.group(1)
-                _needle_status = needle_statuses.get(_nid, "open")
-                if _needle_status in ("open",):
-                    continue
-                _abs_sn = Path(PROJECT_ROOT) / _sn_path
-                try:
-                    if _abs_sn.exists():
-                        _abs_sn.unlink()
-                        trace_event("scratch_note_auto_cleanup", path=_sn_path, needle_id=_nid)
-                        logger.info("auto-cleaned scratch note %s (needle →%s closed)", _sn_path, _nid)
-                except OSError as _sn_err:
-                    logger.warning("scratch note cleanup failed for %s: %s", _sn_path, _sn_err)
-        except Exception as arch_err:
-            logger.warning("auto-archive scan failed: %s", arch_err)
-
-        # Gemini-ready enrichment
-        try:
-            from services.gemini_ready import compute_spec_readiness
-            from config import PROJECT_ROOT
-            from pathlib import Path as _Path
-            for d in docs:
-                raw_path = d.get("path", "")
-                abs_path = (
-                    raw_path if raw_path.startswith("/") or raw_path.startswith("~")
-                    else str(_Path(PROJECT_ROOT) / raw_path)
-                )
-                r = compute_spec_readiness(abs_path)
-                d["clear_to_build"] = r.ready
-                d["clear_to_build_checks"] = r.as_dict()["checks"]
-                # Readiness is a pre-build signal ("is this ready to build?").
-                # A spec that is already complete/done must never be flagged
-                # "needs clarity" — the build decision is moot once it shipped.
-                _status = d.get("status")
-                if not r.ready and _status not in ("complete", "done", "archived"):
-                    # Surface needs_clarity as information; never downgrade the
-                    # spec's status. Readiness informs, it does not block.
-                    d["needs_clarity"] = True
+            raw_tasks = await ostk.list_tasks()
+            for t in raw_tasks:
+                nid = str(t.get("id", ""))
+                if nid:
+                    needle_statuses[nid] = t.get("status", "open")
         except Exception:
+            pass
+
+        def _enrich_specs_sync(docs: list, needle_statuses: dict) -> list:
+            # Exclude subagent scratch notes (→1749): files in docs/draft/ that are
+            # diagnosis/debug notes, not real specs with Problem/Goals/ACs.
+            # Collect filtered-out scratch notes for lifecycle cleanup below.
+            _scratch_notes: list[dict] = []
+            _filtered_docs: list[dict] = []
+            for _d in docs:
+                if _is_scratch_note(_d.get("path", ""), _d.get("title", ""), _d):
+                    _scratch_notes.append(_d)
+                else:
+                    _filtered_docs.append(_d)
+            docs = _filtered_docs
+            # Also exclude test-artifact specs (→1751) and agent-written audit/report
+            # docs. Tori's rule: specs are only created when she asks; agent reports
+            # (cut audits, regression checks, root-cause writeups, date-stamped triage
+            # files) must not appear here.
+            docs = [
+                d for d in docs
+                if not _is_test_artifact_spec(d.get("path", ""), d.get("title", ""))
+            ]
+
+            # Re-apply compute_spec_status with active claims from _spec_claims.
+            # list_docs() calls compute_spec_status without claims so its returned
+            # status ignores terminal-agent activity.  We correct that here by
+            # re-running it for any doc that has registered claims.
+            for _d in docs:
+                _path = _d.get("path", "")
+                if not _path:
+                    continue
+                _claims = _spec_claims.get(_path, [])
+                if not _claims:
+                    continue
+                _raw_ids = _d.get("task_ids", [])
+                _norm_ids = [ostk._normalize_task_id(t) for t in _raw_ids]
+                _summary = _d.get("task_summary", {})
+                _n_open = _summary.get("open", len(_norm_ids))
+                _task_map = (
+                    {tid: "closed" for tid in _norm_ids}
+                    if _norm_ids and _n_open == 0
+                    else {}
+                )
+                _d["status"] = ostk.compute_spec_status(
+                    _d["status"], _norm_ids, _task_map, claims=_claims
+                )
+
+            # Umbrella / leaf hierarchy enrichment
             for d in docs:
-                d.setdefault("clear_to_build", False)
-                d.setdefault("clear_to_build_checks", [])
+                d.update(_read_umbrella_fields(d.get("path", "")))
+
+            # Silent auto-archive: move specs that are fully done off the board.
+            try:
+                from services.ostk import USER_SPECS_DIR as _USER_SPECS_DIR
+                from services.spec_audit import _REPO_ROOT as _SPEC_REPO_ROOT
+                archive_dir = _USER_SPECS_DIR / "archive"
+                surviving: list[dict] = []
+                for d in docs:
+                    raw_path = d.get("path", "")
+                    if not raw_path:
+                        surviving.append(d)
+                        continue
+                    abs_path = (
+                        Path(raw_path) if raw_path.startswith("/") or raw_path.startswith("~")
+                        else _USER_SPECS_DIR / raw_path
+                    )
+                    shipped = compute_shipped(abs_path, _SPEC_REPO_ROOT, needle_statuses)
+                    if shipped.is_shipped and abs_path.exists():
+                        # Move to archive
+                        archive_dir.mkdir(parents=True, exist_ok=True)
+                        import datetime as _dt
+                        ts = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
+                        slug = abs_path.stem
+                        dest = archive_dir / f"{ts}-{slug}.md"
+                        try:
+                            abs_path.rename(dest)
+                            trace_event("spec_auto_archive", slug=slug, path=str(dest))
+                            logger.info("auto-archived spec %s → %s", slug, dest)
+                        except Exception as mv_err:
+                            logger.warning("auto-archive failed for %s: %s", raw_path, mv_err)
+                            surviving.append(d)
+                    else:
+                        surviving.append(d)
+                docs = surviving
+
+                # Lifecycle cleanup (→1749-b): delete scratch notes whose originating
+                # needle is now closed. They linger in docs/draft/ after needle close
+                # because nothing else removes them.
+                for _sn in _scratch_notes:
+                    _sn_path = _sn.get("path", "")
+                    if not _sn_path.startswith("docs/draft/"):
+                        continue
+                    _needle_match = _SCRATCH_NOTE_NEEDLE_PREFIX.search(_sn_path)
+                    if not _needle_match:
+                        continue
+                    # Extract the numeric needle ID from the capturing group.
+                    _nid = _needle_match.group(1)
+                    _needle_status = needle_statuses.get(_nid, "open")
+                    if _needle_status in ("open",):
+                        continue
+                    _abs_sn = Path(PROJECT_ROOT) / _sn_path
+                    try:
+                        if _abs_sn.exists():
+                            _abs_sn.unlink()
+                            trace_event("scratch_note_auto_cleanup", path=_sn_path, needle_id=_nid)
+                            logger.info("auto-cleaned scratch note %s (needle →%s closed)", _sn_path, _nid)
+                    except OSError as _sn_err:
+                        logger.warning("scratch note cleanup failed for %s: %s", _sn_path, _sn_err)
+            except Exception as arch_err:
+                logger.warning("auto-archive scan failed: %s", arch_err)
+
+            # Gemini-ready enrichment
+            try:
+                from services.gemini_ready import compute_spec_readiness
+                from config import PROJECT_ROOT
+                from pathlib import Path as _Path
+                for d in docs:
+                    raw_path = d.get("path", "")
+                    abs_path = (
+                        raw_path if raw_path.startswith("/") or raw_path.startswith("~")
+                        else str(_Path(PROJECT_ROOT) / raw_path)
+                    )
+                    r = compute_spec_readiness(abs_path)
+                    d["clear_to_build"] = r.ready
+                    d["clear_to_build_checks"] = r.as_dict()["checks"]
+                    # Readiness is a pre-build signal ("is this ready to build?").
+                    # A spec that is already complete/done must never be flagged
+                    # "needs clarity" — the build decision is moot once it shipped.
+                    _status = d.get("status")
+                    if not r.ready and _status not in ("complete", "done", "archived"):
+                        # Surface needs_clarity as information; never downgrade the
+                        # spec's status. Readiness informs, it does not block.
+                        d["needs_clarity"] = True
+            except Exception:
+                for d in docs:
+                    d.setdefault("clear_to_build", False)
+                    d.setdefault("clear_to_build_checks", [])
+            return docs
+
+        docs = await asyncio.to_thread(_enrich_specs_sync, docs, needle_statuses)
         if clear_to_build is not None:
             docs = [d for d in docs if d.get("clear_to_build") is clear_to_build]
         return {"docs": docs}

@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import PatternPanel from "../components/PatternPanel";
 import Icon from "../components/Icon";
-import TopBar from "../components/TopBar";
+import PageShell from "../components/PageShell";
 import { api } from "../lib/api";
+import { useWebSocket } from "../hooks/useWebSocket";
 import { reportError } from '../lib/reportError';
 import { LoadingState, EmptyState } from "../components/ui";
 import {
@@ -25,7 +27,7 @@ interface ActivityResponse {
   count: number;
 }
 
-type Tab = "events" | "transcripts";
+type Tab = "events" | "transcripts" | "learned";
 
 function formatTime(iso: string): string {
   try {
@@ -308,6 +310,17 @@ export default function Activity() {
     return () => clearInterval(id);
   }, [tab, fetchActivity]);
 
+  // Re-fetch immediately when the agent WS delivers a terminal event so
+  // new agent.completed / agent.failed rows appear in under 2 seconds.
+  const { lastMessage } = useWebSocket("/api/ws/agents/state", true);
+  useEffect(() => {
+    if (!lastMessage) return;
+    const frame = lastMessage as any;
+    if (frame.type === "delta" && frame.changed?.terminal === true) {
+      fetchActivity(true);
+    }
+  }, [lastMessage, fetchActivity]);
+
   const toggleKey = (key: string) => {
     setExpandedKeys((prev) => {
       const next = new Set(prev);
@@ -348,9 +361,7 @@ export default function Activity() {
   const totalVisible = displayGroups.reduce((n, g) => n + g.entries.length, 0);
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white flex flex-col">
-      <TopBar title="Activity" />
-
+    <PageShell title="Activity" fullHeight>
       <div data-tour="activity" className="px-4 pb-4 sm:px-8 sm:pb-8 flex-1 flex flex-col">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
@@ -377,6 +388,17 @@ export default function Activity() {
                 }`}
               >
                 Transcripts
+              </button>
+              <button
+                data-testid="learned-tab"
+                onClick={() => setTab("learned")}
+                className={`px-3 py-2 text-sm font-medium transition-colors border-b-2 ${
+                  tab === "learned"
+                    ? "border-blue-500 text-white"
+                    : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+                }`}
+              >
+                What I learned
               </button>
             </div>
           </div>
@@ -438,7 +460,9 @@ export default function Activity() {
 
 
         {/* Tab content */}
-        {tab === "transcripts" ? (
+        {tab === "learned" ? (
+          <PatternPanel />
+        ) : tab === "transcripts" ? (
           <Suspense fallback={<div className="text-slate-500 text-center py-12">Loading transcripts...</div>}>
             <Transcripts embedded />
           </Suspense>
@@ -473,6 +497,6 @@ export default function Activity() {
           </div>
         )}
       </div>
-    </div>
+    </PageShell>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import Icon from '../components/Icon';
-import TopBar from '../components/TopBar';
+import PageShell from '../components/PageShell';
 import ConfirmModal from '../components/ConfirmModal';
 import GemImportModal from '../components/GemImportModal';
 import GemChatPanel from '../components/GemChatPanel';
@@ -170,10 +170,7 @@ export default function MyGems() {
   };
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-      <TopBar title="My Gems" />
-
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8 max-w-4xl mx-auto">
+    <PageShell title="My Gems">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
@@ -396,7 +393,6 @@ export default function MyGems() {
             </>
           )}
         </div>
-      </div>
 
       {/* Capture conversation drawer */}
       {captureDrawer && (
@@ -499,6 +495,6 @@ export default function MyGems() {
           </button>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }

@@ -128,6 +128,193 @@ class TestReplaceAll:
         assert "After" in store.read()
 
 
+class TestRemoveBullet:
+    def test_single_match_returns_removed_text(self, tmp_memory_path):
+        store.append_bullet("Preferences", "use plain language")
+        result = store.remove_bullet("plain language")
+        assert isinstance(result, str)
+        assert "plain language" in result
+
+    def test_single_match_removes_bullet_from_file(self, tmp_memory_path):
+        store.append_bullet("Preferences", "use plain language")
+        store.remove_bullet("plain language")
+        content = tmp_memory_path.read_text(encoding="utf-8")
+        assert "plain language" not in content
+
+    def test_no_match_returns_none(self, tmp_memory_path):
+        store.append_bullet("Preferences", "use plain language")
+        result = store.remove_bullet("something completely unrelated xyz")
+        assert result is None
+
+    def test_no_file_returns_none(self, tmp_memory_path):
+        assert not tmp_memory_path.exists()
+        result = store.remove_bullet("anything")
+        assert result is None
+
+    def test_ambiguous_match_returns_list(self, tmp_memory_path):
+        store.append_bullet("Preferences", "use plain language always")
+        store.append_bullet("Preferences", "use plain speech always")
+        result = store.remove_bullet("plain")
+        assert isinstance(result, list)
+        assert len(result) >= 2
+
+    def test_single_match_saves_undo_snapshot(self, tmp_memory_path):
+        store.append_bullet("Preferences", "use plain language")
+        store.remove_bullet("plain language")
+        assert store._undo_snapshot is not None
+
+    def test_cache_invalidated_after_remove(self, tmp_memory_path):
+        store.append_bullet("Preferences", "use plain language")
+        store.read()  # warm cache
+        store.remove_bullet("plain language")
+        content = store.read()
+        assert "plain language" not in content
+
+
+class TestRestoreUndo:
+    def test_restore_returns_true_after_remove(self, tmp_memory_path):
+        store.append_bullet("Preferences", "use plain language")
+        store.remove_bullet("plain language")
+        assert store.restore_undo() is True
+
+    def test_restored_bullet_is_back_in_file(self, tmp_memory_path):
+        store.append_bullet("Preferences", "use plain language")
+        store.remove_bullet("plain language")
+        store.restore_undo()
+        content = tmp_memory_path.read_text(encoding="utf-8")
+        assert "plain language" in content
+
+    def test_restore_returns_false_when_no_snapshot(self, tmp_memory_path):
+        store._undo_snapshot = None
+        assert store.restore_undo() is False
+
+    def test_restore_clears_snapshot(self, tmp_memory_path):
+        store.append_bullet("Preferences", "use plain language")
+        store.remove_bullet("plain language")
+        store.restore_undo()
+        assert store._undo_snapshot is None
+
+
+class TestComputeOverflowStatus:
+    def test_no_file_returns_not_overflowed(self, tmp_memory_path):
+        status = store.compute_overflow_status()
+        assert status["overflowed"] is False
+        assert status["kb"] == 0.0
+        assert status["lines"] == 0
+
+    def test_small_file_not_overflowed(self, tmp_memory_path):
+        tmp_memory_path.write_text("# Preferences\n- use plain language\n", encoding="utf-8")
+        store._cached_mtime = -1.0
+        status = store.compute_overflow_status()
+        assert status["overflowed"] is False
+
+    def test_line_count_overflow(self, tmp_memory_path):
+        content = "# Preferences\n" + ("- bullet line here\n" * 155)
+        tmp_memory_path.write_text(content, encoding="utf-8")
+        store._cached_mtime = -1.0
+        status = store.compute_overflow_status()
+        assert status["overflowed"] is True
+        assert status["reason"] == "lines"
+        assert status["lines"] > 150
+
+    def test_kb_overflow(self, tmp_memory_path):
+        content = "# Preferences\n" + ("- " + "x" * 100 + "\n") * 320
+        tmp_memory_path.write_text(content, encoding="utf-8")
+        store._cached_mtime = -1.0
+        status = store.compute_overflow_status()
+        assert status["overflowed"] is True
+        assert status["reason"] == "kb"
+        assert status["kb"] > 30.0
+
+    def test_hard_cap_detected(self, tmp_memory_path, monkeypatch):
+        monkeypatch.setattr(store, "_HARD_CAP_BYTES", 10)
+        tmp_memory_path.write_text("# Preferences\n- use plain language\n", encoding="utf-8")
+        store._cached_mtime = -1.0
+        status = store.compute_overflow_status()
+        assert status["hard_cap"] is True
+
+
+class TestSplitIntoTopic:
+    def test_split_moves_bullet_to_topic_file(self, tmp_memory_path, monkeypatch):
+        topic_dir = tmp_memory_path.parent / "memory"
+        monkeypatch.setattr(store, "_TOPIC_DIR", topic_dir)
+        store.append_bullet("Preferences", "use plain language")
+        result = store.split_into_topic("plain language", "style")
+        assert result is True
+        topic_file = topic_dir / "style.md"
+        assert topic_file.exists()
+        assert "plain language" in topic_file.read_text(encoding="utf-8")
+
+    def test_split_removes_bullet_from_index(self, tmp_memory_path, monkeypatch):
+        topic_dir = tmp_memory_path.parent / "memory"
+        monkeypatch.setattr(store, "_TOPIC_DIR", topic_dir)
+        store.append_bullet("Preferences", "use plain language")
+        store.split_into_topic("plain language", "style")
+        content = tmp_memory_path.read_text(encoding="utf-8")
+        assert "plain language" not in content
+
+    def test_split_adds_topic_link_to_index(self, tmp_memory_path, monkeypatch):
+        topic_dir = tmp_memory_path.parent / "memory"
+        monkeypatch.setattr(store, "_TOPIC_DIR", topic_dir)
+        store.append_bullet("Preferences", "use plain language")
+        store.split_into_topic("plain language", "style")
+        content = tmp_memory_path.read_text(encoding="utf-8")
+        assert "[style](memory/style.md)" in content
+
+    def test_split_no_match_returns_false(self, tmp_memory_path, monkeypatch):
+        topic_dir = tmp_memory_path.parent / "memory"
+        monkeypatch.setattr(store, "_TOPIC_DIR", topic_dir)
+        store.append_bullet("Preferences", "use plain language")
+        result = store.split_into_topic("something not here xyz", "style")
+        assert result is False
+
+    def test_split_saves_undo_snapshot(self, tmp_memory_path, monkeypatch):
+        topic_dir = tmp_memory_path.parent / "memory"
+        monkeypatch.setattr(store, "_TOPIC_DIR", topic_dir)
+        store.append_bullet("Preferences", "use plain language")
+        store.split_into_topic("plain language", "style")
+        assert store._undo_snapshot is not None
+
+
+class TestRenameTopic:
+    def test_rename_renames_file(self, tmp_memory_path, monkeypatch):
+        topic_dir = tmp_memory_path.parent / "memory"
+        monkeypatch.setattr(store, "_TOPIC_DIR", topic_dir)
+        store.append_bullet("Preferences", "use plain language")
+        store.split_into_topic("plain language", "style")
+        result = store.rename_topic("style", "writing-style")
+        assert result is True
+        assert not (topic_dir / "style.md").exists()
+        assert (topic_dir / "writing-style.md").exists()
+
+    def test_rename_updates_index_link(self, tmp_memory_path, monkeypatch):
+        topic_dir = tmp_memory_path.parent / "memory"
+        monkeypatch.setattr(store, "_TOPIC_DIR", topic_dir)
+        store.append_bullet("Preferences", "use plain language")
+        store.split_into_topic("plain language", "style")
+        store.rename_topic("style", "writing-style")
+        content = tmp_memory_path.read_text(encoding="utf-8")
+        assert "[writing-style](memory/writing-style.md)" in content
+        assert "[style](memory/style.md)" not in content
+
+    def test_rename_nonexistent_topic_returns_false(self, tmp_memory_path, monkeypatch):
+        topic_dir = tmp_memory_path.parent / "memory"
+        monkeypatch.setattr(store, "_TOPIC_DIR", topic_dir)
+        result = store.rename_topic("nonexistent", "new-name")
+        assert result is False
+
+
+class TestReadForContext:
+    def test_no_overflow_returns_full_index(self, tmp_memory_path):
+        tmp_memory_path.write_text("# Preferences\n- use plain language\n", encoding="utf-8")
+        store._cached_mtime = -1.0
+        content = store.read_for_context(["plain"])
+        assert "plain language" in content
+
+    def test_empty_file_returns_empty_string(self, tmp_memory_path):
+        assert store.read_for_context([]) == ""
+
+
 class TestWriteFailureWebsocketEvent:
     """On write failure the memory_write_failed event is emitted (chat continues)."""
 

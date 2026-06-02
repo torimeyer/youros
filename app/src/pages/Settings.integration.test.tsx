@@ -153,16 +153,6 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     })
   })
 
-  it('hides Kanban view nav item when Backlog feature is disabled', () => {
-    useAppStore.setState({
-      features: useAppStore.getState().features.map((f) =>
-        f.label === 'Backlog' ? { ...f, enabled: false } : f
-      ),
-    })
-    renderSidebar()
-    expect(screen.queryByText('Kanban view')).not.toBeInTheDocument()
-  })
-
   it('hides Agents nav item when Agents feature is disabled', () => {
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>
@@ -207,29 +197,29 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
 
   it('shows all items when all features are enabled', () => {
     renderSidebar()
-    expect(screen.getByText('Kanban view')).toBeInTheDocument()
+    expect(screen.getByText('Gems')).toBeInTheDocument()
     expect(screen.getByText('Agents')).toBeInTheDocument()
   })
 
   it('re-enabling a feature shows the nav item again', () => {
-    // Start with Backlog disabled
+    // Start with Agents disabled
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>
-        f.label === 'Backlog' ? { ...f, enabled: false } : f
+        f.label === 'Agents' ? { ...f, enabled: false } : f
       ),
     })
     const { unmount } = renderSidebar()
-    expect(screen.queryByText('Kanban view')).not.toBeInTheDocument()
+    expect(screen.queryByText('Agents')).not.toBeInTheDocument()
     unmount()
 
-    // Re-enable Backlog
+    // Re-enable Agents
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>
-        f.label === 'Backlog' ? { ...f, enabled: true } : f
+        f.label === 'Agents' ? { ...f, enabled: true } : f
       ),
     })
     renderSidebar()
-    expect(screen.getByText('Kanban view')).toBeInTheDocument()
+    expect(screen.getByText('Agents')).toBeInTheDocument()
   })
 })
 

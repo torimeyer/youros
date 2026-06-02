@@ -72,7 +72,7 @@ describe('Tasks page', () => {
     window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       return Promise.resolve({})
     })
@@ -219,6 +219,37 @@ describe('Tasks page', () => {
     expect(screen.queryByText('Add dark mode')).not.toBeInTheDocument()
   })
 
+  // →2026 GROUP 2: the live /tasks endpoint excludes closed tasks by default
+  // (active-only on the 3s poll). When the user opens a view that needs closed
+  // rows, the frontend must request them explicitly with ?include_closed=true,
+  // otherwise the Closed tab is always empty in production.
+  it('requests include_closed=true when the Closed filter is selected', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+    // Default mount fetch is the active-only poll (no closed param).
+    expect(mockedApiGet).toHaveBeenCalledWith('/tasks')
+
+    selectOnlyStatus('closed')
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/tasks?include_closed=true')
+    })
+  })
+
+  it('keeps the lean /tasks poll for the default and All views (no closed param)', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+    // Default mount + All view must never request the heavy closed history.
+    expect(mockedApiGet).toHaveBeenCalledWith('/tasks')
+    expect(mockedApiGet).not.toHaveBeenCalledWith('/tasks?include_closed=true')
+  })
+
   it('under All, in-progress (runtime) tasks sort before open tasks', async () => {
     const older = '2024-01-01T00:00:00Z'
     const newer = '2026-01-01T00:00:00Z'
@@ -227,7 +258,7 @@ describe('Tasks page', () => {
       { id: 'open1', title: 'Open task (newer)', priority: 'P1', status: 'open', created_at: newer, goal: null, label_ids: [] },
     ]
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: sortTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: sortTasks })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       if (path === '/agents') return Promise.resolve({ agents: [{ status: 'running', task_id: 'running1' }] })
       return Promise.resolve({})
@@ -249,7 +280,7 @@ describe('Tasks page', () => {
       { id: 't2', title: 'Newer open', priority: 'P1', status: 'open', created_at: '2026-04-01T00:00:00Z', goal: null, label_ids: [] },
     ]
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: sortTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: sortTasks })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
@@ -270,7 +301,7 @@ describe('Tasks page', () => {
       { id: 'c3', title: 'Closed middle', priority: 'P1', status: 'closed', created_at: '2026-01-01T00:00:00Z', closed_at: '2026-03-15T06:00:00Z', goal: null, label_ids: [] },
     ]
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: closedTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: closedTasks })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
@@ -309,7 +340,7 @@ describe('Tasks page', () => {
       { id: 'c3', title: 'Closed middle', priority: 'P1', status: 'closed', created_at: '2026-01-01T00:00:00Z', closed_at: '2026-03-15T06:00:00Z', goal: null, label_ids: [] },
     ]
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: closedTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: closedTasks })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
@@ -351,7 +382,7 @@ describe('Tasks page', () => {
       { id: 't3', title: 'Middle task', priority: 'P1', status: 'open', created_at: '2025-06-15T06:00:00Z', goal: null, label_ids: [] },
     ]
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: dateTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: dateTasks })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
@@ -380,7 +411,7 @@ describe('Tasks page', () => {
       { id: 'tC', title: 'No label task', priority: 'P1', status: 'open', created_at: '2026-04-01T00:00:00Z', goal: null, label_ids: [] },
     ]
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: labelTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: labelTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       return Promise.resolve({})
     })
@@ -414,7 +445,7 @@ describe('Tasks page', () => {
       { id: 'c_new_p3', title: 'Closed new P3', priority: 'P3', status: 'closed', created_at: '2026-04-01T00:00:00Z', goal: null, label_ids: [], closed_at: '2026-04-01T00:00:00Z' },
     ]
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mixedTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mixedTasks })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
@@ -573,7 +604,7 @@ describe('Tasks page', () => {
 
   it('shows "No tasks match this filter" when filter yields no results', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({
         tasks: [
           { id: '1', title: 'Only open', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
         ],
@@ -649,7 +680,7 @@ describe('Tasks page', () => {
   it('shows stale indicator on open tasks older than 7 days', async () => {
     const oldDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({
         tasks: [
           { id: '10', title: 'Old open task', priority: 'P1', status: 'open', created_at: oldDate, goal: null, label_ids: [] },
           { id: '11', title: 'Fresh task', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
@@ -672,7 +703,7 @@ describe('Tasks page', () => {
   it('does not show stale indicator on closed tasks even if old', async () => {
     const oldDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({
         tasks: [
           { id: '10', title: 'Old closed task', priority: 'P1', status: 'closed', created_at: oldDate, goal: null, label_ids: [] },
         ],
@@ -699,7 +730,7 @@ describe('Tasks page', () => {
   it('does not show stale indicator on tasks created less than 7 days ago', async () => {
     const recentDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({
         tasks: [
           { id: '10', title: 'Recent task', priority: 'P1', status: 'open', created_at: recentDate, goal: null, label_ids: [] },
         ],
@@ -730,11 +761,43 @@ describe('Tasks page', () => {
     expect(labelsTab).toBeInTheDocument()
   })
 
+  // --- Kanban tab ---
+
+  it('shows Kanban tab that switches to a kanban view with status columns', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    const kanbanTab = screen.getByRole('button', { name: 'Kanban' })
+    expect(kanbanTab).toBeInTheDocument()
+
+    fireEvent.click(kanbanTab)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('kanban-view')).toBeInTheDocument()
+    })
+
+    // All three status columns present
+    expect(screen.getByTestId('kanban-column-open')).toBeInTheDocument()
+    expect(screen.getByTestId('kanban-column-in_progress')).toBeInTheDocument()
+    expect(screen.getByTestId('kanban-column-closed')).toBeInTheDocument()
+
+    // Open tasks show up in the open column
+    const openCol = screen.getByTestId('kanban-column-open')
+    expect(openCol).toHaveTextContent('Fix login bug')
+
+    // Closed task shows in the closed column (mockTasks has id 4 with status closed)
+    const closedCol = screen.getByTestId('kanban-column-closed')
+    expect(closedCol).toHaveTextContent('Old completed task')
+  })
+
   // --- Task context briefing panel ---
 
   it('clicking a task shows the briefing panel', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.includes('/briefing')) return Promise.resolve({
         briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: 'point=1, 2 members', neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
@@ -760,7 +823,7 @@ describe('Tasks page', () => {
 
   it('briefing panel fetches from /tasks/{id}/briefing on click', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.includes('/briefing')) return Promise.resolve({
         briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: null, neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
@@ -786,7 +849,7 @@ describe('Tasks page', () => {
 
   it('briefing panel shows blockers when present', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.includes('/briefing')) return Promise.resolve({
         briefing: {
@@ -823,7 +886,7 @@ describe('Tasks page', () => {
 
   it('briefing panel shows enriched blocker card with title, priority, and status', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.includes('/briefing')) return Promise.resolve({
         briefing: {
@@ -877,7 +940,7 @@ describe('Tasks page', () => {
 
   it('briefing panel shows multiple blocker cards', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.includes('/briefing')) return Promise.resolve({
         briefing: {
@@ -927,7 +990,7 @@ describe('Tasks page', () => {
 
   it('briefing panel hides Waiting on section when no blockers', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.includes('/briefing')) return Promise.resolve({
         briefing: {
@@ -959,7 +1022,7 @@ describe('Tasks page', () => {
 
   it('briefing panel shows unblocks when present', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.includes('/briefing')) return Promise.resolve({
         briefing: {
@@ -992,7 +1055,7 @@ describe('Tasks page', () => {
 
   it('briefing panel shows standalone message when no context', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.includes('/briefing')) return Promise.resolve({
         briefing: {
@@ -1022,7 +1085,7 @@ describe('Tasks page', () => {
 
   it('clicking the same task again closes the briefing panel', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.includes('/briefing')) return Promise.resolve({
         briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: null, neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
@@ -1056,7 +1119,7 @@ describe('Tasks page', () => {
 
   it('shows Context and Changelog tabs in the briefing panel', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.includes('/briefing')) return Promise.resolve({
         briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: null, neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
@@ -1088,7 +1151,7 @@ describe('Tasks page', () => {
 
   it('fetches trace data when a task is clicked', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.includes('/briefing')) return Promise.resolve({
         briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: null, neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
@@ -1114,7 +1177,7 @@ describe('Tasks page', () => {
 
   it('clicking Changelog tab shows the trace panel with commits', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.includes('/briefing')) return Promise.resolve({
         briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: null, neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
@@ -1160,7 +1223,7 @@ describe('Tasks page', () => {
 
   it('Changelog tab shows empty message when trace has no data', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.includes('/briefing')) return Promise.resolve({
         briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: null, neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
@@ -1222,7 +1285,7 @@ describe('Tasks page', () => {
 
     beforeEach(() => {
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: autoTasks })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: autoTasks })
         if (path === '/labels') return Promise.resolve({ labels: mockLabels })
         return Promise.resolve({})
       })
@@ -1263,7 +1326,7 @@ describe('Tasks page', () => {
       Element.prototype.scrollIntoView = vi.fn()
 
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: focusTasks })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: focusTasks })
         if (path === '/labels') return Promise.resolve({ labels: [] })
         if (path.endsWith('/briefing')) return Promise.resolve({ briefing: null })
         if (path.endsWith('/trace')) return Promise.resolve({ trace: null })
@@ -1342,7 +1405,7 @@ describe('Tasks page', () => {
 
     beforeEach(() => {
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: mixedStatusTasks })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mixedStatusTasks })
         if (path === '/labels') return Promise.resolve({ labels: [] })
         return Promise.resolve({})
       })
@@ -1720,7 +1783,7 @@ describe('Tasks page', () => {
         return Promise.resolve({})
       })
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
         if (path === '/labels') return Promise.resolve({ labels: mockLabels })
         if (path === '/tasks/audit/job-abc') {
           return Promise.resolve({
@@ -1753,7 +1816,7 @@ describe('Tasks page', () => {
         return Promise.resolve({})
       })
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
         if (path === '/labels') return Promise.resolve({ labels: mockLabels })
         if (path === '/tasks/audit/job-running') {
           return Promise.resolve({
@@ -1785,7 +1848,7 @@ describe('Tasks page', () => {
         return Promise.resolve({})
       })
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
         if (path === '/labels') return Promise.resolve({ labels: mockLabels })
         if (path === '/tasks/audit/job-review') {
           return Promise.resolve({
@@ -1858,7 +1921,7 @@ describe('Tasks page', () => {
         return Promise.resolve({})
       })
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
         if (path === '/labels') return Promise.resolve({ labels: mockLabels })
         if (path === '/tasks/audit/job-approve') {
           return Promise.resolve({
@@ -1912,7 +1975,7 @@ describe('Tasks page', () => {
         return Promise.resolve({})
       })
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
         if (path === '/labels') return Promise.resolve({ labels: mockLabels })
         if (path === '/tasks/audit/job-keep') {
           return Promise.resolve({
@@ -1960,7 +2023,7 @@ describe('Tasks page', () => {
 
     it('renders closed_reason badges on closed tasks', async () => {
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: auditClosedTasks })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: auditClosedTasks })
         if (path === '/labels') return Promise.resolve({ labels: mockLabels })
         return Promise.resolve({})
       })
@@ -1985,7 +2048,7 @@ describe('Tasks page', () => {
         { id: '3', title: 'No date task', priority: 'P1', status: 'closed', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [], closed_reason: 'completed' },
       ]
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: tasksWithClosedAt })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: tasksWithClosedAt })
         if (path === '/labels') return Promise.resolve({ labels: mockLabels })
         return Promise.resolve({})
       })
@@ -2038,7 +2101,7 @@ describe('Tasks page', () => {
         { id: '3', title: 'Write docs', priority: 'P2', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
       ]
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: tasksWithInProgress })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: tasksWithInProgress })
         if (path === '/labels') return Promise.resolve({ labels: mockLabels })
         return Promise.resolve({})
       })
@@ -2055,7 +2118,7 @@ describe('Tasks page', () => {
         { id: '2', title: 'Add dark mode', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
       ]
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: tasksWithClosed })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: tasksWithClosed })
         if (path === '/labels') return Promise.resolve({ labels: mockLabels })
         return Promise.resolve({})
       })
@@ -2095,7 +2158,7 @@ describe('Tasks page', () => {
       },
     ]
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: tasksWithPlan })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: tasksWithPlan })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       return Promise.resolve({})
     })
@@ -2116,7 +2179,7 @@ describe('Tasks page', () => {
 
   it('does not render task-plan testid when task has no plan_path', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       return Promise.resolve({})
     })
@@ -2174,7 +2237,7 @@ describe('Tasks page - first-paint budget (needle 299)', () => {
 
   it('first visible row arrives within 1500ms on a warm backend', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: manyTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: manyTasks })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       if (path === '/threads') return Promise.resolve({ threads: [] })
       return Promise.resolve({})
@@ -2212,7 +2275,7 @@ describe('Tasks page - first-paint budget (needle 299)', () => {
     })
 
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: manyTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: manyTasks })
       if (path === '/labels') return pendingLabels
       if (path === '/threads') return pendingThreads
       return Promise.resolve({})
@@ -2278,7 +2341,7 @@ describe('Tasks page - first-paint budget (needle 299)', () => {
     )
 
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: manyTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: manyTasks })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       if (path === '/threads') return Promise.resolve({ threads: [] })
       return Promise.resolve({})
@@ -2308,7 +2371,7 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
     window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       return Promise.resolve({})
     })
@@ -2331,7 +2394,7 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
 
   it('clicking "What should I do next?" shows suggestion banner when backend returns message', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path === '/tasks/next') return Promise.resolve({ message: '→850 review prompts [P3]' })
       return Promise.resolve({})
@@ -2344,7 +2407,7 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
 
   it('clicking "What should I do next?" shows fallback banner when no suggestion', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path === '/tasks/next') return Promise.resolve({ message: 'No open tasks right now.' })
       return Promise.resolve({})
@@ -2465,7 +2528,7 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
 
     it('footer open count drops to 0 when a thread filter hides all tasks', async () => {
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({
           tasks: [
             { id: '1', title: 'Task A', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [], thread_id: null },
             { id: '2', title: 'Task B', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [], thread_id: null },
@@ -2490,7 +2553,7 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
 
     it('shows "0 match your filters · Clear filters" hint when filters hide all tasks', async () => {
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({
           tasks: [
             { id: '1', title: 'Open task', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
           ],
@@ -2519,7 +2582,7 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
       const threadTask2 = { id: '2', title: 'Another task', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [], thread_id: null }
 
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: [threadTask1, threadTask2] })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: [threadTask1, threadTask2] })
         if (path === '/labels') return Promise.resolve({ labels: [] })
         if (path === '/threads') return Promise.resolve({ threads: [{ id: 'thread-1', title: 'My Thread' }] })
         return Promise.resolve({})
@@ -2549,7 +2612,7 @@ describe('Tasks page - null-priority render fix', () => {
     // were silently dropped from the render loop while still being counted in
     // the footer, so the user saw "6 Open" but an empty list.
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({
         tasks: [
           { id: '531', title: 'Unprioritized task A', priority: null, status: 'open', created_at: new Date().toISOString(), label_ids: [] },
           { id: '532', title: 'Unprioritized task B', priority: null, status: 'open', created_at: new Date().toISOString(), label_ids: [] },
@@ -2573,7 +2636,7 @@ describe('Tasks page - null-priority render fix', () => {
 
   it('footer open count matches the number of visible rows when tasks have null priority', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({
         tasks: [
           { id: '531', title: 'Null prio 1', priority: null, status: 'open', created_at: new Date().toISOString(), label_ids: [] },
           { id: '532', title: 'Null prio 2', priority: null, status: 'open', created_at: new Date().toISOString(), label_ids: [] },
@@ -2615,7 +2678,7 @@ describe('Tasks page - status filter and All toggle', () => {
 
     beforeEach(() => {
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: mixedTasks })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mixedTasks })
         if (path === '/labels') return Promise.resolve({ labels: [] })
         return Promise.resolve({})
       })
@@ -2686,7 +2749,7 @@ describe('Tasks page - live updates (bus + 3s poll)', () => {
 
     let tasksPayload: typeof mockTasks = emptyTasks
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: tasksPayload })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: tasksPayload })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
@@ -2725,7 +2788,7 @@ describe('Tasks page - live updates (bus + 3s poll)', () => {
       { id: 'keep1', title: 'Keep me around', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
     ]
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: stable })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: stable })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
@@ -2770,7 +2833,7 @@ describe('Tasks page - live updates (bus + 3s poll)', () => {
       { id: 'undo1', title: 'Task to undo delete', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
     ]
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
@@ -2820,7 +2883,7 @@ describe('Tasks page - 2026-04-23 regression set', () => {
 
   it('does not render the legacy card-view / view-toggle / clear-all toolbar', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: [] })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: [] })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
@@ -2837,7 +2900,7 @@ describe('Tasks page - 2026-04-23 regression set', () => {
 
   it('filter drawer renders exactly one sort row (no duplicate SORT bar)', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: [] })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: [] })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
@@ -2853,7 +2916,7 @@ describe('Tasks page - 2026-04-23 regression set', () => {
 
   it('exposes exactly four status pills (All / Open / In progress / Closed) with aria-pressed', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: [] })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: [] })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
@@ -2876,7 +2939,7 @@ describe('Tasks page - 2026-04-23 regression set', () => {
 
   it('multi-select: clicking Closed adds it, last remaining pill cannot be deselected', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({
         tasks: [
           { id: 'o', title: 'Open task', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
           { id: 'c', title: 'Closed task', priority: 'P1', status: 'closed', created_at: new Date().toISOString(), closed_at: new Date().toISOString(), label_ids: [] },
@@ -2906,7 +2969,7 @@ describe('Tasks page - 2026-04-23 regression set', () => {
   it('shows the in-progress indicator on a task row when an agent is running on it', async () => {
     const task = { id: 'a123', title: 'Task with agent', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] }
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: [task] })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: [task] })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       if (path === '/agents') return Promise.resolve({ agents: [{ status: 'running', task_id: 'a123' }] })
       return Promise.resolve({})
@@ -2921,7 +2984,7 @@ describe('Tasks page - 2026-04-23 regression set', () => {
   it('effective status: a task whose stored status is open but has a running agent counts under In Progress', async () => {
     const task = { id: 'eff1', title: 'Agent-backed open task', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] }
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: [task] })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: [task] })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       if (path === '/agents') return Promise.resolve({ agents: [{ status: 'running', task_id: 'eff1' }] })
       return Promise.resolve({})
@@ -2949,7 +3012,7 @@ describe('Tasks page - 2026-04-23 regression set', () => {
         { id: 'new2', title: 'New in-progress task', priority: 'P1', status: 'open', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [] },
       ]
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks })
         if (path === '/labels') return Promise.resolve({ labels: [] })
         if (path === '/agents') return Promise.resolve({ agents: [{ status: 'running', task_id: 'new2' }] })
         return Promise.resolve({})
@@ -2968,7 +3031,7 @@ describe('Tasks page - 2026-04-23 regression set', () => {
         { id: 'newer', title: 'Newer open task', priority: 'P1', status: 'open', created_at: '2026-03-01T00:00:00Z', goal: null, label_ids: [] },
       ]
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks })
         if (path === '/labels') return Promise.resolve({ labels: [] })
         if (path === '/agents') return Promise.resolve({ agents: [] })
         return Promise.resolve({})
@@ -2994,7 +3057,7 @@ describe('Tasks page - 2026-04-23 regression set', () => {
         label_ids: [],
       }
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: [task] })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: [task] })
         if (path === '/labels') return Promise.resolve({ labels: [] })
         if (path === '/agents') return Promise.resolve({ agents: [{ status: 'running', task_id: null, needle_id: '1004' }] })
         return Promise.resolve({})
@@ -3020,7 +3083,7 @@ describe('Tasks page - 2026-04-23 regression set', () => {
         label_ids: [],
       }
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: [task] })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: [task] })
         if (path === '/labels') return Promise.resolve({ labels: [] })
         if (path === '/agents') return Promise.resolve({ agents: [{ status: 'running', task_id: 'dup1' }] })
         return Promise.resolve({})
@@ -3046,7 +3109,7 @@ describe('Tasks page - 2026-04-23 regression set', () => {
         label_ids: [],
       }
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: [task] })
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: [task] })
         if (path === '/labels') return Promise.resolve({ labels: [] })
         if (path === '/agents') return Promise.resolve({ agents: [] })
         return Promise.resolve({})
@@ -3078,7 +3141,7 @@ describe('task title truncation (→1060)', () => {
   it('task title span has line-clamp-2 to prevent multi-paragraph overflow', async () => {
     const longTitle = 'Spawning agent from template succeeds but the agent does not appear in Active Agents panel. Repro: user clicked Spawn agent on the Roadmap template and nothing appeared.'
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: [{ id: 'lt1', title: longTitle, priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] }] })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: [{ id: 'lt1', title: longTitle, priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] }] })
       if (path === '/labels') return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
@@ -3095,7 +3158,7 @@ describe('real-time In progress pill via running agents store (→1118)', () => 
   beforeEach(() => {
     useRunningAgentsStore.setState({ count: 0, agents: [], connected: true, lastUpdatedAt: null })
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       return Promise.resolve({})
     })
@@ -3210,7 +3273,7 @@ describe('Plan waves feature (→1181)', () => {
 
   beforeEach(() => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path.startsWith('/tasks/waves')) return Promise.resolve(mockWaves)
       return Promise.resolve({})
@@ -3278,7 +3341,7 @@ describe('inline title editing (→1195)', () => {
     window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       return Promise.resolve({})
     })
@@ -3392,7 +3455,7 @@ describe('Plan waves button (→1370)', () => {
 
   it('shows "Plan waves" when no wave assignments exist', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path === '/tasks/waves/assignments') return Promise.resolve({ assignments: {} })
       return Promise.resolve({})
@@ -3405,7 +3468,7 @@ describe('Plan waves button (→1370)', () => {
 
   it('shows "Update waves" when wave assignments already exist', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path === '/tasks/waves/assignments')
         return Promise.resolve({ assignments: { '1': 1, '2': 1, '3': 2 } })
@@ -3420,7 +3483,7 @@ describe('Plan waves button (→1370)', () => {
 
   it('renders wave badge on task row when assignment exists', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path === '/tasks/waves/assignments')
         return Promise.resolve({ assignments: { '1': 1, '2': 2 } })
@@ -3448,7 +3511,7 @@ describe('Sort by wave (→1523)', () => {
 
   it('sort control renders with "Wave" as an option', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path === '/tasks/waves/assignments') return Promise.resolve({ assignments: {} })
       return Promise.resolve({})
@@ -3460,7 +3523,7 @@ describe('Sort by wave (→1523)', () => {
 
   it('selecting Wave groups tasks by wave name in the rendered list', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path === '/tasks/waves/assignments')
         return Promise.resolve({ assignments: { '1': 1, '2': 1, '3': 2 } })
@@ -3477,7 +3540,7 @@ describe('Sort by wave (→1523)', () => {
 
   it('tasks without a wave assignment appear under "Unassigned"', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       // tasks 1 and 2 are in wave 1; task 3 and 4 have no assignment
       if (path === '/tasks/waves/assignments')
@@ -3493,7 +3556,7 @@ describe('Sort by wave (→1523)', () => {
 
   it('switching back to default sort removes wave group headers', async () => {
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       if (path === '/tasks/waves/assignments')
         return Promise.resolve({ assignments: { '1': 1, '2': 1, '3': 2 } })
@@ -3546,7 +3609,7 @@ describe('Create Spec action (→1942)', () => {
     window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
       return Promise.resolve({})
     })

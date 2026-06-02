@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icon'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import GoogleSetupGuideModal from '../components/GoogleSetupGuideModal'
+import NewEventModal from '../components/NewEventModal'
 import { ConnectCard, LoadingState, EmptyState } from '../components/ui'
 import { api } from '../lib/api'
 import { reportError } from '../lib/reportError'
@@ -306,6 +307,7 @@ export default function Calendar() {
   // Show the shared Google setup guide modal when the user clicks the
   // secondary "Need setup help?" link on the connect panel.
   const [showSetupGuide, setShowSetupGuide] = useState(false)
+  const [showNewEvent, setShowNewEvent] = useState(false)
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
   // Ticker that forces the countdown subtitle to refresh once a minute.
   // A minute is fine grained enough for "Starts in 12 minutes" to stay
@@ -601,21 +603,16 @@ export default function Calendar() {
 
   if (loading || authStatus === null) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-        <TopBar title="Calendar" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <LoadingState variant="spinner" />
-        </div>
-      </div>
+      <PageShell title="Calendar">
+        <LoadingState variant="spinner" />
+      </PageShell>
     )
   }
 
   if (!authStatus?.authenticated || authStatus.needs_reauth) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-        <TopBar title="Calendar" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <ConnectCard
+      <PageShell title="Calendar">
+        <ConnectCard
             icon="calendar_month"
             accentColor="#3b82f6"
             title={authStatus?.needs_reauth ? 'Calendar access needs to be updated' : 'Connect Google Calendar'}
@@ -653,18 +650,15 @@ export default function Calendar() {
             }
             error={connectError ?? undefined}
           />
-        </div>
         {showSetupGuide && <GoogleSetupGuideModal onClose={() => setShowSetupGuide(false)} />}
-      </div>
+      </PageShell>
     )
   }
 
   if (apiNotEnabled) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-        <TopBar title="Calendar" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <ConnectCard
+      <PageShell title="Calendar">
+        <ConnectCard
             icon="warning"
             accentColor="#f59e0b"
             title="Calendar API not enabled"
@@ -691,16 +685,13 @@ export default function Calendar() {
               </div>
             }
           />
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-      <TopBar title="Calendar" />
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-        {/* Header row */}
+    <PageShell title="Calendar">
+      {/* Header row */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold">Calendar</h1>
@@ -714,6 +705,14 @@ export default function Calendar() {
                 Synced {lastSynced.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
               </span>
             )}
+            <button
+              onClick={() => setShowNewEvent(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors font-medium"
+              data-testid="new-event-button"
+            >
+              <Icon name="add" size={16} />
+              New event
+            </button>
             <button
               onClick={handleSync}
               disabled={syncing}
@@ -1033,7 +1032,6 @@ export default function Calendar() {
             description="Your calendar is clear. A good time to focus on your top needles."
           />
         )}
-      </div>
 
       {undoDelete && (
         <div
@@ -1050,6 +1048,16 @@ export default function Calendar() {
           </button>
         </div>
       )}
-    </div>
+
+      {showNewEvent && (
+        <NewEventModal
+          onClose={() => setShowNewEvent(false)}
+          onCreated={() => {
+            setShowNewEvent(false)
+            handleSync()
+          }}
+        />
+      )}
+    </PageShell>
   )
 }

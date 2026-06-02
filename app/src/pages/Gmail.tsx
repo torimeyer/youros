@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { formatSmartDate, formatTime } from '../lib/time'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icon'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import GmailReplyComposer from '../components/GmailReplyComposer'
 import ConfirmModal from '../components/ConfirmModal'
 import GoogleSetupGuideModal from '../components/GoogleSetupGuideModal'
@@ -377,20 +377,15 @@ export default function Gmail() {
 
   if (loading || authStatus === null) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-        <TopBar title="Gmail" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <LoadingState variant="spinner" />
-        </div>
-      </div>
+      <PageShell title="Gmail">
+        <LoadingState variant="spinner" />
+      </PageShell>
     )
   }
 
   if (!authStatus?.authenticated || authStatus.needs_reauth) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-        <TopBar title="Gmail" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+      <PageShell title="Gmail">
           <ConnectCard
             icon="mail"
             accentColor="#ef4444"
@@ -429,17 +424,14 @@ export default function Gmail() {
             }
             error={connectError ?? undefined}
           />
-        </div>
         {showSetupGuide && <GoogleSetupGuideModal onClose={() => setShowSetupGuide(false)} />}
-      </div>
+      </PageShell>
     )
   }
 
   if (apiNotEnabled) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-        <TopBar title="Gmail" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+      <PageShell title="Gmail">
           <ConnectCard
             icon="warning"
             accentColor="#f59e0b"
@@ -467,15 +459,12 @@ export default function Gmail() {
               </div>
             }
           />
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-      <TopBar title="Gmail" />
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+    <PageShell title="Gmail">
         {/* Header row */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
@@ -746,8 +735,7 @@ export default function Gmail() {
             </div>
           )}
         </div>
-      </div>
       <ConfirmModal {...confirmProps} />
-    </div>
+    </PageShell>
   )
 }

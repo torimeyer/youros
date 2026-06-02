@@ -28,7 +28,7 @@ from services.task_labeling import (
 from services import session_task_map
 from services.notifications_events import bus as _notifications_events_bus
 from services import recent_deletes
-from services.task_visibility import is_session_task
+from services.task_visibility import is_session_task, is_ac_child_task
 from services.tracing import trace_event
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ _GOAL_LABELS: dict[str, str] = {
     "projects": "Projects",
     "polish": "Polish",
     "lego-app": "Lego App",
-    "torios": "ToriOS",
+    "torios": "yourOS",
     "myos": "myOS",
     "guess-who": "Guess Who",
 }
@@ -208,6 +208,7 @@ async def list_tasks(
     priority: Optional[str] = None,
     include_test_data: bool = False,
     include_session_tasks: bool = False,
+    include_ac_children: bool = False,
     source: Optional[str] = None,
     clear_to_build: Optional[bool] = None,
     include_closed: bool = False,
@@ -302,6 +303,13 @@ async def list_tasks(
         # ?include_session_tasks=true explicitly.
         if not include_session_tasks:
             tasks = [t for t in tasks if not is_session_task(t)]
+        # Hide spec-derived AC child tasks by default. These are per-requirement
+        # rows auto-created when ostk breaks a spec into acceptance criteria. The
+        # _read_active_store_ids filter in ostk.list_tasks already excludes them in
+        # production (they live outside issues.jsonl). This filter makes the
+        # exclusion explicit so test environments and future code paths stay correct.
+        if not include_ac_children:
+            tasks = [t for t in tasks if not is_ac_child_task(t)]
         if source is not None:
             tasks = [t for t in tasks if t.get("source") == source]
         # Add compound scores (how many tasks each one unblocks)
@@ -391,7 +399,10 @@ async def task_counts():
         tasks = await ostk.list_tasks(status="open")
         open_count = sum(
             1 for t in tasks
-            if _is_active(t) and not _is_session_task(t) and not _is_e2e_task(t)
+            if _is_active(t)
+            and not _is_session_task(t)
+            and not _is_e2e_task(t)
+            and not is_ac_child_task(t)
         )
         return {"open": open_count}
     except OstkError as e:
@@ -549,12 +560,29 @@ _WAVE_STOPWORDS = {
     "all", "any", "its", "not", "are", "can", "has", "was", "had", "will",
     "make", "move", "show", "them", "then", "only", "each", "more", "some",
     "need", "work", "task", "open", "page", "data", "list", "item", "view",
+    # Generic English that leaked through as false scope-conflict tokens
+    # (they are 5+ chars so the length gate alone never caught them).
+    # Curated from the 2026-05-31 over-split: unrelated tasks were colliding
+    # on words like "api", "action", "actually", "cause". Domain nouns
+    # (auth, login, dashboard, chat, agent file paths) are deliberately NOT
+    # listed so genuine scope overlap still forces a split.
+    "action", "actions", "actually", "after", "before", "alone", "across",
+    "access", "about", "agent", "agents", "because", "cause", "broken",
+    "change", "changed", "actively", "depend", "dependent", "where",
+    "which", "while", "would", "could", "should", "these", "those",
+    "their", "there", "enable", "rename", "update", "parser", "audit",
+    "parity", "stale", "neutral", "internal", "terminal", "likely",
+    "whole", "hidden", "folder", "flag", "gaps", "dead",
 }
 
 # Heuristic v1: three signal classes
 _WAVE_FILE_RE = re.compile(r"[a-z][a-z0-9_/]*\.(?:py|tsx|ts|rs|sh|json|yaml|yml|toml|md)")
+# 'api' and 'app' were removed: they are too broad and matched generic
+# prose like "Google Docs API" or "the app", colliding unrelated tasks.
+# Real api/ or app/ scope is still captured precisely by _WAVE_FILE_RE
+# (e.g. 'app/src/pages/Settings.tsx', 'routers/tasks.py').
 _WAVE_DIR_RE = re.compile(
-    r"\b(?:frontend|backend|api|app|haystack|scripts|services|routers|models|tests|hooks|tools|components|stores|pages|lib)\b"
+    r"\b(?:frontend|backend|haystack|scripts|services|routers|models|tests|hooks|tools|components|stores|pages|lib)\b"
 )
 _WAVE_TOKEN_RE = re.compile(r"\b[a-z][a-z0-9_]{3,}\b")
 
@@ -1154,7 +1182,7 @@ def _clean_task_title(title: str) -> str:
         "venmo": "Venmo",
         "paypal": "PayPal",
         "stripe": "Stripe",
-        "torios": "ToriOS",
+        "torios": "yourOS",
         "myos": "myOS",
         "ostk": "ostk",
         "claude": "Claude",

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -4542,6 +4543,7 @@ async def test_list_tasks_overlay_forces_in_progress_when_agent_is_live(client):
     agent_metadata["agent-live-1"] = {
         "status": "running",
         "task_id": "task-live",
+        "spawned_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
         with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
@@ -4648,8 +4650,9 @@ async def test_list_tasks_overlay_survives_multiple_agents_on_one_task(client):
     for _name in [k for k, v in agent_metadata.items()
                   if isinstance(v, dict) and v.get("task_id") == tid]:
         agent_metadata.pop(_name, None)
-    agent_metadata["agent-A-overlay-xyz"] = {"status": "running", "task_id": tid}
-    agent_metadata["agent-B-overlay-xyz"] = {"status": "running", "task_id": tid}
+    _now = datetime.now(timezone.utc).isoformat()
+    agent_metadata["agent-A-overlay-xyz"] = {"status": "running", "task_id": tid, "spawned_at": _now}
+    agent_metadata["agent-B-overlay-xyz"] = {"status": "running", "task_id": tid, "spawned_at": _now}
     try:
         # Both live: overlay forces in_progress.
         with _patch_ostk_and_labels(list_tasks=AsyncMock(side_effect=lambda **kw: _fresh_tasks())):
@@ -4916,3 +4919,82 @@ async def test_closed_tasks_clear_to_build_false_even_if_readiness_import_fails(
     tasks = resp.json()["tasks"]
     assert len(tasks) == 1
     assert tasks[0]["clear_to_build"] is False
+
+
+# --- Performance / event-loop-safety regression (large task set) ---
+#
+# Guards the GET /api/tasks hot path against two regressions that would
+# wedge the backend on a large project:
+#   1. O(N) ostk daemon calls — the handler must read the whole task list
+#      with a SINGLE ``ostk.list_tasks`` call and do all per-task work
+#      (enrichment, readiness, plan-path, overlays) in memory. A future
+#      change that shells out to ostk once per task would scale the page
+#      load with the needle count and starve the event loop.
+#   2. Slow synchronous per-task work — with ~130 tasks the endpoint must
+#      still return quickly. The assertion is intentionally loose (a few
+#      seconds) so it flags an O(N) subprocess regression without being
+#      flaky on slow CI; the real handler completes well under that.
+#
+# Context: a 2026-06-01 report blamed a /api/tasks hang on per-task work
+# in this handler. Measurement showed the handler itself is fast (one
+# daemon read + in-memory enrichment); this test locks that contract in.
+
+@pytest.mark.asyncio
+async def test_list_tasks_large_set_single_daemon_call_and_fast(client):
+    # ~130 open tasks, mirroring a long-lived project's active needle set.
+    mock_tasks = [
+        _make_task(
+            id=f"t-{i}",
+            title=f"Task number {i} with a concrete outcome",
+            description=f"Implement feature {i} in api/services/thing_{i}.py",
+        )
+        for i in range(130)
+    ]
+    call_counter = {"n": 0}
+
+    async def _list_tasks(*args, **kwargs):
+        call_counter["n"] += 1
+        return list(mock_tasks)
+
+    import time as _time
+    with _patch_ostk_and_labels(list_tasks=_list_tasks):
+        start = _time.monotonic()
+        resp = await client.get("/api/tasks")
+        elapsed = _time.monotonic() - start
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["tasks"]) == 130
+    # Contract 1: the daemon task list is read exactly once, never once
+    # per task. A regression that calls ostk per task would push this >1.
+    assert call_counter["n"] == 1, (
+        f"GET /api/tasks made {call_counter['n']} ostk.list_tasks calls; "
+        "expected exactly 1 (no O(N) daemon calls)"
+    )
+    # Contract 2: in-memory enrichment of 130 tasks stays fast.
+    assert elapsed < 5.0, (
+        f"GET /api/tasks took {elapsed:.2f}s for 130 tasks; "
+        "expected well under 5s (per-task work must not block the loop)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_does_not_shell_out_per_task(client):
+    """The enrichment/readiness/overlay passes must not invoke the ostk
+    transport (``_run`` / ``_run_socket``) per task. Only the single
+    ``list_tasks`` read is allowed to touch the daemon."""
+    mock_tasks = [_make_task(id=f"t-{i}", title=f"Concrete task {i}") for i in range(130)]
+
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)) as ctx:
+        # Any per-task daemon round-trip would go through _run/_run_socket.
+        ctx.mock_ostk._run = AsyncMock(
+            side_effect=AssertionError("_run called during list_tasks enrichment")
+        )
+        ctx.mock_ostk._run_socket = AsyncMock(
+            side_effect=AssertionError("_run_socket called during list_tasks enrichment")
+        )
+        ctx.mock_ostk.cwd = "/tmp"
+        resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 200
+    assert len(resp.json()["tasks"]) == 130

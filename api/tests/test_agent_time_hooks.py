@@ -203,8 +203,8 @@ class TestCompleteWritesTerminalRow:
 # ---------------------------------------------------------------------------
 
 class TestAgentDurationStatsShim:
-    def test_shim_returns_time_estimate_when_available(self, pdb_mod, monkeypatch):
-        """When time_primitive has agent_spawn history, get_duration_stats returns it."""
+    def test_shim_returns_time_estimate_when_available(self, pdb_mod, monkeypatch, tmp_path):
+        """When local agent_state.json has no samples, get_duration_stats falls back to time_primitive."""
         import services.agent_duration_stats as ads
         import services.time_primitive as tp_mod
 
@@ -222,10 +222,14 @@ class TestAgentDurationStatsShim:
         # Wire time_primitive to the temp DB
         monkeypatch.setattr(tp_mod, "_get_db", lambda: pdb_mod.get_db())
 
+        # Point AGENT_STATE_PATH at a non-existent file so the local source
+        # has zero samples, which triggers the time_primitive fallback path.
+        monkeypatch.setattr(ads, "AGENT_STATE_PATH", tmp_path / "empty_agent_state.json")
+
         result = ads.get_duration_stats(force_refresh=True)
         assert result["median_seconds"] == pytest.approx(120, abs=5), (
-            f"Shim should return Time primitive estimate (~120s) when history exists, "
-            f"got {result['median_seconds']}. agent_duration_stats.py not shimmed yet."
+            f"Shim should return Time primitive estimate (~120s) when local has no history, "
+            f"got {result['median_seconds']}. Check the fallback path in get_duration_stats."
         )
 
     def test_shim_falls_back_to_local_when_time_estimate_is_none(self, tmp_path, monkeypatch):

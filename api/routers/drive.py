@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 
 from config import FRONTEND_URL_DEFAULT
 from services import connections_cache, recent_deletes
@@ -936,16 +936,16 @@ async def drive_file_preview(file_id: str):
         if response_mime is None and mime.startswith("text/"):
             response_mime = "text/plain; charset=utf-8"
         if response_mime:
-            try:
-                content = await _download_file(file_id)
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Could not download file from Drive: {exc}",
-                ) from exc
-            DRIVE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            cache_path.write_bytes(content)
-            return Response(content=content, media_type=response_mime)
+            collected: list[bytes] = []
+
+            async def _stream_and_cache():
+                async for chunk in _stream_download_file(file_id):
+                    collected.append(chunk)
+                    yield chunk
+                DRIVE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                cache_path.write_bytes(b"".join(collected))
+
+            return StreamingResponse(_stream_and_cache(), media_type=response_mime)
 
         # Office files: download and convert to PDF via Drive's upload+export trick.
         # Drive can convert .docx/.pptx/.xlsx to Google native, then export as PDF.
@@ -1064,6 +1064,43 @@ async def _download_file(file_id: str) -> bytes:
         return buf.getvalue()
 
     return await asyncio.get_event_loop().run_in_executor(None, _call)
+
+
+async def _stream_download_file(file_id: str):
+    """Yield a non-Google-native file's binary content in 2 MB chunks.
+
+    Runs each chunk download in the default executor so the event loop
+    stays responsive between chunks, letting the browser receive data
+    progressively instead of waiting for the entire file to buffer first.
+    """
+    import asyncio
+    import io
+
+    loop = asyncio.get_event_loop()
+
+    def _init():
+        from googleapiclient.http import MediaIoBaseDownload
+        service = _get_cached_drive_service()
+        request = service.files().get_media(fileId=file_id)
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request, chunksize=2 * 1024 * 1024)
+        return buf, downloader
+
+    buf, downloader = await loop.run_in_executor(None, _init)
+
+    done = False
+    while not done:
+        def _get_chunk(buf=buf, downloader=downloader):
+            _, is_done = downloader.next_chunk()
+            buf.seek(0)
+            data = buf.read()
+            buf.seek(0)
+            buf.truncate()
+            return data, is_done
+
+        chunk, done = await loop.run_in_executor(None, _get_chunk)
+        if chunk:
+            yield chunk
 
 
 async def _export_office_file_as_pdf(file_id: str, target_google_mime: str) -> bytes:
@@ -1531,6 +1568,10 @@ class BatchUpdateDoc(BaseModel):
     requests: list
 
 
+class UpdateDocText(BaseModel):
+    text: str
+
+
 @router.post("/drive/docs/create-from-md")
 async def create_doc_from_md(body: CreateDocFromMd):
     """Upload a .md file to Drive and convert it to a Google Doc."""
@@ -1709,3 +1750,64 @@ async def get_doc_structure(doc_id: str):
         ) from exc
 
     return result
+
+
+@router.post("/drive/docs/{doc_id}/update-text")
+async def update_doc_text(doc_id: str, body: UpdateDocText):
+    """Replace a Google Doc's body with plain text via batchUpdate."""
+    import asyncio
+
+    def _call():
+        service = _build_docs_service()
+        doc = service.documents().get(documentId=doc_id).execute()
+        content = doc.get("body", {}).get("content", [])
+        end_index = content[-1].get("endIndex", 1) if content else 1
+
+        requests: list = []
+        if end_index > 1:
+            requests.append({
+                "deleteContentRange": {
+                    "range": {"startIndex": 1, "endIndex": end_index - 1}
+                }
+            })
+        if body.text:
+            requests.append({
+                "insertText": {
+                    "location": {"index": 1},
+                    "text": body.text,
+                }
+            })
+        if requests:
+            service.documents().batchUpdate(
+                documentId=doc_id,
+                body={"requests": requests},
+            ).execute()
+
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, _call)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not update Google Doc content: {exc}",
+        ) from exc
+
+    return {"ok": True, "doc_id": doc_id}
+
+
+@router.get("/drive/docs/{doc_id}/export-text")
+async def export_doc_text_endpoint(doc_id: str):
+    """Return a Google Doc's current body as plain text.
+
+    The in-app editor (→1939) calls this to pre-fill the edit box with the
+    doc's current text. Without it the box would open empty and saving would
+    erase the document, so we surface a clear error rather than empty content.
+    """
+    try:
+        text = await _export_doc_text(doc_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not read Google Doc content: {exc}",
+        ) from exc
+
+    return Response(content=text, media_type="text/plain")

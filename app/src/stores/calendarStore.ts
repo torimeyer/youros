@@ -1,6 +1,7 @@
 import { create } from 'zustand'
+import { shallowEqualArray } from './storeEquality'
 
-interface CalendarEvent {
+export interface CalendarEvent {
   id: string
   summary?: string
   start: { dateTime?: string; date?: string }
@@ -21,6 +22,7 @@ interface CalendarState {
 export const useCalendarStore = create<CalendarState>((set) => ({
   events: [],
   wsConnected: false,
-  setEvents: (events) => set({ events }),
+  setEvents: (events) =>
+    set((prev) => (shallowEqualArray(prev.events, events) ? prev : { events })),
   setWsConnected: (connected) => set({ wsConnected: connected }),
 }))

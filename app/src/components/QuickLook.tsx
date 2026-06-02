@@ -126,6 +126,15 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
   const [drivePdfBlobUrl, setDrivePdfBlobUrl] = useState<string | null>(null)
   const [driveFullImage, setDriveFullImage] = useState(false)
 
+  // Doc edit mode state
+  const [docEditMode, setDocEditMode] = useState(false)
+  const [docEditText, setDocEditText] = useState('')
+  const [docDirty, setDocDirty] = useState(false)
+  const [docSaveStatus, setDocSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [docSaveError, setDocSaveError] = useState<string | null>(null)
+  const [docDiscardPending, setDocDiscardPending] = useState(false)
+  const [docLoadError, setDocLoadError] = useState<string | null>(null)
+
   const isDriveMode = !!driveFileId
   const kind = isDriveMode ? null : classify(fileType, filePath)
   const rawUrl = `/api/files/raw?path=${encodeURIComponent(filePath)}`
@@ -546,17 +555,27 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                     const slides = sample?.slides ?? []
                     const current = slides[activeSlide] ?? slides[0]
                     if (slides.length === 0) {
+                      if (drivePreviewData.export_url) {
+                        return (
+                          <iframe
+                            src={drivePreviewData.export_url}
+                            title={drivePreviewData.name}
+                            className="w-full h-[70vh] border-0 rounded"
+                            data-testid="quicklook-slides-pdf-fallback"
+                          />
+                        )
+                      }
                       return (
-                        <div className="flex flex-col items-center gap-3 py-12 text-center">
-                          <p className="text-slate-600 dark:text-slate-400 text-sm">Slide preview is not available.</p>
+                        <div className="flex flex-col items-center gap-3 py-12 text-center" data-testid="quicklook-slides-reconnect">
+                          <p className="text-slate-600 dark:text-slate-400 text-sm">Slide preview needs Google account access.</p>
                           {(drivePreviewData.web_view_link || webViewLink) && (
                             <a
                               href={drivePreviewData.web_view_link || webViewLink}
                               target="_blank"
                               rel="noreferrer"
-                              className="text-xs text-slate-600 dark:text-slate-400 hover:text-white underline"
+                              className="text-xs text-blue-500 hover:text-blue-400 underline"
                             >
-                              Open in Google Slides
+                              Reconnect to enable slide previews
                             </a>
                           )}
                         </div>
@@ -603,10 +622,128 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
 
                   {drivePreviewData.kind === 'doc' && (() => {
                     const sample = drivePreviewData.sample as DocSample | null
+
+                    const handleEditClick = () => {
+                      const plainTextUrl = `/api/drive/docs/${driveFileId}/export-text`
+                      setDocLoadError(null)
+                      fetch(plainTextUrl)
+                        .then(async (r) => {
+                          if (!r.ok) {
+                            const detail = await r.text().catch(() => '')
+                            throw new Error(detail || 'Could not read this document.')
+                          }
+                          const t = await r.text()
+                          setDocEditText(t)
+                          setDocDirty(false)
+                          setDocSaveStatus('idle')
+                          setDocSaveError(null)
+                          setDocDiscardPending(false)
+                          setDocEditMode(true)
+                        })
+                        .catch((err: unknown) => {
+                          // Loading the current text failed. Opening an empty
+                          // editor here would let a Save wipe the document, so
+                          // stay in read view and show a clear message.
+                          setDocEditMode(false)
+                          setDocLoadError(
+                            err instanceof Error && err.message
+                              ? err.message
+                              : 'Could not open this document for editing.',
+                          )
+                        })
+                    }
+
+                    const handleSave = () => {
+                      setDocSaveStatus('saving')
+                      setDocSaveError(null)
+                      fetch(`/api/drive/docs/${driveFileId}/update-text`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: docEditText }),
+                      })
+                        .then(async (r) => {
+                          if (!r.ok) {
+                            const data = await r.json().catch(() => ({}))
+                            throw new Error(data.detail ?? 'Save failed')
+                          }
+                          setDocSaveStatus('saved')
+                          setDocDirty(false)
+                        })
+                        .catch((err: unknown) => {
+                          setDocSaveStatus('error')
+                          setDocSaveError(err instanceof Error ? err.message : 'Save failed')
+                        })
+                    }
+
+                    const handleCancel = () => {
+                      if (docDirty) {
+                        setDocDiscardPending(true)
+                      } else {
+                        setDocEditMode(false)
+                      }
+                    }
+
+                    const handleDiscardConfirm = () => {
+                      setDocEditMode(false)
+                      setDocDiscardPending(false)
+                      setDocDirty(false)
+                    }
+
+                    if (docEditMode) {
+                      return (
+                        <div className="flex flex-col gap-3 p-4">
+                          <p className="text-xs text-slate-500">
+                            Rich formatting (headings, tables) is not preserved when saving.
+                          </p>
+                          <textarea
+                            data-testid="doc-edit-textarea"
+                            className="w-full h-64 p-3 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 border border-slate-300 dark:border-slate-600 rounded resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            value={docEditText}
+                            onChange={(e) => { setDocEditText(e.target.value); setDocDirty(true) }}
+                          />
+                          {docDiscardPending && (
+                            <div data-testid="doc-discard-confirm" className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
+                              <span>Discard changes?</span>
+                              <button onClick={handleDiscardConfirm} className="underline">Yes, discard</button>
+                              <button onClick={() => setDocDiscardPending(false)} className="underline">Keep editing</button>
+                            </div>
+                          )}
+                          {docSaveStatus === 'error' && docSaveError && (
+                            <p className="text-sm text-red-500">{docSaveError}</p>
+                          )}
+                          <div className="flex gap-2 items-center">
+                            <button
+                              data-testid="doc-save-btn"
+                              onClick={handleSave}
+                              disabled={docSaveStatus === 'saving'}
+                              className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50"
+                            >
+                              {docSaveStatus === 'saving' ? 'Saving…' : docSaveStatus === 'saved' ? 'Saved' : 'Save to Drive'}
+                            </button>
+                            <button
+                              data-testid="doc-cancel-btn"
+                              onClick={handleCancel}
+                              className="px-3 py-1.5 text-sm text-slate-600 dark:text-slate-400 hover:text-white border border-slate-300 dark:border-slate-600 rounded"
+                            >
+                              Cancel
+                            </button>
+                            {docSaveStatus === 'saved' && (
+                              <span className="text-sm text-green-500">Saved</span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    }
+
                     if (!sample) {
                       return (
                         <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-                          <p className="text-slate-600 dark:text-slate-400 text-sm">This doc is empty.</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-slate-600 dark:text-slate-400 text-sm">This doc is empty.</p>
+                            <button data-testid="doc-edit-btn" onClick={handleEditClick} className="p-1 text-slate-500 hover:text-white" title="Edit">
+                              <span className="material-symbols-outlined text-[18px]">edit</span>
+                            </button>
+                          </div>
                           {drivePreviewData.web_view_link && (
                             <a href={drivePreviewData.web_view_link} target="_blank" rel="noreferrer" className="text-xs text-slate-600 dark:text-slate-400 hover:text-white underline">
                               Open in Drive
@@ -618,6 +755,14 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                     if (sample.html) {
                       return (
                         <div data-testid="quicklook-doc" className="p-4 overflow-auto">
+                          {docLoadError && (
+                            <p data-testid="doc-load-error" className="text-sm text-red-500 mb-2 text-right">{docLoadError}</p>
+                          )}
+                          <div className="flex justify-end mb-2">
+                            <button data-testid="doc-edit-btn" onClick={handleEditClick} className="p-1 text-slate-500 hover:text-white" title="Edit">
+                              <span className="material-symbols-outlined text-[18px]">edit</span>
+                            </button>
+                          </div>
                           <div
                             className="bg-white rounded-lg p-6 text-gray-900 text-sm leading-relaxed max-w-3xl mx-auto"
                             dangerouslySetInnerHTML={{ __html: sample.html }}
@@ -629,7 +774,12 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                     if (blocks.length === 0) {
                       return (
                         <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-                          <p className="text-slate-600 dark:text-slate-400 text-sm">This doc is empty.</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-slate-600 dark:text-slate-400 text-sm">This doc is empty.</p>
+                            <button data-testid="doc-edit-btn" onClick={handleEditClick} className="p-1 text-slate-500 hover:text-white" title="Edit">
+                              <span className="material-symbols-outlined text-[18px]">edit</span>
+                            </button>
+                          </div>
                           {drivePreviewData.web_view_link && (
                             <a href={drivePreviewData.web_view_link} target="_blank" rel="noreferrer" className="text-xs text-slate-600 dark:text-slate-400 hover:text-white underline">
                               Open in Drive
@@ -640,6 +790,14 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                     }
                     return (
                       <div data-testid="quicklook-doc" className="p-4 text-slate-800 dark:text-slate-200 max-w-3xl mx-auto">
+                        {docLoadError && (
+                          <p data-testid="doc-load-error" className="text-sm text-red-500 mb-2 text-right">{docLoadError}</p>
+                        )}
+                        <div className="flex justify-end mb-2">
+                          <button data-testid="doc-edit-btn" onClick={handleEditClick} className="p-1 text-slate-500 hover:text-white" title="Edit">
+                            <span className="material-symbols-outlined text-[18px]">edit</span>
+                          </button>
+                        </div>
                         {blocks.map((b, i) => {
                           if (b.type === 'heading') {
                             return (

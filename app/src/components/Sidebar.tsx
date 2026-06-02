@@ -36,7 +36,7 @@ interface NavItem {
   tasksBadge?: boolean
   specsBadge?: boolean
   backlogBadge?: boolean
-
+  iconColor?: string
 }
 
 interface NavGroup {
@@ -60,17 +60,17 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Integrations',
     icon: 'hub',
     items: [
-      { to: '/gems', icon: 'auto_awesome', label: 'Gems', featureLabel: 'Gems' },
-      { to: '/files', icon: 'folder', label: 'Docs', featureLabel: 'Projects' },
-      { to: '/ostk', icon: 'terminal', label: 'ostk', featureLabel: 'ostk' },
-      { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
-      { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: 'Gmail', gmailBadge: true },
-      { to: '/calendar', icon: 'calendar_month', label: 'Calendar', featureLabel: 'Calendar' },
-      { to: '/imessage', icon: 'sms', label: 'Messages', featureLabel: 'iMessage' },
-      { to: '/slack', icon: 'chat', label: 'Slack', featureLabel: 'Slack' },
-      { to: '/github', icon: 'code', label: 'GitHub', featureLabel: 'GitHub' },
-      { to: '/jira', icon: 'bug_report', label: 'Jira', featureLabel: 'Jira' },
-      { to: '/confluence', icon: 'menu_book', label: 'Confluence', featureLabel: 'Confluence' },
+      { to: '/gems', icon: 'auto_awesome', label: 'Gems', featureLabel: 'Gems', iconColor: 'text-yellow-600 dark:text-yellow-400' },
+      { to: '/files', icon: 'folder', label: 'Projects', featureLabel: 'Projects', iconColor: 'text-blue-600 dark:text-blue-400' },
+      { to: '/ostk', icon: 'terminal', label: 'ostk', featureLabel: 'ostk', iconColor: 'text-green-600 dark:text-green-400' },
+      { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive', iconColor: 'text-indigo-600 dark:text-indigo-400' },
+      { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: 'Gmail', gmailBadge: true, iconColor: 'text-red-600 dark:text-red-400' },
+      { to: '/calendar', icon: 'calendar_month', label: 'Calendar', featureLabel: 'Calendar', iconColor: 'text-teal-600 dark:text-teal-400' },
+      { to: '/imessage', icon: 'sms', label: 'Messages', featureLabel: 'iMessage', iconColor: 'text-lime-600 dark:text-lime-400' },
+      { to: '/slack', icon: 'chat', label: 'Slack', featureLabel: 'Slack', iconColor: 'text-purple-600 dark:text-purple-400' },
+      { to: '/github', icon: 'code', label: 'GitHub', featureLabel: 'GitHub', iconColor: 'text-slate-500 dark:text-slate-300' },
+      { to: '/jira', icon: 'bug_report', label: 'Jira', featureLabel: 'Jira', iconColor: 'text-blue-700 dark:text-blue-400' },
+      { to: '/confluence', icon: 'menu_book', label: 'Confluence', featureLabel: 'Confluence', iconColor: 'text-cyan-600 dark:text-cyan-400' },
     ],
   },
 ]
@@ -78,10 +78,10 @@ const NAV_GROUPS: NavGroup[] = [
 // All items for route-based lookups (preserves featureLabel for feature filtering)
 const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/', icon: 'home', label: 'Home', featureLabel: null },
-  { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks', tasksBadge: true },
-  { to: '/specs', icon: 'article', label: 'Specs', featureLabel: 'Specs', specsBadge: true },
-  { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
-  { to: '/break', icon: 'sports_esports', label: 'The Arcade', featureLabel: 'The Arcade' },
+  { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks', tasksBadge: true, iconColor: 'text-emerald-600 dark:text-emerald-400' },
+  { to: '/specs', icon: 'article', label: 'Specs', featureLabel: 'Specs', specsBadge: true, iconColor: 'text-violet-600 dark:text-violet-400' },
+  { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents', iconColor: 'text-sky-600 dark:text-sky-400' },
+  { to: '/break', icon: 'sports_esports', label: 'The Arcade', featureLabel: 'The Arcade', iconColor: 'text-rose-600 dark:text-rose-400' },
   ...NAV_GROUPS.flatMap((g) => g.items),
 ]
 
@@ -147,7 +147,7 @@ function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, openTasks
       >
         {({ isActive }) => (
           <>
-            <Icon name={item.icon} filled={iconFilled === 'filled' ? true : isActive} className="text-xl" />
+            <Icon name={item.icon} filled={iconFilled === 'filled' ? true : isActive} className={`text-xl ${!isActive && item.iconColor ? item.iconColor : ''}`} />
             <span className="text-sm font-medium">{item.label}</span>
             {item.badge && activeAgents > 0 && (
               <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
@@ -727,7 +727,7 @@ export function Sidebar() {
           >
             {({ isActive }) => (
               <>
-                <Icon name={item.icon} filled={iconStyle === 'filled' ? true : isActive} className="text-xl" />
+                <Icon name={item.icon} filled={iconStyle === 'filled' ? true : isActive} className={`text-xl ${!isActive && item.iconColor ? item.iconColor : ''}`} />
                 <span className="text-sm font-medium">{item.label}</span>
                 {item.badge && activeAgents > 0 && (
                   <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
@@ -814,6 +814,19 @@ export function Sidebar() {
             <span className="text-sm font-medium">Switch to personal</span>
           </button>
         )}
+        <NavLink
+          data-testid="activity-nav-link"
+          to="/activity"
+          onClick={() => setMobileOpen(false)}
+          className={({ isActive }) => utilLinkClass(isActive)}
+        >
+          {({ isActive }) => (
+            <>
+              <Icon name="monitoring" filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
+              <span className="text-xs font-medium">Activity</span>
+            </>
+          )}
+        </NavLink>
         {usageEnabled && (
           <NavLink
             data-testid="usage-nav-link"

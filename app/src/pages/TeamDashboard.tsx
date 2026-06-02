@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import Icon from '../components/Icon'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import { api } from '../lib/api'
 import { useAppStore } from '../stores/app'
 
@@ -144,20 +144,18 @@ export default function TeamDashboard() {
 
   if (!enterpriseUser || enterpriseUser.role !== 'admin') {
     return (
-      <div className="flex-1 flex flex-col">
-        <TopBar title="Team" />
+      <PageShell title="Team">
         <div className="flex-1 flex items-center justify-center">
           <p className={labelClass}>
             Team management is only available to admins.
           </p>
         </div>
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="flex-1 flex flex-col">
-      <TopBar title="Team" />
+    <PageShell title="Team">
       <div className="flex-1 overflow-y-auto p-6 max-w-5xl mx-auto w-full space-y-6">
         {loading && (
           <div className="flex items-center justify-center py-12">
@@ -478,6 +476,6 @@ export default function TeamDashboard() {
           </>
         )}
       </div>
-    </div>
+    </PageShell>
   )
 }

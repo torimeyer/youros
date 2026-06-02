@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { formatDate } from '../lib/time'
 import Icon from '../components/Icon'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import { ConnectCard, LoadingState, EmptyState, ErrorBanner } from '../components/ui'
 import { api } from '../lib/api'
 
@@ -178,12 +178,9 @@ export default function GitHub() {
 
   if (loading) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-        <TopBar title="GitHub" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+      <PageShell title="GitHub">
           <LoadingState variant="spinner" />
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
@@ -229,9 +226,7 @@ export default function GitHub() {
       }
     }
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-        <TopBar title="GitHub" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+      <PageShell title="GitHub">
           <ConnectCard
             icon="code"
             accentColor="#94a3b8"
@@ -264,16 +259,13 @@ export default function GitHub() {
               </div>
             }
           />
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   if (showConnectCard) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-        <TopBar title="GitHub" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+      <PageShell title="GitHub">
           <ConnectCard
             icon="code"
             accentColor="#94a3b8"
@@ -319,15 +311,12 @@ export default function GitHub() {
             }
             error={connectError ?? undefined}
           />
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-      <TopBar title="GitHub" />
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+    <PageShell title="GitHub">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
@@ -440,7 +429,6 @@ export default function GitHub() {
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </PageShell>
   )
 }

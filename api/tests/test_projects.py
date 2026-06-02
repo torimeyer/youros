@@ -6,6 +6,21 @@ from unittest.mock import patch
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolate_home(tmp_path):
+    """Isolate HOME so _projects_root() does not pick up the real ~/myos.
+
+    _projects_root() now checks ~/myos, ~/.myos/projects, ~/.myos/collections
+    before falling back to TORIOS_DIR. On a dev machine that actually has a
+    ~/myos folder, that real directory would shadow the TORIOS_DIR these tests
+    patch, so the suite must run against a clean home. Tests that need a
+    specific home patch routers.projects.Path.home themselves inside the test
+    body, which nests over this fixture for that block.
+    """
+    with patch("routers.projects.Path.home", return_value=tmp_path):
+        yield
+
+
 # --- /projects endpoint ---
 
 

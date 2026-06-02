@@ -768,3 +768,63 @@ describe('TopBar flow spacer', () => {
     expect(spacer?.className).toContain('sm:h-16')
   })
 })
+
+// Regression guard: TopBar title must be readable in BOTH light and dark mode
+// (→2055). The title element must carry text-slate-900 (readable on the
+// white header background in light mode) and dark:text-white (readable in
+// dark mode). It must NOT carry an unconditional `text-white` class that
+// would make it invisible on the white header in light mode.
+describe('TopBar title contrast (→2055)', () => {
+  beforeEach(() => {
+    useNotificationStore.setState({ notifications: [], toastIds: [] })
+    useNotificationsStore.setState({ notifications: [], wsConnected: false })
+    useAppStore.setState({ osName: 'yourOS', chatOpen: false, chatWidth: 400 })
+  })
+
+  it('renders the title text passed via the title prop', () => {
+    render(
+      <BrowserRouter>
+        <TopBar title="Inbox" />
+      </BrowserRouter>
+    )
+    const titleEl = document.querySelector('[data-testid="topbar-title"]')
+    expect(titleEl).not.toBeNull()
+    expect(titleEl?.textContent).toBe('Inbox')
+  })
+
+  it('title element has text-slate-900 for light-mode contrast', () => {
+    render(
+      <BrowserRouter>
+        <TopBar title="Dashboard" />
+      </BrowserRouter>
+    )
+    const titleEl = document.querySelector('[data-testid="topbar-title"]')
+    expect(titleEl).not.toBeNull()
+    expect(titleEl?.className).toContain('text-slate-900')
+  })
+
+  it('title element has dark:text-white for dark-mode contrast', () => {
+    render(
+      <BrowserRouter>
+        <TopBar title="Dashboard" />
+      </BrowserRouter>
+    )
+    const titleEl = document.querySelector('[data-testid="topbar-title"]')
+    expect(titleEl).not.toBeNull()
+    expect(titleEl?.className).toContain('dark:text-white')
+  })
+
+  it('title element does not carry an unconditional text-white class', () => {
+    render(
+      <BrowserRouter>
+        <TopBar title="Dashboard" />
+      </BrowserRouter>
+    )
+    const titleEl = document.querySelector('[data-testid="topbar-title"]')
+    expect(titleEl).not.toBeNull()
+    // Split on spaces and check that none of the individual class tokens is
+    // the bare 'text-white' string (dark:text-white is fine).
+    const classes = (titleEl?.className ?? '').split(/\s+/)
+    expect(classes).not.toContain('text-white')
+  })
+})

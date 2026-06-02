@@ -140,10 +140,8 @@ describe('People page — unified contact picker', () => {
     setup()
     await waitFor(() => screen.getByTestId('contact-picker-input'))
     fireEvent.change(screen.getByTestId('contact-picker-input'), { target: { value: '+1415' } })
-    await waitFor(() => {
-      const rows = screen.getAllByTestId('contact-picker-convo-row')
-      expect(rows.some((r) => r.textContent?.includes('Jen Wilson'))).toBe(true)
-    })
+    const rows = await screen.findAllByTestId('contact-picker-convo-row')
+    expect(rows.some((r) => r.textContent?.includes('Jen Wilson'))).toBe(true)
   })
 
   it('shows no results when nothing matches', async () => {

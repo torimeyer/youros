@@ -20,13 +20,12 @@ const rankLabel = (r: number) =>
   r === 1 ? 'A' : r === 11 ? 'J' : r === 12 ? 'Q' : r === 13 ? 'K' : String(r)
 const isRed = (s: Suit) => s === 'hearts' || s === 'diamonds'
 
-// Hopper-esque muted cinematic palette
+// Classic playing-card colors.
 const COLORS = {
-  red: '#9d2424',      // Brick red
-  black: '#1a1c1e',    // Deep charcoal
-  parchment: '#e2e2d5', // Muted, dusty paper
-  shadow: '#2a2d34',   // Cool shadow
-  highlight: '#f4f4eb' // Stark artificial light
+  red: '#dc2626',
+  black: '#1a1c1e',
+  parchment: '#f1f5f9',
+  highlight: '#ffffff',
 }
 
 /* -- types ---------------------------------------------------------------- */
@@ -116,7 +115,7 @@ function CardBack({ d }: { d: Dims }) {
         width: d.w,
         height: d.h,
         flexShrink: 0,
-        backgroundColor: '#16302b', // Deep night green
+        backgroundColor: '#1e40af', // Classic blue card back
         backgroundImage: [
           'linear-gradient(135deg, rgba(255,255,255,0.05) 25%, transparent 25%)',
           'linear-gradient(225deg, rgba(255,255,255,0.05) 25%, transparent 25%)',
@@ -125,7 +124,7 @@ function CardBack({ d }: { d: Dims }) {
         ].join(','),
         backgroundSize: '20px 20px',
       }}
-      className="rounded border border-[#2d4f48] shadow-[2px_2px_10px_rgba(0,0,0,0.5)]"
+      className="rounded border border-[#1e3a8a] shadow-[2px_2px_10px_rgba(0,0,0,0.5)]"
     />
   )
 }
@@ -143,7 +142,7 @@ function CardFace({
   const rank = rankLabel(card.rank)
   const suit = SUIT_SYMBOL[card.suit]
   
-  // Lore-driven face card descriptions (placeholders for portraits)
+  // Face cards (A/J/Q/K) get a simple centered emblem.
   const isFaceCard = card.rank > 10 || card.rank === 1
   
   return (
@@ -393,18 +392,18 @@ export default function Solitaire() {
       ref={boardRef}
       className="flex w-full flex-col rounded shadow-2xl overflow-hidden"
       style={{
-        background: '#1a1c1e', // Dark night city background
+        background: '#15803d', // Classic green felt
         padding: 24,
         gap: 20,
       }}
     >
       <div className="flex flex-col gap-1 border-b border-white/10 pb-4">
-        <h2 className="text-2xl font-bold tracking-tight text-[#f4f4eb] uppercase">The Midnight Diner</h2>
-        <p className="text-xs text-slate-500 font-medium">Find order in the urban isolation.</p>
+        <h2 className="text-2xl font-bold tracking-tight text-white">Solitaire</h2>
+        <p className="text-xs font-medium text-white/70">Move every card to the four piles up top.</p>
       </div>
 
-      <p className="text-[10px] uppercase tracking-widest text-slate-400/50">
-        Shift patrons to their seats. Double-click to send them home.
+      <p className="text-[10px] uppercase tracking-widest text-white/50">
+        Stack down by alternating color. Double-click to send a card up top.
       </p>
 
       {/* top row: stock, waste, spacer, 4 foundations */}

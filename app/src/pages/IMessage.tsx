@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react'
 import { formatSmartDate } from '../lib/time'
 import Icon from '../components/Icon'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import { ConnectCard, LoadingState, EmptyState, ErrorBanner } from '../components/ui'
 import { api } from '../lib/api'
 
@@ -507,20 +507,15 @@ export default function IMessage() {
 
   if (connectionState === 'loading' && conversations.length === 0) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-        <TopBar title="People" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+      <PageShell title="People">
           <LoadingState variant="spinner" />
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   if (connectionState === 'not_connected') {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-        <TopBar title="People" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+      <PageShell title="People">
           <ConnectCard
             icon="chat_bubble"
             accentColor="#22c55e"
@@ -541,15 +536,12 @@ export default function IMessage() {
               ) : null
             }
           />
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-      <TopBar title="People" />
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+    <PageShell title="People">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
@@ -609,7 +601,7 @@ export default function IMessage() {
               onSelectConversation={handleSelectChat}
               contacts={contacts}
               conversations={conversations}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
             <div className="flex gap-2">
               <input
@@ -623,7 +615,7 @@ export default function IMessage() {
                     handleSend(sendRecipient, sendText)
                   }
                 }}
-                className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
               <button
                 onClick={() => handleSend(sendRecipient, sendText)}
@@ -727,7 +719,7 @@ export default function IMessage() {
                                       if (e.key === 'Escape') { setSaveContactChatId(null); setSaveContactName('') }
                                     }}
                                     autoFocus
-                                    className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                                    className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                                   />
                                   <button
                                     data-testid="save-contact-submit"
@@ -855,7 +847,6 @@ export default function IMessage() {
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </PageShell>
   )
 }

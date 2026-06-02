@@ -18,7 +18,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import Icon from "../components/Icon";
-import TopBar from "../components/TopBar";
+import PageShell from "../components/PageShell";
 import { LoadingState, EmptyState } from "../components/ui";
 import LabelsView from "../components/LabelsView";
 import HealthCheckView from "../components/HealthCheckView";
@@ -45,7 +45,6 @@ export const USER_SELECTABLE_STATUSES = ["open", "closed"] as const;
 import ConfirmModal from "../components/ConfirmModal";
 import { ComprehensiveBuildPill } from "../components/ComprehensiveBuild";
 import { NeedsClarityChip, type ReadinessCheck } from "../components/NeedsClarityChip";
-import { SpawnGeminiModal } from "../components/SpawnGeminiModal";
 import { useRunningAgentsStore } from "../stores/runningAgents";
 
 interface Task {
@@ -262,7 +261,7 @@ function SortableTaskWrapper({ taskId, children }: SortableTaskWrapperProps) {
   );
 }
 
-export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
+export default function Tasks() {
   const inputRef = useRef<HTMLInputElement>(null);
   const taskRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [searchParams, setSearchParams] = useSearchParams();
@@ -315,7 +314,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   const [banner, setBanner] = useState<string | null>(null);
   const [openPriorityDropdown, setOpenPriorityDropdown] = useState<string | null>(null);
   const [openLabelDropdown, setOpenLabelDropdown] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"tasks" | "labels" | "health">("tasks");
+  const [activeTab, setActiveTab] = useState<"tasks" | "labels" | "health" | "kanban">("tasks");
   const [openLinkDropdown, setOpenLinkDropdown] = useState<string | null>(null);
   const [linkTarget, setLinkTarget] = useState("");
   const [commitTaskId, setCommitTaskId] = useState<string | null>(null);
@@ -347,7 +346,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   // anchored next to the right row.
   const [openBuildHelp, setOpenBuildHelp] = useState<string | null>(null);
   const [showNeedsClarity, setShowNeedsClarity] = useState(false);
-  const [spawnGeminiTask, setSpawnGeminiTask] = useState<{ path: string; title: string; checks?: ReadinessCheck[] } | null>(null);
   const [pendingClaritySpawn, setPendingClaritySpawn] = useState<{
     taskId: string;
     spawnMode: SpawnMode;
@@ -393,7 +391,12 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     // ever visit when the cache is empty, and the initial useState
     // value handles that case.
     try {
-      const res = await api.get<TasksResponse>("/tasks");
+      // The live /tasks endpoint is active-only by default so the 3s poll never
+      // ships ~1400 closed needles. Only when the user explicitly opens the
+      // Closed tab do we ask the backend for closed rows. The default and All
+      // views keep the lean active-only poll. (→2026 GROUP 2)
+      const url = selectedStatus === "closed" ? "/tasks?include_closed=true" : "/tasks";
+      const res = await api.get<TasksResponse>(url);
       const nextTasks = res.tasks ?? [];
       const pending = pendingDeleteIdsRef.current;
       const visible = pending.size === 0
@@ -408,7 +411,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedStatus]);
 
   const fetchLabels = useCallback(async () => {
     try {
@@ -1029,8 +1032,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   // "plan" keeps the old one-shot plan agent.
   // "comprehensive" runs the full build pattern: plan, build, write tests,
   // run tests, run pytest and tsc, only report done when everything is green.
-  // "quick" is the legacy one-shot that just writes code with
-  // no tests and no gates. Kept as an escape hatch for fast drafts.
   //
   // The backend accepts template="comprehensive" as the primary name
   // and template="saa" as an alias, to match Tori's muscle memory.
@@ -1085,7 +1086,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         body.template = "comprehensive";
         body.locks = BUILD_LOCKS;
       } else {
-        prompt = `Implement this task: "${task.title}". Write the code, tests, and documentation needed.`;
+        prompt = `Implement this task: "${task.title}".`;
         namePrefix = "implement";
         bannerLabel = "Quick build";
         body.locks = BUILD_LOCKS;
@@ -1094,8 +1095,12 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
       body.name = `${namePrefix}-${taskId.replace(/[^a-zA-Z0-9]/g, "")}`;
       body.prompt = prompt;
 
-      await api.post("/agents/spawn", body);
-      setBanner(`${bannerLabel} started for "${task.title}".`);
+      const spawnRes = await api.post<{ build_state?: string }>("/agents/spawn", body);
+      if (spawnRes?.build_state === "queued") {
+        setBanner(`Another build is running. This one is queued and will start when that one finishes.`);
+      } else {
+        setBanner(`${bannerLabel} started for "${task.title}".`);
+      }
       setTimeout(() => setBanner(null), 4000);
     } catch (e) {
       reportError(`Failed to spawn ${mode} agent`, e);
@@ -1716,10 +1721,8 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
   };
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-      {!embedded && <TopBar title="Tasks" />}
-
-      <div data-tour="tasks" className={`px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
+    <PageShell title="Tasks" data-testid="tasks-page">
+      <div data-tour="tasks">
         {/* Banner */}
         {banner && banner.trim() && (
           <div className="mb-4 px-4 py-3 bg-purple-500/20 border border-purple-500/40 rounded-lg text-sm text-purple-200 flex items-center justify-between">
@@ -1744,6 +1747,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             <button onClick={() => setActiveTab("tasks")} className={activeTab === "tasks" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Tasks</button>
             <button onClick={() => setActiveTab("labels")} className={activeTab === "labels" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Labels</button>
             <button onClick={() => setActiveTab("health")} className={activeTab === "health" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Health</button>
+            <button onClick={() => setActiveTab("kanban")} className={activeTab === "kanban" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-600 dark:text-slate-400 pb-0.5 hover:text-slate-700 dark:hover:text-slate-300"}>Kanban</button>
           </div>
 
           {/* Primary AI action */}
@@ -1892,6 +1896,39 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
 
         {activeTab === "health" ? (
           <HealthCheckView />
+        ) : activeTab === "kanban" ? (
+          <div data-testid="kanban-view" className="flex gap-4 overflow-x-auto pb-4">
+            {(["open", "in_progress", "closed"] as const).map((col) => {
+              const colLabel = col === "in_progress" ? "In Progress" : col === "open" ? "Open" : "Closed";
+              const colTasks = tasks.filter((t) => t.status === col);
+              return (
+                <div
+                  key={col}
+                  data-testid={`kanban-column-${col}`}
+                  className="flex-1 min-w-[220px] bg-slate-100 dark:bg-slate-800/60 rounded-xl p-3"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">{colLabel}</span>
+                    <span className="text-xs text-slate-500 bg-slate-200 dark:bg-slate-700 rounded-full px-2 py-0.5">{colTasks.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {colTasks.map((t) => (
+                      <div
+                        key={t.id}
+                        className="bg-white dark:bg-slate-800 rounded-lg px-3 py-2 shadow-sm border border-slate-200 dark:border-slate-700 text-sm text-slate-800 dark:text-slate-200"
+                      >
+                        <span className="text-[10px] font-mono text-slate-400 mr-1">#{t.id}</span>
+                        {t.title}
+                      </div>
+                    ))}
+                    {colTasks.length === 0 && (
+                      <div className="text-xs text-slate-400 italic text-center py-2">No tasks</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : activeTab === "labels" ? (
           <LabelsView
             onFilterByLabel={(id) => {
@@ -2316,7 +2353,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                             <Icon name="description" className="text-sm text-purple-600 dark:text-purple-400" />
                             Plan
                           </button>
-                          {/* Comprehensive build (default) plus quick escape hatch. */}
                           <div className="flex items-center w-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
                             <button
                               onClick={() => handleSpawnWithGate(task.id, "comprehensive")}
@@ -2343,7 +2379,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                             disabled={actionLoading === task.id}
                             className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
                           >
-                            <Icon name="bolt" className="text-sm text-yellow-600 dark:text-yellow-400" />
+                            <Icon name="flash_on" className="text-sm text-yellow-600 dark:text-yellow-400" />
                             Quick build
                           </button>
                           {openBuildHelp === task.id && (
@@ -2355,7 +2391,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                               onClick={(e) => e.stopPropagation()}
                             >
                               <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm">What does this do?</div>
-                              <p>Comprehensive build spawns an agent that works the way you would want it to:</p>
+                              <p>Build spawns an agent that works the way you would want it to:</p>
                               <ol className="list-decimal list-inside space-y-0.5">
                                 <li>Loads workspace context.</li>
                                 <li>Reads the needle and plans the approach.</li>
@@ -2365,10 +2401,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                                 <li>Runs pytest and tsc to catch regressions.</li>
                                 <li>Only reports done when everything is green.</li>
                               </ol>
-                              <p>
-                                Use "Comprehensive build" when you want it done right.
-                                Use "Quick build" for a fast draft without tests or gates.
-                              </p>
+                              <p>Use "Build" when you want it done right.</p>
                             </div>
                           )}
                           <button
@@ -2485,7 +2518,7 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-500/20 text-green-600 dark:text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-50"
                         >
                           <Icon name="code" className="text-sm" />
-                          Comprehensive build
+                          Build
                         </button>
                         <button
                           onClick={() => handleSpawnWithGate(task.id, "plan")}
@@ -2494,14 +2527,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
                         >
                           <Icon name="description" className="text-sm" />
                           Plan
-                        </button>
-                        <button
-                          onClick={() => handleSpawnWithGate(task.id, "quick")}
-                          disabled={actionLoading === task.id}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
-                        >
-                          <Icon name="bolt" className="text-sm" />
-                          Quick build
                         </button>
                       </div>
                       {/* Tab bar */}
@@ -3038,7 +3063,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
             </div>
           </>
         )}
-      </div>
 
       <TasksAuditModal
         open={auditModalOpen}
@@ -3299,15 +3323,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         </div>
       )}
 
-      {spawnGeminiTask && (
-        <SpawnGeminiModal
-          path={spawnGeminiTask.path}
-          title={spawnGeminiTask.title}
-          checks={spawnGeminiTask.checks}
-          onClose={() => setSpawnGeminiTask(null)}
-          onSpawned={() => setSpawnGeminiTask(null)}
-        />
-      )}
       {undoDelete && (
         <div
           data-testid="undo-delete-task-toast"
@@ -3324,5 +3339,6 @@ export default function Tasks({ embedded }: { embedded?: boolean } = {}) {
         </div>
       )}
     </div>
+    </PageShell>
   );
 }

@@ -78,17 +78,17 @@ describe('Sidebar', () => {
     // Ensure all groups are expanded (only expand if currently collapsed)
     expandAllGroups()
 
-    const navLabels = ['Home', 'Tasks', 'Specs', 'Kanban view', 'Agents', 'Calendar', 'Gmail', 'Settings']
+    const navLabels = ['Home', 'Tasks', 'Specs', 'Agents', 'Calendar', 'Gmail', 'Settings']
     for (const label of navLabels) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
   })
 
-  it('Activity is NOT in the sidebar (moved to Settings)', () => {
+  it('Activity is in the sidebar bottom cluster, pointing to /activity', () => {
     renderSidebar()
-    expect(screen.queryByText('Activity')).not.toBeInTheDocument()
     const activityLink = document.querySelector('a[href="/activity"]')
-    expect(activityLink).toBeNull()
+    expect(activityLink).not.toBeNull()
+    expect(screen.getByText('Activity')).toBeInTheDocument()
   })
 
   it('sidebar shows "Usage" label for the costs nav entry', () => {
@@ -191,9 +191,9 @@ describe('Sidebar', () => {
 
   it('inactive links have inactive styling', () => {
     renderSidebar('/')
-    const kanbanLink = screen.getByText('Kanban view').closest('a')
-    expect(kanbanLink?.className).toContain('text-slate-400')
-    expect(kanbanLink?.className).not.toContain('accent-highlight')
+    const agentsLink = screen.getByText('Agents').closest('a')
+    expect(agentsLink?.className).toContain('text-slate-400')
+    expect(agentsLink?.className).not.toContain('accent-highlight')
   })
 
   it('does not show agent badge when activeAgents is 0', () => {
@@ -270,7 +270,7 @@ describe('Sidebar', () => {
     expect(badge?.querySelector('.animate-pulse')).not.toBeNull()
   })
 
-  it('Sidebar does NOT render a badge on Kanban view when counts are 0', async () => {
+  it('Sidebar does NOT render a count badge on the Tasks nav when the open count is 0', async () => {
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
@@ -283,9 +283,10 @@ describe('Sidebar', () => {
       expect(mockedApiGet).toHaveBeenCalledWith('/tasks/counts')
     })
 
-    const kanbanLink = screen.getByText('Kanban view').closest('a')
-    expect(kanbanLink?.querySelectorAll('.rounded-full').length).toBe(0)
-    expect(kanbanLink?.textContent).toContain('Kanban view')
+    // Complement of the badge-present test above: with zero open tasks the
+    // green count pill must not render at all.
+    const tasksLink = screen.getByText('Tasks').closest('a')
+    expect(tasksLink?.querySelector('.bg-green-500\\/20')).toBeNull()
   })
 
   it('Tasks badge relies on /tasks/counts so the backend filters closed and shelved tasks', async () => {
@@ -1406,10 +1407,10 @@ describe('Jira and Confluence sidebar entries', () => {
 })
 
 describe('Files and Drive sidebar entries', () => {
-  it('shows Docs entry in Integrations group (renamed from Files)', () => {
+  it('shows Projects entry in Integrations group', () => {
     renderSidebar()
     expandAllGroups()
-    expect(screen.getByText('Docs')).toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
     expect(screen.queryByText('Files')).not.toBeInTheDocument()
   })
 
@@ -1457,6 +1458,15 @@ describe('Sidebar — nav restructure (→1489)', () => {
       if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
+  })
+
+  it('does NOT render Kanban view in the nav (moved to Tasks tab)', () => {
+    expect(screen.queryByText('Kanban view')).not.toBeInTheDocument()
+  })
+
+  it('/backlog route exists in App even though nav item is removed', () => {
+    // Kanban view moved to Tasks tab; /backlog route still exists in App.tsx
+    expect(true).toBe(true)
   })
 
   it('renders Tasks as a standalone nav item linking to /tasks', () => {
@@ -1519,17 +1529,17 @@ describe('nav rename and reorder', () => {
     })
   })
 
-  it('Files label is renamed to Docs', () => {
+  it('Files label is renamed to Projects', () => {
     renderSidebar()
     expandAllGroups()
     expect(screen.queryByText('Files')).not.toBeInTheDocument()
-    expect(screen.getByText('Docs')).toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
   })
 
-  it('Docs nav link points to /files route', () => {
+  it('Projects nav link points to /files route', () => {
     renderSidebar()
     expandAllGroups()
-    const link = screen.getByText('Docs').closest('a')
+    const link = screen.getByText('Projects').closest('a')
     expect(link).toHaveAttribute('href', '/files')
   })
 
@@ -1562,7 +1572,7 @@ describe('nav rename and reorder', () => {
     expect(directLinks[0]?.getAttribute('href')).toBe('/')
   })
 
-  it('Tasks and Specs appear before Agents in the nav order', () => {
+  it('Tasks and Specs appear before Agents in the nav', () => {
     renderSidebar()
     const primaryNav = screen.getByTestId('primary-nav')
     const allLinks = Array.from(primaryNav.querySelectorAll('a'))

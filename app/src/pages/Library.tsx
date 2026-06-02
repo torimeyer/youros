@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import TopBar from '../components/TopBar';
+import PageShell from '../components/PageShell';
 import { api } from '../lib/api';
 
 interface Source {
@@ -65,9 +65,7 @@ export default function Library() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <TopBar title="Library" />
-
+    <PageShell title="Library" fullHeight>
       <div className="flex-1 overflow-auto p-6">
         {error && (
           <div className="mb-4 p-3 rounded bg-red-50 text-red-700 text-sm">{error}</div>
@@ -152,7 +150,7 @@ export default function Library() {
           onUploaded={() => { setShowUpload(false); loadSources(); }}
         />
       )}
-    </div>
+    </PageShell>
   );
 }
 

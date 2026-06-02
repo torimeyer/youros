@@ -272,14 +272,17 @@ async def test_slack_disconnect(client):
 
 class TestSlackService:
     def test_is_connected_false(self, tmp_path):
-        with patch("services.slack.TOKEN_PATH", tmp_path / "no_such_file.json"):
+        with patch("services.slack.TOKEN_PATH", tmp_path / "no_such_file.json"), \
+             patch("services.slack.WORKSPACES_DIR", tmp_path / "no_workspaces"):
             from services.slack import is_connected
             assert is_connected() is False
 
     def test_save_and_get_tokens(self, tmp_path):
         token_path = tmp_path / "slack_token.json"
+        workspaces_dir = tmp_path / "slack_workspaces"
         with patch("services.slack.TOKEN_PATH", token_path), \
-             patch("services.slack.MYOS_DIR", tmp_path):
+             patch("services.slack.MYOS_DIR", tmp_path), \
+             patch("services.slack.WORKSPACES_DIR", workspaces_dir):
             from services.slack import save_tokens, get_tokens, is_connected
             save_tokens({"access_token": "xoxb-test", "team_name": "Test"})
             assert is_connected() is True

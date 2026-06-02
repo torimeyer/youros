@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import Icon from '../components/Icon'
 import { api } from '../lib/api'
 
@@ -64,8 +64,7 @@ export default function Upgrade() {
   const bothBehind = status?.myos.behind && status?.ostk.behind
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950">
-      <TopBar title="Updates" />
+    <PageShell title="Updates">
       <main className="pt-24 pb-12 px-8 max-w-2xl">
         <p className="text-slate-600 dark:text-slate-400 mb-8 text-sm">
           Keep everything up to date to get the latest features and fixes.
@@ -137,7 +136,7 @@ export default function Upgrade() {
           </div>
         )}
       </main>
-    </div>
+    </PageShell>
   )
 }
 

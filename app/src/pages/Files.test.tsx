@@ -115,7 +115,7 @@ describe('Files page', () => {
 
   it('renders the page title', async () => {
     renderFiles()
-    expect(screen.getByRole('heading', { name: 'Files' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { name: 'Projects' }).length).toBeGreaterThan(0)
   })
 
   it('has a Refresh button', async () => {
@@ -327,7 +327,7 @@ describe('Files page', () => {
     await waitFor(() => {
       expect(screen.getByText('Back')).toBeInTheDocument()
     })
-    expect(screen.getByText('Projects')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Projects' })).toBeInTheDocument()
   })
 
   it('Back button returns to parent level', async () => {
@@ -372,10 +372,10 @@ describe('Files page', () => {
     fireEvent.click(screen.getByText('my-app').closest('button')!)
 
     await waitFor(() => {
-      expect(screen.getByText('Projects')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Projects' })).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Projects'))
+    fireEvent.click(screen.getByRole('button', { name: 'Projects' }))
 
     await waitFor(() => {
       expect(mockedApiGet).toHaveBeenCalledWith('/projects')

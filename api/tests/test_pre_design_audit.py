@@ -60,7 +60,10 @@ def test_search_codebase_returns_empty_for_nonexistent():
 
 def test_search_codebase_hit_shape(tmp_path):
     """Each hit dict must have 'path' and 'match_type' keys."""
-    (tmp_path / "SomeWidget.tsx").write_text("export function SomeWidget() {}")
+    # search_codebase only looks inside _SRC_DIRS; create the file there.
+    src_dir = tmp_path / "app" / "src"
+    src_dir.mkdir(parents=True)
+    (src_dir / "SomeWidget.tsx").write_text("export function SomeWidget() {}")
     audit = _load_audit_module()
     hits = audit.search_codebase("SomeWidget", tmp_path)
     assert len(hits) > 0
@@ -118,9 +121,14 @@ def test_search_specs_no_match_for_nonexistent(tmp_path):
 
 
 def test_search_specs_finds_match(tmp_path):
-    """search_specs must find the concept when it appears in a spec file."""
-    (tmp_path / "claim-chip.md").write_text(
-        "---\ntitle: claim chip\n---\n\nUses ClaimSourceChip component.\n"
+    """search_specs must find the concept when the filename stem contains all tokens.
+
+    search_specs matches filename stems only (not content) to avoid false positives
+    from specs that merely reference a concept as an example.  'ClaimSourceChip'
+    splits into ['claim', 'source', 'chip'], so the file must be named accordingly.
+    """
+    (tmp_path / "claim-source-chip.md").write_text(
+        "---\ntitle: claim source chip\n---\n\nSpec for the ClaimSourceChip component.\n"
     )
     audit = _load_audit_module()
     result = audit.search_specs("ClaimSourceChip", tmp_path)

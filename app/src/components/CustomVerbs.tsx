@@ -86,7 +86,7 @@ export default function CustomVerbs() {
 
   return (
     <div data-testid="custom-verbs">
-      <h2 className="text-base font-semibold mb-4">Custom commands</h2>
+      <h2 className="text-base font-semibold mb-4 text-slate-900 dark:text-white">Custom commands</h2>
 
       {loading ? (
         <p className="text-sm text-slate-500">Loading...</p>
@@ -127,14 +127,14 @@ export default function CustomVerbs() {
               {available.map((s) => (
                 <li
                   key={s.name}
-                  className="flex items-center gap-3 px-3 py-2 bg-slate-800/30 rounded-lg border border-slate-700/30"
+                  className="flex items-center gap-3 px-3 py-2 bg-slate-100 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700/50"
                 >
                   <code className="text-sm font-mono text-accent-400 shrink-0">{s.name}</code>
-                  <span className="flex-1 text-xs text-slate-400">{s.description}</span>
+                  <span className="flex-1 text-xs text-slate-600 dark:text-slate-400">{s.description}</span>
                   <button
                     data-testid={`adopt-${s.name}`}
                     onClick={() => handleAdopt(s)}
-                    className="shrink-0 text-xs px-2.5 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+                    className="shrink-0 text-xs px-2.5 py-1 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 transition-colors"
                   >
                     Add
                   </button>

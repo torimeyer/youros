@@ -455,7 +455,7 @@ _GEMINI_MODEL_GONE_HELP = (
     "and restart yourOS. You can list the models your key can reach at "
     "https://ai.google.dev/gemini-api/docs/models.\n\n"
     "If the default stopped working for everyone, please report it at "
-    "https://github.com/torimeyer/torios/issues so we can update the "
+    "https://github.com/os-tack/youros/issues so we can update the "
     "built-in default."
 )
 

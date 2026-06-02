@@ -1371,6 +1371,14 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                             Empty draft
                           </span>
                         )}
+                        {doc.task_summary && doc.task_summary.total > 0 && (
+                          <span
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/20 text-slate-500 dark:text-slate-400"
+                            data-testid="task-count-pill"
+                          >
+                            {doc.task_summary.total} tasks
+                          </span>
+                        )}
 
                       </div>
                       <div className="flex items-center gap-4 flex-shrink-0">
@@ -1385,6 +1393,18 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                             })()}
                           </span>
                         )}
+                        <button
+                          type="button"
+                          aria-label="Review spec"
+                          data-testid="review-spec-button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSpawnGeminiSpec({ path: doc.path, title: doc.title, checks: doc.clear_to_build_checks });
+                          }}
+                          className="text-slate-500 hover:text-violet-400 rounded-lg p-1 transition-colors"
+                        >
+                          <Icon name="rate_review" size={18} />
+                        </button>
                         <button
                           type="button"
                           aria-label="Rename spec"

@@ -707,7 +707,7 @@ async def generate_agentfile():
 
     user_name = settings_store.get("user_name", "")
     user_role = settings_store.get("user_role", "")
-    os_name = settings_store.get("os_name", "myOS")
+    os_name = settings_store.get("os_name", "yourOS")
 
     perm = {
         "open": "autonomous",
