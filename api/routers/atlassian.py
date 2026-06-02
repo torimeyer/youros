@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from models.schemas import TaskCreate
 from routers.tasks import create_task
 from services import atlassian as atlassian_service
+from services import atlassian_sync
 from services.oauth_state import oauth_states
 
 router = APIRouter(tags=["atlassian"])
@@ -291,6 +292,7 @@ async def atlassian_status():
         "jira_url": jira_url,
         "confluence_url": confluence_url,
         "expired": expired,
+        "confluence_available": atlassian_sync.confluence_is_available(),
     }
 
 

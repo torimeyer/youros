@@ -272,3 +272,111 @@ async def test_jira_api_error_does_not_crash(isolate_state):
     assert "jira" in result["errors"][0]
     assert "Jira API is down" in result["errors"][0]
     mock_add.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Bug 4 — Confluence 404 log-spam fix
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def reset_confluence_flags():
+    """Reset module-level Confluence 404 guard flags between tests."""
+    atlassian_sync._confluence_not_available = False
+    atlassian_sync._confluence_404_logged = False
+    yield
+    atlassian_sync._confluence_not_available = False
+    atlassian_sync._confluence_404_logged = False
+
+
+# Test 10: Confluence 404 does NOT produce a WARNING log
+@pytest.mark.asyncio
+async def test_confluence_404_does_not_warn(caplog):
+    import logging
+
+    with (
+        patch("services.atlassian.is_connected", return_value=True),
+        patch("services.atlassian.list_assigned_issues", new=AsyncMock(return_value=[])),
+        patch(
+            "services.atlassian.list_recent_pages",
+            new=AsyncMock(side_effect=RuntimeError("Confluence API error (404).")),
+        ),
+        patch("services.atlassian_sync.notifications_service.add"),
+    ):
+        with caplog.at_level(logging.WARNING, logger="services.atlassian_sync"):
+            result = await run_one_tick()
+
+    assert result["ok"] is False
+    assert any("confluence" in e for e in result["errors"])
+    warning_records = [
+        r for r in caplog.records
+        if r.levelno == logging.WARNING and "Confluence" in r.message
+    ]
+    assert len(warning_records) == 0, "404 must not produce a WARNING log"
+
+
+# Test 11: Confluence 404 is logged at INFO exactly once across two ticks
+@pytest.mark.asyncio
+async def test_confluence_404_logged_once_at_info(caplog):
+    import logging
+
+    with (
+        patch("services.atlassian.is_connected", return_value=True),
+        patch("services.atlassian.list_assigned_issues", new=AsyncMock(return_value=[])),
+        patch(
+            "services.atlassian.list_recent_pages",
+            new=AsyncMock(side_effect=RuntimeError("Confluence API error (404).")),
+        ),
+        patch("services.atlassian_sync.notifications_service.add"),
+    ):
+        with caplog.at_level(logging.INFO, logger="services.atlassian_sync"):
+            await run_one_tick()
+            await run_one_tick()
+
+    info_404_records = [
+        r for r in caplog.records
+        if r.levelno == logging.INFO and "404" in r.message
+    ]
+    assert len(info_404_records) == 1, "404 should be logged at INFO exactly once, not per-tick"
+
+
+# Test 12: confluence_is_available() returns False after a 404 tick
+@pytest.mark.asyncio
+async def test_confluence_404_sets_unavailable_flag():
+    assert atlassian_sync.confluence_is_available() is True
+
+    with (
+        patch("services.atlassian.is_connected", return_value=True),
+        patch("services.atlassian.list_assigned_issues", new=AsyncMock(return_value=[])),
+        patch(
+            "services.atlassian.list_recent_pages",
+            new=AsyncMock(side_effect=RuntimeError("Confluence API error (404).")),
+        ),
+        patch("services.atlassian_sync.notifications_service.add"),
+    ):
+        await run_one_tick()
+
+    assert atlassian_sync.confluence_is_available() is False
+
+
+# Test 13: non-404 Confluence errors still log as WARNING (existing behaviour preserved)
+@pytest.mark.asyncio
+async def test_non_404_confluence_error_still_warns(caplog):
+    import logging
+
+    with (
+        patch("services.atlassian.is_connected", return_value=True),
+        patch("services.atlassian.list_assigned_issues", new=AsyncMock(return_value=[])),
+        patch(
+            "services.atlassian.list_recent_pages",
+            new=AsyncMock(side_effect=RuntimeError("Confluence API error (500).")),
+        ),
+        patch("services.atlassian_sync.notifications_service.add"),
+    ):
+        with caplog.at_level(logging.WARNING, logger="services.atlassian_sync"):
+            await run_one_tick()
+
+    warning_records = [
+        r for r in caplog.records
+        if r.levelno == logging.WARNING and "Confluence" in r.message
+    ]
+    assert len(warning_records) == 1, "Non-404 error must still produce exactly one WARNING"

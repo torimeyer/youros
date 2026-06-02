@@ -23,6 +23,18 @@ MYOS_DIR = Path.home() / ".myos"
 STATE_PATH = MYOS_DIR / "atlassian_sync_state.json"
 DEDUP_WINDOW_MINUTES = 30
 
+# Guard flags for Confluence 404 — a valid Jira PAT on a site where Confluence
+# is gated separately produces a stable 404 on every sync tick. Log it once at
+# INFO and suppress further noise; never re-log until the process restarts.
+_confluence_not_available: bool = False
+_confluence_404_logged: bool = False
+
+
+def confluence_is_available() -> bool:
+    """Return False once a Confluence 404 has been seen this process lifetime."""
+    return not _confluence_not_available
+
+
 _DEFAULT_STATE: dict = {
     "jira": {"seen": {}},
     "confluence": {"seen": {}},
@@ -133,8 +145,18 @@ async def run_one_tick() -> dict:
             )
             confluence_new += 1
     except Exception as exc:
+        global _confluence_not_available, _confluence_404_logged
         errors.append(f"confluence: {exc}")
-        logger.warning("Atlassian sync: Confluence error: %s", exc)
+        if "404" in str(exc):
+            _confluence_not_available = True
+            if not _confluence_404_logged:
+                logger.info(
+                    "Atlassian sync: Confluence not available on this site (404). "
+                    "Future occurrences will be suppressed."
+                )
+                _confluence_404_logged = True
+        else:
+            logger.warning("Atlassian sync: Confluence error: %s", exc)
 
     state["last_run_at"] = datetime.now(timezone.utc).isoformat()
     _save_state(state)
