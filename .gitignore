@@ -52,3 +52,8 @@ config/
 
 # transient scratch dumps (Drive exports, session notes); never commit
 .tmp/
+
+# User-local specs and drafts live in ~/.myos/specs/. Never commit (->1377, fresh-install leak).
+# Use `ostk doc draft` / `ostk doc promote`; never commit docs/spec or docs/draft contents.
+docs/spec/
+docs/draft/
