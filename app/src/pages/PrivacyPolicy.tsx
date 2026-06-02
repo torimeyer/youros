@@ -1,4 +1,4 @@
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 
 interface Section {
   id: string
@@ -125,8 +125,7 @@ export default function PrivacyPolicy() {
   ]
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950">
-      <TopBar title="Privacy" />
+    <PageShell title="Privacy">
       <main className="pt-24 pb-16 px-8">
         <p className="text-slate-600 dark:text-slate-400 text-sm mb-8">
           Plain-language summary of what this app stores, what it sends, and how you stay in
@@ -153,6 +152,6 @@ export default function PrivacyPolicy() {
 
         <p className="text-xs text-slate-600 mt-10">Last updated: April 2026</p>
       </main>
-    </div>
+    </PageShell>
   )
 }

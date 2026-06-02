@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { shallowEqualArray } from './storeEquality'
 
 export interface GrantRequest {
   id: string
@@ -20,6 +21,7 @@ interface GrantsState {
 export const useGrantsStore = create<GrantsState>((set) => ({
   grants: [],
   connected: false,
-  setGrants: (grants) => set({ grants }),
+  setGrants: (grants) =>
+    set((prev) => (shallowEqualArray(prev.grants, grants) ? prev : { grants })),
   setConnected: (connected) => set({ connected }),
 }))

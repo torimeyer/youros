@@ -17,7 +17,7 @@ const MAX = 21
 const COLOR: Record<SetCard['color'], string> = {
   red: '#dc2626',
   green: '#16a34a',
-  purple: '#2563eb',
+  purple: '#7e22ce',
 }
 
 // Global SVG patterns for card shading
@@ -34,12 +34,11 @@ function GlobalPatternDefs() {
             key={color}
             id={`set-hatch-${color}`}
             patternUnits="userSpaceOnUse"
-            width="8"
-            height="8"
-            patternTransform="rotate(15 0 0)"
+            width="4"
+            height="4"
           >
-            {/* Soft dots for striped shading */}
-            <circle cx="2" cy="2" r="1.2" fill={COLOR[color]} fillOpacity="0.6" />
+            {/* Bold vertical stripes so striped reads clearly vs solid vs open */}
+            <line x1="1" y1="0" x2="1" y2="4" stroke={COLOR[color]} strokeWidth="2" />
           </pattern>
         ))}
       </defs>
@@ -68,14 +67,14 @@ function Shape({ card }: { card: SetCard }) {
   return (
     <svg viewBox="0 0 40 80" width="52" height="104" aria-hidden="true" className="filter drop-shadow-sm">
       {card.shape === 'oval' && (
-        // Botanical "Seed" shape
+        // Oval
         <path
           d="M 20 10 C 35 10, 35 70, 20 70 C 5 70, 5 10, 20 10 Z"
           {...shapeProps}
         />
       )}
       {card.shape === 'diamond' && (
-        // "Celestial Eye" or Diamond
+        // Diamond
         <path
           d="M 20 6 L 36 40 L 20 74 L 4 40 Z M 20 30 A 10 10 0 1 1 20 50 A 10 10 0 1 1 20 30"
           {...shapeProps}
@@ -83,7 +82,7 @@ function Shape({ card }: { card: SetCard }) {
         />
       )}
       {card.shape === 'squiggle' && (
-        // Ethereal "Life Force" spiral/curve
+        // Squiggle
         <path
           d={[
             'M 20 10',
@@ -121,29 +120,25 @@ function cardClass(sel: boolean, matched: boolean, disabled: boolean): string {
   if (matched) {
     return [
       ...base,
-      'scale-[1.08] -translate-y-3 border-[#d8e2dc]',
-      'shadow-[0_15px_35px_rgba(181,131,141,0.2)]',
-      'bg-[#f8edeb] dark:bg-[#3d3133]',
+      'scale-[1.08] -translate-y-3 border-emerald-400',
+      'bg-emerald-50 dark:bg-emerald-950',
     ].join(' ')
   }
 
   if (sel) {
     return [
       ...base,
-      'scale-[1.05] -translate-y-2 border-[#b5838d]',
-      'shadow-[0_10px_25px_rgba(0,0,0,0.1)]',
-      'bg-[#fae1dd] dark:bg-[#4a3a3d]',
+      'scale-[1.05] -translate-y-2 border-pink-400',
+      'bg-pink-50 dark:bg-pink-950',
     ].join(' ')
   }
 
   return [
     ...base,
-    'border-[#f4f1de] dark:border-slate-800',
-    // Aged parchment feel
-    'bg-[#fdfcf0] dark:bg-[#1a1a1a]',
+    'border-slate-200 dark:border-slate-700',
+    'bg-white dark:bg-slate-900',
     'hover:-translate-y-1 hover:scale-[1.02]',
-    'hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)]',
-    'hover:border-[#e9edc9] dark:hover:border-slate-700',
+    'hover:border-slate-300 dark:hover:border-slate-600',
   ].join(' ')
 }
 
@@ -245,15 +240,15 @@ export default function SetGame() {
   const isAnimating = matchedIndices.length > 0
 
   return (
-    <div className="flex flex-col gap-6 italic">
+    <div className="flex flex-col gap-6">
       <GlobalPatternDefs />
 
       <div className="flex flex-col gap-1">
-        <h2 className="text-2xl font-bold">Set</h2>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Set</h2>
         <p className="text-xs text-slate-500 dark:text-slate-400">Find groups of 3 cards where each property is all-same or all-different.</p>
       </div>
 
-      <div className="flex items-center gap-6 text-sm font-serif">
+      <div className="flex items-center gap-6 text-sm">
         <span className="text-slate-600 dark:text-slate-400">Sets found: {found}</span>
         {best != null && <span className="text-slate-500">Best: {best}</span>}
         <span className="text-slate-500">Remaining: {deck.length}</span>

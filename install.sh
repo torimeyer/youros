@@ -57,6 +57,9 @@ EOF
 done
 
 INSTALL_DIR="${MYOS_DIR:-$HOME/myos}"
+# Repo to clone from. Override with MYOS_REPO=<org/name> to install from your
+# own fork or mirror. Defaults to the canonical upstream.
+MYOS_REPO="${MYOS_REPO:-os-tack/youros}"
 
 echo ""
 echo -e "${BLUE}=== myOS Installer ===${NC}"
@@ -199,8 +202,8 @@ elif [ -d "$INSTALL_DIR" ]; then
     git pull --ff-only 2>/dev/null || echo -e "${YELLOW}Could not auto-update. Continuing with existing files.${NC}"
 else
     echo "Downloading myOS to $INSTALL_DIR..."
-    git clone https://github.com/torimeyer/youros.git "$INSTALL_DIR" 2>/dev/null || \
-    git clone git@github.com:torimeyer/youros.git "$INSTALL_DIR" 2>/dev/null || {
+    git clone "https://github.com/${MYOS_REPO}.git" "$INSTALL_DIR" 2>/dev/null || \
+    git clone "git@github.com:${MYOS_REPO}.git" "$INSTALL_DIR" 2>/dev/null || {
         echo -e "${RED}Could not clone the repo. Check your access and try again.${NC}"
         exit 1
     }

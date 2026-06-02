@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import signal
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
@@ -194,6 +195,58 @@ def _read_active_store_ids(root: Path) -> Optional[set]:
     return ids
 
 
+# Statuses that mark a needle as terminal/archived. Everything else
+# (open, in_progress, ready, ...) is live work the daemon is authoritative
+# about and must never be filtered out by the active-store reconcile.
+_TERMINAL_STATUSES = {"closed", "shelved"}
+
+
+def _reconcile_active(seen: dict, active_ids: Optional[set]) -> list:
+    """Reconcile daemon-returned needles against the active on-disk store.
+
+    →1694: the ostk daemon reads both issues.jsonl (active) AND
+    issues.jsonl.1 (rotated historical archive), so its output includes
+    1400+ historical CLOSED entries. We suppress those archive-only closed
+    entries so the API never serves rotated-archive noise.
+
+    →2050 (store-rotation resilience): the "keep a live entry whose id is
+    absent from the active store" rescue applies ONLY when the active store
+    itself looks rotated/truncated — i.e. it is NOT currently serving any
+    live work of its own. We detect that with ``active_healthy``: True when
+    at least one daemon-reported LIVE needle is also present in the active
+    issues.jsonl, meaning the active file is healthy and authoritative.
+
+    - active store HEALTHY  -> strict intersection. Any id absent from the
+      active store is rotated-archive noise and is dropped, whether it is
+      closed OR open (→1694: a rotated open entry must not leak when the
+      active store still holds live needles).
+    - active store ROTATED  -> keep daemon-reported live (open/in_progress/
+      ready/...) needles even when absent from the active file, because the
+      daemon is authoritative for what is open and the active file lost them
+      to an overnight rotation (2026-06-01: ~140 open needles pushed into
+      issues.jsonl.1 while the active file held only closed entries).
+
+    Terminal (closed/shelved) entries absent from the active store are always
+    dropped in either mode.
+    """
+    if active_ids is None:
+        return list(seen.values())
+    active_healthy = any(
+        k in active_ids
+        and (v.get("status") or "").lower() not in _TERMINAL_STATUSES
+        for k, v in seen.items()
+    )
+    out: list = []
+    for k, v in seen.items():
+        if k in active_ids:
+            out.append(v)
+            continue
+        status = (v.get("status") or "").lower()
+        if status not in _TERMINAL_STATUSES and not active_healthy:
+            out.append(v)
+    return out
+
+
 def invalidate_audit_cache(audit_path: Optional[Path] = None) -> None:
     """Drop the cached parse for an audit.jsonl file. Call this right
     after appending an entry so the next reader sees the new line.
@@ -260,6 +313,101 @@ async def _coalesce_call(key: tuple, coro_factory):
         _inflight_calls.pop(key, None)
 
 
+# Short-TTL result cache for hot read-only ostk calls (→2018).
+#
+# `_coalesce_call` only dedupes requests that *overlap in time*. The
+# dashboard polls /api/tasks/counts, /api/specs/counts, /api/agents and
+# friends on a few-second interval, and several of those endpoints call
+# the SAME underlying ostk primitive (e.g. ``list_tasks``) back to back
+# rather than at the exact same instant. With coalescing alone every one
+# of those serial pollers re-spawns the heavy work (subprocess + JSON
+# parse of ~1400 needles), and when many land together the GIL-heavy
+# parsing starves the event loop until requests time out (HTTP 000).
+#
+# The TTL cache closes that gap: the first caller in a short window
+# computes the result; everyone else within ``ttl`` seconds gets the
+# already-computed value with zero ostk work. ``_coalesce_call`` still
+# wraps the producer so that even the *first* concurrent burst shares one
+# computation. Cache is keyed on (method, cwd, args) exactly like the
+# coalesce key, so filtered variants never collide. Returns the shared
+# object; callers that mutate must copy (same contract as before).
+_ttl_cache: dict[tuple, tuple[float, object]] = {}
+
+
+def _mtime_ns_or_zero(path: "Optional[Path]") -> int:
+    """Return ``path``'s mtime in ns, or 0 if it does not exist / no path.
+    Used to make the TTL cache self-invalidate when the backing file is
+    written, so a task mutation (which rewrites issues.jsonl) is reflected
+    immediately rather than after the TTL expires."""
+    if path is None:
+        return 0
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
+async def _ttl_cached_call(
+    key: tuple,
+    coro_factory,
+    ttl: float = 2.0,
+    mtime_of: "Optional[Path]" = None,
+):
+    """Return a cached result for ``key`` if it is younger than ``ttl``
+    seconds AND the optional ``mtime_of`` file is unchanged; otherwise
+    compute via ``coro_factory`` (coalesced so a concurrent burst shares
+    one computation) and cache it.
+
+    ``mtime_of`` makes the cache exact for writes: any mutation that
+    rewrites that file (e.g. issues.jsonl) busts the cache on the next
+    read regardless of TTL, so the dashboard never shows a stale count
+    after add/close/shelve. ``ttl`` still bounds how long a burst of pure
+    reads may share one computed result.
+
+    A ``ttl`` of 0 disables caching (always recompute).
+    """
+    cur_mtime = _mtime_ns_or_zero(mtime_of)
+    if ttl > 0:
+        cached = _ttl_cache.get(key)
+        if cached is not None:
+            ts, cached_mtime, value = cached
+            if cached_mtime == cur_mtime and (time.monotonic() - ts) < ttl:
+                return value
+
+    async def _produce():
+        result = await coro_factory()
+        if ttl > 0:
+            # Re-read mtime after producing so a write that landed during
+            # the (awaited) computation invalidates the entry next time.
+            _ttl_cache[key] = (time.monotonic(), _mtime_ns_or_zero(mtime_of), result)
+        return result
+
+    # Coalesce so a simultaneous burst (the exact case that wedges the
+    # loop) still collapses to a single producer even on a cold cache.
+    return await _coalesce_call(key, _produce)
+
+
+# ostk subcommands that change the task store. After any of these succeed
+# we drop the cached ``list_tasks`` result so the next read recomputes
+# rather than serving a stale count for up to the TTL window.
+_TASK_WRITE_VERBS = {"add", "close", "delete", "update", "claim", "reopen", "shelve", "unshelve", "priority", "status"}
+
+
+def _maybe_invalidate_after_write(args: tuple) -> None:
+    """If ``args`` is a task-mutating ostk command, drop cached task reads."""
+    if len(args) >= 2 and args[0] == "work" and args[1] in _TASK_WRITE_VERBS:
+        invalidate_ttl_cache("list_tasks")
+
+
+def invalidate_ttl_cache(prefix: Optional[str] = None) -> None:
+    """Drop cached entries. With no prefix, clears everything; with a
+    prefix (e.g. ``"list_tasks"``) clears only matching method keys so a
+    write (add/close task) can force the next read to recompute."""
+    if prefix is None:
+        _ttl_cache.clear()
+        return
+    for k in [k for k in _ttl_cache if k and k[0] == prefix]:
+        _ttl_cache.pop(k, None)
 
 
 def _spec_audit_enrich_sync(
@@ -434,6 +582,7 @@ class OstkService:
             try:
                 result = await self._run_socket(*args, timeout=timeout)
                 self._socket_available = True
+                _maybe_invalidate_after_write(args)
                 return result
             except Exception:
                 self._socket_available = False
@@ -457,6 +606,7 @@ class OstkService:
         if result.returncode != 0:
             err = result.stderr.strip() or output
             raise OstkError(err)
+        _maybe_invalidate_after_write(args)
         return output
 
     async def _run_json(self, *args: str) -> Union[list, dict]:
@@ -500,11 +650,16 @@ class OstkService:
             # long-lived project. Filter to only IDs present in the
             # active file so the API never serves rotated-archive noise.
             active_ids = _read_active_store_ids(Path(self.cwd))
-            if active_ids is not None:
-                seen = {k: v for k, v in seen.items() if k in active_ids}
-            return list(seen.values())
+            return _reconcile_active(seen, active_ids)
 
-        shared = await _coalesce_call(key, _do_call)
+        # →2018: TTL-cache this hot read so the dashboard's concurrent
+        # pollers (task_counts + specs/counts both call list_tasks) share
+        # one computed result within a short window instead of each
+        # re-spawning the ~1400-needle parse and starving the loop.
+        # Keyed on issues.jsonl's mtime so any task write busts the cache
+        # immediately (even direct-file writers like shelve/update_status).
+        issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+        shared = await _ttl_cached_call(key, _do_call, ttl=2.0, mtime_of=issues_path)
         return list(shared)
 
     async def add_task(
@@ -581,6 +736,39 @@ class OstkService:
                         for eid in seen_order
                     ) + "\n"
                 )
+
+            # Two-file consistency: a close must leave NO open record in the
+            # rotated archive either. The merged daemon read hides this (the
+            # active "closed" line overrides the archive "open" on a
+            # last-occurrence-wins scan), but the archive entry still reads
+            # "open" — so a later store rotation can re-surface the stale open.
+            # That is the mechanism behind the board never clearing. Flip the
+            # matching archive entry to closed (mirrors delete_task's →1694
+            # archive handling, but preserves the record as closed for history).
+            rotated_path = issues_path.with_suffix(".jsonl.1")
+            if rotated_path.exists():
+                rot_lines = rotated_path.read_text().strip().splitlines()
+                rot_changed = False
+                rot_updated: list[str] = []
+                for line in rot_lines:
+                    if not line.strip():
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        rot_updated.append(line)
+                        continue
+                    if (
+                        self._normalize_task_id(str(entry.get("id", ""))) == norm_target
+                        and entry.get("status") not in ("closed", "shelved")
+                    ):
+                        entry["status"] = "closed"
+                        if closed_reason is not None:
+                            entry["closed_reason"] = closed_reason
+                        rot_changed = True
+                    rot_updated.append(json.dumps(entry, ensure_ascii=False))
+                if rot_changed:
+                    rotated_path.write_text("\n".join(rot_updated) + "\n")
             return result
 
     async def reopen_task(self, task_id: str) -> str:
@@ -658,6 +846,57 @@ class OstkService:
             return True
 
         return await asyncio.to_thread(_sync_update)
+
+    def release_needle_sync(self, needle_id: str) -> bool:
+        """Synchronously reset a needle from in_progress back to open.
+
+        Only acts on needles whose current stored status is ``in_progress``.
+        Closed, shelved, or already-open needles are left unchanged. Returns
+        True if a write happened, False if no change was needed.
+
+        Called synchronously from _fire_release_needle_if_orphaned in agents.py
+        so no asyncio task is created and no extra event loop cycles are added.
+        """
+        issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+        if not issues_path.exists():
+            return False
+
+        norm_id = self._normalize_task_id(needle_id)
+        raw_content = issues_path.read_text()
+        # Fast path: skip JSON parsing when needle_id clearly absent.
+        bare = needle_id.lstrip("→").strip()
+        if needle_id not in raw_content and bare not in raw_content:
+            return False
+        lines = raw_content.strip().splitlines()
+        found = False
+        changed = False
+        updated: list[str] = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                updated.append(line)
+                continue
+            raw_id = str(entry.get("id", ""))
+            if self._normalize_task_id(raw_id) == norm_id:
+                found = True
+                if entry.get("status") == "in_progress":
+                    entry["status"] = "open"
+                    entry.pop("in_progress_at", None)
+                    changed = True
+            updated.append(json.dumps(entry, ensure_ascii=False))
+
+        if not found or not changed:
+            return False
+
+        issues_path.write_text("\n".join(updated) + "\n")
+        return True
+
+    async def release_needle(self, needle_id: str) -> bool:
+        """Async wrapper around release_needle_sync — used by tests and async callers."""
+        return self.release_needle_sync(needle_id)
 
     async def delete_task(self, task_id: str) -> str:
         """Permanently remove a task from issues.jsonl.
@@ -899,6 +1138,9 @@ class OstkService:
             raise OstkError(f"task '{task_id}' not found")
 
         issues_path.write_text("\n".join(updated) + "\n")
+        # →2018: this writer bypasses _run (writes issues.jsonl directly),
+        # so invalidate the cached task list here too.
+        invalidate_ttl_cache("list_tasks")
         return f"shelved {task_id}"
 
     async def unshelve_task(self, task_id: str) -> str:
@@ -928,6 +1170,8 @@ class OstkService:
             raise OstkError(f"task '{task_id}' not found")
 
         issues_path.write_text("\n".join(updated) + "\n")
+        # →2018: bypasses _run; invalidate cached task list.
+        invalidate_ttl_cache("list_tasks")
         return f"unshelved {task_id}"
 
     async def link_tasks(self, source: str, relation: str, target: str) -> str:
@@ -2442,67 +2686,82 @@ class OstkService:
         from datetime import datetime, timezone as _tz
 
         docs_dir = Path(self.cwd) / "docs"
-        results: list[dict] = []
 
-        # 1. Project-local docs (shared)
-        for subdir, status in [("draft", "draft"), ("spec", "spec")]:
-            target = docs_dir / subdir
-            if not target.is_dir():
-                continue
-            for md in sorted(target.glob("*.md")):
-                doc = self._parse_doc_frontmatter(md, status)
-                results.append(doc)
+        # →2018 (live freeze): the frontmatter scan below globs docs/draft,
+        # docs/spec and ~/.myos/specs and calls read_text()+parse on every
+        # file, plus a transcripts scan. That is pure synchronous filesystem
+        # I/O. Running it on the event loop blocks every other request and
+        # WebSocket publish tick for the full scan duration — under the
+        # dashboard's repeated /api/specs polling the loop never catches up
+        # and the server wedges. Offload the whole scan to a worker thread so
+        # the loop stays responsive (GIL is released during the os.stat / read
+        # syscalls, so to_thread is effective). Mirrors the stage-enrichment
+        # offload already added below at _spec_audit_enrich_sync.
+        def _scan_docs_sync() -> list[dict]:
+            scanned: list[dict] = []
 
-        # 2. User-local specs (private/promoted)
-        if USER_SPECS_DIR.is_dir():
-            for md in sorted(USER_SPECS_DIR.glob("*.md")):
-                doc = self._parse_doc_frontmatter(md, "spec")
-                # Mark as user-local so the UI knows where it lives
-                doc["is_user_local"] = True
-                results.append(doc)
+            # 1. Project-local docs (shared)
+            for subdir, status in [("draft", "draft"), ("spec", "spec")]:
+                target = docs_dir / subdir
+                if not target.is_dir():
+                    continue
+                for md in sorted(target.glob("*.md")):
+                    doc = self._parse_doc_frontmatter(md, status)
+                    scanned.append(doc)
 
-        # 3. Transcripts/plans
-        # These are written by the Plan skill and should surface in Recent
-        # Documents alongside specs. They use status="plan" to distinguish
-        # them visually in the widget.
-        _plan_re = _re.compile(r"^plan-(\d+)\.md$")
-        transcripts_dir = Path(self.cwd) / "transcripts"
-        if transcripts_dir.is_dir():
-            for md in sorted(transcripts_dir.glob("plan-*.md")):
-                m = _plan_re.match(md.name)
-                if not m:
-                    continue
-                needle_id = m.group(1)
-                try:
-                    text = md.read_text(errors="replace")
-                    mtime = md.stat().st_mtime
-                    mtime_ms = int(mtime * 1000)
-                    created_at = datetime.fromtimestamp(mtime, tz=_tz.utc).isoformat()
-                except OSError:
-                    continue
-                if self._is_orphan_plan_transcript(text):
-                    continue
-                # Derive title from the first non-blank, non-heartbeat line.
-                title = f"Plan for →{needle_id}"
-                for line in text.split("\n"):
-                    stripped = line.strip()
-                    if stripped and not stripped.startswith("[heartbeat"):
-                        candidate = stripped.lstrip("#").lstrip("*").rstrip("*").strip()
-                        if candidate and candidate != "---":
-                            title = candidate[:80]
-                            break
-                results.append({
-                    "path": f"transcripts/{md.name}",
-                    "filename": md.name,
-                    "title": title,
-                    "status": "plan",
-                    "created_at": created_at,
-                    "promoted_at": "",
-                    "updated_at_ms": mtime_ms,
-                    "body": text[:2000],
-                    "task_ids": [needle_id],
-                    "acceptance_criteria": [],
-                })
+            # 2. User-local specs (private/promoted)
+            if USER_SPECS_DIR.is_dir():
+                for md in sorted(USER_SPECS_DIR.glob("*.md")):
+                    doc = self._parse_doc_frontmatter(md, "spec")
+                    # Mark as user-local so the UI knows where it lives
+                    doc["is_user_local"] = True
+                    scanned.append(doc)
+
+            # 3. Transcripts/plans
+            # These are written by the Plan skill and should surface in Recent
+            # Documents alongside specs. They use status="plan" to distinguish
+            # them visually in the widget.
+            _plan_re = _re.compile(r"^plan-(\d+)\.md$")
+            transcripts_dir = Path(self.cwd) / "transcripts"
+            if transcripts_dir.is_dir():
+                for md in sorted(transcripts_dir.glob("plan-*.md")):
+                    m = _plan_re.match(md.name)
+                    if not m:
+                        continue
+                    needle_id = m.group(1)
+                    try:
+                        text = md.read_text(errors="replace")
+                        mtime = md.stat().st_mtime
+                        mtime_ms = int(mtime * 1000)
+                        created_at = datetime.fromtimestamp(mtime, tz=_tz.utc).isoformat()
+                    except OSError:
+                        continue
+                    if self._is_orphan_plan_transcript(text):
+                        continue
+                    # Derive title from the first non-blank, non-heartbeat line.
+                    title = f"Plan for →{needle_id}"
+                    for line in text.split("\n"):
+                        stripped = line.strip()
+                        if stripped and not stripped.startswith("[heartbeat"):
+                            candidate = stripped.lstrip("#").lstrip("*").rstrip("*").strip()
+                            if candidate and candidate != "---":
+                                title = candidate[:80]
+                                break
+                    scanned.append({
+                        "path": f"transcripts/{md.name}",
+                        "filename": md.name,
+                        "title": title,
+                        "status": "plan",
+                        "created_at": created_at,
+                        "promoted_at": "",
+                        "updated_at_ms": mtime_ms,
+                        "body": text[:2000],
+                        "task_ids": [needle_id],
+                        "acceptance_criteria": [],
+                    })
+            return scanned
+
+        results: list[dict] = await asyncio.to_thread(_scan_docs_sync)
 
         # Collect all task IDs referenced by any spec. Spec front matter
         # stores bare numeric IDs ("407") but ostk returns IDs prefixed with

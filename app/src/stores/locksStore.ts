@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { shallowEqualArray } from './storeEquality'
 
 export interface LockSnapshot {
   name: string
@@ -16,6 +17,7 @@ interface LocksState {
 export const useLocksStore = create<LocksState>((set) => ({
   locks: [],
   wsConnected: false,
-  setLocks: (locks) => set({ locks }),
+  setLocks: (locks) =>
+    set((prev) => (shallowEqualArray(prev.locks, locks) ? prev : { locks })),
   setWsConnected: (wsConnected) => set({ wsConnected }),
 }))

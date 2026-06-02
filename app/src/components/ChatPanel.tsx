@@ -284,6 +284,24 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
   )
 }
 
+function ToolCallGroup({ calls, msgId }: { calls: ToolCall[]; msgId: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="mb-2">
+      <button
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        data-testid={`tool-calls-toggle-${msgId}`}
+        className="flex items-center gap-1.5 px-2 py-1 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/50 rounded transition-colors"
+      >
+        <Icon name={open ? 'expand_more' : 'chevron_right'} className="text-sm" />
+        {open ? 'Hide' : 'Show'} tool calls ({calls.length})
+      </button>
+      {open && calls.map((tc) => <ToolCallBlock key={tc.id} call={tc} />)}
+    </div>
+  )
+}
+
 function ThinkingDots({ etaSeconds }: { etaSeconds?: number | null } = {}) {
   return (
     <span
@@ -646,6 +664,15 @@ export function ChatPanel() {
   // Held in a ref so updating it does not re-run the lastMessage
   // effect, which would otherwise loop on the same event.
   const currentBubbleIdRef = useRef<string | null>(null)
+  // Turn queue: if a second message is sent while the first is still
+  // streaming, it goes here and fires after the done event clears the
+  // in-flight flag. Prevents two simultaneous turns from colliding on
+  // the shared currentBubbleIdRef and routing tokens to the wrong bubble.
+  const turnQueueRef = useRef<string[]>([])
+  const turnInFlightRef = useRef(false)
+  // Stable ref to the latest sendMessage so the done-handler drain can
+  // call it without capturing a stale closure.
+  const sendMessageRef = useRef<(text: string) => void>(() => {})
   const tackKeyHandlerRef = useRef<((e: React.KeyboardEvent) => boolean) | null>(null)
   // Maps model name ("claude", "gemini") to the bubble id currently
   // receiving that model's tokens. Populated on multi_ai_turn_start and
@@ -1397,6 +1424,11 @@ export function ChatPanel() {
       // crashed mid-stream) do not leak into the next turn.
       bubbleIdByModelRef.current.clear()
       setActiveStreamingBubbleIds(new Set())
+      // Mark the turn as finished. The drain useEffect below picks up
+      // any queued messages when both isStreaming and placeholderAwaitingServer
+      // settle to false — this covers done AND all other terminal paths
+      // (error, plan_banner, timeout) without needing per-handler cleanup.
+      turnInFlightRef.current = false
       // Start the 500ms grace window before showing "Done." in the bubble.
       // Some providers (Gemini) can flush a `done` event slightly before
       // their last text tokens reach the client, so we delay the fallback
@@ -1576,6 +1608,18 @@ export function ChatPanel() {
     return () => clearInterval(id)
   }, [isStreaming, placeholderAwaitingServer])
 
+  // Drain the turn queue: when a turn finishes for any reason (done,
+  // error, timeout, plan_banner, etc.), isStreaming and
+  // placeholderAwaitingServer both settle to false. This effect fires at
+  // that point and sends the next queued message so callers never need to
+  // think about the queue — they just call sendMessage and it happens.
+  useEffect(() => {
+    if (isStreaming || placeholderAwaitingServer) return
+    turnInFlightRef.current = false
+    const next = turnQueueRef.current.shift()
+    if (next !== undefined) sendMessageRef.current(next)
+  }, [isStreaming, placeholderAwaitingServer])
+
   // Reset all per-turn streaming state when the active tab changes.
   // Without this, switching tabs carries over multiAiStatus ("Claude is
   // speaking round X of Y"), isStreaming, stepProgress, etc. from the
@@ -1593,6 +1637,8 @@ export function ChatPanel() {
     setStepProgress(null)
     currentBubbleIdRef.current = null
     bubbleIdByModelRef.current.clear()
+    turnQueueRef.current = []
+    turnInFlightRef.current = false
     receivedAnyServerEventRef.current = false
     setEtaMs(null)
     turnStartRef.current = null
@@ -1937,6 +1983,12 @@ export function ChatPanel() {
     }
 
     if (!text.trim() && !pendingImage && !pendingAttachment) return
+    // If a turn is already in flight, hold this message until done fires.
+    if (turnInFlightRef.current) {
+      turnQueueRef.current.push(text)
+      return
+    }
+    turnInFlightRef.current = true
     // Clear any prior template badge so the next response shows its own.
     setActiveTemplate(null)
     // Clear the previous-turn cache ratio — a new turn starts now.
@@ -2058,6 +2110,10 @@ export function ChatPanel() {
       plan_mode: localStorage.getItem('plan_mode') === '1',
     })
   }
+
+  // Keep ref pointing at the latest closure so the done-handler drain
+  // can call sendMessage after state has settled from the done event.
+  sendMessageRef.current = sendMessage
 
   // Intercept the "create tasks from this roadmap" chat command. The
   // user's message is appended as a normal user bubble, the backend
@@ -2618,7 +2674,7 @@ export function ChatPanel() {
             onClick={() => handleSwitchTab(tab.id)}
             className={`group/tab flex items-center gap-1 px-3 py-1.5 text-xs rounded-t-lg transition-colors max-w-[160px] ${
               tab.id === activeTabId
-                ? 'bg-white dark:bg-slate-900 text-white border-t border-x border-slate-200 dark:border-slate-700'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white border-t border-x border-slate-200 dark:border-slate-700'
                 : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-white dark:hover:bg-slate-900/50'
             }`}
             title={tab.name}
@@ -2709,7 +2765,7 @@ export function ChatPanel() {
             isThread: boolean,
             inBroadcastColumn: boolean = false,
           ) => {
-            const isEmpty = !msg.content && !msg.toolCalls?.length && !msg.gifUrl && !msg.imageUrl
+            const isEmpty = !msg.content?.trim() && !msg.toolCalls?.length && !msg.gifUrl && !msg.imageUrl
             if (isEmpty && msg.role === 'assistant' && multiAiStatus && globalIdx === messages.length - 1) return null
             // Suppress empty assistant bubbles once both streaming flags are clear.
             // isStreaming=false means the stream ended; placeholderAwaitingServer=false
@@ -2717,7 +2773,8 @@ export function ChatPanel() {
             // bubble has nothing to show (no dots, no content). Hide it rather than
             // rendering a blank rounded shape. Covers the 500ms grace-window flash
             // where done fires before the timer sets "No response received." content.
-            if (isEmpty && msg.role === 'assistant' && !isStreaming && !placeholderAwaitingServer) return null
+            if (isEmpty && msg.role === 'assistant' && !isStreaming && !placeholderAwaitingServer && !confirmedDoneIds.has(msg.id)) return null
+            if (isEmpty && msg.role === 'user') return null
             return (
               <div
                 key={msg.id}
@@ -2772,11 +2829,11 @@ export function ChatPanel() {
                   </div>
                 )}
 
-                <div className={`relative ${msg.role === 'user' ? 'ml-auto max-w-[75%] w-fit' : inBroadcastColumn ? 'w-full min-w-0' : 'max-w-[85%]'}`}>
+                <div className={msg.role === 'user' ? 'relative flex flex-col items-end' : `relative ${inBroadcastColumn ? 'w-full min-w-0' : 'max-w-[85%]'}`}>
                   <div
                     className={
                       msg.role === 'user'
-                        ? 'inline-block bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm text-sm break-words overflow-hidden'
+                        ? 'max-w-[75%] bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm text-sm break-words overflow-hidden'
                         : `${inBroadcastColumn ? 'block w-full' : 'block w-fit max-w-full'} border px-4 py-3 rounded-xl text-sm text-slate-700 dark:text-slate-300 overflow-hidden break-words ${
                             msg.model ? MODEL_BG[msg.model] ?? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
                           }`
@@ -2807,11 +2864,7 @@ export function ChatPanel() {
                     ) : (
                       <>
                         {msg.toolCalls && msg.toolCalls.length > 0 && (
-                          <div className="mb-2">
-                            {msg.toolCalls.map((tc) => (
-                              <ToolCallBlock key={tc.id} call={tc} />
-                            ))}
-                          </div>
+                          <ToolCallGroup calls={msg.toolCalls} msgId={msg.id} />
                         )}
                         {msg.content?.trim() && (
                           <CollapsibleText
@@ -2862,7 +2915,7 @@ export function ChatPanel() {
                             one. Without this the second model in the
                             fan-out appears as a blank bubble while only
                             the first shows activity. */}
-                        {activeStreamingBubbleIds.has(msg.id) && !msg.content?.trim() && !msg.toolCalls?.length && (
+                        {activeStreamingBubbleIds.has(msg.id) && !msg.content?.trim() && !msg.toolCalls?.some(tc => tc.result === undefined) && (
                           <ThinkingDots />
                         )}
                         {isStreaming && globalIdx === messages.length - 1 && (msg.toolCalls?.some(tc => tc.result === undefined)) && (

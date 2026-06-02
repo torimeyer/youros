@@ -4610,9 +4610,21 @@ async def test_spawn_with_task_id_does_not_override_terminal_status(tmp_path, mo
         def is_closing(self) -> bool:
             return self._closed
 
+    import os as _os
+
     class _FakeProc:
-        pid = 424242
+        # A real spawn returns a live subprocess. Use this test process's own
+        # pid so the spawned row passes _is_agent_genuinely_live via Signal A
+        # (live pid), exactly as in production. A magic dead pid (e.g. 424242)
+        # is now correctly filtered out as not-live by get_running_task_ids,
+        # so it can no longer stand in for a freshly-spawned, working agent.
+        pid = _os.getpid()
         returncode = None
+        # The spawn path drains proc.stdout/proc.stderr; a real Popen exposes
+        # them. None is the supported "no pipe" signal (_drain_* breaks on it),
+        # so the fake must define them or the drainers raise AttributeError.
+        stdout = None
+        stderr = None
 
         def __init__(self):
             self.stdin = _FakeStdin()
@@ -13301,6 +13313,11 @@ async def test_template_spawn_appears_in_running_snapshot(tmp_path, monkeypatch)
     class _FakeProc:
         pid = 424242
         returncode = None
+        # The spawn path drains proc.stdout/proc.stderr; a real Popen exposes
+        # them. None is the supported "no pipe" signal (_drain_* breaks on it),
+        # so the fake must define them or the drainers raise AttributeError.
+        stdout = None
+        stderr = None
 
         def __init__(self):
             self.stdin = _FakeStdin()

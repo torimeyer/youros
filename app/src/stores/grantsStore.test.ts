@@ -43,4 +43,18 @@ describe('useGrantsStore (→1129)', () => {
     expect(grants).toHaveLength(1)
     expect(grants[0].id).toBe('g-2')
   })
+
+  it('content-equal setGrants keeps the same reference (→1730)', () => {
+    useGrantsStore.getState().setGrants([GRANT])
+    const first = useGrantsStore.getState().grants
+    useGrantsStore.getState().setGrants([{ ...GRANT }])
+    expect(useGrantsStore.getState().grants).toBe(first)
+  })
+
+  it('a real change swaps the reference', () => {
+    useGrantsStore.getState().setGrants([GRANT])
+    const first = useGrantsStore.getState().grants
+    useGrantsStore.getState().setGrants([{ ...GRANT, status: 'approved' }])
+    expect(useGrantsStore.getState().grants).not.toBe(first)
+  })
 })

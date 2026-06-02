@@ -17,7 +17,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import TopBar from "../components/TopBar";
+import PageShell from "../components/PageShell";
 import Icon from "../components/Icon";
 import { api } from "../lib/api";
 import { Button, LoadingState } from "../components/ui";
@@ -500,9 +500,7 @@ export default function WorkflowBuilder() {
   const isRunning = workflowStatus === "running" || running;
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-      <TopBar title={id ? "Edit automation" : "New automation"} />
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+    <PageShell title={id ? "Edit automation" : "New automation"}>
         <div className="max-w-2xl mx-auto">
           {/* Header */}
           <div className="flex items-start justify-between gap-4 mb-6">
@@ -631,7 +629,6 @@ export default function WorkflowBuilder() {
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </PageShell>
   );
 }

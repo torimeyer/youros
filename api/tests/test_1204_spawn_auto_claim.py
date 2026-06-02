@@ -51,13 +51,19 @@ def test_extract_deduplicates():
     assert result == ["1204", "1205"]
 
 
-def test_extract_searches_all_fields():
+def test_extract_searches_task_and_description_only_when_task_present():
+    """When task is present, only task+description are scanned — prompt is skipped.
+
+    Long prompts contain context/background that should not be auto-claimed
+    as needle ownership. The task and description fields are the authoritative
+    "what this agent is doing" statement.
+    """
     result = _extract_all_needle_ids(
         task="see →1100",
         description="also →1101",
         prompt="and →1102",
     )
-    assert sorted(result) == ["1100", "1101", "1102"]
+    assert sorted(result) == ["1100", "1101"]
 
 
 def test_extract_empty_fields():
@@ -247,3 +253,51 @@ def test_get_running_needle_ids_live_heartbeat_no_pid_included():
     result = get_running_needle_ids()
     assert "9999" in result, "Fresh-heartbeat agent (no pid) should overlay in_progress"
     agent_metadata.clear()
+
+
+# ---------------------------------------------------------------------------
+# →2027: prompt-context needle IDs must not be auto-claimed
+# ---------------------------------------------------------------------------
+
+def test_extract_needle_ids_does_not_claim_prompt_context_when_task_present():
+    """→NNN tokens that only appear in prompt must not be auto-claimed when task is non-empty.
+
+    A diagnostic agent has a task like "Diagnose board bug" and a long
+    prompt listing many needle IDs as context/examples. Those context
+    needles must not become needle_ids and must not be overlaid as
+    in_progress on the board.
+    """
+    result = _extract_all_needle_ids(
+        task="Diagnose board showing all tasks as in progress",
+        description="",
+        prompt=(
+            "THE BUG: tasks →1775, →2039, →2034, →2024, →2019, →1943 "
+            "all show in_progress erroneously. Investigate the overlay."
+        ),
+    )
+    assert result == [], (
+        f"Context-only prompt needle IDs must not be auto-claimed, got {result}"
+    )
+
+
+def test_extract_needle_ids_task_present_wins_over_prompt():
+    """When task has a needle, only task/description needles are returned — not prompt extras."""
+    result = _extract_all_needle_ids(
+        task="Fix →1234 login bug",
+        description="",
+        prompt="Context: this affects →5678, →9012, →3456 as well",
+    )
+    assert result == ["1234"], (
+        f"Only task needle expected, prompt context needles must be ignored, got {result}"
+    )
+
+
+def test_extract_needle_ids_prompt_fallback_when_task_empty():
+    """When task and description are empty, prompt IS scanned as fallback."""
+    result = _extract_all_needle_ids(
+        task="",
+        description="",
+        prompt="Fix the bug in →1204 and →1205",
+    )
+    assert "1204" in result
+    assert "1205" in result

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { formatDate } from '../lib/time'
 import { useParams, useNavigate } from 'react-router-dom'
 import Icon from '../components/Icon'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import { ConnectCard, LoadingState, EmptyState, ErrorBanner } from '../components/ui'
 import { api } from '../lib/api'
 import JiraCommentComposer from '../components/JiraCommentComposer'
@@ -187,21 +187,16 @@ export default function Jira() {
 
   if (loading) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white">
-        <TopBar title="Jira" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <LoadingState variant="spinner" />
-        </div>
-      </div>
+      <PageShell title="Jira" data-testid="jira-page">
+        <LoadingState variant="spinner" />
+      </PageShell>
     )
   }
 
   if (!status?.connected) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white" data-testid="jira-page">
-        <TopBar title="Jira" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <ConnectCard
+      <PageShell title="Jira" data-testid="jira-page">
+        <ConnectCard
             icon="bug_report"
             accentColor="#94a3b8"
             title="Connect Jira"
@@ -279,18 +274,15 @@ export default function Jira() {
             }
             error={connectError ?? undefined}
           />
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   // Detail view
   if (key) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-white" data-testid="jira-page">
-        <TopBar title="Jira" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <button
+      <PageShell title="Jira" data-testid="jira-page">
+        <button
             onClick={() => navigate('/jira')}
             className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 hover:text-white text-sm mb-4 transition-colors"
           >
@@ -425,17 +417,14 @@ export default function Jira() {
               )}
             </div>
           )}
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   // List view
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-white" data-testid="jira-page">
-      <TopBar title="Jira" />
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <PageShell title="Jira" data-testid="jira-page">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl sm:text-2xl font-bold">Jira</h1>
@@ -504,7 +493,6 @@ export default function Jira() {
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </PageShell>
   )
 }

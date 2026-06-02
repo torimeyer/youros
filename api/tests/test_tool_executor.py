@@ -137,6 +137,10 @@ class TestWriteFile:
     @pytest.mark.asyncio
     async def test_write_and_read(self, tmp_path, monkeypatch):
         """Write a file within a temporary workspace and read it back."""
+        # The workspace guard reads config.PROJECT_ROOT at call time, so point
+        # the workspace at tmp_path there. Patching WORKSPACE alone has no
+        # effect on the guard.
+        monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
         monkeypatch.setattr("services.tool_executor.WORKSPACE", tmp_path)
         test_file = str(tmp_path / "test_output.txt")
         result = await execute_tool("write_file", {"path": test_file, "content": "hello world"})
@@ -155,6 +159,7 @@ class TestWriteFile:
 class TestEditFile:
     @pytest.mark.asyncio
     async def test_edit_replaces_text(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
         monkeypatch.setattr("services.tool_executor.WORKSPACE", tmp_path)
         test_file = tmp_path / "edit_me.txt"
         test_file.write_text("hello world")
@@ -168,6 +173,7 @@ class TestEditFile:
 
     @pytest.mark.asyncio
     async def test_edit_old_text_not_found(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
         monkeypatch.setattr("services.tool_executor.WORKSPACE", tmp_path)
         test_file = tmp_path / "edit_me.txt"
         test_file.write_text("hello world")
@@ -180,6 +186,7 @@ class TestEditFile:
 
     @pytest.mark.asyncio
     async def test_edit_multiple_occurrences(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
         monkeypatch.setattr("services.tool_executor.WORKSPACE", tmp_path)
         test_file = tmp_path / "edit_me.txt"
         test_file.write_text("foo bar foo")

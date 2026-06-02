@@ -75,6 +75,16 @@ def _set_agent_status(name: str, new_status: str, **extra_fields) -> None:
     for k, v in extra_fields.items():
         meta[k] = v
     _fire_delta(name, new_status)
+    if new_status in _TERMINAL_STATUSES:
+        # Reset any in_progress needle(s) this agent held back to open, so a task
+        # never sticks at in_progress after its agent dies without closing it
+        # (→2039). Skips needles still claimed by another live agent.
+        nid = meta.get("needle_id")
+        if nid:
+            _fire_release_needle_if_orphaned(nid)
+        for _extra_nid in meta.get("needle_ids") or []:
+            if _extra_nid:
+                _fire_release_needle_if_orphaned(_extra_nid)
 
 
 class AgentMemorySave(BaseModel):
@@ -581,6 +591,12 @@ def _prune_reaped_worktree_agents() -> int:
 # GET /nudges does NOT refresh the heartbeat because the frontend also
 # polls it, which would keep dead agents alive forever.
 STALE_AGENT_TIMEOUT_SECONDS = 900
+# Agents that were spawned within this window are treated as live even when
+# their subprocess pid is already dead (e.g. empty-transcript fast exit).
+# This covers the gap between /spawn returning 200 and the first heartbeat
+# arriving (→1950/→2020). Stale rows are unaffected because their spawned_at
+# timestamps are far outside this window.
+SPAWN_GRACE_PERIOD_SECONDS = 30
 
 # Shorter stale-sweep threshold for Claude Code Agent-tool subagents
 # (source="claude-code"). These agents do NOT run pytest/tsc the way
@@ -1100,21 +1116,38 @@ def _serialize_and_write_snapshot(snapshot: dict) -> None:
     _write_state_content(content)
 
 
-async def _save_agent_state_async() -> None:
-    """Non-blocking save for use inside async handlers.
+# Coalescing write gate (→2018): prevents N concurrent heartbeats from each
+# spawning their own json.dumps thread and stacking GIL contention.
+# _save_pending=True means at least one mutation arrived after the in-flight
+# save took its snapshot; the loop does one extra pass to capture it.
+# At most 1 thread in-flight at any time; at most 1 extra queued pass.
+_save_inflight: bool = False
+_save_pending: bool = False
 
-    A per-agent dict copy is taken on the event loop while no await can
-    interleave, guaranteeing a consistent snapshot. Both json.dumps (~10-30ms
-    for 1500 rows) and the file write + fsync run inside asyncio.to_thread so
-    the event loop is free during GIL-heavy serialization and disk I/O.
-    Without this, parallel heartbeat calls and standing-rules poll loops block
-    the loop long enough for TLS handshakes to time out (→1086, →1192).
+
+async def _save_agent_state_async() -> None:
+    """Non-blocking, coalescing save for use inside async handlers.
+
+    Collapses N concurrent heartbeat/register saves into at most 2 serialized
+    writes: one in-flight and one queued pass to capture mutations that arrived
+    while the thread was running. Without coalescing, N concurrent heartbeats
+    each spawn their own asyncio.to_thread(json.dumps) call; the GIL shuffles
+    between them, saturating the thread pool and starving the event loop for
+    TLS/HTTP work (→2018).
     """
-    # Snapshot on the event loop: no await can interleave here, so the dict
-    # is consistent. Per-agent dict() copy is enough since primitive field
-    # values (str/int/bool) are immutable.
-    snapshot = {k: dict(v) for k, v in agent_metadata.items()}
-    await asyncio.to_thread(_serialize_and_write_snapshot, snapshot)
+    global _save_inflight, _save_pending
+    _save_pending = True
+    if _save_inflight:
+        return  # the in-flight loop will re-check _save_pending on its next iteration
+    _save_inflight = True
+    try:
+        while _save_pending:
+            _save_pending = False
+            # Snapshot taken on the event loop: no await can interleave here.
+            snapshot = {k: dict(v) for k, v in agent_metadata.items()}
+            await asyncio.to_thread(_serialize_and_write_snapshot, snapshot)
+    finally:
+        _save_inflight = False
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -2581,6 +2614,19 @@ def _reset_per_agent_bytes_cache() -> None:
 # level without consuming a thread-pool slot (→1144: thread-pool saturation).
 _enrich_async_lock: asyncio.Lock = asyncio.Lock()
 
+# →2018: serialize _autocomplete_exited_subagents and _sweep_stale_running_agents
+# between the snapshot loop (500 ms) and _reconcile_loop (60 s). Both call these
+# via asyncio.to_thread; concurrent GIL-heavy threads starve the event loop.
+# With this lock only one sweep runs at a time.
+_sweep_pass_lock: asyncio.Lock = asyncio.Lock()
+# →2018: the 500 ms snapshot loop throttles its autocomplete pass to at most
+# once per this interval so the GIL-heavy to_thread sweep does not starve the
+# event loop. The per-request cold-cache path and tests still run autocomplete
+# unconditionally (run_autocomplete=True) so dead agents flip to completed on
+# read with no added delay.
+_last_autocomplete_mono: float = 0.0
+_AUTOCOMPLETE_MIN_INTERVAL: float = 5.0
+
 # Fields in agent dicts whose string values may contain raw control bytes
 # (e.g. from heartbeat step messages, spawn prompts, or shell output).
 # json.dumps escapes these correctly in most cases, but certain code paths
@@ -3755,7 +3801,7 @@ async def agent_duration_stats():
     return get_duration_stats()
 
 
-async def _compute_agents_snapshot_async() -> dict:
+async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
     """Build the full unfiltered, enriched agent list.
 
     Called by the background snapshotter every 500 ms (→1219). All the
@@ -4105,7 +4151,17 @@ async def _compute_agents_snapshot_async() -> dict:
     if sweep_changed or persisted_pass_changed:
         await _save_agent_state_async()
 
-    ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
+    # →2018: serialize autocomplete with _reconcile_loop's sweep via
+    # _sweep_pass_lock so two GIL-heavy asyncio.to_thread passes never run
+    # concurrently (that contention returned HTTP 000). The 500 ms snapshot
+    # loop passes run_autocomplete=False on most ticks (it throttles to once
+    # per _AUTOCOMPLETE_MIN_INTERVAL) so it does not starve the loop; the
+    # cold-cache request path and tests use the default True so dead agents
+    # flip on read. Skip when a sweep already holds the lock (no pile-up).
+    ac_changed = False
+    if run_autocomplete and not _sweep_pass_lock.locked():
+        async with _sweep_pass_lock:
+            ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
     if ac_changed:
         await _save_agent_state_async()
         await _agent_events_bus.publish("sweep", {})
@@ -4190,11 +4246,21 @@ async def _compute_agents_snapshot_async() -> dict:
 
 
 async def _agents_snapshot_loop() -> None:
-    """Background task: refresh the agent snapshot every 500 ms (→1219)."""
-    global _cached_snapshot
+    """Background task: refresh the agent snapshot every 500 ms (→1219).
+
+    The snapshot itself refreshes every 500 ms, but the GIL-heavy autocomplete
+    sweep is throttled to once per _AUTOCOMPLETE_MIN_INTERVAL here so the 2/sec
+    cadence does not starve the event loop (→2018). The reconcile loop (60 s)
+    is the slower backstop for the same sweep.
+    """
+    global _cached_snapshot, _last_autocomplete_mono
     while True:
         try:
-            snapshot = await _compute_agents_snapshot_async()
+            now = asyncio.get_running_loop().time()
+            do_autocomplete = (now - _last_autocomplete_mono) >= _AUTOCOMPLETE_MIN_INTERVAL
+            snapshot = await _compute_agents_snapshot_async(run_autocomplete=do_autocomplete)
+            if do_autocomplete:
+                _last_autocomplete_mono = now
             async with _snapshot_lock:
                 _cached_snapshot = snapshot
         except Exception:
@@ -4461,10 +4527,22 @@ def _is_agent_genuinely_live(meta: dict) -> bool:
          immediately; no timestamp check is done.
       B. Its last_heartbeat_at or spawned_at is within
          STALE_AGENT_TIMEOUT_SECONDS of now.
+      C. Its spawned_at is within SPAWN_GRACE_PERIOD_SECONDS of now.
+         This is checked before Signal A so that an immediately-exiting
+         subprocess (e.g. empty-transcript fast exit) does not cause the
+         just-spawned task linkage to disappear (→1950/→2020). Stale rows
+         are unaffected because their spawned_at is outside the window.
 
     Agents with no pid and no timestamps (bare rows) return False so
     they do not pin tasks indefinitely.
     """
+    # Signal A first: a recorded pid that is definitively dead is conclusive
+    # evidence of death and short-circuits to False, even within the spawn
+    # grace window. A dead pid means the subprocess is gone for good; the
+    # grace window (Signal C) only exists to cover rows that have NOT yet
+    # proven death (no pid recorded yet, or a still-live pid). Checking the
+    # dead pid here keeps stale/abandoned rows (→1930, →1804, →1754) from
+    # being pinned as in_progress just because their spawned_at is recent.
     pid = meta.get("pid")
     if pid:
         try:
@@ -4474,7 +4552,20 @@ def _is_agent_genuinely_live(meta: dict) -> bool:
         if pid_int is not None:
             if _is_pid_alive(pid_int):
                 return True  # Signal A: live pid.
-            return False  # Signal A: dead pid — skip timestamp check.
+            return False  # Signal A: dead pid — conclusive, skip Signal B/C.
+
+    # Signal C: spawn grace window — only reached when no pid proved death
+    # (no pid recorded, or an unparseable pid). Keeps a just-spawned row's
+    # task linkage visible immediately after /spawn returns 200, even when
+    # the subprocess exits with an empty transcript before any heartbeat
+    # arrives (→1950/→2020). Stale rows with old spawned_at fall through.
+    _spawned_raw = meta.get("spawned_at")
+    if isinstance(_spawned_raw, str):
+        _spawned_ts = _parse_iso(_spawned_raw)
+        if _spawned_ts is not None:
+            _grace_now = datetime.now(timezone.utc)
+            if (_grace_now - _spawned_ts).total_seconds() <= SPAWN_GRACE_PERIOD_SECONDS:
+                return True  # Signal C: within spawn grace window.
 
     # No pid recorded: fall back to heartbeat/spawn recency.
     now = datetime.now(timezone.utc)
@@ -4626,10 +4717,18 @@ def _extract_all_needle_ids(
     for every referenced needle, not just the first (→1204).
     """
     seen: dict[str, None] = {}
-    for text in (task, description, prompt):
+    for text in (task, description):
         if not text:
             continue
         for m in _ARROW_NEEDLE_RE.finditer(text):
+            seen.setdefault(m.group(1), None)
+    # Only scan prompt when both task and description are absent entirely.
+    # If task or description is present (even with no needle IDs), the
+    # agent's "what I'm doing" is captured there and the prompt is just
+    # the instructions brief, which may contain many →NNN IDs as context.
+    # Extracting those would overlay unrelated tasks as in_progress.
+    if not task and not description and prompt:
+        for m in _ARROW_NEEDLE_RE.finditer(prompt):
             seen.setdefault(m.group(1), None)
     return list(seen.keys())
 
@@ -4653,6 +4752,51 @@ def _fire_set_task_in_progress(needle_id: str) -> None:
 async def _set_task_in_progress_async(needle_id: str) -> None:
     try:
         await ostk.set_task_in_progress(needle_id)
+    except Exception:
+        pass
+
+
+def _fire_release_needle_if_orphaned(needle_id: str) -> None:
+    """Synchronously reset needle_id to open if no other agent claims to hold it.
+
+    Called from _set_agent_status when an agent transitions to a terminal status.
+    Done synchronously (no create_task) so no extra event loop cycles are added.
+
+    Checks by STATUS only (skips _is_agent_genuinely_live / os.kill) to avoid
+    iterating all live agents' PIDs — that could add 100+ ms of syscall overhead.
+    Stale agents that claim a needle but have dead PIDs will be swept by the
+    stale-agent loop, which will call _fire_release_needle_if_orphaned again.
+    """
+    if not needle_id:
+        return
+    bare = needle_id.lstrip("→").strip()
+    for _name, meta in agent_metadata.items():
+        if not isinstance(meta, dict):
+            continue
+        status = str(meta.get("status") or "").lower()
+        if status not in _LIVE_AGENT_STATUSES:
+            continue
+        nid = str(meta.get("needle_id") or "")
+        if nid and (nid == needle_id or nid.lstrip("→").strip() == bare):
+            return
+        for extra_nid in meta.get("needle_ids") or []:
+            s = str(extra_nid)
+            if s == needle_id or s.lstrip("→").strip() == bare:
+                return
+    try:
+        ostk.release_needle_sync(needle_id)
+    except Exception:
+        pass
+
+
+async def _release_needle_if_orphaned_async(needle_id: str) -> None:
+    """Async version — used by tests to verify orphan-check logic."""
+    live = get_running_needle_ids()
+    bare = needle_id.lstrip("→").strip()
+    if needle_id in live or bare in live:
+        return
+    try:
+        await ostk.release_needle(needle_id)
     except Exception:
         pass
 
@@ -5809,6 +5953,10 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                             line, _json_buf = _json_buf.split(b"\n", 1)
                             if not line.strip():
                                 continue
+                            if len(line) > 1_000_000:
+                                # Pathologically large stream line: skip parsing entirely to avoid
+                                # deep-recursion / huge-traceback event-loop wedges (->2018).
+                                continue
                             try:
                                 event = json.loads(line.decode("utf-8", errors="replace"))
                                 etype = event.get("type")
@@ -5838,9 +5986,11 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                                     if etype == "tool_result":
                                         _open_tool_calls[0] = max(0, _open_tool_calls[0] - 1)
                                 # system/hook events: _had_any_byte already set; skip transcript
-                            except (json.JSONDecodeError, UnicodeDecodeError):
-                                # Non-JSON line: write raw (backward compat / plain-text fallback)
-                                if line.strip():
+                            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, ValueError):
+                                # Non-JSON / pathological line. RecursionError + ValueError are caught here
+                                # so a deeply-nested payload can never escape to uvloop's default exception
+                                # handler and wedge the event loop with a huge traceback write (->2018).
+                                if line.strip() and len(line) <= 1_000_000:
                                     try:
                                         tfh.write(line + b"\n")
                                         tfh.flush()
@@ -7602,6 +7752,29 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
 
     _set_agent_status(name, "completed")
 
+    # Auto-close the needle(s) associated with this agent on completion (→2042).
+    # The auto-merge block above closes the needle only for non-claude-code
+    # worktree agents when the ff-merge succeeds. All other agents (especially
+    # source="claude-code" subagents, the most common case) have no close path,
+    # leaving tasks stuck open/in_progress until the next server restart.
+    # close_task is idempotent — a double-close from the merge path is safe.
+    _cn_meta = agent_metadata.get(name) or existing_meta
+    _cn_nid = _cn_meta.get("needle_id")
+    _cn_extra = list(_cn_meta.get("needle_ids") or [])
+    _cn_all: list[str] = []
+    if _cn_nid:
+        _cn_all.append(str(_cn_nid))
+    for _n in _cn_extra:
+        if str(_n) not in _cn_all:
+            _cn_all.append(str(_n))
+    if _cn_all:
+        for _n in _cn_all:
+            try:
+                _arrow_n = f"→{_n.lstrip('→')}"
+                await ostk.close_task(_arrow_n, closed_reason="completed")
+            except Exception:
+                pass  # best-effort; never block completion
+
     # Auto-close the spec builder task if this agent was spawned from a
     # Build it click. The spec_build prompt tells the agent to edit
     # files directly and NOT run `ostk work close` itself, so /complete
@@ -8300,8 +8473,15 @@ async def _reconcile_loop():
     await asyncio.sleep(1)
     while True:
         try:
-            stale_changed = _sweep_stale_running_agents()
-            ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
+            # →2018: move both sweep functions off the event loop and serialize
+            # with the snapshot loop's autocomplete via _sweep_pass_lock. Before
+            # this fix, _sweep_stale_running_agents() ran directly on the event
+            # loop (blocking it for stat × N agents) and two concurrent
+            # asyncio.to_thread(_autocomplete_exited_subagents) calls competed
+            # for the GIL, starving all request handling.
+            async with _sweep_pass_lock:
+                stale_changed = await asyncio.to_thread(_sweep_stale_running_agents)
+                ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
             if stale_changed or ac_changed:
                 await _save_agent_state_async()
                 await _agent_events_bus.publish("sweep", {})

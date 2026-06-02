@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import { api } from '../lib/api'
 
 interface Section {
@@ -142,8 +142,7 @@ export default function AboutYourOS() {
   ]
 
   return (
-    <div className="min-h-dvh bg-slate-950">
-      <TopBar title="About" />
+    <PageShell title="About">
       <main className="pt-24 pb-16 px-8 max-w-3xl mx-auto">
         <div data-testid="about-hero" className="mb-10">
           <h1 className="text-4xl font-bold text-slate-100 mb-1">yourOS</h1>
@@ -207,6 +206,6 @@ export default function AboutYourOS() {
           </p>
         )}
       </main>
-    </div>
+    </PageShell>
   )
 }

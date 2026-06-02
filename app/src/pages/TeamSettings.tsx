@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import TopBar from "../components/TopBar";
+import PageShell from "../components/PageShell";
 
 interface TeamConfig {
   team_repo: string;
@@ -92,9 +92,8 @@ export default function TeamSettings() {
   };
 
   return (
-    <div className="min-h-screen bg-white dark:bg-slate-950">
-      <TopBar title="Team Settings" />
-      <div className="px-4 sm:px-8 max-w-2xl mx-auto py-8">
+    <PageShell title="Team Settings">
+      <div className="max-w-2xl mx-auto py-8">
         <div className="flex items-center gap-3 mb-8">
           <Link
             to="/team"
@@ -115,7 +114,7 @@ export default function TeamSettings() {
               value={teamRepo}
               onChange={(e) => setTeamRepo(e.target.value)}
               placeholder="/path/to/shared/team-folder"
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
               data-testid="field-team-repo"
             />
           </div>
@@ -129,7 +128,7 @@ export default function TeamSettings() {
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="Alex"
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
               data-testid="field-display-name"
             />
           </div>
@@ -143,7 +142,7 @@ export default function TeamSettings() {
               value={memberId}
               onChange={(e) => setMemberId(e.target.value)}
               placeholder="alex@example.com"
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
               data-testid="field-member-id"
             />
           </div>
@@ -225,6 +224,6 @@ export default function TeamSettings() {
           </button>
         </form>
       </div>
-    </div>
+    </PageShell>
   );
 }

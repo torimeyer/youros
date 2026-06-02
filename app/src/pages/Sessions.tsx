@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import TopBar from "../components/TopBar";
+import PageShell from "../components/PageShell";
 import { api } from "../lib/api";
 import { LoadingState, EmptyState } from "../components/ui";
 
@@ -175,8 +175,7 @@ export default function Sessions() {
   }, [load]);
 
   return (
-    <div className="flex flex-col h-full">
-      <TopBar title="Sessions" />
+    <PageShell title="Sessions" fullHeight>
       <div className="flex-1 overflow-auto p-6">
         {loading && !data ? (
           <LoadingState message="Loading sessions..." />
@@ -190,6 +189,6 @@ export default function Sessions() {
           </div>
         ) : null}
       </div>
-    </div>
+    </PageShell>
   );
 }

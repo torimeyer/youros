@@ -58,6 +58,30 @@ def is_session_task(task: dict) -> bool:
     return False
 
 
+def is_ac_child_task(task: dict) -> bool:
+    """Return True for spec-derived acceptance-criteria child tasks.
+
+    AC tasks are auto-created by ostk when a spec file is broken into
+    per-requirement rows. They are identified by the absence of an explicit
+    priority (real tasks created via ``ostk work add`` always carry P0–P4)
+    combined with a ``spec_ref`` back-pointer to the source spec.
+
+    These are excluded from user-facing task lists and counts so the
+    headline number reflects distinct work initiatives, not individual
+    acceptance-criteria items. The ``_read_active_store_ids`` filter in
+    ostk.list_tasks already excludes them in production (they live outside
+    ``issues.jsonl``). This function makes the exclusion explicit so test
+    environments and any future code path that bypasses that filter remain
+    correct.
+    """
+    # Real tasks always carry a priority; AC rows do not.
+    if task.get("priority"):
+        return False
+    # Must also have a spec back-pointer to avoid misclassifying
+    # legitimately un-prioritised tasks filed by other means.
+    return bool(task.get("spec_ref"))
+
+
 _TEST_TASK_PATTERNS: tuple[re.Pattern, ...] = (
     re.compile(r"^test[:\s_]", re.IGNORECASE),
     re.compile(r"^test$", re.IGNORECASE),

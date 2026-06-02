@@ -35,7 +35,9 @@ export function createBoard(rows: number, cols: number, mines: [number, number][
   return board
 }
 
-// Random mine placement avoiding an optional safe cell (for first-click safety).
+// Random mine placement. When `safe` is given, the clicked cell AND its full
+// 3x3 neighborhood are kept mine-free, so the first click always opens an area
+// instead of a lone number (classic first-click safety).
 export function randomMines(
   rows: number,
   cols: number,
@@ -46,7 +48,7 @@ export function randomMines(
   const cells: [number, number][] = []
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      if (safe && r === safe[0] && c === safe[1]) continue
+      if (safe && Math.abs(r - safe[0]) <= 1 && Math.abs(c - safe[1]) <= 1) continue
       cells.push([r, c])
     }
   }

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { shallowEqualArray } from './storeEquality'
 
 export interface RunningAgent {
   name: string
@@ -33,7 +34,14 @@ export const useRunningAgentsStore = create<RunningAgentsState>((set) => ({
   lastUpdatedAt: null,
   lastTerminatedAgent: null,
   setSnapshot: (count, agents) =>
-    set({ count, agents, lastUpdatedAt: new Date().toISOString() }),
+    // Preserve the previous state (and the previous `agents` reference) when
+    // the incoming snapshot is content-equal, so no subscriber re-renders for
+    // a no-op WS frame. See storeEquality.ts (→1730).
+    set((prev) =>
+      prev.count === count && shallowEqualArray(prev.agents, agents)
+        ? prev
+        : { count, agents, lastUpdatedAt: new Date().toISOString() },
+    ),
   setConnected: (connected) => set({ connected }),
   setTerminatedAgent: (agent) => set({ lastTerminatedAgent: agent }),
 }))

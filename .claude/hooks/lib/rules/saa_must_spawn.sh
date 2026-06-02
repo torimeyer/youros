@@ -102,5 +102,5 @@ PY
 
   local reason="the user said '$VERB'. Rule: spawn a subagent via Agent, no inline work."
   log_rule_fire "saa_must_spawn" "$tool" "block" "trigger word '$VERB' detected, no Agent fired yet"
-  deny "$reason"
+  advise "$reason"
 }

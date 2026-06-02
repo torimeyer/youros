@@ -139,6 +139,47 @@ class TestDetector:
             assert await is_claude_code_available() is True
 
     @pytest.mark.asyncio
+    async def test_returns_true_even_with_claude_code_session_env_vars(self, monkeypatch):
+        """Regression test for Settings AI-backend false negative.
+
+        When the backend runs inside a Claude Code session the parent process
+        sets CLAUDECODE=1, CLAUDE_CODE_SESSION_ID, ANTHROPIC_BASE_URL, etc.
+        Previously only ANTHROPIC_API_KEY was stripped, leaving those vars to
+        reach the auth subprocess. That could cause the subprocess to hang
+        (IPC attempt or slow proxy) and time out, returning False even though
+        the user IS signed in.
+
+        The fix strips all Claude Code session vars from the subprocess env.
+        This test asserts that detection correctly reports True when a valid
+        Max subscription is present, regardless of those env vars in the
+        parent environment.
+        """
+        monkeypatch.setenv("CLAUDECODE", "1")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "test-session-abc")
+        monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+        monkeypatch.setenv("AI_AGENT", "claude-code_2-1-156_harness")
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080")
+
+        payload = {
+            "loggedIn": True,
+            "authMethod": "claude.ai",
+            "apiProvider": "firstParty",
+            "subscriptionType": "max",
+        }
+        with patch(
+            "services.claude_code_provider._find_claude_binary",
+            return_value="/usr/local/bin/claude",
+        ), patch(
+            "services.claude_code_provider._run_auth_status",
+            new=AsyncMock(return_value=payload),
+        ):
+            result = await is_claude_code_available(force=True)
+        assert result is True, (
+            "Subscription detection must return True when auth status confirms "
+            "a signed-in Max user, even when Claude Code session env vars are present"
+        )
+
+    @pytest.mark.asyncio
     async def test_returns_true_for_pro(self):
         payload = {
             "loggedIn": True,
@@ -324,41 +365,75 @@ class TestEnvStripping:
     subscription, which is the exact bug this cutover exists to prevent.
     """
 
-    def test_strip_blocked_env_removes_all_three_keys(self):
+    def test_strip_blocked_env_removes_all_blocked_keys(self):
         source = {
             "ANTHROPIC_API_KEY": "sk-ant-xxx",
             "ANTHROPIC_AUTH_TOKEN": "token",
+            "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
             "CLAUDE_API_KEY": "claude-key",
+            "CLAUDECODE": "1",
+            "CLAUDE_CODE_SESSION_ID": "abc123",
+            "CLAUDE_CODE_ENTRYPOINT": "cli",
+            "AI_AGENT": "claude-code_2-1",
             "PATH": "/usr/bin",
             "HOME": "/Users/tori",
         }
         cleaned = _strip_blocked_env(source)
-        assert "ANTHROPIC_API_KEY" not in cleaned
-        assert "ANTHROPIC_AUTH_TOKEN" not in cleaned
-        assert "CLAUDE_API_KEY" not in cleaned
+        for key in (
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
+            "CLAUDE_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID",
+            "CLAUDE_CODE_ENTRYPOINT",
+            "AI_AGENT",
+        ):
+            assert key not in cleaned, f"{key} must be stripped from subprocess env"
         # Safe env vars pass through untouched.
         assert cleaned["PATH"] == "/usr/bin"
         assert cleaned["HOME"] == "/Users/tori"
 
     def test_blocked_env_keys_constant_matches_spec(self):
-        # If anyone adds an Anthropic env var in the future they should
-        # add it here too. This test pins the list so nobody forgets.
+        # Pins the full set of vars stripped from the auth subprocess env.
+        # The Claude Code session vars (CLAUDECODE, CLAUDE_CODE_*) are stripped
+        # to prevent the CLI from entering IPC mode with the parent session,
+        # which can cause the auth status check to hang and return a false
+        # negative for subscription sign-in (the Settings AI-backend bug).
         assert BLOCKED_AUTH_ENV_KEYS == frozenset({
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
             "CLAUDE_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID",
+            "CLAUDE_CODE_ENTRYPOINT",
+            "AI_AGENT",
         })
 
     def test_build_subprocess_env_removes_keys_from_real_environ(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-leak")
         monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "should-not-leak")
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080")
         monkeypatch.setenv("CLAUDE_API_KEY", "should-not-leak")
+        monkeypatch.setenv("CLAUDECODE", "1")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "test-session")
+        monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+        monkeypatch.setenv("AI_AGENT", "claude-code_2-1")
         monkeypatch.setenv("SAFE_VAR", "keep-me")
 
         env = _build_subprocess_env()
-        assert "ANTHROPIC_API_KEY" not in env
-        assert "ANTHROPIC_AUTH_TOKEN" not in env
-        assert "CLAUDE_API_KEY" not in env
+        for key in (
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
+            "CLAUDE_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID",
+            "CLAUDE_CODE_ENTRYPOINT",
+            "AI_AGENT",
+        ):
+            assert key not in env, f"{key} must not reach the claude subprocess"
         assert env.get("SAFE_VAR") == "keep-me"
 
     @pytest.mark.asyncio

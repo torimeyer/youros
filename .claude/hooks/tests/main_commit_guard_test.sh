@@ -56,6 +56,8 @@ make_fake_worktree() {
 run_guard() {
     # Runs _main_commit_guard_check in a subshell with provided env.
     # $1=HOOK_CWD, $2=CLAUDE_PROJECT_DIR, $3=cmd, $4=input_json (optional)
+    # Both deny() and advise() output "DENIED:" and exit 2 here so the test
+    # can detect when the guard condition fires (regardless of blocking vs advisory).
     local hook_cwd="$1" cpd="$2" cmd="$3" inp="${4:-}"
     (
         HOOK_CWD="$hook_cwd"
@@ -64,8 +66,9 @@ run_guard() {
         export HOOK_CWD CLAUDE_PROJECT_DIR INPUT_JSON
         rule_enabled()  { return 0; }
         log_rule_fire() { return 0; }
-        deny() { echo "DENIED: $1"; exit 2; }
-        export -f rule_enabled log_rule_fire deny 2>/dev/null || true
+        deny()   { echo "DENIED: $1"; exit 2; }
+        advise() { echo "DENIED: $1"; exit 2; }
+        export -f rule_enabled log_rule_fire deny advise 2>/dev/null || true
         . "$GUARD_LIB"
         _main_commit_guard_check "Bash" "$cmd" "${INPUT_JSON:-}" 2>/dev/null
         echo "ALLOWED"

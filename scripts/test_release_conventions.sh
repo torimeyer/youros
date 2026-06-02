@@ -200,8 +200,8 @@ fi
 echo ""
 
 # --- 6. No hardcoded personal paths in shipped code ---
-# Tests are fine. Production code and the frontend are not. The intentional
-# github.com/torimeyer/myos URL in install.sh is a clone target, not a path.
+# Tests are fine. Production code and the frontend are not. The clone-target
+# URL in install.sh is a repo address, not a local filesystem path.
 #
 # We scan ONLY files that git is tracking, so we skip .venv/, .ostk/,
 # .coverage, node_modules, and other runtime state.

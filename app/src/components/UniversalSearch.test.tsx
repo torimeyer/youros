@@ -130,6 +130,115 @@ describe('UniversalSearch', () => {
   })
 })
 
+describe('UniversalSearch navigation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    useAppStore.setState({ chatOpen: false })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const allEmptyExcept = (overrides: Record<string, unknown>) => (url: string) => {
+    if ((url as string).includes('/search?q=')) return Promise.resolve(overrides['/search'] ?? { tasks: [], query: '' })
+    if ((url as string).includes('/search/deep')) return Promise.resolve(overrides['/search/deep'] ?? [])
+    if ((url as string).includes('/search/recall')) return Promise.resolve(overrides['/recall'] ?? [])
+    if ((url as string).includes('/agents')) return Promise.resolve(overrides['/agents'] ?? { agents: [] })
+    if ((url as string).includes('/specs')) return Promise.resolve(overrides['/specs'] ?? { docs: [] })
+    if ((url as string).includes('/docs/recent')) return Promise.resolve(overrides['/docs'] ?? { files: [] })
+    return Promise.resolve({ tasks: [], query: '' })
+  }
+
+  it('clicking a task/needle result navigates to /tasks?focus=<id>', async () => {
+    mockedApiGet.mockImplementation(allEmptyExcept({
+      '/search': { tasks: [{ id: '→042', priority: 'P1', title: 'activity feed' }], query: 'activity feed' },
+    }))
+
+    const onClose = vi.fn()
+    renderSearch(true, onClose)
+    fireEvent.change(screen.getByTestId('universal-search-input'), { target: { value: 'activity feed' } })
+    vi.advanceTimersByTime(200)
+
+    await waitFor(() => expect(screen.getByTestId('task-item-→042')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('task-item-→042'))
+    expect(mockNavigate).toHaveBeenCalledWith('/tasks?focus=%E2%86%92042')
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('clicking a deep result with id navigates to /tasks?focus=<id>', async () => {
+    mockedApiGet.mockImplementation(allEmptyExcept({
+      '/search/deep': [{ id: 'task-99', title: 'activity feed task' }],
+    }))
+
+    const onClose = vi.fn()
+    renderSearch(true, onClose)
+    fireEvent.change(screen.getByTestId('universal-search-input'), { target: { value: 'activity' } })
+    vi.advanceTimersByTime(200)
+
+    await waitFor(() => expect(screen.getByTestId('section-deep')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('deep-item-0'))
+    expect(mockNavigate).toHaveBeenCalledWith('/tasks?focus=task-99')
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('clicking a deep result with no id navigates to /tasks', async () => {
+    mockedApiGet.mockImplementation(allEmptyExcept({
+      '/search/deep': [{ title: 'some audit entry' }],
+    }))
+
+    const onClose = vi.fn()
+    renderSearch(true, onClose)
+    fireEvent.change(screen.getByTestId('universal-search-input'), { target: { value: 'audit' } })
+    vi.advanceTimersByTime(200)
+
+    await waitFor(() => expect(screen.getByTestId('section-deep')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('deep-item-0'))
+    expect(mockNavigate).toHaveBeenCalledWith('/tasks')
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('clicking a spec result navigates to /specs?focus=<encodedPath>', async () => {
+    mockedApiGet.mockImplementation(allEmptyExcept({
+      '/specs': { docs: [{ id: 'spec-1', title: 'Onboarding redesign', path: 'docs/spec/onboarding.md' }] },
+    }))
+
+    const onClose = vi.fn()
+    renderSearch(true, onClose)
+    fireEvent.change(screen.getByTestId('universal-search-input'), { target: { value: 'onboarding redesign' } })
+    vi.advanceTimersByTime(200)
+
+    await waitFor(() => expect(screen.getByTestId('section-specs')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('spec-item-0'))
+    expect(mockNavigate).toHaveBeenCalledWith('/specs?focus=docs%2Fspec%2Fonboarding.md')
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('keyboard Enter on a hovered task navigates to /tasks?focus=<id>', async () => {
+    mockedApiGet.mockImplementation(allEmptyExcept({
+      '/search': { tasks: [{ id: 'task-77', priority: 'P2', title: 'keyboard task' }], query: 'keyboard' },
+    }))
+
+    const onClose = vi.fn()
+    renderSearch(true, onClose)
+    const input = screen.getByTestId('universal-search-input')
+    fireEvent.change(input, { target: { value: 'keyboard' } })
+    vi.advanceTimersByTime(200)
+
+    await waitFor(() => expect(screen.getByTestId('task-item-task-77')).toBeInTheDocument())
+
+    fireEvent.mouseEnter(screen.getByTestId('task-item-task-77'))
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(mockNavigate).toHaveBeenCalledWith('/tasks?focus=task-77')
+    expect(onClose).toHaveBeenCalled()
+  })
+})
+
 describe('UniversalSearch search', () => {
   beforeEach(() => {
     vi.clearAllMocks()

@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import TopBar from "../components/TopBar";
+import PageShell from "../components/PageShell";
 import { api } from "../lib/api";
 
 interface ParsedPreview {
@@ -100,8 +100,7 @@ export default function SpecImport() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <TopBar title="Import spec" />
+    <PageShell title="Import spec" fullHeight>
       <div className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto w-full">
         <div className="mb-6">
           <h2 className="text-lg font-semibold mb-1">Import from spec-kit YAML</h2>
@@ -200,6 +199,6 @@ export default function SpecImport() {
           </button>
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

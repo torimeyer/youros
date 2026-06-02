@@ -106,7 +106,7 @@ function Toast({
   // The body (agent description) is suppressed because it typically
   // just repeats the name in the completion case.
   return (
-    <div className="flex items-start gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 shadow-xl w-72 animate-toast-in">
+    <div className="flex items-start gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 pt-4 pb-3 shadow-xl w-72 animate-toast-in">
       <Icon name={icon} size={20} className={`${color} mt-0.5 shrink-0`} />
       <div className="flex-1 min-w-0">
         {statusLabel ? (

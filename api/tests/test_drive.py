@@ -13,6 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from config import FRONTEND_URL_DEFAULT
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -228,7 +230,7 @@ async def test_drive_auth_callback_error_param(client):
     )
     assert resp.status_code == 302
     assert "access_denied" in resp.headers["location"]
-    assert resp.headers["location"].startswith("https://localhost:3010/")
+    assert resp.headers["location"].startswith(f"{FRONTEND_URL_DEFAULT}/")
 
 
 @pytest.mark.asyncio
@@ -240,7 +242,7 @@ async def test_drive_auth_callback_invalid_state(client):
     )
     assert resp.status_code == 302
     assert "invalid_state" in resp.headers["location"]
-    assert resp.headers["location"].startswith("https://localhost:3010/")
+    assert resp.headers["location"].startswith(f"{FRONTEND_URL_DEFAULT}/")
 
 
 @pytest.mark.asyncio

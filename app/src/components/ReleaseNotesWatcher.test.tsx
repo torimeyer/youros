@@ -115,8 +115,8 @@ describe('ReleaseNotesWatcher', () => {
     await waitFor(() => {
       expect(mockedApiGet).toHaveBeenCalled()
     })
-    // Advance past the 2s poll interval to trigger the second fetch.
-    await vi.advanceTimersByTimeAsync(2100)
+    // Advance past the 5s poll interval to trigger the second fetch.
+    await vi.advanceTimersByTimeAsync(5100)
 
     await waitFor(() => {
       expect(screen.getByTestId('release-notes-modal')).toBeInTheDocument()
@@ -313,7 +313,7 @@ describe('ReleaseNotesWatcher', () => {
     render(<ReleaseNotesWatcher />)
 
     await waitFor(() => { expect(mockedApiGet).toHaveBeenCalled() })
-    await vi.advanceTimersByTimeAsync(2100)
+    await vi.advanceTimersByTimeAsync(5100)
 
     await waitFor(() => {
       expect(screen.getByTestId('release-notes-modal')).toBeInTheDocument()
@@ -490,8 +490,8 @@ describe('ReleaseNotesWatcher', () => {
     // Simulate demo reset: flip onboarded to false.
     act(() => seedStore(false))
 
-    // Advance past the 2s poll to trigger the next fetch.
-    await vi.advanceTimersByTimeAsync(2200)
+    // Advance past the 5s poll to trigger the next fetch.
+    await vi.advanceTimersByTimeAsync(5200)
 
     // Modal must NOT re-appear. The in-memory celebratedRef was preserved.
     expect(screen.queryByTestId('release-notes-modal')).not.toBeInTheDocument()
@@ -518,7 +518,7 @@ describe('ReleaseNotesWatcher', () => {
     })
     render(<ReleaseNotesWatcher />)
     await waitFor(() => expect(mockedApiGet).toHaveBeenCalled())
-    await vi.advanceTimersByTimeAsync(2100)
+    await vi.advanceTimersByTimeAsync(5100)
     await waitFor(() =>
       expect(screen.getByTestId('release-notes-modal')).toBeInTheDocument()
     )

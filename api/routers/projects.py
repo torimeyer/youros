@@ -19,14 +19,33 @@ TORIOS_DIR = PROJECT_ROOT
 SKIP = {".git", ".ostk", ".vite", ".claude", ".DS_Store", "node_modules", "__pycache__"}
 
 
-def _resolve_safe_path(relative_path: str) -> Path:
-    """Resolve a path and ensure it stays within the workspace root.
+def _projects_root() -> Path:
+    """Return the canonical projects directory.
 
-    Raises HTTPException 403 if the resolved path escapes the workspace.
+    Priority: ~/myos > ~/.myos/projects > ~/.myos/collections > TORIOS_DIR.
+    Rooting at ~/myos surfaces the user's peer folders (projects, files,
+    observations) so all are reachable from one browser. Checked at request
+    time so the user can rename the folder without a restart.
+    """
+    for candidate in [
+        Path.home() / "myos",
+        Path.home() / ".myos" / "projects",
+        Path.home() / ".myos" / "collections",
+    ]:
+        if candidate.is_dir():
+            return candidate
+    return TORIOS_DIR
+
+
+def _resolve_safe_path(relative_path: str) -> Path:
+    """Resolve a path and ensure it stays within the projects root.
+
+    Raises HTTPException 403 if the resolved path escapes the projects root.
     Raises HTTPException 404 if the path does not exist.
     """
-    workspace_root = TORIOS_DIR.resolve()
-    resolved = (TORIOS_DIR / relative_path).resolve()
+    projects_root = _projects_root()
+    workspace_root = projects_root.resolve()
+    resolved = (projects_root / relative_path).resolve()
     if not str(resolved).startswith(str(workspace_root)):
         raise HTTPException(status_code=403, detail="Path is outside the workspace.")
     if not resolved.exists():
@@ -40,7 +59,8 @@ def _resolve_readable_path(path_str: str) -> Path:
     Accepts the same two roots that ``GET /docs/recent`` emits:
 
     * Workspace-relative paths anchored under ``TORIOS_DIR``.
-    * Absolute paths under ``~/.myos/files/``.
+    * Absolute paths under ``~/myos/`` (the user's real workspace) or the
+      legacy ``~/.myos/files/`` location.
 
     This is intentionally broader than ``_resolve_safe_path`` because
     Recent Documents legitimately lists .md files from both locations,
@@ -55,6 +75,7 @@ def _resolve_readable_path(path_str: str) -> Path:
 
     workspace_root = TORIOS_DIR.resolve()
     myos_files_root = (Path.home() / ".myos" / "files").resolve()
+    myos_root = (Path.home() / "myos").resolve()
 
     incoming = Path(path_str)
     if incoming.is_absolute():
@@ -62,7 +83,7 @@ def _resolve_readable_path(path_str: str) -> Path:
     else:
         resolved = (TORIOS_DIR / incoming).resolve()
 
-    allowed_roots = [workspace_root, myos_files_root]
+    allowed_roots = [workspace_root, myos_files_root, myos_root]
     in_allowed_root = any(
         resolved == root or str(resolved).startswith(str(root) + os.sep)
         for root in allowed_roots
@@ -70,7 +91,7 @@ def _resolve_readable_path(path_str: str) -> Path:
     if not in_allowed_root:
         raise HTTPException(
             status_code=403,
-            detail="Path must live inside the workspace or ~/.myos/files.",
+            detail="Path must live inside the workspace or ~/myos.",
         )
     if not resolved.exists():
         raise HTTPException(status_code=404, detail="Path not found.")
@@ -93,10 +114,11 @@ def _format_size(size_bytes: int) -> str:
 async def list_projects():
     projects = []
 
-    if not TORIOS_DIR.exists():
+    projects_dir = _projects_root()
+    if not projects_dir.exists():
         return {"projects": []}
 
-    for entry in sorted(TORIOS_DIR.iterdir()):
+    for entry in sorted(projects_dir.iterdir()):
         name = entry.name
 
         # Skip hidden dirs, files, and known non-project items
@@ -167,7 +189,7 @@ async def browse_directory(path: str = Query("", description="Relative path with
     if not path:
         raise HTTPException(status_code=400, detail="Path parameter is required.")
 
-    workspace_root = TORIOS_DIR.resolve()
+    workspace_root = _projects_root().resolve()
     resolved = _resolve_safe_path(path)
 
     if not resolved.is_dir():
@@ -494,6 +516,7 @@ async def delete_recent_doc(path: str = Query(..., description="Path of the .md 
 
     workspace_root = TORIOS_DIR.resolve()
     myos_files_root = (Path.home() / ".myos" / "files").resolve()
+    myos_root = (Path.home() / "myos").resolve()
 
     incoming = Path(path)
     # Accept either an absolute path (~/.myos/files/...) or a path
@@ -508,7 +531,7 @@ async def delete_recent_doc(path: str = Query(..., description="Path of the .md 
     # Path must live under one of the two allowed roots. Using
     # Path.is_relative_to keeps the check symlink-aware via the
     # earlier resolve() call.
-    allowed_roots = [workspace_root, myos_files_root]
+    allowed_roots = [workspace_root, myos_files_root, myos_root]
     in_allowed_root = any(
         resolved == root or str(resolved).startswith(str(root) + os.sep)
         for root in allowed_roots
@@ -516,7 +539,7 @@ async def delete_recent_doc(path: str = Query(..., description="Path of the .md 
     if not in_allowed_root:
         raise HTTPException(
             status_code=400,
-            detail="Path must live inside the workspace or ~/.myos/files.",
+            detail="Path must live inside the workspace or ~/myos.",
         )
 
     # Only .md files are deletable through this endpoint. This keeps

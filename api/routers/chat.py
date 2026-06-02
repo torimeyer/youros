@@ -148,8 +148,8 @@ def _latest_roadmap_path() -> Optional[Path]:
     ``roadmap-*.md`` or any file whose front matter declares
     ``kind: roadmap``.
     """
-    from services.files_dir import get_files_dir
-    base = get_files_dir()
+    import sys as _sys
+    base = _sys.modules[__name__].MYOS_FILES_DIR
     if not base.exists():
         return None
 
@@ -766,6 +766,9 @@ async def clear_chat_history():
     return {"result": "cleared"}
 
 
+CHAT_ASGI_TIMEOUT_S = 120.0
+
+
 async def _spawn_roadmap_agent() -> Optional[str]:
     """Spawn a Roadmap agent via the internal ASGI app. Returns agent name or None."""
     import time as _time
@@ -775,7 +778,7 @@ async def _spawn_roadmap_agent() -> Optional[str]:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=_app),
             base_url="http://testserver",
-            timeout=10.0,
+            timeout=CHAT_ASGI_TIMEOUT_S,
         ) as client:
             resp = await client.post(
                 "/agents/spawn",
@@ -1288,6 +1291,32 @@ class _TerminalTrackingWS:
         return getattr(self._inner, name)
 
 
+async def _handle_remind_me(text: str, websocket: WebSocket, tab_id: str = "", data: dict = None) -> bool:
+    """Detect 'remind me to X at TIME' and create a reminder without hitting the AI."""
+    import re as _re
+    if not _re.search(r"\bremind\s+me\s+to\b", text, _re.IGNORECASE):
+        return False
+    try:
+        from services import reminders as _rem
+        from services.settings_store import settings_store as _ss
+        tz = _ss.get("time_zone") or _ss.get("timezone") or "America/Chicago"
+        parsed = _rem.parse_reminder(text, tz=tz)
+        r = _rem.create_reminder(
+            text=parsed["text"],
+            fire_at_utc=parsed["fire_at_utc"],
+            time_zone=tz,
+            channel=parsed.get("channel", "default"),
+        )
+        fire_local = parsed["fire_at_utc"].astimezone(__import__("zoneinfo").ZoneInfo(tz))
+        time_str = fire_local.strftime("%-I:%M %p on %a, %b %-d")
+        msg = f"Got it. I'll remind you to {r['text'].lower()} at {time_str}."
+        await websocket.send_json({"type": "token", "data": msg})
+        await websocket.send_json({"type": "done"})
+        return True
+    except Exception:
+        return False
+
+
 @router.websocket("/ws/chat")
 async def chat_websocket(websocket: WebSocket):
     await websocket.accept()
@@ -1376,6 +1405,13 @@ async def chat_websocket(websocket: WebSocket):
                 _slash_tab = data.get("tab_id", "")
                 handled = await _handle_slash_command(last_text.strip(), websocket, tab_id=_slash_tab)
                 if handled:
+                    continue
+
+            # --- Remind-me: intercept "remind me to X at TIME" ---
+            if isinstance(last_text, str):
+                _remind_tab = data.get("tab_id", "")
+                _remind_handled = await _handle_remind_me(last_text.strip(), websocket, tab_id=_remind_tab, data=data)
+                if _remind_handled:
                     continue
 
             # --- Memory trigger: detect "remember X", "from now on X", etc. ---
@@ -1513,6 +1549,17 @@ async def chat_websocket(websocket: WebSocket):
             memory_msgs = build_memory_context(current_tab_id=tab_id)
             if memory_msgs:
                 messages = memory_msgs + messages
+
+            # --- Pattern watcher v2: inject learned-patterns context (→1835 NC-1) ---
+            # Appended as a system-message segment before the user message.
+            # Skips silently if recall is unavailable or times out.
+            try:
+                from services.pattern_watcher import read_context_for_turn as _pw_read
+                _learned = _pw_read(last_text if isinstance(last_text, str) else "")
+                if _learned:
+                    messages = [{"role": "user", "content": _learned}] + messages
+            except Exception:
+                pass
 
             # Clean up tool-heavy history to prevent context pollution.
             # When a prior turn used tools (Bash, Read, etc.), the message

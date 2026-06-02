@@ -44,4 +44,18 @@ describe('useLocksStore', () => {
     useLocksStore.getState().setLocks([{ name: 'lock-x' }])
     expect(useLocksStore.getState().wsConnected).toBe(true)
   })
+
+  it('content-equal setLocks keeps the same reference (→1730)', () => {
+    useLocksStore.getState().setLocks([{ name: 'task-lock', holder: 'a' }])
+    const first = useLocksStore.getState().locks
+    useLocksStore.getState().setLocks([{ name: 'task-lock', holder: 'a' }])
+    expect(useLocksStore.getState().locks).toBe(first)
+  })
+
+  it('a real change swaps the reference', () => {
+    useLocksStore.getState().setLocks([{ name: 'task-lock', holder: 'a' }])
+    const first = useLocksStore.getState().locks
+    useLocksStore.getState().setLocks([{ name: 'task-lock', holder: 'b' }])
+    expect(useLocksStore.getState().locks).not.toBe(first)
+  })
 })

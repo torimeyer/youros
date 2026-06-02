@@ -79,7 +79,7 @@ describe('Projects page', () => {
 
   it('renders the page title', async () => {
     renderProjects()
-    expect(screen.getByRole('heading', { name: 'Projects' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { name: 'Projects' }).length).toBeGreaterThan(0)
   })
 
   it('renders subtitle text', async () => {

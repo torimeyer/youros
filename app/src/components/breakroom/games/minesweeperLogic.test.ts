@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createBoard, floodReveal, isWin, countRevealed } from './minesweeperLogic'
+import { createBoard, floodReveal, isWin, countRevealed, randomMines } from './minesweeperLogic'
 
 // 3x3 board with a single mine at (0,0).
 const board = () => createBoard(3, 3, [[0, 0]])
@@ -32,6 +32,17 @@ describe('floodReveal', () => {
     const b = floodReveal(board(), 0, 0)
     expect(b[0][0].revealed).toBe(true)
     expect(countRevealed(b)).toBe(1)
+  })
+})
+
+describe('randomMines first-click safety', () => {
+  it('keeps the clicked cell and its full 3x3 neighborhood mine-free', () => {
+    const mines = randomMines(16, 16, 40, Math.random, [8, 8])
+    expect(mines).toHaveLength(40)
+    for (const [r, c] of mines) {
+      const near = Math.abs(r - 8) <= 1 && Math.abs(c - 8) <= 1
+      expect(near).toBe(false)
+    }
   })
 })
 

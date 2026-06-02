@@ -462,7 +462,7 @@ async def test_gmail_messages_empty_cache_retries_api(client, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _make_fake_full_inbox_service(total_ids: int, page_size: int = 100):
+def _make_fake_full_inbox_service(total_ids: int, page_size: int = 100, unread_ids: list | None = None):
     """Build a factory that returns a MagicMock Gmail service with
     ``total_ids`` inbox messages paged in chunks of ``page_size``.
 
@@ -479,10 +479,16 @@ def _make_fake_full_inbox_service(total_ids: int, page_size: int = 100):
         "list_calls": [],
     }
     all_ids = [f"m{i}" for i in range(total_ids)]
+    unread_ids = list(unread_ids or [])
 
     def list_side_effect(**kwargs):
         call_counts["list"] += 1
         call_counts["list_calls"].append(dict(kwargs))
+        label_ids = kwargs.get("labelIds") or []
+        if "UNREAD" in label_ids:
+            # The unread-merge pass. Return the configured unread ids (empty by
+            # default) without touching the inbox paging bookkeeping.
+            return {"messages": [{"id": mid, "threadId": f"t{mid}"} for mid in unread_ids]}
         requested = kwargs.get("maxResults", page_size)
         token = kwargs.get("pageToken")
         start = 0 if token is None else int(token)
@@ -516,7 +522,7 @@ def _make_fake_full_inbox_service(total_ids: int, page_size: int = 100):
                 "id": msg_id,
                 "threadId": f"t{msg_id}",
                 "snippet": "hi",
-                "labelIds": ["INBOX"],
+                "labelIds": (["UNREAD", "INBOX"] if msg_id in unread_ids else ["INBOX"]),
                 "internalDate": "1712577600000",
                 "payload": {"headers": [
                     {"name": "Subject", "value": "s"},
@@ -543,8 +549,26 @@ def test_fetch_inbox_pulls_up_to_cap():
 
     assert len(result) == 200, f"cap should limit to 200, got {len(result)}"
     assert counts["get"] == 200, "per-message gets should equal the cap"
-    assert counts["list"] == 2, f"expected 2 list pages, got {counts['list']}"
+    # 2 inbox paging calls + 1 unread-merge query (no unread ids configured here).
+    assert counts["list"] == 3, f"expected 3 list calls, got {counts['list']}"
     assert counts["pages_served"] == [(0, 100), (100, 200)]
+
+
+def test_fetch_inbox_merges_unread_outside_recent_window():
+    """Regression: an unread message older than the most-recent `cap` INBOX
+    window must still be fetched and flagged is_unread, so the unread badge
+    is accurate. Previously unreads outside the window vanished entirely."""
+    from services import gmail as gmail_service
+
+    # 50 recent inbox ids (m0..m49); the unread 'mOLD' is NOT among them.
+    build, counts = _make_fake_full_inbox_service(total_ids=50, unread_ids=["mOLD"])
+
+    with patch("services.gmail._build_gmail_service", new=build):
+        result = gmail_service._fetch_inbox_sync(cap=50)
+
+    by_id = {m["id"]: m for m in result}
+    assert "mOLD" in by_id, "unread outside the recent window must be merged in"
+    assert by_id["mOLD"]["is_unread"] is True
 
 
 def test_fetch_inbox_returns_all_when_below_cap():
@@ -588,11 +612,16 @@ def test_fetch_inbox_does_not_filter_by_unread():
 
     list_calls = counts.get("list_calls", [])
     assert len(list_calls) >= 1
+    # The inbox paging must fetch the full INBOX (read AND unread), so at least
+    # one list call uses labelIds=["INBOX"] alone. A supplemental INBOX+UNREAD
+    # merge call is allowed -- it only ADDS older unreads that fall outside the
+    # recent window, it does not restrict the inbox to unread-only.
+    inbox_calls = [c for c in list_calls if c.get("labelIds") == ["INBOX"]]
+    assert inbox_calls, (
+        f"expected a full-INBOX list call, got {[c.get('labelIds') for c in list_calls]}"
+    )
     for call in list_calls:
         label_ids = call.get("labelIds", [])
-        assert "UNREAD" not in label_ids, (
-            f"inbox fetch must not filter by UNREAD, got labelIds={label_ids}"
-        )
         q = call.get("q", "")
         assert "is:unread" not in q.lower(), (
             f"inbox fetch must not use is:unread query, got q={q!r}"

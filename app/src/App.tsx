@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useNotificationStore } from './stores/notifications'
 import { Layout } from './components/Layout'
 import OnboardingWizard from './components/OnboardingWizard'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
 import Timeline from './pages/Timeline'
 import Agents from './pages/Agents'
@@ -39,6 +40,7 @@ import { useSessionsFeed } from './hooks/useSessionsFeed'
 import { useDashboardFeed } from './hooks/useDashboardFeed'
 import { useNotificationsFeed } from './hooks/useNotificationsFeed'
 import { useCalendarFeed } from './hooks/useCalendarFeed'
+import { useTaskFinishedSound } from './hooks/useTaskFinishedSound'
 import ShareView from './pages/ShareView'
 import AdminLayout from './components/AdminLayout'
 import AdminOverview from './pages/admin/Overview'
@@ -55,6 +57,7 @@ import MySetup from './pages/MySetup'
 import MyGems from './pages/MyGems'
 import BreakRoom from './pages/BreakRoom'
 import Library from './pages/Library'
+import Projects from './pages/Projects'
 
 export default function App() {
   useRunningAgentsFeed()
@@ -62,6 +65,7 @@ export default function App() {
   useDashboardFeed()
   useNotificationsFeed()
   useCalendarFeed()
+  useTaskFinishedSound()
   const hydrated = useAppStore((s) => s.hydrated)
   const onboarded = useAppStore((s) => s.onboarded)
   const hydrateFromServer = useAppStore((s) => s.hydrateFromServer)
@@ -140,7 +144,14 @@ export default function App() {
   // Post-hydration: server truth now in the store. Show the wizard if
   // onboarded is still false after the fetch landed.
   if (!onboarded) {
-    return <OnboardingWizard />
+    // Wrapped so a wizard render crash shows a recoverable error card
+    // instead of blanking the whole app (the wizard renders above the
+    // route-level boundary, so without this a throw = white screen).
+    return (
+      <ErrorBoundary>
+        <OnboardingWizard />
+      </ErrorBoundary>
+    )
   }
 
   return (
@@ -163,6 +174,7 @@ export default function App() {
           <Route path="specs/faq" element={<SpecFaq />} />
           <Route path="files" element={<Files />} />
           <Route path="library" element={<Library />} />
+          <Route path="projects" element={<Projects />} />
           <Route path="ostk" element={<OstkFiles />} />
           <Route path="sessions" element={<Sessions />} />
           <Route path="drive" element={<Drive />} />

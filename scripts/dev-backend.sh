@@ -28,6 +28,14 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 API_DIR="${MYOS_API_DIR:-$REPO_DIR/api}"
 UVICORN_PORT="${PORT:-${UVICORN_PORT:-8000}}"
 
+# OAuth callbacks (Slack, GitHub, Atlassian, Drive) redirect the browser to
+# FRONTEND_URL after connecting. In dev the frontend is the vite server on
+# :3010 while this backend listens on :8000, so without this the callback
+# falls back to the backend's own URL and the browser lands on :8000/<page>,
+# which 404s ({"detail":"Not Found"}). Respect an explicit override; otherwise
+# point at the dev frontend so connect flows return to the app.
+export FRONTEND_URL="${FRONTEND_URL:-https://localhost:3010}"
+
 # Pidfile + launcher lock live in /tmp and are scoped by port so parallel
 # ports (e.g. :8001 in tests, :8000 in dev) do not clobber each other.
 PIDFILE="/tmp/myos-backend-${UVICORN_PORT}.pid"

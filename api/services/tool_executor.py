@@ -19,16 +19,18 @@ from services.ostk import ostk
 from config import PROJECT_ROOT
 
 WORKSPACE = PROJECT_ROOT
-COMMAND_TIMEOUT = 30  # seconds
+COMMAND_TIMEOUT = 120  # seconds
 
 
 def _safe_path(raw_path: str) -> Path:
     """Resolve a path and ensure it stays within the workspace.
 
     Raises ValueError if the resolved path escapes the workspace.
+    Uses config.PROJECT_ROOT at call time so monkeypatching in tests works.
     """
+    import config as _cfg
     resolved = Path(raw_path).expanduser().resolve()
-    workspace_resolved = WORKSPACE.resolve()
+    workspace_resolved = Path(_cfg.PROJECT_ROOT).resolve()
     if not (resolved == workspace_resolved or str(resolved).startswith(str(workspace_resolved) + os.sep)):
         raise ValueError(f"Path is outside the workspace: {raw_path}")
     return resolved
@@ -361,7 +363,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "Create a new event on the user's Google Calendar. "
             "Use this when the user asks to add something to their calendar, schedule a meeting, or create a reminder. "
             "For all-day events (field trips, birthdays, holidays), set all_day to true and use YYYY-MM-DD for the date. "
-            "For timed events, use ISO datetime format like 2026-04-28T09:00:00."
+            "For timed events, use ISO datetime format like 2026-04-28T09:00:00. "
+            "When the user names specific people to invite, include their emails in attendees."
         ),
         "input_schema": {
             "type": "object",
@@ -389,6 +392,11 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "location": {
                     "type": "string",
                     "description": "Optional event location.",
+                },
+                "attendees": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of attendee email addresses. Google Calendar sends each one an invite.",
                 },
             },
             "required": ["title", "start"],
@@ -659,6 +667,7 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
                 all_day=input_data.get("all_day", False),
                 description=input_data.get("description", ""),
                 location=input_data.get("location", ""),
+                attendees=input_data.get("attendees"),
             )
         elif name == "send_email":
             return await _send_email(
@@ -849,8 +858,12 @@ async def _semantic_search(query: str, scope: str = "code", limit: int = 20) -> 
         )
         return raw or f"No semantic search results for: {query}"
     except Exception:
-        # ostk unavailable — fall back to literal grep so the tool still works
-        return await _search_files(query, "")
+        # ostk unavailable — fall back to literal grep so the tool still works.
+        # Re-read config.PROJECT_ROOT at call time so monkeypatching in tests
+        # (and future runtime root changes) takes effect instead of using the
+        # module-level WORKSPACE constant that was captured at import time.
+        import config as _cfg
+        return await _search_files(query, str(_cfg.PROJECT_ROOT))
 
 
 async def _list_tasks() -> str:
@@ -1540,6 +1553,7 @@ async def _create_calendar_event(
     all_day: bool = False,
     description: str = "",
     location: str = "",
+    attendees: list | None = None,
 ) -> str:
     """Create a Google Calendar event via the calendar service."""
     try:
@@ -1557,6 +1571,7 @@ async def _create_calendar_event(
             all_day=all_day,
             description=description,
             location=location,
+            attendees=attendees or [],
         )
         summary = event.get("summary", title)
         link = event.get("htmlLink", "")

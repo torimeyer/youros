@@ -15,7 +15,40 @@ from starlette.websockets import WebSocketDisconnect
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from services.staticfiles_ws_guard import StaticFilesWSGuard
+from services.staticfiles_ws_guard import StaticFilesWSGuard, SPAStaticFiles
+
+
+@pytest.fixture
+def spa_app(tmp_path):
+    (tmp_path / "index.html").write_text("<!doctype html><title>app</title>")
+    (tmp_path / "asset.js").write_text("console.log('x')")
+    mini = FastAPI()
+    mini.mount("/", SPAStaticFiles(directory=str(tmp_path), html=True), name="frontend")
+    return mini
+
+
+def test_spa_fallback_serves_index_for_client_route(spa_app):
+    """An unknown non-API path (a deep-linked client route) falls back to index.html."""
+    with TestClient(spa_app) as client:
+        resp = client.get("/specs")
+        assert resp.status_code == 200
+        assert "<title>app</title>" in resp.text
+
+
+def test_spa_fallback_serves_real_asset(spa_app):
+    """A real static asset is served directly, not replaced by index.html."""
+    with TestClient(spa_app) as client:
+        resp = client.get("/asset.js")
+        assert resp.status_code == 200
+        assert "console.log" in resp.text
+
+
+def test_spa_fallback_excludes_api_paths(spa_app):
+    """An unmatched /api/* path must 404, not serve the SPA, so a removed or
+    mistyped API endpoint surfaces as an error instead of a 200 HTML page."""
+    with TestClient(spa_app) as client:
+        resp = client.get("/api/does/not/exist")
+        assert resp.status_code == 404
 
 
 @pytest.fixture

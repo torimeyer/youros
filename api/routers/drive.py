@@ -1531,6 +1531,10 @@ class BatchUpdateDoc(BaseModel):
     requests: list
 
 
+class UpdateDocText(BaseModel):
+    text: str
+
+
 @router.post("/drive/docs/create-from-md")
 async def create_doc_from_md(body: CreateDocFromMd):
     """Upload a .md file to Drive and convert it to a Google Doc."""
@@ -1709,3 +1713,64 @@ async def get_doc_structure(doc_id: str):
         ) from exc
 
     return result
+
+
+@router.post("/drive/docs/{doc_id}/update-text")
+async def update_doc_text(doc_id: str, body: UpdateDocText):
+    """Replace a Google Doc's body with plain text via batchUpdate."""
+    import asyncio
+
+    def _call():
+        service = _build_docs_service()
+        doc = service.documents().get(documentId=doc_id).execute()
+        content = doc.get("body", {}).get("content", [])
+        end_index = content[-1].get("endIndex", 1) if content else 1
+
+        requests: list = []
+        if end_index > 1:
+            requests.append({
+                "deleteContentRange": {
+                    "range": {"startIndex": 1, "endIndex": end_index - 1}
+                }
+            })
+        if body.text:
+            requests.append({
+                "insertText": {
+                    "location": {"index": 1},
+                    "text": body.text,
+                }
+            })
+        if requests:
+            service.documents().batchUpdate(
+                documentId=doc_id,
+                body={"requests": requests},
+            ).execute()
+
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, _call)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not update Google Doc content: {exc}",
+        ) from exc
+
+    return {"ok": True, "doc_id": doc_id}
+
+
+@router.get("/drive/docs/{doc_id}/export-text")
+async def export_doc_text_endpoint(doc_id: str):
+    """Return a Google Doc's current body as plain text.
+
+    The in-app editor (→1939) calls this to pre-fill the edit box with the
+    doc's current text. Without it the box would open empty and saving would
+    erase the document, so we surface a clear error rather than empty content.
+    """
+    try:
+        text = await _export_doc_text(doc_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not read Google Doc content: {exc}",
+        ) from exc
+
+    return Response(content=text, media_type="text/plain")

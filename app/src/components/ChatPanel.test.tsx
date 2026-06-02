@@ -521,12 +521,12 @@ describe('ChatPanel', () => {
       // Assistant message container should NOT have items-end.
       expect(assistantMsgContainer!.className).not.toContain('items-end')
 
-      // User bubble wrapper should have ml-auto and a max width to keep it
-      // from spanning the whole panel.
+      // User bubble wrapper right-aligns via items-end (this replaced the old
+      // ml-auto approach). The width cap (max-w-[75%]) now lives on the bubble.
       const userBubbleWrapper = userMsgContainer!.querySelector('.relative')
       expect(userBubbleWrapper).not.toBeNull()
-      expect(userBubbleWrapper!.className).toContain('ml-auto')
-      expect(userBubbleWrapper!.className).toContain('max-w-[75%]')
+      expect(userBubbleWrapper!.className).toContain('items-end')
+      expect(userMsgContainer!.innerHTML).toContain('max-w-[75%]')
 
       // Assistant bubble wrapper should NOT have ml-auto.
       const assistantBubbleWrapper = assistantMsgContainer!.querySelector('.relative')
@@ -880,6 +880,8 @@ describe('ChatPanel', () => {
       mockLastMessage = { type: 'done' }
       rerender(<ChatPanel />)
 
+      // Expand the toggle so tool block internals are visible (collapsed by default per →2002).
+      fireEvent.click(document.querySelector('[data-testid^="tool-calls-toggle-"]')!)
       // The tool block should show a check icon, not a spinner, after done.
       // check_circle is rendered by Icon which outputs the material symbol text.
       const checkIcons = document.querySelectorAll('[class*="text-green-500"]')
@@ -1029,6 +1031,8 @@ describe('ChatPanel', () => {
       expect(anchors.length).toBe(1)
       expect(anchors[0].textContent).toBe('View in Calendar')
 
+      // Expand the toggle so tool block internals are visible (collapsed by default per →2002).
+      fireEvent.click(document.querySelector('[data-testid^="tool-calls-toggle-"]')!)
       // The tool block should still render above the prose. Tool blocks use
       // the tool name text in their header (mcp__ prefix collapsed or raw).
       // We look for the tool block container by finding the green check
@@ -3322,7 +3326,10 @@ describe('ChatPanel', () => {
       mockLastMessage = { type: 'done' }
       rerender(<ChatPanel />)
 
-      // Pill must be visible.
+      // Expand the group toggle first (collapsed by default per →2002).
+      fireEvent.click(document.querySelector('[data-testid^="tool-calls-toggle-"]')!)
+
+      // Pill must be visible after expanding.
       const pill = screen.getByTestId('tool-call-pill')
       expect(pill).toBeTruthy()
 
@@ -3365,6 +3372,7 @@ describe('ChatPanel', () => {
       mockLastMessage = { type: 'done' }
       rerender(<ChatPanel />)
 
+      fireEvent.click(document.querySelector('[data-testid^="tool-calls-toggle-"]')!)
       const pill = screen.getByTestId('tool-call-pill')
       expect(pill.textContent).toContain('Run command')
       expect(pill.textContent).toContain('scripts/run-vitest.sh src/components/')
@@ -3392,10 +3400,75 @@ describe('ChatPanel', () => {
       mockLastMessage = { type: 'done' }
       rerender(<ChatPanel />)
 
+      fireEvent.click(document.querySelector('[data-testid^="tool-calls-toggle-"]')!)
       const pill = screen.getByTestId('tool-call-pill')
       expect(pill.textContent).toContain('Search')
       expect(pill.textContent).toContain('ToolCallBlock')
       expect(pill.textContent).not.toContain('ostk: search')
+    })
+  })
+
+  describe('Tool call group toggle (→2002)', () => {
+    it('collapses 2+ tool calls under a single toggle by default', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByTestId('chat-input')
+      fireEvent.change(input, { target: { value: 'do two things' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'mcp_tool_use',
+        data: { tool: 'bash', server: 'ostk', id: 'tc-1', input: { cmd: 'ls' } },
+      }
+      rerender(<ChatPanel />)
+
+      mockLastMessage = {
+        type: 'mcp_tool_use',
+        data: { tool: 'bash', server: 'ostk', id: 'tc-2', input: { cmd: 'pwd' } },
+      }
+      rerender(<ChatPanel />)
+
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+
+      // Toggle button is present showing count
+      const toggle = document.querySelector('[data-testid^="tool-calls-toggle-"]') as HTMLElement
+      expect(toggle).toBeTruthy()
+      expect(toggle.textContent).toContain('2')
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+      // Individual pills not rendered while collapsed
+      expect(screen.queryByTestId('tool-call-pill')).toBeNull()
+    })
+
+    it('expands to show individual tool call pills on toggle click', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByTestId('chat-input')
+      fireEvent.change(input, { target: { value: 'do two things' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'mcp_tool_use',
+        data: { tool: 'bash', server: 'ostk', id: 'tc-a', input: { cmd: 'echo hello' } },
+      }
+      rerender(<ChatPanel />)
+
+      mockLastMessage = {
+        type: 'mcp_tool_use',
+        data: { tool: 'search', server: 'ostk', id: 'tc-b', input: { query: 'foo' } },
+      }
+      rerender(<ChatPanel />)
+
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+
+      const toggle = document.querySelector('[data-testid^="tool-calls-toggle-"]') as HTMLElement
+      fireEvent.click(toggle)
+
+      expect(toggle.getAttribute('aria-expanded')).toBe('true')
+      const pills = screen.getAllByTestId('tool-call-pill')
+      expect(pills.length).toBe(2)
     })
   })
 
@@ -3618,6 +3691,63 @@ describe('ChatPanel', () => {
       })
       expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ type: 'plan_cancel', id: 'plan-3' }))
       expect(screen.queryByTestId('plan-banner')).toBeNull()
+    })
+  })
+
+  describe('Turn queue: concurrent sends do not collide on bubble id ref', () => {
+    it('holds a second send in the queue until the first turn completes', () => {
+      const { rerender } = render(<ChatPanel />)
+      const input = screen.getByTestId('chat-input')
+
+      // Turn 1: user sends first message
+      fireEvent.change(input, { target: { value: 'first question' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(mockSend).toHaveBeenCalledTimes(1)
+
+      // Turn 1 still in flight — send second message immediately
+      fireEvent.change(input, { target: { value: 'second question' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Second send must be queued, NOT fired yet
+      expect(mockSend).toHaveBeenCalledTimes(1)
+
+      // Turn 1 token arrives — must land in turn 1's assistant bubble
+      mockLastMessage = { type: 'token', data: 'Answer one.' }
+      rerender(<ChatPanel />)
+      expect(screen.getByText('Answer one.')).toBeTruthy()
+
+      // Turn 1 completes
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+
+      // Queue drains: second send fires immediately after done
+      expect(mockSend).toHaveBeenCalledTimes(2)
+      const secondPayload = mockSend.mock.calls[1][0] as { messages: { role: string; content: string }[] }
+      const lastUserMsg = secondPayload.messages[secondPayload.messages.length - 1]
+      expect(lastUserMsg.role).toBe('user')
+      expect(lastUserMsg.content).toBe('second question')
+
+      // Turn 2 token arrives — must land in turn 2's bubble
+      mockLastMessage = { type: 'token', data: 'Answer two.' }
+      rerender(<ChatPanel />)
+      expect(screen.getByText('Answer two.')).toBeTruthy()
+
+      // Turn 1's answer is still visible in its own bubble
+      expect(screen.getByText('Answer one.')).toBeTruthy()
+    })
+
+    it('single-message path is unchanged: send fires immediately when idle', () => {
+      const { rerender } = render(<ChatPanel />)
+      const input = screen.getByTestId('chat-input')
+
+      fireEvent.change(input, { target: { value: 'only message' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      expect(mockSend).toHaveBeenCalledTimes(1)
+
+      mockLastMessage = { type: 'token', data: 'Only answer.' }
+      rerender(<ChatPanel />)
+      expect(screen.getByText('Only answer.')).toBeTruthy()
     })
   })
 
