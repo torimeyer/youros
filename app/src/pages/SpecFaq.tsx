@@ -1,4 +1,4 @@
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 
 interface FaqSection {
   id: string
@@ -11,11 +11,22 @@ const sections: FaqSection[] = [
     id: 'faq-q-what-is-a-spec',
     heading: 'What is a spec?',
     body: (
-      <p className="text-sm text-slate-400">
-        A spec describes WHAT you want to build and WHY it matters. It is the shared source of truth
-        for everyone working on a piece of work, whether that is you, a teammate, or an agent. A
-        spec does not tell anyone HOW to do the work. That part is up to the builder.
-      </p>
+      <div className="text-sm text-slate-400 space-y-3">
+        <p>
+          A spec describes WHAT you want to build and WHY it matters. It is the shared source of
+          truth for everyone working on a piece of work, whether that is you, a teammate, or an
+          agent. A spec does not tell anyone HOW to do the work. That part is up to the builder.
+        </p>
+        <p>
+          yourOS is spec-first: important work starts with a spec. It is also spec-anchored: specs
+          are kept and updated over time as the work progresses. This is not a system where you can
+          only edit the spec and never the work. Specs serve the work, not the other way around.
+        </p>
+        <p>
+          You can change this in Settings: choose whether a spec always turns into a plan to build,
+          or stays a document you act on when you are ready.
+        </p>
+      </div>
     ),
   },
   {
@@ -36,30 +47,52 @@ const sections: FaqSection[] = [
     id: 'faq-q-vs-prd',
     heading: 'How is a spec different from a PRD?',
     body: (
-      <p className="text-sm text-slate-400">
-        The quickest way to put it is that a spec is a PRD for agents. A normal PRD is written for
-        people, and people fill the gaps from context and a hallway conversation, but an agent does
-        exactly what is on the page, so writing for an agent is different in a few ways. The
-        acceptance criteria have to be concrete and checkable rather than vague adjectives like
-        premium or clean, the non-goals and constraints have to be written down rather than assumed,
-        and the spec has to be self-contained because the agent was not in the room. On top of that
-        the spec is executable, each criterion spawns a builder and the spec marks itself done when
-        they all land, and an agent cannot start until the spec is marked Ready. So a PRD is a spec
-        for humans, and a spec here is a PRD for agents, written precisely enough that something
-        non-human can build straight from it.
-      </p>
+      <div className="text-sm text-slate-400 space-y-3">
+        <p>
+          A spec is a PRD for agents. A PRD is written for people, who fill the gaps from context
+          and hallway conversations. An agent does exactly what is on the page, so the writing has
+          to be different.
+        </p>
+        <p>
+          The acceptance criteria have to be concrete and checkable, not vague words like premium or
+          clean. The constraints and non-goals have to be written down, not assumed. And the spec
+          has to stand on its own, because the agent was not in the room.
+        </p>
+        <p>
+          A spec is also executable: each criterion spawns a builder, the spec marks itself done
+          when they all land, and work cannot start until it is marked Ready.
+        </p>
+        <p>
+          So a PRD is a spec for humans. A spec is a PRD for agents, written precisely enough that
+          something non-human can build straight from it.
+        </p>
+      </div>
     ),
   },
   {
     id: 'faq-q-kinds',
-    heading: 'The kinds of specs',
+    heading: "Specs aren't just for engineers",
     body: (
-      <ul className="text-sm text-slate-400 space-y-2 list-disc list-inside">
-        <li>Prototype: an early idea, not yet ready to build from.</li>
-        <li>Vision / Roadmap: a direction for where the product is going over time.</li>
-        <li>Customer docs: material written for people using the product.</li>
-        <li>Engineering feature: a description of a specific capability to build.</li>
-      </ul>
+      <div className="text-sm text-slate-400 space-y-2">
+        <p>
+          The same precise, build-from-it document can produce very different things, for different
+          audiences:
+        </p>
+        <ul className="space-y-2 list-disc list-inside">
+          <li>Prototype: a quick, throwaway build to test an idea before committing.</li>
+          <li>
+            Vision / Roadmap: where the product is headed over time, like a deployed interactive
+            vision doc.
+          </li>
+          <li>Engineering feature: a specific capability to build.</li>
+          <li>
+            Landing page or launch: a marketing page with the sections, message, and call to action
+            spelled out.
+          </li>
+          <li>Dashboard or report: a data view with the exact metrics, filters, and refresh cadence.</li>
+          <li>Customer docs: a tutorial or reference written for the people using the product.</li>
+        </ul>
+      </div>
     ),
   },
   {
@@ -95,42 +128,11 @@ const sections: FaqSection[] = [
       </p>
     ),
   },
-  {
-    id: 'faq-q-how-treated',
-    heading: 'How yourOS treats specs',
-    body: (
-      <p className="text-sm text-slate-400">
-        yourOS is spec-first: important work starts with a spec. It is also spec-anchored: specs are
-        kept and updated over time as the work progresses. This is not a system where you can only
-        edit the spec and never the work. Specs serve the work, not the other way around.
-      </p>
-    ),
-  },
-  {
-    id: 'faq-q-where-from',
-    heading: 'Where the spec model comes from',
-    body: (
-      <p className="text-sm text-slate-400">
-        We pulled from a few places. The split between WHAT and HOW, the spec as a single source of
-        truth, and the habit of writing acceptance criteria and corner cases up front come from
-        spec-driven development practice, including a real engineering team whose process we studied
-        in depth. Freezing a spec after human review, and having a separate agent challenge the spec
-        for gaps, come from that same practice and from GitHub Spec Kit. Writing the customer-facing
-        story before any code comes from Amazon Working Backwards, and the idea of a living document
-        kept in sync over time comes from RFCs and engineering design docs. Two things here are
-        probably different from what you would expect. First, a spec is not only for engineers, it
-        can be a prototype, a vision or roadmap, or customer-facing docs, where most spec practice is
-        engineering-only. Second, a spec informs you but never blocks you, you can always proceed,
-        where many spec-driven setups hard-gate the work and forbid bypassing the spec.
-      </p>
-    ),
-  },
 ]
 
 export default function SpecFaq() {
   return (
-    <div className="min-h-dvh bg-slate-950">
-      <TopBar title="Spec FAQ" />
+    <PageShell title="Spec FAQ">
       <main className="pt-24 pb-16 px-8 max-w-3xl mx-auto">
         <div className="mb-10">
           <h1 className="text-4xl font-bold text-slate-100 mb-3">Specs: the basics</h1>
@@ -152,6 +154,6 @@ export default function SpecFaq() {
           ))}
         </div>
       </main>
-    </div>
+    </PageShell>
   )
 }

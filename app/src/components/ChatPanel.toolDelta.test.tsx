@@ -146,6 +146,10 @@ describe('ChatPanel tool_use_delta routing (→900)', () => {
     expect(bodyText).not.toContain(fullRaw)
 
     // --- Assertion (b): the compact tool pill renders with the label. ---
+    // Tool calls render collapsed inside a "Show tool calls (N)" group
+    // (ToolCallGroup, default closed). Expand the group to reveal the
+    // individual pill before asserting on it.
+    fireEvent.click(screen.getByText(/Show tool calls/i))
     const pill = screen.getByTestId('tool-call-pill')
     expect(pill).toBeTruthy()
     // TOOL_LABELS maps read_file → "Read file".

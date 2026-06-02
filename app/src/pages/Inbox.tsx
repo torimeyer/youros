@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import { api } from '../lib/api'
 import Icon from '../components/Icon'
 import SlackReplyComposer from '../components/SlackReplyComposer'
@@ -105,8 +105,7 @@ export default function Inbox() {
   const isEmpty = items.length === 0 && notifications.length === 0
 
   return (
-    <div data-testid="inbox-page" className="flex flex-col h-full">
-      <TopBar title="Inbox" />
+    <PageShell title="Inbox" fullHeight data-testid="inbox-page">
       <div className="flex-1 overflow-y-auto p-6">
         {loading && isEmpty ? (
           <p className="text-slate-600 dark:text-slate-400 text-sm">Loading...</p>
@@ -293,6 +292,6 @@ export default function Inbox() {
           </div>
         )}
       </div>
-    </div>
+    </PageShell>
   )
 }

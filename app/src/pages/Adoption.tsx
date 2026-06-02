@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import Icon from '../components/Icon'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 
 interface Skill {
   id: string
@@ -63,23 +63,21 @@ export default function Adoption() {
 
   if (loading || error || !data) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-        <TopBar title="What's working" />
-        <div className="px-6 pb-6 max-w-2xl mx-auto">
+      <PageShell title="What's working">
+        <div className="max-w-2xl mx-auto">
           <p className="text-slate-600 dark:text-slate-400 text-sm py-8">
             {loading ? 'Loading...' : "Couldn't load your activity right now. Try refreshing."}
           </p>
         </div>
-      </div>
+      </PageShell>
     )
   }
 
   const hasActivity = data.top_skills.length > 0
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-      <TopBar title="What's working" />
-      <div className="px-6 pb-6 max-w-2xl mx-auto space-y-8">
+    <PageShell title="What's working">
+      <div className="max-w-2xl mx-auto space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">What's working</h1>
         <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">
@@ -210,6 +208,6 @@ export default function Adoption() {
         </div>
       </section>
     </div>
-    </div>
+    </PageShell>
   )
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icon'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import GoogleSetupGuideModal from '../components/GoogleSetupGuideModal'
 import NewEventModal from '../components/NewEventModal'
 import { ConnectCard, LoadingState, EmptyState } from '../components/ui'
@@ -603,21 +603,16 @@ export default function Calendar() {
 
   if (loading || authStatus === null) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-        <TopBar title="Calendar" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <LoadingState variant="spinner" />
-        </div>
-      </div>
+      <PageShell title="Calendar">
+        <LoadingState variant="spinner" />
+      </PageShell>
     )
   }
 
   if (!authStatus?.authenticated || authStatus.needs_reauth) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-        <TopBar title="Calendar" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <ConnectCard
+      <PageShell title="Calendar">
+        <ConnectCard
             icon="calendar_month"
             accentColor="#3b82f6"
             title={authStatus?.needs_reauth ? 'Calendar access needs to be updated' : 'Connect Google Calendar'}
@@ -655,18 +650,15 @@ export default function Calendar() {
             }
             error={connectError ?? undefined}
           />
-        </div>
         {showSetupGuide && <GoogleSetupGuideModal onClose={() => setShowSetupGuide(false)} />}
-      </div>
+      </PageShell>
     )
   }
 
   if (apiNotEnabled) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-        <TopBar title="Calendar" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <ConnectCard
+      <PageShell title="Calendar">
+        <ConnectCard
             icon="warning"
             accentColor="#f59e0b"
             title="Calendar API not enabled"
@@ -693,16 +685,13 @@ export default function Calendar() {
               </div>
             }
           />
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-      <TopBar title="Calendar" />
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-        {/* Header row */}
+    <PageShell title="Calendar">
+      {/* Header row */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold">Calendar</h1>
@@ -1043,7 +1032,6 @@ export default function Calendar() {
             description="Your calendar is clear. A good time to focus on your top needles."
           />
         )}
-      </div>
 
       {undoDelete && (
         <div
@@ -1070,6 +1058,6 @@ export default function Calendar() {
           }}
         />
       )}
-    </div>
+    </PageShell>
   )
 }

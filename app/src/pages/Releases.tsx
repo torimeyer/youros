@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import Icon from '../components/Icon'
 import releaseNotes from '../data/releaseNotes'
 import { useAppStore } from '../stores/app'
@@ -17,9 +17,7 @@ export default function Releases() {
   }, [setWhatsNewLastSeen])
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-      <TopBar title="What's New" />
-
+    <PageShell title="What's New">
       <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center gap-3 mb-2">
@@ -62,6 +60,6 @@ export default function Releases() {
           </div>
         </div>
       </div>
-    </div>
+    </PageShell>
   )
 }

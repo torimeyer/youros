@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { formatDate } from '../lib/time'
 import { useParams, useNavigate } from 'react-router-dom'
 import Icon from '../components/Icon'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import { ConnectCard, LoadingState, EmptyState, ErrorBanner } from '../components/ui'
 import { api } from '../lib/api'
 
@@ -151,21 +151,16 @@ export default function Confluence() {
 
   if (loading) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-        <TopBar title="Confluence" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <LoadingState variant="spinner" />
-        </div>
-      </div>
+      <PageShell title="Confluence" data-testid="confluence-page">
+        <LoadingState variant="spinner" />
+      </PageShell>
     )
   }
 
   if (!status?.connected) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white" data-testid="confluence-page">
-        <TopBar title="Confluence" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <ConnectCard
+      <PageShell title="Confluence" data-testid="confluence-page">
+        <ConnectCard
             icon="menu_book"
             accentColor="#94a3b8"
             title="Connect Confluence"
@@ -243,18 +238,15 @@ export default function Confluence() {
             }
             error={connectError ?? undefined}
           />
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   // Detail view
   if (pageId) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white" data-testid="confluence-page">
-        <TopBar title="Confluence" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <button
+      <PageShell title="Confluence" data-testid="confluence-page">
+        <button
             onClick={() => navigate('/confluence')}
             className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 hover:text-white text-sm mb-4 transition-colors"
           >
@@ -299,17 +291,14 @@ export default function Confluence() {
               )}
             </div>
           )}
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   // List view
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white" data-testid="confluence-page">
-      <TopBar title="Confluence" />
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <PageShell title="Confluence" data-testid="confluence-page">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl sm:text-2xl font-bold">Confluence</h1>
@@ -375,7 +364,6 @@ export default function Confluence() {
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </PageShell>
   )
 }

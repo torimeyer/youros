@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import Icon from "../components/Icon";
-import TopBar from "../components/TopBar";
+import PageShell from "../components/PageShell";
 import ExportButton from "../components/ExportButton";
 import { api } from "../lib/api";
 import { reportError } from '../lib/reportError';
@@ -93,9 +93,7 @@ export default function Timeline() {
       : "px-3 py-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300";
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white flex flex-col">
-      <TopBar title="Timeline" />
-
+    <PageShell title="Timeline" fullHeight>
       <div className="px-4 pb-4 sm:px-8 sm:pb-8 flex-1 flex flex-col">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
@@ -283,6 +281,6 @@ export default function Timeline() {
           </span>
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

@@ -41,4 +41,15 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
       // Registration can fail in environments that restrict workers.
     })
   })
+} else if (!import.meta.env.PROD && 'serviceWorker' in navigator) {
+  // Dev: actively remove any service worker left over from a past
+  // production build. Without this, the old worker keeps serving cached
+  // index.html and JS bundles, so code changes never appear no matter how
+  // many times you refresh. Unregistering it here means one reload after
+  // this loads gets you the live dev build, with no DevTools digging.
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((reg) => reg.unregister())
+  }).catch(() => {
+    // getRegistrations can be unavailable in restricted environments.
+  })
 }

@@ -26,7 +26,7 @@ const localStorageMock = (() => {
 })()
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
-// Navigate to Tracking step (index 6 in PERSONAL_STEPS_NO_FORK)
+// Navigate to Tracking step (index 5 in PERSONAL_STEPS_NO_FORK)
 function clickNext(n: number) {
   for (let i = 0; i < n; i++) {
     fireEvent.click(screen.getByTestId('next-button'))
@@ -34,7 +34,7 @@ function clickNext(n: number) {
 }
 
 function goToTrackingStep() {
-  clickNext(6) // Welcome(0)->You->Name->FilesLocation->Profile->Theme->Tracking(6)
+  clickNext(5) // Welcome(0)->You->Name->Profile->Theme->Tracking(5)
 }
 
 describe('OnboardingWizard - Tracking step', () => {

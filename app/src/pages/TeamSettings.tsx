@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import TopBar from "../components/TopBar";
+import PageShell from "../components/PageShell";
 
 interface TeamConfig {
   team_repo: string;
@@ -92,9 +92,8 @@ export default function TeamSettings() {
   };
 
   return (
-    <div className="min-h-screen bg-white dark:bg-slate-950">
-      <TopBar title="Team Settings" />
-      <div className="px-4 sm:px-8 max-w-2xl mx-auto py-8">
+    <PageShell title="Team Settings">
+      <div className="max-w-2xl mx-auto py-8">
         <div className="flex items-center gap-3 mb-8">
           <Link
             to="/team"
@@ -225,6 +224,6 @@ export default function TeamSettings() {
           </button>
         </form>
       </div>
-    </div>
+    </PageShell>
   );
 }

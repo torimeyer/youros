@@ -142,7 +142,7 @@ describe('Activity page', () => {
     mockedApiGet.mockResolvedValue({ events: [], count: 0 })
     renderActivity()
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument()
+      expect(screen.getAllByRole('heading', { name: 'Activity' }).length).toBeGreaterThan(0)
     })
   })
 

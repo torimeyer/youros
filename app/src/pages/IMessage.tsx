@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react'
 import { formatSmartDate } from '../lib/time'
 import Icon from '../components/Icon'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import { ConnectCard, LoadingState, EmptyState, ErrorBanner } from '../components/ui'
 import { api } from '../lib/api'
 
@@ -507,20 +507,15 @@ export default function IMessage() {
 
   if (connectionState === 'loading' && conversations.length === 0) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-        <TopBar title="People" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+      <PageShell title="People">
           <LoadingState variant="spinner" />
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   if (connectionState === 'not_connected') {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-        <TopBar title="People" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+      <PageShell title="People">
           <ConnectCard
             icon="chat_bubble"
             accentColor="#22c55e"
@@ -541,15 +536,12 @@ export default function IMessage() {
               ) : null
             }
           />
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-      <TopBar title="People" />
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+    <PageShell title="People">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
@@ -855,7 +847,6 @@ export default function IMessage() {
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </PageShell>
   )
 }

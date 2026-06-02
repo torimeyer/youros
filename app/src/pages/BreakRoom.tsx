@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import GameTile from '../components/breakroom/GameTile'
 import GameShell from '../components/breakroom/GameShell'
 import HowToPlay from '../components/breakroom/HowToPlay'
@@ -23,9 +23,7 @@ export default function BreakRoom() {
   }
 
   return (
-    <div className="min-h-dvh bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-white">
-      <TopBar title="The Arcade" />
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+    <PageShell title="The Arcade">
         <div className="mx-auto max-w-6xl">
           {!active || !Active ? (
             <>
@@ -62,7 +60,6 @@ export default function BreakRoom() {
             </GameShell>
           )}
         </div>
-      </div>
-    </div>
+    </PageShell>
   )
 }

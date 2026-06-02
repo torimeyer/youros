@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icon'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import { ConnectCard, LoadingState, EmptyState } from '../components/ui'
 import { api } from '../lib/api'
 import SlackReplyComposer from '../components/SlackReplyComposer'
@@ -315,21 +315,16 @@ export default function Slack() {
 
   if (loading) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-        <TopBar title="Slack" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <LoadingState variant="spinner" />
-        </div>
-      </div>
+      <PageShell title="Slack">
+        <LoadingState variant="spinner" />
+      </PageShell>
     )
   }
 
   if (!status?.connected) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-        <TopBar title="Slack" />
-        <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-          <ConnectCard
+      <PageShell title="Slack">
+        <ConnectCard
             icon="chat"
             accentColor="#a855f7"
             title="Connect Slack"
@@ -411,16 +406,13 @@ export default function Slack() {
             }
             error={connectError ?? undefined}
           />
-        </div>
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-      <TopBar title="Slack" />
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
-        {/* Header */}
+    <PageShell title="Slack">
+      {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-xl sm:text-2xl font-bold">Slack</h1>
@@ -610,7 +602,6 @@ export default function Slack() {
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </PageShell>
   )
 }

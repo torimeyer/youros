@@ -136,7 +136,7 @@ describe('Specs page', () => {
   it('shows the page title', async () => {
     renderSpecs()
 
-    const heading = screen.getByRole('heading', { name: 'Specs' })
+    const heading = screen.getAllByRole('heading', { name: 'Specs' })[0]
     expect(heading).toBeInTheDocument()
   })
 
@@ -802,7 +802,7 @@ describe('Specs page', () => {
     })
 
     // Page title should still be visible
-    expect(screen.getByRole('heading', { name: 'Specs' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { name: 'Specs' }).length).toBeGreaterThan(0)
   })
 
   it('shows promote error about acceptance criteria', async () => {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, type MouseEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../components/Icon';
-import TopBar from '../components/TopBar';
+import PageShell from '../components/PageShell';
 import QuickAddTaskModal from '../components/QuickAddTaskModal';
 import QuickSpawnAgentModal from '../components/QuickSpawnAgentModal';
 import DashboardCustomizeModal from '../components/DashboardCustomizeModal';
@@ -1058,14 +1058,10 @@ export default function Dashboard() {
   });
 
   return (
-    <div
-      className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+    <PageShell title="Home"
       data-live-agents={String(liveAgentsCount)}
       data-live-tasks={String(liveTasksCount)}
     >
-      <TopBar title="Home" />
-
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
         {visibleBanners.map((id) => widgetRenderers[id]?.())}
 
         {/* Greeting + Customize button */}
@@ -1134,8 +1130,6 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
-      </div>
-
       {/* Floating Action Button - Open Chat */}
       <button
         onClick={() => useAppStore.getState().toggleChat()}
@@ -1159,6 +1153,6 @@ export default function Dashboard() {
         widgets={dashboardWidgets}
         onSave={(next) => setDashboardWidgets(next)}
       />
-    </div>
+    </PageShell>
   );
 }

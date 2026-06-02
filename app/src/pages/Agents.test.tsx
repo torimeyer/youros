@@ -296,7 +296,7 @@ describe('Agents page - Nudge feature', () => {
     fireEvent.click(expandButton)
 
     await waitFor(() => {
-      expect(screen.getByText('Messages sent')).toBeInTheDocument()
+      expect(screen.getByText('Source')).toBeInTheDocument()
     })
 
     expect(screen.queryByText(/token budget/i)).toBeNull()
@@ -821,7 +821,8 @@ describe('Agents page - page-level subtitle', () => {
 
   it('subtitle renders after the h1 in DOM order', async () => {
     renderAgents()
-    const h1 = await screen.findByRole('heading', { name: /^agents$/i })
+    const headings = await screen.findAllByRole('heading', { name: /^agents$/i })
+    const h1 = headings.find(h => h.getAttribute('data-testid') !== 'topbar-title') ?? headings[headings.length - 1]
     const subtitle = await screen.findByTestId('agents-page-subtitle')
     // Node.DOCUMENT_POSITION_FOLLOWING (4) means subtitle comes after h1
     expect(h1.compareDocumentPosition(subtitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()

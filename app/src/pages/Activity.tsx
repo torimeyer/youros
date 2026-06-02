@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import PatternPanel from "../components/PatternPanel";
 import Icon from "../components/Icon";
-import TopBar from "../components/TopBar";
+import PageShell from "../components/PageShell";
 import { api } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { reportError } from '../lib/reportError';
@@ -361,9 +361,7 @@ export default function Activity() {
   const totalVisible = displayGroups.reduce((n, g) => n + g.entries.length, 0);
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white flex flex-col">
-      <TopBar title="Activity" />
-
+    <PageShell title="Activity" fullHeight>
       <div data-tour="activity" className="px-4 pb-4 sm:px-8 sm:pb-8 flex-1 flex flex-col">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
@@ -499,6 +497,6 @@ export default function Activity() {
           </div>
         )}
       </div>
-    </div>
+    </PageShell>
   );
 }

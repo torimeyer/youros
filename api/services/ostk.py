@@ -209,21 +209,42 @@ def _reconcile_active(seen: dict, active_ids: Optional[set]) -> list:
     1400+ historical CLOSED entries. We suppress those archive-only closed
     entries so the API never serves rotated-archive noise.
 
-    →2050 (store-rotation resilience): suppression applies ONLY to terminal
-    (closed/shelved) entries. A needle the daemon reports as live
-    (open/in_progress/ready/...) is always kept, even when its id is absent
-    from the active issues.jsonl. That absence means the active store was
-    rotated (2026-06-01: an overnight rotation left the active file with 2
-    closed entries while ~140 open needles sat in issues.jsonl.1), not that
-    the needle is gone. The daemon is authoritative for what is open.
+    →2050 (store-rotation resilience): the "keep a live entry whose id is
+    absent from the active store" rescue applies ONLY when the active store
+    itself looks rotated/truncated — i.e. it is NOT currently serving any
+    live work of its own. We detect that with ``active_healthy``: True when
+    at least one daemon-reported LIVE needle is also present in the active
+    issues.jsonl, meaning the active file is healthy and authoritative.
+
+    - active store HEALTHY  -> strict intersection. Any id absent from the
+      active store is rotated-archive noise and is dropped, whether it is
+      closed OR open (→1694: a rotated open entry must not leak when the
+      active store still holds live needles).
+    - active store ROTATED  -> keep daemon-reported live (open/in_progress/
+      ready/...) needles even when absent from the active file, because the
+      daemon is authoritative for what is open and the active file lost them
+      to an overnight rotation (2026-06-01: ~140 open needles pushed into
+      issues.jsonl.1 while the active file held only closed entries).
+
+    Terminal (closed/shelved) entries absent from the active store are always
+    dropped in either mode.
     """
     if active_ids is None:
         return list(seen.values())
-    return [
-        v for k, v in seen.items()
-        if k in active_ids
-        or (v.get("status") or "").lower() not in _TERMINAL_STATUSES
-    ]
+    active_healthy = any(
+        k in active_ids
+        and (v.get("status") or "").lower() not in _TERMINAL_STATUSES
+        for k, v in seen.items()
+    )
+    out: list = []
+    for k, v in seen.items():
+        if k in active_ids:
+            out.append(v)
+            continue
+        status = (v.get("status") or "").lower()
+        if status not in _TERMINAL_STATUSES and not active_healthy:
+            out.append(v)
+    return out
 
 
 def invalidate_audit_cache(audit_path: Optional[Path] = None) -> None:

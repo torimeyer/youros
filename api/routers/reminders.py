@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import services.reminders as reminders_svc
+from services import recent_deletes
 
 router = APIRouter(tags=["reminders"])
 
@@ -60,7 +61,17 @@ async def list_reminders(upcoming_only: bool = True):
 
 @router.delete("/reminders/{reminder_id}")
 async def cancel_reminder(reminder_id: str):
+    # Record a tombstone before cancelling so an automation that re-creates
+    # the same reminder seconds later does not resurrect a ghost row in the
+    # UI (→ feedback_delete_records.md). Key on both the id and the text.
+    existing = next(
+        (r for r in reminders_svc.list_all() if r.get("id") == reminder_id),
+        None,
+    )
     reminders_svc.cancel_reminder(reminder_id)
+    recent_deletes.record_id(f"reminder:{reminder_id}")
+    if existing and existing.get("text"):
+        recent_deletes.record(existing["text"])
     return {"ok": True}
 
 

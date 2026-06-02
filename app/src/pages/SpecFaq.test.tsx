@@ -37,7 +37,7 @@ describe('SpecFaq page', () => {
       'faq-q-statuses',
       'faq-q-required-optional',
       'faq-q-when-not',
-      'faq-q-how-treated',
+      'faq-q-vs-prd',
     ]
     for (const id of ids) {
       expect(screen.getByTestId(id)).toBeTruthy()
@@ -59,6 +59,6 @@ describe('SpecFaq page', () => {
 
   it('page has a top-level heading', () => {
     renderPage()
-    expect(screen.getByRole('heading', { level: 1 })).toBeTruthy()
+    expect(screen.getAllByRole('heading', { level: 1 }).length).toBeGreaterThan(0)
   })
 })

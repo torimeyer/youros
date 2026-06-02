@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { formatRelative } from '../lib/time';
 import Icon from '../components/Icon';
-import TopBar from '../components/TopBar';
+import PageShell from '../components/PageShell';
 import { Card, EmptyState, ErrorBanner, LoadingState } from '../components/ui';
 import { api } from '../lib/api';
 import { reportError } from '../lib/reportError';
@@ -54,10 +54,7 @@ export default function Projects() {
   }, [fetchProjects]);
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-      <TopBar title="Projects" />
-
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+    <PageShell title="Projects">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
           <div>
@@ -166,7 +163,6 @@ export default function Projects() {
             {projects.length} {projects.length === 1 ? 'project' : 'projects'} in workspace
           </div>
         )}
-      </div>
-    </div>
+    </PageShell>
   );
 }

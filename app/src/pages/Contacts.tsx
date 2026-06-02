@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import Icon from '../components/Icon'
-import TopBar from '../components/TopBar'
+import PageShell from '../components/PageShell'
 import { LoadingState, EmptyState, ErrorBanner } from '../components/ui'
 import { api } from '../lib/api'
 
@@ -46,9 +46,7 @@ export default function Contacts() {
   }, [contacts, search])
 
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-      <TopBar title="Contacts" />
-      <div className="px-4 pb-4 sm:px-8 sm:pb-8">
+    <PageShell title="Contacts">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
@@ -148,7 +146,6 @@ export default function Contacts() {
             {filtered.length} of {contacts.length} contact{contacts.length !== 1 ? 's' : ''}
           </p>
         )}
-      </div>
-    </div>
+      </PageShell>
   )
 }

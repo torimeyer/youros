@@ -70,7 +70,7 @@ async def test_beautify_happy_path(client):
         pptx_path = tmppath / "hello.pptx"
         _make_pptx(pptx_path, slide_count=2)
 
-        with patch("routers.projects.TORIOS_DIR", tmppath), patch(
+        with patch("routers.projects._projects_root", return_value=tmppath), patch(
             "services.ai_backend.get_ai_client", AsyncMock(return_value=_FakeClient())
         ), patch.dict(
             "routers.beautify._cache", {}, clear=True
@@ -102,7 +102,7 @@ async def test_beautify_rejects_non_pptx(client):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
         (tmppath / "notes.md").write_text("# hi")
-        with patch("routers.projects.TORIOS_DIR", tmppath):
+        with patch("routers.projects._projects_root", return_value=tmppath):
             resp = await client.post(
                 "/api/files/beautify-deck", json={"path": "notes.md"}
             )
@@ -120,7 +120,7 @@ async def test_beautify_rejects_oversized_deck(client):
         pptx_path = tmppath / "huge.pptx"
         _make_pptx(pptx_path, slide_count=MAX_BEAUTIFY_SLIDES + 1)
 
-        with patch("routers.projects.TORIOS_DIR", tmppath):
+        with patch("routers.projects._projects_root", return_value=tmppath):
             resp = await client.post(
                 "/api/files/beautify-deck", json={"path": "huge.pptx"}
             )
@@ -150,7 +150,7 @@ async def test_beautify_cache_uses_mtime(client):
         fake_client = _FakeClient()
         # The same fake instance is used on both calls because we patch the
         # class to always return it.
-        with patch("routers.projects.TORIOS_DIR", tmppath), patch(
+        with patch("routers.projects._projects_root", return_value=tmppath), patch(
             "services.ai_backend.get_ai_client", AsyncMock(return_value=fake_client)
         ), patch.dict(
             "routers.beautify._cache", {}, clear=True
@@ -192,7 +192,7 @@ async def test_beautify_requires_api_key(client):
         pptx_path = tmppath / "deck.pptx"
         _make_pptx(pptx_path, slide_count=1)
 
-        with patch("routers.projects.TORIOS_DIR", tmppath), patch(
+        with patch("routers.projects._projects_root", return_value=tmppath), patch(
             "services.ai_backend.get_ai_client", AsyncMock(return_value=None)
         ), patch.dict("routers.beautify._cache", {}, clear=True):
             resp = await client.post(

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import TopBar from "../components/TopBar";
+import PageShell from "../components/PageShell";
 import { PageHeader } from "../components/ui";
 import ConfirmModal from "../components/ConfirmModal";
 import RuleActivityModal from "../components/RuleActivityModal";
@@ -472,8 +472,7 @@ export default function SettingsRules() {
   const activeGroup = grouped.find((g) => g.key === activeCategory) ?? null;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
-      <TopBar title="Rules" />
+    <PageShell title="Rules" fullHeight>
       <div className="flex-1 overflow-y-auto px-6 pb-6">
         <PageHeader
           title="Rules"
@@ -575,6 +574,6 @@ export default function SettingsRules() {
       />
 
       <Toast toast={toast} />
-    </div>
+    </PageShell>
   );
 }

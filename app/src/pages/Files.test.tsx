@@ -115,7 +115,7 @@ describe('Files page', () => {
 
   it('renders the page title', async () => {
     renderFiles()
-    expect(screen.getByRole('heading', { name: 'Projects' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { name: 'Projects' }).length).toBeGreaterThan(0)
   })
 
   it('has a Refresh button', async () => {
