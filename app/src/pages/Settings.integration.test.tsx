@@ -153,16 +153,6 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     })
   })
 
-  it('hides Kanban view nav item when Backlog feature is disabled', () => {
-    useAppStore.setState({
-      features: useAppStore.getState().features.map((f) =>
-        f.label === 'Backlog' ? { ...f, enabled: false } : f
-      ),
-    })
-    renderSidebar()
-    expect(screen.queryByText('Kanban view')).not.toBeInTheDocument()
-  })
-
   it('hides Agents nav item when Agents feature is disabled', () => {
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>

@@ -4536,17 +4536,13 @@ def _is_agent_genuinely_live(meta: dict) -> bool:
     Agents with no pid and no timestamps (bare rows) return False so
     they do not pin tasks indefinitely.
     """
-    # Signal C: spawn grace window — checked first so a dead pid on a
-    # freshly-spawned row does not short-circuit the check. Stale rows
-    # with old spawned_at timestamps fall through unaffected.
-    _spawned_raw = meta.get("spawned_at")
-    if isinstance(_spawned_raw, str):
-        _spawned_ts = _parse_iso(_spawned_raw)
-        if _spawned_ts is not None:
-            _grace_now = datetime.now(timezone.utc)
-            if (_grace_now - _spawned_ts).total_seconds() <= SPAWN_GRACE_PERIOD_SECONDS:
-                return True  # Signal C: within spawn grace window.
-
+    # Signal A first: a recorded pid that is definitively dead is conclusive
+    # evidence of death and short-circuits to False, even within the spawn
+    # grace window. A dead pid means the subprocess is gone for good; the
+    # grace window (Signal C) only exists to cover rows that have NOT yet
+    # proven death (no pid recorded yet, or a still-live pid). Checking the
+    # dead pid here keeps stale/abandoned rows (→1930, →1804, →1754) from
+    # being pinned as in_progress just because their spawned_at is recent.
     pid = meta.get("pid")
     if pid:
         try:
@@ -4556,7 +4552,20 @@ def _is_agent_genuinely_live(meta: dict) -> bool:
         if pid_int is not None:
             if _is_pid_alive(pid_int):
                 return True  # Signal A: live pid.
-            return False  # Signal A: dead pid — skip timestamp check.
+            return False  # Signal A: dead pid — conclusive, skip Signal B/C.
+
+    # Signal C: spawn grace window — only reached when no pid proved death
+    # (no pid recorded, or an unparseable pid). Keeps a just-spawned row's
+    # task linkage visible immediately after /spawn returns 200, even when
+    # the subprocess exits with an empty transcript before any heartbeat
+    # arrives (→1950/→2020). Stale rows with old spawned_at fall through.
+    _spawned_raw = meta.get("spawned_at")
+    if isinstance(_spawned_raw, str):
+        _spawned_ts = _parse_iso(_spawned_raw)
+        if _spawned_ts is not None:
+            _grace_now = datetime.now(timezone.utc)
+            if (_grace_now - _spawned_ts).total_seconds() <= SPAWN_GRACE_PERIOD_SECONDS:
+                return True  # Signal C: within spawn grace window.
 
     # No pid recorded: fall back to heartbeat/spawn recency.
     now = datetime.now(timezone.utc)

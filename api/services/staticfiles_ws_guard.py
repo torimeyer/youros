@@ -16,7 +16,11 @@ class SPAStaticFiles(StaticFiles):
         try:
             return await super().get_response(path, scope)
         except HTTPException as exc:
-            if exc.status_code == 404:
+            # Only fall back to index.html for client-side routes. An unmatched
+            # path under api/ is a real missing endpoint (a removed or mistyped
+            # API route): re-raise so it returns 404 instead of a 200 SPA page,
+            # which would silently mask the broken call.
+            if exc.status_code == 404 and not path.lstrip("/").startswith("api/"):
                 return await super().get_response("index.html", scope)
             raise
 

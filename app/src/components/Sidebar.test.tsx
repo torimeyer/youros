@@ -271,7 +271,7 @@ describe('Sidebar', () => {
     expect(badge?.querySelector('.animate-pulse')).not.toBeNull()
   })
 
-  it('Sidebar does NOT render a badge on Kanban view when counts are 0', async () => {
+  it('Sidebar does NOT render a count badge on the Tasks nav when the open count is 0', async () => {
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
@@ -284,6 +284,10 @@ describe('Sidebar', () => {
       expect(mockedApiGet).toHaveBeenCalledWith('/tasks/counts')
     })
 
+    // Complement of the badge-present test above: with zero open tasks the
+    // green count pill must not render at all.
+    const tasksLink = screen.getByText('Tasks').closest('a')
+    expect(tasksLink?.querySelector('.bg-green-500\\/20')).toBeNull()
   })
 
   it('Tasks badge relies on /tasks/counts so the backend filters closed and shelved tasks', async () => {
