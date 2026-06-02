@@ -15,7 +15,7 @@ You need Python 3.9 or newer, Node 18 or newer, and git. Installing yourOS does 
 ### On macOS
 
 ```bash
-git clone https://github.com/os-tack/youros.git ~/myos
+git clone https://github.com/torimeyer/youros.git ~/myos
 cd ~/myos
 ./install.sh
 ```
@@ -60,7 +60,7 @@ sudo pacman -Sy --noconfirm git curl ca-certificates python python-pip nodejs np
 Then clone and run the installer:
 
 ```bash
-git clone https://github.com/os-tack/youros.git ~/myos
+git clone https://github.com/torimeyer/youros.git ~/myos
 cd ~/myos
 ./install.sh
 ```
@@ -73,7 +73,7 @@ source ~/.bashrc
 nvm install 20
 ```
 
-If you have SSH keys set up, you can also use `git clone git@github.com:os-tack/youros.git ~/myos`.
+If you have SSH keys set up, you can also use `git clone git@github.com:torimeyer/youros.git ~/myos`.
 
 ## Updating
 
