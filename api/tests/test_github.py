@@ -52,13 +52,13 @@ async def test_github_connect_empty_token_uses_saved_token_after_oauth(client):
         mock_svc.save_config = MagicMock()
         mock_svc.verify_token = AsyncMock(return_value={"login": "user", "name": "User"})
         resp = await client.post(
-            "/api/github/connect", json={"token": "", "repo": "owner/repo"}
+            "/api/github/connect", json={"token": "", "repo": "acme/website"}
         )
     assert resp.status_code == 200
     # save_config must have been called with the saved token, not an empty one.
     args = mock_svc.save_config.call_args.args
     assert args[0] == "saved-oauth-token"
-    assert args[1] == "owner/repo"
+    assert args[1] == "acme/website"
 
 
 @pytest.mark.asyncio
@@ -72,7 +72,7 @@ async def test_github_connect_success(client):
     with patch("routers.github.github_service") as mock_svc:
         mock_svc.save_config = MagicMock()
         mock_svc.verify_token = AsyncMock(return_value={"login": "user", "name": "User"})
-        resp = await client.post("/api/github/connect", json={"token": "ghp_test", "repo": "owner/repo"})
+        resp = await client.post("/api/github/connect", json={"token": "ghp_test", "repo": "acme/website"})
 
     assert resp.status_code == 200
     data = resp.json()
@@ -87,6 +87,32 @@ async def test_github_connect_invalid_token(client):
         mock_svc.verify_token = AsyncMock(side_effect=RuntimeError("Bad credentials"))
         mock_svc.disconnect = MagicMock()
         resp = await client.post("/api/github/connect", json={"token": "bad", "repo": "owner/repo"})
+
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_github_auth_url_returns_consent_url_when_configured(client, monkeypatch):
+    """The Slack-style JSON auth-url endpoint returns a GitHub consent URL with
+    a STABLE https callback (not derived from request.base_url), so the OAuth
+    app's registered callback always matches and never comes back as http://."""
+    monkeypatch.setenv("GITHUB_CLIENT_ID", "test-client-id")
+    monkeypatch.delenv("GITHUB_REDIRECT_URI", raising=False)
+
+    resp = await client.get("/api/github/auth-url")
+
+    assert resp.status_code == 200
+    url = resp.json()["url"]
+    assert url.startswith("https://github.com/login/oauth/authorize")
+    assert "client_id=test-client-id" in url
+    assert "redirect_uri=https://localhost:8000/api/github/callback" in url
+
+
+@pytest.mark.asyncio
+async def test_github_auth_url_400_when_not_configured(client, monkeypatch):
+    monkeypatch.delenv("GITHUB_CLIENT_ID", raising=False)
+
+    resp = await client.get("/api/github/auth-url")
 
     assert resp.status_code == 400
 

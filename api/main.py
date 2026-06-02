@@ -6,6 +6,10 @@ from dotenv import load_dotenv
 # Load .env before any router imports so that environment variables (like
 # GOOGLE_CLIENT_ID) are available when modules read them at import time.
 load_dotenv(Path(__file__).resolve().parent / ".env")
+# Also load the repo-root .env. Some OAuth client IDs (SLACK_CLIENT_ID,
+# GITHUB_CLIENT_ID) live there alongside api/.env. load_dotenv does not
+# override already-set keys, so api/.env still wins on the rare overlap.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # →2042 diagnostics: dump every Python thread's stack on SIGUSR1. sample(1)
 # cannot unwind CPython frames, so an event-loop freeze is invisible at the

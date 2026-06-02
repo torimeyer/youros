@@ -112,7 +112,16 @@ export default function GithubConnect() {
         </p>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { window.location.href = '/api/github/auth' }}
+            onClick={async () => {
+              try {
+                const res = await api.get<{ url: string }>('/github/auth-url')
+                window.location.href = res.url
+              } catch (e: any) {
+                // Fall back to the manual token form and surface the reason.
+                setError(e?.message ?? 'Could not start the GitHub connection.')
+                setForceTokenForm(true)
+              }
+            }}
             className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-slate-500 rounded-lg text-sm font-medium text-slate-900 dark:text-white transition-colors"
             data-testid="github-oauth-btn"
           >
@@ -134,6 +143,9 @@ export default function GithubConnect() {
   return (
     <div data-testid="github-connect-disconnected">
       <div className="space-y-2">
+        <p className="text-xs text-slate-500">
+          Manual setup: connect with a personal access token and repository.
+        </p>
         <p className="text-xs text-slate-500">
           <a
             href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=yourOS"

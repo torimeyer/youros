@@ -219,29 +219,64 @@ def _validate_return_to(return_to: str, default: str, request: Request) -> str:
     return default
 
 
-@router.get("/github/auth")
-async def github_auth(request: Request, return_to: str = ""):
-    """Redirect the user to GitHub's OAuth consent screen."""
+def _github_redirect_uri() -> str:
+    """Stable callback URL registered with the GitHub OAuth app.
+
+    Slack and Google use a fixed https callback. GitHub previously derived
+    this from ``request.base_url``, which arrives through the vite dev proxy
+    as ``http://`` and produced a scheme mismatch with the registered app
+    (the callback came back as http://localhost:8000/...). Prefer an explicit
+    override, else default to the https backend callback so the auth request
+    and the token-exchange callback always agree.
+    """
+    return os.environ.get("GITHUB_REDIRECT_URI") or "https://localhost:8000/api/github/callback"
+
+
+def _build_github_auth_url(request: Request, return_to: str) -> str | None:
+    """Build the GitHub OAuth consent URL, or None when not configured."""
     client_id = os.environ.get("GITHUB_CLIENT_ID", "")
     if not client_id:
-        return RedirectResponse(f"{_frontend_url(request)}/?auth_error=github_not_configured")
+        return None
 
     state = secrets.token_urlsafe(32)
     frontend = _frontend_url(request)
     effective_return_to = _validate_return_to(return_to, f"{frontend}/github", request)
     oauth_states[state] = {"return_to": effective_return_to}
 
-    base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}/api/github/callback"
-
-    auth_url = (
+    redirect_uri = _github_redirect_uri()
+    return (
         "https://github.com/login/oauth/authorize"
         f"?client_id={client_id}"
         f"&redirect_uri={redirect_uri}"
         f"&scope=repo+read:user"
         f"&state={state}"
     )
+
+
+@router.get("/github/auth")
+async def github_auth(request: Request, return_to: str = ""):
+    """Redirect the user to GitHub's OAuth consent screen."""
+    auth_url = _build_github_auth_url(request, return_to)
+    if auth_url is None:
+        return RedirectResponse(f"{_frontend_url(request)}/?auth_error=github_not_configured")
     return RedirectResponse(auth_url)
+
+
+@router.get("/github/auth-url")
+async def github_auth_url(request: Request, return_to: str = ""):
+    """Return the GitHub OAuth consent URL as JSON (Slack-style).
+
+    The frontend fetches this via the API client and navigates to it, so the
+    callback origin stays stable instead of depending on a relative redirect
+    routed through the dev proxy.
+    """
+    auth_url = _build_github_auth_url(request, return_to)
+    if auth_url is None:
+        raise HTTPException(
+            status_code=400,
+            detail="GitHub OAuth is not configured (GITHUB_CLIENT_ID missing).",
+        )
+    return {"url": auth_url}
 
 
 @router.get("/github/callback")
@@ -265,8 +300,7 @@ async def github_callback(request: Request, code: str = "", state: str = "", err
 
     client_id = os.environ.get("GITHUB_CLIENT_ID", "")
     client_secret = os.environ.get("GITHUB_CLIENT_SECRET", "")
-    base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}/api/github/callback"
+    redirect_uri = _github_redirect_uri()
 
     async with httpx.AsyncClient() as http:
         resp = await http.post(
