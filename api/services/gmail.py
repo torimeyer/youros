@@ -366,6 +366,33 @@ def _fetch_inbox_sync(cap: int = FULL_INBOX_CAP) -> list[dict]:
     # returned more than we asked for).
     message_refs = message_refs[:cap]
 
+    # ---- Step 1b: always include unread messages, even when they fall
+    # outside the most-recent `cap` INBOX window. Gmail lists newest first,
+    # so an unread message older than the 50 newest would otherwise never be
+    # fetched -- the inbox shows is_unread=False for everything and the unread
+    # badge reads zero despite real unreads. Merge the UNREAD ids in so they
+    # always surface. ----
+    seen_ids = {ref["id"] for ref in message_refs if ref.get("id")}
+    try:
+        unread_list = (
+            service.users().messages()
+            .list(
+                userId="me",
+                labelIds=["INBOX", "UNREAD"],
+                maxResults=cap,
+                fields="messages(id,threadId)",
+            )
+            .execute()
+        )
+        for ref in unread_list.get("messages", []) or []:
+            if ref.get("id") and ref["id"] not in seen_ids:
+                message_refs.append(ref)
+                seen_ids.add(ref["id"])
+    except Exception:
+        # If the unread merge fails, fall back to the inbox-only list rather
+        # than failing the whole inbox load.
+        pass
+
     # ---- Step 2: fan the per-message gets across a thread pool. ----
     def _get_one(ref: dict) -> dict | None:
         try:
@@ -392,7 +419,11 @@ def _fetch_inbox_sync(cap: int = FULL_INBOX_CAP) -> list[dict]:
         for idx, raw in enumerate(pool.map(_get_one, message_refs)):
             raw_messages[idx] = raw
 
-    parsed: list[dict] = [_parse_message(r) for r in raw_messages if r is not None]
+    # Sort newest first by internalDate so the merged unread messages land in
+    # their correct chronological position instead of being appended last.
+    present = [r for r in raw_messages if r is not None]
+    present.sort(key=lambda r: int(r.get("internalDate") or 0), reverse=True)
+    parsed: list[dict] = [_parse_message(r) for r in present]
     return parsed
 
 
