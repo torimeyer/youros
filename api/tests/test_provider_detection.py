@@ -49,6 +49,7 @@ async def test_detect_no_providers():
         "gemini_key": False,
         "vertex_ai": False,
         "vertex_ai_project": None,
+        "vertex_ai_needs_reauth": False,
         "bedrock": False,
         "gemini_cli": False,
     }
@@ -259,7 +260,7 @@ async def test_detect_vertex_gemini_no_adc():
         with patch("google.auth.default") as mock_auth:
             result = await detect_vertex_gemini()
 
-    assert result == {"available": False}
+    assert result == {"available": False, "vertex_ai_needs_reauth": False}
     mock_auth.assert_not_called()
 
 
@@ -272,7 +273,7 @@ async def test_detect_vertex_gemini_auth_exception():
         with patch("google.auth.default", side_effect=RuntimeError("no credentials")):
             result = await detect_vertex_gemini()
 
-    assert result == {"available": False}
+    assert result == {"available": False, "vertex_ai_needs_reauth": False}
 
 
 @pytest.mark.asyncio
@@ -297,3 +298,121 @@ async def test_detect_providers_includes_vertex_ai_project():
 
     assert result["vertex_ai"] is True
     assert result["vertex_ai_project"] == "my-gcp-project"
+
+
+# ---------------------------------------------------------------------------
+# Bug 2: vertex_ai_needs_reauth field and no-domain-gate (RED tests)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_detect_vertex_gemini_no_adc_has_needs_reauth_key():
+    """When ADC is absent, result always includes vertex_ai_needs_reauth key."""
+    from services.provider_detection import detect_vertex_gemini
+
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=False)):
+        result = await detect_vertex_gemini()
+
+    assert "vertex_ai_needs_reauth" in result
+    assert result["vertex_ai_needs_reauth"] is False
+
+
+@pytest.mark.asyncio
+async def test_detect_vertex_gemini_success_has_needs_reauth_false():
+    """Happy path returns vertex_ai_needs_reauth: False."""
+    from services.provider_detection import detect_vertex_gemini
+
+    mock_creds = MagicMock(spec=[])
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=True)):
+        with patch("google.auth.default", return_value=(mock_creds, "test-project")):
+            result = await detect_vertex_gemini()
+
+    assert result["available"] is True
+    assert result.get("vertex_ai_needs_reauth") is False
+
+
+@pytest.mark.asyncio
+async def test_detect_vertex_gemini_generic_exception_has_needs_reauth_false():
+    """RuntimeError (non-reauth) yields vertex_ai_needs_reauth: False."""
+    from services.provider_detection import detect_vertex_gemini
+
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=True)):
+        with patch("google.auth.default", side_effect=RuntimeError("internal")):
+            result = await detect_vertex_gemini()
+
+    assert result["available"] is False
+    assert result.get("vertex_ai_needs_reauth") is False
+
+
+@pytest.mark.asyncio
+async def test_detect_vertex_gemini_refresh_error_sets_needs_reauth_true():
+    """google.auth.exceptions.RefreshError → vertex_ai_needs_reauth True."""
+    import google.auth.exceptions
+    from services.provider_detection import detect_vertex_gemini
+
+    refresh_err = google.auth.exceptions.RefreshError("Token has been expired or revoked")
+
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=True)):
+        with patch("google.auth.default", side_effect=refresh_err):
+            result = await detect_vertex_gemini()
+
+    assert result["available"] is False
+    assert result.get("vertex_ai_needs_reauth") is True
+
+
+@pytest.mark.asyncio
+async def test_detect_providers_always_has_vertex_ai_needs_reauth():
+    """detect_providers() result always contains vertex_ai_needs_reauth key."""
+    from services.provider_detection import detect_providers
+
+    mock_vx = {
+        "available": False,
+        "vertex_ai_needs_reauth": False,
+    }
+
+    with patch("services.provider_detection.is_claude_code_available", new=AsyncMock(return_value=False)):
+        with patch("services.ostk_secrets.get_anthropic_key", new=AsyncMock(return_value="")):
+            with patch("services.ostk_secrets.get_gemini_key", new=AsyncMock(return_value="")):
+                with patch("services.provider_detection.detect_vertex_gemini", new=AsyncMock(return_value=mock_vx)):
+                    with patch("services.provider_detection.detect_bedrock", new=AsyncMock(return_value=False)):
+                        with patch("services.provider_detection.is_gemini_cli_available", new=AsyncMock(return_value=False)):
+                            result = await detect_providers()
+
+    assert "vertex_ai_needs_reauth" in result
+    assert result["vertex_ai_needs_reauth"] is False
+
+
+@pytest.mark.asyncio
+async def test_detect_providers_propagates_needs_reauth_true():
+    """When vertex detection signals needs_reauth, detect_providers forwards it."""
+    from services.provider_detection import detect_providers
+
+    mock_vx = {
+        "available": False,
+        "vertex_ai_needs_reauth": True,
+    }
+
+    with patch("services.provider_detection.is_claude_code_available", new=AsyncMock(return_value=False)):
+        with patch("services.ostk_secrets.get_anthropic_key", new=AsyncMock(return_value="")):
+            with patch("services.ostk_secrets.get_gemini_key", new=AsyncMock(return_value="")):
+                with patch("services.provider_detection.detect_vertex_gemini", new=AsyncMock(return_value=mock_vx)):
+                    with patch("services.provider_detection.detect_bedrock", new=AsyncMock(return_value=False)):
+                        with patch("services.provider_detection.is_gemini_cli_available", new=AsyncMock(return_value=False)):
+                            result = await detect_providers()
+
+    assert result["vertex_ai_needs_reauth"] is True
+
+
+@pytest.mark.asyncio
+async def test_detect_vertex_gemini_available_regardless_of_hosted_domain():
+    """Vertex is available for personal ADC (no hosted_domain) when project resolves."""
+    from services.provider_detection import detect_vertex_gemini
+
+    mock_creds = MagicMock(spec=[])
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=True)):
+        with patch("google.auth.default", return_value=(mock_creds, "personal-project")):
+            with patch("services.provider_detection._extract_hosted_domain", return_value=None):
+                result = await detect_vertex_gemini()
+
+    assert result["available"] is True
+    assert result.get("hosted_domain") is None
+    assert result.get("vertex_ai_needs_reauth") is False
