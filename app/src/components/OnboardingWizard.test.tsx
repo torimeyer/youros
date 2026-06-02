@@ -333,7 +333,7 @@ describe('OnboardingWizard', () => {
   it('shows Gemini subscription note when Gemini is selected', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(6)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
     expect(screen.getByTestId('step-connect')).toHaveTextContent(/Gemini Advanced.*doesn't include API access/i)
   })
