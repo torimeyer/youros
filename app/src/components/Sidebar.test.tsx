@@ -85,11 +85,11 @@ describe('Sidebar', () => {
     }
   })
 
-  it('Activity is NOT in the sidebar (moved to Settings)', () => {
+  it('Activity is in the sidebar bottom cluster, pointing to /activity', () => {
     renderSidebar()
-    expect(screen.queryByText('Activity')).not.toBeInTheDocument()
     const activityLink = document.querySelector('a[href="/activity"]')
-    expect(activityLink).toBeNull()
+    expect(activityLink).not.toBeNull()
+    expect(screen.getByText('Activity')).toBeInTheDocument()
   })
 
   it('sidebar shows "Usage" label for the costs nav entry', () => {

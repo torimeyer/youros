@@ -815,6 +815,19 @@ export function Sidebar() {
             <span className="text-sm font-medium">Switch to personal</span>
           </button>
         )}
+        <NavLink
+          data-testid="activity-nav-link"
+          to="/activity"
+          onClick={() => setMobileOpen(false)}
+          className={({ isActive }) => utilLinkClass(isActive)}
+        >
+          {({ isActive }) => (
+            <>
+              <Icon name="monitoring" filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
+              <span className="text-xs font-medium">Activity</span>
+            </>
+          )}
+        </NavLink>
         {usageEnabled && (
           <NavLink
             data-testid="usage-nav-link"
