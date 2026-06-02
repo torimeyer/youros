@@ -287,11 +287,11 @@ describe('OnboardingWizard', () => {
     expect(screen.getByTestId('step-connect')).toBeInTheDocument()
   })
 
-  it('shows Anthropic connect option by default', () => {
+  it('shows Anthropic connect option by default', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(6)
-    expect(screen.getByTestId('connect-anthropic')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('connect-anthropic')).toBeInTheDocument())
     expect(screen.getByTestId('api-key-input')).toBeInTheDocument()
   })
 
@@ -770,7 +770,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     choosePersonalMode()
     clickNext(6) // Welcome -> ... -> Tracking -> Connect
 
-    const keyInput = screen.getByTestId('api-key-input')
+    const keyInput = await waitFor(() => screen.getByTestId('api-key-input'))
     fireEvent.change(keyInput, { target: { value: 'sk-ant-test123' } })
     fireEvent.keyDown(keyInput, { key: 'Enter' })
 
@@ -1477,6 +1477,95 @@ describe('OnboardingWizard - provider-select effect (→1703)', () => {
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
 
     expect(screen.getByTestId('api-key-input')).toBeInTheDocument()
+  })
+})
+
+describe('OnboardingWizard - provider detection UI bugs (Bug 1, 3, 4)', () => {
+  function navigateToConnect() {
+    fireEvent.click(screen.getByTestId('next-button'))
+    for (let i = 0; i < 5; i++) {
+      fireEvent.click(screen.getByTestId('skip-button'))
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ onboarded: false, osName: '', darkMode: false })
+    localStorageMock.clear()
+    window.history.replaceState({}, '', '/')
+  })
+
+  it('does not show paste-key form while /providers/detect is in flight (Bug 1)', async () => {
+    let resolveDetect!: (v: unknown) => void
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return new Promise((res) => { resolveDetect = res })
+      if (path === '/secrets/key-status') return Promise.resolve({})
+      if (path === '/github/status') return Promise.resolve({ connected: false })
+      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
+      return Promise.resolve({})
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('step-connect')).toBeInTheDocument())
+    expect(screen.queryByTestId('api-key-input')).not.toBeInTheDocument()
+    expect(screen.getByTestId('anthropic-detect-loading')).toBeInTheDocument()
+    await act(async () => { resolveDetect({}) })
+  })
+
+  it('shows inline error when /providers/detect fails (Bug 1)', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.reject(new Error('network error'))
+      if (path === '/secrets/key-status') return Promise.resolve({})
+      if (path === '/github/status') return Promise.resolve({ connected: false })
+      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
+      return Promise.resolve({})
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('step-connect')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('anthropic-detect-error')).toBeInTheDocument())
+  })
+
+  it('shows Google already-connected status when key-status returns google_connected (Bug 3)', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/secrets/key-status') return Promise.resolve({ google_oauth_available: true, google_connected: true })
+      if (path === '/github/status') return Promise.resolve({ connected: false })
+      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
+      return Promise.resolve({})
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('step-connect')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('google-already-connected')).toBeInTheDocument())
+  })
+
+  it('shows Jira already-connected badge when /atlassian/status returns connected (Bug 4)', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/secrets/key-status') return Promise.resolve({})
+      if (path === '/github/status') return Promise.resolve({ connected: false })
+      if (path === '/atlassian/status') return Promise.resolve({ connected: true })
+      return Promise.resolve({})
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('step-connect')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('atlassian-already-connected')).toBeInTheDocument())
+  })
+
+  it('does not crash when /atlassian/status errors (Bug 4)', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/secrets/key-status') return Promise.resolve({})
+      if (path === '/github/status') return Promise.resolve({ connected: false })
+      if (path === '/atlassian/status') return Promise.reject(new Error('404'))
+      return Promise.resolve({})
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('step-connect')).toBeInTheDocument())
+    expect(screen.queryByTestId('atlassian-already-connected')).not.toBeInTheDocument()
   })
 })
 

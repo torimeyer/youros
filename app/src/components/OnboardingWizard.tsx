@@ -51,6 +51,8 @@ export default function OnboardingWizard() {
   const [apiKey, setApiKey] = useState('')
   const [keySaved, setKeySaved] = useState(false)
   const [detectedProvider, setDetectedProvider] = useState<string | null>(null)
+  const [detectLoading, setDetectLoading] = useState(true)
+  const [detectError, setDetectError] = useState(false)
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null)
   const [otherSelected, setOtherSelected] = useState(false)
   const [oauthError, setOauthError] = useState<string | null>(null)
@@ -74,6 +76,8 @@ export default function OnboardingWizard() {
   }, [])
 
   useEffect(() => {
+    setDetectLoading(true)
+    setDetectError(false)
     api.get<{ claude_code?: boolean; anthropic_key?: boolean; gemini_key?: boolean; vertex_ai?: boolean; bedrock?: boolean }>('/providers/detect')
       .then((data) => {
         if (data.claude_code) setDetectedProvider('Claude Code')
@@ -82,7 +86,11 @@ export default function OnboardingWizard() {
         else if (data.vertex_ai) setDetectedProvider('Vertex AI')
         else if (data.bedrock) setDetectedProvider('AWS Bedrock')
       })
-      .catch((e) => reportError('provider detection failed', e))
+      .catch((e) => {
+        reportError('provider detection failed', e)
+        setDetectError(true)
+      })
+      .finally(() => setDetectLoading(false))
   }, [])
 
   // Restore step after any OAuth redirect
@@ -552,6 +560,8 @@ export default function OnboardingWizard() {
               subtextCls={subtextCls}
               stepIndex={stepIndex}
               detectedProvider={detectedProvider}
+              detectLoading={detectLoading}
+              detectError={detectError}
             />
           )}
           {step === 'Ready' && (
@@ -1125,6 +1135,8 @@ function ConnectStep({
   subtextCls,
   stepIndex,
   detectedProvider,
+  detectLoading,
+  detectError,
 }: {
   selectedProvider: string
   onSelectProvider: (name: string) => void
@@ -1138,14 +1150,27 @@ function ConnectStep({
   subtextCls: string
   stepIndex: number
   detectedProvider?: string | null
+  detectLoading?: boolean
+  detectError?: boolean
 }) {
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
+  const [googleConnected, setGoogleConnected] = useState(false)
+  const [atlassianConnected, setAtlassianConnected] = useState(false)
   const [geminiAdvancedOpen, setGeminiAdvancedOpen] = useState(false)
 
   useEffect(() => {
-    api.get<{ google_oauth_available?: boolean }>('/secrets/key-status')
-      .then((data) => setGoogleOAuthAvailable(data.google_oauth_available ?? false))
+    api.get<{ google_oauth_available?: boolean; google_connected?: boolean }>('/secrets/key-status')
+      .then((data) => {
+        setGoogleOAuthAvailable(data.google_oauth_available ?? false)
+        setGoogleConnected(data.google_connected ?? false)
+      })
       .catch((e) => reportError('key status check failed', e))
+  }, [])
+
+  useEffect(() => {
+    api.get<{ connected?: boolean }>('/atlassian/status')
+      .then((data) => setAtlassianConnected(data.connected ?? false))
+      .catch(() => {})
   }, [])
 
   const providers = [
@@ -1210,7 +1235,23 @@ function ConnectStep({
             <span>Connected via {detectedProvider}. No key needed.</span>
           </div>
         )}
-        {selectedProvider === 'Anthropic' && !detectedProvider && (
+        {selectedProvider === 'Anthropic' && detectLoading && !detectedProvider && (
+          <p
+            data-testid="anthropic-detect-loading"
+            className={`text-xs ${subtextCls}`}
+          >
+            Checking for a detected provider...
+          </p>
+        )}
+        {selectedProvider === 'Anthropic' && detectError && !detectedProvider && !detectLoading && (
+          <p
+            data-testid="anthropic-detect-error"
+            className="text-xs text-red-400"
+          >
+            Could not check for a connected provider. You can paste a key below or skip and connect later.
+          </p>
+        )}
+        {selectedProvider === 'Anthropic' && !detectLoading && !detectedProvider && (
           <>
             <button
               onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}
@@ -1360,20 +1401,41 @@ function ConnectStep({
       </div>
 
       {/* ── Connect your Google apps (optional) ─────────────── */}
-      {googleOAuthAvailable && (
+      {(googleOAuthAvailable || googleConnected) && (
         <div className="mb-5">
           <p className={sectionDivider}>Connect your Google apps (optional)</p>
-          <p className={`text-xs mt-1 mb-3 ${subtextCls}`}>
-            This connects Drive, Calendar, and Gmail. It does not change which AI runs your chat.
-          </p>
-          <GoogleAccountSetupCard darkMode={darkMode} subtextCls={subtextCls} stepIndex={stepIndex} />
+          {googleConnected ? (
+            <div
+              data-testid="google-already-connected"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm"
+            >
+              <Icon name="check_circle" size={16} />
+              <span>Already connected</span>
+            </div>
+          ) : (
+            <>
+              <p className={`text-xs mt-1 mb-3 ${subtextCls}`}>
+                This connects Drive, Calendar, and Gmail. It does not change which AI runs your chat.
+              </p>
+              <GoogleAccountSetupCard darkMode={darkMode} subtextCls={subtextCls} stepIndex={stepIndex} />
+            </>
+          )}
         </div>
       )}
 
       {/* ── Confluence ────────────────────────────────────── */}
       <div className="mb-2">
         <p className={sectionDivider}>Confluence</p>
-        <AtlassianSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} stepIndex={stepIndex} />
+        {atlassianConnected ? (
+          <div
+            data-testid="atlassian-already-connected"
+            className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-full text-sm font-medium bg-green-500/15 text-green-400 border border-green-500/30"
+          >
+            <span>Already connected: Jira</span>
+          </div>
+        ) : (
+          <AtlassianSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} stepIndex={stepIndex} />
+        )}
       </div>
 
       {/* ── GitHub ────────────────────────────────────────── */}
