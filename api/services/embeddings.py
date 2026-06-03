@@ -1,4 +1,4 @@
-"""Shared embedding core — chunk_text, embed_chunks, cosine.
+"""Shared embedding core, chunk_text, embed_chunks, cosine.
 
 Both source_library (keyword pipeline) and gem_knowledge (vector pipeline)
 import from here so the logic stays in one place.

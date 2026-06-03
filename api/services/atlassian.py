@@ -965,7 +965,7 @@ async def list_blocked_issues() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# P3a: cross-source search — Excerpt-returning search functions
+# P3a: cross-source search, Excerpt-returning search functions
 # ---------------------------------------------------------------------------
 
 async def search_jira(query: str, limit: int = 10) -> list:

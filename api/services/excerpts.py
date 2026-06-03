@@ -1,4 +1,4 @@
-"""Excerpt contract — typed source citation returned by every connector.
+"""Excerpt contract, typed source citation returned by every connector.
 
 This is the shared seam every knowledge pipeline imports.
 No GE / NR references live here.
@@ -36,7 +36,7 @@ def format_excerpts(excerpts: list[Excerpt]) -> str:
             header = f"[{i}] {exc.source_title}"
         lines.append(header)
         if exc.access_denied:
-            lines.append("(Access denied — you may not have permission to view this source.)")
+            lines.append("(Access denied, you may not have permission to view this source.)")
         else:
             lines.append(exc.text)
         lines.append("")

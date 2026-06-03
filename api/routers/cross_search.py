@@ -1,4 +1,4 @@
-"""Cross-source search endpoint — POST /api/cross-source (P3).
+"""Cross-source search endpoint, POST /api/cross-source (P3).
 
 Fan-out strategy: run all authorized Searchable connectors in parallel with
 per-provider timeout; a slow or failed provider is added to providers_skipped,
@@ -38,7 +38,7 @@ async def fan_out_strategy(query: str, limit: int, providers: list[str] | None =
 
     all_connectors: dict[str, Searchable] = {}
 
-    # Slack — only include if a token is configured
+    # Slack, only include if a token is configured
     try:
         tokens = slack_get_tokens()
         if tokens.get("access_token") or tokens.get("authed_user", {}).get("access_token"):
@@ -46,7 +46,7 @@ async def fan_out_strategy(query: str, limit: int, providers: list[str] | None =
     except Exception:
         pass
 
-    # Atlassian — only include if configured
+    # Atlassian, only include if configured
     try:
         cfg = atlassian_get_config()
         if cfg:

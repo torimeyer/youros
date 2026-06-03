@@ -53,7 +53,7 @@ def _extract_text(path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Excerpt search (internal — returns Excerpt objects)
+# Excerpt search (internal, returns Excerpt objects)
 # ---------------------------------------------------------------------------
 
 def _tokenize(text: str) -> list[str]:
