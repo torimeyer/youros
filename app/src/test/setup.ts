@@ -1,13 +1,13 @@
 import '@testing-library/jest-dom'
 
-// Detect tests that make no expect() calls — they always pass silently even
+// Detect tests that make no expect() calls, they always pass silently even
 // when the code under test is broken. Skip the check when there is no test
 // name (e.g. top-level beforeAll/afterAll hooks running outside a test).
 afterEach(() => {
   const { assertionCalls, currentTestName } = expect.getState()
   if (assertionCalls === 0 && currentTestName) {
     throw new Error(
-      `"${currentTestName}" made no expect() calls — it will always pass ` +
+      `"${currentTestName}" made no expect() calls, it will always pass ` +
       `even when the code is broken. Add at least one assertion, or if the ` +
       `test legitimately only checks that rendering does not throw, add ` +
       `expect(container).toBeInTheDocument() as an explicit smoke-check.`
