@@ -32,7 +32,23 @@ import { isChatAgent, useChatFilter, ChatFilterChip } from "../components/Agents
 // Re-export so tests can still import these from './Agents'
 export { friendlyAgentName, isMainSession, isUserSpawnedAgent } from "../lib/agentUtils";
 
-const BASE_TABS = ["Active", "Recent", "Templates"];
+const BASE_TABS = ["Active", "Recent", "Templates", "Teams"];
+
+// Agent Teams types (→2147)
+interface AgentTeamMember {
+  agent_name: string;
+  role: string;
+  joined_at: string;
+}
+
+interface AgentTeam {
+  id: string;
+  parent_task_id: string;
+  description: string;
+  members: AgentTeamMember[];
+  task_ids: string[];
+  created_at: string;
+}
 
 // Tori runs Claude on a subscription (the `claude` CLI), so agents whose
 // source falls through to the autonomous-backend default of "api" should be
@@ -2715,6 +2731,26 @@ export default function Agents() {
   const powerUserMode = useAppStore((s) => s.powerUserMode);
   const tabs = powerUserMode ? [...BASE_TABS, ...POWER_USER_TABS] : BASE_TABS;
 
+  // Agent Teams state (→2147)
+  const [teams, setTeams] = useState<AgentTeam[]>([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
+
+  const fetchTeams = useCallback(async () => {
+    setTeamsLoading(true);
+    try {
+      const data = await api.get('/teams');
+      setTeams((data as { teams: AgentTeam[] }).teams || []);
+    } catch {
+      setTeams([]);
+    } finally {
+      setTeamsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "Teams") fetchTeams();
+  }, [activeTab, fetchTeams]);
+
   // Fleets panel removed. The backend /agents/fleets/* endpoints stay
   // alive for backwards compatibility, but the Plans page template grid
   // is the new home for team-style starter templates.
@@ -4986,6 +5022,77 @@ export default function Agents() {
         )}
 
         {activeTab === "Insights" && <AgentInsights />}
+
+        {activeTab === "Teams" && (
+          <div className="mt-6" data-testid="teams-panel">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Icon name="group" className="text-blue-400" size={20} />
+                <h2 className="text-lg font-semibold text-white">Agent Teams</h2>
+                <span className="text-xs text-slate-500 ml-1">({teams.length})</span>
+              </div>
+              <button
+                onClick={fetchTeams}
+                className="text-xs text-slate-500 hover:text-white transition-colors flex items-center gap-1"
+                aria-label="Refresh teams"
+              >
+                <Icon name="refresh" size={16} />
+                Refresh
+              </button>
+            </div>
+            {teamsLoading && (
+              <p className="text-sm text-slate-500 py-4">Loading teams...</p>
+            )}
+            {!teamsLoading && teams.length === 0 && (
+              <div className="text-center py-12 text-slate-500 text-sm" data-testid="teams-empty">
+                <Icon name="group_off" size={32} className="mx-auto mb-2 opacity-40" />
+                <p>No teams yet.</p>
+                <p className="text-xs mt-1 text-slate-600">Teams are created when agents are grouped under a shared parent task.</p>
+              </div>
+            )}
+            {!teamsLoading && teams.map((team) => (
+              <div
+                key={team.id}
+                className="mb-4 bg-white/5 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-4"
+                data-testid={`team-card-${team.id}`}
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <span className="text-sm font-semibold text-white font-mono">Team {team.id}</span>
+                    {team.description && (
+                      <p className="text-xs text-slate-400 mt-0.5">{team.description}</p>
+                    )}
+                  </div>
+                  <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded">
+                    parent: {team.parent_task_id}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {team.members.map((m) => (
+                    <div
+                      key={m.agent_name}
+                      className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-xs"
+                      data-testid={`team-member-${m.agent_name}`}
+                    >
+                      <Icon name="smart_toy" size={13} className="text-blue-400 shrink-0" />
+                      <span className="text-white truncate max-w-[120px]">{m.agent_name}</span>
+                      <span className="text-slate-500 text-[10px] bg-slate-900 px-1.5 py-0.5 rounded">{m.role}</span>
+                    </div>
+                  ))}
+                  {team.members.length === 0 && (
+                    <p className="text-xs text-slate-600">No teammates yet</p>
+                  )}
+                </div>
+                {team.task_ids.length > 0 && (
+                  <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
+                    <Icon name="checklist" size={13} />
+                    <span>Shared tasks: {team.task_ids.join(", ")}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {activeTab === "Templates" && <div className="mt-8 border-t border-slate-200 dark:border-slate-800 pt-8">
         <div className="flex items-center justify-between mb-4">

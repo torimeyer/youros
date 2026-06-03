@@ -6934,3 +6934,97 @@ describe('Agents page - Template MCP/Skill visibility (→1532)', () => {
     expect(screen.queryByTestId('template-mcp-skills-section')).toBeNull()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Agent Teams panel (→2147)
+// ---------------------------------------------------------------------------
+
+describe('Agents page - Teams tab', () => {
+  beforeEach(() => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { agents: [], daemon_running: false }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/agents/marketplace') return { templates: [] }
+      if (path === '/agents/custom-templates') return { templates: [] }
+      if (path.startsWith('/agents/persona-templates')) return { templates: [], persona: 'default' }
+      if (path === '/settings') return { persona: null, mcp_servers: [] }
+      if (path === '/agents/fleets') return { fleets: [] }
+      if (path === '/teams') return {
+        teams: [
+          {
+            id: 'abc12345',
+            parent_task_id: 'task-42',
+            description: 'Build the auth module',
+            members: [
+              { agent_name: 'agent-frontend', role: 'frontend_lead', joined_at: '2026-06-03T00:00:00Z' },
+              { agent_name: 'agent-security', role: 'security_reviewer', joined_at: '2026-06-03T00:00:01Z' },
+            ],
+            task_ids: ['subtask-1', 'subtask-2'],
+            created_at: '2026-06-03T00:00:00Z',
+          },
+        ],
+      }
+      return {}
+    })
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  function renderTeams() {
+    return render(
+      <MemoryRouter>
+        <Agents />
+      </MemoryRouter>
+    )
+  }
+
+  it('renders the Teams tab button', async () => {
+    renderTeams()
+    expect(await screen.findByText('Teams')).toBeInTheDocument()
+  })
+
+  it('shows the teams panel when Teams tab is clicked', async () => {
+    renderTeams()
+    const teamsTab = await screen.findByText('Teams')
+    fireEvent.click(teamsTab)
+    expect(await screen.findByTestId('teams-panel')).toBeInTheDocument()
+  })
+
+  it('renders a team card with id and description', async () => {
+    renderTeams()
+    const teamsTab = await screen.findByText('Teams')
+    fireEvent.click(teamsTab)
+    expect(await screen.findByTestId('team-card-abc12345')).toBeInTheDocument()
+    expect(screen.getByText('Build the auth module')).toBeInTheDocument()
+  })
+
+  it('renders team members with their roles', async () => {
+    renderTeams()
+    fireEvent.click(await screen.findByText('Teams'))
+    expect(await screen.findByTestId('team-member-agent-frontend')).toBeInTheDocument()
+    expect(screen.getByText('frontend_lead')).toBeInTheDocument()
+    expect(screen.getByTestId('team-member-agent-security')).toBeInTheDocument()
+    expect(screen.getByText('security_reviewer')).toBeInTheDocument()
+  })
+
+  it('shows parent task id on the team card', async () => {
+    renderTeams()
+    fireEvent.click(await screen.findByText('Teams'))
+    expect(await screen.findByText('parent: task-42')).toBeInTheDocument()
+  })
+
+  it('shows empty state when there are no teams', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { agents: [], daemon_running: false }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/agents/marketplace') return { templates: [] }
+      if (path === '/agents/custom-templates') return { templates: [] }
+      if (path.startsWith('/agents/persona-templates')) return { templates: [], persona: 'default' }
+      if (path === '/settings') return { persona: null, mcp_servers: [] }
+      if (path === '/teams') return { teams: [] }
+      return {}
+    })
+    renderTeams()
+    fireEvent.click(await screen.findByText('Teams'))
+    expect(await screen.findByTestId('teams-empty')).toBeInTheDocument()
+  })
+})

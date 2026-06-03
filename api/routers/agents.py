@@ -16,6 +16,7 @@ import services.agent_memory as agent_memory_svc
 from services import chat_ack_bot
 from services import recent_deletes
 from services import agent_chat_responder
+from services import teams as _teams_svc
 from services.tracing import trace_event
 from services.agent_events import bus as _agent_events_bus
 from services.grants_events import GrantsEventBus
@@ -814,7 +815,42 @@ _DEMO_BUILD_RULE = (
 )
 
 
-def agent_mailbox_instruction(agent_name: str, model: str = "sonnet") -> str:
+def _team_mailbox_section(team_id: Optional[str]) -> str:
+    """Return the team-shared context block to append to the mailbox instruction.
+
+    Only included when *team_id* is provided (i.e. the agent is part of a
+    team). Non-team agents receive an empty string so the existing prompt
+    contract is unchanged.
+    """
+    if not team_id:
+        return ""
+    team = _teams_svc.get_team(team_id)
+    if team is None:
+        return ""
+    parent_task_id = team.get("parent_task_id", "")
+    members = team.get("members", [])
+    member_lines = "\n".join(
+        f"  - {m['agent_name']} (role: {m['role']})" for m in members
+    ) or "  (no members yet)"
+    task_ids = team.get("task_ids", [])
+    tasks_line = ", ".join(task_ids) if task_ids else "(none yet)"
+    return (
+        f"\n\n## Team membership (→2147)\n\n"
+        f"You are part of team **{team_id}**.\n"
+        f"Parent task: **{parent_task_id}** -- this task must be closed "
+        f"before the team is considered done.\n"
+        f"Shared task list: {tasks_line}\n"
+        f"Teammates:\n{member_lines}\n\n"
+        f"TeammateIdle rule: do NOT call /complete or exit while the parent "
+        f"task ({parent_task_id}) is still open. "
+        f"Check: GET /api/teams/{team_id} to see current team state. "
+        f"Call GET /api/teams/{team_id}/idle-check to verify the gate."
+    )
+
+
+def agent_mailbox_instruction(
+    agent_name: str, model: str = "sonnet", team_id: Optional[str] = None
+) -> str:
     """Return the standard mailbox checking prompt block for a spawned agent.
 
     Every Claude Code subagent spawned by the orchestrator must have
@@ -981,6 +1017,7 @@ def agent_mailbox_instruction(agent_name: str, model: str = "sonnet") -> str:
         "and /api/atlassian/confluence/page/{id} (GET). Use these to read "
         "tickets, comment, or move work without bouncing the user out of yourOS. "
         "Skip if /api/atlassian/status returns connected=false."
+        + _team_mailbox_section(team_id)
     )
 
 
@@ -10590,6 +10627,99 @@ async def complete_chat_session(
         pass
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Agent Teams endpoints (→2147) -- additive, built on mailbox/nudge/spawn
+# substrate. A Team is a parent Task + N teammates + a shared task graph.
+# All state is in-memory (same contract as agent_metadata).
+# ---------------------------------------------------------------------------
+
+class _TeamCreate(BaseModel):
+    parent_task_id: str
+    description: str = ""
+
+
+class _TeamMemberAdd(BaseModel):
+    agent_name: str
+    role: str = "member"
+
+
+class _TeamTaskAdd(BaseModel):
+    task_id: str
+
+
+@router.post("/teams")
+async def create_team(body: _TeamCreate):
+    team = _teams_svc.create_team(body.parent_task_id, body.description)
+    return team
+
+
+@router.get("/teams")
+async def list_teams():
+    return {"teams": _teams_svc.list_teams()}
+
+
+@router.get("/teams/{team_id}")
+async def get_team(team_id: str):
+    team = _teams_svc.get_team(team_id)
+    if team is None:
+        raise HTTPException(status_code=404, detail=f"team {team_id!r} not found")
+    return team
+
+
+@router.post("/teams/{team_id}/members")
+async def add_team_member(team_id: str, body: _TeamMemberAdd):
+    try:
+        team = _teams_svc.add_teammate(team_id, body.agent_name, body.role)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return team
+
+
+@router.delete("/teams/{team_id}/members/{agent_name}")
+async def remove_team_member(team_id: str, agent_name: str):
+    try:
+        team = _teams_svc.remove_teammate(team_id, agent_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return team
+
+
+@router.post("/teams/{team_id}/tasks")
+async def add_task_to_team(team_id: str, body: _TeamTaskAdd):
+    try:
+        team = _teams_svc.add_task_to_team(team_id, body.task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return team
+
+
+@router.get("/teams/{team_id}/idle-check")
+async def team_idle_check(team_id: str, agent_name: str = ""):
+    """Check TeammateIdle gate for *agent_name* in *team_id*.
+
+    Queries the live ostk open task list so the check reflects current
+    state. The agent_name query param is optional; when absent returns
+    the parent task open/closed status for the whole team.
+    """
+    team = _teams_svc.get_team(team_id)
+    if team is None:
+        raise HTTPException(status_code=404, detail=f"team {team_id!r} not found")
+    try:
+        raw_tasks = await ostk.list_tasks(status="open")
+        open_ids = {t.get("id", "") for t in raw_tasks if t.get("id")}
+    except Exception:
+        open_ids = set()
+    if not agent_name:
+        parent_open = team["parent_task_id"] in open_ids
+        return {
+            "team_id": team_id,
+            "parent_task_id": team["parent_task_id"],
+            "parent_task_open": parent_open,
+        }
+    result = _teams_svc.teammate_idle_check(team_id, agent_name, open_ids)
+    return {"team_id": team_id, "agent_name": agent_name, **result}
 
 
 # ---------------------------------------------------------------------------
