@@ -1691,6 +1691,146 @@ def _is_scaffold_only_with_dirty_worktree(
         return False, ""
 
 
+# Below this many net committed lines a completion is treated as "near-no-op":
+# it produced a diff, but one too small to plausibly be the build it was
+# dispatched to do. The ca1439b0 evidence case was a single 42-line test-only
+# commit; 50 lands just above that so the real signal fires. This is a SIGNAL
+# threshold, never a gate — the agent still completes (torios informs, never
+# blocks).
+NEAR_NOOP_LINE_THRESHOLD = 50
+
+
+def _compute_worktree_work_size(worktree_path: str) -> dict:
+    """Measure the committed work magnitude of a worktree vs ``main``.
+
+    Returns a dict with integer keys ``commits``, ``insertions``,
+    ``deletions``, ``files_changed``. All zero when the path is missing,
+    not a git repo, or has no commits ahead of main. Best-effort: any git
+    error degrades to zeros so this never raises on the completion path.
+
+    Why magnitude and not presence: the prior completion path only checked
+    whether *any* edit/commit existed (``_stale_sweep_summary_for``), so a
+    single tiny commit (e.g. a 42-line test file) read identically to a real
+    multi-epic build. Measuring lines + files + commits is the ground-truth
+    signal that distinguishes the two.
+    """
+    out = {"commits": 0, "insertions": 0, "deletions": 0, "files_changed": 0}
+    if not worktree_path:
+        return out
+    import subprocess as _sp
+    from pathlib import Path as _P
+
+    wt = _P(worktree_path)
+    if not wt.exists():
+        return out
+    try:
+        # Commit count ahead of the merge-base with main. rev-list with the
+        # symmetric-difference base keeps the count accurate even when main
+        # has advanced underneath the branch.
+        r_base = _sp.run(
+            ["git", "merge-base", "HEAD", "main"],
+            cwd=worktree_path, capture_output=True, text=True, timeout=5,
+        )
+        base = r_base.stdout.strip() if r_base.returncode == 0 else ""
+        if not base:
+            return out
+        r_count = _sp.run(
+            ["git", "rev-list", "--count", f"{base}..HEAD"],
+            cwd=worktree_path, capture_output=True, text=True, timeout=5,
+        )
+        if r_count.returncode == 0:
+            out["commits"] = int(r_count.stdout.strip() or "0")
+        # Diff magnitude from the merge-base to HEAD (committed work only;
+        # uncommitted/dirty files are handled by the scaffold guard).
+        r_stat = _sp.run(
+            ["git", "diff", "--shortstat", f"{base}..HEAD"],
+            cwd=worktree_path, capture_output=True, text=True, timeout=5,
+        )
+        if r_stat.returncode == 0:
+            import re as _re
+            line = r_stat.stdout.strip()
+            m_files = _re.search(r"(\d+) files? changed", line)
+            m_ins = _re.search(r"(\d+) insertions?\(\+\)", line)
+            m_del = _re.search(r"(\d+) deletions?\(-\)", line)
+            if m_files:
+                out["files_changed"] = int(m_files.group(1))
+            if m_ins:
+                out["insertions"] = int(m_ins.group(1))
+            if m_del:
+                out["deletions"] = int(m_del.group(1))
+    except Exception as _exc:  # noqa: BLE001 — best-effort signal, never raise
+        logger.debug("_compute_worktree_work_size: error wt=%s err=%s", worktree_path, _exc)
+    return out
+
+
+def _classify_near_noop(work_size: dict, summary: str = "") -> tuple:
+    """Return (near_noop: bool, reason: str) from a work_size dict.
+
+    Pure and deterministic — no I/O — so it is cheap to call on every
+    completion and trivial to unit-test. Flags as near-no-op when the
+    committed diff is empty or below ``NEAR_NOOP_LINE_THRESHOLD`` net lines.
+
+    This is an INFORMATIONAL signal for the orchestrator. The caller attaches
+    ``near_noop``/``near_noop_reason`` to the agent row; it must NOT block or
+    reverse the completion. A genuinely small-but-correct change (e.g. a
+    one-line bugfix dispatched as such) will be flagged too — that is
+    acceptable, because the flag's job is to make the orchestrator *look*, not
+    to decide. The orchestrator weighs it against the task it dispatched.
+    """
+    ws = work_size or {}
+    commits = int(ws.get("commits") or 0)
+    insertions = int(ws.get("insertions") or 0)
+    deletions = int(ws.get("deletions") or 0)
+    changed = insertions + deletions
+
+    if commits == 0 and changed == 0:
+        return True, "near-no-op: empty diff (no commits ahead of main)"
+    if changed == 0:
+        return True, "near-no-op: empty diff (commits present but zero net lines changed)"
+    if changed < NEAR_NOOP_LINE_THRESHOLD:
+        return (
+            True,
+            f"near-no-op: only {changed} net line(s) across "
+            f"{int(ws.get('files_changed') or 0)} file(s) in {commits} commit(s) "
+            f"(below {NEAR_NOOP_LINE_THRESHOLD}-line signal threshold)",
+        )
+    return False, ""
+
+
+def _attach_near_noop_signal(name: str, meta: dict) -> None:
+    """Compute + attach the near-no-op signal to a worktree agent's row.
+
+    INFORMS, never blocks: writes ``work_size``, ``near_noop`` and
+    ``near_noop_reason`` onto the agent metadata so the orchestrator/UI can
+    surface "this agent completed with a near-empty diff" without ever
+    reversing the completion or holding the agent open. No-op for non-worktree
+    agents (no committed diff to measure).
+    """
+    try:
+        if not isinstance(meta, dict):
+            return
+        if meta.get("isolation") != "worktree":
+            return
+        wt_path = meta.get("worktree_path")
+        if not wt_path:
+            return
+        ws = _compute_worktree_work_size(wt_path)
+        flagged, reason = _classify_near_noop(ws, summary=meta.get("summary") or "")
+        meta["work_size"] = ws
+        meta["near_noop"] = flagged
+        if flagged:
+            meta["near_noop_reason"] = reason
+            logger.info(
+                "agent.near_noop name=%s commits=%s insertions=%s deletions=%s files=%s reason=%s",
+                name, ws.get("commits"), ws.get("insertions"),
+                ws.get("deletions"), ws.get("files_changed"), reason,
+            )
+        else:
+            meta.pop("near_noop_reason", None)
+    except Exception as _exc:  # noqa: BLE001 — signal must never break completion
+        logger.debug("_attach_near_noop_signal: error name=%s err=%s", name, _exc)
+
+
 def _is_ghost_completion(meta: dict, name: str) -> tuple:
     """Return (True, reason) if this agent completed with zero real work.
 
@@ -2109,6 +2249,7 @@ def _autocomplete_exited_subagents() -> bool:
                         name, _ghost_reason,
                     )
                 else:
+                    _attach_near_noop_signal(name, meta)
                     _set_agent_status(name, "completed", completed_at=now.isoformat(), summary=_stale_sweep_summary_for(name))
                     _emit_audit_event("agent.completed", {"name": name})
                 changed = True
@@ -2155,6 +2296,7 @@ def _autocomplete_exited_subagents() -> bool:
                 name, _ghost_reason_b,
             )
         else:
+            _attach_near_noop_signal(name, meta)
             _set_agent_status(name, "completed", completed_at=now.isoformat(), summary=_stale_sweep_summary_for(name))
             _emit_audit_event("agent.completed", {"name": name})
         changed = True
@@ -7799,6 +7941,16 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
                 "mark_agent_complete.auto_merge_error name=%s branch=%s",
                 name, _am_branch,
             )
+
+    # Near-no-op completion signal (→2141). Compute the committed diff
+    # magnitude of the worktree and attach near_noop / work_size to the row.
+    # INFORMS, never blocks: an agent dispatched to "build X" that completes
+    # with an empty or sub-threshold diff is flagged so the orchestrator can
+    # look, but it still completes normally (torios informs, never blocks).
+    _nn_meta = agent_metadata.get(name)
+    if _nn_meta is not None:
+        _attach_near_noop_signal(name, _nn_meta)
+        await _save_agent_state_async()
 
     _set_agent_status(name, "completed")
 
