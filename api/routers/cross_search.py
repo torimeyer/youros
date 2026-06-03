@@ -97,9 +97,10 @@ async def fan_out_strategy(query: str, limit: int, providers: list[str] | None =
 
 
 def get_search_strategy():
-    """FastAPI dependency; on main always returns fan_out_strategy.
+    """FastAPI dependency that selects the cross-source search strategy.
 
-    nr-enterprise overrides this with a GE strategy — no main-branch change needed.
+    Returns the generic fan-out strategy. A deployment can substitute a
+    different strategy by overriding this dependency, with no change here.
     """
     return fan_out_strategy
 
