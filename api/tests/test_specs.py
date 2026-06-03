@@ -3782,3 +3782,94 @@ def test_task_spec_assignment_persists_across_restart(tmp_path, monkeypatch):
     # Cleanup to avoid polluting other tests
     specs_router._spec_task_origin.pop("task-99", None)
     specs_router._spec_claims.pop("docs/spec/persist-test.md", None)
+
+
+# ---------------------------------------------------------------------------
+# →2104: draft/spec relocation tests (new writes go to ~/.myos, not docs/)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_draft_spec_writes_to_myos_drafts(client, tmp_path, monkeypatch):
+    """POST /specs/draft with kind='spec' must write to USER_DRAFTS_DIR, not docs/draft/."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    drafts_dir = tmp_path / "myos_drafts"
+    specs_dir = tmp_path / "myos_specs"
+    docs_draft_dir = tmp_path / "docs" / "draft"
+    docs_draft_dir.mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+
+    # No AI client → AC generation skipped → no auto-promote → status stays "draft"
+    monkeypatch.setattr("services.ai_backend.get_ai_client", AsyncMock(return_value=None))
+
+    resp = await client.post("/api/specs/draft", json={"title": "My Relocation Test", "kind": "spec"})
+    assert resp.status_code == 200, resp.text
+
+    data = resp.json()
+    result_path = data.get("result", "")
+    assert result_path, "response missing result"
+
+    # Must be in USER_DRAFTS_DIR
+    assert drafts_dir.exists(), "USER_DRAFTS_DIR was never created"
+    draft_files = list(drafts_dir.glob("*.md"))
+    assert len(draft_files) == 1, f"Expected 1 draft in USER_DRAFTS_DIR, got {draft_files}"
+
+    # Must NOT appear in docs/draft/
+    repo_drafts = list(docs_draft_dir.glob("*.md"))
+    assert repo_drafts == [], f"Draft leaked into docs/draft/: {repo_drafts}"
+
+
+@pytest.mark.asyncio
+async def test_promote_draft_from_myos_drafts(client, tmp_path, monkeypatch):
+    """POST /specs/promote accepts a path from USER_DRAFTS_DIR and writes to USER_SPECS_DIR."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    drafts_dir = tmp_path / "myos_drafts"
+    specs_dir = tmp_path / "myos_specs"
+    drafts_dir.mkdir(parents=True)
+    specs_dir.mkdir(parents=True)
+
+    draft_path = drafts_dir / "my-reloc-spec.md"
+    draft_path.write_text(
+        "---\ntitle: My Reloc Spec\nstatus: draft\n---\n\n## Acceptance criteria\n\n- [ ] It ships to myos\n"
+    )
+
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+
+    # stub decompose so it doesn't shell out
+    async def _noop_decompose(*a, **kw):
+        return {"result": "", "task_ids": []}
+    monkeypatch.setattr(ostk_module.ostk, "doc_decompose", _noop_decompose)
+
+    resp = await client.post("/api/specs/promote", json={"path": str(draft_path)})
+    assert resp.status_code == 200, resp.text
+
+    spec_files = list(specs_dir.glob("*.md"))
+    assert len(spec_files) == 1, f"Expected 1 promoted spec in USER_SPECS_DIR, got {spec_files}"
+
+
+@pytest.mark.asyncio
+async def test_validate_write_rejects_docs_draft(client, tmp_path, monkeypatch):
+    """_validate_write_doc_path must reject new writes to docs/draft/ just like docs/spec/."""
+    from routers import specs as specs_router
+    from routers.specs import _validate_write_doc_path
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", tmp_path / "myos_drafts")
+
+    with pytest.raises(HTTPException) as exc_info:
+        _validate_write_doc_path("docs/draft/some-spec.md")
+    assert exc_info.value.status_code == 400

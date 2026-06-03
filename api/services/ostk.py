@@ -22,6 +22,9 @@ NUDGES_DIR = OSTK_DIR / "nudges"
 USER_SPECS_DIR = Path(
     os.environ.get("MYOS_USER_SPECS_DIR", os.path.expanduser("~/.myos/specs"))
 )
+USER_DRAFTS_DIR = Path(
+    os.environ.get("MYOS_USER_DRAFTS_DIR", os.path.expanduser("~/.myos/drafts"))
+)
 
 
 class OstkError(Exception):
@@ -2710,22 +2713,33 @@ class OstkService:
         # offload already added below at _spec_audit_enrich_sync.
         def _scan_docs_sync() -> list[dict]:
             scanned: list[dict] = []
+            # Track by filename so legacy docs/draft and docs/spec don't
+            # double-count files that were migrated to ~/.myos (→2104).
+            _seen_names: set[str] = set()
 
-            # 1. Project-local docs (shared)
+            # 1. User-local (canonical store after →2104 migration)
+            if USER_DRAFTS_DIR.is_dir():
+                for md in sorted(USER_DRAFTS_DIR.glob("*.md")):
+                    _seen_names.add(md.name)
+                    doc = self._parse_doc_frontmatter(md, "draft")
+                    doc["is_user_local"] = True
+                    scanned.append(doc)
+            if USER_SPECS_DIR.is_dir():
+                for md in sorted(USER_SPECS_DIR.glob("*.md")):
+                    _seen_names.add(md.name)
+                    doc = self._parse_doc_frontmatter(md, "spec")
+                    doc["is_user_local"] = True
+                    scanned.append(doc)
+
+            # 2. Legacy repo docs (back-compat display; skip duplicates already in ~/.myos)
             for subdir, status in [("draft", "draft"), ("spec", "spec")]:
                 target = docs_dir / subdir
                 if not target.is_dir():
                     continue
                 for md in sorted(target.glob("*.md")):
+                    if md.name in _seen_names:
+                        continue
                     doc = self._parse_doc_frontmatter(md, status)
-                    scanned.append(doc)
-
-            # 2. User-local specs (private/promoted)
-            if USER_SPECS_DIR.is_dir():
-                for md in sorted(USER_SPECS_DIR.glob("*.md")):
-                    doc = self._parse_doc_frontmatter(md, "spec")
-                    # Mark as user-local so the UI knows where it lives
-                    doc["is_user_local"] = True
                     scanned.append(doc)
 
             # 3. Transcripts/plans
