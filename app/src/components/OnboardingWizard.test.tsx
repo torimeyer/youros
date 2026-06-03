@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import OnboardingWizard from './OnboardingWizard'
+import OnboardingWizard, { AtlassianSetupCard } from './OnboardingWizard'
 import { OrgNameStep, AdminEmailStep } from './TeamOnboardingSteps'
 import { useAppStore } from '../stores/app'
 import { api } from '../lib/api'
@@ -1607,5 +1607,38 @@ describe('OnboardingWizard - GitHub step functional (→1693)', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('onboarding-github-card')).not.toBeInTheDocument()
     })
+  })
+
+  it('Atlassian card: Confluence URL field is hidden by default, appears on toggle, and is sent in the connect payload', async () => {
+    vi.mocked(api.get).mockImplementation(((path: string) => {
+      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
+      if (path === '/atlassian/defaults') return Promise.resolve({ oauth_available: false })
+      return Promise.resolve({})
+    }) as typeof api.get)
+    vi.mocked(api.post).mockResolvedValue({})
+
+    render(<AtlassianSetupCard darkMode={false} inputCls="" subtextCls="" />)
+
+    await waitFor(() => expect(screen.getByTestId('onboarding-atlassian-setup')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('onboarding-atlassian-setup'))
+
+    await waitFor(() => expect(screen.getByTestId('onboarding-atlassian-site')).toBeInTheDocument())
+    expect(screen.queryByTestId('onboarding-atlassian-confluence-site')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('onboarding-atlassian-separate-confluence'))
+    expect(screen.getByTestId('onboarding-atlassian-confluence-site')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByTestId('onboarding-atlassian-site'), { target: { value: 'https://jira.acme.net' } })
+    fireEvent.change(screen.getByTestId('onboarding-atlassian-email'), { target: { value: 'me@acme.com' } })
+    fireEvent.change(screen.getByTestId('onboarding-atlassian-token'), { target: { value: 'tok123' } })
+    fireEvent.change(screen.getByTestId('onboarding-atlassian-confluence-site'), { target: { value: 'https://wiki.acme.com' } })
+    fireEvent.click(screen.getByTestId('onboarding-atlassian-connect'))
+
+    await waitFor(() => expect(vi.mocked(api.post)).toHaveBeenCalledWith('/atlassian/connect', {
+      jira_site: 'https://jira.acme.net',
+      confluence_site: 'https://wiki.acme.com',
+      email: 'me@acme.com',
+      api_token: 'tok123',
+    }))
   })
 })
