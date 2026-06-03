@@ -3280,27 +3280,24 @@ describe('Plan waves feature (→1181)', () => {
     })
   })
 
-  it('shows Plan waves button in overflow menu', async () => {
+  it('no longer shows a Plan waves item in the overflow menu (consolidated to toolbar →2115)', async () => {
     renderTasks()
     await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
     fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
-    expect(screen.getByTestId('plan-waves-button')).toBeInTheDocument()
-    expect(screen.getByTestId('plan-waves-button')).toHaveTextContent('Plan waves')
+    expect(screen.queryByTestId('plan-waves-button')).not.toBeInTheDocument()
   })
 
-  it('clicking Plan waves opens the panel', async () => {
+  it('clicking the waves button opens the panel', async () => {
     renderTasks()
     await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
-    fireEvent.click(screen.getByTestId('plan-waves-button'))
+    fireEvent.click(screen.getByTestId('plan-waves-btn'))
     await waitFor(() => expect(screen.getByTestId('plan-waves-panel')).toBeInTheDocument())
   })
 
   it('panel calls GET /tasks/waves and renders waves', async () => {
     renderTasks()
     await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
-    fireEvent.click(screen.getByTestId('plan-waves-button'))
+    fireEvent.click(screen.getByTestId('plan-waves-btn'))
     await waitFor(() => expect(screen.getByTestId('wave-1')).toBeInTheDocument())
     expect(screen.getByTestId('wave-2')).toBeInTheDocument()
     expect(mockedApiGet).toHaveBeenCalledWith(expect.stringMatching(/^\/tasks\/waves/))
@@ -3309,8 +3306,7 @@ describe('Plan waves feature (→1181)', () => {
   it('panel shows wave needles with titles', async () => {
     renderTasks()
     await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
-    fireEvent.click(screen.getByTestId('plan-waves-button'))
+    fireEvent.click(screen.getByTestId('plan-waves-btn'))
     await waitFor(() => expect(screen.getByTestId('wave-needle-10')).toBeInTheDocument())
     expect(screen.getByTestId('wave-needle-11')).toBeInTheDocument()
     expect(screen.getByTestId('wave-needle-12')).toBeInTheDocument()
@@ -3319,16 +3315,14 @@ describe('Plan waves feature (→1181)', () => {
   it('wave 2 shows blocked-by-prior label', async () => {
     renderTasks()
     await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
-    fireEvent.click(screen.getByTestId('plan-waves-button'))
+    fireEvent.click(screen.getByTestId('plan-waves-btn'))
     await waitFor(() => expect(screen.getByTestId('wave-2-blocked')).toBeInTheDocument())
   })
 
   it('close button dismisses the panel', async () => {
     renderTasks()
     await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
-    fireEvent.click(screen.getByTestId('plan-waves-button'))
+    fireEvent.click(screen.getByTestId('plan-waves-btn'))
     await waitFor(() => expect(screen.getByTestId('plan-waves-panel')).toBeInTheDocument())
     fireEvent.click(screen.getByTestId('plan-waves-close'))
     expect(screen.queryByTestId('plan-waves-panel')).not.toBeInTheDocument()
@@ -3453,7 +3447,7 @@ describe('Plan waves button (→1370)', () => {
     mockedApiPost.mockResolvedValue({})
   })
 
-  it('shows "Plan waves" when no wave assignments exist', async () => {
+  it('shows "Update waves" even when no wave assignments exist (→2115 consolidation)', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
@@ -3463,7 +3457,7 @@ describe('Plan waves button (→1370)', () => {
     renderTasks()
 
     await waitFor(() => screen.getByTestId('plan-waves-btn'))
-    expect(screen.getByTestId('plan-waves-btn')).toHaveTextContent('Plan waves')
+    expect(screen.getByTestId('plan-waves-btn')).toHaveTextContent('Update waves')
   })
 
   it('shows "Update waves" when wave assignments already exist', async () => {
