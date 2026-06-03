@@ -962,3 +962,100 @@ async def list_blocked_issues() -> list[dict]:
 
     _cache_set(cache_key, issues)
     return issues
+
+
+# ---------------------------------------------------------------------------
+# P3a: cross-source search — Excerpt-returning search functions
+# ---------------------------------------------------------------------------
+
+async def search_jira(query: str, limit: int = 10) -> list:
+    """Search Jira via JQL text search; returns list[Excerpt] with deep links."""
+    from services.excerpts import Excerpt
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.post(
+            f"{base_url}/rest/api/3/search/jql",
+            **auth_kwargs,
+            json={"jql": f'text ~ "{query}"', "fields": ["summary", "issuetype"], "maxResults": limit},
+        )
+
+    resp, base_url, site = await _request_with_refresh("jira", call)
+    if resp.status_code == 401:
+        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Jira search error ({resp.status_code}).")
+
+    results = []
+    for item in resp.json().get("issues", []):
+        key = item.get("key", "")
+        summary = (item.get("fields") or {}).get("summary", "")
+        results.append(Excerpt(
+            text=f"{key}: {summary}",
+            source_id=key,
+            source_title=key,
+            deep_link=f"https://{site}/browse/{key}",
+            score=1.0,
+            access_denied=False,
+            provider="jira",
+        ))
+    return results
+
+
+async def search_confluence(query: str, limit: int = 10) -> list:
+    """Search Confluence via CQL; returns list[Excerpt] with deep links. 404 -> []."""
+    from services.excerpts import Excerpt
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.get(
+            f"{base_url}/wiki/rest/api/content/search",
+            **auth_kwargs,
+            params={"cql": f'text ~ "{query}"', "limit": limit},
+        )
+
+    resp, base_url, site = await _request_with_refresh("confluence", call)
+    if resp.status_code == 404:
+        return []
+    if resp.status_code == 401:
+        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Confluence search error ({resp.status_code}).")
+
+    results = []
+    for item in resp.json().get("results", []):
+        page_id = str(item.get("id", ""))
+        title = item.get("title", "")
+        space_key = (item.get("space") or {}).get("key", "")
+        deep_link = (
+            f"https://{site}/wiki/spaces/{space_key}/pages/{page_id}"
+            if space_key else None
+        )
+        results.append(Excerpt(
+            text=title,
+            source_id=page_id,
+            source_title=title,
+            deep_link=deep_link,
+            score=1.0,
+            access_denied=False,
+            provider="confluence",
+        ))
+    return results
+
+
+async def search(query: str, limit: int = 10) -> list:
+    """Fan out across Jira and Confluence; returns merged list[Excerpt].
+
+    A failing source is silently skipped so the other's results still arrive.
+    """
+    import asyncio
+
+    async def _safe(coro):
+        try:
+            return await coro
+        except Exception:
+            return []
+
+    jira_results, conf_results = await asyncio.gather(
+        _safe(search_jira(query, limit)),
+        _safe(search_confluence(query, limit)),
+    )
+    return list(jira_results) + list(conf_results)
