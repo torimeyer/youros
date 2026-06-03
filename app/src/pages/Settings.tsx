@@ -814,6 +814,21 @@ export default function Settings() {
                   api.patch('/settings', { inbound_imessage_routing_enabled: next }).catch(() => {});
                 }} testId="inbound-imessage-toggle" />
               </div>
+              {/* Channel Routing Rules */}
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-800" data-testid="channel-routing-rules-section">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-1">Channel Routing Rules</p>
+                <p className="text-xs text-slate-500 mb-2">
+                  Controls how messages sent to your phone get turned into agent actions. When the iMessage poller is active, incoming texts are read and parsed into one of these commands:
+                </p>
+                <ul className="text-xs text-slate-500 space-y-1 mb-3 list-none">
+                  <li><span className="font-mono text-slate-700 dark:text-slate-300">spawn &lt;name&gt; to &lt;task&gt;</span> — starts a new agent with that task</li>
+                  <li><span className="font-mono text-slate-700 dark:text-slate-300">nudge &lt;agent&gt; &lt;message&gt;</span> — sends a follow-up message to a running agent</li>
+                  <li><span className="font-mono text-slate-700 dark:text-slate-300">status</span> — returns a summary of what agents are currently running</li>
+                </ul>
+                <p className="text-xs text-slate-400">
+                  The live poller that reads new iMessages is off by default. Set the environment variable <span className="font-mono">CHANNEL_ROUTING_LIVE_POLLER_ENABLED=1</span> to turn it on.
+                </p>
+              </div>
               {/* Files location */}
               <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
                 <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-1">Where files are saved</p>
