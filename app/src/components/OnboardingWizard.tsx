@@ -1470,6 +1470,8 @@ export function AtlassianSetupCard({
   const [site, setSite] = useState('')
   const [email, setEmail] = useState('')
   const [token, setToken] = useState('')
+  const [separateConfluence, setSeparateConfluence] = useState(false)
+  const [confluenceSite, setConfluenceSite] = useState('')
   const [status, setStatus] = useState<'idle' | 'connecting' | 'done' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
   const [oauthAvailable, setOauthAvailable] = useState(false)
@@ -1498,7 +1500,10 @@ export function AtlassianSetupCard({
   const handleConnect = () => {
     setStatus('connecting')
     setError(null)
-    api.post('/atlassian/connect', { site, email, api_token: token })
+    const payload = separateConfluence
+      ? { jira_site: site, confluence_site: confluenceSite, email, api_token: token }
+      : { site, email, api_token: token }
+    api.post('/atlassian/connect', payload)
       .then(() => setStatus('done'))
       .catch((e: Error) => {
         setStatus('error')
@@ -1572,10 +1577,32 @@ export function AtlassianSetupCard({
           type="text"
           value={site}
           onChange={(e) => setSite(e.target.value)}
-          placeholder="https://company.atlassian.net"
+          placeholder={separateConfluence ? "Jira site, e.g. https://company.atlassian.net" : "https://company.atlassian.net"}
           className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
           data-testid="onboarding-atlassian-site"
         />
+        <p className={`text-xs ${subtextCls}`}>
+          One connection usually covers both Jira and Confluence.
+        </p>
+        <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={separateConfluence}
+            onChange={(e) => setSeparateConfluence(e.target.checked)}
+            data-testid="onboarding-atlassian-separate-confluence"
+          />
+          <span>Confluence is on a different site</span>
+        </label>
+        {separateConfluence && (
+          <input
+            type="text"
+            value={confluenceSite}
+            onChange={(e) => setConfluenceSite(e.target.value)}
+            placeholder="Confluence site, e.g. https://wiki.company.com"
+            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+            data-testid="onboarding-atlassian-confluence-site"
+          />
+        )}
         <input
           type="text"
           value={email}
