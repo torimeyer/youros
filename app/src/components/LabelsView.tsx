@@ -43,6 +43,9 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
   const [newColor, setNewColor] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sharingLabelId, setSharingLabelId] = useState<string | null>(null);
+  const [labelAllBusy, setLabelAllBusy] = useState(false);
+  const [labelAllResult, setLabelAllResult] = useState<number | null>(null);
+  const [labelAllError, setLabelAllError] = useState<string | null>(null);
 
   const fetchLabels = useCallback(async () => {
     try {
@@ -114,6 +117,25 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
     }
   };
 
+  const labelAll = async () => {
+    setLabelAllBusy(true);
+    setLabelAllResult(null);
+    setLabelAllError(null);
+    try {
+      const res = await api.post<{ processed: number; labeled: number; total_open: number }>(
+        "/tasks/backfill-labels"
+      );
+      setLabelAllResult(res.labeled);
+      await fetchLabels();
+      onLabelsChanged?.();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Could not apply labels";
+      setLabelAllError(msg);
+    } finally {
+      setLabelAllBusy(false);
+    }
+  };
+
   if (loading && labels.length === 0) {
     return <p className="text-sm text-slate-500 py-4">Loading labels...</p>;
   }
@@ -125,14 +147,30 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
         <p className="text-sm text-slate-600 dark:text-slate-400">
           Use labels to organize your needles into groups.
         </p>
-        <button
-          onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
-        >
-          <Icon name="add" className="text-base" />
-          New label
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={labelAll}
+            disabled={labelAllBusy}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Icon name="label" className="text-base" />
+            {labelAllBusy ? "Labeling..." : "Label all"}
+          </button>
+          <button
+            onClick={() => setShowCreate(!showCreate)}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+          >
+            <Icon name="add" className="text-base" />
+            New label
+          </button>
+        </div>
       </div>
+      {labelAllResult !== null && (
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Labeled {labelAllResult} items.</p>
+      )}
+      {labelAllError && (
+        <p className="text-xs text-red-600 dark:text-red-400 mb-3">{labelAllError}</p>
+      )}
 
       {/* Create form */}
       {showCreate && (

@@ -242,3 +242,93 @@ describe('LabelsView', () => {
     })
   })
 })
+
+describe('LabelsView – Label all button', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApi.get.mockImplementation((path: string) => {
+      if (path === '/labels') return Promise.resolve({ labels: MOCK_LABELS })
+      if (path === '/labels/colors') return Promise.resolve({ colors: MOCK_COLORS })
+      return Promise.resolve({})
+    })
+  })
+
+  it('renders a "Label all" button in the toolbar', async () => {
+    render(<LabelsView />)
+    await waitFor(() => screen.getByText('Bug'))
+    expect(screen.getByRole('button', { name: /label all/i })).toBeTruthy()
+  })
+
+  it('calls POST /tasks/backfill-labels when "Label all" is clicked', async () => {
+    const user = userEvent.setup()
+    mockApi.post.mockResolvedValue({ processed: 2, labeled: 2, total_open: 4 })
+
+    render(<LabelsView />)
+    await waitFor(() => screen.getByText('Bug'))
+
+    await user.click(screen.getByRole('button', { name: /label all/i }))
+
+    await waitFor(() => {
+      expect(mockApi.post).toHaveBeenCalledWith('/tasks/backfill-labels')
+    })
+  })
+
+  it('shows busy state while labeling is in progress', async () => {
+    const user = userEvent.setup()
+    let resolve: (v: unknown) => void
+    mockApi.post.mockReturnValue(new Promise((r) => { resolve = r }))
+
+    render(<LabelsView />)
+    await waitFor(() => screen.getByText('Bug'))
+
+    await user.click(screen.getByRole('button', { name: /label all/i }))
+
+    expect(screen.getByRole('button', { name: /labeling/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /labeling/i })).toBeDisabled()
+
+    resolve!({ processed: 0, labeled: 0, total_open: 0 })
+  })
+
+  it('shows result count after labeling completes', async () => {
+    const user = userEvent.setup()
+    mockApi.post.mockResolvedValue({ processed: 3, labeled: 3, total_open: 5 })
+
+    render(<LabelsView />)
+    await waitFor(() => screen.getByText('Bug'))
+
+    await user.click(screen.getByRole('button', { name: /label all/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/labeled 3/i)).toBeTruthy()
+    })
+  })
+
+  it('calls onLabelsChanged after labeling completes', async () => {
+    const user = userEvent.setup()
+    const onLabelsChanged = vi.fn()
+    mockApi.post.mockResolvedValue({ processed: 2, labeled: 1, total_open: 3 })
+
+    render(<LabelsView onLabelsChanged={onLabelsChanged} />)
+    await waitFor(() => screen.getByText('Bug'))
+
+    await user.click(screen.getByRole('button', { name: /label all/i }))
+
+    await waitFor(() => {
+      expect(onLabelsChanged).toHaveBeenCalled()
+    })
+  })
+
+  it('shows an error message when labeling fails', async () => {
+    const user = userEvent.setup()
+    mockApi.post.mockRejectedValue(new Error('No API key'))
+
+    render(<LabelsView />)
+    await waitFor(() => screen.getByText('Bug'))
+
+    await user.click(screen.getByRole('button', { name: /label all/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/No API key/i)).toBeTruthy()
+    })
+  })
+})
