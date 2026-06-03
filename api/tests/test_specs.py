@@ -605,7 +605,7 @@ async def test_from_template_creates_ready_plan(
                 "---\ntitle: Build a Website\nstatus: draft\n---\n\n"
             )
             return str(draft_file.relative_to(tmp_path))
-        if args[:2] == ("doc", "decompose"):
+        if args[:2] == ("doc", "decompose") and kwargs.get("timeout") == 45:
             decompose_calls["count"] += 1
             return ""
         raise AssertionError(f"unexpected ostk call: {args}")
@@ -3954,3 +3954,37 @@ async def test_verify_without_fresh_still_works(client, tmp_path, monkeypatch):
 
     assert resp.status_code == 200
     mock_ostk.spec_verify.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_decompose_spec_returns_503_when_ai_times_out(client, monkeypatch):
+    """When the AI model is unreachable, /specs/decompose returns 503 with a plain message."""
+    from services.ostk import OstkError
+    import routers.specs as specs_module
+
+    async def fake_doc_decompose(path, auto=False):
+        raise OstkError("ostk command timed out: ostk doc decompose docs/spec/test.md")
+
+    monkeypatch.setattr(specs_module.ostk, "doc_decompose", fake_doc_decompose)
+
+    resp = await client.post("/api/specs/decompose", json={"path": "docs/spec/test.md"})
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "The AI service is not responding right now. Please try again in a moment."
+
+
+@pytest.mark.asyncio
+async def test_decompose_spec_returns_400_for_other_ostk_errors(client, monkeypatch):
+    """Non-timeout OstkErrors on /specs/decompose still return 400."""
+    from services.ostk import OstkError
+    import routers.specs as specs_module
+
+    async def fake_doc_decompose(path, auto=False):
+        raise OstkError("spec already decomposed")
+
+    monkeypatch.setattr(specs_module.ostk, "doc_decompose", fake_doc_decompose)
+
+    resp = await client.post("/api/specs/decompose", json={"path": "docs/spec/test.md"})
+
+    assert resp.status_code == 400
+    assert "spec already decomposed" in resp.json()["detail"]

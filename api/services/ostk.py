@@ -2644,7 +2644,7 @@ class OstkService:
         args = ["doc", "decompose", path]
         if auto:
             args.append("--auto")
-        result = await self._run(*args)
+        result = await self._run(*args, timeout=45)
 
         # Extract needle IDs from output lines like "->407" or "→407 Some task title"
         # ostk may emit ASCII "->NNN" or Unicode "→NNN"; handle both.

@@ -1502,6 +1502,11 @@ async def decompose_spec(body: SpecDecompose):
         result = await ostk.doc_decompose(body.path, auto=True)
         return result  # already a dict with "result" and "task_ids"
     except OstkError as e:
+        if any(word in str(e).lower() for word in ("timed out", "unavailable", "connection")):
+            raise HTTPException(
+                status_code=503,
+                detail="The AI service is not responding right now. Please try again in a moment.",
+            )
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -1522,6 +1527,11 @@ async def decompose_spec_kernel(spec_path: str, body: DecomposeKernelBody):
         result = await ostk.doc_decompose(spec_path, auto=body.auto)
         return result
     except OstkError as e:
+        if any(word in str(e).lower() for word in ("timed out", "unavailable", "connection")):
+            raise HTTPException(
+                status_code=503,
+                detail="The AI service is not responding right now. Please try again in a moment.",
+            )
         raise HTTPException(status_code=400, detail=str(e))
 
 
