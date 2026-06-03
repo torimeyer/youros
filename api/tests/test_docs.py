@@ -242,7 +242,7 @@ class TestDocService:
 
         assert len(result) == 1
         spec = result[0]
-        assert spec["status"] == "in-progress"
+        assert spec["status"] == "ready"
         assert spec["task_ids"] == ["10", "11"]
         assert spec["task_summary"] == {"total": 2, "open": 1, "closed": 1}
 
@@ -390,7 +390,13 @@ class TestDocService:
         assert OstkService.compute_spec_status("spec", [], {}) == "ready"
 
     def test_compute_spec_status_in_progress(self):
+        # open+closed tasks with no started task -> ready (3c7f9e53)
         statuses = {"1": "open", "2": "closed"}
+        assert OstkService.compute_spec_status("spec", ["1", "2"], statuses) == "ready"
+
+    def test_compute_spec_status_in_progress_requires_started_task(self):
+        # a task in an active/started state (not open, not closed) triggers in-progress
+        statuses = {"1": "in_progress", "2": "open"}
         assert OstkService.compute_spec_status("spec", ["1", "2"], statuses) == "in-progress"
 
     def test_compute_spec_status_complete(self):

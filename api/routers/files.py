@@ -354,7 +354,7 @@ async def file_provenance(path: str = Query(..., description="Relative or absolu
 
 
 def _get_files_dir() -> Path:
-    return Path.home() / ".myos" / "collections"
+    return Path.home() / ".myos" / "files"
 
 
 @router.get("/files/timeline")

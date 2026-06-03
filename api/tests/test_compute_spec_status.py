@@ -142,10 +142,10 @@ class TestComputeSpecStatusWithClaims:
 
         # ready
         assert OstkService.compute_spec_status("spec", [], {}) == "ready"
-        # in-progress
+        # unstarted task -> ready (3c7f9e53: only started tasks trigger in-progress)
         assert OstkService.compute_spec_status(
             "spec", ["1"], {"1": "open"}
-        ) == "in-progress"
+        ) == "ready"
         # complete
         assert OstkService.compute_spec_status(
             "spec", ["1"], {"1": "closed"}
