@@ -94,6 +94,12 @@ _AC_ANNOTATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Regex for covers-only annotation: (covers: a.py, b.py) without a test: prefix
+_AC_COVERS_ONLY_RE = re.compile(
+    r"\(\s*covers:\s*([^)]+)\s*\)",
+    re.IGNORECASE,
+)
+
 _AC_HEADING_SCAN_RE = re.compile(r"^\s{0,3}#{2,}\s+acceptance\s+criteria\b", re.I)
 _ANY_HEADING_SCAN_RE = re.compile(r"^\s{0,3}#{2,}\s+")
 
@@ -136,21 +142,30 @@ def _check_ac_links(text: str, repo_root: Path) -> list[dict[str, str]]:
         if not re.match(r"^\s*[-*]\s*\[", line):
             continue
         ann = _parse_ac_annotation(line)
-        if not ann:
-            continue
-        test_ref = ann["test"]
-        test_path_str = test_ref.split("::")[0].strip()
-        if test_path_str and not (repo_root / test_path_str).exists():
-            items.append({
-                "kind": "ac_link_missing_test",
-                "detail": (
-                    f"Requirement references test '{test_path_str}' which no longer exists."
-                ),
-            })
-        for cover in ann.get("covers", []):
-            if cover and not (repo_root / cover).exists():
+        if ann:
+            test_ref = ann["test"]
+            test_path_str = test_ref.split("::")[0].strip()
+            if test_path_str and not (repo_root / test_path_str).exists():
                 items.append({
-                    "kind": "ac_link_missing_file",
-                    "detail": f"Requirement references file '{cover}' which no longer exists.",
+                    "kind": "ac_link_missing_test",
+                    "detail": (
+                        f"Requirement references test '{test_path_str}' which no longer exists."
+                    ),
                 })
+            for cover in ann.get("covers", []):
+                if cover and not (repo_root / cover).exists():
+                    items.append({
+                        "kind": "ac_link_missing_file",
+                        "detail": f"Requirement references file '{cover}' which no longer exists.",
+                    })
+        else:
+            # Check for a covers-only annotation: (covers: a.py, b.py) with no test: prefix
+            m = _AC_COVERS_ONLY_RE.search(line)
+            if m:
+                for cover in (c.strip() for c in m.group(1).split(",")):
+                    if cover and not (repo_root / cover).exists():
+                        items.append({
+                            "kind": "ac_link_missing_file",
+                            "detail": f"Requirement references file '{cover}' which no longer exists.",
+                        })
     return items
