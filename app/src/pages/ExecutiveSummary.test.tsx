@@ -106,7 +106,7 @@ describe('ExecutiveSummary', () => {
     // Section 2: KR -> initiative rollup tree.
     expect(screen.getByTestId('section-rollup-tree')).toBeTruthy()
     expect(screen.getByText('Reduce sign-in failures')).toBeTruthy()
-    expect(screen.getByText('Passwordless rollout')).toBeTruthy()
+    expect(screen.getAllByText('Passwordless rollout').length).toBeGreaterThan(0)
     // Health chips render with plain labels.
     expect(screen.getAllByText('Off track').length).toBeGreaterThan(0)
     expect(screen.getAllByText('At risk').length).toBeGreaterThan(0)
