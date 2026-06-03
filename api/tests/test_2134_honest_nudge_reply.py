@@ -19,11 +19,10 @@ _MOCK_NUDGE_RETURN = {
     "timestamp": _NUDGE_TS,
     "source": "ui",
 }
-_MOCK_REPLY_RETURN = {
-    "message": "This agent has finished its task and is no longer active, so it will not reply here.",
-    "timestamp": _NUDGE_TS,
-    "kind": "system",
-}
+
+
+def _make_reply_return(msg: str) -> dict:
+    return {"message": msg, "timestamp": _NUDGE_TS, "kind": "system"}
 
 
 def _client_for(meta: dict):
@@ -41,7 +40,11 @@ async def _nudge(transport, name: str):
              patch("routers.agents.chat_ack_bot") as mock_ack, \
              patch("routers.agents.agent_chat_responder") as mock_responder:
             mock_ostk.write_nudge = AsyncMock(return_value=_MOCK_NUDGE_RETURN)
-            mock_ostk.append_nudge_reply = AsyncMock(return_value=_MOCK_REPLY_RETURN)
+            # Echo back whatever message was actually passed so the reply dict
+            # reflects the real message text the router chose, not a hardcoded one.
+            async def _echo_reply(name_, msg, **kw):
+                return {"message": msg, "timestamp": _NUDGE_TS, "kind": kw.get("kind", "system")}
+            mock_ostk.append_nudge_reply = AsyncMock(side_effect=_echo_reply)
             resp = await client.post(
                 f"/api/agents/{name}/nudge",
                 json={"message": "how's it going"},
