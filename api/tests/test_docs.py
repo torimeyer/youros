@@ -1931,3 +1931,43 @@ class TestAcLinkDrift:
     def test_parse_annotation_returns_none_for_plain_line(self):
         from services.spec_drift import _parse_ac_annotation
         assert _parse_ac_annotation("- [ ] No annotation here") is None
+
+    def test_covers_only_annotation_missing_file_reports_drift(self, tmp_path):
+        """AC with (covers: path) but no test: reference still checks the covers file."""
+        spec = tmp_path / "spec.md"
+        spec.write_text(
+            "---\nstatus: spec\n---\n\n"
+            "## Acceptance criteria\n"
+            "- [ ] Works (covers: api/missing_module.py)\n"
+        )
+        import services.spec_drift as sd
+        orig = sd._REPO_ROOT
+        try:
+            sd._REPO_ROOT = tmp_path
+            result = sd.compute_spec_drift(str(spec))
+        finally:
+            sd._REPO_ROOT = orig
+        assert result["drift"] is True, "covers-only annotation with a missing file should report drift"
+        kinds = [i["kind"] for i in result["items"]]
+        assert "ac_link_missing_file" in kinds
+
+    def test_covers_only_annotation_present_file_no_drift(self, tmp_path):
+        """AC with (covers: path) and the file exists produces no drift."""
+        cover_file = tmp_path / "api" / "module.py"
+        cover_file.parent.mkdir(parents=True)
+        cover_file.write_text("pass\n")
+        spec = tmp_path / "spec.md"
+        spec.write_text(
+            "---\nstatus: spec\n---\n\n"
+            "## Acceptance criteria\n"
+            "- [ ] Works (covers: api/module.py)\n"
+        )
+        import services.spec_drift as sd
+        orig = sd._REPO_ROOT
+        try:
+            sd._REPO_ROOT = tmp_path
+            result = sd.compute_spec_drift(str(spec))
+        finally:
+            sd._REPO_ROOT = orig
+        kinds = [i["kind"] for i in result["items"]]
+        assert "ac_link_missing_file" not in kinds
