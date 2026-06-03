@@ -979,11 +979,12 @@ async def search_jira(query: str, limit: int = 10) -> list:
             json={"jql": f'text ~ "{query}"', "fields": ["summary", "issuetype"], "maxResults": limit},
         )
 
-    resp, base_url, site = await _request_with_refresh("jira", call)
-    if resp.status_code == 401:
-        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    try:
+        resp, base_url, site = await _request_with_refresh("jira", call)
+    except Exception:
+        return []
     if resp.status_code >= 400:
-        raise RuntimeError(f"Jira search error ({resp.status_code}).")
+        return []
 
     results = []
     for item in resp.json().get("issues", []):
@@ -1012,13 +1013,12 @@ async def search_confluence(query: str, limit: int = 10) -> list:
             params={"cql": f'text ~ "{query}"', "limit": limit},
         )
 
-    resp, base_url, site = await _request_with_refresh("confluence", call)
-    if resp.status_code == 404:
+    try:
+        resp, base_url, site = await _request_with_refresh("confluence", call)
+    except Exception:
         return []
-    if resp.status_code == 401:
-        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
     if resp.status_code >= 400:
-        raise RuntimeError(f"Confluence search error ({resp.status_code}).")
+        return []
 
     results = []
     for item in resp.json().get("results", []):
