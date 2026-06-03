@@ -17,15 +17,20 @@ class TestDocService:
     def setup_method(self):
         self.tmpdir = tempfile.mkdtemp()
         self.svc = OstkService(cwd=self.tmpdir)
-        # Prevent list_docs from reading real ~/.myos/specs/ files during tests
+        # Prevent list_docs from reading real ~/.myos/ files during tests
         import services.ostk as _ostk_mod
         self._user_specs_patcher = patch.object(
             _ostk_mod, "USER_SPECS_DIR", Path(self.tmpdir) / "_user_specs"
         )
+        self._user_drafts_patcher = patch.object(
+            _ostk_mod, "USER_DRAFTS_DIR", Path(self.tmpdir) / "_user_drafts"
+        )
         self._user_specs_patcher.start()
+        self._user_drafts_patcher.start()
 
     def teardown_method(self):
         self._user_specs_patcher.stop()
+        self._user_drafts_patcher.stop()
 
     @pytest.mark.asyncio
     async def test_doc_draft_calls_cli(self):
@@ -1006,13 +1011,17 @@ async def test_list_docs_compat_endpoint(client):
 
 
 @pytest.mark.asyncio
-async def test_create_draft_compat_endpoint(client):
-    with patch("routers.specs.ostk") as mock_ostk:
-        mock_ostk.doc_draft = AsyncMock(return_value="docs/draft/new-plan.md")
+async def test_create_draft_compat_endpoint(client, tmp_path, monkeypatch):
+    """→2104: compat /api/docs/draft writes to USER_DRAFTS_DIR, not docs/draft/."""
+    import routers.specs as specs_router
+    drafts_dir = tmp_path / "myos_drafts"
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+    with patch("services.ai_backend.get_ai_client", new_callable=AsyncMock, return_value=None):
         resp = await client.post("/api/docs/draft", json={"title": "new plan", "kind": "spec"})
 
     assert resp.status_code == 200
-    assert resp.json()["result"] == "docs/draft/new-plan.md"
+    assert "new-plan" in resp.json()["result"]
+    assert any(drafts_dir.glob("*.md"))
 
 
 @pytest.mark.asyncio
@@ -1116,23 +1125,16 @@ async def test_spec_draft_title_too_long_rejected(client):
 
 
 @pytest.mark.asyncio
-async def test_create_draft_appends_ac_to_file(client, tmp_path):
+async def test_create_draft_appends_ac_to_file(client, tmp_path, monkeypatch):
     """POST /specs/draft runs AI generation and appends acceptance criteria.
 
-    Regression test: previously ostk.PROJECT_DIR did not exist (the real
-    attribute is ostk.cwd), causing an AttributeError that was silently
-    swallowed. The draft was created but AC was never written, leaving the
-    UI stuck showing 'AI is generating acceptance criteria... Refresh in a moment.'
+    →2104: draft now writes to USER_DRAFTS_DIR (not docs/draft/). Monkeypatch
+    USER_DRAFTS_DIR to tmp_path so no real ~/.myos/drafts writes happen.
     """
-    import tempfile
-    from pathlib import Path
+    import routers.specs as specs_router
 
-    # Create a real temp draft file so the file-write code can find it.
-    draft_dir = tmp_path / "docs" / "draft"
-    draft_dir.mkdir(parents=True)
-    draft_file = draft_dir / "my-feature.md"
-    draft_file.write_text("---\ntitle: my feature\nstatus: draft\n---\n\nDraft body.\n")
-    draft_path = "docs/draft/my-feature.md"
+    drafts_dir = tmp_path / "myos_drafts"
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
 
     fake_ac = (
         "## What we want\nA useful feature.\n\n"
@@ -1147,57 +1149,52 @@ async def test_create_draft_appends_ac_to_file(client, tmp_path):
         {"content": [type("Block", (), {"text": fake_ac})()]},
     )()
 
+    fake_client = type("FakeClient", (), {})()
+    fake_client.messages = type("FakeMsgs", (), {})()
+    fake_client.messages.create = AsyncMock(return_value=mock_message)
+
     with (
         patch("routers.specs.ostk") as mock_ostk,
         patch("services.ai_backend.get_ai_client", new_callable=AsyncMock) as mock_get_ai_client,
     ):
-        mock_ostk.doc_draft = AsyncMock(return_value=draft_path)
-        # Wave 2: once AC is written, the route auto-promotes so the
-        # user lands on a ready plan. Provide a doc_promote mock.
-        mock_ostk.doc_promote = AsyncMock(
-            return_value="docs/spec/my-feature.md"
-        )
-        mock_ostk.cwd = str(tmp_path)
-
-        fake_client = type("FakeClient", (), {})()
-        fake_client.messages = type("FakeMsgs", (), {})()
-        fake_client.messages.create = AsyncMock(return_value=mock_message)
+        mock_ostk.doc_promote = AsyncMock(return_value="ignored-spec-path.md")
         mock_get_ai_client.return_value = fake_client
 
         resp = await client.post("/api/specs/draft", json={"title": "my feature", "kind": "spec"})
 
     assert resp.status_code == 200
-    assert resp.json()["result"] == draft_path
+    result_path = resp.json()["result"]
+    assert "my-feature" in result_path
 
-    # The file must contain the AI-generated acceptance criteria.
-    # (The route writes AC to the draft file before auto-promoting.)
+    # The draft file must contain the AI-generated acceptance criteria.
+    draft_file = drafts_dir / "my-feature.md"
+    assert draft_file.exists(), f"Expected draft file at {draft_file}"
     updated = draft_file.read_text()
     assert "- [ ] User can do the thing" in updated
     assert "- [ ] Error state is handled" in updated
 
 
 @pytest.mark.asyncio
-async def test_create_draft_succeeds_when_ai_unavailable(client, tmp_path):
+async def test_create_draft_succeeds_when_ai_unavailable(client, tmp_path, monkeypatch):
     """POST /specs/draft returns 200 even when AI generation fails.
 
     The draft is created without AC if no API key is configured or if
     the Anthropic call errors. The user is not blocked.
+    →2104: draft now writes to USER_DRAFTS_DIR.
     """
-    draft_dir = tmp_path / "docs" / "draft"
-    draft_dir.mkdir(parents=True)
-    draft_path = "docs/draft/no-ac.md"
+    import routers.specs as specs_router
 
-    with (
-        patch("routers.specs.ostk") as mock_ostk,
-        patch("services.chat_providers._resolve_api_key", new_callable=AsyncMock, return_value=None),
-    ):
-        mock_ostk.doc_draft = AsyncMock(return_value=draft_path)
-        mock_ostk.add_task = AsyncMock(return_value="→123 no ac")
-        mock_ostk.cwd = str(tmp_path)
+    drafts_dir = tmp_path / "myos_drafts"
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+
+    with patch("services.ai_backend.get_ai_client", new_callable=AsyncMock, return_value=None):
         resp = await client.post("/api/specs/draft", json={"title": "no ac", "kind": "spec"})
 
     assert resp.status_code == 200
-    assert resp.json()["result"] == draft_path
+    result = resp.json()["result"]
+    assert "no-ac" in result
+    assert drafts_dir.exists()
+    assert any(drafts_dir.glob("*.md"))
 
 
 @pytest.mark.asyncio
