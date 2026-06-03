@@ -3957,6 +3957,53 @@ async def test_verify_without_fresh_still_works(client, tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_verify_fresh_prompt_contains_only_ac_not_body(client, tmp_path, monkeypatch):
+    """E4: The prompt sent to the LLM contains only the AC section, not body/implementation text.
+
+    Core isolation guarantee: 'sees only the requirements and tests, not the original work'.
+    """
+    import anthropic as _anthropic
+
+    spec_dir = tmp_path / "docs" / "spec"
+    spec_dir.mkdir(parents=True)
+    (spec_dir / "my-plan.md").write_text(
+        "---\ntitle: Plan\nstatus: spec\n---\n\n"
+        "## Background\n\nThis describes implementation details and async/await patterns.\n\n"
+        "## Acceptance criteria\n"
+        "- [ ] The fresh check works\n"
+        "- [ ] It is informational only\n"
+        "\n## References\n\nSee api/routers/specs.py for the code.\n"
+    )
+
+    from routers import specs as specs_mod
+    monkeypatch.setattr(specs_mod, "PROJECT_ROOT", str(tmp_path))
+
+    mock_content = type("Content", (), {"text": "AC looks covered."})()
+    mock_resp = type("Resp", (), {"content": [mock_content]})()
+    mock_create = MagicMock(return_value=mock_resp)
+    mock_client = MagicMock()
+    mock_client.messages.create = mock_create
+
+    with patch.object(_anthropic, "Anthropic", return_value=mock_client):
+        resp = await client.post("/api/specs/docs/spec/my-plan.md/verify?fresh=true")
+
+    assert resp.status_code == 200
+    mock_create.assert_called_once()
+
+    # Inspect what the LLM was asked to review
+    call_kwargs = mock_create.call_args.kwargs
+    user_msg = call_kwargs["messages"][0]["content"]
+
+    # AC requirements must be present
+    assert "The fresh check works" in user_msg
+    assert "It is informational only" in user_msg
+
+    # Body text outside AC must NOT be present (no implementation context)
+    assert "async/await patterns" not in user_msg
+    assert "Background" not in user_msg
+
+
+@pytest.mark.asyncio
 async def test_decompose_spec_returns_503_when_ai_times_out(client, monkeypatch):
     """When the AI model is unreachable, /specs/decompose returns 503 with a plain message."""
     from services.ostk import OstkError
