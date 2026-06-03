@@ -223,3 +223,123 @@ async def test_save_agent_state_async_flags_exist():
     import routers.agents as ag
     assert isinstance(ag._save_inflight, bool), "_save_inflight must be a bool"
     assert isinstance(ag._save_pending, bool), "_save_pending must be a bool"
+
+
+# ---------------------------------------------------------------------------
+# →2137: JSONL candidate index key fix
+# ---------------------------------------------------------------------------
+
+# Before the fix, _find_freshest_matching_jsonl used a 3-element lookup key
+# (str(root), pattern, root_mtime) while _candidates_cache is keyed on
+# 2-element (str(root), pattern).  The index O(1) path was unreachable; every
+# agent resolve ran the full linear scan (162 agents × 826 files × 12 patterns).
+#
+# After the fix the key in the lookup matches the cache key, so the index is
+# used on every warm-cache call.
+
+def test_candidates_cache_key_is_two_tuple():
+    """_candidates_cache must be keyed on (str(root), pattern), not include mtime."""
+    import routers.agents as ag
+    import tempfile
+    import os
+    from pathlib import Path
+
+    ag._reset_candidates_cache()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        pattern = "*.jsonl"
+        # Prime the cache by calling _load_candidates
+        ag._load_candidates(root, pattern)
+        # Inspect the cache key
+        keys = list(ag._candidates_cache.keys())
+        assert len(keys) == 1, f"Expected 1 cache entry, got {len(keys)}"
+        key = keys[0]
+        assert len(key) == 2, f"Cache key must be (str(root), pattern) — got {len(key)}-tuple: {key}"
+        assert key == (str(root), pattern)
+    ag._reset_candidates_cache()
+
+
+def test_find_freshest_uses_index_for_known_name(tmp_path):
+    """After cache warm-up, _find_freshest_matching_jsonl must hit the O(1)
+    index and skip the linear _first_line_matches_needle loop."""
+    import routers.agents as ag
+
+    # Create a JSONL file whose first line registers a known agent name.
+    agent_name = "test-index-agent"
+    jsonl = tmp_path / "agent-abc123.jsonl"
+    jsonl.write_text(
+        '{"type":"user","content":"curl -sk -X POST https://127.0.0.1:8000/api/agents/register'
+        f' -d \\"name\\": \\"{agent_name}\\""}}\n'
+    )
+
+    ag._reset_candidates_cache()
+    # Prime the cache
+    ag._load_candidates(tmp_path, "*.jsonl")
+
+    linear_calls = []
+    original_fn = ag._first_line_matches_needle
+
+    def counting_match(first_line, needle):
+        linear_calls.append(needle)
+        return original_fn(first_line, needle)
+
+    try:
+        ag._first_line_matches_needle = counting_match
+        result = ag._find_freshest_matching_jsonl(tmp_path, agent_name, "*.jsonl")
+    finally:
+        ag._first_line_matches_needle = original_fn
+        ag._reset_candidates_cache()
+
+    # If the index hit, the linear scan function must NOT have been called
+    # (because the index lookup returns before reaching the fallback loop).
+    assert len(linear_calls) == 0, (
+        f"_first_line_matches_needle called {len(linear_calls)} times — "
+        "index lookup did not short-circuit the linear scan"
+    )
+    # The correct file must still be returned
+    assert result == jsonl, f"Expected {jsonl}, got {result}"
+
+
+def test_warm_cache_resolve_no_latency_spike(tmp_path):
+    """Simulated enrichment pass over N agents must complete well under 1 s
+    on a warm cache (index lookup), not 6 s (linear scan).
+
+    Before the fix: 162 agents × 826 files × 12 patterns per file = ~1.6M
+    string comparisons, ~6 s.  After the fix: 162 O(1) dict lookups, <10 ms.
+    """
+    import time
+    import routers.agents as ag
+
+    N_AGENTS = 50
+    N_FILES = 100
+
+    # Create N_FILES candidate JSONL files, each with a distinct agent name.
+    names = [f"agent-load-{i:04d}" for i in range(N_AGENTS)]
+    for i in range(N_FILES):
+        jsonl = tmp_path / f"agent-{i:04d}.jsonl"
+        if i < N_AGENTS:
+            # File for agent i
+            jsonl.write_text(
+                '{"type":"user","content":"curl -sk -X POST /api/agents/register'
+                f' -H \'Content-Type: application/json\' -d \'{{\\"name\\": \\"{names[i]}\\"}}\'"}}\n'
+            )
+        else:
+            # Noise file — no matching agent name
+            jsonl.write_text('{"type":"user","content":"some unrelated content here"}\n')
+
+    ag._reset_candidates_cache()
+    # Prime the cache (cold scan)
+    ag._load_candidates(tmp_path, "*.jsonl")
+
+    # Now time N_AGENTS warm-cache lookups
+    t0 = time.monotonic()
+    for name in names:
+        ag._find_freshest_matching_jsonl(tmp_path, name, "*.jsonl")
+    elapsed_ms = (time.monotonic() - t0) * 1000
+
+    ag._reset_candidates_cache()
+
+    assert elapsed_ms < 1000, (
+        f"Warm-cache enrichment pass over {N_AGENTS} agents took {elapsed_ms:.0f} ms — "
+        f"expected < 1000 ms (index lookup should be near-zero per agent)"
+    )
