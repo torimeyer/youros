@@ -247,6 +247,35 @@ class TestDocService:
         assert spec["task_summary"] == {"total": 2, "open": 1, "closed": 1}
 
     @pytest.mark.asyncio
+    async def test_list_docs_started_task_shows_in_progress(self):
+        """A spec whose task is actively started (status='in_progress') must show in-progress.
+
+        Guard for the Ready→In-Progress transition: only a *started* task (not
+        merely queued) flips the badge. Open/unstarted tasks keep the spec Ready.
+        """
+        docs_dir = Path(self.tmpdir) / "docs"
+        spec_dir = docs_dir / "spec"
+        spec_dir.mkdir(parents=True)
+
+        spec_dir.joinpath("wip.md").write_text(
+            "---\ntitle: wip spec\nstatus: spec\ntasks:\n"
+            '  - "20"\n  - "21"\n---\n\n- [ ] todo'
+        )
+
+        with patch.object(self.svc, "list_tasks", new_callable=AsyncMock) as mock_tasks:
+            mock_tasks.return_value = [
+                {"id": "20", "title": "task 20", "status": "in_progress", "priority": "P1"},
+                {"id": "21", "title": "task 21", "status": "open", "priority": "P2"},
+            ]
+            result = await self.svc.list_docs()
+
+        spec = result[0]
+        assert spec["status"] == "in-progress", (
+            f"A spec with a started task must show 'in-progress', got {spec['status']!r}"
+        )
+        assert spec["task_summary"] == {"total": 2, "open": 1, "closed": 0}
+
+    @pytest.mark.asyncio
     async def test_list_docs_complete_status(self):
         """Spec where all tasks are closed AND all ACs checked gets complete status."""
         docs_dir = Path(self.tmpdir) / "docs"
@@ -1174,6 +1203,59 @@ async def test_delete_spec_user_local_not_found(client, tmp_path):
         resp = await client.delete(f"/api/specs/{nonexistent}")
 
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_user_local_spec_not_resurfaced_by_list_docs(client, tmp_path):
+    """DELETE then list_docs must not re-surface the deleted spec.
+
+    Regression guard for →2133: delete_spec was silently failing for absolute
+    paths (it prepended 'docs/' and resolved to a non-existent repo path), so
+    the file survived in ~/.myos/specs/ and list_docs re-surfaced it on the
+    next GET /api/specs.
+    """
+    import services.ostk as _ostk_mod
+    import routers.specs as _specs_mod
+
+    user_specs = tmp_path / "user_specs"
+    user_specs.mkdir()
+    user_drafts = tmp_path / "user_drafts"
+    user_drafts.mkdir()
+
+    spec_file = user_specs / "should-vanish.md"
+    spec_file.write_text(
+        "---\ntitle: Should Vanish\nstatus: spec\n---\n\n- [ ] criterion\n"
+    )
+
+    with (
+        patch.object(_ostk_mod, "USER_SPECS_DIR", user_specs),
+        patch.object(_ostk_mod, "USER_DRAFTS_DIR", user_drafts),
+        patch.object(_specs_mod, "USER_SPECS_DIR", user_specs),
+        patch.object(_specs_mod, "USER_DRAFTS_DIR", user_drafts),
+    ):
+        # Step 1: confirm it appears in list_docs before deletion
+        svc = OstkService(cwd=str(tmp_path))
+        docs_before = await svc.list_docs()
+        titles_before = [d.get("title") for d in docs_before]
+        assert "Should Vanish" in titles_before, (
+            f"spec must be present before delete; got titles: {titles_before}"
+        )
+
+        # Step 2: delete it
+        del_resp = await client.delete(f"/api/specs/{spec_file}")
+        assert del_resp.status_code == 200, (
+            f"delete returned {del_resp.status_code}: {del_resp.text}"
+        )
+        assert not spec_file.exists(), "file must be gone after DELETE"
+
+        # Step 3: list_docs must not return the deleted spec
+        docs_after = await svc.list_docs()
+
+    titles_after = [d.get("title") for d in docs_after]
+    assert "Should Vanish" not in titles_after, (
+        "Deleted spec must not re-appear in list_docs. "
+        f"Got titles: {titles_after}"
+    )
 
 
 @pytest.mark.asyncio
