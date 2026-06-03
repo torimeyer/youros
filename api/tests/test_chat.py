@@ -2435,6 +2435,13 @@ class TestGroupBroadcastRouting:
                 pass
 
             mock_broadcast.assert_called_once()
+            call_kwargs = mock_broadcast.call_args
+            assert "models" in call_kwargs.kwargs, (
+                f"stream_group_broadcast not called with models kwarg: {call_kwargs}"
+            )
+            assert set(call_kwargs.kwargs["models"]) == {"claude", "gemini"}, (
+                f"'thanks everyone' should broadcast to all models, got: {call_kwargs.kwargs['models']}"
+            )
 
     @pytest.mark.asyncio
     async def test_collective_address_with_debate_keyword_uses_multi_ai(self):
@@ -2502,6 +2509,12 @@ class TestGroupBroadcastRouting:
 
             mock_single.assert_called_once()
             mock_broadcast.assert_not_called()
+            assert mock_single.call_count == 1, (
+                "Single @mention should invoke call_model exactly once"
+            )
+            assert mock_broadcast.call_count == 0, (
+                "Single @mention with no collective keyword must not trigger broadcast"
+            )
 
     @pytest.mark.asyncio
     async def test_side_by_side_flag_triggers_broadcast_all_models(self):
