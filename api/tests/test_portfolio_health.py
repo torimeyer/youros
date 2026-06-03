@@ -169,14 +169,13 @@ async def test_draft_confidence_note_fallback_without_llm():
 # atlassian.update_issue_fields (PUT shape)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.asyncio
-async def test_update_issue_fields_puts_fields_payload():
+def test_update_issue_fields_puts_fields_payload():
+    import asyncio
     from services import atlassian
 
     captured = {}
 
     async def fake_request_with_refresh(product, fn):
-        # Invoke fn with a fake client to capture the PUT call shape.
         class FakeResp:
             status_code = 204
 
@@ -192,8 +191,11 @@ async def test_update_issue_fields_puts_fields_payload():
         resp = await fn(FakeClient(), {}, "https://base", "site")
         return resp, "https://base", "site"
 
-    with patch.object(atlassian, "_request_with_refresh", new=fake_request_with_refresh):
-        await atlassian.update_issue_fields("ABC-1", {"customfield_999": "On track"})
+    async def run():
+        with patch.object(atlassian, "_request_with_refresh", new=fake_request_with_refresh):
+            await atlassian.update_issue_fields("ABC-1", {"customfield_999": "On track"})
+
+    asyncio.run(run())
 
     assert captured["url"].endswith("/rest/api/3/issue/ABC-1")
     assert captured["json"] == {"fields": {"customfield_999": "On track"}}
