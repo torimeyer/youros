@@ -14141,3 +14141,150 @@ async def test_per_agent_transcript_bytes_computed_in_snapshot(monkeypatch):
         "annotation must be computed at snapshot-build time (→1702), not per-request"
     )
 
+
+
+# ── AC3: ostk-run default spawn path (Spec 2 AC3) ────────────────────────────
+# Three tests covering:
+#   (a) no env override  → ostk-run attempted
+#   (b) ostk-run raises  → fallback recorded (counter + WARNING with OSTK_RUN_FALLBACK tag)
+#   (c) MYOS_SPAWN_FORCE_CUSTOM=1  → ostk-run NOT attempted
+
+
+def _fake_agentfile_path(stem: str):
+    """Return a fake path so the agentfile-finder returns something."""
+    from pathlib import Path
+    return Path(f"/fake/agents/{stem}.agent")
+
+
+@pytest.mark.asyncio
+async def test_ostk_run_default_no_env_override(monkeypatch):
+    """With no env override, spawn attempts the ostk-run path by default."""
+    import routers.agents as agents_mod
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.delenv("MYOS_SPAWN_FORCE_CUSTOM", raising=False)
+    monkeypatch.delenv("MYOS_SPAWN_USE_OSTK_RUN", raising=False)
+    monkeypatch.setenv("MYOS_SKIP_RETRO_AGENT_FILES_SAVE", "1")
+
+    run_agentfile_called = {"n": 0}
+
+    async def _fake_run_agentfile(path, **kwargs):
+        run_agentfile_called["n"] += 1
+        return {"exit_code": 0}
+
+    with (
+        patch("routers.agents.ostk.run_agentfile", side_effect=_fake_run_agentfile),
+        patch(
+            "services.agentfile_parser._find_any_agentfile",
+            return_value=_fake_agentfile_path("general-purpose"),
+        ),
+        patch("services.agentfile_parser.get_template_aliases", return_value={}),
+        patch("services.settings_store.settings_store.get", return_value=False),
+    ):
+        from httpx import AsyncClient, ASGITransport
+        from main import app
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={"name": "test-ac3-default", "prompt": "hello"},
+            )
+
+    assert run_agentfile_called["n"] == 1, (
+        f"ostk.run_agentfile should have been called once, got {run_agentfile_called['n']}"
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_ostk_run_fallback_loud_on_error(monkeypatch, caplog):
+    """When ostk-run raises, the fallback counter increments and a WARNING is logged."""
+    import logging
+    import routers.agents as agents_mod
+    from unittest.mock import patch
+
+    monkeypatch.delenv("MYOS_SPAWN_FORCE_CUSTOM", raising=False)
+    monkeypatch.delenv("MYOS_SPAWN_USE_OSTK_RUN", raising=False)
+    monkeypatch.setenv("MYOS_SKIP_RETRO_AGENT_FILES_SAVE", "1")
+
+    original_count = agents_mod._ostk_run_fallback_count["count"]
+
+    async def _exploding_run_agentfile(path, **kwargs):
+        raise RuntimeError("test-induced ostk failure")
+
+    with (
+        patch("routers.agents.ostk.run_agentfile", side_effect=_exploding_run_agentfile),
+        patch(
+            "services.agentfile_parser._find_any_agentfile",
+            return_value=_fake_agentfile_path("general-purpose"),
+        ),
+        patch("services.agentfile_parser.get_template_aliases", return_value={}),
+        patch("services.settings_store.settings_store.get", return_value=False),
+        patch("services.spawn_isolation.decide_isolation", return_value="none"),
+        patch(
+            "services.spawn_isolation.acquire_spawn_locks",
+            return_value=(None, None),
+        ),
+        caplog.at_level(logging.WARNING, logger="routers.agents"),
+    ):
+        from httpx import AsyncClient, ASGITransport
+        from main import app
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.post(
+                "/api/agents/spawn",
+                json={"name": "test-ac3-fallback", "prompt": "hello"},
+            )
+
+    assert agents_mod._ostk_run_fallback_count["count"] > original_count, (
+        "_ostk_run_fallback_count must increment on ostk-run failure"
+    )
+    assert any("OSTK_RUN_FALLBACK" in r.message for r in caplog.records), (
+        "A WARNING log with 'OSTK_RUN_FALLBACK' must be emitted on fallback"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ostk_run_force_custom_skips_ostk(monkeypatch):
+    """With MYOS_SPAWN_FORCE_CUSTOM=1, ostk-run is never attempted."""
+    import routers.agents as agents_mod
+    from unittest.mock import patch
+
+    monkeypatch.setenv("MYOS_SPAWN_FORCE_CUSTOM", "1")
+    monkeypatch.setenv("MYOS_SKIP_RETRO_AGENT_FILES_SAVE", "1")
+
+    run_agentfile_called = {"n": 0}
+
+    async def _spy_run_agentfile(path, **kwargs):
+        run_agentfile_called["n"] += 1
+        return {"exit_code": 0}
+
+    with (
+        patch("routers.agents.ostk.run_agentfile", side_effect=_spy_run_agentfile),
+        patch(
+            "services.agentfile_parser._find_any_agentfile",
+            return_value=_fake_agentfile_path("general-purpose"),
+        ),
+        patch("services.agentfile_parser.get_template_aliases", return_value={}),
+        patch("services.settings_store.settings_store.get", return_value=False),
+        patch("services.spawn_isolation.decide_isolation", return_value="none"),
+        patch(
+            "services.spawn_isolation.acquire_spawn_locks",
+            return_value=(None, None),
+        ),
+    ):
+        from httpx import AsyncClient, ASGITransport
+        from main import app
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.post(
+                "/api/agents/spawn",
+                json={"name": "test-ac3-force-custom", "prompt": "hello"},
+            )
+
+    assert run_agentfile_called["n"] == 0, (
+        "ostk.run_agentfile must NOT be called when MYOS_SPAWN_FORCE_CUSTOM=1"
+    )

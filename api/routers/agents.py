@@ -4547,6 +4547,9 @@ def _spawn_quick_mode(body: "AgentSpawn") -> bool:
 # register an active subagent. Agents with ``completed_at`` set are NOT
 # live even if their ``status`` key was not updated (e.g. a stale row).
 _LIVE_AGENT_STATUSES = {"running", "spawned", "in_progress"}
+# Counts how many times the ostk-run spawn path fell back to the custom launcher.
+# Observable at runtime: routers.agents._ostk_run_fallback_count["count"].
+_ostk_run_fallback_count: dict = {"count": 0}
 
 
 def _is_agent_genuinely_live(meta: dict) -> bool:
@@ -4921,14 +4924,14 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                 body.name, _brief_warning.trigger_word,
             )
 
-    # MYOS_SPAWN_USE_OSTK_RUN exit criteria (retire this fallback when ALL hold):
-    #   1. All 3 isolation modes (worktree, container, none) verified working via ostk run
-    #   2. Scaffold-commit watcher works on ostk run worktrees (worktree_path metadata threaded through)
-    #   3. Runtime probe passes for each provider (claude_code_provider, gemini_cli_provider)
-    #   4. scripts/e2e_smoke.sh green with MYOS_SPAWN_USE_OSTK_RUN=1 forced as default
-    # When all 4 hold: flip MYOS_SPAWN_USE_OSTK_RUN default to 1, delete bespoke path, delete this flag.
-    # See docs/adr/2026-05-28-myos-spawn-use-ostk-run-exit-criteria.md and spec AC3 in
-    # docs/spec/adopt-claude-code-s-good-ideas-into-myos-as-vendor-agnostic-abstractions.md
+    # AC3 EXIT CRITERIA - conditions to delete the custom spawn fallback (agents.py ~4546-4592):
+    #   (i)  OSTK_RUN_FALLBACK rate stays at or near zero across a full release cycle.
+    #   (ii) Worktree-isolation parity confirmed for ostk-run path (all 3 isolation modes work).
+    #   (iii) Scaffold-commit watcher gets worktree_path metadata via ostk-run (agents.py ~1463).
+    #   (iv) OSTK_PROJECT_ROOT/short-cwd handling parity confirmed for ostk-run path.
+    #   (v)  Supervised verification: spawn 3 different agent types, all land via ostk-run, zero fallback.
+    # Only after ALL five hold: delete the custom spawn path and this comment block.
+    # See spec AC3 in /Users/torimeyer/.myos/specs/adopt-claude-code-s-good-ideas-into-myos-as-vendor-agnostic-abstractions.md
     #
     # --- ostk run path: env-level canonical (MYOS_SPAWN_USE_OSTK_RUN=1, →1305) or per-request opt-in ---
     # MYOS_SPAWN_USE_OSTK_RUN=1 makes `ostk run <Agentfile>` the default for every spawn.
@@ -4949,13 +4952,18 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
     # These gaps are acceptable for read-only/research pilots (no file writes, no
     # commits). Full adoption for code-edit agents requires extending run_agentfile
     # or cherry-picking the isolation env-injection. See plan Tier 2.2.
+    # AC3: ostk-run is the default spawn path for all agent types.
+    # MYOS_SPAWN_FORCE_CUSTOM=1 is the kill-switch: forces the custom path, skips ostk-run entirely.
+    # MYOS_SPAWN_USE_OSTK_RUN is preserved for backward compat (now a no-op since default is on).
+    _force_custom = os.environ.get("MYOS_SPAWN_FORCE_CUSTOM", "").strip() in ("1", "true", "yes")
     _env_use_ostk_run = os.environ.get("MYOS_SPAWN_USE_OSTK_RUN", "").strip() in ("1", "true", "yes")
     _req_use_ostk_run = getattr(body, "use_ostk_run", False)
-    _use_ostk_run = _req_use_ostk_run or _env_use_ostk_run
+    _use_ostk_run = not _force_custom
     if _use_ostk_run:
-        # _ostk_fallback_ok: True when the env flag is the only reason we're here.
-        # In that case, "no agentfile" and ostk errors silently fall through to bespoke.
-        _ostk_fallback_ok = _env_use_ostk_run and not _req_use_ostk_run
+        # _ostk_fallback_ok: False when the caller explicitly requested ostk-run (per-request opt-in).
+        # When False and ostk-run fails, raise HTTP error instead of falling back.
+        # When True, fall back with loud logging so fallbacks are never silent.
+        _ostk_fallback_ok = not _req_use_ostk_run
         _ostk_ran = False
         _ostk_result = None
         _ostk_dry_run = getattr(body, "dry_run", False)
@@ -4972,10 +4980,11 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
             _ostk_agentfile_path = _ostk_find_agentfile(_ostk_stem)
             if _ostk_agentfile_path is None:
                 if _ostk_fallback_ok:
-                    logger.info(
-                        "spawn.ostk_run.fallback name=%s reason=no_agentfile stem=%s",
+                    logger.warning(
+                        "OSTK_RUN_FALLBACK name=%s reason=no_agentfile stem=%s",
                         body.name, _ostk_stem,
                     )
+                    _ostk_run_fallback_count["count"] += 1
                 else:
                     raise HTTPException(
                         status_code=400,
@@ -4996,9 +5005,10 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
         except Exception as _ostk_exc:
             if _ostk_fallback_ok:
                 logger.warning(
-                    "spawn.ostk_run.fallback name=%s reason=error error=%s",
+                    "OSTK_RUN_FALLBACK name=%s reason=error error=%s",
                     body.name, _ostk_exc,
                 )
+                _ostk_run_fallback_count["count"] += 1
             else:
                 raise HTTPException(
                     status_code=500,
