@@ -21,6 +21,8 @@ _providers_cache_value: dict | None = None
 _providers_cache_ts: float = 0.0
 _providers_lock: asyncio.Lock | None = None  # lazy-init to avoid import-time loop issues
 
+_VERTEX_GEMINI_TIMEOUT: float = 3.5
+
 
 def _get_providers_lock() -> asyncio.Lock:
     global _providers_lock
@@ -113,9 +115,14 @@ async def detect_vertex_gemini() -> dict:
         # or calls gcloud) and can block for hundreds of milliseconds on cold caches.
         # Offload it to a thread so the event loop stays responsive during concurrent
         # page-load requests.  →1738
-        creds, project = await asyncio.to_thread(
-            google.auth.default,
-            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        # Bounded by _VERTEX_GEMINI_TIMEOUT to prevent a cold-start hang from
+        # blocking the onboarding wizard past Vite's 5 s proxy budget.
+        creds, project = await asyncio.wait_for(
+            asyncio.to_thread(
+                google.auth.default,
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            ),
+            timeout=_VERTEX_GEMINI_TIMEOUT,
         )
         if not project:
             project = await _resolve_gcloud_default_project()
@@ -130,6 +137,8 @@ async def detect_vertex_gemini() -> dict:
             "hosted_domain": hosted_domain,
             "vertex_ai_needs_reauth": False,
         }
+    except asyncio.TimeoutError:
+        return {"available": False, "vertex_ai_needs_reauth": False}
     except ImportError:
         return {"available": False, "vertex_ai_needs_reauth": False}
     except Exception as exc:
@@ -162,22 +171,30 @@ async def _run_full_detection() -> dict[str, bool]:
     """Run a full provider scan (no cache). Called only by detect_providers()."""
     from services.ostk_secrets import get_anthropic_key, get_gemini_key
 
-    claude_code = await is_claude_code_available()
-    gemini_cli = await is_gemini_cli_available()
-
-    anthropic_key = bool(await get_anthropic_key())
-    gemini_key = bool(await get_gemini_key())
-
-    vx = await detect_vertex_gemini()
+    (
+        claude_code,
+        gemini_cli,
+        anthropic_key_val,
+        gemini_key_val,
+        vx,
+        bedrock,
+    ) = await asyncio.gather(
+        is_claude_code_available(),
+        is_gemini_cli_available(),
+        get_anthropic_key(),
+        get_gemini_key(),
+        detect_vertex_gemini(),
+        detect_bedrock(),
+    )
     return {
         "claude_code": claude_code,
         "gemini_cli": gemini_cli,
-        "anthropic_key": anthropic_key,
-        "gemini_key": gemini_key,
+        "anthropic_key": bool(anthropic_key_val),
+        "gemini_key": bool(gemini_key_val),
         "vertex_ai": vx.get("available", False),
         "vertex_ai_project": vx.get("project"),
         "vertex_ai_needs_reauth": vx.get("vertex_ai_needs_reauth", False),
-        "bedrock": await detect_bedrock(),
+        "bedrock": bedrock,
     }
 
 

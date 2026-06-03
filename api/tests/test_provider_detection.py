@@ -2,7 +2,9 @@
 
 Covers detect_providers() and GET /api/providers/detect.
 """
+import asyncio
 import os
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -416,3 +418,58 @@ async def test_detect_vertex_gemini_available_regardless_of_hosted_domain():
     assert result["available"] is True
     assert result.get("hosted_domain") is None
     assert result.get("vertex_ai_needs_reauth") is False
+
+
+# ---------------------------------------------------------------------------
+# Timeout and concurrency tests (fix for cold-start hang)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_detect_vertex_gemini_timeout_returns_false(monkeypatch):
+    """google.auth.default taking too long → returns available=False without hanging."""
+    import services.provider_detection as _pd_mod
+
+    # Shorten the cap so the test runs in milliseconds, not seconds.
+    monkeypatch.setattr(_pd_mod, "_VERTEX_GEMINI_TIMEOUT", 0.05)
+
+    async def _slow_to_thread(fn, *args, **kwargs):
+        await asyncio.sleep(1.0)   # much longer than the 0.05s cap
+        return (object(), "proj")  # would produce available=True if it completes
+
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=True)):
+        with patch("services.provider_detection.asyncio.to_thread", new=_slow_to_thread):
+            result = await _pd_mod.detect_vertex_gemini()
+
+    assert result == {"available": False, "vertex_ai_needs_reauth": False}
+
+
+@pytest.mark.asyncio
+async def test_run_full_detection_concurrent():
+    """All 6 probes run in parallel — total elapsed ≈ one probe, not the sum."""
+
+    async def _slow_false():
+        await asyncio.sleep(0.2)
+        return False
+
+    async def _slow_vx():
+        await asyncio.sleep(0.2)
+        return {"available": False, "vertex_ai_needs_reauth": False}
+
+    async def _slow_str():
+        await asyncio.sleep(0.2)
+        return ""
+
+    with patch("services.provider_detection.is_claude_code_available", new=_slow_false):
+        with patch("services.provider_detection.is_gemini_cli_available", new=_slow_false):
+            with patch("services.ostk_secrets.get_anthropic_key", new=_slow_str):
+                with patch("services.ostk_secrets.get_gemini_key", new=_slow_str):
+                    with patch("services.provider_detection.detect_vertex_gemini", new=_slow_vx):
+                        with patch("services.provider_detection.detect_bedrock", new=_slow_false):
+                            start = time.monotonic()
+                            await _pd._run_full_detection()
+                            elapsed = time.monotonic() - start
+
+    # Sequential: ~1.2s (6 × 0.2s). Parallel: ~0.2-0.3s.
+    assert elapsed < 0.6, (
+        f"_run_full_detection took {elapsed:.2f}s — probes are still running sequentially"
+    )
