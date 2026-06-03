@@ -10,6 +10,25 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.2.0
+  {
+    date: '2026-06-03',
+    label: 'June 3, 2026',
+    entries: [
+      {
+        title: 'Executive Summary',
+        description: 'A new Executive Summary page shows how your work is rolling up and whether each piece is on track, and drafts weekly updates you can approve with one click. If no tracker is connected, it shows a simple setup prompt and changes nothing.',
+      },
+      {
+        title: 'Search across your sources',
+        description: 'A new search finds matches across all your connected sources and shows where each result came from.',
+      },
+      {
+        title: 'Cleaner, simpler surfaces',
+        description: 'The top bar lost its large page title for a cleaner look, the task waves controls are now a single Update waves button, and a plan that has not started yet reads Ready instead of In Progress.',
+      },
+    ],
+  },
   // v4.0.0
   {
     date: '2026-05-28',
