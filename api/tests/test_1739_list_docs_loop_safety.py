@@ -96,11 +96,17 @@ async def test_list_docs_audit_fields_correct_after_offload(tmp_path, monkeypatc
     async def fake_list_tasks(status=None, priority=None):
         return []
 
-    # Patch USER_SPECS_DIR so real ~/.myos/specs/ is not scanned
+    # Patch USER_SPECS_DIR and USER_DRAFTS_DIR (→2104) so real ~/.myos/
+    # specs/ and drafts/ are not scanned. Without USER_DRAFTS_DIR patched,
+    # the test picks up files like handoff-release-flight.md from the user's
+    # actual ~/.myos/drafts/.
     import services.ostk as ostk_module
     empty_user_specs = tmp_path / "myos_specs"
     empty_user_specs.mkdir()
+    empty_user_drafts = tmp_path / "myos_drafts"
+    empty_user_drafts.mkdir()
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", empty_user_specs)
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", empty_user_drafts)
 
     svc = OstkService(cwd=str(tmp_path))
     monkeypatch.setattr(svc, "list_tasks", fake_list_tasks)
