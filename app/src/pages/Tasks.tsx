@@ -1915,10 +1915,37 @@ export default function Tasks() {
                     {colTasks.map((t) => (
                       <div
                         key={t.id}
-                        className="bg-white dark:bg-slate-800 rounded-lg px-3 py-2 shadow-sm border border-slate-200 dark:border-slate-700 text-sm text-slate-800 dark:text-slate-200"
+                        data-testid={`kanban-card-${t.id}`}
+                        className="bg-white dark:bg-slate-800 rounded-lg px-3 py-2.5 shadow-sm border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow transition-colors"
                       >
-                        <span className="text-[10px] font-mono text-slate-400 mr-1">#{t.id}</span>
-                        {t.title}
+                        {/* Top row: id chip plus optional priority badge */}
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <span
+                            data-testid={`kanban-card-id-${t.id}`}
+                            className="text-[10px] font-mono text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/60 rounded px-1.5 py-0.5"
+                          >
+                            #{t.id}
+                          </span>
+                          {t.priority && priorityStyles[t.priority] && (
+                            <span className={`text-[10px] font-medium rounded-full px-1.5 py-0.5 ${priorityStyles[t.priority]}`}>
+                              {t.priority}
+                            </span>
+                          )}
+                        </div>
+                        {/* Title, clamped so cards stay uniform height */}
+                        <div className="text-sm font-medium text-slate-800 dark:text-slate-200 line-clamp-2">
+                          {t.title}
+                        </div>
+                        {/* Optional description, clamped to two lines */}
+                        {t.description && (
+                          <div
+                            data-testid={`kanban-card-desc-${t.id}`}
+                            className="mt-1 flex items-start gap-1 text-xs text-slate-500 dark:text-slate-400 line-clamp-2"
+                          >
+                            <Icon name="description" className="text-xs mt-0.5 shrink-0" />
+                            <span className="line-clamp-2">{t.description}</span>
+                          </div>
+                        )}
                       </div>
                     ))}
                     {colTasks.length === 0 && (
