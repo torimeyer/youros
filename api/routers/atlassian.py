@@ -26,6 +26,8 @@ ATLASSIAN_OAUTH_SCOPES = (
     # Jira granular scopes
     "read:issue:jira read:comment:jira write:comment:jira "
     "read:issue.transition:jira write:issue.transition:jira "
+    # write:jira-work covers issue field updates (confidence write-back)
+    "write:jira-work "
     # Confluence granular scopes (replaces deprecated read:confluence-content.all etc.)
     "read:page:confluence read:space:confluence "
     "read:space.permission:confluence read:content-details:confluence "

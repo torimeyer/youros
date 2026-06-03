@@ -905,6 +905,35 @@ async def assign_issue(issue_key: str, account_id: Optional[str]) -> None:
         raise RuntimeError(f"Jira API error ({resp.status_code}).")
 
 
+async def update_issue_fields(issue_key: str, fields: dict) -> None:
+    """Write one or more fields on a Jira issue (PUT /rest/api/3/issue/{key}).
+
+    Mirrors transition_issue / assign_issue: routes through _request_with_refresh
+    so a single 401 triggers a token refresh and one retry. The caller supplies a
+    vendor-neutral ``fields`` mapping (e.g. {custom_field_id: value}); no field
+    identifiers are hardcoded here.
+    """
+    payload = {"fields": fields}
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.put(
+            f"{base_url}/rest/api/3/issue/{issue_key}",
+            **auth_kwargs,
+            json=payload,
+        )
+
+    try:
+        resp, _, _ = await _request_with_refresh("jira", call)
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+    if resp.status_code == 401:
+        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+    if resp.status_code == 404:
+        raise RuntimeError(f"Issue {issue_key} not found.")
+    if resp.status_code not in (200, 204):
+        raise RuntimeError(f"Jira API error ({resp.status_code}).")
+
+
 async def list_blocked_issues() -> list[dict]:
     """Return Jira issues that are blocked, flagged, or labeled cross-team.
 
