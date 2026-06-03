@@ -166,7 +166,7 @@ def compute_health(issue: dict, signals: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# LLM draft (DRAFT ONLY — never auto-written to the source)
+# LLM draft (DRAFT ONLY: never auto-written to the source)
 # ---------------------------------------------------------------------------
 
 _DRAFT_MODEL = "claude-sonnet-4-20250514"
