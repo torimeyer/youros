@@ -228,29 +228,12 @@ async def test_create_draft_leaves_as_draft_when_ac_generation_fails(
 ):
     """No AI key -> no AC written -> the plan stays as a draft.
 
-    This is the graceful-fallback path. The user can hand-edit the
-    checklist and promote manually.
+    →2104: draft now writes to USER_DRAFTS_DIR (not docs/draft/).
     """
-    from services import ostk as ostk_module
     from routers import specs as specs_router
 
-    (tmp_path / "docs" / "draft").mkdir(parents=True)
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
-    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
-
-    draft_file = tmp_path / "docs" / "draft" / "wave2-no-ac.md"
-
-    async def fake_run(*args, **kwargs):
-        if args[:2] == ("doc", "draft"):
-            draft_file.write_text(
-                "---\ntitle: wave2 no ac\nstatus: draft\n---\n\n"
-            )
-            return str(draft_file.relative_to(tmp_path))
-        raise AssertionError(f"unexpected ostk call: {args}")
-
-    monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)
+    drafts_dir = tmp_path / "myos_drafts"
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
 
     # No API key -> the route skips the AI branch entirely.
     monkeypatch.setattr(
@@ -265,9 +248,8 @@ async def test_create_draft_leaves_as_draft_when_ac_generation_fails(
     data = resp.json()
     assert data["status"] == "draft"
     assert data["promoted_path"] is None
-    # The file stays in draft/.
+    draft_file = drafts_dir / "wave2-no-ac.md"
     assert draft_file.exists()
-    # After the →1463 fix lands, the draft must also have a placeholder checkbox.
     assert "- [ ]" in draft_file.read_text(), (
         "No-API-key path must write placeholder AC checkboxes so the spinner clears (→1463)."
     )
@@ -280,31 +262,12 @@ async def test_create_draft_no_api_key_writes_placeholder_not_stuck(
     """No API key (subscription auth) must write placeholder AC, not leave
     the draft with an empty body that causes the infinite spinner (→1463).
 
-    RED test: fails before the fix lands. After the fix, the draft file
-    must contain at least one '- [ ]' checkbox so the frontend spinner
-    resolves immediately instead of spinning forever.
+    →2104: draft now writes to USER_DRAFTS_DIR (not docs/draft/).
     """
-    from services import ostk as ostk_module
     from routers import specs as specs_router
 
-    (tmp_path / "docs" / "draft").mkdir(parents=True)
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
-    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
-
-    draft_file = tmp_path / "docs" / "draft" / "pattern-watcher-v2.md"
-
-    async def fake_run(*args, **kwargs):
-        if args[:2] == ("doc", "draft"):
-            draft_file.write_text(
-                "---\ntitle: Pattern watcher v2\nstatus: draft\n---\n\n"
-            )
-            return str(draft_file.relative_to(tmp_path))
-        # doc_promote is pure-Python, doesn't hit _run
-        raise AssertionError(f"unexpected ostk call: {args}")
-
-    monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)
+    drafts_dir = tmp_path / "myos_drafts"
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
 
     # Subscription auth: get_ai_client returns None (no API key available).
     monkeypatch.setattr(
@@ -317,12 +280,10 @@ async def test_create_draft_no_api_key_writes_placeholder_not_stuck(
     )
     assert resp.status_code == 200
     data = resp.json()
-    # Draft stays as draft (placeholder, not auto-promoted — user edits first).
     assert data["status"] == "draft"
     assert data["promoted_path"] is None
+    draft_file = drafts_dir / "pattern-watcher-v2.md"
     assert draft_file.exists()
-    # CRITICAL: draft must have at least one checkbox so the frontend
-    # "Generating acceptance criteria..." spinner can resolve.
     draft_text = draft_file.read_text()
     assert "- [ ]" in draft_text, (
         "No-API-key path must write placeholder AC checkboxes. "
@@ -3126,10 +3087,17 @@ async def test_validate_write_doc_path_rejects_docs_spec(client):
 
 
 @pytest.mark.asyncio
-async def test_validate_write_doc_path_allows_docs_draft(client):
-    """docs/draft/ paths are accepted by the write validator (→1512 FR-007)."""
+async def test_validate_write_doc_path_rejects_docs_draft(client):
+    """docs/draft/ paths are rejected by the write validator (→2104).
+
+    New drafts land in USER_DRAFTS_DIR (~/.myos/drafts/). Writes to the legacy
+    docs/draft/ path are no longer allowed (same guard as docs/spec/).
+    """
+    from fastapi import HTTPException
     from routers.specs import _validate_write_doc_path
-    _validate_write_doc_path("docs/draft/foo.md")  # must not raise
+    with pytest.raises(HTTPException) as exc_info:
+        _validate_write_doc_path("docs/draft/foo.md")
+    assert exc_info.value.status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -3580,27 +3548,13 @@ def test_builder_prompt_includes_recheck_instruction():
 async def test_draft_create_injects_canonical_template(client, tmp_path, monkeypatch):
     """When AC generation is skipped (no API key), the draft must get the
     full 8-section canonical template, not just a bare AC placeholder (→1600).
+
+    →2104: draft now writes to USER_DRAFTS_DIR (not docs/draft/).
     """
-    from services import ostk as ostk_module
     from routers import specs as specs_router
 
-    (tmp_path / "docs" / "draft").mkdir(parents=True)
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
-    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
-
-    draft_file = tmp_path / "docs" / "draft" / "phase3-template-test.md"
-
-    async def fake_run(*args, **kwargs):
-        if args[:2] == ("doc", "draft"):
-            draft_file.write_text(
-                "---\ntitle: Phase3 template test\nstatus: draft\n---\n\n"
-            )
-            return str(draft_file.relative_to(tmp_path))
-        raise AssertionError(f"unexpected ostk call: {args}")
-
-    monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)
+    drafts_dir = tmp_path / "myos_drafts"
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
     monkeypatch.setattr(
         "services.ai_backend.get_ai_client",
         AsyncMock(return_value=None),
@@ -3610,9 +3564,10 @@ async def test_draft_create_injects_canonical_template(client, tmp_path, monkeyp
         "/api/specs/draft", json={"title": "Phase3 template test", "kind": "spec"}
     )
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "draft"
+    assert resp.json()["status"] == "draft"
 
+    draft_file = drafts_dir / "phase3-template-test.md"
+    assert draft_file.exists(), f"Expected draft at {draft_file}"
     draft_text = draft_file.read_text()
     for heading in ["## Problem", "## Goals", "## Non-goals", "## Solution",
                     "## Acceptance criteria", "## USER FEEDBACK", "## DECISION", "## References"]:
@@ -3782,3 +3737,94 @@ def test_task_spec_assignment_persists_across_restart(tmp_path, monkeypatch):
     # Cleanup to avoid polluting other tests
     specs_router._spec_task_origin.pop("task-99", None)
     specs_router._spec_claims.pop("docs/spec/persist-test.md", None)
+
+
+# ---------------------------------------------------------------------------
+# →2104: draft/spec relocation tests (new writes go to ~/.myos, not docs/)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_draft_spec_writes_to_myos_drafts(client, tmp_path, monkeypatch):
+    """POST /specs/draft with kind='spec' must write to USER_DRAFTS_DIR, not docs/draft/."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    drafts_dir = tmp_path / "myos_drafts"
+    specs_dir = tmp_path / "myos_specs"
+    docs_draft_dir = tmp_path / "docs" / "draft"
+    docs_draft_dir.mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+
+    # No AI client → AC generation skipped → no auto-promote → status stays "draft"
+    monkeypatch.setattr("services.ai_backend.get_ai_client", AsyncMock(return_value=None))
+
+    resp = await client.post("/api/specs/draft", json={"title": "My Relocation Test", "kind": "spec"})
+    assert resp.status_code == 200, resp.text
+
+    data = resp.json()
+    result_path = data.get("result", "")
+    assert result_path, "response missing result"
+
+    # Must be in USER_DRAFTS_DIR
+    assert drafts_dir.exists(), "USER_DRAFTS_DIR was never created"
+    draft_files = list(drafts_dir.glob("*.md"))
+    assert len(draft_files) == 1, f"Expected 1 draft in USER_DRAFTS_DIR, got {draft_files}"
+
+    # Must NOT appear in docs/draft/
+    repo_drafts = list(docs_draft_dir.glob("*.md"))
+    assert repo_drafts == [], f"Draft leaked into docs/draft/: {repo_drafts}"
+
+
+@pytest.mark.asyncio
+async def test_promote_draft_from_myos_drafts(client, tmp_path, monkeypatch):
+    """POST /specs/promote accepts a path from USER_DRAFTS_DIR and writes to USER_SPECS_DIR."""
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    drafts_dir = tmp_path / "myos_drafts"
+    specs_dir = tmp_path / "myos_specs"
+    drafts_dir.mkdir(parents=True)
+    specs_dir.mkdir(parents=True)
+
+    draft_path = drafts_dir / "my-reloc-spec.md"
+    draft_path.write_text(
+        "---\ntitle: My Reloc Spec\nstatus: draft\n---\n\n## Acceptance criteria\n\n- [ ] It ships to myos\n"
+    )
+
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+
+    # stub decompose so it doesn't shell out
+    async def _noop_decompose(*a, **kw):
+        return {"result": "", "task_ids": []}
+    monkeypatch.setattr(ostk_module.ostk, "doc_decompose", _noop_decompose)
+
+    resp = await client.post("/api/specs/promote", json={"path": str(draft_path)})
+    assert resp.status_code == 200, resp.text
+
+    spec_files = list(specs_dir.glob("*.md"))
+    assert len(spec_files) == 1, f"Expected 1 promoted spec in USER_SPECS_DIR, got {spec_files}"
+
+
+@pytest.mark.asyncio
+async def test_validate_write_rejects_docs_draft(client, tmp_path, monkeypatch):
+    """_validate_write_doc_path must reject new writes to docs/draft/ just like docs/spec/."""
+    from routers import specs as specs_router
+    from routers.specs import _validate_write_doc_path
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", tmp_path / "myos_drafts")
+
+    with pytest.raises(HTTPException) as exc_info:
+        _validate_write_doc_path("docs/draft/some-spec.md")
+    assert exc_info.value.status_code == 400

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from config import PROJECT_ROOT
 from models.schemas import SpecDraft, SpecPromote, SpecDecompose
-from services.ostk import ostk, OstkError
+from services.ostk import ostk, OstkError, USER_DRAFTS_DIR
 from services.spec_audit import audit_all_specs, compute_shipped, compute_husk_status
 from services.tracing import trace_event
 
@@ -368,7 +368,7 @@ def _is_scratch_note(path: str, title: str, doc: dict | None = None) -> bool:
 
 
 def _validate_doc_path(path: str) -> None:
-    """Reject path traversal and paths outside docs/draft/, docs/spec/, or ~/.myos/specs/."""
+    """Reject path traversal and paths outside docs/draft/, docs/spec/, ~/.myos/specs/, or ~/.myos/drafts/."""
     from services.ostk import USER_SPECS_DIR
     p = PurePosixPath(path)
     if ".." in p.parts:
@@ -376,7 +376,10 @@ def _validate_doc_path(path: str) -> None:
 
     # Expand ~ for absolute path check
     abs_path = Path(os.path.expanduser(path))
-    is_user_local = str(abs_path).startswith(str(USER_SPECS_DIR))
+    is_user_local = (
+        str(abs_path).startswith(str(USER_SPECS_DIR))
+        or str(abs_path).startswith(str(USER_DRAFTS_DIR))
+    )
 
     if not (
         str(p).startswith("docs/draft/")
@@ -385,16 +388,16 @@ def _validate_doc_path(path: str) -> None:
     ):
         raise HTTPException(
             status_code=400,
-            detail="Path must be under docs/draft/, docs/spec/, or ~/.myos/specs/",
+            detail="Path must be under docs/draft/, docs/spec/, ~/.myos/specs/, or ~/.myos/drafts/",
         )
 
 
 def _validate_write_doc_path(path: str) -> None:
-    """Like _validate_doc_path but also rejects docs/spec/ for new writes (→1512).
+    """Like _validate_doc_path but also rejects docs/spec/ and docs/draft/ for new writes (→1512, →2104).
 
-    docs/spec/ is gitignored and redundant — all promoted specs now live in
-    ~/.myos/specs/. Preventing new writes stops the directory from being
-    resurrected after cleanup.
+    All new drafts go to ~/.myos/drafts/ and all promoted specs go to
+    ~/.myos/specs/. Preventing repo writes stops these dirs from being
+    resurrected after migration.
     """
     _validate_doc_path(path)
     p = PurePosixPath(path)
@@ -403,7 +406,15 @@ def _validate_write_doc_path(path: str) -> None:
             status_code=400,
             detail=(
                 "Writing to docs/spec/ is no longer allowed. "
-                "Use docs/draft/ for new drafts or promote to ~/.myos/specs/ via /specs/promote."
+                "Promote to ~/.myos/specs/ via /specs/promote."
+            ),
+        )
+    if str(p).startswith("docs/draft/"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Writing to docs/draft/ is no longer allowed. "
+                "New drafts are written to ~/.myos/drafts/ automatically."
             ),
         )
 
@@ -747,10 +758,24 @@ async def create_draft(body: SpecDraft):
         trace_event("needle_created", title=body.title, source="draft", task_id=payload.get("task_id"))
         return payload
 
-    try:
-        result = await ostk.doc_draft(body.title)
-    except OstkError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    # →2104: write directly to USER_DRAFTS_DIR (not via CLI binary which writes to docs/draft/)
+    # Validate title (mirrors ostk.doc_draft guards)
+    if not body.title.strip():
+        raise HTTPException(status_code=400, detail="Title must not be empty")
+    if "hook" in body.title.lower():
+        raise HTTPException(
+            status_code=400,
+            detail="Titles containing 'hook' belong in ~/.myos/hooks/, not as a spec draft.",
+        )
+    from services.spec_templates import canonical_spec_template_body
+    _slug = re.sub(r"[^a-z0-9]+", "-", body.title.lower()).strip("-")[:80] or "untitled"
+    USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    _draft_file = USER_DRAFTS_DIR / f"{_slug}.md"
+    _draft_file.write_text(
+        f"---\ntitle: {body.title}\nstatus: draft\n---\n\n"
+        + canonical_spec_template_body()
+    )
+    result = str(_draft_file)
 
     # Auto-generate acceptance criteria and append to the draft.
     # Track whether AC generation succeeded so we only auto-promote
@@ -777,12 +802,9 @@ async def create_draft(body: SpecDraft):
             ac_text = response.content[0].text.strip()
 
             # Find the draft file and append the generated content
-            from pathlib import Path
             draft_path = result.strip()
-            # Validate ostk output stays inside docs/ before writing
-            docs_root = (Path(ostk.cwd) / "docs").resolve()
-            full_path = (Path(ostk.cwd) / draft_path).resolve()
-            if full_path.exists() and full_path.is_relative_to(docs_root):
+            full_path = Path(draft_path)  # already absolute path in USER_DRAFTS_DIR
+            if full_path.exists():
                 content = full_path.read_text()
                 if content.endswith("\n"):
                     content += "\n" + ac_text + "\n"
@@ -799,35 +821,19 @@ async def create_draft(body: SpecDraft):
 
     if not ac_written:
         # No API key (subscription auth) or AI call failed.
-        # Inject the full 8-section canonical template so the user has
-        # a proper scaffold to fill in manually (→1600). The draft stays
-        # in "draft" state — not auto-promoted — until the user reviews it.
-        # Guard: doc_draft() already injects the scaffold when the binary
-        # leaves a frontmatter-only file (→2038), so skip if body exists.
+        # The canonical template body was already injected when we wrote the file.
         logger.warning(
-            "create_draft: AC generation skipped for %r (no API key or error). "
-            "Injecting canonical template.",
+            "create_draft: AC generation skipped for %r (no API key or error).",
             body.title,
         )
-        from pathlib import Path
-        from services.spec_templates import canonical_spec_template_body
-        _draft_path = result.strip()
-        _docs_root = (Path(ostk.cwd) / "docs").resolve()
-        _full_path = (Path(ostk.cwd) / _draft_path).resolve()
-        if _full_path.exists() and _full_path.is_relative_to(_docs_root):
-            _content = _full_path.read_text()
-            if "## " not in _content:
-                _full_path.write_text(_content + "\n" + canonical_spec_template_body())
 
     # When the caller requests fallback_ac (e.g. smoke tests that run
     # without a live AI model), write a minimal placeholder checkbox so
     # promote doesn't reject the draft.
     if not ac_written and body.fallback_ac:
-        from pathlib import Path
         draft_path = result.strip()
-        docs_root = (Path(ostk.cwd) / "docs").resolve()
-        full_path = (Path(ostk.cwd) / draft_path).resolve()
-        if full_path.exists() and full_path.is_relative_to(docs_root):
+        full_path = Path(draft_path)  # already absolute path in USER_DRAFTS_DIR
+        if full_path.exists():
             placeholder = "\n## Acceptance Criteria\n\n- [ ] (e2e smoke test placeholder)\n"
             full_path.write_text(full_path.read_text() + placeholder)
             ac_written = True
@@ -1178,10 +1184,14 @@ async def promote_draft(body: SpecPromote):
     to ``~/.myos/specs/``.
     """
     _validate_doc_path(body.path)
-    if not body.path.startswith("docs/draft/"):
+    # Accept paths from docs/draft/ (legacy) OR absolute paths under USER_DRAFTS_DIR (→2104)
+    _is_myos_draft = str(Path(os.path.expanduser(body.path)).resolve()).startswith(
+        str(USER_DRAFTS_DIR.resolve())
+    )
+    if not body.path.startswith("docs/draft/") and not _is_myos_draft:
         raise HTTPException(
             status_code=400,
-            detail="Only drafts can be promoted. Path must start with docs/draft/.",
+            detail="Only drafts can be promoted. Path must be under docs/draft/ or ~/.myos/drafts/.",
         )
 
     # Readiness is informational: compute it but never block promotion.

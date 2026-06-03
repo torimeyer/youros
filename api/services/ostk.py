@@ -22,6 +22,9 @@ NUDGES_DIR = OSTK_DIR / "nudges"
 USER_SPECS_DIR = Path(
     os.environ.get("MYOS_USER_SPECS_DIR", os.path.expanduser("~/.myos/specs"))
 )
+USER_DRAFTS_DIR = Path(
+    os.environ.get("MYOS_USER_DRAFTS_DIR", os.path.expanduser("~/.myos/drafts"))
+)
 
 
 class OstkError(Exception):
@@ -2710,21 +2713,37 @@ class OstkService:
         # offload already added below at _spec_audit_enrich_sync.
         def _scan_docs_sync() -> list[dict]:
             scanned: list[dict] = []
+            # Track by filename to avoid double-counting files that exist
+            # in both repo dirs and ~/.myos dirs (→2104 migration overlap).
+            _seen_names: set[str] = set()
 
-            # 1. Project-local docs (shared)
+            # 1. Project-local docs (shared, cwd-relative — read by tests and back-compat)
             for subdir, status in [("draft", "draft"), ("spec", "spec")]:
                 target = docs_dir / subdir
                 if not target.is_dir():
                     continue
                 for md in sorted(target.glob("*.md")):
+                    _seen_names.add(md.name)
                     doc = self._parse_doc_frontmatter(md, status)
                     scanned.append(doc)
 
-            # 2. User-local specs (private/promoted)
+            # 2. User-local specs (private/promoted, from ~/.myos/specs/)
             if USER_SPECS_DIR.is_dir():
                 for md in sorted(USER_SPECS_DIR.glob("*.md")):
+                    if md.name in _seen_names:
+                        continue  # already from docs/spec
+                    _seen_names.add(md.name)
                     doc = self._parse_doc_frontmatter(md, "spec")
-                    # Mark as user-local so the UI knows where it lives
+                    doc["is_user_local"] = True
+                    scanned.append(doc)
+
+            # 3. User-local drafts (from ~/.myos/drafts/, →2104)
+            if USER_DRAFTS_DIR.is_dir():
+                for md in sorted(USER_DRAFTS_DIR.glob("*.md")):
+                    if md.name in _seen_names:
+                        continue  # already from docs/draft
+                    _seen_names.add(md.name)
+                    doc = self._parse_doc_frontmatter(md, "draft")
                     doc["is_user_local"] = True
                     scanned.append(doc)
 
