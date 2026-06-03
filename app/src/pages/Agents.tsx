@@ -4065,10 +4065,12 @@ export default function Agents() {
               {(() => {
                 // Same filter as Active Sessions list and handleCancelAll.
                 const hasSummary = runningAgentNames.size > 0;
+                const _nowCount = Date.now();
                 const runningCount = allAgents.filter(
                   (a) =>
                     isUserSpawnedAgent(a) &&
-                    (hasSummary ? runningAgentNames.has(a.name) || a.status === 'spawned' || (isAgentActive(a) && !!a.spawned_at && Date.now() - Date.parse(a.spawned_at) < 30_000) : isAgentActive(a))
+                    computeAgentGhostState(a, _nowCount) !== 'ghost' &&
+                    (hasSummary ? runningAgentNames.has(a.name) || a.status === 'spawned' || (isAgentActive(a) && !!a.spawned_at && _nowCount - Date.parse(a.spawned_at) < 30_000) : isAgentActive(a))
                 ).length;
                 return (
                   <button
@@ -4118,10 +4120,12 @@ export default function Agents() {
               //    WS stubs added by the merge effect have no spawned_at so they are not
               //    affected; terminated agents whose allAgents row is stale have an old
               //    spawned_at (>30s) so they stay hidden. WS remains authoritative after grace.
+              const _now = Date.now();
               const isVisibleActive = (a: typeof allAgents[number]) =>
                 isUserSpawnedAgent(a) &&
+                computeAgentGhostState(a, _now) !== 'ghost' &&
                 (hasSummary
-                  ? runningAgentNames.has(a.name) || a.status === 'spawned' || (isAgentActive(a) && !!a.spawned_at && Date.now() - Date.parse(a.spawned_at) < 30_000)
+                  ? runningAgentNames.has(a.name) || a.status === 'spawned' || (isAgentActive(a) && !!a.spawned_at && _now - Date.parse(a.spawned_at) < 30_000)
                   : isAgentActive(a));
 
               const visibleAgents = allAgents.filter(isVisibleActive);

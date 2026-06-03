@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { isAgentActive, isUserSpawnedAgent, isMainSession } from './agentUtils'
+import { isAgentActive, isUserSpawnedAgent, isMainSession, computeAgentGhostState } from './agentUtils'
 
 describe('isUserSpawnedAgent (shared sidebar + Agents page filter)', () => {
   const now = '2026-04-15T10:00:00Z'
@@ -176,6 +176,91 @@ describe('isUserSpawnedAgent (shared sidebar + Agents page filter)', () => {
     expect(badgeCount).toBe(3) // real-1, real-2, spawning
     // used to silence unused import warnings
     expect(now).toBeTruthy()
+  })
+})
+
+describe('computeAgentGhostState (ghost detection for Active Sessions filter)', () => {
+  const NOW = 1_700_000_000_000
+
+  it('returns null for completed agents (badge not shown)', () => {
+    expect(computeAgentGhostState({ status: 'completed', pid: 123 }, NOW)).toBeNull()
+  })
+
+  it('returns ghost for abandoned agents regardless of PID', () => {
+    expect(computeAgentGhostState({ status: 'abandoned', pid: 123 }, NOW)).toBe('ghost')
+    expect(computeAgentGhostState({ status: 'abandoned', pid: null }, NOW)).toBe('ghost')
+  })
+
+  it('returns alive for running agent with PID and fresh heartbeat', () => {
+    const freshHb = new Date(NOW - 30_000).toISOString()
+    expect(computeAgentGhostState({ status: 'running', pid: 1234, last_heartbeat_at: freshHb }, NOW)).toBe('alive')
+  })
+
+  it('returns ghost for running agent with PID and stale heartbeat (> 120s)', () => {
+    const staleHb = new Date(NOW - 180_000).toISOString()
+    expect(computeAgentGhostState({ status: 'running', pid: 1234, last_heartbeat_at: staleHb }, NOW)).toBe('ghost')
+  })
+
+  it('returns alive for running agent with no PID but fresh heartbeat (HTTP-registered agent)', () => {
+    // HTTP-registered agents (POST /api/agents/register without a subprocess PID)
+    // must be treated as alive if they are actively heartbeating. A null/undefined
+    // PID alone must NOT be enough to declare them a ghost.
+    const freshHb = new Date(NOW - 30_000).toISOString()
+    expect(computeAgentGhostState({ status: 'running', pid: null, last_heartbeat_at: freshHb }, NOW)).toBe('alive')
+    expect(computeAgentGhostState({ status: 'running', pid: undefined, last_heartbeat_at: freshHb }, NOW)).toBe('alive')
+  })
+
+  it('returns ghost for running agent with no PID and stale heartbeat', () => {
+    const staleHb = new Date(NOW - 300_000).toISOString()
+    expect(computeAgentGhostState({ status: 'running', pid: null, last_heartbeat_at: staleHb }, NOW)).toBe('ghost')
+  })
+
+  it('returns ghost for running agent with no PID and no heartbeat', () => {
+    expect(computeAgentGhostState({ status: 'running', pid: null }, NOW)).toBe('ghost')
+    expect(computeAgentGhostState({ status: 'running', pid: undefined }, NOW)).toBe('ghost')
+  })
+
+  it('integration: ghost agent is excluded from isVisibleActive even when runningAgentNames includes it', () => {
+    // Core regression guard: scheduler-6392 had status=running in the WS snapshot
+    // but stale heartbeat + no PID. Before the fix it showed in Active Sessions with
+    // RUNNING + Ghost badges. After the fix computeAgentGhostState gates it out.
+    const staleHb = new Date(NOW - 300_000).toISOString()
+    const ghostAgent = {
+      name: 'scheduler-6392',
+      status: 'running',
+      source: 'claude-code',
+      model: 'sonnet',
+      task: 'scheduler run',
+      pid: null,
+      last_heartbeat_at: staleHb,
+    }
+    expect(isUserSpawnedAgent(ghostAgent)).toBe(true)
+    expect(isAgentActive(ghostAgent, NOW)).toBe(true)
+    expect(computeAgentGhostState(ghostAgent, NOW)).toBe('ghost')
+    const isVisibleActive = (a: typeof ghostAgent) =>
+      isUserSpawnedAgent(a) &&
+      computeAgentGhostState(a, NOW) !== 'ghost' &&
+      isAgentActive(a, NOW)
+    expect(isVisibleActive(ghostAgent)).toBe(false)
+  })
+
+  it('integration: non-ghost HTTP-registered agent with fresh heartbeat remains in Active Sessions', () => {
+    const freshHb = new Date(NOW - 10_000).toISOString()
+    const liveAgent = {
+      name: 'diagnose-ghost-sessions-3288f3',
+      status: 'running',
+      source: 'claude-code',
+      model: 'sonnet',
+      task: 'diagnose ghost sessions',
+      pid: null,
+      last_heartbeat_at: freshHb,
+    }
+    expect(computeAgentGhostState(liveAgent, NOW)).toBe('alive')
+    const isVisibleActive = (a: typeof liveAgent) =>
+      isUserSpawnedAgent(a) &&
+      computeAgentGhostState(a, NOW) !== 'ghost' &&
+      isAgentActive(a, NOW)
+    expect(isVisibleActive(liveAgent)).toBe(true)
   })
 })
 

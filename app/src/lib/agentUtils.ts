@@ -116,7 +116,15 @@ export function computeAgentGhostState(
   const active = agent.status === "running" || agent.status === "spawned";
   if (!active && agent.status !== "abandoned") return null;
   if (agent.status === "abandoned") return "ghost";
-  if (agent.pid === null || agent.pid === undefined) return "ghost";
+  // No PID means HTTP-registered (no subprocess). A fresh heartbeat proves
+  // the agent is alive; without one it's a ghost.
+  if (agent.pid === null || agent.pid === undefined) {
+    if (agent.last_heartbeat_at) {
+      const age = now - Date.parse(agent.last_heartbeat_at);
+      if (!Number.isNaN(age) && age <= 120_000) return "alive";
+    }
+    return "ghost";
+  }
   if (
     agent.last_heartbeat_at &&
     now - Date.parse(agent.last_heartbeat_at) > 120_000
