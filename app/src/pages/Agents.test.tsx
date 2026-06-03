@@ -6590,6 +6590,26 @@ describe('Agents page - ghost/alive badge, progress, and step display (→1490)'
     })
   })
 
+  it('ghost-badge has tooltip explaining it has not checked in', async () => {
+    mockWithAgent(mkAgent({ pid: null, last_heartbeat_at: STALE_HB }))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      const badge = screen.getByTestId('ghost-badge')
+      expect(badge).toBeInTheDocument()
+      expect(badge.getAttribute('title')).toContain('has not checked in')
+    })
+  })
+
+  it('alive-badge has tooltip saying it checked in recently', async () => {
+    mockWithAgent(mkAgent({ pid: 12345, last_heartbeat_at: RECENT_HB }))
+    renderAgentsCollapsed()
+    await waitFor(() => {
+      const badge = screen.getByTestId('alive-badge')
+      expect(badge).toBeInTheDocument()
+      expect(badge.getAttribute('title')).toContain('Checked in')
+    })
+  })
+
   it('shows time-running in compact summary (collapsed row)', async () => {
     mockWithAgent(mkAgent({}))
     renderAgentsCollapsed()

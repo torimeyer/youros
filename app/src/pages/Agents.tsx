@@ -1732,7 +1732,7 @@ function AgentGhostBadge({
       <span
         className="text-xs px-2 py-0.5 rounded bg-green-500/15 text-green-600 dark:text-green-400 font-semibold"
         data-testid="alive-badge"
-        title="Agent is running and has checked in recently"
+        title="Checked in within the last 2 minutes, so it looks healthy."
       >
         ● Alive
       </span>
@@ -1745,7 +1745,7 @@ function AgentGhostBadge({
         onClick={() => setShowDismiss((s) => !s)}
         className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-600 dark:text-red-400 font-semibold hover:bg-red-500/30 transition-colors"
         data-testid="ghost-badge"
-        title="This agent may have stalled — no recent heartbeat or PID. Click to dismiss."
+        title="Still marked as running but has not checked in for over 2 minutes, so we cannot confirm it is alive. It may just be busy with a long step like running tests, or it may have stopped. Click to dismiss."
       >
         ⚠ Ghost
       </button>
