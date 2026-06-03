@@ -62,3 +62,21 @@ def test_in_progress_and_ready_survive_empty_active_store():
     seen = {"→a": _t("→a", "in_progress"), "→b": _t("→b", "ready")}
     out = {t["id"] for t in _reconcile_active(seen, set())}
     assert out == {"→a", "→b"}
+
+
+def test_open_rotated_needle_rescued_even_when_active_store_is_healthy():
+    # →2200: mid-day rotation edge case. A few fresh tasks were created AFTER
+    # the rotation (so they appear in the active store as live), but older open
+    # needles that were pushed into the archive must STILL be rescued.
+    # "active_healthy" was True because fresh_task is live in active_ids, but
+    # that must NOT cause old_open to be dropped.
+    seen = {
+        "→fresh": _t("→fresh", "in_progress"),  # present in active store
+        "→old_open": _t("→old_open", "open"),   # only in rotated archive
+    }
+    active_ids = {"→fresh"}  # active store is "healthy" — has a live needle
+    out = {t["id"] for t in _reconcile_active(seen, active_ids)}
+    assert "→old_open" in out, (
+        "open needle absent from active store must be rescued even when "
+        "the active store holds other live needles (→2200)"
+    )
