@@ -344,11 +344,19 @@ def _is_terminal(meta: Optional[dict]) -> bool:
     A missing record is treated as terminal because it means the
     agent was never registered or has been reaped. Either way, the
     bot has nothing to serve and should exit.
+
+    Ghost agents (stale_heartbeat=True) are also treated as terminal:
+    their status still shows 'running' but no process is reading the
+    mailbox, so sending acks would imply a reply is coming when it is not.
     """
     if not meta:
         return True
     status = str(meta.get("status", "")).lower()
-    return status in TERMINAL_STATUSES
+    if status in TERMINAL_STATUSES:
+        return True
+    if meta.get("stale_heartbeat"):
+        return True
+    return False
 
 
 async def _ack_once(

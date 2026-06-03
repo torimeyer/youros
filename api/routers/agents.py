@@ -8804,6 +8804,49 @@ async def nudge_agent(name: str, body: AgentNudge):
     # drains it.
     _wake_nudge_waiters(name)
 
+    # Before waking the ack bot or the conversational responder, check
+    # whether the agent is actually reachable. Terminal agents (completed,
+    # cancelled, failed, etc.) and ghost agents (still 'running' but
+    # heartbeat stale, i.e. process has gone away) cannot pick up messages.
+    # Sending a canned ack or an LLM-generated greeting to these agents
+    # produces a dishonest impression that an answer is coming. Instead,
+    # write a short honest system reply and return early so neither the
+    # ack bot nor the conversational responder fires.
+    _agent_is_inactive = (
+        str((meta or {}).get("status", "")).lower() in _TERMINAL_STATUSES
+        or bool((meta or {}).get("stale_heartbeat"))
+    )
+    if _agent_is_inactive:
+        if str((meta or {}).get("status", "")).lower() in _TERMINAL_STATUSES:
+            _inactive_msg = (
+                "This agent has finished its task and is no longer active, "
+                "so it will not reply here."
+            )
+        else:
+            _inactive_msg = (
+                "This agent has not checked in for over 2 minutes and may "
+                "have stopped, so it may not reply."
+            )
+        try:
+            _inactive_reply = await ostk.append_nudge_reply(
+                name,
+                _inactive_msg,
+                in_reply_to=record.get("timestamp"),
+                kind="system",
+            )
+        except Exception:
+            _inactive_reply = {
+                "message": _inactive_msg,
+                "timestamp": record.get("timestamp", ""),
+            }
+        _inactive_reply.setdefault("kind", "system")
+        nudge_replies.setdefault(name, []).append(_inactive_reply)
+        _wake_nudge_waiters(name)
+        return {
+            "result": f"Nudge sent to '{name}'",
+            "nudge": record,
+        }
+
     # Signal the ack bot immediately so it posts "Got your message"
     # within milliseconds instead of waiting up to ACK_POLL_INTERVAL_SECONDS.
     chat_ack_bot.signal_nudge(name)
