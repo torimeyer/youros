@@ -1094,6 +1094,89 @@ async def test_delete_spec_completely_outside_docs_rejected(client):
 
 
 @pytest.mark.asyncio
+async def test_delete_spec_user_local_removes_file(client, tmp_path):
+    """DELETE a spec stored in ~/.myos/specs/ (absolute path) must actually remove it.
+
+    Root cause of →2133: delete_spec prepended 'docs/' to any non-'docs/' path,
+    producing 'docs//abs/path' which resolves inside PROJECT_ROOT and then fails
+    with 404 (file not found there). The file survived in ~/.myos/specs/ and
+    list_docs re-surfaced it on the next fetch.
+    """
+    import services.ostk as _ostk_mod
+    import routers.specs as _specs_mod
+
+    user_specs = tmp_path / "user_specs"
+    user_specs.mkdir()
+    user_drafts = tmp_path / "user_drafts"
+    user_drafts.mkdir()
+
+    spec_file = user_specs / "delete-me.md"
+    spec_file.write_text("---\ntitle: delete me\nstatus: spec\n---\n")
+
+    with (
+        patch.object(_ostk_mod, "USER_SPECS_DIR", user_specs),
+        patch.object(_ostk_mod, "USER_DRAFTS_DIR", user_drafts),
+        patch.object(_specs_mod, "USER_SPECS_DIR", user_specs),
+        patch.object(_specs_mod, "USER_DRAFTS_DIR", user_drafts),
+    ):
+        abs_path = str(spec_file)
+        resp = await client.delete(f"/api/specs/{abs_path}")
+
+    assert resp.status_code == 200, f"expected 200 got {resp.status_code}: {resp.text}"
+    assert not spec_file.exists(), "spec file should have been deleted"
+
+
+@pytest.mark.asyncio
+async def test_delete_spec_user_local_draft_removes_file(client, tmp_path):
+    """DELETE a draft stored in ~/.myos/drafts/ (absolute path) must actually remove it."""
+    import services.ostk as _ostk_mod
+    import routers.specs as _specs_mod
+
+    user_specs = tmp_path / "user_specs"
+    user_specs.mkdir()
+    user_drafts = tmp_path / "user_drafts"
+    user_drafts.mkdir()
+
+    draft_file = user_drafts / "my-draft.md"
+    draft_file.write_text("---\ntitle: my draft\nstatus: draft\n---\n")
+
+    with (
+        patch.object(_ostk_mod, "USER_SPECS_DIR", user_specs),
+        patch.object(_ostk_mod, "USER_DRAFTS_DIR", user_drafts),
+        patch.object(_specs_mod, "USER_SPECS_DIR", user_specs),
+        patch.object(_specs_mod, "USER_DRAFTS_DIR", user_drafts),
+    ):
+        abs_path = str(draft_file)
+        resp = await client.delete(f"/api/specs/{abs_path}")
+
+    assert resp.status_code == 200, f"expected 200 got {resp.status_code}: {resp.text}"
+    assert not draft_file.exists(), "draft file should have been deleted"
+
+
+@pytest.mark.asyncio
+async def test_delete_spec_user_local_not_found(client, tmp_path):
+    """DELETE a user-local path that doesn't exist returns 404."""
+    import services.ostk as _ostk_mod
+    import routers.specs as _specs_mod
+
+    user_specs = tmp_path / "user_specs"
+    user_specs.mkdir()
+    user_drafts = tmp_path / "user_drafts"
+    user_drafts.mkdir()
+    nonexistent = user_specs / "gone.md"
+
+    with (
+        patch.object(_ostk_mod, "USER_SPECS_DIR", user_specs),
+        patch.object(_ostk_mod, "USER_DRAFTS_DIR", user_drafts),
+        patch.object(_specs_mod, "USER_SPECS_DIR", user_specs),
+        patch.object(_specs_mod, "USER_DRAFTS_DIR", user_drafts),
+    ):
+        resp = await client.delete(f"/api/specs/{nonexistent}")
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_promote_path_outside_docs_rejected(client):
     """POST /specs/promote with path outside docs/ must return 400."""
     resp = await client.post("/api/specs/promote", json={"path": "etc/passwd"})

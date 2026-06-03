@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from config import PROJECT_ROOT
 from models.schemas import SpecDraft, SpecPromote, SpecDecompose
-from services.ostk import ostk, OstkError, USER_DRAFTS_DIR
+from services.ostk import ostk, OstkError, USER_DRAFTS_DIR, USER_SPECS_DIR
 from services.spec_audit import audit_all_specs, compute_shipped, compute_husk_status
 from services.tracing import trace_event
 
@@ -2801,20 +2801,40 @@ async def delete_spec(doc_path: str):
     frontend's ``doc.path`` would resolve to ``docs/docs/draft/foo.md``
     and every delete would fail with 400.
     """
-    # Frontend sends the full stored path, e.g. "docs/draft/foo.md".
-    # The validator expects that exact form; the target is built from
-    # PROJECT_ROOT directly so we don't double the "docs/" segment.
-    if not doc_path.startswith("docs/"):
-        doc_path = "docs/" + doc_path
-    _validate_doc_path(doc_path)
-    docs_dir = Path(PROJECT_ROOT) / "docs"
-    target = (Path(PROJECT_ROOT) / doc_path).resolve()
-    # Safety: directory-boundary check (is_relative_to avoids prefix substring false positives)
-    if not (
-        target.is_relative_to((docs_dir / "draft").resolve())
-        or target.is_relative_to((docs_dir / "spec").resolve())
-    ):
-        raise HTTPException(status_code=400, detail="Path must be under docs/draft/ or docs/spec/")
+    # Frontend sends the full stored path as returned by list_docs.
+    # User-local files (promoted specs and drafts) are stored at absolute paths
+    # like /Users/.../myos/specs/foo.md. Repo-local files are relative like
+    # docs/draft/foo.md. Detect user-local first so we don't try to prepend
+    # "docs/" to an absolute path (which produced "docs//abs/path" and a 404).
+    _abs = Path(os.path.expanduser(doc_path))
+    is_user_local = (
+        str(_abs).startswith(str(USER_SPECS_DIR.resolve()))
+        or str(_abs).startswith(str(USER_DRAFTS_DIR.resolve()))
+    )
+
+    if is_user_local:
+        _validate_doc_path(doc_path)
+        target = _abs.resolve()
+        if not (
+            target.is_relative_to(USER_SPECS_DIR.resolve())
+            or target.is_relative_to(USER_DRAFTS_DIR.resolve())
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Path must be under ~/.myos/specs/ or ~/.myos/drafts/",
+            )
+    else:
+        if not doc_path.startswith("docs/"):
+            doc_path = "docs/" + doc_path
+        _validate_doc_path(doc_path)
+        docs_dir = Path(PROJECT_ROOT) / "docs"
+        target = (Path(PROJECT_ROOT) / doc_path).resolve()
+        # Safety: directory-boundary check (is_relative_to avoids prefix substring false positives)
+        if not (
+            target.is_relative_to((docs_dir / "draft").resolve())
+            or target.is_relative_to((docs_dir / "spec").resolve())
+        ):
+            raise HTTPException(status_code=400, detail="Path must be under docs/draft/ or docs/spec/")
     if not target.exists():
         raise HTTPException(status_code=404, detail="Document not found")
     target.unlink()
