@@ -1156,7 +1156,6 @@ function ConnectStep({
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
   const [googleConnected, setGoogleConnected] = useState(false)
   const [atlassianConnected, setAtlassianConnected] = useState(false)
-  const [geminiAdvancedOpen, setGeminiAdvancedOpen] = useState(false)
 
   useEffect(() => {
     api.get<{ google_oauth_available?: boolean; google_connected?: boolean }>('/secrets/key-status')
@@ -1289,113 +1288,111 @@ function ConnectStep({
           </>
         )}
 
-        {/* Gemini: free AI Studio key as lead, Cloud setup behind Advanced toggle */}
+        {/* Gemini: two paths, visually separated */}
         {selectedProvider === 'Google Gemini' && (
-          <div className="mt-3">
-            <p className={`text-xs mb-3 ${subtextCls}`}>
-              A paid Gemini app subscription (Gemini Advanced) doesn't include API access, so it can't be used here. The free key below works with the same Google account.
-            </p>
-            <p className={`text-xs font-medium mb-1 ${subtextCls}`}>Paste AI Studio key (for personal use)</p>
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => onApiKeyChange(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { onSaveKey(); onNext(); } }}
-                placeholder="Paste API key (AIzaSy...)"
-                className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
-                data-testid="api-key-input"
-              />
-              <button
-                onClick={onSaveKey}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors whitespace-nowrap"
-                data-testid="save-key-button"
-              >
-                {keySaved ? 'Saved!' : 'Save'}
-              </button>
-            </div>
-            <p className={`text-xs mt-2 ${subtextCls}`}>
-              You can skip this step and connect later in Settings.
-            </p>
-            {googleOAuthAvailable ? (
-              <button
-                onClick={() => {
-                  api.patch('/settings', { onboarding_step: stepIndex }).catch(() => {})
-                  window.open('/api/auth/google', '_self')
-                }}
-                className={`w-full mt-3 mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
-                  darkMode
-                    ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
-                    : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
-                }`}
-                data-testid="connect-google"
-              >
-                <Icon name="login" size={18} />
-                Connect via Google Cloud (Vertex AI)
-              </button>
-            ) : (
-              <p className={`text-sm mt-3 mb-3 ${subtextCls}`}>
-                Google sign-in is not set up yet. Paste a Gemini API key above, or switch to Anthropic.
-              </p>
-            )}
-            <button
-              data-testid="gemini-advanced-toggle"
-              onClick={() => setGeminiAdvancedOpen((v) => !v)}
-              className={`text-xs underline ${subtextCls} hover:opacity-80`}
+          <div className="mt-3 space-y-3">
+
+            {/* Card A: AI Studio key (personal, chat only) */}
+            <div
+              className={`p-3 rounded-lg border ${darkMode ? 'border-slate-700 bg-slate-800/40' : 'border-gray-200 bg-gray-50'}`}
+              data-testid="gemini-aistudio-card"
             >
-              {geminiAdvancedOpen ? 'Hide Google Cloud setup' : 'Advanced: set up through Google Cloud'}
-            </button>
-            {geminiAdvancedOpen && (
+              <p className={`text-xs font-semibold mb-2 ${subtextCls}`} data-testid="gemini-aistudio-heading">
+                AI Studio key <span className="font-normal opacity-70">(personal, chat only)</span>
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => onApiKeyChange(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { onSaveKey(); onNext(); } }}
+                  placeholder="Paste API key (AIzaSy...)"
+                  className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+                  data-testid="api-key-input"
+                />
+                <button
+                  onClick={onSaveKey}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors whitespace-nowrap"
+                  data-testid="save-key-button"
+                >
+                  {keySaved ? 'Saved!' : 'Save'}
+                </button>
+              </div>
+              <p className={`text-xs mt-2 ${subtextCls}`}>
+                Get a free key at{' '}
+                <a
+                  href="https://aistudio.google.com/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                >
+                  Google AI Studio
+                </a>
+                . Works with your personal Google account. Skip this and connect later in Settings if you prefer.
+              </p>
+            </div>
+
+            {/* Card B: Google Cloud (Vertex AI) */}
+            {googleOAuthAvailable ? (
               <div
-                className={`mt-2 mb-3 p-3 rounded-lg text-xs space-y-2 border bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border-blue-500/30 ${
-                  darkMode ? 'text-slate-200' : 'text-slate-700'
-                }`}
-                data-testid="gemini-key-help"
+                className={`p-3 rounded-lg border ${darkMode ? 'border-slate-700 bg-slate-800/40' : 'border-gray-200 bg-gray-50'}`}
+                data-testid="gemini-vertex-card"
               >
-                <p>
-                  Use the same{' '}
-                  <a
-                    href="https://console.cloud.google.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
-                  >
-                    Google Cloud project
-                  </a>{' '}
-                  you set up for Drive, Calendar, or Gmail. Three steps:
+                <p className={`text-xs font-semibold mb-2 ${subtextCls}`} data-testid="gemini-vertex-heading">
+                  Google Cloud (Vertex AI)
                 </p>
-                <ol className="list-decimal ml-5 space-y-1">
-                  <li>
-                    Enable{' '}
+                <button
+                  onClick={() => {
+                    api.patch('/settings', { onboarding_step: stepIndex }).catch(() => {})
+                    window.open('/api/auth/google', '_self')
+                  }}
+                  className={`w-full mb-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                    darkMode
+                      ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
+                      : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
+                  }`}
+                  data-testid="vertex-oauth-connect"
+                >
+                  <Icon name="login" size={18} />
+                  Connect via Google Cloud (Vertex AI)
+                </button>
+                <div className={`text-xs space-y-1 ${subtextCls}`}>
+                  <p>
+                    Uses your{' '}
                     <a
-                      href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com"
+                      href="https://console.cloud.google.com/"
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                       className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
                     >
-                      "Generative Language API"
-                    </a>{' '}
-                    in the API library. It takes about 30 seconds.
-                  </li>
-                  <li>Open Credentials and click Create credentials, API key.</li>
-                  <li>
-                    Open the key you just created, scroll to "API restrictions", and select "Generative Language API" from the list. (This option only shows up after you complete step 1 above.)
-                  </li>
-                </ol>
-                <p>
-                  Only using Gemini for chat? Grab a free key at{' '}
-                  <a
-                    href="https://aistudio.google.com/apikey"
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
-                  >
-                    Google AI Studio
-                  </a>{' '}
-                  instead. It's one click and ties to your personal Google account.
-                </p>
+                      Google Cloud project
+                    </a>
+                    . One-time setup:
+                  </p>
+                  <ol className="list-decimal ml-4 space-y-0.5">
+                    <li>
+                      Enable{' '}
+                      <a
+                        href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
+                      >
+                        Generative Language API
+                      </a>
+                      {' '}in the API library.
+                    </li>
+                    <li>Open Credentials, click Create credentials, then API key.</li>
+                    <li>Open the key, set API restrictions to Generative Language API.</li>
+                  </ol>
+                </div>
               </div>
+            ) : (
+              <p className={`text-xs ${subtextCls}`}>
+                Google sign-in is not configured. To use Vertex AI, set it up in Settings.
+              </p>
             )}
+
           </div>
         )}
       </div>

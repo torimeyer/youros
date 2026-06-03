@@ -304,38 +304,24 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('connect-anthropic')).not.toBeInTheDocument()
   })
 
-  it('shows Gemini Cloud setup instructions only after the Advanced toggle is clicked', () => {
+  it('shows two separate cards when Gemini is selected', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(6)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
-    // Advanced instructions are collapsed by default
-    expect(screen.queryByTestId('gemini-key-help')).not.toBeInTheDocument()
-    expect(screen.getByTestId('gemini-advanced-toggle')).toBeInTheDocument()
-    // Click to expand
-    fireEvent.click(screen.getByTestId('gemini-advanced-toggle'))
-    const helper = screen.getByTestId('gemini-key-help')
-    expect(helper).toBeInTheDocument()
-    expect(helper).toHaveTextContent(/Google AI Studio/i)
-    expect(helper).toHaveTextContent(/Google Cloud project/i)
-    expect(helper).toHaveTextContent(/Enable/)
-    expect(helper).toHaveTextContent(/Generative Language API/i)
+    // AI Studio card is always visible
+    expect(screen.getByTestId('gemini-aistudio-heading')).toBeInTheDocument()
+    expect(screen.getByTestId('api-key-input')).toBeInTheDocument()
+    // Google AI Studio link is visible (no toggle needed)
+    expect(screen.getByTestId('step-connect')).toHaveTextContent(/Google AI Studio/i)
   })
 
-  it('shows "Paste AI Studio key (for personal use)" label when Gemini is selected', () => {
+  it('shows AI Studio key heading when Gemini is selected', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(6)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
-    expect(screen.getByText(/Paste AI Studio key \(for personal use\)/i)).toBeInTheDocument()
-  })
-
-  it('shows Gemini subscription note when Gemini is selected', () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(6)
-    fireEvent.click(screen.getByTestId('provider-Google Gemini'))
-    expect(screen.getByTestId('step-connect')).toHaveTextContent(/Gemini Advanced.*doesn't include API access/i)
+    expect(screen.getByTestId('gemini-aistudio-heading')).toHaveTextContent(/AI Studio key/i)
   })
 
   it('Connect step sections show Anthropic, Google, Confluence, GitHub headings', async () => {
