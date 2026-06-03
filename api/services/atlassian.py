@@ -996,7 +996,7 @@ async def search_jira(query: str, limit: int = 10) -> list:
             deep_link=f"https://{site}/browse/{key}",
             score=1.0,
             access_denied=False,
-            provider="jira",
+            provider="atlassian",
         ))
     return results
 
@@ -1036,7 +1036,7 @@ async def search_confluence(query: str, limit: int = 10) -> list:
             deep_link=deep_link,
             score=1.0,
             access_denied=False,
-            provider="confluence",
+            provider="atlassian",
         ))
     return results
 
