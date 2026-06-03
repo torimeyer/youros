@@ -170,6 +170,36 @@ def _reset_worktree_mutex():
 
 
 @pytest.fixture(autouse=True)
+def _reset_spawn_throttle():
+    """Reset services.spawn_throttle between tests (→2130).
+
+    services.spawn_throttle._throttle is a module-level SpawnBurstThrottle
+    holding two pieces of state that cannot survive a pytest-asyncio test
+    boundary:
+
+      1. asyncio.Lock — binds to the first event loop that acquires it.
+         pytest-asyncio creates a fresh loop per test, so the lock is left
+         pointing at a dead loop for every subsequent test. Awaiting it
+         from a new loop blocks the loop forever in kqueue.control(None)
+         instead of raising a useful error.
+      2. Deque[float] of spawn timestamps — the 3 spawns per 30s burst
+         limit. With persistence across tests, ~4 routes calling
+         /api/agents/spawn within a 30s wall-clock window leave the
+         bucket full and the next test queues for up to
+         MYOS_SPAWN_MAX_WAIT_S (default 90s).
+
+    Together these wedged the full backend suite for 10+ minutes whenever
+    test ordering put 4+ spawn-route tests close together. Replacing the
+    singleton before and after each test keeps the lock unbound and the
+    bucket empty.
+    """
+    from services import spawn_throttle
+    spawn_throttle.reset_for_testing()
+    yield
+    spawn_throttle.reset_for_testing()
+
+
+@pytest.fixture(autouse=True)
 def _reset_connections_cache():
     """Drop every cached connection-status payload before and after each test.
 
