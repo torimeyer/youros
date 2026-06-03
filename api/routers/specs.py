@@ -759,8 +759,16 @@ async def create_draft(body: SpecDraft):
         return payload
 
     # →2104: write directly to USER_DRAFTS_DIR (not via CLI binary which writes to docs/draft/)
+    # Validate title (mirrors ostk.doc_draft guards)
+    if not body.title.strip():
+        raise HTTPException(status_code=400, detail="Title must not be empty")
+    if "hook" in body.title.lower():
+        raise HTTPException(
+            status_code=400,
+            detail="Titles containing 'hook' belong in ~/.myos/hooks/, not as a spec draft.",
+        )
     from services.spec_templates import canonical_spec_template_body
-    _slug = re.sub(r"[^a-z0-9]+", "-", body.title.lower()).strip("-")[:80]
+    _slug = re.sub(r"[^a-z0-9]+", "-", body.title.lower()).strip("-")[:80] or "untitled"
     USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
     _draft_file = USER_DRAFTS_DIR / f"{_slug}.md"
     _draft_file.write_text(

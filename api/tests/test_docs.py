@@ -623,22 +623,28 @@ async def test_list_specs_endpoint(client):
 
 
 @pytest.mark.asyncio
-async def test_create_draft_endpoint(client):
-    with patch("routers.specs.ostk") as mock_ostk:
-        mock_ostk.doc_draft = AsyncMock(return_value="docs/draft/new-plan.md")
-        resp = await client.post("/api/specs/draft", json={"title": "new plan", "kind": "spec"})
+async def test_create_draft_endpoint(client, tmp_path, monkeypatch):
+    # →2104: create_draft now writes directly to USER_DRAFTS_DIR, not via ostk.doc_draft
+    import routers.specs as specs_router
+    drafts_dir = tmp_path / "myos_drafts"
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+    # Disable AI so we don't need a real API key
+    monkeypatch.setattr("services.ai_backend.get_ai_client", AsyncMock(return_value=None))
+
+    resp = await client.post("/api/specs/draft", json={"title": "new plan", "kind": "spec"})
 
     assert resp.status_code == 200
-    assert resp.json()["result"] == "docs/draft/new-plan.md"
-    mock_ostk.doc_draft.assert_called_once_with("new plan")
+    data = resp.json()
+    assert "result" in data
+    assert "new-plan" in data["result"]  # slug is in the path
+    assert drafts_dir.exists()
+    assert any(drafts_dir.glob("*.md"))  # file written to USER_DRAFTS_DIR
 
 
 @pytest.mark.asyncio
 async def test_create_draft_error(client):
-    with patch("routers.specs.ostk") as mock_ostk:
-        mock_ostk.doc_draft = AsyncMock(side_effect=OstkError("title is empty"))
-        resp = await client.post("/api/specs/draft", json={"title": "", "kind": "spec"})
-
+    # →2104: empty title is now validated before writing (no ostk.doc_draft call)
+    resp = await client.post("/api/specs/draft", json={"title": "", "kind": "spec"})
     assert resp.status_code == 400
 
 
