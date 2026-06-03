@@ -144,12 +144,21 @@ async def test_list_tasks_excludes_rotated_archive_entries(tmp_repo: Path):
     assert len(result) == 3, f"Expected 3 tasks, got {len(result)}: {result_ids}"
 
 
-# ─── Test 2: list_tasks with status filter still excludes rotated entries ─────
+# ─── Test 2: status filter keeps open rotated entries (→2200) but drops closed ─
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_status_filter_excludes_rotated_entries(tmp_repo: Path):
-    """list_tasks(status='open') must not return open entries from issues.jsonl.1."""
+async def test_list_tasks_status_filter_keeps_open_rotated_drops_closed(tmp_repo: Path):
+    """list_tasks(status='open') under the post-→2200 contract.
+
+    →2200 inverted the original →1694 behavior for the *open* archive case: a
+    mid-day store rotation can push older OPEN needles into issues.jsonl.1
+    while fresh tasks live in the active file. Those open archive entries
+    must still surface — the daemon is authoritative for what is open.
+
+    →1694 is preserved for the *closed* archive case: closed entries that
+    live only in issues.jsonl.1 stay hidden.
+    """
     needles_dir = tmp_repo / ".ostk" / "needles"
     active_path = needles_dir / "issues.jsonl"
     rotated_path = needles_dir / "issues.jsonl.1"
@@ -158,8 +167,8 @@ async def test_list_tasks_status_filter_excludes_rotated_entries(tmp_repo: Path)
         {"id": "→300", "title": "open in active", "status": "open", "priority": "P1"},
     ])
     _write_issues(rotated_path, [
-        {"id": "→400", "title": "open in rotated (should be excluded)", "status": "open", "priority": "P1"},
-        {"id": "→401", "title": "closed in rotated", "status": "closed", "priority": "P2"},
+        {"id": "→400", "title": "open in rotated (rescued by →2200)", "status": "open", "priority": "P1"},
+        {"id": "→401", "title": "closed in rotated (dropped by →1694)", "status": "closed", "priority": "P2"},
     ])
 
     svc = OstkService(cwd=str(tmp_repo))
@@ -168,8 +177,8 @@ async def test_list_tasks_status_filter_excludes_rotated_entries(tmp_repo: Path)
 
     result_ids = {t.get("id") for t in result}
     assert "→300" in result_ids, "Active open task →300 missing"
-    assert "→400" not in result_ids, "Rotated open task →400 leaked into result"
-    assert "→401" not in result_ids, "Rotated closed task →401 leaked into result"
+    assert "→400" in result_ids, "Open rotated task →400 must be rescued under the →2200 contract"
+    assert "→401" not in result_ids, "Closed rotated task →401 must stay hidden (→1694 noise filter)"
 
 
 # ─── Test 3: delete_task removes from issues.jsonl.1 (resurrection fix) ───────
