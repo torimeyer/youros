@@ -180,12 +180,22 @@ async def _classify_with_claude(
     return ""
 
 
+def _stable_color_for_name(name: str) -> str:
+    """Pick a color from LABEL_COLORS deterministically using SHA-256.
+
+    Python's hash() is randomized per process (PYTHONHASHSEED), so it is not
+    stable across restarts. SHA-256 of the name gives the same index every time.
+    """
+    h = int(hashlib.sha256(name.lower().encode("utf-8")).hexdigest(), 16)
+    return LABEL_COLORS[h % len(LABEL_COLORS)]
+
+
 def _create_new_label(name: str) -> Optional[dict]:
     """Create a new label in the store. Pick a color deterministically from the
     name so the same name always gets the same color even if it gets created
     twice in different sessions."""
     try:
-        color = LABEL_COLORS[hash(name) % len(LABEL_COLORS)]
+        color = _stable_color_for_name(name)
         label = labels_store.create_label(name, color)
         return {**label, "is_new": True}
     except ValueError:

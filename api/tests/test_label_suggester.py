@@ -12,7 +12,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from services import label_suggester
-from services.label_suggester import suggest_labels, clear_cache, get_call_count
+from services.label_suggester import suggest_labels, clear_cache, get_call_count, _stable_color_for_name
+from services.labels_store import LABEL_COLORS
 
 
 # --- Fixtures and helpers ---------------------------------------------------
@@ -231,6 +232,51 @@ async def test_empty_task_returns_empty():
     """A task with no title or description should return no suggestions."""
     result = await suggest_labels("", "", EXISTING_LABELS)
     assert result == []
+
+
+def test_stable_color_for_name_is_deterministic():
+    """Same label name always maps to the same color, stable across process restarts."""
+    c1 = _stable_color_for_name("feature-flags")
+    c2 = _stable_color_for_name("feature-flags")
+    assert c1 == c2
+    assert c1 in LABEL_COLORS
+
+
+@pytest.mark.asyncio
+async def test_mint_then_reuse_no_duplicate():
+    """Mint a missing label -> same input again -> same label returned, no second mint."""
+    minted_color = _stable_color_for_name("rollout-flags")
+    minted = {"id": "abc12345", "name": "rollout-flags", "color": minted_color}
+
+    fake_client = AsyncMock()
+    fake_client.messages.create = AsyncMock(
+        return_value=_claude_text("NEW: rollout-flags\n")
+    )
+
+    # First call: label does not exist -> create_label succeeds.
+    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
+         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client), \
+         patch.object(label_suggester.labels_store, "create_label", return_value=minted) as mock_create1, \
+         patch.object(label_suggester.labels_store, "list_labels", return_value=[]):
+        result1 = await suggest_labels("gradual rollout", "ship to 5 percent", [])
+
+    assert result1[0]["name"] == "rollout-flags"
+    assert result1[0]["is_new"] is True
+    assert mock_create1.call_count == 1
+
+    # Same call again (cache cleared): create_label raises ValueError (label now exists);
+    # list_labels returns it -> no duplicate, same label returned.
+    clear_cache()
+
+    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
+         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client), \
+         patch.object(label_suggester.labels_store, "create_label", side_effect=ValueError("already exists")) as mock_create2, \
+         patch.object(label_suggester.labels_store, "list_labels", return_value=[minted]):
+        result2 = await suggest_labels("gradual rollout", "ship to 5 percent", [])
+
+    assert result2[0]["name"] == "rollout-flags"
+    assert mock_create2.call_count == 1  # tried once, got ValueError, looked up instead
+    assert result1[0]["color"] == result2[0]["color"]  # color is stable: same name, same color
 
 
 @pytest.mark.asyncio
