@@ -2,7 +2,7 @@
   "schema_version": 1,
   "rules": {
     "saa_must_spawn": {
-      "enabled": false,
+      "enabled": true,
       "trigger_words": ["saa", "diagnose", "fix"],
       "allowed_followup_tools": ["Agent", "Task"],
       "ancillary_cmd_prefixes": [
@@ -41,7 +41,7 @@
     },
 
     "adhd_monitor_pairing": {
-      "enabled": false,
+      "enabled": true,
       "sentinel_ttl_seconds": 120,
       "depth_probe_cadence_seconds": 60,
       "_meta": {
@@ -64,7 +64,7 @@
     },
 
     "bash_guards": {
-      "enabled": false,
+      "enabled": true,
       "require_curl_timeout": true,
       "stash_min_label_chars": 6,
       "block_npm_dev": true,
@@ -114,7 +114,7 @@
     },
 
     "incremental_commit_warning": {
-      "enabled": false,
+      "enabled": true,
       "max_uncommitted_files": 5,
       "_meta": {
         "title": "Warn when too many uncommitted files pile up",
@@ -131,7 +131,7 @@
     },
 
     "post_commit_auto_close": {
-      "enabled": false,
+      "enabled": true,
       "subject_types_close": ["fix", "feat", "perf", "refactor"],
       "scan_subject_only": true,
       "_meta": {
@@ -154,7 +154,7 @@
     },
 
     "ostk_first": {
-      "enabled": false,
+      "enabled": true,
       "mode": "advisory",
       "_meta": {
         "title": "Prefer ostk tools over native Claude tools",
@@ -171,7 +171,7 @@
     },
 
     "isolation_bridge": {
-      "enabled": false,
+      "enabled": true,
       "edit_verbs": [
         "edit", "write", "fix", "commit", "saa", "diagnose",
         "build", "add", "refactor", "rename", "create", "delete",
@@ -292,7 +292,7 @@
     },
 
     "monitor_misuse_guard": {
-      "enabled": false,
+      "enabled": true,
       "_meta": {
         "title": "Block Monitor as a file-read substitute",
         "description": "Monitor is for streaming events (tail -f, polling loops), not one-shot file reads. Blocks Monitor calls that use cat, head, tail without -f, or open/read heredocs.",
@@ -302,7 +302,7 @@
     },
 
     "scaffold_commit_alert": {
-      "enabled": false,
+      "enabled": true,
       "max_age_seconds": 1800,
       "_meta": {
         "title": "Surface scaffold-commit warnings from background watchers",
@@ -319,7 +319,7 @@
     },
 
     "keep_going_pending_tasks": {
-      "enabled": false,
+      "enabled": true,
       "trigger_phrases": [
         "keep going", "continue", "next", "what's next",
         "what next", "whats next", "go"
@@ -349,7 +349,7 @@
     },
 
     "permission_deny_detector": {
-      "enabled": false,
+      "enabled": true,
       "lookback_seconds": 60,
       "_meta": {
         "title": "Distinguish hook denies from settings-level denies",
