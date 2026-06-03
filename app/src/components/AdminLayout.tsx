@@ -12,12 +12,11 @@ const ADMIN_NAV = [
 ]
 
 export default function AdminLayout() {
-  const displayOsName = useAppStore((s) => s.displayOsName())
   const darkMode = useAppStore((s) => s.darkMode)
 
   return (
     <div className="flex-1 flex flex-col">
-      <TopBar title={`${displayOsName} Admin`} />
+      <TopBar />
       <div className="flex-1 overflow-y-auto">
         {/* Team accent header stripe */}
         <div className="team-bg h-1 w-full" />

@@ -5,8 +5,8 @@ import TopBar from './TopBar'
 // etc. onto the outer wrapper (these used to live on each page's own
 // min-h-dvh div; PageShell now carries them so tests/automation keep working).
 interface PageShellProps extends HTMLAttributes<HTMLDivElement> {
-  /** Page title, forwarded to TopBar. */
-  title: string
+  /** @deprecated No longer rendered; prop kept for backward compatibility. */
+  title?: string
   /** Page content: the header row plus the page body. */
   children: ReactNode
   /**
@@ -33,11 +33,11 @@ const BASE_FULL = `${BASE} flex flex-col`
 const CONTENT = 'px-4 pt-6 pb-4 sm:px-8 sm:pt-8 sm:pb-8 max-w-6xl mx-auto'
 const CONTENT_FULL = 'px-4 pt-6 pb-4 sm:px-8 sm:pt-8 sm:pb-8 flex-1 flex flex-col min-h-0'
 
-export default function PageShell({ title, children, fullHeight, className, ...rest }: PageShellProps) {
+export default function PageShell({ title: _title, children, fullHeight, className, ...rest }: PageShellProps) {
   const base = `${fullHeight ? BASE_FULL : BASE}${className ? ` ${className}` : ''}`
   return (
     <div className={base} {...rest}>
-      <TopBar title={title} />
+      <TopBar />
       <div className={fullHeight ? CONTENT_FULL : CONTENT}>{children}</div>
     </div>
   )

@@ -1109,7 +1109,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
           onSpawned={() => { setSpawnGeminiSpec(null); fetchDocs(); }}
         />
       )}
-      {!embedded && <TopBar title="Specs" />}
+      {!embedded && <TopBar />}
       <div data-tour="specs" className={`px-4 pb-4 sm:px-8 sm:pb-8 max-w-6xl mx-auto`}>
 
         <SpecsOnboarding />

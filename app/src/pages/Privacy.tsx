@@ -39,7 +39,7 @@ const PRIVACY_SECTIONS: { heading: string; body: string[] }[] = [
 export default function Privacy() {
   return (
     <>
-      <TopBar title="Privacy" />
+      <TopBar />
       <div className="page">
         <PageHeader title="Privacy" />
         <div style={{ maxWidth: 720, lineHeight: 1.6 }}>

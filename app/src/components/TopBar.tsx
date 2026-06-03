@@ -10,10 +10,6 @@ import type { Notification as WsNotification } from '../stores/notificationsStor
 import { api } from '../lib/api'
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications'
 
-interface TopBarProps {
-  title: string
-}
-
 const isMac = () => navigator.platform.toUpperCase().includes('MAC') || navigator.userAgent.toUpperCase().includes('MAC OS')
 const modKey = isMac() ? '⌘' : 'Ctrl+'
 
@@ -127,7 +123,7 @@ function PersistentNotificationItem({
   )
 }
 
-export default function TopBar({ title }: TopBarProps) {
+export default function TopBar() {
   const navigate = useNavigate()
   const toggleChat = useAppStore((s) => s.toggleChat)
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
@@ -297,10 +293,6 @@ export default function TopBar({ title }: TopBarProps) {
       className="fixed top-0 left-0 lg:left-56 h-14 sm:h-16 bg-white dark:bg-slate-950/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800/50 flex items-center justify-between px-4 sm:px-8 z-40 transition-[right] duration-200"
       style={{ right: chatOpen && isDesktop ? chatWidth : 0 }}
     >
-      <div className="flex items-center gap-4 pl-10 lg:pl-0">
-        <h1 className="text-lg font-semibold text-slate-900 dark:text-white" data-testid="topbar-title">{title}</h1>
-      </div>
-
       <div data-tour="search" className="flex-1 max-w-md mx-2 sm:mx-8 hidden sm:block">
         <button
           onClick={() => setCommandPaletteOpen(true)}

@@ -180,7 +180,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
     const summary = transcripts.find((t) => t.session_id === selectedId);
     return (
       <>
-        {!embedded && <TopBar title="Conversations" />}
+        {!embedded && <TopBar />}
         <div className={embedded ? "" : "px-4 pb-4 sm:px-8 sm:pb-8"}>
           {/* Back button and header */}
           <div className="flex items-center gap-4 mb-6">
@@ -303,7 +303,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
 
   return (
     <>
-      {!embedded && <TopBar title="Conversations" />}
+      {!embedded && <TopBar />}
       <div className={embedded ? "" : "px-4 pb-4 sm:px-8 sm:pb-8"}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>

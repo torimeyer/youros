@@ -54,7 +54,7 @@ const mockedApiPost = vi.mocked(api.post)
 function renderTopBar() {
   return render(
     <BrowserRouter>
-      <TopBar title="Home" />
+      <TopBar />
     </BrowserRouter>
   )
 }
@@ -156,6 +156,19 @@ function assertBadgeMatchesDropdown(context: string) {
     ).not.toBeInTheDocument()
   }
 }
+
+describe('TopBar page title removed from header (→2105)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useNotificationStore.setState({ notifications: [], toastIds: [] })
+    useNotificationsStore.setState({ notifications: [], wsConnected: false })
+  })
+
+  it('does not render a page title heading in the top bar', () => {
+    renderTopBar()
+    expect(screen.queryByTestId('topbar-title')).not.toBeInTheDocument()
+  })
+})
 
 describe('TopBar badge and dropdown invariant', () => {
   beforeEach(() => {

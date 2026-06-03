@@ -3882,7 +3882,7 @@ export default function Agents() {
 
   return (
     <>
-      <TopBar title="Agents" />
+      <TopBar />
       <div data-tour="agents" className="px-4 pb-4 sm:px-8 sm:pb-8">
         {/* Header */}
         <div className="mb-6">
