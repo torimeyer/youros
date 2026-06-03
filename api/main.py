@@ -55,6 +55,7 @@ from routers import time as time_router
 from routers import primitives as primitives_router
 from routers import parked_tasks as parked_tasks_router
 from routers import turn_audit as turn_audit_router
+from routers import cross_search as cross_search_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -268,6 +269,7 @@ app.include_router(internal_router.router, prefix="/api")
 app.include_router(narrative_router.router, prefix="/api")
 app.include_router(coordination_router.router, prefix="/api")
 app.include_router(reminders_router.router, prefix="/api")
+app.include_router(cross_search_router.router, prefix="/api")
 
 
 async def prune_stale_agent_state():
