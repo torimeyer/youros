@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { SpecReview } from './SpecReview'
 
 vi.mock('../lib/api', () => ({
@@ -15,6 +15,7 @@ vi.mock('../lib/api', () => ({
 import { api } from '../lib/api'
 
 const mockedGet = vi.mocked(api.get)
+const mockedPost = vi.mocked(api.post)
 
 const readyResponse = {
   spec_path: 'docs/spec/foo.md',
@@ -142,6 +143,47 @@ describe('SpecReview', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('review-error')).toHaveTextContent('Network failure')
+    })
+  })
+
+  // ─── E4: Fresh-eyes verify ──────────────────────────────────────────────────
+
+  it('renders the fresh verify button after loading (E4)', async () => {
+    mockedGet.mockResolvedValueOnce(readyResponse)
+
+    render(<SpecReview specPath="docs/spec/foo.md" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('fresh-verify-btn')).toBeTruthy()
+    })
+  })
+
+  it('calls /verify?fresh=true and shows result on success (E4)', async () => {
+    mockedGet.mockResolvedValueOnce(readyResponse)
+    mockedPost.mockResolvedValueOnce({ fresh: true, ok: true, summary: 'All requirements are tested.' })
+
+    render(<SpecReview specPath="docs/spec/foo.md" />)
+
+    await waitFor(() => expect(screen.getByTestId('fresh-verify-btn')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('fresh-verify-btn'))
+
+    await waitFor(() => {
+      expect(mockedPost).toHaveBeenCalledWith('/specs/docs/spec/foo.md/verify?fresh=true', {})
+      expect(screen.getByTestId('fresh-verify-result')).toHaveTextContent('All requirements are tested.')
+    })
+  })
+
+  it('shows fallback message when fresh verify call throws (E4)', async () => {
+    mockedGet.mockResolvedValueOnce(readyResponse)
+    mockedPost.mockRejectedValueOnce(new Error('no key'))
+
+    render(<SpecReview specPath="docs/spec/foo.md" />)
+
+    await waitFor(() => expect(screen.getByTestId('fresh-verify-btn')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('fresh-verify-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('fresh-verify-result')).toHaveTextContent('Fresh review could not run.')
     })
   })
 })
