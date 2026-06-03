@@ -80,6 +80,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/', icon: 'home', label: 'Home', featureLabel: null },
   { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks', tasksBadge: true, iconColor: 'text-emerald-600 dark:text-emerald-400' },
   { to: '/specs', icon: 'article', label: 'Specs', featureLabel: 'Specs', specsBadge: true, iconColor: 'text-violet-600 dark:text-violet-400' },
+  { to: '/executive-summary', icon: 'insights', label: 'Executive Summary', featureLabel: 'Executive Summary', iconColor: 'text-amber-600 dark:text-amber-400' },
   { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents', iconColor: 'text-sky-600 dark:text-sky-400' },
   { to: '/break', icon: 'sports_esports', label: 'The Arcade', featureLabel: 'The Arcade', iconColor: 'text-rose-600 dark:text-rose-400' },
   ...NAV_GROUPS.flatMap((g) => g.items),
