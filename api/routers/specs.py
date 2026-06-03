@@ -2442,15 +2442,75 @@ async def review_spec(spec_path: str):
     from services.spec_drift import compute_spec_drift
     from services.spec_constitution import load_constitution, check_spec_text
     text = full.read_text()
+    acked = _read_frontmatter_value(text, "drift_acked").lower() in ("true", "yes", "1")
     return {
         "spec_path": spec_path,
         "readiness": compute_spec_readiness(str(full)).as_dict(),
-        "drift": compute_spec_drift(str(full)),
+        "drift": {**compute_spec_drift(str(full)), "acked": acked},
         "constitution": {
             "principles": load_constitution(),
             "violations": check_spec_text(text),
         },
     }
+
+
+def _frontmatter_set_key(text: str, key: str, value: str) -> str:
+    """Insert or replace a key in YAML frontmatter. Creates frontmatter if absent."""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return f"---\n{key}: {value}\n---\n{text}"
+    close_idx = None
+    for i, line in enumerate(lines[1:], 1):
+        if line.strip() == "---":
+            close_idx = i
+            break
+    if close_idx is None:
+        return f"---\n{key}: {value}\n---\n{text}"
+    inner = [l for l in lines[1:close_idx] if not l.startswith(f"{key}:")]
+    inner.append(f"{key}: {value}")
+    return "\n".join(["---"] + inner + lines[close_idx:])
+
+
+@router.post("/specs/{spec_path:path}/drift/reconcile")
+async def reconcile_spec_drift(spec_path: str):
+    """Check off unchecked acceptance-criteria items in the spec body.
+
+    Safe: only converts '- [ ]' to '- [x]'. Idempotent. Never removes content.
+    Returns the updated drift result so the panel can refresh.
+    """
+    _validate_doc_path(spec_path)
+    full = Path(PROJECT_ROOT) / spec_path
+    if not full.exists():
+        raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
+    import re as _re
+    text = full.read_text(encoding="utf-8")
+    updated = _re.sub(r'^(\s*-\s+)\[ \]', r'\1[x]', text, flags=_re.MULTILINE)
+    changed = updated != text
+    if changed:
+        full.write_text(updated, encoding="utf-8")
+    from services.spec_drift import compute_spec_drift
+    acked = _read_frontmatter_value(updated, "drift_acked").lower() in ("true", "yes", "1")
+    return {"drift": {**compute_spec_drift(str(full)), "acked": acked}, "reconciled": changed}
+
+
+@router.post("/specs/{spec_path:path}/drift/ack")
+async def ack_spec_drift(spec_path: str):
+    """Record that the user has acknowledged the current drift and is OK with it.
+
+    Writes 'drift_acked: true' into the spec frontmatter. Idempotent.
+    The review panel reads this flag and suppresses the drift warning.
+    """
+    _validate_doc_path(spec_path)
+    full = Path(PROJECT_ROOT) / spec_path
+    if not full.exists():
+        raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
+    text = full.read_text(encoding="utf-8")
+    already = _read_frontmatter_value(text, "drift_acked").lower() in ("true", "yes", "1")
+    if not already:
+        updated = _frontmatter_set_key(text, "drift_acked", "true")
+        full.write_text(updated, encoding="utf-8")
+    from services.spec_drift import compute_spec_drift
+    return {"acked": True, "drift": {**compute_spec_drift(str(full)), "acked": True}}
 
 
 @router.post("/specs/{spec_path:path}/build")

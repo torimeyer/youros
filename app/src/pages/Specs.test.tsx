@@ -2500,4 +2500,105 @@ describe('E2E journey: specs list → pick → build (→1925 →1926 →1927)',
     // Title inside the modal matches the spec title
     expect(screen.getByTestId('spawn-agent-modal').textContent).toContain('auth system')
   })
+
+  // --- E3: Drift panel actions (→2139) ---
+
+  describe('E3 drift panel actions', () => {
+    const DRIFT_REVIEW = {
+      spec_path: 'docs/spec/auth-system.md',
+      readiness: { ready: false, file_path: null, checks: [] },
+      drift: {
+        drift: true,
+        acked: false,
+        items: [{ kind: 'unchecked_after_done', detail: '2 items still unchecked.' }],
+        summary: '1 drift item.',
+      },
+      constitution: { principles: [], violations: [] },
+    }
+
+    beforeEach(() => {
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/specs') return Promise.resolve(mockDocsResponse)
+        if (path.includes('/review')) return Promise.resolve(DRIFT_REVIEW)
+        if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+        if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+        if (path.includes('spawn-preflight')) return Promise.resolve({ conflicts: [] })
+        return Promise.resolve({})
+      })
+    })
+
+    it('shows drift action buttons when spec has unacknowledged drift', async () => {
+      renderSpecs()
+      await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+      fireEvent.click(screen.getByTestId('stage-filter-all'))
+      await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
+
+      const cards = screen.getAllByTestId('spec-card')
+      const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+      fireEvent.click(authCard)
+
+      await waitFor(() => expect(screen.getByTestId('spec-detail')).toBeInTheDocument())
+      await waitFor(() => expect(screen.getByTestId('drift-actions')).toBeInTheDocument())
+
+      expect(screen.getByTestId('drift-reconcile-btn')).toBeInTheDocument()
+      expect(screen.getByTestId('drift-ack-btn')).toBeInTheDocument()
+    })
+
+    it('"Update spec to match code" posts to drift/reconcile endpoint', async () => {
+      mockedApiPost.mockResolvedValue({
+        drift: { drift: false, acked: false, items: [], summary: 'No drift.' },
+        reconciled: true,
+      })
+
+      renderSpecs()
+      await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+      fireEvent.click(screen.getByTestId('stage-filter-all'))
+      await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
+
+      const cards = screen.getAllByTestId('spec-card')
+      const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+      fireEvent.click(authCard)
+
+      await waitFor(() => expect(screen.getByTestId('drift-reconcile-btn')).toBeInTheDocument())
+      fireEvent.click(screen.getByTestId('drift-reconcile-btn'))
+
+      await waitFor(() =>
+        expect(mockedApiPost).toHaveBeenCalledWith(
+          '/specs/docs/spec/auth-system.md/drift/reconcile',
+          {}
+        )
+      )
+    })
+
+    it('"Keep as is" posts to drift/ack endpoint', async () => {
+      mockedApiPost.mockResolvedValue({
+        acked: true,
+        drift: { drift: true, acked: true, items: [], summary: '1 drift item.' },
+      })
+
+      renderSpecs()
+      await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+      fireEvent.click(screen.getByTestId('stage-filter-all'))
+      await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
+
+      const cards = screen.getAllByTestId('spec-card')
+      const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+      fireEvent.click(authCard)
+
+      await waitFor(() => expect(screen.getByTestId('drift-ack-btn')).toBeInTheDocument())
+      fireEvent.click(screen.getByTestId('drift-ack-btn'))
+
+      await waitFor(() =>
+        expect(mockedApiPost).toHaveBeenCalledWith(
+          '/specs/docs/spec/auth-system.md/drift/ack',
+          {}
+        )
+      )
+
+      // After ack response returns acked=true, drift actions should disappear
+      await waitFor(() =>
+        expect(screen.queryByTestId('drift-actions')).not.toBeInTheDocument()
+      )
+    })
+  })
 })

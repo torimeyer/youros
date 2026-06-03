@@ -1688,3 +1688,138 @@ def test_scratch_note_pattern_unit_matches_and_misses():
     assert not _is_scratch_note("docs/draft/1234-real-spec.md", "My Real Spec", has_fm)
     # User-local specs never in docs/draft/
     assert not _is_scratch_note("~/.myos/specs/my-spec.md", "My Spec", {})
+
+
+# --- Drift action endpoints (→2139) ---
+
+
+@pytest.mark.asyncio
+async def test_drift_reconcile_checks_unchecked_acs(client, tmp_path, monkeypatch):
+    """POST /drift/reconcile converts - [ ] to - [x] in the spec body."""
+    import routers.specs as specs_router
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    spec_dir = tmp_path / "docs" / "spec"
+    spec_dir.mkdir(parents=True)
+    spec_file = spec_dir / "test-reconcile.md"
+    spec_file.write_text(
+        "---\ntitle: Test\nstatus: complete\n---\n\n- [ ] item one\n- [ ] item two\n"
+    )
+
+    resp = await client.post("/api/specs/docs/spec/test-reconcile.md/drift/reconcile")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "drift" in data
+    assert "reconciled" in data
+    assert data["reconciled"] is True
+    updated = spec_file.read_text()
+    assert "- [x] item one" in updated
+    assert "- [x] item two" in updated
+    assert "- [ ]" not in updated
+
+
+@pytest.mark.asyncio
+async def test_drift_reconcile_idempotent(client, tmp_path, monkeypatch):
+    """POST /drift/reconcile is idempotent when nothing needs changing."""
+    import routers.specs as specs_router
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    spec_dir = tmp_path / "docs" / "spec"
+    spec_dir.mkdir(parents=True)
+    spec_file = spec_dir / "already-done.md"
+    spec_file.write_text(
+        "---\ntitle: Done\nstatus: complete\n---\n\n- [x] already checked\n"
+    )
+
+    resp = await client.post("/api/specs/docs/spec/already-done.md/drift/reconcile")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["reconciled"] is False
+
+
+@pytest.mark.asyncio
+async def test_drift_reconcile_not_found(client, tmp_path, monkeypatch):
+    import routers.specs as specs_router
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+
+    resp = await client.post("/api/specs/docs/spec/nope.md/drift/reconcile")
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_drift_ack_writes_frontmatter(client, tmp_path, monkeypatch):
+    """POST /drift/ack adds drift_acked: true to the spec frontmatter."""
+    import routers.specs as specs_router
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    spec_dir = tmp_path / "docs" / "spec"
+    spec_dir.mkdir(parents=True)
+    spec_file = spec_dir / "test-ack.md"
+    spec_file.write_text("---\ntitle: Test\nstatus: complete\n---\n\nBody text.\n")
+
+    resp = await client.post("/api/specs/docs/spec/test-ack.md/drift/ack")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["acked"] is True
+    assert "drift" in data
+    updated = spec_file.read_text()
+    assert "drift_acked: true" in updated
+
+
+@pytest.mark.asyncio
+async def test_drift_ack_idempotent(client, tmp_path, monkeypatch):
+    """POST /drift/ack is idempotent when already acked."""
+    import routers.specs as specs_router
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    spec_dir = tmp_path / "docs" / "spec"
+    spec_dir.mkdir(parents=True)
+    spec_file = spec_dir / "already-acked.md"
+    spec_file.write_text(
+        "---\ntitle: Test\nstatus: complete\ndrift_acked: true\n---\n\nBody.\n"
+    )
+    original_text = spec_file.read_text()
+
+    resp = await client.post("/api/specs/docs/spec/already-acked.md/drift/ack")
+
+    assert resp.status_code == 200
+    assert resp.json()["acked"] is True
+    # File should be unchanged (no duplicate key written)
+    assert spec_file.read_text() == original_text
+
+
+@pytest.mark.asyncio
+async def test_drift_ack_not_found(client, tmp_path, monkeypatch):
+    import routers.specs as specs_router
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+
+    resp = await client.post("/api/specs/docs/spec/nope.md/drift/ack")
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_review_spec_includes_acked_field(client, tmp_path, monkeypatch):
+    """GET /specs/.../review drift object includes 'acked' field."""
+    import routers.specs as specs_router
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    spec_dir = tmp_path / "docs" / "spec"
+    spec_dir.mkdir(parents=True)
+    spec_file = spec_dir / "test-review.md"
+    spec_file.write_text("---\ntitle: Test\nstatus: spec\n---\n\nBody.\n")
+
+    with patch("services.gemini_ready.compute_spec_readiness") as mock_r, \
+         patch("services.spec_drift.compute_spec_drift") as mock_d, \
+         patch("services.spec_constitution.load_constitution", return_value=[]), \
+         patch("services.spec_constitution.check_spec_text", return_value=[]):
+        mock_r.return_value.as_dict.return_value = {"ready": True, "checks": [], "file_path": None}
+        mock_d.return_value = {"drift": False, "items": [], "summary": "No drift."}
+        resp = await client.get("/api/specs/docs/spec/test-review.md/review")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "drift" in data
+    assert "acked" in data["drift"]
+    assert data["drift"]["acked"] is False

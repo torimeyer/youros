@@ -17,6 +17,7 @@ interface ReviewData {
   }
   drift: {
     drift: boolean
+    acked: boolean
     items: { kind: string; detail: string }[]
     summary: string
   }
@@ -30,6 +31,8 @@ export function SpecReview({ specPath }: { specPath: string }) {
   const [data, setData] = useState<ReviewData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [actionMsg, setActionMsg] = useState<string | null>(null)
+  const [actionBusy, setActionBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -37,20 +40,45 @@ export function SpecReview({ specPath }: { specPath: string }) {
     setError(null)
     api
       .get<ReviewData>(`/specs/${specPath}/review`)
-      .then((res) => {
-        if (!cancelled) setData(res)
-      })
-      .catch((err) => {
-        if (!cancelled)
-          setError(err instanceof Error ? err.message : 'Could not load review')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
+      .then((res) => { if (!cancelled) setData(res) })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load review') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [specPath])
+
+  const handleReconcile = async () => {
+    setActionBusy(true)
+    setActionMsg(null)
+    try {
+      const res = await api.post<{ drift: ReviewData['drift']; reconciled: boolean }>(
+        `/specs/${specPath}/drift/reconcile`,
+        {}
+      )
+      setData((prev) => prev ? { ...prev, drift: res.drift } : prev)
+      setActionMsg(res.reconciled ? 'Spec updated.' : 'Already up to date.')
+    } catch {
+      setActionMsg('Could not update.')
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  const handleAck = async () => {
+    setActionBusy(true)
+    setActionMsg(null)
+    try {
+      const res = await api.post<{ acked: boolean; drift: ReviewData['drift'] }>(
+        `/specs/${specPath}/drift/ack`,
+        {}
+      )
+      setData((prev) => prev ? { ...prev, drift: res.drift } : prev)
+      setActionMsg('Got it. Warning hidden.')
+    } catch {
+      setActionMsg('Could not save.')
+    } finally {
+      setActionBusy(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -75,6 +103,7 @@ export function SpecReview({ specPath }: { specPath: string }) {
   const driftItems = drift?.items ?? []
   const principles = constitution?.principles ?? []
   const violations = constitution?.violations ?? []
+  const showDriftActions = drift?.drift && !drift?.acked
 
   return (
     <div className="space-y-3 text-sm">
@@ -89,15 +118,40 @@ export function SpecReview({ specPath }: { specPath: string }) {
         </span>
       </div>
 
-      <div data-testid="review-drift" className="space-y-1">
+      <div data-testid="review-drift" className="space-y-2">
         {drift?.drift ? (
-          <ul className="space-y-1">
-            {driftItems.map((item, i) => (
-              <li key={i} className="text-slate-400 text-xs">
-                {item.detail}
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className="space-y-1">
+              {driftItems.map((item, i) => (
+                <li key={i} className="text-slate-400 text-xs">
+                  {item.detail}
+                </li>
+              ))}
+            </ul>
+            {showDriftActions && (
+              <div className="flex flex-wrap gap-2 pt-1" data-testid="drift-actions">
+                <button
+                  data-testid="drift-reconcile-btn"
+                  disabled={actionBusy}
+                  onClick={handleReconcile}
+                  className="text-xs px-2.5 py-1 rounded-md bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-colors disabled:opacity-50"
+                >
+                  Update spec to match code
+                </button>
+                <button
+                  data-testid="drift-ack-btn"
+                  disabled={actionBusy}
+                  onClick={handleAck}
+                  className="text-xs px-2.5 py-1 rounded-md bg-slate-500/15 text-slate-400 hover:bg-slate-500/25 transition-colors disabled:opacity-50"
+                >
+                  Keep as is
+                </button>
+              </div>
+            )}
+            {actionMsg && (
+              <p className="text-xs text-slate-500" data-testid="drift-action-msg">{actionMsg}</p>
+            )}
+          </>
         ) : (
           <span className="text-slate-500 text-xs">No drift detected</span>
         )}
