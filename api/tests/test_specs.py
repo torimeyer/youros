@@ -3782,3 +3782,42 @@ def test_task_spec_assignment_persists_across_restart(tmp_path, monkeypatch):
     # Cleanup to avoid polluting other tests
     specs_router._spec_task_origin.pop("task-99", None)
     specs_router._spec_claims.pop("docs/spec/persist-test.md", None)
+
+
+# ---------------------------------------------------------------------------
+# compute_spec_status — promoted spec with unstarted tasks should be "ready"
+# ---------------------------------------------------------------------------
+
+def test_compute_spec_status_ready_when_all_tasks_unstarted():
+    """A promoted spec whose tasks are all 'open' (not yet started) must show
+    'ready', not 'in-progress'.  This was the S002/S003/S006/S007 bug where
+    every promoted spec showed 'In Progress / 0/N tasks'."""
+    task_ids = [str(i) for i in range(1, 27)]  # 26 tasks, like S007
+    task_statuses = {tid: "open" for tid in task_ids}
+
+    result = OstkService.compute_spec_status("spec", task_ids, task_statuses)
+    assert result == "ready", (
+        f"Expected 'ready' but got '{result}'. A promoted spec with all tasks "
+        "unstarted should not show 'in-progress'."
+    )
+
+
+def test_compute_spec_status_in_progress_only_when_task_started():
+    """Stage flips to 'in-progress' the moment at least one task transitions
+    from 'open' to 'in_progress' (i.e., work actually begins)."""
+    task_ids = ["t1", "t2", "t3"]
+    # All open → still ready
+    all_open = {tid: "open" for tid in task_ids}
+    assert OstkService.compute_spec_status("spec", task_ids, all_open) == "ready"
+
+    # One task started → in-progress
+    one_started = {"t1": "in_progress", "t2": "open", "t3": "open"}
+    assert OstkService.compute_spec_status("spec", task_ids, one_started) == "in-progress"
+
+    # All started → in-progress
+    all_started = {"t1": "in_progress", "t2": "in_progress", "t3": "in_progress"}
+    assert OstkService.compute_spec_status("spec", task_ids, all_started) == "in-progress"
+
+    # All closed → complete
+    all_closed = {"t1": "closed", "t2": "closed", "t3": "closed"}
+    assert OstkService.compute_spec_status("spec", task_ids, all_closed) == "complete"
