@@ -10,6 +10,33 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.4.0
+  {
+    date: '2026-06-03',
+    label: 'June 3, 2026',
+    entries: [
+      {
+        title: 'Onboarding finds your providers reliably',
+        description: 'The setup screen no longer shows a "could not check for a connected provider" error. It warms up at startup and answers instantly.',
+      },
+      {
+        title: 'Clearer Google setup',
+        description: 'Google Cloud (Vertex AI) and the personal AI Studio key are now two separate cards with shorter steps. If you have signed in to Google Cloud but not picked a project, it tells you exactly what to run.',
+      },
+      {
+        title: 'Atlassian shown correctly',
+        description: 'The connection is now labeled Atlassian and shows both Jira and Confluence, instead of only Jira.',
+      },
+      {
+        title: 'Agent teams',
+        description: 'Agents can work together as a team with a shared task list and roles, with a team view on the Agents page.',
+      },
+      {
+        title: 'Spec status reflects finished work',
+        description: 'A spec whose work is done no longer shows In Progress just because some old tasks were never closed.',
+      },
+    ],
+  },
   // v5.3.0
   {
     date: '2026-06-03',
