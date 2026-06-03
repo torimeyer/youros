@@ -2464,7 +2464,7 @@ describe('E2E journey: specs list → pick → build (→1925 →1926 →1927)',
     expect(screen.queryByText('Plan waves')).toBeNull()
   })
 
-  // B5: "Review spec" button opens SpawnGeminiModal
+  // B5: "Review spec" button opens SpawnAgentModal
   it('B5: review-spec-button opens SpawnGeminiModal for that spec', async () => {
     // Override E2E mock: use the full mockDocsResponse which has auth-system
     mockedApiGet.mockImplementation((path: string) => {
@@ -2489,15 +2489,15 @@ describe('E2E journey: specs list → pick → build (→1925 →1926 →1927)',
     expect(reviewBtn).not.toBeNull()
 
     // Modal is not visible yet
-    expect(screen.queryByTestId('spawn-gemini-modal')).toBeNull()
+    expect(screen.queryByTestId('spawn-agent-modal')).toBeNull()
 
     // Click review button. stopPropagation prevents the card from also expanding.
     fireEvent.click(reviewBtn)
 
     // Modal appears
-    await waitFor(() => expect(screen.getByTestId('spawn-gemini-modal')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('spawn-agent-modal')).toBeInTheDocument())
 
     // Title inside the modal matches the spec title
-    expect(screen.getByTestId('spawn-gemini-modal').textContent).toContain('auth system')
+    expect(screen.getByTestId('spawn-agent-modal').textContent).toContain('auth system')
   })
 })

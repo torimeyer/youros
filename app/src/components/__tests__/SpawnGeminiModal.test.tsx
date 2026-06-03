@@ -33,11 +33,11 @@ describe('SpawnGeminiModal', () => {
         onClose={vi.fn()}
       />
     )
-    expect(screen.getByTestId('spawn-gemini-btn')).toBeInTheDocument()
-    expect(screen.getByTestId('cancel-gemini-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('spawn-agent-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('cancel-spawn-btn')).toBeInTheDocument()
   })
 
-  it('calls buildSpec with model=gemini on spawn', async () => {
+  it('calls buildSpec with model=claude by default on spawn', async () => {
     const onClose = vi.fn()
     render(
       <SpawnGeminiModal
@@ -46,11 +46,11 @@ describe('SpawnGeminiModal', () => {
         onClose={onClose}
       />
     )
-    await userEvent.click(screen.getByTestId('spawn-gemini-btn'))
+    await userEvent.click(screen.getByTestId('spawn-agent-btn'))
     expect(buildSpec).toHaveBeenCalledWith(
       '/path/to/spec.md',
       undefined,
-      'gemini'
+      'claude'
     )
   })
 
@@ -63,7 +63,7 @@ describe('SpawnGeminiModal', () => {
         onClose={onClose}
       />
     )
-    await userEvent.click(screen.getByTestId('cancel-gemini-btn'))
+    await userEvent.click(screen.getByTestId('cancel-spawn-btn'))
     expect(onClose).toHaveBeenCalledOnce()
   })
 
@@ -78,8 +78,7 @@ describe('SpawnGeminiModal', () => {
         onSpawned={onSpawned}
       />
     )
-    await userEvent.click(screen.getByTestId('spawn-gemini-btn'))
-    await screen.findByTestId('spawn-gemini-btn')
+    await userEvent.click(screen.getByTestId('spawn-agent-btn'))
     expect(onSpawned).toHaveBeenCalledWith(['gemini-agent-1'])
   })
 })

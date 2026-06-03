@@ -12,7 +12,7 @@ import { buildSpec } from "../lib/spawn";
 import { NeedsClarityChip, type ReadinessCheck } from "../components/NeedsClarityChip";
 import { SpecReview } from "../components/SpecReview";
 import { ClaimSourceChip } from "../components/ClaimSourceChip";
-import { SpawnGeminiModal } from "../components/SpawnGeminiModal";
+import { SpawnAgentModal } from "../components/SpawnAgentModal";
 import { onSpecsChange, bumpAgents, bumpTasks } from "../lib/sidebarBus";
 import { useAppStore } from "../stores/app";
 import { Button, EmptyState, ErrorBanner } from "../components/ui";
@@ -557,7 +557,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const specRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const hasScrolledForFocusRef = useRef<string | null>(null);
   const [stageFilter, setStageFilter] = useState<StageFilter>("all");
-  const [spawnGeminiSpec, setSpawnGeminiSpec] = useState<{ path: string; title: string; checks?: ReadinessCheck[] } | null>(null);
+  const [spawnAgentSpec, setSpawnAgentSpec] = useState<{ path: string; title: string; checks?: ReadinessCheck[] } | null>(null);
   const [docs, setDocs] = useState<Spec[]>(() => readSpecsCache());
   // Pending specs that were optimistically navigated here from
   // FilePreviewPane's "Make spec" click. The skeleton rows render in the
@@ -1100,13 +1100,13 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
 
   return (
     <>
-      {spawnGeminiSpec && (
-        <SpawnGeminiModal
-          path={spawnGeminiSpec.path}
-          title={spawnGeminiSpec.title}
-          checks={spawnGeminiSpec.checks}
-          onClose={() => setSpawnGeminiSpec(null)}
-          onSpawned={() => { setSpawnGeminiSpec(null); fetchDocs(); }}
+      {spawnAgentSpec && (
+        <SpawnAgentModal
+          path={spawnAgentSpec.path}
+          title={spawnAgentSpec.title}
+          checks={spawnAgentSpec.checks}
+          onClose={() => setSpawnAgentSpec(null)}
+          onSpawned={() => { setSpawnAgentSpec(null); fetchDocs(); }}
         />
       )}
       {!embedded && <TopBar />}
@@ -1391,7 +1391,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                           data-testid="review-spec-button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setSpawnGeminiSpec({ path: doc.path, title: doc.title, checks: doc.clear_to_build_checks });
+                            setSpawnAgentSpec({ path: doc.path, title: doc.title, checks: doc.clear_to_build_checks });
                           }}
                           className="text-slate-500 hover:text-violet-400 rounded-lg p-1 transition-colors"
                         >
