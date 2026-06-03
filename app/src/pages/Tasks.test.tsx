@@ -793,6 +793,61 @@ describe('Tasks page', () => {
     expect(closedCol).toHaveTextContent('Old completed task')
   })
 
+  it('renders each kanban card with a separate id chip, not inline with the body text', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Kanban' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('kanban-view')).toBeInTheDocument()
+    })
+
+    // Task id 1 is "Fix login bug". Its id must render in its own chip element,
+    // showing "#1", and that chip must be a distinct node (not the title node).
+    const idChip = screen.getByTestId('kanban-card-id-1')
+    expect(idChip).toBeInTheDocument()
+    expect(idChip).toHaveTextContent('#1')
+    // The chip carries the id only, not the full title text.
+    expect(idChip).not.toHaveTextContent('Fix login bug')
+  })
+
+  it('clamps a kanban card description to two lines so it cannot overflow the column', async () => {
+    const longDesc =
+      'This is a deliberately very long task description that would, without clamping, ' +
+      'wrap into many lines and stretch the kanban card far beyond the height of every ' +
+      'other card in the column, making the board look broken and hard to scan.'
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks' || path.startsWith('/tasks?'))
+        return Promise.resolve({
+          tasks: [
+            { id: '1', title: 'Fix login bug', priority: 'P0', status: 'open', created_at: '2026-05-11T12:00:03.000Z', description: longDesc, goal: 'Auth', label_ids: [] },
+          ],
+        })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Kanban' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('kanban-view')).toBeInTheDocument()
+    })
+
+    const desc = screen.getByTestId('kanban-card-desc-1')
+    expect(desc).toBeInTheDocument()
+    expect(desc.className).toContain('line-clamp-2')
+  })
+
   // --- Task context briefing panel ---
 
   it('clicking a task shows the briefing panel', async () => {
