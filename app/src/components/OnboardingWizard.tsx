@@ -51,6 +51,7 @@ export default function OnboardingWizard() {
   const [apiKey, setApiKey] = useState('')
   const [keySaved, setKeySaved] = useState(false)
   const [detectedProvider, setDetectedProvider] = useState<string | null>(null)
+  const [vertexAiSignedIn, setVertexAiSignedIn] = useState(false)
   const [detectLoading, setDetectLoading] = useState(true)
   const [detectError, setDetectError] = useState(false)
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null)
@@ -78,13 +79,14 @@ export default function OnboardingWizard() {
   useEffect(() => {
     setDetectLoading(true)
     setDetectError(false)
-    api.get<{ claude_code?: boolean; anthropic_key?: boolean; gemini_key?: boolean; vertex_ai?: boolean; bedrock?: boolean }>('/providers/detect')
+    api.get<{ claude_code?: boolean; anthropic_key?: boolean; gemini_key?: boolean; vertex_ai?: boolean; bedrock?: boolean; vertex_ai_signed_in?: boolean }>('/providers/detect')
       .then((data) => {
         if (data.claude_code) setDetectedProvider('Claude Code')
         else if (data.anthropic_key) setDetectedProvider('Anthropic')
         else if (data.gemini_key) setDetectedProvider('Gemini')
         else if (data.vertex_ai) setDetectedProvider('Vertex AI')
         else if (data.bedrock) setDetectedProvider('AWS Bedrock')
+        setVertexAiSignedIn(data.vertex_ai_signed_in ?? false)
       })
       .catch((e) => {
         reportError('provider detection failed', e)
@@ -562,6 +564,7 @@ export default function OnboardingWizard() {
               detectedProvider={detectedProvider}
               detectLoading={detectLoading}
               detectError={detectError}
+              vertexAiSignedIn={vertexAiSignedIn}
             />
           )}
           {step === 'Ready' && (
@@ -1137,6 +1140,7 @@ function ConnectStep({
   detectedProvider,
   detectLoading,
   detectError,
+  vertexAiSignedIn,
 }: {
   selectedProvider: string
   onSelectProvider: (name: string) => void
@@ -1152,6 +1156,7 @@ function ConnectStep({
   detectedProvider?: string | null
   detectLoading?: boolean
   detectError?: boolean
+  vertexAiSignedIn?: boolean
 }) {
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
   const [googleConnected, setGoogleConnected] = useState(false)
@@ -1341,6 +1346,14 @@ function ConnectStep({
                 <p className={`text-xs font-semibold mb-2 ${subtextCls}`} data-testid="gemini-vertex-heading">
                   Google Cloud (Vertex AI)
                 </p>
+                {vertexAiSignedIn && detectedProvider !== 'Vertex AI' && (
+                  <div data-testid="vertex-signed-in-no-project" className={`mb-2 text-xs p-2 rounded ${darkMode ? 'bg-slate-700' : 'bg-amber-50 border border-amber-100'}`}>
+                    <p className="font-medium mb-1">Signed in to Google Cloud. Pick a project to finish.</p>
+                    <p className="mb-1">In your terminal, run:</p>
+                    <code className={`block px-2 py-1 rounded font-mono ${darkMode ? 'bg-slate-600' : 'bg-gray-100'}`}>gcloud config set project YOUR_PROJECT_ID</code>
+                    <p className="mt-1 opacity-75">Then refresh to continue.</p>
+                  </div>
+                )}
                 <button
                   onClick={() => {
                     api.patch('/settings', { onboarding_step: stepIndex }).catch(() => {})

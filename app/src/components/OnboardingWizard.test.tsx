@@ -324,6 +324,23 @@ describe('OnboardingWizard', () => {
     expect(screen.getByTestId('gemini-aistudio-heading')).toHaveTextContent(/AI Studio key/i)
   })
 
+  it('shows pick-a-project guidance when signed in to Google Cloud without a project', async () => {
+    vi.mocked(api.get).mockImplementation(((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({ vertex_ai_signed_in: true, vertex_ai: false })
+      if (path === '/secrets/key-status') return Promise.resolve({ google_oauth_available: true, google_connected: false })
+      if (path === '/github/status') return Promise.resolve({})
+      return Promise.resolve(MOCK_ADVENTURES)
+    }) as typeof api.get)
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(6)
+    fireEvent.click(screen.getByTestId('provider-Google Gemini'))
+    await waitFor(() =>
+      expect(screen.getByTestId('vertex-signed-in-no-project')).toBeInTheDocument()
+    )
+    expect(screen.getByTestId('vertex-signed-in-no-project')).toHaveTextContent(/Pick a project/i)
+  })
+
   it('Connect step sections show Anthropic, Google, Atlassian, GitHub headings', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()

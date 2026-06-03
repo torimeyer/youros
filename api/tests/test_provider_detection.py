@@ -52,6 +52,7 @@ async def test_detect_no_providers():
         "vertex_ai": False,
         "vertex_ai_project": None,
         "vertex_ai_needs_reauth": False,
+        "vertex_ai_signed_in": False,
         "bedrock": False,
         "gemini_cli": False,
     }
@@ -254,6 +255,35 @@ async def test_detect_vertex_gemini_project_fallback():
 
 
 @pytest.mark.asyncio
+async def test_detect_vertex_gemini_signed_in_no_project():
+    """Creds resolve but no project anywhere -> available False, signed_in True."""
+    from services.provider_detection import detect_vertex_gemini
+
+    mock_creds = MagicMock(spec=[])
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=True)):
+        with patch("google.auth.default", return_value=(mock_creds, None)):
+            with patch(
+                "services.provider_detection._resolve_gcloud_default_project",
+                new=AsyncMock(return_value=None),
+            ):
+                result = await detect_vertex_gemini()
+
+    assert result["available"] is False
+    assert result["vertex_ai_signed_in"] is True
+
+
+@pytest.mark.asyncio
+async def test_detect_vertex_gemini_no_adc_not_signed_in():
+    """No ADC -> signed_in False."""
+    from services.provider_detection import detect_vertex_gemini
+
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=False)):
+        result = await detect_vertex_gemini()
+
+    assert result["vertex_ai_signed_in"] is False
+
+
+@pytest.mark.asyncio
 async def test_detect_vertex_gemini_no_adc():
     """detect_vertex_ai False → available False, google.auth never called."""
     from services.provider_detection import detect_vertex_gemini
@@ -262,7 +292,7 @@ async def test_detect_vertex_gemini_no_adc():
         with patch("google.auth.default") as mock_auth:
             result = await detect_vertex_gemini()
 
-    assert result == {"available": False, "vertex_ai_needs_reauth": False}
+    assert result == {"available": False, "vertex_ai_needs_reauth": False, "vertex_ai_signed_in": False}
     mock_auth.assert_not_called()
 
 
@@ -275,7 +305,7 @@ async def test_detect_vertex_gemini_auth_exception():
         with patch("google.auth.default", side_effect=RuntimeError("no credentials")):
             result = await detect_vertex_gemini()
 
-    assert result == {"available": False, "vertex_ai_needs_reauth": False}
+    assert result == {"available": False, "vertex_ai_needs_reauth": False, "vertex_ai_signed_in": False}
 
 
 @pytest.mark.asyncio
@@ -440,7 +470,7 @@ async def test_detect_vertex_gemini_timeout_returns_false(monkeypatch):
         with patch("services.provider_detection.asyncio.to_thread", new=_slow_to_thread):
             result = await _pd_mod.detect_vertex_gemini()
 
-    assert result == {"available": False, "vertex_ai_needs_reauth": False}
+    assert result == {"available": False, "vertex_ai_needs_reauth": False, "vertex_ai_signed_in": False}
 
 
 # ---------------------------------------------------------------------------
