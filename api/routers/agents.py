@@ -4931,7 +4931,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
     #   (iv) OSTK_PROJECT_ROOT/short-cwd handling parity confirmed for ostk-run path.
     #   (v)  Supervised verification: spawn 3 different agent types, all land via ostk-run, zero fallback.
     # Only after ALL five hold: delete the custom spawn path and this comment block.
-    # See spec AC3 in /Users/torimeyer/.myos/specs/adopt-claude-code-s-good-ideas-into-myos-as-vendor-agnostic-abstractions.md
+    # See spec AC3 in ~/.myos/specs/adopt-claude-code-s-good-ideas-into-myos-as-vendor-agnostic-abstractions.md
     #
     # --- ostk run path: env-level canonical (MYOS_SPAWN_USE_OSTK_RUN=1, →1305) or per-request opt-in ---
     # MYOS_SPAWN_USE_OSTK_RUN=1 makes `ostk run <Agentfile>` the default for every spawn.

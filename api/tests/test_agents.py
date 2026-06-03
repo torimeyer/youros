@@ -2580,7 +2580,8 @@ async def test_list_grants_with_status_filter():
     """OstkService.list_grants should pass the status filter to ostk."""
     svc = OstkService()
     with patch.object(svc, "_run_json", new_callable=AsyncMock, return_value=[]) as mock:
-        await svc.list_grants("granted")
+        result = await svc.list_grants("granted")
+    assert result == []
     mock.assert_called_once_with("grant", "list", "--status", "granted", "--json")
 
 
@@ -2608,7 +2609,8 @@ async def test_approve_grant_with_ttl_and_scope():
     """OstkService.approve_grant should pass ttl and scope when provided."""
     svc = OstkService()
     with patch.object(svc, "_run", new_callable=AsyncMock, return_value="approved") as mock:
-        await svc.approve_grant("g-002", ttl=3600, scope="/tmp")
+        result = await svc.approve_grant("g-002", ttl=3600, scope="/tmp")
+    assert result == "approved"
     mock.assert_called_once_with("grant", "approve", "g-002", "--ttl", "3600", "--scope", "/tmp")
 
 
@@ -2627,7 +2629,8 @@ async def test_deny_grant_default_reason():
     """OstkService.deny_grant should use default reason when none provided."""
     svc = OstkService()
     with patch.object(svc, "_run", new_callable=AsyncMock, return_value="denied") as mock:
-        await svc.deny_grant("g-004")
+        result = await svc.deny_grant("g-004")
+    assert result == "denied"
     mock.assert_called_once_with("grant", "deny", "g-004", "--reason", "not permitted")
 
 
@@ -5236,6 +5239,7 @@ async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path
     """POST /agents/spawn with template='builder' (was 'comprehensive') prepends the
     PROMPT, AC gates, TOOL list, and LIMIT lines to the stdin the
     claude subprocess receives. Also confirms the 'comprehensive' alias still works."""
+    monkeypatch.setenv("MYOS_SPAWN_FORCE_CUSTOM", "1")
     _patch_build_templates(monkeypatch, tmp_path / "agents")
     monkeypatch.setattr("routers.agents._TRANSCRIPT_FLUSH_INTERVAL", 0.01)
 
@@ -5276,6 +5280,7 @@ async def test_spawn_with_template_saa_alias_resolves_to_comprehensive(tmp_path,
     builder.agent file via the built-in alias map plus the ALIAS
     directive in saa.agent. The spawned agent should see the same
     full envelope as template='builder'."""
+    monkeypatch.setenv("MYOS_SPAWN_FORCE_CUSTOM", "1")
     _patch_build_templates(monkeypatch, tmp_path / "agents")
     monkeypatch.setattr("routers.agents._TRANSCRIPT_FLUSH_INTERVAL", 0.01)
 
@@ -12311,6 +12316,7 @@ async def test_spawn_explicit_httpexception_preserves_original_status(
     fix, the catch-all ``except Exception`` clobbered every
     HTTPException with a fresh ``HTTPException(400, str(e))`` and
     stripped the structured detail into a bare str."""
+    monkeypatch.setenv("MYOS_SPAWN_FORCE_CUSTOM", "1")
     _patch_build_templates(monkeypatch, tmp_path / "agents")
 
     async def _returner(*args, **kwargs):
@@ -14224,7 +14230,7 @@ async def test_ostk_run_fallback_loud_on_error(monkeypatch, caplog):
         patch("services.spawn_isolation.decide_isolation", return_value="none"),
         patch(
             "services.spawn_isolation.acquire_spawn_locks",
-            return_value=(None, None),
+            return_value=(True, [], []),
         ),
         caplog.at_level(logging.WARNING, logger="routers.agents"),
     ):
@@ -14272,7 +14278,7 @@ async def test_ostk_run_force_custom_skips_ostk(monkeypatch):
         patch("services.spawn_isolation.decide_isolation", return_value="none"),
         patch(
             "services.spawn_isolation.acquire_spawn_locks",
-            return_value=(None, None),
+            return_value=(True, [], []),
         ),
     ):
         from httpx import AsyncClient, ASGITransport
