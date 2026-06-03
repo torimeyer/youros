@@ -134,8 +134,8 @@ async def test_get_rules_overlays_user_enabled(http, isolated_paths):
     rows = {r["key"]: r for r in resp.json()}
     assert rows["saa_must_spawn"]["enabled"] is True
     assert rows["saa_must_spawn"]["source"] == "user"
-    # default_enabled stays at the in-repo value (False for saa_must_spawn).
-    assert rows["saa_must_spawn"]["default_enabled"] is False
+    # default_enabled stays at the in-repo value (True for saa_must_spawn after →2047).
+    assert rows["saa_must_spawn"]["default_enabled"] is True
 
     # Other rules should still be default-sourced.
     assert rows["adhd_monitor_pairing"]["source"] == "default"
