@@ -2424,9 +2424,8 @@ describe('E2E journey: specs list → pick → build (→1925 →1926 →1927)',
     expect(screen.queryAllByTestId('status-badge')).toHaveLength(0)
   })
 
-  // A#7: specs with task_summary show an inline task-count pill
-  it('A#7: spec with task_summary shows task-count pill with correct count', async () => {
-    // Override E2E mock: use the full mockDocsResponse which has auth-system with task_summary
+  // A#7: task-count-pill is removed; TaskProgressBar shows counts instead
+  it('A#7: task-count-pill is never rendered even when spec has tasks', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/specs') return Promise.resolve(mockDocsResponse)
       if (path === '/specs/templates') return Promise.resolve({ templates: [] })
@@ -2435,7 +2434,6 @@ describe('E2E journey: specs list → pick → build (→1925 →1926 →1927)',
     })
     renderSpecs()
 
-    // Wait for API to load, then show all stages (matches pattern of 'renders specs from API data' test)
     await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
     fireEvent.click(screen.getByTestId('stage-filter-all'))
 
@@ -2446,13 +2444,24 @@ describe('E2E journey: specs list → pick → build (→1925 →1926 →1927)',
     const authCard = cards.find(c => c.textContent?.includes('auth system'))!
     expect(authCard).toBeDefined()
 
-    const pill = authCard.querySelector('[data-testid="task-count-pill"]')
-    expect(pill).not.toBeNull()
-    expect(pill!.textContent).toBe('2 tasks')
+    // Pill must be absent; TaskProgressBar already shows the task count
+    expect(authCard.querySelector('[data-testid="task-count-pill"]')).toBeNull()
+  })
 
-    // onboarding-flow has no task_summary, so no pill
-    const onboardingCard = cards.find(c => c.textContent?.includes('onboarding flow'))!
-    expect(onboardingCard.querySelector('[data-testid="task-count-pill"]')).toBeNull()
+  // A#8: no "Plan waves" action appears in spec row actions
+  it('A#8: spec row contains no "Plan waves" text', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+    renderSpecs()
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
+    await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
+
+    expect(screen.queryByText('Plan waves')).toBeNull()
   })
 
   // B5: "Review spec" button opens SpawnGeminiModal

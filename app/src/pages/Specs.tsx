@@ -1371,14 +1371,6 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                             Empty draft
                           </span>
                         )}
-                        {doc.task_summary && doc.task_summary.total > 0 && (
-                          <span
-                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/20 text-slate-500 dark:text-slate-400"
-                            data-testid="task-count-pill"
-                          >
-                            {doc.task_summary.total} tasks
-                          </span>
-                        )}
 
                       </div>
                       <div className="flex items-center gap-4 flex-shrink-0">
