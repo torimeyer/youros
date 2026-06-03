@@ -115,7 +115,7 @@ class TestDocService:
             result = await self.svc.doc_decompose("docs/spec/my-plan.md", auto=True)
 
         mock_run.assert_called_once_with(
-            "doc", "decompose", "docs/spec/my-plan.md", "--auto"
+            "doc", "decompose", "docs/spec/my-plan.md", "--auto", timeout=45
         )
         assert result["result"] == "->001 task A\n->002 task B"
         assert result["task_ids"] == ["001", "002"]
@@ -133,7 +133,7 @@ class TestDocService:
             mock_run.return_value = "->003 task C"
             result = await self.svc.doc_decompose("docs/spec/my-plan.md")
 
-        mock_run.assert_called_once_with("doc", "decompose", "docs/spec/my-plan.md")
+        mock_run.assert_called_once_with("doc", "decompose", "docs/spec/my-plan.md", timeout=45)
         assert result["task_ids"] == ["003"]
 
     @pytest.mark.asyncio
