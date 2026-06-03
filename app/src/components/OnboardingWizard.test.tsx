@@ -324,14 +324,14 @@ describe('OnboardingWizard', () => {
     expect(screen.getByTestId('gemini-aistudio-heading')).toHaveTextContent(/AI Studio key/i)
   })
 
-  it('Connect step sections show Anthropic, Google, Confluence, GitHub headings', async () => {
+  it('Connect step sections show Anthropic, Google, Atlassian, GitHub headings', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(6)
     const connectEl = screen.getByTestId('step-connect')
     expect(connectEl).toHaveTextContent(/Anthropic/i)
     expect(connectEl).toHaveTextContent(/Google/i)
-    expect(connectEl).toHaveTextContent(/Confluence/i)
+    expect(connectEl).toHaveTextContent(/Atlassian/i)
     // GitHub heading lives inside GithubSetupCard, which gates on an async
     // status check (connected !== null && connected !== true). Wait for the
     // mock api.get('/github/status') to resolve before asserting.

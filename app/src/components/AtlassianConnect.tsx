@@ -6,6 +6,9 @@ interface AtlassianStatus {
   connected: boolean
   email?: string
   site?: string
+  jira_site?: string
+  confluence_site?: string
+  confluence_available?: boolean
   expired?: boolean
 }
 
@@ -106,6 +109,9 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
             {status.site && status.email && (
               <p className="text-xs text-slate-500 truncate">{status.site}</p>
             )}
+            <p className="text-xs text-slate-500" data-testid="atlassian-products">
+              {[status.jira_site && 'Jira', status.confluence_site && 'Confluence'].filter(Boolean).join(' & ') || 'Jira & Confluence'}
+            </p>
           </div>
         </div>
         <button

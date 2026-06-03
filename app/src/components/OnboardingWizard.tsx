@@ -1422,13 +1422,13 @@ function ConnectStep({
 
       {/* ── Confluence ────────────────────────────────────── */}
       <div className="mb-2">
-        <p className={sectionDivider}>Confluence</p>
+        <p className={sectionDivider}>Atlassian</p>
         {atlassianConnected ? (
           <div
             data-testid="atlassian-already-connected"
             className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-full text-sm font-medium bg-green-500/15 text-green-400 border border-green-500/30"
           >
-            <span>Already connected: Jira</span>
+            <span>Already connected: Atlassian</span>
           </div>
         ) : (
           <AtlassianSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} stepIndex={stepIndex} />

@@ -182,4 +182,26 @@ describe('AtlassianConnect', () => {
     fireEvent.click(screen.getByTestId('atlassian-oauth-btn'))
     expect(assignedHref).toBe('/api/atlassian/auth?return_to=/settings')
   })
+
+  it('shows Jira & Confluence product labels when both sites are in status', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/atlassian/status')) {
+        return Promise.resolve({
+          connected: true,
+          email: 'user@example.com',
+          site: 'example.atlassian.net',
+          jira_site: 'example.atlassian.net',
+          confluence_site: 'example.atlassian.net',
+        })
+      }
+      if (path.includes('/atlassian/defaults')) return Promise.resolve({ site: '', oauth_available: true })
+      return Promise.resolve({})
+    })
+    render(<AtlassianConnect />)
+    await waitFor(() => {
+      const products = screen.getByTestId('atlassian-products')
+      expect(products).toHaveTextContent('Jira')
+      expect(products).toHaveTextContent('Confluence')
+    })
+  })
 })
