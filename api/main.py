@@ -107,6 +107,8 @@ async def lifespan(app: FastAPI):
     _keep(await start_clock_refresher())
     from services.reminders import start_reminder_scheduler
     _keep(await start_reminder_scheduler())
+    from services.portfolio_health import start_portfolio_scheduler
+    _keep(await start_portfolio_scheduler())
     yield
     await notify_chat_clients_on_shutdown()
     # →1569: cancel background tasks started via _keep() so async tests using

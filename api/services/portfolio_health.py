@@ -387,3 +387,55 @@ async def build_weekly_action_item() -> Optional[dict]:
         "action_url": "/portfolio/health",
         "context": "myOS drafted confidence updates from real execution signal. Review and approve to write them back.",
     }
+
+
+# ---------------------------------------------------------------------------
+# Weekly scheduler (reuses the reminders scheduler pattern: asyncio loop)
+# ---------------------------------------------------------------------------
+
+# One week between regenerations. Surfaced as a briefing action item, never an
+# auto-write to the source.
+_WEEKLY_INTERVAL_SECONDS = 7 * 24 * 60 * 60
+
+
+async def refresh_weekly_briefing() -> Optional[dict]:
+    """Regenerate the draft summary and merge the action item into the briefing.
+
+    Returns the action item written (or None when unconfigured / nothing
+    pending). This is the unit the weekly loop calls each tick.
+    """
+    item = await build_weekly_action_item()
+    if item is None:
+        return None
+
+    try:
+        from services import briefing
+        state = briefing._load_state()
+        items = [i for i in state.get("action_items", []) if i.get("type") != item["type"]]
+        items.insert(0, item)
+        state["action_items"] = items
+        briefing._save_state(state)
+    except Exception as exc:  # noqa: BLE001 - never let the loop die on briefing I/O
+        _log.warning("portfolio weekly briefing merge failed: %s", exc)
+
+    return item
+
+
+async def start_portfolio_scheduler():
+    """Start a background weekly loop that refreshes confidence drafts.
+
+    Mirrors reminders.start_reminder_scheduler: an asyncio loop guarded against
+    exceptions. No-op effect when unconfigured (refresh returns None).
+    """
+    import asyncio
+
+    async def _loop() -> None:
+        while True:
+            try:
+                await refresh_weekly_briefing()
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(_WEEKLY_INTERVAL_SECONDS)
+
+    import asyncio as _a
+    return _a.create_task(_loop())

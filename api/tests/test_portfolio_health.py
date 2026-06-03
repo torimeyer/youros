@@ -338,3 +338,38 @@ async def test_weekly_job_no_item_when_unconfigured(tmp_path, monkeypatch):
     monkeypatch.setattr(portfolio_health, "PORTFOLIO_CONFIG_PATH", tmp_path / "portfolio.json")
     item = await portfolio_health.build_weekly_action_item()
     assert item is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_weekly_merges_into_briefing(tmp_path, monkeypatch):
+    _write_config(tmp_path, monkeypatch, confidence_field_id="cf_x", board_or_jql="BOARD-1")
+    from services import briefing
+
+    state_path = tmp_path / "briefing_state.json"
+    monkeypatch.setattr(briefing, "BRIEFING_STATE_PATH", state_path)
+    # Seed an existing unrelated item to prove we prepend, not clobber.
+    briefing._save_state({"action_items": [{"type": "close_task", "label": "x"}]})
+
+    fake_item = {
+        "type": "review_confidence_updates",
+        "label": "3 confidence updates awaiting your approval",
+        "action_url": "/portfolio/health",
+        "context": "...",
+    }
+    with patch(
+        "services.portfolio_health.build_weekly_action_item",
+        new=AsyncMock(return_value=fake_item),
+    ):
+        written = await portfolio_health.refresh_weekly_briefing()
+
+    assert written == fake_item
+    items = briefing._load_state()["action_items"]
+    assert items[0]["type"] == "review_confidence_updates"
+    assert any(i["type"] == "close_task" for i in items)
+
+
+@pytest.mark.asyncio
+async def test_refresh_weekly_noop_when_unconfigured(tmp_path, monkeypatch):
+    monkeypatch.setattr(portfolio_health, "PORTFOLIO_CONFIG_PATH", tmp_path / "portfolio.json")
+    written = await portfolio_health.refresh_weekly_briefing()
+    assert written is None
