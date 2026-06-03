@@ -1771,7 +1771,7 @@ export default function Tasks() {
             >
               <Icon name="account_tree" className="text-purple-600 dark:text-purple-400 text-base" />
               <span className="hidden sm:inline">
-                {Object.keys(waveAssignments).length > 0 ? "Update waves" : "Plan waves"}
+                Update waves
               </span>
               <span className="sm:hidden">Waves</span>
             </button>
@@ -1847,15 +1847,6 @@ export default function Tasks() {
                   <Icon name="content_copy" className="text-slate-600 dark:text-slate-400 text-sm" />
                   Copy list
                 </button>
-                <button
-                  data-testid="plan-waves-button"
-                  onClick={() => { setShowOverflowMenu(false); setWavesModalOpen(true); }}
-                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
-                >
-                  <Icon name="account_tree" className="text-purple-600 dark:text-purple-400 text-sm" />
-                  Plan waves
-                </button>
-                <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                 <button
                   onClick={() => { setShowOverflowMenu(false); setAuditModalOpen(true); }}
                   data-testid="tasks-audit-button"
