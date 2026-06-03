@@ -124,6 +124,25 @@ async def is_gemini_cli_available(force: bool = False) -> bool:
         _detection_cache["expires_at"] = time.monotonic() + _DETECTION_CACHE_TTL_SECONDS
         return result
 
+# ---------------------------------------------------------------------------
+# RuntimeProvider implementation (→1891, →1892, →2145)
+# ---------------------------------------------------------------------------
+from services.runtime_provider import Feature, _BaseRuntimeProvider  # noqa: E402
+
+# Feature set based on code inspection: gemini CLI streams tokens (stream-json
+# output format) but has no worktrees, plan mode, hooks, isolation, monitor,
+# or subagent-spawn support in this codebase.
+_GEMINI_CLI_FEATURES = frozenset({Feature.STREAMING})
+
+
+class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
+    """RuntimeProvider for the local gemini CLI. Streaming only."""
+
+    _features = _GEMINI_CLI_FEATURES
+
+
+# ---------------------------------------------------------------------------
+
 async def stream_chat(
     messages: list[dict],
     websocket: WebSocket,

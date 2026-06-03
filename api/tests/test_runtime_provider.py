@@ -202,3 +202,45 @@ def test_spawn_subagent_signature_is_stable():
     params = list(sig.parameters)
     assert params[0] == "self"
     assert "request" in params
+
+
+# --------------------------------------------------------------------------
+# Named provider feature sets (→2145: claude_code_provider + gemini_cli_provider)
+# --------------------------------------------------------------------------
+
+def test_claude_code_provider_reports_full_feature_set():
+    from services.claude_code_provider import ClaudeCodeRuntimeProvider
+    p = ClaudeCodeRuntimeProvider()
+    assert isinstance(p, RuntimeProvider)
+    assert p.features() == set(Feature)
+    assert p.supports(Feature.PLAN_MODE)
+    assert p.supports(Feature.WORKTREES)
+    assert p.supports(Feature.MONITOR)
+
+
+def test_gemini_cli_provider_reports_correct_subset():
+    from services.gemini_cli_provider import GeminiCliRuntimeProvider
+    p = GeminiCliRuntimeProvider()
+    assert isinstance(p, RuntimeProvider)
+    feats = p.features()
+    # Gemini CLI streams tokens — STREAMING is declared.
+    assert Feature.STREAMING in feats
+    # Gemini CLI lacks worktrees, plan mode, hooks, monitor, isolation, subagents.
+    assert Feature.WORKTREES not in feats
+    assert Feature.PLAN_MODE not in feats
+    assert Feature.MONITOR not in feats
+    assert Feature.HOOKS not in feats
+    assert Feature.ISOLATION not in feats
+    assert Feature.SUBAGENTS not in feats
+
+
+def test_switching_between_claude_code_and_gemini_providers_changes_features():
+    from services.claude_code_provider import ClaudeCodeRuntimeProvider
+    from services.gemini_cli_provider import GeminiCliRuntimeProvider
+    cc = ClaudeCodeRuntimeProvider()
+    ge = GeminiCliRuntimeProvider()
+    # Feature sets must differ.
+    assert cc.features() != ge.features()
+    # Both satisfy the RuntimeProvider Protocol.
+    assert isinstance(cc, RuntimeProvider)
+    assert isinstance(ge, RuntimeProvider)

@@ -4833,6 +4833,10 @@ def _build_spec_ac_block(task_id: str, docs: list[dict]) -> str:
 
 @router.post("/agents/spawn")
 async def spawn_agent(body: AgentSpawn, request: Request = None, response: Response = None):
+    # TODO(→1895, →2145): wire DefaultRuntimeProvider.spawn_subagent() here so
+    # callers CAN go through the provider. The provider in
+    # services/runtime_provider.py accepts an injected spawn_fn so existing
+    # behaviour is byte-for-byte unchanged until this is wired.
     from services.rate_limit import rate_limit_check
     if request is not None:
         rate_limit_check(request, "agents.spawn")

@@ -560,6 +560,20 @@ async def complete(
         return None
 
 
+# ---------------------------------------------------------------------------
+# RuntimeProvider implementation (→1891, →1892, →2145)
+# ---------------------------------------------------------------------------
+from services.runtime_provider import ALL_FEATURES, DefaultRuntimeProvider  # noqa: E402
+
+
+class ClaudeCodeRuntimeProvider(DefaultRuntimeProvider):
+    """RuntimeProvider for the local claude-code CLI. Supports the full feature set."""
+
+    _features = ALL_FEATURES
+
+
+# ---------------------------------------------------------------------------
+
 async def stream_chat(
     messages: list[dict],
     websocket: WebSocket,
