@@ -443,6 +443,147 @@ async def test_detect_vertex_gemini_timeout_returns_false(monkeypatch):
     assert result == {"available": False, "vertex_ai_needs_reauth": False}
 
 
+# ---------------------------------------------------------------------------
+# Stale-while-revalidate tests
+# ---------------------------------------------------------------------------
+
+_STALE_VALUE = {
+    "claude_code": True,
+    "gemini_cli": False,
+    "anthropic_key": False,
+    "gemini_key": False,
+    "vertex_ai": False,
+    "bedrock": False,
+    "vertex_ai_project": None,
+    "vertex_ai_needs_reauth": False,
+}
+_FRESH_VALUE = {**_STALE_VALUE, "gemini_cli": True}
+
+
+@pytest.mark.asyncio
+async def test_stale_cache_returns_immediately_without_blocking():
+    """Stale cache: detect_providers() returns the cached value instantly.
+
+    _run_full_detection must NOT be called inline — it should be scheduled
+    as a background task, not awaited before returning.
+    """
+    from services.provider_detection import detect_providers
+
+    _pd._providers_cache_value = dict(_STALE_VALUE)
+    _pd._providers_cache_ts = time.monotonic() - (_pd._PROVIDERS_CACHE_TTL + 5.0)
+
+    inline_detection_ran = False
+
+    async def fake_detection():
+        nonlocal inline_detection_ran
+        inline_detection_ran = True
+        return dict(_FRESH_VALUE)
+
+    with patch("services.provider_detection._run_full_detection", new=fake_detection):
+        result = await detect_providers()
+
+        # Must return the stale cached value immediately
+        assert result == _STALE_VALUE
+        # _run_full_detection must NOT have been awaited inline (task is pending)
+        assert not inline_detection_ran
+
+        # After yielding to the event loop the background task runs
+        await asyncio.sleep(0.01)
+        assert inline_detection_ran
+
+    # Cache should now hold the fresh value
+    assert _pd._providers_cache_value == _FRESH_VALUE
+
+
+@pytest.mark.asyncio
+async def test_stale_cache_single_background_refresh_only():
+    """Multiple concurrent calls on a stale cache spawn at most one refresh."""
+    from services.provider_detection import detect_providers
+
+    _pd._providers_cache_value = dict(_STALE_VALUE)
+    _pd._providers_cache_ts = time.monotonic() - (_pd._PROVIDERS_CACHE_TTL + 5.0)
+
+    call_count = 0
+
+    async def counting_detection():
+        nonlocal call_count
+        call_count += 1
+        await asyncio.sleep(0.05)
+        return dict(_FRESH_VALUE)
+
+    with patch("services.provider_detection._run_full_detection", new=counting_detection):
+        results = await asyncio.gather(
+            detect_providers(),
+            detect_providers(),
+            detect_providers(),
+        )
+
+        # All three calls see the stale value
+        assert all(r == _STALE_VALUE for r in results)
+
+        # Let background task(s) finish
+        await asyncio.sleep(0.1)
+        # Only one actual detection should have run
+        assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_no_cache_blocks_and_runs_full_detection():
+    """With no cached value, detect_providers() must run a full blocking detection."""
+    from services.provider_detection import detect_providers
+
+    # Cache is empty (autouse fixture already cleared it)
+    detection_ran = False
+
+    async def fake_detection():
+        nonlocal detection_ran
+        detection_ran = True
+        return dict(_FRESH_VALUE)
+
+    with patch("services.provider_detection._run_full_detection", new=fake_detection):
+        result = await detect_providers()
+
+    # Full detection must have run (not deferred)
+    assert detection_ran
+    assert result == _FRESH_VALUE
+    assert _pd._providers_cache_value == _FRESH_VALUE
+
+
+# ---------------------------------------------------------------------------
+# Startup warmup helper
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_warm_provider_cache_populates_cache():
+    """warm_provider_cache() populates the cache via detect_providers()."""
+    from services.provider_detection import warm_provider_cache
+
+    async def fake_detection():
+        return dict(_FRESH_VALUE)
+
+    with patch("services.provider_detection._run_full_detection", new=fake_detection):
+        await warm_provider_cache()
+
+    assert _pd._providers_cache_value == _FRESH_VALUE
+
+
+@pytest.mark.asyncio
+async def test_warm_provider_cache_swallows_exceptions():
+    """warm_provider_cache() must not crash if detection raises."""
+    from services.provider_detection import warm_provider_cache
+
+    async def failing_detection():
+        raise RuntimeError("network unavailable")
+
+    with patch("services.provider_detection._run_full_detection", new=failing_detection):
+        # Should complete without raising
+        await warm_provider_cache()
+
+    # Cache remains empty — that's fine, no crash is what matters
+    assert _pd._providers_cache_value is None
+
+
 @pytest.mark.asyncio
 async def test_run_full_detection_concurrent():
     """All 6 probes run in parallel — total elapsed ≈ one probe, not the sum."""

@@ -209,29 +209,60 @@ def _reset_provider_cache() -> None:
     _providers_cache_ts = 0.0
 
 
+async def _refresh_provider_cache() -> None:
+    """Background cache refresh — only called when a stale value already exists."""
+    global _providers_cache_value, _providers_cache_ts
+    lock = _get_providers_lock()
+    async with lock:
+        # Another refresh may have beaten us to the lock.
+        if time.monotonic() < _providers_cache_ts + _PROVIDERS_CACHE_TTL:
+            return
+        result = await _run_full_detection()
+        _providers_cache_value = result
+        _providers_cache_ts = time.monotonic()
+
+
+async def warm_provider_cache() -> None:
+    """Populate the provider cache at startup. Swallows all errors."""
+    try:
+        await detect_providers()
+    except Exception:
+        pass
+
+
 async def detect_providers() -> dict[str, bool]:
     """Return availability of known AI providers.
 
     Checks Claude Code subscription login, ANTHROPIC_API_KEY, GEMINI_API_KEY,
     Google Vertex AI ADC, and AWS Bedrock credentials. No secrets are returned.
 
-    Results are cached for _PROVIDERS_CACHE_TTL seconds and protected by a
-    single-flight lock so N concurrent page-load requests trigger at most one
-    full detection run.  →1738
+    Results are cached for _PROVIDERS_CACHE_TTL seconds. Stale-while-revalidate:
+    when the cache is expired but not empty, the stale value is returned instantly
+    while a background task refreshes it. Only the very first call (empty cache)
+    blocks. This prevents the 5s Vite proxy timeout from firing on cold caches.
+    Protected by a single-flight lock so at most one refresh runs at a time.  →1738
     """
     global _providers_cache_value, _providers_cache_ts
 
     now = time.monotonic()
+
+    # Fresh cache: return immediately.
     if _providers_cache_value is not None and now < _providers_cache_ts + _PROVIDERS_CACHE_TTL:
         return _providers_cache_value
 
+    # Stale cache (exists but TTL expired): return immediately, refresh in background.
+    if _providers_cache_value is not None:
+        lock = _get_providers_lock()
+        if not lock.locked():
+            asyncio.create_task(_refresh_provider_cache())
+        return _providers_cache_value
+
+    # No cache at all: first-ever call, must block and populate.
     lock = _get_providers_lock()
     async with lock:
-        # Re-check inside the lock — another waiter may have populated the cache.
-        now = time.monotonic()
-        if _providers_cache_value is not None and now < _providers_cache_ts + _PROVIDERS_CACHE_TTL:
+        # Re-check — another waiter may have populated the cache while we waited.
+        if _providers_cache_value is not None:
             return _providers_cache_value
-
         result = await _run_full_detection()
         _providers_cache_value = result
         _providers_cache_ts = time.monotonic()

@@ -104,6 +104,8 @@ async def lifespan(app: FastAPI):
     await schedule_merge_debt_watcher()
     await schedule_spec_commit_scanner()
     await install_signal_shutdown_hook()
+    from services.provider_detection import warm_provider_cache
+    _keep(asyncio.create_task(warm_provider_cache()))
     from services.ostk import start_clock_refresher
     _keep(await start_clock_refresher())
     from services.reminders import start_reminder_scheduler
