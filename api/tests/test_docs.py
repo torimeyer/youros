@@ -37,6 +37,43 @@ class TestDocService:
         assert result == "docs/draft/my-plan.md"
 
     @pytest.mark.asyncio
+    async def test_doc_draft_appends_body_scaffold(self):
+        """doc_draft appends canonical body sections when binary leaves frontmatter only (→2038).
+
+        Agents call ostk doc draft directly via CLI, bypassing the API endpoint
+        that previously was the only place the scaffold was written.  This test
+        confirms the service method itself injects the scaffold.
+        """
+        draft_dir = Path(self.tmpdir) / "docs" / "draft"
+        draft_dir.mkdir(parents=True)
+        draft_file = draft_dir / "my-feature.md"
+        draft_file.write_text("---\ntitle: my feature\nstatus: draft\ncreated_at: 2026-06-02\n---\n")
+
+        with patch.object(self.svc, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = "docs/draft/my-feature.md"
+            await self.svc.doc_draft("my feature")
+
+        content = draft_file.read_text()
+        assert "## Problem" in content
+        assert "## Acceptance criteria" in content
+        assert "- [ ]" in content
+
+    @pytest.mark.asyncio
+    async def test_doc_draft_skips_scaffold_when_body_already_present(self):
+        """doc_draft does not double-write if the file already has body sections."""
+        draft_dir = Path(self.tmpdir) / "docs" / "draft"
+        draft_dir.mkdir(parents=True)
+        draft_file = draft_dir / "existing.md"
+        original = "---\ntitle: existing\nstatus: draft\n---\n\n## Problem\n\nAlready filled.\n"
+        draft_file.write_text(original)
+
+        with patch.object(self.svc, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = "docs/draft/existing.md"
+            await self.svc.doc_draft("existing")
+
+        assert draft_file.read_text() == original
+
+    @pytest.mark.asyncio
     async def test_doc_promote_pure_python(self):
         """doc_promote moves draft to specs and flips front matter."""
         draft_dir = Path(self.tmpdir) / "docs" / "draft"

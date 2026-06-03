@@ -2499,6 +2499,10 @@ class OstkService:
         case-insensitive). Hooks reviews live in ~/.myos/hooks/, never
         under docs/draft/ — per feedback_hooks_at_user_scope.md.
         Fixes →1455.
+
+        After the binary creates the file, appends the canonical body scaffold
+        when the file is frontmatter-only so CLI callers (agents calling ostk
+        directly, not through the API) never receive empty stubs (→2038).
         """
         if "hook" in title.lower():
             raise OstkError(
@@ -2506,7 +2510,14 @@ class OstkService:
                 "in ~/.myos/hooks/, not docs/draft/. Save the file directly to "
                 "~/.myos/hooks/ instead of using `ostk doc draft`."
             )
-        return await self._run("doc", "draft", title)
+        path_str = await self._run("doc", "draft", title)
+        draft_path = Path(self.cwd) / path_str.strip()
+        if draft_path.exists():
+            existing = draft_path.read_text()
+            if "## " not in existing:
+                from services.spec_templates import canonical_spec_template_body
+                draft_path.write_text(existing + "\n" + canonical_spec_template_body())
+        return path_str
 
     async def doc_promote(self, path: str) -> str:
         """Promote a draft to a spec. Returns the new file path.
