@@ -3792,6 +3792,7 @@ def test_compute_spec_status_ready_when_all_tasks_unstarted():
     """A promoted spec whose tasks are all 'open' (not yet started) must show
     'ready', not 'in-progress'.  This was the S002/S003/S006/S007 bug where
     every promoted spec showed 'In Progress / 0/N tasks'."""
+    from services.ostk import OstkService
     task_ids = [str(i) for i in range(1, 27)]  # 26 tasks, like S007
     task_statuses = {tid: "open" for tid in task_ids}
 
@@ -3805,6 +3806,7 @@ def test_compute_spec_status_ready_when_all_tasks_unstarted():
 def test_compute_spec_status_in_progress_only_when_task_started():
     """Stage flips to 'in-progress' the moment at least one task transitions
     from 'open' to 'in_progress' (i.e., work actually begins)."""
+    from services.ostk import OstkService
     task_ids = ["t1", "t2", "t3"]
     # All open → still ready
     all_open = {tid: "open" for tid in task_ids}

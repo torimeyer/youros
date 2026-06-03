@@ -3427,7 +3427,14 @@ class OstkService:
         # ac_all_met retained for signature compat; not needed now that
         # all_closed alone flips to complete.
         _ = ac_all_met
-        return "in-progress"
+
+        # A spec enters "in-progress" only when at least one task has been
+        # actively started (status is neither "open"/unstarted nor "closed"/done).
+        # Tasks that exist but haven't been touched keep the spec in "ready".
+        any_task_started = any(s not in ("open", "closed") for s in statuses)
+        if any_task_started or has_active_claim:
+            return "in-progress"
+        return "ready"
 
     # --- Threads ---
 
