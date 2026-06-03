@@ -10,6 +10,29 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.3.0
+  {
+    date: '2026-06-03',
+    label: 'June 3, 2026',
+    entries: [
+      {
+        title: 'Pick your model when you start an agent',
+        description: 'The spawn box now lets you choose Claude or Gemini, and starts on Claude. Before, it could only start Gemini.',
+      },
+      {
+        title: 'More reliable backend',
+        description: 'Fixed a slowdown that could freeze the backend and force a restart every 30 seconds when the agent list refreshed. The list stays fast now.',
+      },
+      {
+        title: 'Honest agent chat',
+        description: 'If you message an agent that has already finished or gone quiet, it now tells you so plainly instead of pretending it is ready and waiting.',
+      },
+      {
+        title: 'Specs stay accurate',
+        description: 'Deleting a spec now actually removes it for good, In Progress has its own color so it no longer looks like Needs detail, and the drift panel lets you update a spec to match the code or keep it as is.',
+      },
+    ],
+  },
   // v5.2.0
   {
     date: '2026-06-03',
