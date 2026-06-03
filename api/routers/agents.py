@@ -3364,8 +3364,7 @@ def _find_freshest_matching_jsonl(
     parse a name from the first line (e.g. unusual intro formats).
     """
     candidates = _load_candidates(root, pattern)
-    root_mtime = _dir_mtime_ns(root)
-    key = (str(root), pattern, root_mtime)
+    key = (str(root), pattern)
     entry = _candidates_cache.get(key)
     if entry is not None:
         path = entry[2].get(needle_lower.strip())
