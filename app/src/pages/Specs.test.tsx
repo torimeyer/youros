@@ -2602,3 +2602,61 @@ describe('E2E journey: specs list → pick → build (→1925 →1926 →1927)',
     })
   })
 })
+
+// ─── E4: SpecReview fresh-eyes verify button ──────────────────────────────────
+
+import { SpecReview } from '../components/SpecReview'
+
+describe('SpecReview fresh verify (E4)', () => {
+  const mockReviewData = {
+    spec_path: 'docs/spec/plan.md',
+    readiness: {
+      ready: true,
+      file_path: null,
+      checks: [{ name: 'check', passed: true, detail: '', required: true }],
+    },
+    drift: { drift: false, acked: false, items: [], summary: 'No drift.' },
+    constitution: { principles: [], violations: [] },
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApiGet.mockResolvedValue(mockReviewData)
+    mockedApiPost.mockResolvedValue({ fresh: true, ok: true, summary: 'All requirements tested.' })
+  })
+
+  it('renders the Fresh eyes button', async () => {
+    render(
+      <MemoryRouter>
+        <SpecReview specPath="docs/spec/plan.md" />
+      </MemoryRouter>
+    )
+    await waitFor(() => expect(screen.getByTestId('fresh-verify-btn')).toBeTruthy())
+  })
+
+  it('calls /verify?fresh=true when Fresh eyes clicked', async () => {
+    render(
+      <MemoryRouter>
+        <SpecReview specPath="docs/spec/plan.md" />
+      </MemoryRouter>
+    )
+    await waitFor(() => expect(screen.getByTestId('fresh-verify-btn')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('fresh-verify-btn'))
+    await waitFor(() => expect(mockedApiPost).toHaveBeenCalledWith(
+      '/specs/docs/spec/plan.md/verify?fresh=true',
+      {}
+    ))
+  })
+
+  it('shows the fresh verify result after click', async () => {
+    render(
+      <MemoryRouter>
+        <SpecReview specPath="docs/spec/plan.md" />
+      </MemoryRouter>
+    )
+    await waitFor(() => expect(screen.getByTestId('fresh-verify-btn')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('fresh-verify-btn'))
+    await waitFor(() => expect(screen.getByTestId('fresh-verify-result')).toBeTruthy())
+    expect(screen.getByTestId('fresh-verify-result').textContent).toContain('All requirements tested.')
+  })
+})

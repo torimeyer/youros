@@ -1823,3 +1823,111 @@ async def test_review_spec_includes_acked_field(client, tmp_path, monkeypatch):
     assert "drift" in data
     assert "acked" in data["drift"]
     assert data["drift"]["acked"] is False
+
+
+# ─── E2: AC link annotation drift checks ─────────────────────────────────────
+
+class TestAcLinkDrift:
+    """E2: drift from AC annotation (test: ..., covers: ...) pointing to missing paths."""
+
+    def test_no_drift_when_no_annotations(self, tmp_path):
+        spec = tmp_path / "spec.md"
+        spec.write_text(
+            "---\nstatus: spec\n---\n\n"
+            "## Acceptance criteria\n"
+            "- [ ] Something works\n"
+        )
+        import services.spec_drift as sd
+        orig = sd._REPO_ROOT
+        try:
+            sd._REPO_ROOT = tmp_path
+            result = sd.compute_spec_drift(str(spec))
+        finally:
+            sd._REPO_ROOT = orig
+        assert result["drift"] is False
+        kinds = [i["kind"] for i in result["items"]]
+        assert "ac_link_missing_test" not in kinds
+        assert "ac_link_missing_file" not in kinds
+
+    def test_drift_when_test_file_missing(self, tmp_path):
+        spec = tmp_path / "spec.md"
+        spec.write_text(
+            "---\nstatus: spec\n---\n\n"
+            "## Acceptance criteria\n"
+            "- [ ] Something works (test: api/tests/nonexistent_test.py::test_thing)\n"
+        )
+        import services.spec_drift as sd
+        orig = sd._REPO_ROOT
+        try:
+            sd._REPO_ROOT = tmp_path
+            result = sd.compute_spec_drift(str(spec))
+        finally:
+            sd._REPO_ROOT = orig
+        assert result["drift"] is True
+        kinds = [i["kind"] for i in result["items"]]
+        assert "ac_link_missing_test" in kinds
+
+    def test_drift_when_covered_file_missing(self, tmp_path):
+        test_file = tmp_path / "api" / "tests" / "test_real.py"
+        test_file.parent.mkdir(parents=True)
+        test_file.write_text("def test_foo(): pass\n")
+        spec = tmp_path / "spec.md"
+        spec.write_text(
+            "---\nstatus: spec\n---\n\n"
+            "## Acceptance criteria\n"
+            "- [ ] Works (test: api/tests/test_real.py::test_foo, covers: api/missing_module.py)\n"
+        )
+        import services.spec_drift as sd
+        orig = sd._REPO_ROOT
+        try:
+            sd._REPO_ROOT = tmp_path
+            result = sd.compute_spec_drift(str(spec))
+        finally:
+            sd._REPO_ROOT = orig
+        assert result["drift"] is True
+        kinds = [i["kind"] for i in result["items"]]
+        assert "ac_link_missing_file" in kinds
+        assert "ac_link_missing_test" not in kinds
+
+    def test_no_drift_when_all_refs_exist(self, tmp_path):
+        test_file = tmp_path / "api" / "tests" / "test_real.py"
+        test_file.parent.mkdir(parents=True)
+        test_file.write_text("def test_foo(): pass\n")
+        cover_file = tmp_path / "api" / "module.py"
+        cover_file.write_text("pass\n")
+        spec = tmp_path / "spec.md"
+        spec.write_text(
+            "---\nstatus: spec\n---\n\n"
+            "## Acceptance criteria\n"
+            "- [ ] Works (test: api/tests/test_real.py::test_foo, covers: api/module.py)\n"
+        )
+        import services.spec_drift as sd
+        orig = sd._REPO_ROOT
+        try:
+            sd._REPO_ROOT = tmp_path
+            result = sd.compute_spec_drift(str(spec))
+        finally:
+            sd._REPO_ROOT = orig
+        kinds = [i["kind"] for i in result["items"]]
+        assert "ac_link_missing_test" not in kinds
+        assert "ac_link_missing_file" not in kinds
+
+    def test_parse_annotation_helper(self):
+        from services.spec_drift import _parse_ac_annotation
+        ann = _parse_ac_annotation(
+            "- [ ] Feature works (test: api/tests/test_specs.py::test_foo, covers: api/router.py)"
+        )
+        assert ann is not None
+        assert ann["test"] == "api/tests/test_specs.py::test_foo"
+        assert ann["covers"] == ["api/router.py"]
+
+    def test_parse_annotation_test_only(self):
+        from services.spec_drift import _parse_ac_annotation
+        ann = _parse_ac_annotation("- [ ] Works (test: path/to/test.py)")
+        assert ann is not None
+        assert ann["test"] == "path/to/test.py"
+        assert ann["covers"] == []
+
+    def test_parse_annotation_returns_none_for_plain_line(self):
+        from services.spec_drift import _parse_ac_annotation
+        assert _parse_ac_annotation("- [ ] No annotation here") is None

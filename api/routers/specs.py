@@ -1853,19 +1853,19 @@ def _fire_spec_complete_notification(spec_path: str) -> None:
 
 
 @router.post("/specs/{spec_path:path}/verify")
-async def verify_spec(spec_path: str):
+async def verify_spec(spec_path: str, fresh: bool = False):
     """Verify a spec's acceptance criteria against linked task status.
 
-    Returns which criteria are met, whether all are met, and a summary
-    of linked task statuses.
+    With fresh=True (E4): runs with a new assistant that sees only the
+    requirements and referenced tests, not the original implementation.
+    Returns informational {fresh, ok, summary} and never fires notifications.
 
-    When verify determines that ALL acceptance criteria are met (the
-    "spec is complete" transition), fire a single bell notification so
-    Tori sees "Your feature is live" in the tray without having to keep
-    staring at the Specs page. Dedup target key is the spec path so
-    repeat verifies do not duplicate bells.
+    Without fresh=True: checks task statuses and fires a notification
+    when all criteria are met.
     """
     _validate_doc_path(spec_path)
+    if fresh:
+        return await _fresh_verify_spec(spec_path)
     try:
         result = await ostk.spec_verify(spec_path)
     except OstkError as e:
@@ -1873,6 +1873,132 @@ async def verify_spec(spec_path: str):
     if isinstance(result, dict) and result.get("all_met") is True:
         _fire_spec_complete_notification(spec_path)
     return result
+
+
+async def _fresh_verify_spec(spec_path: str) -> dict:
+    """E4 fresh-eyes verify: reads only spec requirements + referenced test files.
+
+    The LLM call is given only the AC requirements and test content, so
+    the assistant that built the work is never the one that signs off.
+    Informational only, never blocks, never fires completion notifications.
+    """
+    candidate_roots = [
+        Path(PROJECT_ROOT) / spec_path,
+        Path.home() / ".myos" / "specs" / spec_path,
+        Path.home() / ".myos" / "drafts" / spec_path,
+    ]
+    full_path: Optional[Path] = None
+    for p in candidate_roots:
+        if p.exists():
+            full_path = p
+            break
+    if full_path is None:
+        raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
+    try:
+        text = full_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raise HTTPException(status_code=404, detail=f"Could not read spec: {spec_path}")
+
+    requirements = _extract_requirements_for_fresh(text)
+    test_context = _collect_test_context_for_fresh(text)
+    prompt = _build_fresh_verify_prompt(requirements, test_context)
+
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic()
+        response = await asyncio.to_thread(
+            client.messages.create,
+            model=AC_DRAFT_MODEL,
+            max_tokens=400,
+            system=(
+                "You are an independent reviewer who has not seen the implementation. "
+                "Read the requirements and tests provided, then state briefly which "
+                "requirements appear to be tested, which have no test, and whether any "
+                "tests go beyond the listed requirements. Be factual and brief."
+            ),
+            messages=[{"role": "user", "content": prompt}],
+        )
+        assessment = response.content[0].text.strip()
+        return {"fresh": True, "ok": True, "summary": assessment[:400], "model": AC_DRAFT_MODEL}
+    except Exception as exc:
+        logger.warning("fresh_verify: LLM call failed for %r: %s", spec_path, exc)
+        return {
+            "fresh": True,
+            "ok": False,
+            "summary": "Fresh review could not run (no API key or error).",
+            "model": AC_DRAFT_MODEL,
+        }
+
+
+def _extract_requirements_for_fresh(spec_text: str) -> str:
+    """Return the AC section of a spec (or body without frontmatter if no AC heading)."""
+    lines = spec_text.split("\n")
+    ac_start: Optional[int] = None
+    ac_end = len(lines)
+    for idx, line in enumerate(lines):
+        if _AC_HEADING_RE.match(line):
+            ac_start = idx
+            break
+    if ac_start is None:
+        in_fm = False
+        fm_done = False
+        result_lines: list[str] = []
+        for line in lines:
+            if not fm_done and line.strip() == "---":
+                in_fm = not in_fm
+                if not in_fm:
+                    fm_done = True
+                continue
+            if fm_done or not in_fm:
+                result_lines.append(line)
+        return "\n".join(result_lines)[:2000]
+    for idx in range(ac_start + 1, len(lines)):
+        if _ANY_HEADING_RE.match(lines[idx]):
+            ac_end = idx
+            break
+    return "\n".join(lines[ac_start:ac_end])
+
+
+_FRESH_ANN_RE = re.compile(
+    r"\(\s*test:\s*([^,)]+?)(?:,\s*covers:\s*([^)]+))?\s*\)",
+    re.IGNORECASE,
+)
+
+
+def _collect_test_context_for_fresh(spec_text: str) -> str:
+    """Read test files referenced via E2 AC annotations."""
+    test_paths: set[str] = set()
+    for m in _FRESH_ANN_RE.finditer(spec_text):
+        test_ref = m.group(1).strip()
+        test_path_str = test_ref.split("::")[0].strip()
+        if test_path_str:
+            test_paths.add(test_path_str)
+    if not test_paths:
+        return ""
+    parts = []
+    for tp in sorted(test_paths):
+        full = Path(PROJECT_ROOT) / tp
+        if full.exists():
+            try:
+                content = full.read_text(encoding="utf-8", errors="replace")
+                parts.append(f"--- {tp} ---\n{content[:1500]}")
+            except OSError:
+                pass
+    return "\n\n".join(parts)
+
+
+def _build_fresh_verify_prompt(requirements: str, test_context: str) -> str:
+    if test_context:
+        return (
+            f"Requirements:\n{requirements}\n\n"
+            f"Tests:\n{test_context}\n\n"
+            "For each requirement, note whether a test covers it."
+        )
+    return (
+        f"Requirements:\n{requirements}\n\n"
+        "No test files were referenced in this spec. "
+        "Note which requirements appear to have no automated test coverage."
+    )
 
 
 # Matches a markdown unchecked checkbox bullet. Permissive so specs

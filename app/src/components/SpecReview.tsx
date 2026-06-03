@@ -33,6 +33,8 @@ export function SpecReview({ specPath }: { specPath: string }) {
   const [error, setError] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState<string | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
+  const [freshResult, setFreshResult] = useState<{ ok: boolean; summary: string } | null>(null)
+  const [freshBusy, setFreshBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -77,6 +79,22 @@ export function SpecReview({ specPath }: { specPath: string }) {
       setActionMsg('Could not save.')
     } finally {
       setActionBusy(false)
+    }
+  }
+
+  const handleFreshVerify = async () => {
+    setFreshBusy(true)
+    setFreshResult(null)
+    try {
+      const res = await api.post<{ fresh: boolean; ok: boolean; summary: string }>(
+        `/specs/${specPath}/verify?fresh=true`,
+        {}
+      )
+      setFreshResult({ ok: res.ok, summary: res.summary })
+    } catch {
+      setFreshResult({ ok: false, summary: 'Fresh review could not run.' })
+    } finally {
+      setFreshBusy(false)
     }
   }
 
@@ -169,6 +187,25 @@ export function SpecReview({ specPath }: { specPath: string }) {
               </li>
             ))}
           </ul>
+        )}
+      </div>
+
+      <div data-testid="review-fresh-verify" className="space-y-1 pt-1 border-t border-slate-700/50">
+        <button
+          data-testid="fresh-verify-btn"
+          disabled={freshBusy}
+          onClick={handleFreshVerify}
+          className="text-xs px-2.5 py-1 rounded-md bg-slate-500/15 text-slate-400 hover:bg-slate-500/25 transition-colors disabled:opacity-50"
+        >
+          {freshBusy ? 'Checking...' : 'Fresh eyes'}
+        </button>
+        {freshResult && (
+          <p
+            data-testid="fresh-verify-result"
+            className={`text-xs ${freshResult.ok ? 'text-slate-400' : 'text-amber-400'}`}
+          >
+            {freshResult.summary}
+          </p>
         )}
       </div>
     </div>

@@ -12,7 +12,7 @@ Covers:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -3866,3 +3866,91 @@ def test_compute_spec_status_in_progress_only_when_task_started():
     # All closed → complete
     all_closed = {"t1": "closed", "t2": "closed", "t3": "closed"}
     assert OstkService.compute_spec_status("spec", task_ids, all_closed) == "complete"
+
+
+# ─── E4: Fresh-eyes verify endpoint ──────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_verify_fresh_returns_fresh_key(client, tmp_path, monkeypatch):
+    """E4: /verify?fresh=true returns {fresh: True, ok, summary} without hitting task status."""
+    import anthropic as _anthropic
+
+    spec_dir = tmp_path / "docs" / "spec"
+    spec_dir.mkdir(parents=True)
+    spec_file = spec_dir / "my-plan.md"
+    spec_file.write_text(
+        "---\ntitle: Plan\nstatus: spec\n---\n\n"
+        "## Acceptance criteria\n"
+        "- [ ] The thing works\n"
+    )
+
+    from routers import specs as specs_mod
+    monkeypatch.setattr(specs_mod, "PROJECT_ROOT", str(tmp_path))
+
+    mock_content = type("Content", (), {"text": "All requirements look untested."})()
+    mock_resp = type("Resp", (), {"content": [mock_content]})()
+    mock_create = MagicMock(return_value=mock_resp)
+    mock_client = MagicMock()
+    mock_client.messages.create = mock_create
+
+    with patch.object(_anthropic, "Anthropic", return_value=mock_client):
+        resp = await client.post("/api/specs/docs/spec/my-plan.md/verify?fresh=true")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fresh"] is True
+    assert "summary" in data
+    assert "ok" in data
+
+
+@pytest.mark.asyncio
+async def test_verify_fresh_not_found(client, tmp_path, monkeypatch):
+    """E4: /verify?fresh=true returns 404 when spec does not exist."""
+    from routers import specs as specs_mod
+    monkeypatch.setattr(specs_mod, "PROJECT_ROOT", str(tmp_path))
+
+    resp = await client.post("/api/specs/docs/spec/nonexistent-e4-fresh.md/verify?fresh=true")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_verify_fresh_graceful_on_llm_error(client, tmp_path, monkeypatch):
+    """E4: /verify?fresh=true returns ok=False gracefully when LLM is unavailable."""
+    import anthropic as _anthropic
+
+    spec_dir = tmp_path / "docs" / "spec"
+    spec_dir.mkdir(parents=True)
+    (spec_dir / "my-plan.md").write_text(
+        "---\ntitle: Plan\nstatus: spec\n---\n\n- [ ] Works\n"
+    )
+
+    from routers import specs as specs_mod
+    monkeypatch.setattr(specs_mod, "PROJECT_ROOT", str(tmp_path))
+
+    with patch.object(_anthropic, "Anthropic", side_effect=Exception("no key")):
+        resp = await client.post("/api/specs/docs/spec/my-plan.md/verify?fresh=true")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fresh"] is True
+    assert data["ok"] is False
+    assert "summary" in data
+
+
+@pytest.mark.asyncio
+async def test_verify_without_fresh_still_works(client, tmp_path, monkeypatch):
+    """Regression: normal /verify still calls ostk.spec_verify (not fresh path)."""
+    from unittest.mock import AsyncMock
+
+    mock_result = {
+        "all_met": False,
+        "criteria": [{"text": "thing", "met": False}],
+        "task_summary": {"total": 0, "open": 0, "closed": 0},
+    }
+
+    with patch("routers.specs.ostk") as mock_ostk:
+        mock_ostk.spec_verify = AsyncMock(return_value=mock_result)
+        resp = await client.post("/api/specs/docs/spec/any-plan.md/verify")
+
+    assert resp.status_code == 200
+    mock_ostk.spec_verify.assert_called_once()

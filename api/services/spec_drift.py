@@ -74,6 +74,10 @@ def compute_spec_drift(spec_path: str) -> dict[str, Any]:
                 ),
             })
 
+    # E2: check AC link annotations for missing test/file references
+    link_items = _check_ac_links(text, _REPO_ROOT)
+    items.extend(link_items)
+
     drift = len(items) > 0
     if not items:
         summary = "No drift detected."
@@ -82,3 +86,71 @@ def compute_spec_drift(spec_path: str) -> dict[str, Any]:
         summary = f"{len(items)} drift item(s): {kinds}."
 
     return {"drift": drift, "items": items, "summary": summary}
+
+
+# Regex for E2 inline AC annotation: (test: path::name, covers: a.py, b.py)
+_AC_ANNOTATION_RE = re.compile(
+    r"\(\s*test:\s*([^,)]+?)(?:,\s*covers:\s*([^)]+))?\s*\)",
+    re.IGNORECASE,
+)
+
+_AC_HEADING_SCAN_RE = re.compile(r"^\s{0,3}#{2,}\s+acceptance\s+criteria\b", re.I)
+_ANY_HEADING_SCAN_RE = re.compile(r"^\s{0,3}#{2,}\s+")
+
+
+def _parse_ac_annotation(line: str) -> dict | None:
+    """Return {test, covers} from a trailing (test: ..., covers: ...) annotation, or None."""
+    m = _AC_ANNOTATION_RE.search(line)
+    if not m:
+        return None
+    test_ref = m.group(1).strip()
+    covers_raw = m.group(2)
+    covers = [c.strip() for c in covers_raw.split(",")] if covers_raw else []
+    return {"test": test_ref, "covers": covers}
+
+
+def _check_ac_links(text: str, repo_root: Path) -> list[dict[str, str]]:
+    """Return drift items for AC annotation links that point to missing test/file paths.
+
+    Syntax: - [ ] Requirement text (test: path/to/test.py::test_name, covers: a.py, b.py)
+    Both test: and covers: are optional but test: must appear first if present.
+    """
+    lines = text.split("\n")
+    ac_start: int | None = None
+    ac_end = len(lines)
+    for idx, line in enumerate(lines):
+        if _AC_HEADING_SCAN_RE.match(line):
+            ac_start = idx + 1
+            break
+    if ac_start is not None:
+        for idx in range(ac_start, len(lines)):
+            if _ANY_HEADING_SCAN_RE.match(lines[idx]):
+                ac_end = idx
+                break
+        scan = lines[ac_start:ac_end]
+    else:
+        scan = lines
+
+    items: list[dict[str, str]] = []
+    for line in scan:
+        if not re.match(r"^\s*[-*]\s*\[", line):
+            continue
+        ann = _parse_ac_annotation(line)
+        if not ann:
+            continue
+        test_ref = ann["test"]
+        test_path_str = test_ref.split("::")[0].strip()
+        if test_path_str and not (repo_root / test_path_str).exists():
+            items.append({
+                "kind": "ac_link_missing_test",
+                "detail": (
+                    f"Requirement references test '{test_path_str}' which no longer exists."
+                ),
+            })
+        for cover in ann.get("covers", []):
+            if cover and not (repo_root / cover).exists():
+                items.append({
+                    "kind": "ac_link_missing_file",
+                    "detail": f"Requirement references file '{cover}' which no longer exists.",
+                })
+    return items
