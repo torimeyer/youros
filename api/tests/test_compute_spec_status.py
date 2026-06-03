@@ -345,3 +345,82 @@ async def test_list_specs_active_claim_overrides_ready_status(client, monkeypatc
         )
     finally:
         specs_router._spec_claims.pop(spec_path, None)
+
+
+# ---------------------------------------------------------------------------
+# →2148: spec status must reflect shipped work, not stale open tasks
+# ---------------------------------------------------------------------------
+
+class TestComputeSpecStatusShippedWork:
+    """When all acceptance criteria are checked, the spec is complete even if
+    the linked tasks were never formally closed (stale open tasks)."""
+
+    def setup_method(self):
+        from services.ostk import OstkService
+        self.compute = OstkService.compute_spec_status
+
+    def _stale_task_statuses(self, ids):
+        """All listed tasks remain in 'open' state — never closed."""
+        return {tid: "open" for tid in ids}
+
+    def test_building_all_acs_checked_stale_open_tasks_is_complete(self):
+        """Executive Summary scenario: base_status='building', 20 open tasks,
+        all ACs checked. Must show 'complete', not 'in-progress'."""
+        task_ids = [str(i) for i in range(1, 21)]
+        statuses = self._stale_task_statuses(task_ids)
+        result = self.compute(
+            "building", task_ids, statuses, ac_all_met=True, claims=[]
+        )
+        assert result == "complete", (
+            f"Spec with all ACs checked and stale open tasks must be 'complete', got {result!r}. "
+            "Stale open tasks must not override explicit AC verification."
+        )
+
+    def test_spec_all_acs_checked_open_tasks_is_complete(self):
+        """Same scenario with base_status='spec' (promoted, not yet building)."""
+        task_ids = ["t1", "t2", "t3"]
+        statuses = self._stale_task_statuses(task_ids)
+        result = self.compute(
+            "spec", task_ids, statuses, ac_all_met=True, claims=[]
+        )
+        assert result == "complete", (
+            f"Promoted spec with all ACs checked must be 'complete', got {result!r}."
+        )
+
+    def test_building_all_acs_checked_but_active_claim_stays_in_progress(self):
+        """If an agent is still actively working (active claim), do not prematurely
+        declare complete even when all ACs are checked."""
+        task_ids = ["t1", "t2"]
+        statuses = self._stale_task_statuses(task_ids)
+        claim = {
+            "agent": "build-agent",
+            "task_ids": ["t1"],  # t1 is open → claim is active
+        }
+        result = self.compute(
+            "building", task_ids, statuses, ac_all_met=True, claims=[claim]
+        )
+        assert result == "in-progress", (
+            f"Spec with active claim must stay 'in-progress' even when all ACs checked, got {result!r}."
+        )
+
+    def test_building_acs_not_all_checked_open_tasks_stays_in_progress(self):
+        """No regression: if ACs are NOT all checked and tasks are open, still in-progress."""
+        task_ids = ["t1", "t2"]
+        statuses = self._stale_task_statuses(task_ids)
+        result = self.compute(
+            "building", task_ids, statuses, ac_all_met=False, claims=[]
+        )
+        assert result == "in-progress", (
+            f"Spec with unchecked ACs and open tasks must be 'in-progress', got {result!r}."
+        )
+
+    def test_ac_all_met_false_does_not_flip_to_complete_for_spec(self):
+        """No regression: partial ACs + open tasks → not complete."""
+        task_ids = ["t1", "t2"]
+        statuses = self._stale_task_statuses(task_ids)
+        result = self.compute(
+            "spec", task_ids, statuses, ac_all_met=False, claims=[]
+        )
+        assert result != "complete", (
+            f"Spec with unchecked ACs must not be 'complete', got {result!r}."
+        )

@@ -3368,9 +3368,10 @@ class OstkService:
         Claim auto-release is computed here on every call rather than
         requiring a separate cleanup step.  There is no heartbeat timer.
 
-        ``ac_all_met`` is retained in the signature for callers that
-        still pass it, but it no longer gates ``complete``. Kept so the
-        existing test fixtures keep working.
+        ``ac_all_met`` short-circuits to ``complete`` when every
+        acceptance criterion is checked and no build agent is actively
+        working, so a shipped spec whose tasks were never formally
+        closed still reports ``complete`` (→2148).
         """
         if base_status in ("draft", "plan"):
             return base_status
@@ -3401,6 +3402,13 @@ class OstkService:
                     active_claims.append(claim)
 
         has_active_claim = bool(active_claims)
+
+        # All acceptance criteria confirmed by the verifier → the spec is complete
+        # regardless of stale open tasks, as long as no build agent is actively
+        # working right now. This handles the case where a spec's feature shipped
+        # but its tasks were never formally closed (→2148).
+        if ac_all_met and not has_active_claim:
+            return "complete"
 
         # "building" means implementation has started (set by build_spec or
         # by spawn_agent when spec_id is provided). Treat it as in-progress
@@ -3442,10 +3450,6 @@ class OstkService:
 
         if all_tasks_closed and not has_active_claim:
             return "complete"
-
-        # ac_all_met retained for signature compat; not needed now that
-        # all_closed alone flips to complete.
-        _ = ac_all_met
 
         # A spec enters "in-progress" only when at least one task has been
         # actively started (status is neither "open"/unstarted nor "closed"/done).
