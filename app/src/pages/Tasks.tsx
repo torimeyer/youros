@@ -2144,17 +2144,9 @@ export default function Tasks() {
                         In progress
                       </span>
                     )}
-                    <span
-                      {...dragHandleProps}
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-slate-700 text-lg cursor-grab touch-none select-none"
-                      title="Drag to reorder"
-                    >
-                      <Icon name="drag_indicator" className="text-lg" />
-                    </span>
                     <button
                       onClick={(e) => { e.stopPropagation(); task.status === "closed" ? reopenTask(task.id) : closeTask(task.id); }}
-                      title={task.status === "closed" ? "Reopen needle" : "Close needle"}
+                      title={task.status === "closed" ? "Reopen" : "Mark done"}
                       className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
                         task.status === "closed"
                           ? "border-green-500 bg-green-500/20 hover:border-amber-400 hover:bg-amber-500/20"
@@ -2165,7 +2157,12 @@ export default function Tasks() {
                         <Icon name="check" className="text-green-600 dark:text-green-400 text-xs" />
                       )}
                     </button>
-                    <span className="text-slate-500 text-sm font-mono">
+                    <span
+                      {...dragHandleProps}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-slate-500 text-sm font-mono cursor-grab touch-none select-none"
+                      title="Drag to reorder"
+                    >
                       #{task.id}
                     </span>
                     <div className="flex-1 min-w-0">

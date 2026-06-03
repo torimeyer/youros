@@ -556,7 +556,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    const closeButtons = screen.getAllByTitle('Close needle')
+    const closeButtons = screen.getAllByTitle('Mark done')
     fireEvent.click(closeButtons[0])
 
     await waitFor(() => {
@@ -577,7 +577,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Old completed task')).toBeInTheDocument()
     })
 
-    const reopenButton = screen.getByTitle('Reopen needle')
+    const reopenButton = screen.getByTitle('Reopen')
     fireEvent.click(reopenButton)
 
     await waitFor(() => {
@@ -665,7 +665,7 @@ describe('Tasks page', () => {
       expect(mockedApiGet).toHaveBeenCalledWith('/tasks')
     })
 
-    const closeButtons = screen.getAllByTitle('Close needle')
+    const closeButtons = screen.getAllByTitle('Mark done')
     fireEvent.click(closeButtons[0])
 
     await waitFor(() => {
