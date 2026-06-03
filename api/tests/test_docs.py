@@ -273,7 +273,8 @@ class TestDocService:
         assert spec["status"] == "in-progress", (
             f"A spec with a started task must show 'in-progress', got {spec['status']!r}"
         )
-        assert spec["task_summary"] == {"total": 2, "open": 1, "closed": 0}
+        # task_summary counts any non-closed task as "open" (includes in_progress)
+        assert spec["task_summary"] == {"total": 2, "open": 2, "closed": 0}
 
     @pytest.mark.asyncio
     async def test_list_docs_complete_status(self):
