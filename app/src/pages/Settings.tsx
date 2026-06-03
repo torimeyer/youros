@@ -1951,7 +1951,7 @@ export default function Settings() {
           </div>
 
           {/* AI behavior */}
-          <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+          <div className={`lg:col-span-2 ${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
             <div className={cardClass}>
               <h2 className="text-lg font-semibold mb-5">AI behavior</h2>
               <div className="space-y-4">
@@ -2090,7 +2090,7 @@ export default function Settings() {
           </div>
 
           {/* Focus */}
-          <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+          <div className={`lg:col-span-2 ${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
             <div className={cardClass}>
               <div className="flex items-center gap-3 mb-2">
                 <h2 className="text-lg font-semibold">ADHD mode</h2>
@@ -2180,18 +2180,20 @@ export default function Settings() {
 
           {/* ── Take the tour (J - Help dissolved, Tour standalone) ── */}
           <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
-            <div className="flex items-center justify-between py-2">
-              <div>
-                <p className="text-sm text-slate-700 dark:text-slate-300">Take the tour</p>
-                <p className="text-xs text-slate-500">Walk through what yourOS can do, step by step.</p>
+            <div className={cardClass}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold mb-1">Take the tour</h2>
+                  <p className="text-xs text-slate-500">Walk through what yourOS can do, step by step.</p>
+                </div>
+                <button
+                  data-testid="settings-tour-button"
+                  onClick={() => useAppStore.getState().setShowTour(true)}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors"
+                >
+                  Start
+                </button>
               </div>
-              <button
-                data-testid="settings-tour-button"
-                onClick={() => useAppStore.getState().setShowTour(true)}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors"
-              >
-                Start
-              </button>
             </div>
           </div>
 
