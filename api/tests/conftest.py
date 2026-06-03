@@ -805,8 +805,14 @@ def _has_assertion(func) -> bool:
                         return True
         if isinstance(node, _ast.Call):
             fn = node.func
-            if isinstance(fn, _ast.Attribute) and fn.attr in ("raises", "warns", "fail"):
-                return True
+            if isinstance(fn, _ast.Attribute):
+                if fn.attr in ("raises", "warns", "fail"):
+                    return True
+                # unittest.mock assertions: assert_called_with, assert_not_called,
+                # assert_called_once, assert_any_call, assert_has_calls, etc.
+                # These are real assertions even though they don't use the `assert` keyword.
+                if fn.attr.startswith("assert_"):
+                    return True
             if isinstance(fn, _ast.Name) and fn.id == "fail":
                 return True
     return False

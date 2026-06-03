@@ -117,7 +117,7 @@ def test_set_agent_status_noop_for_missing_agent():
     with patch("routers.agents._fire_delta") as mock_fire:
         ag._set_agent_status("nonexistent-xyz", "completed")
 
-    mock_fire.assert_not_called()
+    assert mock_fire.call_count == 0  # same intent as mock_fire.assert_not_called(); literal `assert` satisfies the no-assertion linter
 
 
 # ---------------------------------------------------------------------------
