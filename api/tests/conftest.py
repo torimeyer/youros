@@ -744,3 +744,57 @@ def _preflight_no_live_agents(request):
     if result.returncode != 0:
         return
     _check_no_live_agents(result.stdout)
+
+
+# ---------------------------------------------------------------------------
+# Assertion-free test guard (→2067)
+# A test with no assert/raises/warns always passes even when the code under
+# test is broken.  The hook below fails any such test before it runs.
+# ---------------------------------------------------------------------------
+import ast as _ast
+import inspect as _inspect
+import textwrap as _textwrap
+
+
+def _has_assertion(func) -> bool:
+    """Return True if *func* source contains at least one meaningful assertion."""
+    try:
+        src = _textwrap.dedent(_inspect.getsource(func))
+        tree = _ast.parse(src)
+    except Exception:
+        return True  # can't inspect — benefit of the doubt
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Assert):
+            return True
+        if isinstance(node, _ast.With):
+            for item in node.items:
+                call = item.context_expr
+                if isinstance(call, _ast.Call):
+                    fn = call.func
+                    if isinstance(fn, _ast.Attribute) and fn.attr in ("raises", "warns"):
+                        return True
+        if isinstance(node, _ast.Call):
+            fn = node.func
+            if isinstance(fn, _ast.Attribute) and fn.attr in ("raises", "warns", "fail"):
+                return True
+            if isinstance(fn, _ast.Name) and fn.id == "fail":
+                return True
+    return False
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item):
+    """Fail assertion-free test functions before they run (→2067)."""
+    func = getattr(item, "function", None)
+    if func is not None and not _has_assertion(func):
+        skip_markers = {"skip", "xfail", "no_assert"}
+        if not any(item.get_closest_marker(m) for m in skip_markers):
+            pytest.fail(
+                f"Assertion-free test: '{item.nodeid}' contains no assert, "
+                "pytest.raises, or pytest.warns — it will always pass even "
+                "when the code is broken.  Add at least one assertion, or "
+                "mark with @pytest.mark.no_assert if the test legitimately "
+                "relies on a fixture that asserts internally.",
+                pytrace=False,
+            )
+    yield
