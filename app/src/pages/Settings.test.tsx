@@ -300,11 +300,15 @@ describe('Settings', () => {
       expect(card).toBeInTheDocument()
     })
 
-    it('renders AtlassianSetupCard inside atlassian section after api resolves', async () => {
+    it('renders an always-available Atlassian connect path after api resolves', async () => {
+      // UAT item 6: the old AtlassianSetupCard returned null while
+      // /atlassian/status loaded, leaving the panel blank below the header.
+      // AtlassianConnect always renders a connect path (OAuth button or token
+      // form), so a connect option is reachable as soon as the status resolves.
       renderSettings()
       const atlassianPill = screen.getByTestId('pill-atlassian')
       fireEvent.click(atlassianPill)
-      const card = await screen.findByTestId('onboarding-atlassian-card')
+      const card = await screen.findByTestId('atlassian-connect-disconnected')
       expect(card).toBeInTheDocument()
     })
   })

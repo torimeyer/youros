@@ -10,7 +10,8 @@ import { api } from '../lib/api';
 import { reportError } from '../lib/reportError';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 import SlackConnect from '../components/SlackConnect';
-import { AtlassianSetupCard, GithubSetupCard } from '../components/OnboardingWizard';
+import { GithubSetupCard } from '../components/OnboardingWizard';
+import AtlassianConnect from '../components/AtlassianConnect';
 import CustomVerbs from '../components/CustomVerbs';
 import ChannelRoutingPanel from '../components/ChannelRoutingPanel';
 import { parseMemoryProvenance } from '../lib/parseMemoryProvenance';
@@ -1778,14 +1779,15 @@ export default function Settings() {
               <>
                 <div className={cardClass} data-testid="atlassian-connect-section">
                   <div className="flex items-center gap-2 mb-4">
-                    <Icon name="bug_report" size={18} className="text-blue-600 dark:text-blue-400" />
+                    <Icon name="link" size={18} className="text-blue-600 dark:text-blue-400" />
                     <h2 className="text-base font-semibold">Jira & Confluence</h2>
                   </div>
-                  <AtlassianSetupCard
-                    darkMode={true}
-                    inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                    subtextCls="text-slate-600 dark:text-slate-400"
-                  />
+                  {/* UAT item 6: AtlassianConnect always renders a connect path
+                      (OAuth button + token form) and never blanks while
+                      /atlassian/status is loading. The old AtlassianSetupCard
+                      returned null until connected===false resolved, which left
+                      the panel empty below the header. */}
+                  <AtlassianConnect />
                 </div>
                 <div className={cardClass} data-testid="atlassian-preferences-section">
                   <h2 className="text-base font-semibold mb-3">Confluence preferences</h2>

@@ -558,6 +558,10 @@ export function ChatPanel() {
   }, [activeTabId])
 
   const [input, setInput] = useState('')
+  // UAT item 11: visible mirror of turnQueueRef so messages typed while a turn
+  // is streaming show up as queued chips (like Claude Code / Gemini CLI). The
+  // ref stays the source of truth for draining; this state is display-only.
+  const [queuedMessages, setQueuedMessages] = useState<string[]>([])
 
   useEffect(() => {
     const seed = localStorage.getItem('myos-onboarding-seed')
@@ -1617,6 +1621,7 @@ export function ChatPanel() {
     if (isStreaming || placeholderAwaitingServer) return
     turnInFlightRef.current = false
     const next = turnQueueRef.current.shift()
+    setQueuedMessages([...turnQueueRef.current])  // UAT item 11: reflect drain
     if (next !== undefined) sendMessageRef.current(next)
   }, [isStreaming, placeholderAwaitingServer])
 
@@ -1638,6 +1643,7 @@ export function ChatPanel() {
     currentBubbleIdRef.current = null
     bubbleIdByModelRef.current.clear()
     turnQueueRef.current = []
+    setQueuedMessages([])  // UAT item 11: tab switch clears the queue
     turnInFlightRef.current = false
     receivedAnyServerEventRef.current = false
     setEtaMs(null)
@@ -1986,6 +1992,7 @@ export function ChatPanel() {
     // If a turn is already in flight, hold this message until done fires.
     if (turnInFlightRef.current) {
       turnQueueRef.current.push(text)
+      setQueuedMessages([...turnQueueRef.current])  // UAT item 11: reflect enqueue
       return
     }
     turnInFlightRef.current = true
@@ -3379,6 +3386,26 @@ export function ChatPanel() {
               <MemoryPill />
             </div>
           </div>
+          {/* UAT item 11: messages typed while a turn is streaming queue up and
+              send in order when it finishes. Show them so it feels like Claude
+              Code / Gemini CLI rather than silently swallowing the input. */}
+          {queuedMessages.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 mb-2" data-testid="chat-queued-messages">
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                Queued ({queuedMessages.length}):
+              </span>
+              {queuedMessages.map((m, i) => (
+                <span
+                  key={i}
+                  title={m}
+                  className="inline-flex items-center gap-1 max-w-[180px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 text-[11px]"
+                >
+                  <Icon name="schedule" className="text-[13px]" />
+                  <span className="truncate">{m.trim() || '(attachment)'}</span>
+                </span>
+              ))}
+            </div>
+          )}
           {/* Row 2: input + action buttons */}
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
