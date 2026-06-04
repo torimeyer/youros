@@ -703,32 +703,52 @@ def _guard_real_store_writes():
     _TIMEOUT = object()
 
     def _snap(path: Path):
-        if not path.exists():
-            return None
+        # All path I/O (exists check + read) runs inside the daemon thread so
+        # the main test thread is never blocked even when the OS enters D-state
+        # on the syscall (observed on macOS APFS when the ostk kernel holds a
+        # VFS-level lock during an atomic rename of issues.jsonl).  A 0.1 s
+        # join timeout is enough for fast local reads; stalled threads are
+        # abandoned as daemons and will exit when the process does.
         result: list = [_TIMEOUT]
 
         def _read() -> None:
             try:
+                if not path.exists():
+                    result[0] = None
+                    return
                 result[0] = path.read_bytes()
             except OSError:
                 result[0] = None
 
         t = threading.Thread(target=_read, daemon=True)
         t.start()
-        t.join(timeout=2.0)
+        t.join(timeout=0.1)
         return result[0]
 
     issues_path = PROJECT_ROOT / ".ostk" / "needles" / "issues.jsonl"
     threads_path = Path.home() / ".myos" / "threads.json"
 
-    snap_issues = _snap(issues_path)
+    # In worktree contexts .ostk/needles is a symlink to the live repo store.
+    # The ostk kernel rewrites issues.jsonl atomically on every needle change;
+    # read threads targeting this symlink can accumulate in D-state
+    # (uninterruptible I/O wait) when the kernel holds the VFS lock during the
+    # rename.  Over a full suite run (~6000 tests × 4 snaps each) the count of
+    # stranded daemon threads reaches a threshold that prevents Python from
+    # exiting after the last test file, producing an "unkillable / exiting"
+    # hang attributed to the last test that ran (→2158 root-cause fix).
+    # Skip snapping issues.jsonl entirely when the path is symlinked — the
+    # comparison guard is already a no-op in that configuration, so we lose
+    # no safety coverage.
+    _issues_is_shared_store = issues_path.parent.is_symlink()
+    snap_issues = _TIMEOUT if _issues_is_shared_store else _snap(issues_path)
     snap_threads = _snap(threads_path)
 
     yield
 
-    after_issues = _snap(issues_path)
+    after_issues = _TIMEOUT if _issues_is_shared_store else _snap(issues_path)
     if (
-        after_issues is not _TIMEOUT
+        not _issues_is_shared_store
+        and after_issues is not _TIMEOUT
         and snap_issues is not _TIMEOUT
         and after_issues != snap_issues
         and not _issues_only_external_activity(snap_issues, after_issues)
