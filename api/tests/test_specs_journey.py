@@ -91,7 +91,10 @@ async def test_specs_user_journey_full_flow(svc_with_tmp):
         decompose_result = await svc.doc_decompose(spec_path_rel)
     assert decompose_result["task_ids"] == ["901", "902", "903"]
 
-    # All three tasks still open: in-progress.
+    # All three tasks exist but are unstarted (status "open"). Per the
+    # spec-status rule (3c7f9e53): a promoted spec whose tasks are all
+    # still unstarted reads "ready", not "in-progress". The spec only
+    # enters "in-progress" once at least one task is actively started.
     with patch.object(svc, "list_tasks", new_callable=AsyncMock) as mock_tasks:
         mock_tasks.return_value = [
             {"id": "\u2192901", "title": "one", "status": "open", "priority": "P1"},
@@ -100,7 +103,7 @@ async def test_specs_user_journey_full_flow(svc_with_tmp):
         ]
         docs = await svc.list_docs()
     spec = next(d for d in docs if d["path"] == spec_path_rel)
-    assert spec["status"] == "in-progress"
+    assert spec["status"] == "ready"
     assert spec["task_summary"] == {"total": 3, "open": 3, "closed": 0}
 
     # --- Step 4: Close every task ---
@@ -256,6 +259,15 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
     # file out of tmp_path and the subsequent GET /api/specs path match fails.
     import services.ostk as _ostk_svc_mod
     monkeypatch.setattr(_ostk_svc_mod, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
+
+    # Redirect USER_DRAFTS_DIR too (→2104): POST /api/specs/draft no longer
+    # shells out to `ostk doc draft`; it writes the draft directly into
+    # USER_DRAFTS_DIR. Without this redirect the draft lands in the real
+    # ~/.myos/drafts/ and the subsequent promote can't find it in tmp.
+    drafts_dir = tmp_path / "docs" / "draft"
+    monkeypatch.setattr(_ostk_svc_mod, "USER_DRAFTS_DIR", drafts_dir)
+    import routers.specs as _specs_router_mod
+    monkeypatch.setattr(_specs_router_mod, "USER_DRAFTS_DIR", drafts_dir)
 
     # --- Draft ---
     draft_file = tmp_path / "docs" / "draft" / "e2e-http-journey.md"
