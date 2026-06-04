@@ -984,7 +984,7 @@ async def create_from_template(body: SpecFromTemplate):
             pass
 
     return {
-        "result": result,
+        "result": str(full_path),
         "status": status,
         "promoted_path": promoted_path,
         "template_id": body.template_id,
@@ -1759,7 +1759,7 @@ async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
         )
 
     return {
-        "result": result,
+        "result": str(full_path),
         # status="draft" because AC generation is still in flight. The
         # Specs page's 1s poll picks up the flip to "spec" (ready) when
         # the background task finishes and promotes. Frontend pending-
