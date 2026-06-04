@@ -27,7 +27,7 @@ async def test_unlock_user_local_spec_goes_to_user_drafts_not_repo(
     client, tmp_path, monkeypatch
 ):
     """Unlock of a ~/.myos/specs file must land in ~/.myos/drafts, not docs/draft/."""
-    import api.routers.specs as specs_router
+    import routers.specs as specs_router
     from services import ostk as ostk_module
 
     user_specs = tmp_path / "myos" / "specs"
@@ -83,7 +83,7 @@ async def test_create_from_template_writes_to_user_drafts_not_repo(
     client, tmp_path, monkeypatch
 ):
     """POST /api/specs/from-template must write to USER_DRAFTS_DIR, not docs/draft/."""
-    import api.routers.specs as specs_router
+    import routers.specs as specs_router
     from services import ostk as ostk_module
 
     user_drafts = tmp_path / "myos" / "drafts"
@@ -149,7 +149,7 @@ async def test_import_spec_writes_to_user_drafts_not_repo(
     client, tmp_path, monkeypatch
 ):
     """POST /api/specs/import must write to USER_DRAFTS_DIR, not docs/draft/."""
-    import api.routers.specs as specs_router
+    import routers.specs as specs_router
     from services import ostk as ostk_module
 
     user_drafts = tmp_path / "myos" / "drafts"
