@@ -1502,12 +1502,10 @@ async def drive_file_structured_preview(file_id: str):
                 "truncated": len(slides) >= _SLIDES_MAX_THUMBS,
             }
         except Exception as _slides_exc:
-            logger.warning("Slides API failed for %s, falling back to Drive thumbnail: %s", file_id, _slides_exc)
-            # Slides API unavailable — fall back to Drive thumbnail if present.
-            if thumbnail_url:
-                sample = {"slides": [{"slide_id": "p1", "thumbnail_url": thumbnail_url}], "truncated": False}
-            else:
-                sample = {"slides": [], "truncated": False}
+            logger.warning("Slides API failed for %s, using iframe fallback: %s", file_id, _slides_exc)
+            # Return empty slides so the frontend falls through to the
+            # export_url iframe, which shows the full deck interactively.
+            sample = {"slides": [], "truncated": False}
 
     return {
         "kind": kind,

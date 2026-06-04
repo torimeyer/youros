@@ -2502,6 +2502,7 @@ export default function Agents() {
   const [nudgeErrors, setNudgeErrors] = useState<Record<string, string>>({});
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [agentRoadmaps, setAgentRoadmaps] = useState<Record<string, RoadmapQuarter[]>>({});
+  const [roadmapFilePath, setRoadmapFilePath] = useState<string>('');
   // Active Sessions cards start collapsed so the list is scannable at a
   // glance. Clicking Expand on a card reveals the metrics bar, chat
   // thread, message input, and transcript controls. Each agent has its
@@ -3147,10 +3148,11 @@ export default function Agents() {
   const fetchRoadmapForAgent = useCallback(async (agentName: string) => {
     if (agentRoadmaps[agentName] !== undefined) return;
     try {
-      const data = await api.get<{ content: string }>('/agents/roadmap-output');
+      const data = await api.get<{ content: string; path?: string }>('/agents/roadmap-output');
       const quarters = parseRoadmapJson(data.content);
       if (quarters && quarters.length > 0) {
         setAgentRoadmaps((prev) => ({ ...prev, [agentName]: quarters }));
+        if (data.path) setRoadmapFilePath(data.path);
       }
     } catch { /* no roadmap yet */ }
   }, [agentRoadmaps]);
@@ -4854,10 +4856,18 @@ export default function Agents() {
                           />
                         )}
                         {isRoadmapAgent(agent) && agent.status === 'completed' && agentRoadmaps[agent.name] && (
-                          <RoadmapCards
-                            quarters={agentRoadmaps[agent.name]}
-                            onNavigateToChat={() => navigate('/')}
-                          />
+                          <div className="flex flex-col gap-2">
+                            <RoadmapCards
+                              quarters={agentRoadmaps[agent.name]}
+                              onNavigateToChat={() => navigate('/')}
+                            />
+                            <button
+                              onClick={() => navigate('/files' + (roadmapFilePath ? '?path=' + encodeURIComponent(roadmapFilePath) : ''))}
+                              className="self-start text-xs text-blue-500 hover:text-blue-400 underline"
+                            >
+                              Open roadmap file
+                            </button>
+                          </div>
                         )}
                         {agent.status === 'completed' && getFollowOns(agent).length > 0 && (
                           <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800">

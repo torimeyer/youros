@@ -9609,11 +9609,12 @@ def _build_templates_list() -> list[dict]:
 @router.get("/agents/roadmap-output")
 async def get_roadmap_output():
     """Return the raw text of ~/.myos/files/roadmap.md for frontend parsing."""
-    roadmap_path = Path.home() / ".myos" / "files" / "roadmap.md"
+    from services.files_dir import get_files_dir
+    roadmap_path = get_files_dir() / "roadmap.md"
     if not roadmap_path.exists():
         raise HTTPException(status_code=404, detail="No roadmap found")
     content = roadmap_path.read_text(encoding="utf-8")
-    return {"content": content}
+    return {"content": content, "path": roadmap_path.as_posix()}
 
 
 @router.get("/agents/templates")

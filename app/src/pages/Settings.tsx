@@ -193,6 +193,7 @@ export default function Settings() {
   const [activeSection, setActiveSection] = useState('section-connections');
   const [expandedConnection, setExpandedConnection] = useState<string | null>(null);
   const [filesDir, setFilesDir] = useState<string>('');
+  const [projectsDir, setProjectsDir] = useState<string>('');
   const [plansBecomesSpecs, setPlansBecomesSpecs] = useState<boolean>(true);
   const [inboundImessageRoutingEnabled, setInboundImessageRoutingEnabled] = useState<boolean>(false);
   const [defaultConfluenceSpace, setDefaultConfluenceSpace] = useState('');
@@ -248,6 +249,7 @@ export default function Settings() {
         }
         if (data.quiet_hours !== undefined) setQuietHours(data.quiet_hours);
         if ((data as any).files_dir) setFilesDir((data as any).files_dir);
+        if ((data as any).projects_dir) setProjectsDir((data as any).projects_dir);
         if ((data as any).plans_become_specs !== undefined) setPlansBecomesSpecs(!!(data as any).plans_become_specs);
         if ((data as any).inbound_imessage_routing_enabled !== undefined) setInboundImessageRoutingEnabled(!!(data as any).inbound_imessage_routing_enabled);
         if ((data as any).shortcuts) setCustomShortcuts((data as any).shortcuts);
@@ -840,13 +842,36 @@ export default function Settings() {
                     value={filesDir}
                     onChange={(e) => setFilesDir(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { files_dir: filesDir }).catch(() => {}); }}
-                    placeholder="~/myos-files"
+                    placeholder="~/.myos/files"
                     data-testid="files-dir-input"
                     className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500 transition-colors"
                   />
                   <button
                     onClick={() => api.patch('/settings', { files_dir: filesDir }).catch(() => {})}
                     data-testid="files-dir-save"
+                    className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+              {/* Projects location */}
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-1">Where projects are saved</p>
+                <p className="text-xs text-slate-500 mb-2">torios looks here for your project docs and recent files.</p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={projectsDir}
+                    onChange={(e) => setProjectsDir(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { projects_dir: projectsDir }).catch(() => {}); }}
+                    placeholder="~/.myos/projects"
+                    data-testid="projects-dir-input"
+                    className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                  <button
+                    onClick={() => api.patch('/settings', { projects_dir: projectsDir }).catch(() => {})}
+                    data-testid="projects-dir-save"
                     className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
                   >
                     Save

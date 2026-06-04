@@ -495,10 +495,17 @@ async def recent_docs(limit: int = Query(10, ge=1, le=50, description="Max files
     # ~/.myos/projects. Both live outside the repo so a `git pull` can
     # never clobber them. Paths are absolute so the frontend knows to
     # read them via the raw endpoint.
+    from services.settings_store import settings_store as _ss
+    _projects_dir_cfg = _ss.get("projects_dir")
+    _projects_secondary = (
+        Path(str(_projects_dir_cfg)).expanduser().resolve()
+        if _projects_dir_cfg
+        else (Path.home() / ".myos" / "projects").resolve()
+    )
     seen_secondary: set = set()
     for secondary in (
         (Path.home() / ".myos" / "files").resolve(),
-        (Path.home() / ".myos" / "projects").resolve(),
+        _projects_secondary,
     ):
         if secondary in seen_secondary:
             continue
