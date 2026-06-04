@@ -176,17 +176,20 @@ async def _resolve_chat_backend() -> str:
     return "anthropic_api"
 
 
-async def _send_backend_active(websocket: WebSocket, backend: str) -> None:
+async def _send_backend_active(websocket: WebSocket, backend: str, tab_id: str = "") -> None:
     """Notify the chat panel which pathway is powering this response."""
     if backend == "claude_code":
         label = _BACKEND_LABEL_CLAUDE_CODE
     else:
         label = _BACKEND_LABEL_ANTHROPIC_API
+    payload: dict = {
+        "type": "backend_active",
+        "data": {"name": backend, "label": label},
+    }
+    if tab_id:
+        payload["tab_id"] = tab_id
     try:
-        await websocket.send_json({
-            "type": "backend_active",
-            "data": {"name": backend, "label": label},
-        })
+        await websocket.send_json(payload)
     except Exception:
         pass
 

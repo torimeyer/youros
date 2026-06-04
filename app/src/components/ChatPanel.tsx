@@ -557,6 +557,17 @@ export function ChatPanel() {
     }))
   }, [activeTabId])
 
+  // Route messages to a specific tab by ID, regardless of which tab is active.
+  // Used by the WS handler to preserve streaming responses for background tabs.
+  const setMessagesForTab = useCallback((tabId: string, updater: Message[] | ((prev: Message[]) => Message[])) => {
+    setTabs(prev => prev.map(tab => {
+      if (tab.id !== tabId) return tab
+      const newMessages = typeof updater === 'function' ? updater(tab.messages) : updater
+      const newName = tab.name === 'New Chat' ? deriveTabName(newMessages) : tab.name
+      return { ...tab, messages: newMessages, name: newName, updatedAt: new Date().toISOString() }
+    }))
+  }, [])
+
   const [input, setInput] = useState('')
   // UAT item 11: visible mirror of turnQueueRef so messages typed while a turn
   // is streaming show up as queued chips (like Claude Code / Gemini CLI). The
@@ -820,11 +831,12 @@ export function ChatPanel() {
   useEffect(() => {
     if (!lastMessage) return
 
-    // Filter by tab_id: only process messages for the currently active tab.
-    // When multiple tabs are streaming, skip frames that belong to other tabs.
-    // Single-tab mode bypasses the filter since there's nowhere else for frames to leak.
+    // Route streaming frames to their owning tab. Frames tagged with a tab_id
+    // go to that tab's messages regardless of which tab is currently visible.
+    // UI-only state updates (isStreaming, labels, etc.) only apply for the active tab.
     const messageTabId = (lastMessage as unknown as { tab_id?: string }).tab_id
-    if (tabs.length > 1 && messageTabId && messageTabId !== activeTabId) return
+    const targetTabId = messageTabId || activeTabId
+    const isForActiveTab = !messageTabId || messageTabId === activeTabId
 
     // Deduplicate: the effect fires when currentModel changes but
     // lastMessage has not changed (same object reference). Processing
@@ -837,9 +849,11 @@ export function ChatPanel() {
 
     // The server has spoken for this turn. Drop the instant-dots gate so
     // the render falls back to the normal isStreaming driven indicator.
-    // Any event type counts, including `done` and `error`, so the flag
-    // never outlives its own turn even if the stream is empty.
-    setPlaceholderAwaitingServer(false)
+    // Only update for the active tab; non-active tab events must not clear
+    // the active tab's waiting gate or dead-backend timer.
+    if (isForActiveTab) {
+      setPlaceholderAwaitingServer(false)
+    }
 
     // Track that the backend is alive. Any event except bare `done` proves
     // the server is processing this turn and resets the dead-backend timer.
@@ -848,10 +862,11 @@ export function ChatPanel() {
     // routed quickly but Anthropic's first token took >30s (slow prompt / high
     // load). Those events still do not count as "real streaming content" for
     // the ThinkingDots display; that uses isStreaming/placeholderAwaitingServer.
-    if (lastMessage.type !== 'done') {
+    if (isForActiveTab && lastMessage.type !== 'done') {
       receivedAnyServerEventRef.current = true
     }
 
+    if (isForActiveTab) {
     if (lastMessage.type === 'model_label') {
       setCurrentModel((lastMessage.data as string) ?? null)
     } else if (lastMessage.type === 'template_matched') {
@@ -1543,6 +1558,56 @@ export function ChatPanel() {
         }
         return updated
       })
+    }
+    } else {
+      // Non-active tab: write only to that tab's messages; skip all UI-state
+      // updates so the active tab's streaming indicators are not disturbed.
+      // This preserves the response in its source tab while the user views another.
+      if (lastMessage.type === 'token') {
+        setMessagesForTab(targetTabId, prev => {
+          const updated = [...prev]
+          const last = updated[updated.length - 1]
+          if (last && last.role === 'assistant') {
+            const baseContent = last.isError ? '' : last.content
+            updated[updated.length - 1] = {
+              ...last,
+              content: baseContent + (lastMessage.data as string),
+              isError: undefined,
+            }
+          }
+          return updated
+        })
+      } else if (lastMessage.type === 'done') {
+        setMessagesForTab(targetTabId, prev => {
+          const updated = [...prev]
+          const last = updated[updated.length - 1]
+          if (last && last.role === 'assistant') {
+            const withModel = currentModel && !last.model
+              ? { ...last, model: currentModel }
+              : last
+            const resolvedCalls = withModel.toolCalls?.map(tc =>
+              tc.result === undefined ? { ...tc, result: '' } : tc,
+            )
+            updated[updated.length - 1] = { ...withModel, toolCalls: resolvedCalls }
+          }
+          return updated
+        })
+      } else if (lastMessage.type === 'error') {
+        setMessagesForTab(targetTabId, prev => {
+          const updated = [...prev]
+          const target = updated[updated.length - 1]
+          if (target && target.role === 'assistant') {
+            const hasCategory = Boolean(
+              (lastMessage as unknown as { category?: string }).category
+            )
+            const errorContent = hasCategory
+              ? String(lastMessage.data)
+              : `Connection error${lastMessage.data ? `: ${lastMessage.data}` : ''}`
+            updated[updated.length - 1] = { ...target, content: errorContent, isError: true }
+          }
+          return updated
+        })
+      }
     }
   }, [lastMessage, currentModel])
 

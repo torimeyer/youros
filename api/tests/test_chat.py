@@ -3921,6 +3921,39 @@ class TestTabIdIsolation:
         for msg in websocket.messages:
             assert msg["tab_id"] == "tab-multi"
 
+    @pytest.mark.asyncio
+    async def test_backend_active_includes_tab_id(self, websocket):
+        """_send_backend_active must tag its event with tab_id so the frontend
+        filter routes it to the correct tab and doesn't bleed into another tab."""
+        from services.chat_providers import _send_backend_active
+
+        await _send_backend_active(websocket, "anthropic_api", tab_id="tab-abc")
+
+        assert len(websocket.messages) == 1
+        msg = websocket.messages[0]
+        assert msg["type"] == "backend_active"
+        assert msg["tab_id"] == "tab-abc"
+
+    @pytest.mark.asyncio
+    async def test_backend_active_no_tab_id_when_empty(self, websocket):
+        """_send_backend_active must not inject an empty tab_id string."""
+        from services.chat_providers import _send_backend_active
+
+        await _send_backend_active(websocket, "anthropic_api", tab_id="")
+
+        assert len(websocket.messages) == 1
+        assert "tab_id" not in websocket.messages[0]
+
+    @pytest.mark.asyncio
+    async def test_backend_active_default_no_tab_id(self, websocket):
+        """Calling _send_backend_active without tab_id (old callers) must not inject tab_id."""
+        from services.chat_providers import _send_backend_active
+
+        await _send_backend_active(websocket, "claude_code")
+
+        assert len(websocket.messages) == 1
+        assert "tab_id" not in websocket.messages[0]
+
 
 class TestTerminalTrackingWsSendFailure:
     """Regression for →1290.
