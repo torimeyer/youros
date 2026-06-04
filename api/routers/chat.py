@@ -1501,9 +1501,13 @@ async def chat_websocket(websocket: WebSocket):
             # the timer is cleared regardless of which provider path follows,
             # including the roadmap path that previously bypassed agent_anthropic
             # and stream_anthropic's own backend_active sends.
+            # Extract tab_id early so the backend_active event is tagged with
+            # the correct tab. Without this, multi-tab setups receive a
+            # tab-less backend_active that bypasses the frontend filter.
+            tab_id = data.get("tab_id", "")
             try:
                 _early_backend = await _resolve_chat_backend()
-                await _send_backend_active(websocket, _early_backend)
+                await _send_backend_active(websocket, _early_backend, tab_id=tab_id)
             except Exception:
                 pass
 
@@ -1617,7 +1621,6 @@ async def chat_websocket(websocket: WebSocket):
 
             # Inject prior conversation memory so the AI can reference
             # what the user talked about in their last chat tab.
-            tab_id = data.get("tab_id", "")
             claude_tier = data.get("claude_tier", "")
             memory_msgs = build_memory_context(current_tab_id=tab_id)
             if memory_msgs:
