@@ -215,11 +215,12 @@ fi
 # and the Active Agents count by 1. Mirror the bridge's verb detection and
 # bail out early so only one row appears per Task spawn.
 #
-# GUARD CONDITION (→2027): only activate the bridge-skip when the bridge
-# hook actually exists at $CLAUDE_PROJECT_DIR/.claude/hooks/pre-agent-guard.sh.
-# When the bridge is absent (non-torios project, worktree without the hook,
-# or $CLAUDE_PROJECT_DIR unset), the bridge never fires and we must fall
-# through to normal registration — otherwise edit-verb agents are invisible.
+# GUARD CONDITION (→2027): only activate the bridge-skip when pre-agent-guard
+# is actually WIRED in a settings.json (not just present as a file). Checking
+# file existence is insufficient: the file lives in the repo and appears in
+# every worktree checkout, but if it is not referenced in any settings.json
+# it never fires and the agent is registered by nobody. Search the two
+# relevant settings files for the hook name string; skip only when found.
 # When the bridge is explicitly disabled (TASK_ISOLATION_BRIDGE_DISABLE=1)
 # fall through so we register normally regardless.
 #
@@ -230,9 +231,15 @@ fi
 # $PROMPT misses it while the bridge sees the full prompt and routes to
 # /spawn — producing a dual-register entry. Reading $INPUT directly
 # matches what the bridge does. (→935 root cause)
-if [ "${TASK_ISOLATION_BRIDGE_DISABLE:-}" != "1" ] \
-        && [ -n "${CLAUDE_PROJECT_DIR:-}" ] \
-        && [ -f "${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-agent-guard.sh" ]; then
+_BRIDGE_WIRED=0
+for _s in "$HOME/.claude/settings.json" \
+          "${CLAUDE_PROJECT_DIR:-}/.claude/settings.json"; do
+    if [ -n "$_s" ] && [ -f "$_s" ] \
+            && grep -q 'pre-agent-guard' "$_s" 2>/dev/null; then
+        _BRIDGE_WIRED=1; break
+    fi
+done
+if [ "${TASK_ISOLATION_BRIDGE_DISABLE:-}" != "1" ] && [ "$_BRIDGE_WIRED" = "1" ]; then
     _BRIDGE_SKIP=$(INPUT_JSON="$INPUT" python3 -c "
 import os, re, json
 raw = os.environ.get('INPUT_JSON', '')
