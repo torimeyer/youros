@@ -1494,10 +1494,9 @@ export default function Settings() {
             )}
           </div>
           </div>
-          </div>
 
           {/* ── 4. AI Provider (shown with AI & Chat tab) ── */}
-          <div id="section-ai-provider" className={`space-y-6${activeSection !== 'section-connections' ? ' hidden' : ''}`}>
+          <div id="section-ai-provider" className="space-y-6">
           <div className={cardClass} data-testid="ai-provider-section">
             <h2 className="text-lg font-semibold mb-1">AI Provider</h2>
             <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
@@ -1580,6 +1579,7 @@ export default function Settings() {
                 </div>
               </button>
             </div>
+          </div>
           </div>
           </div>
 
