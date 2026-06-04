@@ -2703,12 +2703,23 @@ class OstkService:
             # in both repo dirs and ~/.myos dirs (→2104 migration overlap).
             _seen_names: set[str] = set()
 
+            # Pre-collect user-local spec filenames so docs/draft husks with the
+            # same filename don't shadow a promoted user-local spec (→1673).
+            _user_local_names: set[str] = set()
+            if USER_SPECS_DIR.is_dir():
+                for _ul_md in USER_SPECS_DIR.glob("*.md"):
+                    _user_local_names.add(_ul_md.name)
+
             # 1. Project-local docs (shared, cwd-relative — read by tests and back-compat)
             for subdir, status in [("draft", "draft"), ("spec", "spec")]:
                 target = docs_dir / subdir
                 if not target.is_dir():
                     continue
                 for md in sorted(target.glob("*.md")):
+                    # Skip docs/draft husk when a promoted user-local spec
+                    # already covers the same slug (→1673).
+                    if subdir == "draft" and md.name in _user_local_names:
+                        continue
                     _seen_names.add(md.name)
                     doc = self._parse_doc_frontmatter(md, status)
                     scanned.append(doc)
