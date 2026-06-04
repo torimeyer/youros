@@ -1097,7 +1097,13 @@ export default function Tasks() {
 
       const spawnRes = await api.post<{ build_state?: string }>("/agents/spawn", body);
       if (spawnRes?.build_state === "queued") {
-        setBanner(`Another build is running. This one is queued and will start when that one finishes.`);
+        setBanner(`Queued. This build will start automatically when the current one finishes.`);
+        setRunningAgentTaskIds(prev => {
+          const next = new Set(prev);
+          next.add(taskId);
+          return next;
+        });
+        setBuildStateByTaskId(prev => new Map([...prev, [taskId, "queued" as const]]));
       } else {
         setBanner(`${bannerLabel} started for "${task.title}".`);
       }
