@@ -1636,6 +1636,28 @@ describe('Tasks page', () => {
       expect(body.locks).toContain('tasks/1')
     })
 
+    // ── UAT B2: build queue toast reflects real state ────────────────
+    it('shows "Queued" banner (not "Build started") when spawn returns build_state=queued', async () => {
+      mockedApiPost.mockResolvedValueOnce({ build_state: 'queued', result: 'queued', status: 'queued' })
+      await openFirstActionMenu()
+      fireEvent.click(screen.getByText('Comprehensive build'))
+      await waitFor(() => {
+        const allText = document.body.textContent ?? ''
+        expect(allText).toContain('Queued')
+      })
+      // Must NOT claim "started" when queued
+      expect(document.body.textContent).not.toMatch(/Build started/)
+    })
+
+    it('queued build shows in-progress indicator on task row immediately after spawn', async () => {
+      mockedApiPost.mockResolvedValueOnce({ build_state: 'queued', result: 'queued', status: 'queued' })
+      await openFirstActionMenu()
+      fireEvent.click(screen.getByText('Comprehensive build'))
+      await waitFor(() => {
+        expect(screen.getByTestId('task-in-progress-indicator-1')).toBeInTheDocument()
+      })
+    })
+
     it('quick build mode sends real path globs, not the wildcard opt-out', async () => {
       await openFirstActionMenu()
 
