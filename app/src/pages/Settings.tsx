@@ -10,7 +10,8 @@ import { api } from '../lib/api';
 import { reportError } from '../lib/reportError';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 import SlackConnect from '../components/SlackConnect';
-import { AtlassianSetupCard, GithubSetupCard } from '../components/OnboardingWizard';
+import { GithubSetupCard } from '../components/OnboardingWizard';
+import AtlassianConnect from '../components/AtlassianConnect';
 import CustomVerbs from '../components/CustomVerbs';
 import ChannelRoutingPanel from '../components/ChannelRoutingPanel';
 import { parseMemoryProvenance } from '../lib/parseMemoryProvenance';
@@ -814,18 +815,18 @@ export default function Settings() {
                   api.patch('/settings', { inbound_imessage_routing_enabled: next }).catch(() => {});
                 }} testId="inbound-imessage-toggle" />
               </div>
-              {/* Channel Routing Rules */}
+              {/* Text-to-agent (formerly "Channel Routing Rules") */}
               <div className="pt-4 border-t border-slate-200 dark:border-slate-800" data-testid="channel-routing-rules-section">
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-1">Channel Routing Rules</p>
-                <p className="text-xs text-slate-500 mb-2">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-1">Text-to-agent</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
                   Controls how messages sent to your phone get turned into agent actions. When the iMessage poller is active, incoming texts are read and parsed into one of these commands:
                 </p>
-                <ul className="text-xs text-slate-500 space-y-1 mb-3 list-none">
+                <ul className="text-xs text-slate-500 dark:text-slate-400 space-y-1 mb-3 list-none">
                   <li><span className="font-mono text-slate-700 dark:text-slate-300">spawn &lt;name&gt; to &lt;task&gt;</span> — starts a new agent with that task</li>
                   <li><span className="font-mono text-slate-700 dark:text-slate-300">nudge &lt;agent&gt; &lt;message&gt;</span> — sends a follow-up message to a running agent</li>
                   <li><span className="font-mono text-slate-700 dark:text-slate-300">status</span> — returns a summary of what agents are currently running</li>
                 </ul>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-400 dark:text-slate-500">
                   The live poller that reads new iMessages is off by default. Set the environment variable <span className="font-mono">CHANNEL_ROUTING_LIVE_POLLER_ENABLED=1</span> to turn it on.
                 </p>
               </div>
@@ -1778,14 +1779,15 @@ export default function Settings() {
               <>
                 <div className={cardClass} data-testid="atlassian-connect-section">
                   <div className="flex items-center gap-2 mb-4">
-                    <Icon name="bug_report" size={18} className="text-blue-600 dark:text-blue-400" />
+                    <Icon name="link" size={18} className="text-blue-600 dark:text-blue-400" />
                     <h2 className="text-base font-semibold">Jira & Confluence</h2>
                   </div>
-                  <AtlassianSetupCard
-                    darkMode={true}
-                    inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                    subtextCls="text-slate-600 dark:text-slate-400"
-                  />
+                  {/* UAT item 6: AtlassianConnect always renders a connect path
+                      (OAuth button + token form) and never blanks while
+                      /atlassian/status is loading. The old AtlassianSetupCard
+                      returned null until connected===false resolved, which left
+                      the panel empty below the header. */}
+                  <AtlassianConnect />
                 </div>
                 <div className={cardClass} data-testid="atlassian-preferences-section">
                   <h2 className="text-base font-semibold mb-3">Confluence preferences</h2>

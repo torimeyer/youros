@@ -46,6 +46,34 @@ def _get_detection_lock() -> asyncio.Lock:
         _detection_lock = asyncio.Lock()
     return _detection_lock
 
+def _gemini_install_dirs() -> list[Path]:
+    """Common locations where the gemini CLI (and node) may live but which a
+    non-interactive backend's PATH might not include.
+
+    The dev backend is launched by scripts/dev-backend.sh, not the user's
+    interactive shell (Warp/zsh), so its PATH is narrower. When `gemini` is
+    installed via npm global / Homebrew / ~/.local, shutil.which("gemini")
+    returns None here even though the user is signed in and can run it in their
+    terminal. (UAT item 4)
+    """
+    import os
+    home = Path.home()
+    dirs: list[Path] = []
+    override = os.environ.get("GEMINI_CLI_PATH")
+    if override:
+        p = Path(override)
+        dirs.append(p.parent if p.suffix or p.name == "gemini" else p)
+    dirs += [
+        home / ".npm-global" / "bin",
+        home / ".local" / "bin",
+        Path("/opt/homebrew/bin"),
+        Path("/usr/local/bin"),
+        home / "node_modules" / ".bin",
+        Path("/usr/local/lib/node_modules/.bin"),
+    ]
+    return dirs
+
+
 def _build_subprocess_env() -> dict[str, str]:
     import os
     env = dict(os.environ)
@@ -55,11 +83,41 @@ def _build_subprocess_env() -> dict[str, str]:
     # in place the local program silently falls back to API key billing".
     for k in BLOCKED_AUTH_ENV_KEYS:
         env.pop(k, None)
+    # UAT item 4: prepend the common install dirs so the gemini shebang can find
+    # `node` when it runs, even when the backend's own PATH is missing them.
+    extra = [str(d) for d in _gemini_install_dirs() if d.is_dir()]
+    if extra:
+        env["PATH"] = os.pathsep.join(extra + [env.get("PATH", "")])
     return env
 
+
+def _gemini_signed_in() -> bool:
+    """True when the gemini CLI has stored OAuth credentials on disk.
+
+    Secondary signal so a slow/timed-out ping does not report a signed-in user
+    as logged out (UAT item 4).
+    """
+    try:
+        return (Path.home() / ".gemini" / "oauth_creds.json").is_file()
+    except Exception:
+        return False
+
+
 def _find_gemini_binary() -> Optional[str]:
-    # Resolve the gemini CLI from PATH.
-    return shutil.which("gemini")
+    import os
+    # 1. Standard PATH lookup (works when the backend inherited a full PATH).
+    found = shutil.which("gemini")
+    if found:
+        return found
+    # 2. UAT item 4: fall back to common install dirs the backend's PATH may miss.
+    for d in _gemini_install_dirs():
+        cand = d / "gemini"
+        try:
+            if cand.is_file() and os.access(cand, os.X_OK):
+                return str(cand)
+        except Exception:
+            continue
+    return None
 
 async def is_gemini_cli_available(force: bool = False) -> bool:
     now = time.monotonic()
@@ -104,8 +162,16 @@ async def is_gemini_cli_available(force: bool = False) -> bool:
 
                 rc, err_text = await asyncio.to_thread(_probe)
                 if err_text == "__timeout__":
-                    _gemini_log.warning("Gemini CLI availability check timed out.")
-                    result = False
+                    # UAT item 4: a slow ping must not report a signed-in user as
+                    # logged out. If the CLI's OAuth creds are on disk, trust them.
+                    if _gemini_signed_in():
+                        _gemini_log.info(
+                            "Gemini CLI ping timed out but OAuth creds present; treating as available."
+                        )
+                        result = True
+                    else:
+                        _gemini_log.warning("Gemini CLI availability check timed out.")
+                        result = False
                 elif rc < 0:
                     result = False
                 else:

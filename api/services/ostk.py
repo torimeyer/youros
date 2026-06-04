@@ -2699,46 +2699,32 @@ class OstkService:
         # offload already added below at _spec_audit_enrich_sync.
         def _scan_docs_sync() -> list[dict]:
             scanned: list[dict] = []
-            # Track by filename to avoid double-counting files that exist
-            # in both repo dirs and ~/.myos dirs (→2104 migration overlap).
+            # Track by filename so a leftover draft does not double-count a
+            # promoted spec that already covers the same slug.
             _seen_names: set[str] = set()
 
-            # Pre-collect user-local spec filenames so docs/draft husks with the
-            # same filename don't shadow a promoted user-local spec (→1673).
-            _user_local_names: set[str] = set()
-            if USER_SPECS_DIR.is_dir():
-                for _ul_md in USER_SPECS_DIR.glob("*.md"):
-                    _user_local_names.add(_ul_md.name)
+            # SECURITY (UAT item 8): specs and drafts are read ONLY from the
+            # per-user ~/.myos/ store, never from the repo-local docs/draft or
+            # docs/spec directories. Those repo dirs travel with any copied or
+            # shared checkout, so reading them surfaced one user's specs in a
+            # different user/install's app (two pclaude drafts appeared on a
+            # separate work machine). Writes were already locked to ~/.myos/
+            # (→1512/→2104); this locks reads to match so no spec ever leaves
+            # the machine that created it.
 
-            # 1. Project-local docs (shared, cwd-relative — read by tests and back-compat)
-            for subdir, status in [("draft", "draft"), ("spec", "spec")]:
-                target = docs_dir / subdir
-                if not target.is_dir():
-                    continue
-                for md in sorted(target.glob("*.md")):
-                    # Skip docs/draft husk when a promoted user-local spec
-                    # already covers the same slug (→1673).
-                    if subdir == "draft" and md.name in _user_local_names:
-                        continue
-                    _seen_names.add(md.name)
-                    doc = self._parse_doc_frontmatter(md, status)
-                    scanned.append(doc)
-
-            # 2. User-local specs (private/promoted, from ~/.myos/specs/)
+            # 1. User-local specs (private/promoted, from ~/.myos/specs/)
             if USER_SPECS_DIR.is_dir():
                 for md in sorted(USER_SPECS_DIR.glob("*.md")):
-                    if md.name in _seen_names:
-                        continue  # already from docs/spec
                     _seen_names.add(md.name)
                     doc = self._parse_doc_frontmatter(md, "spec")
                     doc["is_user_local"] = True
                     scanned.append(doc)
 
-            # 3. User-local drafts (from ~/.myos/drafts/, →2104)
+            # 2. User-local drafts (from ~/.myos/drafts/, →2104)
             if USER_DRAFTS_DIR.is_dir():
                 for md in sorted(USER_DRAFTS_DIR.glob("*.md")):
                     if md.name in _seen_names:
-                        continue  # already from docs/draft
+                        continue  # a promoted spec already covers this slug
                     _seen_names.add(md.name)
                     doc = self._parse_doc_frontmatter(md, "draft")
                     doc["is_user_local"] = True
@@ -2862,25 +2848,11 @@ class OstkService:
             _spec_audit_enrich_sync, results, repo_root, task_status_map
         )
 
-        # Deduplicate: hide empty husk drafts in docs/draft/ when a promoted
-        # version already exists in ~/.myos/specs/ for the same slug. This
-        # prevents phantom "Empty draft" entries when a new draft is created
-        # for a title whose spec was already promoted (→1673).
-        promoted_slugs: set[str] = {
-            Path(d["path"]).stem
-            for d in results
-            if d.get("is_user_local")
-        }
-        if promoted_slugs:
-            results = [
-                d for d in results
-                if not (
-                    d.get("path", "").startswith("docs/draft/")
-                    and d.get("husk")
-                    and Path(d["path"]).stem in promoted_slugs
-                )
-            ]
-
+        # (Removed UAT item 8) The former docs/draft husk-dedup pass is gone:
+        # reads are now locked to ~/.myos/specs and ~/.myos/drafts only, so no
+        # result ever carries a docs/draft/ path, and the per-slug collision
+        # between a promoted spec and a same-named draft is already handled by
+        # the _seen_names skip in _scan_docs_sync above.
         return results
 
     @staticmethod

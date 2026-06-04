@@ -56,6 +56,10 @@ function formatHour(h: number): string {
 // --- Day view ---
 
 const HOUR_HEIGHT = 32 // px per hour
+// UAT item 2: cap the day grid's visible height so a long day (or an event in
+// another timezone that stretches the hour range) scrolls inside the card
+// instead of running off the page.
+const DAY_MAX_HEIGHT = 360 // px
 
 interface LayoutEvent {
   ev: CalGridEvent
@@ -143,6 +147,11 @@ function DayView({
           </div>
         )
       })}
+      <div
+        className="overflow-y-auto"
+        style={{ maxHeight: DAY_MAX_HEIGHT }}
+        data-testid="cal-grid-day-scroll"
+      >
       <div className="relative ml-9" style={{ height: totalHeight }} data-testid="cal-grid-day-hours">
         {Array.from({ length: totalHours + 1 }, (_, i) => (
           <div
@@ -183,6 +192,7 @@ function DayView({
             </div>
           )
         })}
+      </div>
       </div>
     </div>
   )

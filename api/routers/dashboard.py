@@ -187,8 +187,23 @@ async def get_dashboard_summary():
     bullets.append(f"{len(open_tasks)} task{'s' if len(open_tasks) != 1 else ''} still open.")
 
     if p0_tasks:
-        p0_titles = [t.get("title", "Untitled") for t in p0_tasks[:3]]
-        bullets.append(f"Top priority: {', '.join(p0_titles)}")
+        # UAT item 5: a single P0 task with a huge multi-line title turned the
+        # "Top priority" line into a wall of text. Collapse whitespace, clamp
+        # each title on a word boundary, and show at most the top 2 (with a
+        # "+N more" tail) so the bullet always stays one tidy line.
+        def _clamp_title(raw: str, limit: int = 60) -> str:
+            s = " ".join((raw or "Untitled").split())
+            if len(s) <= limit:
+                return s
+            cut = s[:limit].rsplit(" ", 1)[0] or s[:limit]
+            return cut.rstrip(".,;:- ") + "…"
+
+        p0_titles = [_clamp_title(t.get("title", "Untitled")) for t in p0_tasks[:2]]
+        line = "Top priority: " + ", ".join(p0_titles)
+        extra = len(p0_tasks) - len(p0_titles)
+        if extra > 0:
+            line += f" (+{extra} more)"
+        bullets.append(line)
 
     if agents_spawned_today > 0 or agents_completed_today > 0:
         parts = []

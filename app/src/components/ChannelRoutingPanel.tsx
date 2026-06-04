@@ -80,8 +80,8 @@ export default function ChannelRoutingPanel() {
 
   return (
     <div data-testid="channel-routing-panel">
-      <h3 className="text-base font-semibold text-slate-800">Channel routing</h3>
-      <p className="text-sm text-slate-600 mt-1">
+      <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">Text-to-agent</h3>
+      <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
         Text a command to your own number and have it routed to an agent. The
         app reads new incoming messages, figures out what you meant, runs it,
         and texts you back when it is done.
@@ -110,16 +110,16 @@ export default function ChannelRoutingPanel() {
         ).map((rule) => (
           <div
             key={rule.intent}
-            className="rounded-lg border border-slate-200 p-3 bg-white"
+            className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-800"
           >
-            <code className="text-xs font-mono text-slate-800">{rule.example}</code>
-            <p className="text-xs text-slate-500 mt-1">{rule.action}</p>
+            <code className="text-xs font-mono text-slate-800 dark:text-slate-200">{rule.example}</code>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{rule.action}</p>
           </div>
         ))}
       </div>
 
       <div className="mt-4">
-        <label className="text-sm font-medium text-slate-700">
+        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
           Try it: type a message to see what it would do
         </label>
         <div className="flex gap-2 mt-1">
@@ -127,29 +127,29 @@ export default function ChannelRoutingPanel() {
             type="text"
             value={sample}
             onChange={(e) => setSample(e.target.value)}
-            className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="flex-1 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 px-3 py-2 text-sm"
             data-testid="channel-routing-sample-input"
           />
           <button
             type="button"
             onClick={runPreview}
             disabled={loading || !sample.trim()}
-            className="rounded-lg bg-slate-800 px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="rounded-lg bg-slate-800 dark:bg-slate-600 px-4 py-2 text-sm text-white disabled:opacity-50"
             data-testid="channel-routing-preview-btn"
           >
             {loading ? 'Checking…' : 'Check'}
           </button>
         </div>
-        {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+        {error && <p className="text-xs text-red-600 dark:text-red-400 mt-2">{error}</p>}
         {preview && (
           <div
-            className="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-3"
+            className="mt-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 p-3"
             data-testid="channel-routing-preview-result"
           >
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Recognized as: <strong>{preview.intent}</strong>
             </p>
-            <p className="text-sm text-slate-700 mt-1">{describePreview(preview)}</p>
+            <p className="text-sm text-slate-700 dark:text-slate-300 mt-1">{describePreview(preview)}</p>
           </div>
         )}
       </div>

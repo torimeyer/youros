@@ -190,9 +190,10 @@ class TestDocService:
 
     @pytest.mark.asyncio
     async def test_list_docs_finds_drafts_and_specs(self):
-        docs_dir = Path(self.tmpdir) / "docs"
-        draft_dir = docs_dir / "draft"
-        spec_dir = docs_dir / "spec"
+        # UAT item 8: list_docs reads ONLY the per-user ~/.myos store
+        # (USER_DRAFTS_DIR/USER_SPECS_DIR patched to tmpdir/_user_* in setup).
+        draft_dir = Path(self.tmpdir) / "_user_drafts"
+        spec_dir = Path(self.tmpdir) / "_user_specs"
         draft_dir.mkdir(parents=True)
         spec_dir.mkdir(parents=True)
 
@@ -208,7 +209,8 @@ class TestDocService:
 
         draft = next(d for d in result if d["status"] == "draft")
         assert draft["title"] == "my plan"
-        assert draft["path"] == "docs/draft/my-plan.md"
+        assert draft["path"] == "_user_drafts/my-plan.md"
+        assert draft["is_user_local"] is True
         assert draft["created_at"] == "2026-04-01T00:00:00Z"
         assert "Some body text" in draft["body"]
         assert draft["task_summary"] == {"total": 0, "open": 0, "closed": 0}
@@ -222,10 +224,46 @@ class TestDocService:
         assert spec["acceptance_criteria"][0]["checked"] is False
 
     @pytest.mark.asyncio
+    async def test_list_docs_never_surfaces_repo_husks(self):
+        """SECURITY (UAT item 8): specs/drafts living ONLY in the repo-local
+        docs/draft or docs/spec trees must never appear. Those dirs travel with
+        a copied or shared checkout, and reading them once surfaced one user's
+        specs inside a different user/install's app (two pclaude drafts showed
+        up on a separate work machine). Reads are locked to the per-user
+        ~/.myos store, so a repo-only husk is invisible.
+        """
+        # Two husks placed ONLY in the repo docs/ tree (the real leak source).
+        repo_draft = Path(self.tmpdir) / "docs" / "draft"
+        repo_spec = Path(self.tmpdir) / "docs" / "spec"
+        repo_draft.mkdir(parents=True)
+        repo_spec.mkdir(parents=True)
+        repo_draft.joinpath("pattern-watcher-v2.md").write_text(
+            "---\ntitle: pattern watcher v2\nstatus: draft\n"
+            "created_at: 2026-06-01T00:00:00Z\n---\n\nleak husk"
+        )
+        repo_spec.joinpath("user-memory-store-improvements.md").write_text(
+            "---\ntitle: user memory store improvements\nstatus: spec\n---\n\n- [ ] leak husk"
+        )
+
+        result = await self.svc.list_docs()
+
+        leaked = [
+            d for d in result
+            if d.get("path", "").startswith(("docs/draft/", "docs/spec/"))
+            or "pattern watcher v2" in d.get("title", "")
+            or "user memory store improvements" in d.get("title", "")
+        ]
+        assert leaked == [], (
+            f"Repo-local husks must never surface in list_docs; leaked: {leaked}"
+        )
+
+    @pytest.mark.asyncio
     async def test_list_docs_with_tasks_computes_status(self):
         """Specs with linked tasks get in-progress or complete status."""
-        docs_dir = Path(self.tmpdir) / "docs"
-        spec_dir = docs_dir / "spec"
+        # UAT item 8: list_docs reads ONLY the per-user ~/.myos store
+        # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
+        # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
+        spec_dir = Path(self.tmpdir) / "_user_specs"
         spec_dir.mkdir(parents=True)
 
         spec_dir.joinpath("active.md").write_text(
@@ -253,8 +291,10 @@ class TestDocService:
         Guard for the Ready→In-Progress transition: only a *started* task (not
         merely queued) flips the badge. Open/unstarted tasks keep the spec Ready.
         """
-        docs_dir = Path(self.tmpdir) / "docs"
-        spec_dir = docs_dir / "spec"
+        # UAT item 8: list_docs reads ONLY the per-user ~/.myos store
+        # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
+        # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
+        spec_dir = Path(self.tmpdir) / "_user_specs"
         spec_dir.mkdir(parents=True)
 
         spec_dir.joinpath("wip.md").write_text(
@@ -279,8 +319,10 @@ class TestDocService:
     @pytest.mark.asyncio
     async def test_list_docs_complete_status(self):
         """Spec where all tasks are closed AND all ACs checked gets complete status."""
-        docs_dir = Path(self.tmpdir) / "docs"
-        spec_dir = docs_dir / "spec"
+        # UAT item 8: list_docs reads ONLY the per-user ~/.myos store
+        # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
+        # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
+        spec_dir = Path(self.tmpdir) / "_user_specs"
         spec_dir.mkdir(parents=True)
 
         spec_dir.joinpath("done.md").write_text(
@@ -308,8 +350,10 @@ class TestDocService:
         is "agents finished the work" and AC verification is a separate
         optional step.
         """
-        docs_dir = Path(self.tmpdir) / "docs"
-        spec_dir = docs_dir / "spec"
+        # UAT item 8: list_docs reads ONLY the per-user ~/.myos store
+        # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
+        # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
+        spec_dir = Path(self.tmpdir) / "_user_specs"
         spec_dir.mkdir(parents=True)
 
         spec_dir.joinpath("almost.md").write_text(
@@ -337,8 +381,10 @@ class TestDocService:
         at in-progress. This test proves the IDs are normalized on both
         sides and the summary reflects reality.
         """
-        docs_dir = Path(self.tmpdir) / "docs"
-        spec_dir = docs_dir / "spec"
+        # UAT item 8: list_docs reads ONLY the per-user ~/.myos store
+        # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
+        # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
+        spec_dir = Path(self.tmpdir) / "_user_specs"
         spec_dir.mkdir(parents=True)
 
         spec_dir.joinpath("arrowed.md").write_text(
