@@ -300,62 +300,6 @@ def test_find_freshest_uses_index_for_known_name(tmp_path):
     assert result == jsonl, f"Expected {jsonl}, got {result}"
 
 
-# ---------------------------------------------------------------------------
-# →2165: _load_agent_state caps old terminal agents so agent_metadata stays
-# lean after many restarts (prevents the 670-entry inflation pattern).
-# ---------------------------------------------------------------------------
-
-def test_load_agent_state_drops_old_terminal_agents(tmp_path):
-    """_load_agent_state must exclude terminal agents older than TTL.
-
-    Old completed/failed/abandoned rows must NOT be loaded into agent_metadata
-    on startup. Running (non-terminal) agents are always loaded regardless of age.
-    """
-    import json
-    import routers.agents as ag
-    from datetime import datetime, timezone, timedelta
-    from pathlib import Path
-
-    now = datetime.now(timezone.utc)
-    recent_ts = (now - timedelta(hours=1)).isoformat()
-    old_ts = (now - timedelta(hours=30)).isoformat()  # older than 24h TTL
-
-    state = {
-        "agent-running":          {"status": "running",   "spawned_at": old_ts},
-        "agent-recent-completed": {"status": "completed", "spawned_at": recent_ts, "completed_at": recent_ts},
-        "agent-old-completed":    {"status": "completed", "spawned_at": old_ts,    "completed_at": old_ts},
-        "agent-old-failed":       {"status": "failed",    "spawned_at": old_ts},
-        "agent-old-abandoned":    {"status": "abandoned",  "spawned_at": old_ts},
-    }
-    state_path = tmp_path / "agent_state.json"
-    state_path.write_text(json.dumps(state))
-
-    original_path = ag.AGENT_STATE_PATH
-    try:
-        ag.AGENT_STATE_PATH = state_path
-        loaded = ag._load_agent_state()
-    finally:
-        ag.AGENT_STATE_PATH = original_path
-
-    assert "agent-running" in loaded,          "non-terminal agents must always be loaded"
-    assert "agent-recent-completed" in loaded, "recent terminal agents must be loaded"
-    assert "agent-old-completed" not in loaded,  "old terminal agents must be excluded"
-    assert "agent-old-failed" not in loaded,     "old terminal agents must be excluded"
-    assert "agent-old-abandoned" not in loaded,  "old terminal agents must be excluded"
-
-
-def test_load_agent_state_terminal_ttl_constant_exists():
-    """Verify the cap constant is present and has a sane value."""
-    import routers.agents as ag
-    assert hasattr(ag, "_LOAD_STATE_TERMINAL_TTL_HOURS"), (
-        "_LOAD_STATE_TERMINAL_TTL_HOURS constant must exist"
-    )
-    ttl = ag._LOAD_STATE_TERMINAL_TTL_HOURS
-    assert isinstance(ttl, (int, float)) and 1 <= ttl <= 168, (
-        f"_LOAD_STATE_TERMINAL_TTL_HOURS={ttl} must be between 1 and 168 hours"
-    )
-
-
 def test_warm_cache_resolve_no_latency_spike(tmp_path):
     """Simulated enrichment pass over N agents must complete well under 1 s
     on a warm cache (index lookup), not 6 s (linear scan).

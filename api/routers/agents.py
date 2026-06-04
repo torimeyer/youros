@@ -477,10 +477,6 @@ _TERMINAL_STATUSES = frozenset({
 })
 _last_prune_time: float = -999999.0
 _PRUNE_INTERVAL_SECONDS = 300
-# →2165: terminal agents older than this threshold are excluded from the
-# loaded state at startup so agent_metadata stays lean across restarts.
-# Non-terminal (running) agents are always loaded regardless of age.
-_LOAD_STATE_TERMINAL_TTL_HOURS = 24
 
 
 def _prune_stale_completed_agents() -> int:
@@ -1037,34 +1033,13 @@ def agent_mailbox_instruction(
 
 
 def _load_agent_state() -> dict:
-    """Load persisted agent state from disk.
-
-    Terminal agents older than _LOAD_STATE_TERMINAL_TTL_HOURS are excluded
-    so agent_metadata stays lean after many restarts (→2165). Non-terminal
-    agents are always loaded.
-    """
-    if not AGENT_STATE_PATH.exists():
-        return {}
-    try:
-        raw: dict = json.loads(AGENT_STATE_PATH.read_text())
-    except (json.JSONDecodeError, OSError):
-        return {}
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(hours=_LOAD_STATE_TERMINAL_TTL_HOURS)
-    ).isoformat()
-    result: dict = {}
-    for name, meta in raw.items():
-        if not isinstance(meta, dict):
-            continue
-        status = meta.get("status", "")
-        if status not in _TERMINAL_STATUSES:
-            result[name] = meta
-            continue
-        # Terminal: include only if the agent completed/spawned within the TTL.
-        ts = meta.get("completed_at") or meta.get("spawned_at") or ""
-        if ts >= cutoff:
-            result[name] = meta
-    return result
+    """Load persisted agent state from disk."""
+    if AGENT_STATE_PATH.exists():
+        try:
+            return json.loads(AGENT_STATE_PATH.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
 
 
 def _emit_audit_event(event: str, data: dict) -> None:
