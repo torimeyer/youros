@@ -1116,6 +1116,14 @@ async def export_spec(spec_path: str, format: str = "speckit"):
     if format != "speckit":
         raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
     _validate_doc_path(spec_path)
+    # SECURITY (UAT item 8): never serve spec/draft CONTENT from the repo-local
+    # docs/draft or docs/spec trees. Those dirs can hold husk files carried in
+    # from another machine's checkout; returning their content would let a spec
+    # leave the machine that created it. Spec content is read ONLY from the
+    # per-user ~/.myos store (list_docs is already locked to ~/.myos). We answer
+    # 404 (not 400) so a husk's presence is never even revealed.
+    if spec_path.startswith("docs/draft/") or spec_path.startswith("docs/spec/"):
+        raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
     full_path = (Path(PROJECT_ROOT) / spec_path).resolve()
     if not full_path.exists():
         raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
