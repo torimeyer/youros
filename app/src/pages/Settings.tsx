@@ -765,7 +765,7 @@ export default function Settings() {
   };
 
   const cardClass =
-    'bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-4 sm:p-6 rounded-xl hover:border-slate-200 dark:hover:border-slate-700 transition-colors';
+    'bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-4 sm:p-6 rounded-xl hover:border-slate-200 dark:hover:border-slate-700 transition-colors';
 
   const navItems = [
     { id: 'section-connections', label: 'Connections', icon: 'hub' },
@@ -834,16 +834,24 @@ export default function Settings() {
               <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
                 <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-1">Where files are saved</p>
                 <p className="text-xs text-slate-500 mb-2">torios saves documents, exports, and attachments here.</p>
-                <input
-                  type="text"
-                  value={filesDir}
-                  onChange={(e) => setFilesDir(e.target.value)}
-                  onBlur={() => api.patch('/settings', { files_dir: filesDir }).catch(() => {})}
-                  onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { files_dir: filesDir }).catch(() => {}); }}
-                  placeholder="~/myos-files"
-                  data-testid="files-dir-input"
-                  className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500 transition-colors"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={filesDir}
+                    onChange={(e) => setFilesDir(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { files_dir: filesDir }).catch(() => {}); }}
+                    placeholder="~/myos-files"
+                    data-testid="files-dir-input"
+                    className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                  <button
+                    onClick={() => api.patch('/settings', { files_dir: filesDir }).catch(() => {})}
+                    data-testid="files-dir-save"
+                    className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+                  >
+                    Save
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1795,18 +1803,25 @@ export default function Settings() {
                     <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1" htmlFor="default-confluence-space">
                       Default Confluence space
                     </label>
-                    <input
-                      id="default-confluence-space"
-                      type="text"
-                      value={defaultConfluenceSpace}
-                      onChange={(e) => setDefaultConfluenceSpace(e.target.value)}
-                      onBlur={(e) => {
-                        api.patch('/settings', { default_confluence_space: e.target.value.trim() }).catch(() => {});
-                      }}
-                      placeholder="e.g. IAM"
-                      data-testid="default-confluence-space-input"
-                      className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        id="default-confluence-space"
+                        type="text"
+                        value={defaultConfluenceSpace}
+                        onChange={(e) => setDefaultConfluenceSpace(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { default_confluence_space: defaultConfluenceSpace.trim() }).catch(() => {}); }}
+                        placeholder="e.g. IAM"
+                        data-testid="default-confluence-space-input"
+                        className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                      />
+                      <button
+                        onClick={() => api.patch('/settings', { default_confluence_space: defaultConfluenceSpace.trim() }).catch(() => {})}
+                        data-testid="confluence-space-save"
+                        className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+                      >
+                        Save
+                      </button>
+                    </div>
                     <p className="text-xs text-slate-500 mt-1">
                       Paste a space shortcut (like IAM) or a full Confluence URL. The widget will show pages from this space only.
                     </p>

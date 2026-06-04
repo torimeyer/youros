@@ -22,7 +22,7 @@ from typing import Optional
 
 import anthropic
 
-from services.chat_providers import _resolve_api_key
+from services.ai_backend import get_ai_client
 from services.labels_store import labels_store, LABEL_COLORS
 
 # claude-sonnet-4-20250514 is the same model used by chat_providers.
@@ -160,10 +160,9 @@ async def _classify_with_claude(
 ) -> str:
     """Call Claude. Returns raw text. Raises on API errors so the caller
     can fall back gracefully."""
-    api_key = await _resolve_api_key("anthropic_api_key")
-    if not api_key:
+    client = await get_ai_client()
+    if not client:
         return ""
-    client = anthropic.AsyncAnthropic(api_key=api_key)
     system, user = _build_prompt(title, description, existing_labels)
     response = await client.messages.create(
         model=_CLASSIFIER_MODEL,
@@ -240,7 +239,7 @@ async def suggest_labels(
     # set from stage 1) so Claude can pick up on labels keyword scan misses.
     try:
         raw = await _classify_with_claude(title, description, existing_labels)
-    except (anthropic.APIError, asyncio.TimeoutError, Exception):
+    except (asyncio.TimeoutError, Exception):
         raw = ""
 
     ai_existing, new_name = _parse_response(raw, existing_labels)

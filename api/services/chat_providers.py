@@ -460,6 +460,19 @@ _GEMINI_MODEL_GONE_HELP = (
 )
 
 
+# GCP error strings that indicate the Vertex AI API is not enabled (->2165).
+_VERTEX_SERVICE_DISABLED_HINTS = {
+    "SERVICE_DISABLED",
+    "has not been used in project",
+    "aiplatform.googleapis.com",
+}
+
+
+def _is_vertex_service_disabled(error_text: str) -> bool:
+    """Return True if the error text indicates Vertex AI is disabled."""
+    return any(hint in error_text for hint in _VERTEX_SERVICE_DISABLED_HINTS)
+
+
 def _friendly_gemini_error(error_text: str) -> str:
     """Translate Google's cryptic errors into a friendly message.
 
@@ -471,6 +484,13 @@ def _friendly_gemini_error(error_text: str) -> str:
     one-liner the user can act on. For all other errors we pass the
     original message through unchanged.
     """
+    if _is_vertex_service_disabled(error_text):
+        return (
+            "Gemini's Vertex AI Agent Platform API isn't enabled on your GCP project. "
+            "Enable aiplatform.googleapis.com in the GCP console for that project, "
+            "or pick a different provider."
+        )
+
     lowered = error_text.lower()
     for hint in _GEMINI_MODEL_GONE_HINTS:
         if hint in lowered:
@@ -3430,7 +3450,12 @@ class ChatService:
         except WebSocketDisconnect:
             pass
         except Exception as e:
-            friendly = _friendly_gemini_error(str(e))
+            error_text = str(e)
+            if _is_vertex_service_disabled(error_text):
+                # Re-raise so the cascade caller can fall back to CLI or API key.
+                raise
+
+            friendly = _friendly_gemini_error(error_text)
             try:
                 await websocket.send_json({"type": "error", "data": friendly})
             except Exception:
@@ -3455,16 +3480,6 @@ class ChatService:
             _matched_tmpl = await _maybe_match_template(messages, websocket, _api_key_hint)
             system_instruction = _build_gemini_system_prompt(_matched_tmpl, messages)
 
-        # Priority 0: Gemini CLI (if enabled and available).
-        if settings_store.get("use_gemini_cli") and await gemini_cli_provider.is_gemini_cli_available():
-            try:
-                return await gemini_cli_provider.stream_chat(
-                    messages, websocket, system_prompt=system_instruction, **kwargs
-                )
-            except Exception as e:
-                _gemini_log.warning(f"Gemini CLI failed, falling back to API: {e}")
-                # Fall through to API logic below
-
         # Priority 1: Vertex AI via Application Default Credentials.
         # detect_vertex_gemini() checks gcloud ADC and never raises.
         # Imported here to avoid a circular-import at module load time.
@@ -3473,13 +3488,29 @@ class ChatService:
         vx = await detect_vertex_gemini()
         if vx.get("available"):
             datastore = os.environ.get("VERTEX_SEARCH_DATASTORE", "") or None
-            return await self._stream_gemini_vertex(
-                messages, websocket, vx["project"], vx["location"],
-                datastore=datastore, system_instruction=system_instruction,
-            )
+            try:
+                return await self._stream_gemini_vertex(
+                    messages, websocket, vx["project"], vx["location"],
+                    datastore=datastore, system_instruction=system_instruction,
+                )
+            except Exception as e:
+                # If the project exists but the specific Vertex AI API is not
+                # enabled, fall through to CLI or API key (->2165).
+                if not _is_vertex_service_disabled(str(e)):
+                    raise
 
-        # Gemini's public Generative Language API only accepts API keys.
-        # User OAuth tokens (even with cloud-platform scope) are rejected
+        # Priority 2: Gemini CLI (automatic fallback).
+        if await gemini_cli_provider.is_gemini_cli_available():
+            try:
+                return await gemini_cli_provider.stream_chat(
+                    messages, websocket, system_prompt=system_instruction, **kwargs
+                )
+            except Exception as e:
+                _gemini_log.warning(f"Gemini CLI failed, falling back to API: {e}")
+                # Fall through to API logic below
+
+        # Priority 3: Gemini's public Generative Language API.
+        # This path only accepts API keys. User OAuth tokens are rejected
         # with ACCESS_TOKEN_TYPE_UNSUPPORTED, so we no longer try to use
         # them here. The Google sign-in flow is for Drive/Calendar/Gmail,
         # not for Gemini chat.

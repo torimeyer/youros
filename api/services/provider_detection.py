@@ -146,6 +146,39 @@ async def detect_vertex_gemini() -> dict:
         return {"available": False, "vertex_ai_needs_reauth": _is_reauth_error(exc), "vertex_ai_signed_in": False}
 
 
+async def classify_vertex_state(project: str) -> str:
+    """Return "ok" | "api-disabled" | "adc-missing" based on project state.
+
+    Uses gcloud to probe if aiplatform.googleapis.com is enabled.
+    Conservative: returns "api-disabled" on gcloud probe failure.
+    """
+    if not await detect_vertex_ai():
+        return "adc-missing"
+
+    try:
+        r = await asyncio.to_thread(
+            subprocess.run,
+            [
+                "gcloud",
+                "services",
+                "list",
+                "--enabled",
+                f"--project={project}",
+                "--filter=config.name:aiplatform.googleapis.com",
+                "--format=value(config.name)",
+            ],
+            capture_output=True,
+            timeout=5,
+            text=True,
+        )
+        if r.returncode == 0 and "aiplatform.googleapis.com" in r.stdout:
+            return "ok"
+    except Exception:
+        pass
+
+    return "api-disabled"
+
+
 async def detect_bedrock() -> bool:
     if os.environ.get("AWS_ACCESS_KEY_ID"):
         return True
@@ -206,9 +239,10 @@ def _reset_provider_cache() -> None:
     Intended for use in tests only — forces the next detect_providers() call to
     run a full detection scan rather than returning a stale cached result.
     """
-    global _providers_cache_value, _providers_cache_ts
+    global _providers_cache_value, _providers_cache_ts, _providers_lock
     _providers_cache_value = None
     _providers_cache_ts = 0.0
+    _providers_lock = None
 
 
 async def _refresh_provider_cache() -> None:

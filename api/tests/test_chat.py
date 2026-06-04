@@ -242,6 +242,19 @@ class TestGeminiCredentialErrors:
        from the API into the same friendly Settings hint.
     """
 
+    @pytest.fixture(autouse=True)
+    def mock_non_api_key_backends_unavailable(self):
+        """Ensure Vertex AI and Gemini CLI are unavailable so the test
+        reaches the public API key path (and its missing-key error)."""
+        with patch(
+            "services.provider_detection.detect_vertex_gemini",
+            new=AsyncMock(return_value={"available": False}),
+        ), patch(
+            "services.gemini_cli_provider.is_gemini_cli_available",
+            new=AsyncMock(return_value=False),
+        ):
+            yield
+
     @pytest.mark.asyncio
     async def test_no_api_key_sends_friendly_error(self, websocket):
         """With no Gemini API key, the user sees a friendly Settings hint
@@ -4015,3 +4028,164 @@ class TestTerminalTrackingWsSendFailure:
             "send_text must follow the same ordering rule as send_json: "
             "terminal_sent only flips after the inner send returns."
         )
+
+
+class TestParseAddTaskTitle:
+    """Unit tests for _parse_add_task_title."""
+
+    def test_add_task_colon(self):
+        from routers.chat import _parse_add_task_title
+        assert _parse_add_task_title("add task: fix the login bug") == "fix the login bug"
+
+    def test_create_task_colon(self):
+        from routers.chat import _parse_add_task_title
+        assert _parse_add_task_title("create task: write release notes") == "write release notes"
+
+    def test_new_task_colon(self):
+        from routers.chat import _parse_add_task_title
+        assert _parse_add_task_title("new task: update the README") == "update the README"
+
+    def test_add_a_task(self):
+        from routers.chat import _parse_add_task_title
+        assert _parse_add_task_title("add a task: refactor auth") == "refactor auth"
+
+    def test_create_a_new_task(self):
+        from routers.chat import _parse_add_task_title
+        assert _parse_add_task_title("create a new task: deploy staging") == "deploy staging"
+
+    def test_add_task_space_separator(self):
+        from routers.chat import _parse_add_task_title
+        assert _parse_add_task_title("add task fix the login bug") == "fix the login bug"
+
+    def test_case_insensitive(self):
+        from routers.chat import _parse_add_task_title
+        assert _parse_add_task_title("ADD TASK: SOMETHING") == "SOMETHING"
+
+    def test_unrelated_message_returns_none(self):
+        from routers.chat import _parse_add_task_title
+        assert _parse_add_task_title("what are my tasks?") is None
+
+    def test_empty_title_after_colon_returns_none(self):
+        from routers.chat import _parse_add_task_title
+        result = _parse_add_task_title("add task: ")
+        assert result is None or result == ""
+
+
+class TestHandleAddTask:
+    """Tests for _handle_add_task handler."""
+
+    @pytest.mark.asyncio
+    async def test_creates_task_and_replies(self, monkeypatch):
+        from routers.chat import _handle_add_task
+        import services.ostk as _ostk_mod
+
+        created = []
+
+        async def mock_add_task(title, **kwargs):
+            created.append(title)
+            return "task-123"
+
+        monkeypatch.setattr(_ostk_mod.ostk, "add_task", mock_add_task)
+
+        messages = []
+
+        class _FakeWS:
+            async def send_json(self, data):
+                messages.append(data)
+
+        handled = await _handle_add_task("add task: write tests", _FakeWS())
+        assert handled is True
+        assert created == ["write tests"]
+        assert messages[0] == {"type": "token", "data": "Added: write tests"}
+        assert messages[1] == {"type": "done"}
+
+    @pytest.mark.asyncio
+    async def test_unrelated_message_not_handled(self):
+        from routers.chat import _handle_add_task
+
+        class _FakeWS:
+            async def send_json(self, data):
+                pass
+
+        handled = await _handle_add_task("show my tasks", _FakeWS())
+        assert handled is False
+
+
+class TestHandleListTasks:
+    """Tests for _handle_list_tasks handler."""
+
+    @pytest.mark.asyncio
+    async def test_returns_task_list(self, monkeypatch):
+        from routers.chat import _handle_list_tasks
+        import services.ostk as _ostk_mod
+
+        async def mock_list_tasks(status="open"):
+            return [
+                {"id": "1", "priority": "P1", "title": "Fix login"},
+                {"id": "2", "priority": "P2", "title": "Write docs"},
+            ]
+
+        monkeypatch.setattr(_ostk_mod.ostk, "list_tasks", mock_list_tasks)
+
+        messages = []
+
+        class _FakeWS:
+            async def send_json(self, data):
+                messages.append(data)
+
+        handled = await _handle_list_tasks("show my tasks", _FakeWS())
+        assert handled is True
+        token = messages[0]
+        assert token["type"] == "token"
+        assert "Fix login" in token["data"]
+        assert "Write docs" in token["data"]
+        assert messages[1] == {"type": "done"}
+
+    @pytest.mark.asyncio
+    async def test_empty_task_list(self, monkeypatch):
+        from routers.chat import _handle_list_tasks
+        import services.ostk as _ostk_mod
+
+        async def mock_list_tasks(status="open"):
+            return []
+
+        monkeypatch.setattr(_ostk_mod.ostk, "list_tasks", mock_list_tasks)
+
+        messages = []
+
+        class _FakeWS:
+            async def send_json(self, data):
+                messages.append(data)
+
+        handled = await _handle_list_tasks("list my tasks", _FakeWS())
+        assert handled is True
+        assert "No open tasks" in messages[0]["data"]
+
+    @pytest.mark.asyncio
+    async def test_list_tasks_phrase_variants(self, monkeypatch):
+        from routers.chat import _handle_list_tasks
+        import services.ostk as _ostk_mod
+
+        async def mock_list_tasks(status="open"):
+            return []
+
+        monkeypatch.setattr(_ostk_mod.ostk, "list_tasks", mock_list_tasks)
+
+        class _FakeWS:
+            async def send_json(self, data):
+                pass
+
+        for phrase in ["show my tasks", "list tasks", "what are my tasks", "show open tasks", "get my tasks"]:
+            handled = await _handle_list_tasks(phrase, _FakeWS())
+            assert handled is True, f"phrase not matched: {phrase!r}"
+
+    @pytest.mark.asyncio
+    async def test_unrelated_message_not_handled(self):
+        from routers.chat import _handle_list_tasks
+
+        class _FakeWS:
+            async def send_json(self, data):
+                pass
+
+        handled = await _handle_list_tasks("add task: fix something", _FakeWS())
+        assert handled is False

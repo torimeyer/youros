@@ -399,7 +399,7 @@ async def recent_docs(limit: int = Query(10, ge=1, le=50, description="Max files
         ".DS_Store", "transcripts", "e2e-screenshots", "tools",
         ".venv", "venv", "dist", "build", ".next", ".turbo",
         ".pytest_cache", ".mypy_cache", ".ruff_cache", "coverage",
-        "htmlcov",
+        "htmlcov", "releases", "adr", "agents",
     }
 
     def _collect(base: Path, path_builder) -> None:

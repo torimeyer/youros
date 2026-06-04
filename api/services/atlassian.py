@@ -689,27 +689,19 @@ async def list_recent_pages(limit: int = 25, space_key: str = "") -> list[dict]:
     if cached is not None:
         return cached  # type: ignore[return-value]
 
+    # Build CQL so results are always scoped to what the current user
+    # recently viewed, not globally modified pages.
     if space_key:
-        async def call(client, auth_kwargs, base_url, site):
-            return await client.get(
-                f"{base_url}/wiki/rest/api/content",
-                **auth_kwargs,
-                params={
-                    "type": "page",
-                    "spaceKey": space_key,
-                    "limit": limit,
-                    "orderby": "modified",
-                    "status": "current",
-                    "expand": "version,space",
-                },
-            )
+        cql = f'type=page AND space="{space_key}" AND lastViewed>\'1970-01-01\' ORDER BY lastViewed DESC'
     else:
-        async def call(client, auth_kwargs, base_url, site):
-            return await client.get(
-                f"{base_url}/wiki/api/v2/pages",
-                **auth_kwargs,
-                params={"sort": "-modified-date", "limit": limit},
-            )
+        cql = "type=page AND lastViewed>'1970-01-01' ORDER BY lastViewed DESC"
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.get(
+            f"{base_url}/wiki/rest/api/content/search",
+            **auth_kwargs,
+            params={"cql": cql, "limit": limit, "expand": "version,space"},
+        )
 
     try:
         resp, base_url, site = await _request_with_refresh("confluence", call)
@@ -723,32 +715,21 @@ async def list_recent_pages(limit: int = 25, space_key: str = "") -> list[dict]:
         raise RuntimeError(f"Confluence API error ({resp.status_code}).")
     data = resp.json()
 
+    # Both branches now use the v1 content/search endpoint.
     pages = []
-    if space_key:
-        # v1 API response shape
-        for page in data.get("results", []):
-            page_id = str(page.get("id", ""))
-            space_obj = page.get("space") or {}
-            space_id = str(space_obj.get("id", ""))
-            version_obj = page.get("version") or {}
-            pages.append({
-                "id": page_id,
-                "title": page.get("title", ""),
-                "space_id": space_id,
-                "updated": version_obj.get("when", ""),
-                "url": f"https://{site}/wiki/spaces/{space_key}/pages/{page_id}",
-            })
-    else:
-        # v2 API response shape
-        for page in data.get("results", []):
-            page_id = str(page.get("id", ""))
-            pages.append({
-                "id": page_id,
-                "title": page.get("title", ""),
-                "space_id": str(page.get("spaceId", "")),
-                "updated": page.get("version", {}).get("createdAt", ""),
-                "url": f"https://{site}/wiki/spaces/{page.get('spaceId', '')}/pages/{page_id}",
-            })
+    for page in data.get("results", []):
+        page_id = str(page.get("id", ""))
+        space_obj = page.get("space") or {}
+        page_space_key = space_obj.get("key", space_key)
+        space_id = str(space_obj.get("id", ""))
+        version_obj = page.get("version") or {}
+        pages.append({
+            "id": page_id,
+            "title": page.get("title", ""),
+            "space_id": space_id,
+            "updated": version_obj.get("when", ""),
+            "url": f"https://{site}/wiki/spaces/{page_space_key}/pages/{page_id}",
+        })
 
     _cache_set(cache_key, pages)
     return pages

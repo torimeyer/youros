@@ -503,7 +503,7 @@ export default function IMessage() {
       .catch(() => {})
   }, [])
 
-  const cardClass = 'bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-3 sm:p-4 rounded-xl'
+  const cardClass = 'bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-3 sm:p-4 rounded-xl'
 
   if (connectionState === 'loading' && conversations.length === 0) {
     return (

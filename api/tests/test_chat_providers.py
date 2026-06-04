@@ -43,6 +43,23 @@ def websocket():
     return FakeWebSocket()
 
 
+@pytest.fixture(autouse=True)
+def mock_gemini_backends_unavailable():
+    """By default, mock Vertex AI and Gemini CLI as unavailable for all tests.
+    This ensures legacy tests that mock the public Generative Language API
+    (Priority 3) continue to reach that path instead of hitting real
+    creds or other providers in the new cascade.
+    """
+    with patch(
+        "services.provider_detection.detect_vertex_gemini",
+        new=AsyncMock(return_value={"available": False}),
+    ), patch(
+        "services.gemini_cli_provider.is_gemini_cli_available",
+        new=AsyncMock(return_value=False),
+    ):
+        yield
+
+
 # --- _messages_contain_images ---
 
 
@@ -2498,6 +2515,12 @@ class TestGeminiDoesNotBlockEventLoop:
             with patch(
                 "services.chat_providers._resolve_api_key",
                 new=AsyncMock(return_value="test-key"),
+            ), patch(
+                "services.provider_detection.detect_vertex_gemini",
+                new=AsyncMock(return_value={"available": False}),
+            ), patch(
+                "services.gemini_cli_provider.is_gemini_cli_available",
+                new=AsyncMock(return_value=False),
             ):
                 start = _time.perf_counter()
                 # Kick off both at once. If the event loop is free during
@@ -4677,3 +4700,98 @@ class TestMemoryInjection:
         prompt = cp._compose_system_prompt(None)
         assert "No em-dashes" in prompt
         assert "User preferences and facts" in prompt
+
+
+# ---------------------------------------------------------------------------
+# TestStreamGeminiCascadeFallback (->2165)
+# ---------------------------------------------------------------------------
+
+class TestStreamGeminiCascadeFallback:
+    """Verify the Vertex -> CLI -> API key cascade in stream_gemini."""
+
+    @pytest.fixture
+    def websocket(self):
+        return FakeWebSocket()
+
+    @pytest.mark.asyncio
+    async def test_vertex_service_disabled_falls_back_to_cli(self, websocket):
+        """When Vertex AI is available but the API is disabled on the project,
+        the cascade should fall through to the Gemini CLI."""
+        messages = [{"role": "user", "content": "hello cascade"}]
+
+        service = ChatService()
+        # Mock Vertex to raise the service-disabled error
+        service._stream_gemini_vertex = AsyncMock(
+            side_effect=Exception("Cloud AI Platform API has not been used in project")
+        )
+
+        from services import chat_providers
+        with patch(
+            "services.provider_detection.detect_vertex_gemini",
+            return_value={"available": True, "project": "p", "location": "l"},
+        ), patch(
+            "services.gemini_cli_provider.is_gemini_cli_available",
+            new=AsyncMock(return_value=True),
+        ), patch(
+            "services.gemini_cli_provider.stream_chat",
+            new=AsyncMock(return_value="cli response"),
+        ) as mock_cli:
+            await service.stream_gemini(messages, websocket)
+            mock_cli.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_vertex_success_stops_cascade(self, websocket):
+        """When Vertex AI succeeds, the cascade stops (no CLI or API key call)."""
+        messages = [{"role": "user", "content": "hello vertex"}]
+        service = ChatService()
+        service._stream_gemini_vertex = AsyncMock(return_value="vertex ok")
+
+        with patch(
+            "services.provider_detection.detect_vertex_gemini",
+            return_value={"available": True, "project": "p", "location": "l"},
+        ), patch(
+            "services.gemini_cli_provider.is_gemini_cli_available",
+            new=AsyncMock(return_value=True),
+        ) as mock_cli_detect:
+            await service.stream_gemini(messages, websocket)
+            mock_cli_detect.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_vertex_unavailable_calls_cli_before_api_key(self, websocket):
+        """When Vertex AI is not available, CLI is the next choice before API key."""
+        messages = [{"role": "user", "content": "hello cli"}]
+        service = ChatService()
+
+        with patch(
+            "services.provider_detection.detect_vertex_gemini",
+            return_value={"available": False},
+        ), patch(
+            "services.gemini_cli_provider.is_gemini_cli_available",
+            new=AsyncMock(return_value=True),
+        ), patch(
+            "services.gemini_cli_provider.stream_chat",
+            new=AsyncMock(return_value="cli ok"),
+        ) as mock_cli:
+            await service.stream_gemini(messages, websocket)
+            mock_cli.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# TestFriendlyGeminiErrorServiceDisabled (->2165)
+# ---------------------------------------------------------------------------
+
+class TestFriendlyGeminiErrorServiceDisabled:
+    """Verify that SERVICE_DISABLED errors trigger vendor-neutral friendly copy."""
+
+    def test_prose_error_triggers_branch(self):
+        from services.chat_providers import _friendly_gemini_error
+        err = "Cloud AI Platform API has not been used in project 123 before or it is disabled."
+        friendly = _friendly_gemini_error(err)
+        assert "Vertex AI Agent Platform API isn't enabled" in friendly
+        assert "aiplatform.googleapis.com" in friendly
+
+    def test_keyword_error_triggers_branch(self):
+        from services.chat_providers import _friendly_gemini_error
+        err = "SERVICE_DISABLED: Vertex AI is off."
+        friendly = _friendly_gemini_error(err)
+        assert "Vertex AI Agent Platform API isn't enabled" in friendly

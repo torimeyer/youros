@@ -644,3 +644,60 @@ async def test_run_full_detection_concurrent():
     assert elapsed < 0.6, (
         f"_run_full_detection took {elapsed:.2f}s — probes are still running sequentially"
     )
+
+
+# ---------------------------------------------------------------------------
+# classify_vertex_state() tests (->2165)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_classify_vertex_state_ok():
+    """Returns "ok" when gcloud reports the API is enabled."""
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0
+    mock_proc.stdout = "aiplatform.googleapis.com\n"
+
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=True)):
+        with patch("services.provider_detection.subprocess.run", return_value=mock_proc) as mock_run:
+            result = await _pd.classify_vertex_state("test-project")
+
+    assert result == "ok"
+    # Verify the project flag was passed to gcloud
+    args = mock_run.call_args.args[0]
+    assert "--project=test-project" in args
+
+
+@pytest.mark.asyncio
+async def test_classify_vertex_state_api_disabled():
+    """Returns "api-disabled" when gcloud reports nothing found (filtered out)."""
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0
+    mock_proc.stdout = ""  # Empty stdout means the filter didn't match
+
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=True)):
+        with patch("services.provider_detection.subprocess.run", return_value=mock_proc):
+            result = await _pd.classify_vertex_state("test-project")
+
+    assert result == "api-disabled"
+
+
+@pytest.mark.asyncio
+async def test_classify_vertex_state_adc_missing():
+    """Returns "adc-missing" if detect_vertex_ai is False."""
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=False)):
+        result = await _pd.classify_vertex_state("test-project")
+
+    assert result == "adc-missing"
+
+
+@pytest.mark.asyncio
+async def test_classify_vertex_state_gcloud_failure():
+    """Returns "api-disabled" (conservative) if gcloud command fails."""
+    mock_proc = MagicMock()
+    mock_proc.returncode = 1
+
+    with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=True)):
+        with patch("services.provider_detection.subprocess.run", return_value=mock_proc):
+            result = await _pd.classify_vertex_state("test-project")
+
+    assert result == "api-disabled"

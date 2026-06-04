@@ -123,6 +123,7 @@ export default function Gmail() {
       const res = await api.post<{ ok: boolean; title: string; task_id: string }>(
         '/gmail/to-task',
         { message_id: messageId },
+        { timeoutMs: 90000 },
       )
       setTaskStatus((prev) => ({ ...prev, [messageId]: 'done' }))
       setTaskResult((prev) => ({ ...prev, [messageId]: { title: res.title } }))

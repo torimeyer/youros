@@ -1102,7 +1102,7 @@ export default function Tasks() {
       } else if (mode === "comprehensive") {
         prompt = `Implement this task: "${task.title}". Follow the comprehensive build pattern. Plan the approach, build the solution, write tests, run them, and only report done when everything is green.`;
         namePrefix = "implement";
-        bannerLabel = "Comprehensive build";
+        bannerLabel = "Build";
         body.template = "comprehensive";
         body.locks = BUILD_LOCKS;
       } else {
@@ -1130,7 +1130,7 @@ export default function Tasks() {
       setTimeout(() => setBanner(null), 4000);
     } catch (e) {
       reportError(`Failed to spawn ${mode} agent`, e);
-      const label = mode === "plan" ? "plan" : mode === "comprehensive" ? "Comprehensive build" : "Quick build";
+      const label = mode === "plan" ? "plan" : mode === "comprehensive" ? "Build" : "Quick build";
       const detail =
         e != null &&
         typeof e === 'object' &&
@@ -1822,7 +1822,7 @@ export default function Tasks() {
             <button
               onClick={() => setShowOverflowMenu((v) => !v)}
               data-testid="overflow-menu-trigger"
-              className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+              className="p-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-400"
               title="More actions"
             >
               <Icon name="more_horiz" className="text-base" />
@@ -2022,28 +2022,7 @@ export default function Tasks() {
               onSortByChange={setSortBy}
 />
 
-            {/* Needs-clarity filter pill */}
-            {(() => {
-              const count = tasks.filter((t) => t.needs_clarity === true && t.status !== "shelved").length;
-              return count > 0 ? (
-                <div className="mb-3">
-                  <button
-                    data-testid="needs-clarity-filter-pill"
-                    onClick={() => setShowNeedsClarity((v) => !v)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
-                      showNeedsClarity
-                        ? "bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40"
-                        : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
-                    }`}
-                  >
-                    ⚠ Draft
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                      showNeedsClarity ? "bg-amber-500/30 text-amber-700 dark:text-amber-300" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"
-                    }`}>{count}</span>
-                  </button>
-                </div>
-              ) : null;
-            })()}
+
 
             {/* Bulk action bar */}
             {selectedTaskIds.size > 0 && (
@@ -2194,10 +2173,11 @@ export default function Tasks() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         {editingTaskId === task.id ? (
-                          <input
+                          <textarea
                             data-testid={`title-edit-input-${task.id}`}
                             autoFocus
                             value={editingTitleDraft}
+                            rows={Math.max(2, Math.ceil(editingTitleDraft.length / 50))}
                             onChange={(e) => setEditingTitleDraft(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
@@ -2216,7 +2196,7 @@ export default function Tasks() {
                               titleEditCancelledRef.current = false;
                             }}
                             onClick={(e) => e.stopPropagation()}
-                            className="text-sm bg-slate-100 dark:bg-slate-800 border border-blue-500 rounded px-1.5 py-0.5 w-full focus:outline-none text-slate-800 dark:text-slate-200 min-w-0"
+                            className="text-sm bg-slate-100 dark:bg-slate-800 border border-blue-500 rounded px-1.5 py-1 w-full focus:outline-none text-slate-800 dark:text-slate-200 resize-none leading-snug"
                           />
                         ) : (
                           <>
@@ -2401,7 +2381,7 @@ export default function Tasks() {
                               className="flex-1 text-left px-3 py-1.5 text-xs flex items-center gap-2 text-slate-700 dark:text-slate-300"
                             >
                               <Icon name="code" className="text-sm text-green-600 dark:text-green-400" />
-                              Comprehensive build
+                              Build
                             </button>
                             <button
                               onClick={(e) => {
@@ -2415,14 +2395,7 @@ export default function Tasks() {
                               <Icon name="help_outline" className="text-sm" />
                             </button>
                           </div>
-                          <button
-                            onClick={() => handleSpawnWithGate(task.id, "quick")}
-                            disabled={actionLoading === task.id}
-                            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
-                          >
-                            <Icon name="flash_on" className="text-sm text-yellow-600 dark:text-yellow-400" />
-                            Quick build
-                          </button>
+
                           {openBuildHelp === task.id && (
                             <div
                               ref={buildHelpRef}
@@ -2444,6 +2417,18 @@ export default function Tasks() {
                               </ol>
                               <p>Use "Build" when you want it done right.</p>
                             </div>
+                          )}
+                          {task.status !== 'in_progress' && (
+                            <button
+                              onClick={async () => {
+                                setOpenActionMenu(null);
+                                await api.patch(`/tasks/${task.id}`, { status: 'in_progress' });
+                              }}
+                              className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
+                            >
+                              <Icon name="play_arrow" className="text-sm text-green-600 dark:text-green-400" />
+                              Set to in progress
+                            </button>
                           )}
                           <button
                             data-testid="task-action-create-spec"

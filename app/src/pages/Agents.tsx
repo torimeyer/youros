@@ -4745,19 +4745,19 @@ export default function Agents() {
                         key={agent.name}
                         className={`bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl px-5 py-3${showInactive && isInactive ? " opacity-50" : ""}`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
                             <span
-                              className="flex flex-col"
+                              className="flex flex-col min-w-0"
                               title={agentTitleParts(agent).secondary ? `${agentTitleParts(agent).primary} (${agent.name})` : agent.name}
                             >
-                              <span className="text-white font-medium leading-tight">{agentTitleParts(agent).primary}</span>
+                              <span className="text-white font-medium leading-tight truncate">{agentTitleParts(agent).primary}</span>
                               {agentTitleParts(agent).secondary && (
-                                <span className="text-slate-600 dark:text-slate-400 text-xs leading-tight">{agentTitleParts(agent).secondary}</span>
+                                <span className="text-slate-600 dark:text-slate-400 text-xs leading-tight truncate">{agentTitleParts(agent).secondary}</span>
                               )}
                             </span>
                             <span
-                              className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}
+                              className={`text-xs font-bold px-2 py-0.5 rounded flex-shrink-0 ${statusColor(agent.status)}`}
                             >
                               {statusLabel(agent.status)}
                             </span>
@@ -4767,9 +4767,9 @@ export default function Agents() {
                               maxRecoveries={agent.max_recoveries ?? 3}
                             />
                           </div>
-                          <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-4 flex-shrink-0">
                             {agent.model && (
-                              <span className="text-slate-500 text-xs">{agent.model}</span>
+                              <span className="text-slate-500 text-xs">{formatModelShort(agent.model)}</span>
                             )}
                             {isE2eSmoke(agent) && (
                               <span

@@ -140,6 +140,32 @@ def is_roadmap_to_tasks_request(text: str) -> bool:
     return any(p.search(candidate) for p in _ROADMAP_TO_TASKS_PATTERNS)
 
 
+# Regex to detect and extract a task title from conversational add-task phrases.
+# Title is captured in group 1. Accepts colons, spaces, or dashes as separators.
+_ADD_TASK_RE = re.compile(
+    r"^(?:add|create|new)\s+(?:a\s+)?(?:new\s+)?task[:\s\-]+(.+)$",
+    re.IGNORECASE,
+)
+
+# Phrases that mean "show me my open tasks" — answered without AI routing.
+_LIST_TASKS_PATTERNS: tuple[re.Pattern, ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"^(?:show|list|get)\s+(?:my\s+)?(?:all\s+)?(?:open\s+)?tasks?$",
+        r"^what\s+(?:are\s+)?(?:my\s+)?(?:open\s+)?tasks?\b",
+        r"^what\s+tasks?\s+do\s+i\s+have\b",
+        r"^show\s+me\s+(?:my\s+)?(?:open\s+)?tasks?$",
+        r"^(?:list|show)\s+open\s+tasks?$",
+    ]
+)
+
+
+def _parse_add_task_title(text: str) -> Optional[str]:
+    """Extract the task title from an add-task phrase, or return None."""
+    m = _ADD_TASK_RE.match(text.strip())
+    return m.group(1).strip() if m else None
+
+
 def _latest_roadmap_path() -> Optional[Path]:
     """Return the most recent roadmap ``.md`` on disk, or None.
 
@@ -1291,6 +1317,41 @@ class _TerminalTrackingWS:
         return getattr(self._inner, name)
 
 
+async def _handle_add_task(text: str, websocket: WebSocket) -> bool:
+    """Detect 'add task: X' and create a needle without hitting the AI."""
+    title = _parse_add_task_title(text)
+    if not title:
+        return False
+    try:
+        await ostk.add_task(title)
+        await websocket.send_json({"type": "token", "data": f"Added: {title}"})
+        await websocket.send_json({"type": "done"})
+        return True
+    except Exception:
+        return False
+
+
+async def _handle_list_tasks(text: str, websocket: WebSocket) -> bool:
+    """Detect 'show my tasks' and return open tasks without hitting the AI."""
+    if not any(p.search(text) for p in _LIST_TASKS_PATTERNS):
+        return False
+    try:
+        tasks = await ostk.list_tasks(status="open")
+        if not tasks:
+            reply = "No open tasks."
+        else:
+            lines = [
+                f"{i + 1}. [{t.get('priority', '')}] {t.get('title', '')}"
+                for i, t in enumerate(tasks[:30])
+            ]
+            reply = "Open tasks:\n" + "\n".join(lines)
+        await websocket.send_json({"type": "token", "data": reply})
+        await websocket.send_json({"type": "done"})
+        return True
+    except Exception:
+        return False
+
+
 async def _handle_remind_me(text: str, websocket: WebSocket, tab_id: str = "", data: dict = None) -> bool:
     """Detect 'remind me to X at TIME' and create a reminder without hitting the AI."""
     import re as _re
@@ -1412,6 +1473,18 @@ async def chat_websocket(websocket: WebSocket):
                 _remind_tab = data.get("tab_id", "")
                 _remind_handled = await _handle_remind_me(last_text.strip(), websocket, tab_id=_remind_tab, data=data)
                 if _remind_handled:
+                    continue
+
+            # --- Add task: intercept "add task: X", "create task: X", etc. ---
+            if isinstance(last_text, str):
+                _add_task_handled = await _handle_add_task(last_text.strip(), websocket)
+                if _add_task_handled:
+                    continue
+
+            # --- List tasks: intercept "show my tasks", "list tasks", etc. ---
+            if isinstance(last_text, str):
+                _list_tasks_handled = await _handle_list_tasks(last_text.strip(), websocket)
+                if _list_tasks_handled:
                     continue
 
             # --- Memory trigger: detect "remember X", "from now on X", etc. ---
