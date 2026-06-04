@@ -2929,6 +2929,35 @@ class TestBroadcastNoToolLeak:
         # Must explicitly tell the model it has no tools.
         assert "NO tools" in text
         assert "Do not emit XML-style tool tags" in text
+
+    def test_no_tools_system_blocks_guides_helpful_answer(self):
+        """Broadcast system prompt must tell the model to answer helpfully,
+        never to say tools are unavailable.
+
+        Regression for Fox (age 9) getting "no tools available" replies in
+        compare mode instead of direct, friendly answers. The prompt must
+        explicitly instruct the model NOT to mention missing tools and to
+        answer conversationally instead.
+        """
+        from services.chat_providers import _no_tools_system_blocks
+
+        blocks = _no_tools_system_blocks(None)
+        text = blocks[0]["text"]
+        # Must identify this as text-only compare mode.
+        assert "text-only compare mode" in text, (
+            "Prompt must name this mode so the model knows it is answering "
+            "alongside another AI, not in a tool-using session."
+        )
+        # Must explicitly forbid mentioning missing tools.
+        assert "never mention tools" in text, (
+            "Prompt must tell the model never to mention tools — removing "
+            "this guard caused Fox to get 'no tools available' replies."
+        )
+        # Must tell the model to answer directly.
+        assert "Answer every question directly and helpfully" in text, (
+            "Prompt must instruct direct, helpful answers so casual questions "
+            "from any user get a real response, not a refusal."
+        )
         # Must not carry the tool-heavy instructions from the regular
         # system prompt.
         banned = [
