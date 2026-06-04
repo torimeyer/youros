@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import secrets
 import urllib.parse
@@ -282,7 +283,7 @@ async def atlassian_status():
         except Exception:
             pass
         try:
-            expired = not await atlassian_service.probe_token_validity()
+            expired = not await asyncio.wait_for(atlassian_service.probe_token_validity(), timeout=3.0)
         except Exception:
             expired = False
     return {

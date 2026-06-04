@@ -1497,6 +1497,7 @@ export function AtlassianSetupCard({
 
   const handleExpand = () => {
     setExpanded(true)
+    setForceTokenForm(true)
     api.get<{ site?: string; email?: string; oauth_available?: boolean }>('/atlassian/defaults')
       .then((data) => {
         if (data.site) setSite(data.site)
@@ -1656,6 +1657,15 @@ export function AtlassianSetupCard({
           >
             Skip for now
           </button>
+          {oauthAvailable && (
+            <button
+              onClick={() => setForceTokenForm(false)}
+              className={`text-xs underline ${subtextCls} hover:opacity-80 ml-auto`}
+              data-testid="onboarding-atlassian-use-oauth"
+            >
+              Use OAuth instead
+            </button>
+          )}
         </div>
       </div>
     </div>
