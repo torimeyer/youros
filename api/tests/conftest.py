@@ -727,8 +727,15 @@ def _guard_real_store_writes():
     yield
 
     after_issues = _snap(issues_path)
+    # In worktree contexts .ostk/needles is a symlink to the live repo store.
+    # New needle IDs that appear during a long suite run are written by the
+    # live kernel (external agents creating tasks) — not a test leak. Skip the
+    # needle-ID guard entirely in that configuration so the suite does not
+    # produce false positives on a busy system. (→1723 follow-up)
+    _issues_is_shared_store = issues_path.parent.is_symlink()
     if (
-        after_issues is not _TIMEOUT
+        not _issues_is_shared_store
+        and after_issues is not _TIMEOUT
         and snap_issues is not _TIMEOUT
         and after_issues != snap_issues
         and not _issues_only_external_activity(snap_issues, after_issues)

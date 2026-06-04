@@ -77,8 +77,15 @@ async def test_inbound_imessage_poller_gated_by_setting(monkeypatch, settings_fi
         def start(self):
             calls["start"] += 1
 
+    class _FakeRouter:
+        async def handle_inbound_message(self, text):
+            pass
+
     monkeypatch.setattr(
-        "services.channel_intent_parser.InboundPoller", _FakePoller
+        "services.channel_intent_parser.InboundPoller", _FakePoller, raising=False
+    )
+    monkeypatch.setattr(
+        "routers.channel_routing.build_default_router", lambda: _FakeRouter(), raising=False
     )
 
     # Default (disabled): no poller is started.

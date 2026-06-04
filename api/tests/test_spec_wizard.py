@@ -82,12 +82,12 @@ def test_suggest_with_scope_hint():
 # --------------- wizard/create ---------------
 
 def test_create_minimal():
-    with patch("services.ostk.ostk.doc_draft", new_callable=AsyncMock, return_value="docs/draft/test-wizard.md") as mock_draft, \
-         patch("services.ostk.ostk.doc_promote", new_callable=AsyncMock, return_value="docs/spec/test-wizard.md"), \
+    with patch("services.ostk.ostk.doc_promote", new_callable=AsyncMock, return_value="docs/spec/test-wizard.md"), \
          patch("pathlib.Path.exists", return_value=True), \
          patch("pathlib.Path.is_relative_to", return_value=True), \
          patch("pathlib.Path.read_text", return_value="---\ntitle: test\n---\n"), \
-         patch("pathlib.Path.write_text"):
+         patch("pathlib.Path.write_text") as mock_write, \
+         patch("pathlib.Path.mkdir"):
         resp = client.post("/api/specs/wizard/create", json={
             "title": "Test Wizard Spec",
             "problem": "Users need a better way to create specs",
@@ -97,7 +97,10 @@ def test_create_minimal():
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "ready"
-        mock_draft.assert_called_once_with("Test Wizard Spec")
+        # wizard_create writes directly to USER_DRAFTS_DIR; doc_draft is no longer called.
+        from services.ostk import USER_DRAFTS_DIR
+        assert str(USER_DRAFTS_DIR) in body["result"]
+        assert mock_write.called
 
 
 def test_create_empty_title_400():
@@ -124,12 +127,12 @@ def test_create_full_spec():
     def capture_write(content):
         written_content.append(content)
 
-    with patch("services.ostk.ostk.doc_draft", new_callable=AsyncMock, return_value="docs/draft/full-spec.md"), \
-         patch("services.ostk.ostk.doc_promote", new_callable=AsyncMock, return_value="docs/spec/full-spec.md"), \
+    with patch("services.ostk.ostk.doc_promote", new_callable=AsyncMock, return_value="docs/spec/full-spec.md"), \
          patch("pathlib.Path.exists", return_value=True), \
          patch("pathlib.Path.is_relative_to", return_value=True), \
          patch("pathlib.Path.read_text", return_value="---\ntitle: Full Spec\n---\n"), \
-         patch("pathlib.Path.write_text", side_effect=capture_write):
+         patch("pathlib.Path.write_text", side_effect=capture_write), \
+         patch("pathlib.Path.mkdir"):
         resp = client.post("/api/specs/wizard/create", json={
             "title": "Full SDD Spec",
             "problem": "Specs are too thin for agents to build from",
@@ -146,8 +149,9 @@ def test_create_full_spec():
         body = resp.json()
         assert body["status"] == "ready"
 
-        assert len(written_content) == 1
-        content = written_content[0]
+        # wizard_create does two writes: initial template + assembled body.
+        assert len(written_content) == 2
+        content = written_content[-1]
         assert "## Problem" in content
         assert "## Scope" in content
         assert "## Out of scope" in content

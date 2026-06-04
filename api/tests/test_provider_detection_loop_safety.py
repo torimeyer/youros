@@ -31,6 +31,10 @@ def _reset_providers_cache() -> None:
     provider_detection.__dict__.setdefault("_providers_cache_ts", 0.0)
     provider_detection._providers_cache_value = None
     provider_detection._providers_cache_ts = 0.0
+    # Reset the lock so _get_providers_lock() creates a fresh asyncio.Lock bound
+    # to the current event loop. Without this, a lock created in a prior test's
+    # event loop is reused and breaks concurrent callers in the new loop.
+    provider_detection._providers_lock = None
 
 
 def _reset_gemini_cache() -> None:
