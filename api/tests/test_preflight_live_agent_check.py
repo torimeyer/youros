@@ -45,7 +45,7 @@ def test_raises_usage_error_when_live_claude_code_agent():
 def test_allows_empty_registry():
     """Guard must not raise when no agents exist."""
     _check = _load_checker()
-    _check("[]")
+    assert _check("[]") is None
 
 
 def test_allows_non_claude_code_source():
@@ -54,7 +54,7 @@ def test_allows_non_claude_code_source():
     fake_agents = [
         {"name": "bridge-agent", "status": "running", "source": "task-bridge"}
     ]
-    _check(json.dumps(fake_agents))
+    assert _check(json.dumps(fake_agents)) is None
 
 
 def test_allows_completed_claude_code_agent():
@@ -63,7 +63,7 @@ def test_allows_completed_claude_code_agent():
     fake_agents = [
         {"name": "old-agent", "status": "completed", "source": "claude-code"}
     ]
-    _check(json.dumps(fake_agents))
+    assert _check(json.dumps(fake_agents)) is None
 
 
 def test_raises_lists_all_live_agents():
@@ -83,10 +83,10 @@ def test_raises_lists_all_live_agents():
 def test_handles_malformed_json_gracefully():
     """Guard must not crash on bad curl output (backend down, etc.)."""
     _check = _load_checker()
-    _check("curl: (7) Failed to connect")
+    assert _check("curl: (7) Failed to connect") is None
 
 
 def test_handles_non_list_json():
     """Guard must not crash when backend returns a dict instead of a list."""
     _check = _load_checker()
-    _check('{"error": "not found"}')
+    assert _check('{"error": "not found"}') is None
