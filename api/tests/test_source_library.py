@@ -75,9 +75,10 @@ class TestSourceLibraryService:
                 paragraphs.append(f"Paragraph {i}: general content with no relevant terms here.")
         f.write_text("\n\n".join(paragraphs))
 
-        excerpts = _search_excerpts(f, ["clarity", "plain"])
+        source = {"id": "guide", "title": "Style Guide"}
+        excerpts = _search_excerpts(f, ["clarity", "plain"], source)
         assert len(excerpts) <= 3
-        assert any("clarity" in e for e in excerpts)
+        assert any("clarity" in e.text for e in excerpts)
 
     def test_get_knowledge_excerpts_empty_when_no_sources(self, tmp_path):
         from services.source_library import get_knowledge_excerpts
