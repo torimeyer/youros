@@ -57,3 +57,8 @@ config/
 # Use `ostk doc draft` / `ostk doc promote`; never commit docs/spec or docs/draft contents.
 docs/spec/
 docs/draft/
+
+# Session/user working-state that must never reach the public repo (→privacy)
+# Verified gaps 2026-06-03: these were NOT covered before.
+.ostk/needles/
+docs/superpowers/
