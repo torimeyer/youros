@@ -86,4 +86,68 @@ async def send_sms(to_number: str, body: str) -> dict:
         return {"ok": False, "error": f"The text could not be sent. {exc}"}
 
 
-__all__ = ["SMS_CONFIG_PATH", "is_configured", "is_valid_phone_number", "send_sms"]
+def parse_sms_command(body: str) -> dict | None:
+    """Parse an inbound SMS body into a command dict, or None if unrecognized.
+
+    Returns one of:
+      {"kind": "add_task", "title": "<title>"}
+      {"kind": "list_tasks"}
+    """
+    text = body.strip()
+
+    m = re.match(r"add\s+task\s*:\s*(.+)", text, re.IGNORECASE)
+    if m:
+        title = m.group(1).strip()
+        if title:
+            return {"kind": "add_task", "title": title}
+
+    if re.fullmatch(
+        r"(?:list\s+tasks?|my\s+tasks?|what\s+are\s+my\s+tasks?|tasks?)",
+        text,
+        re.IGNORECASE,
+    ):
+        return {"kind": "list_tasks"}
+
+    return None
+
+
+async def dispatch_sms_command(body: str, ostk) -> str | None:
+    """Run an inbound SMS command and return the reply text.
+
+    Returns None if the message is not a recognised command. Caller is
+    responsible for sending the reply via send_sms().
+
+    ``ostk`` is the OstkService instance (or a test double). Only
+    ``ostk.add_task`` and ``ostk.list_tasks`` are called here.
+    """
+    cmd = parse_sms_command(body)
+    if cmd is None:
+        return None
+
+    if cmd["kind"] == "add_task":
+        title = cmd["title"]
+        await ostk.add_task(title)
+        return f"Added: {title}"
+
+    if cmd["kind"] == "list_tasks":
+        tasks = await ostk.list_tasks(status="open")
+        if not tasks:
+            return "No open tasks."
+        lines = []
+        for i, t in enumerate(tasks[:10], 1):
+            tid = t.get("id", "")
+            title = t.get("title", "")
+            lines.append(f"{i}. {title} ({tid})")
+        return "\n".join(lines)
+
+    return None  # pragma: no cover
+
+
+__all__ = [
+    "SMS_CONFIG_PATH",
+    "dispatch_sms_command",
+    "is_configured",
+    "is_valid_phone_number",
+    "parse_sms_command",
+    "send_sms",
+]
