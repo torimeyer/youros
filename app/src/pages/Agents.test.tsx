@@ -31,6 +31,11 @@ vi.mock('../lib/api', async (importOriginal) => {
 // test so names cancelled in one test do not leak into the next.
 import { _resetSidebarBus } from '../lib/sidebarBus'
 import { useRunningAgentsStore } from '../stores/runningAgents'
+
+// Recent heartbeat timestamp for mock agents. Prevents computeAgentGhostState from
+// returning 'ghost' (which filters agents from Active Sessions). Real agents always
+// have a recent heartbeat, so this reflects production behaviour.
+const MOCK_HEARTBEAT = new Date(Date.now() - 30_000).toISOString()
 beforeEach(() => {
   _resetSidebarBus()
   useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
@@ -74,6 +79,7 @@ const mockAgentsResponse = {
       spawned_at: new Date(Date.now() - 83000).toISOString(),
       transcript_bytes: 12288,
       transcript_lines: 47,
+      last_heartbeat_at: MOCK_HEARTBEAT,
     },
   ],
 }
@@ -718,6 +724,7 @@ describe('Agents page - Send button stuck state (needle 237)', () => {
               source: 'claude-code',
               model: 'sonnet',
               spawned_at: new Date(Date.now() - 1000).toISOString(),
+              last_heartbeat_at: MOCK_HEARTBEAT,
             },
             {
               name: 'agent-b',
@@ -725,6 +732,7 @@ describe('Agents page - Send button stuck state (needle 237)', () => {
               source: 'claude-code',
               model: 'sonnet',
               spawned_at: new Date(Date.now() - 1000).toISOString(),
+              last_heartbeat_at: MOCK_HEARTBEAT,
             },
           ],
         }
@@ -1001,7 +1009,7 @@ describe('Agents page - Status bar', () => {
         daemon_running: true,
         status: 'ok',
         active: ['no-time-agent'],
-        agents: [{ name: 'no-time-agent', status: 'running', source: 'claude-code', model: 'sonnet' }],
+        agents: [{ name: 'no-time-agent', status: 'running', source: 'claude-code', model: 'sonnet', last_heartbeat_at: MOCK_HEARTBEAT }],
       }
       if (path === '/agents/templates') return mockTemplatesResponse
       if (path.includes('/nudges')) return { agent: 'no-time-agent', nudges: [], session_nudges: [] }
@@ -1124,6 +1132,7 @@ describe('Agents page - active card collapse/expand default', () => {
               source: 'claude-code',
               model: 'sonnet',
               spawned_at: new Date(Date.now() - 1000).toISOString(),
+              last_heartbeat_at: MOCK_HEARTBEAT,
             },
             {
               name: 'agent-b',
@@ -1131,6 +1140,7 @@ describe('Agents page - active card collapse/expand default', () => {
               source: 'claude-code',
               model: 'sonnet',
               spawned_at: new Date(Date.now() - 1000).toISOString(),
+              last_heartbeat_at: MOCK_HEARTBEAT,
             },
           ],
         }
@@ -1269,7 +1279,7 @@ describe('Agents page - Recent tab filtering', () => {
         status: 'ok',
         active: ['running-agent'],
         agents: [
-          { name: 'running-agent', status: 'running', source: 'claude-code', model: 'sonnet', spawned_at: new Date().toISOString() },
+          { name: 'running-agent', status: 'running', source: 'claude-code', model: 'sonnet', spawned_at: new Date().toISOString(), last_heartbeat_at: MOCK_HEARTBEAT },
           { name: 'completed-agent', status: 'completed', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
           { name: 'cancelled-agent', status: 'cancelled', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
           { name: 'stopped-agent', status: 'stopped', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
@@ -3214,6 +3224,7 @@ describe('Agents page - first-paint budget (needle 299)', () => {
     spawned_at: new Date(Date.now() - i * 60000).toISOString(),
     transcript_bytes: 1024,
     transcript_lines: 10,
+    last_heartbeat_at: MOCK_HEARTBEAT,
   }))
 
   beforeEach(() => {
@@ -3301,6 +3312,7 @@ describe('Agents page - first-paint budget (needle 299)', () => {
           spawned_at: new Date().toISOString(),
           transcript_bytes: 0,
           transcript_lines: 0,
+          last_heartbeat_at: MOCK_HEARTBEAT,
         },
       ]),
     )
@@ -5935,7 +5947,7 @@ describe('Agents page - Roadmap card opens modal (no direct-spawn, no suffix)', 
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/agents') {
         const agents = spawnedAgentName
-          ? [{ name: spawnedAgentName, status: 'running', source: 'ui', model: 'claude-sonnet-4-6', spawned_at: new Date().toISOString() }]
+          ? [{ name: spawnedAgentName, status: 'running', source: 'ui', model: 'claude-sonnet-4-6', spawned_at: new Date().toISOString(), last_heartbeat_at: MOCK_HEARTBEAT }]
           : []
         return { daemon_running: true, status: 'ok', active: agents.map(a => a.name), agents }
       }
@@ -6309,7 +6321,7 @@ describe('Agents page - WS realtime fast path (→1220)', () => {
   it('removes an agent from Active immediately on WS delta without an HTTP call', async () => {
     let agentsCalls = 0
     mockedApiGet.mockImplementation(async (path: string) => {
-      if (path === '/agents') { agentsCalls++; return { daemon_running: true, status: 'ok', active: [], agents: [] } }
+      if (path === '/agents') { agentsCalls++; return { daemon_running: true, status: 'ok', active: ['ws-agent-keep', 'ws-agent-done'], agents: [{ name: 'ws-agent-keep', status: 'running', source: 'claude-code', last_heartbeat_at: MOCK_HEARTBEAT }, { name: 'ws-agent-done', status: 'running', source: 'claude-code', last_heartbeat_at: MOCK_HEARTBEAT }] } }
       if (path === '/agents/templates') return { templates: [] }
       if (path.includes('/persona-templates')) return { templates: [] }
       if (path.includes('/user-templates')) return { templates: [] }

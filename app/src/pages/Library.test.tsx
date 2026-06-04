@@ -12,7 +12,7 @@ vi.mock('../lib/api', () => ({
 }));
 
 vi.mock('../components/TopBar', () => ({
-  default: ({ title }: { title: string }) => <div data-testid="topbar">{title}</div>,
+  default: () => <div data-testid="topbar">Library</div>,
 }));
 
 const mockSources = [
