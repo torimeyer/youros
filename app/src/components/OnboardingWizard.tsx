@@ -1160,7 +1160,7 @@ function ConnectStep({
 }) {
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
   const [googleConnected, setGoogleConnected] = useState(false)
-  const [atlassianConnected, setAtlassianConnected] = useState(false)
+  const [atlassianConnected, setAtlassianConnected] = useState<boolean | null>(null)
 
   useEffect(() => {
     api.get<{ google_oauth_available?: boolean; google_connected?: boolean }>('/secrets/key-status')
@@ -1174,7 +1174,7 @@ function ConnectStep({
   useEffect(() => {
     api.get<{ connected?: boolean }>('/atlassian/status')
       .then((data) => setAtlassianConnected(data.connected ?? false))
-      .catch(() => {})
+      .catch(() => setAtlassianConnected(false))
   }, [])
 
   const providers = [
@@ -1305,6 +1305,11 @@ function ConnectStep({
               <p className={`text-xs font-semibold mb-2 ${subtextCls}`} data-testid="gemini-aistudio-heading">
                 AI Studio key <span className="font-normal opacity-70">(personal, chat only)</span>
               </p>
+              {detectedProvider === 'Gemini' ? (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-green-500/15 text-green-400 border border-green-500/30" data-testid="aistudio-key-saved">
+                  <span>Key already saved</span>
+                </div>
+              ) : (
               <div className="flex gap-2">
                 <input
                   type="password"
@@ -1323,6 +1328,7 @@ function ConnectStep({
                   {keySaved ? 'Saved!' : 'Save'}
                 </button>
               </div>
+              )}
               <p className={`text-xs mt-2 ${subtextCls}`}>
                 Get a free key at{' '}
                 <a
@@ -1436,7 +1442,9 @@ function ConnectStep({
       {/* ── Confluence ────────────────────────────────────── */}
       <div className="mb-2">
         <p className={sectionDivider}>Atlassian</p>
-        {atlassianConnected ? (
+        {atlassianConnected === null ? (
+          <p className={`text-xs ${subtextCls} mt-2`}>Checking connection…</p>
+        ) : atlassianConnected ? (
           <div
             data-testid="atlassian-already-connected"
             className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-full text-sm font-medium bg-green-500/15 text-green-400 border border-green-500/30"
@@ -1470,7 +1478,7 @@ export function AtlassianSetupCard({
   const [site, setSite] = useState('')
   const [email, setEmail] = useState('')
   const [token, setToken] = useState('')
-  const [separateConfluence, setSeparateConfluence] = useState(false)
+  const [separateConfluence, setSeparateConfluence] = useState(true)
   const [confluenceSite, setConfluenceSite] = useState('')
   const [status, setStatus] = useState<'idle' | 'connecting' | 'done' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)

@@ -81,7 +81,7 @@ async def key_status():
         "anthropic_source": anthropic_src,
         "gemini": gemini_src != "none",
         "gemini_source": gemini_src,
-        "google_oauth_available": bool(os.environ.get("GOOGLE_CLIENT_ID", "")),
+        "google_oauth_available": bool(os.environ.get("GOOGLE_CLIENT_ID", "")) or _google_is_authenticated(),
         "google_connected": google_connected,
         "gemini_enterprise": {
             "available": vx.get("available", False),
