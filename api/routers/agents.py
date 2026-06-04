@@ -5118,10 +5118,18 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
     # that keeps the comprehensive build button working, and the
     # BUILD_CONCURRENCY queue that returns build_state="queued" at the limit.
     # The ostk-run early-return would short-circuit all of those, so
-    # comprehensive/saa spawns always take the bespoke path. A per-request
-    # use_ostk_run=True still forces ostk-run (explicit opt-in wins).
+    # comprehensive/saa spawns always take the bespoke path. Any other
+    # named template also requires the bespoke path by default because
+    # run_agentfile uses stdin=DEVNULL and never injects body.prompt or
+    # the agentfile PROMPT field — the custom launcher (lines ~5533-5900)
+    # does both. The env flag MYOS_SPAWN_USE_OSTK_RUN=1 can still force
+    # ostk-run for non-comprehensive templates (research/pilot use).
+    # A per-request use_ostk_run=True still forces ostk-run (explicit opt-in wins).
     _is_comprehensive_template = str(body.template or "").lower() in ("comprehensive", "saa")
-    _use_ostk_run = not _force_custom and (_req_use_ostk_run or not _is_comprehensive_template)
+    _use_ostk_run = not _force_custom and (
+        _req_use_ostk_run or
+        (not _is_comprehensive_template and (_env_use_ostk_run or not body.template))
+    )
     if _use_ostk_run:
         # _ostk_fallback_ok: False when the caller explicitly requested ostk-run (per-request opt-in).
         # When False and ostk-run fails, raise HTTP error instead of falling back.
