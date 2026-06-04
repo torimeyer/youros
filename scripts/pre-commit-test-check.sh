@@ -83,6 +83,13 @@ if [ -z "${STAGED}" ]; then
   exit 0
 fi
 
+# --- Forbidden-path guard (always runs first) ----------------------------
+# Blocks session transcripts, memory files, agent state, drafts, and specs
+# from ever landing in the repo. Runs unconditionally before any test checks.
+if ! "${REPO_DIR}/scripts/forbidden-path-guard.sh"; then
+  exit 1
+fi
+
 # --- ENTITYFILE drift guard (→908) --------------------------------------
 # If .ostk/ENTITYFILE is staged, refuse the commit unless the signature
 # envelope still covers it. Cheap check, runs before secrets scan.
