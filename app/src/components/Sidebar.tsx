@@ -52,7 +52,7 @@ interface NavGroup {
 // Value is a JSON object: { [groupId]: boolean }
 const COLLAPSED_KEY = 'sidebar-group-collapsed'
 
-const TOP_LEVEL_ROUTES = new Set(['/', '/agents', '/tasks', '/specs', '/break'])
+export const TOP_LEVEL_ROUTES = new Set(['/', '/agents', '/tasks', '/specs'])
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -82,12 +82,13 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/specs', icon: 'article', label: 'Specs', featureLabel: 'Specs', specsBadge: true, iconColor: 'text-violet-600 dark:text-violet-400' },
   { to: '/executive-summary', icon: 'insights', label: 'Executive Summary', featureLabel: 'Executive Summary', iconColor: 'text-amber-600 dark:text-amber-400' },
   { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents', iconColor: 'text-sky-600 dark:text-sky-400' },
-  { to: '/break', icon: 'sports_esports', label: 'The Arcade', featureLabel: 'The Arcade', iconColor: 'text-rose-600 dark:text-rose-400' },
   ...NAV_GROUPS.flatMap((g) => g.items),
 ]
 
 // Usage sits at the bottom next to Settings, not inside a group
 const USAGE_NAV_ITEM: NavItem = { to: '/costs', icon: 'payments', label: 'Usage', featureLabel: 'Cost Tracking' }
+// Arcade sits in the bottom cluster alongside What's New / Usage / Settings
+export const ARCADE_NAV_ITEM: NavItem = { to: '/break', icon: 'sports_esports', label: 'The Arcade', featureLabel: 'The Arcade', iconColor: 'text-rose-600 dark:text-rose-400' }
 
 // ------------- helpers -------------
 
@@ -640,11 +641,12 @@ export function Sidebar() {
 
   // Top-level items (Home + Tasks + Agents) that are not in any group
   const topLevelItems = ALL_NAV_ITEMS.filter((i) => TOP_LEVEL_ROUTES.has(i.to) && isEnabled(i)).sort((a, b) => {
-    const order = ['/', '/tasks', '/specs', '/agents', '/break']
+    const order = ['/', '/tasks', '/specs', '/agents']
     return order.indexOf(a.to) - order.indexOf(b.to)
   })
 
   const usageEnabled = isEnabled(USAGE_NAV_ITEM)
+  const arcadeEnabled = isEnabled(ARCADE_NAV_ITEM)
 
   const linkClass = (isActive: boolean) =>
     `group flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer active:scale-[0.98] ${
@@ -828,6 +830,21 @@ export function Sidebar() {
             </>
           )}
         </NavLink>
+        {arcadeEnabled && (
+          <NavLink
+            data-testid="arcade-nav-link"
+            to={ARCADE_NAV_ITEM.to}
+            onClick={() => setMobileOpen(false)}
+            className={({ isActive }) => utilLinkClass(isActive)}
+          >
+            {({ isActive }) => (
+              <>
+                <Icon name={ARCADE_NAV_ITEM.icon} filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
+                <span className="text-xs font-medium">{ARCADE_NAV_ITEM.label}</span>
+              </>
+            )}
+          </NavLink>
+        )}
         {usageEnabled && (
           <NavLink
             data-testid="usage-nav-link"
