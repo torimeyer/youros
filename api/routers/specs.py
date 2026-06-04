@@ -3437,7 +3437,7 @@ async def wizard_create(body: WizardCreateRequest):
         sections=len(sections),
     )
     return {
-        "result": result,
+        "result": str(full_path),
         "status": status,
         "promoted_path": promoted_path,
         "path": promoted_path or draft_path,
