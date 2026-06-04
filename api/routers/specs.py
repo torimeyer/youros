@@ -838,22 +838,13 @@ async def create_draft(body: SpecDraft):
             full_path.write_text(full_path.read_text() + placeholder)
             ac_written = True
 
-    # Auto-promote so the user never has to click "Promote to Plan" for
-    # a draft that already has AI-written acceptance criteria. If the
-    # promote call fails (for example, no AC was actually written), we
-    # leave the draft alone so the frontend can still show the draft
-    # state and the user can unlock-and-edit or add AC manually.
+    # No auto-promote: a newly created draft stays a draft until the user
+    # explicitly promotes it (yourOS informs, never acts without approval).
+    # Auto-promote previously moved the file to USER_SPECS_DIR while the
+    # returned ``result`` still pointed at the USER_DRAFTS_DIR path, which
+    # made a subsequent explicit promote fail with "Draft not found".
     status = "draft"
     promoted_path: str | None = None
-    if ac_written:
-        draft_path = result.strip()
-        try:
-            promoted_path = await ostk.doc_promote(draft_path)
-            status = "ready"
-        except OstkError:
-            # Leave as draft when promote fails; the user can still
-            # hand-edit the checklist and promote later.
-            pass
 
     trace_event(
         "spec_created",

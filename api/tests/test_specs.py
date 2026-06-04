@@ -18,14 +18,15 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_create_draft_auto_promotes_when_ac_generation_succeeds(
+async def test_create_draft_stays_draft_until_promoted(
     client, tmp_path, monkeypatch
 ):
-    """When AI writes acceptance criteria, the new plan should land in ready.
+    """A new draft stays a draft even when AI writes acceptance criteria.
 
-    The Wave 2 UX: a user types a plan title and presses New Plan. The
-    backend drafts the file, generates AC, then immediately promotes so
-    the page lands on a ready plan with a single Build it button.
+    yourOS informs, never acts without approval: a user types a plan
+    title and presses New Plan, the backend drafts the file and may
+    generate AC, but it does NOT auto-promote. The file stays in
+    draft/ until the user explicitly clicks Promote.
     """
     from services import ostk as ostk_module
     from routers import specs as specs_router
@@ -35,6 +36,9 @@ async def test_create_draft_auto_promotes_when_ac_generation_succeeds(
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
+    # create_draft (kind='spec') writes directly to USER_DRAFTS_DIR (→2104),
+    # so point it at tmp_path/docs/draft instead of the real ~/.myos/drafts.
+    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", tmp_path / "docs" / "draft")
 
     draft_file = tmp_path / "docs" / "draft" / "wave2-autopromote.md"
     spec_file = tmp_path / "docs" / "spec" / "wave2-autopromote.md"
@@ -85,13 +89,13 @@ async def test_create_draft_auto_promotes_when_ac_generation_succeeds(
     )
     assert resp.status_code == 200
     data = resp.json()
-    # The new plan lands already promoted so the UI renders Build it
-    # immediately with no Promote step in between.
-    assert data["status"] == "ready"
-    assert data["promoted_path"] is not None
-    # The file moved from draft/ to spec/.
-    assert spec_file.exists()
-    assert not draft_file.exists()
+    # The new plan stays a draft. No auto-promote: the user decides when
+    # to promote, so the UI shows a Promote step rather than Build it.
+    assert data["status"] == "draft"
+    assert data["promoted_path"] is None
+    # The file stays in draft/ and is NOT moved to spec/.
+    assert draft_file.exists()
+    assert not spec_file.exists()
 
 
 @pytest.mark.asyncio
