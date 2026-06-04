@@ -199,6 +199,9 @@ export default function Dashboard() {
   // briefing. Drives the small "Refreshing..." hint so the user knows
   // the card on screen is last-known and a newer one is on the way.
   const [briefingRefreshing, setBriefingRefreshing] = useState(initialBriefingSeed !== null);
+  // UAT item 1: collapse a long calendar list in the briefing to the first 5,
+  // with a "View all" toggle, so a busy day does not run off the banner.
+  const [briefingEventsExpanded, setBriefingEventsExpanded] = useState(false);
   // Calendar widget range selector. Persisted to localStorage so a
   // reload restores the user's choice. Default is Week to match the
   // historical behavior from before the selector landed.
@@ -277,7 +280,11 @@ export default function Dashboard() {
       res = null;
     }
     if (!res) {
-      setCalendarEvents([]);
+      // UAT item 3: a transient fetch error must NOT blank a calendar that was
+      // already populated. The 60s refetch hitting one network blip used to
+      // clear everything. Keep the last good events; only fall back to empty on
+      // the very first load (when there is nothing to preserve yet).
+      setCalendarEvents((prev) => (prev && prev.length > 0 ? prev : []));
       return;
     }
     const now = new Date();
@@ -294,9 +301,21 @@ export default function Dashboard() {
     }
     const cutoff = periodStart.getTime() + days * 24 * 60 * 60 * 1000;
     const filtered = (res.events || []).filter((ev) => {
-      const startStr = ev.start?.dateTime || ev.start?.date;
-      if (!startStr) return false;
-      const t = new Date(startStr).getTime();
+      const dateTime = ev.start?.dateTime;
+      const dateOnly = ev.start?.date;
+      let t: number;
+      if (dateTime) {
+        t = new Date(dateTime).getTime();
+      } else if (dateOnly) {
+        // UAT item 3: all-day events carry a date string with no time. Parsing
+        // "2026-06-04" with new Date() treats it as UTC midnight, which in a
+        // western timezone lands on the previous local day and drops today's
+        // all-day events. Parse as LOCAL midnight so they stay visible.
+        const [y, m, d] = dateOnly.split('-').map(Number);
+        t = new Date(y, (m || 1) - 1, d || 1).getTime();
+      } else {
+        return false;
+      }
       return t >= periodStart.getTime() && t <= cutoff;
     });
     setCalendarEvents(filtered);
@@ -553,9 +572,42 @@ export default function Dashboard() {
                   )}
                 </div>
                 <div className="text-sm text-slate-800 dark:text-slate-200 leading-relaxed space-y-3">
-                  {briefing.briefing.split(/\n\n+/).map((para, i) => (
-                    <div key={i}>{renderMarkdown(para)}</div>
-                  ))}
+                  {briefing.briefing.split(/\n\n+/).map((para, i) => {
+                    // UAT item 1: the calendar block lists one bullet per event
+                    // and can run off the card on a busy day. Show the first 5
+                    // and a "View all N events" toggle for the rest.
+                    if (para.includes('on the calendar today:')) {
+                      const lines = para.split('\n');
+                      const introLine = lines[0];
+                      const bullets = lines.slice(1).filter((l) => l.trim().startsWith('-'));
+                      const CAP = 5;
+                      const shown = briefingEventsExpanded ? bullets : bullets.slice(0, CAP);
+                      return (
+                        <div key={i}>
+                          {renderMarkdown(introLine)}
+                          <div className="mt-1 space-y-1" data-testid="briefing-events-list">
+                            {shown.map((b, bi) => (
+                              <div key={bi} className="flex items-start gap-2">
+                                <span className="mt-1.5 w-1 h-1 rounded-full bg-blue-400 shrink-0" />
+                                <span className="min-w-0">{b.replace(/^[-\s]+/, '')}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {bullets.length > CAP && (
+                            <button
+                              type="button"
+                              onClick={() => setBriefingEventsExpanded((v) => !v)}
+                              data-testid="briefing-events-toggle"
+                              className="mt-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                              {briefingEventsExpanded ? 'Show fewer' : `View all ${bullets.length} events`}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }
+                    return <div key={i}>{renderMarkdown(para)}</div>;
+                  })}
                 </div>
                 {briefing.action_items && briefing.action_items.length > 0 && (
                   <div className="mt-4 flex flex-wrap gap-2" data-testid="briefing-action-items">
@@ -888,7 +940,8 @@ export default function Dashboard() {
               {summaryBullets.map((bullet, i) => (
                 <li key={i} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
                   <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
-                  {bullet}
+                  {/* UAT item 5: clamp so a long task title never becomes a wall of text */}
+                  <span className="min-w-0 line-clamp-2 leading-snug">{bullet}</span>
                 </li>
               ))}
             </ul>
@@ -1083,7 +1136,14 @@ export default function Dashboard() {
         {/* Widget Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {visibleGridCards.map((id) => (
-            <div key={`wrap-${id}`} className="relative group/widget [&>*:first-child]:h-full [&>*:first-child>*:first-child]:h-full">
+            // UAT item 2: full-width widgets (calendar, adventure) put
+            // lg:col-span-2 on their inner div, but the grid's direct child is
+            // THIS wrapper, so the span never applied and the calendar rendered
+            // at half width. Apply the span here, on the actual grid child.
+            <div
+              key={`wrap-${id}`}
+              className={`relative group/widget [&>*:first-child]:h-full [&>*:first-child>*:first-child]:h-full ${id === 'next_meeting' || id === 'adventure' ? 'lg:col-span-2' : ''}`}
+            >
               {widgetRenderers[id]?.()}
               <div className="absolute top-3 right-3 opacity-0 group-hover/widget:opacity-100 transition-opacity">
                 <button
