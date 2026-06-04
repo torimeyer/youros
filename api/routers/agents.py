@@ -5100,7 +5100,17 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
     _force_custom = os.environ.get("MYOS_SPAWN_FORCE_CUSTOM", "").strip() in ("1", "true", "yes")
     _env_use_ostk_run = os.environ.get("MYOS_SPAWN_USE_OSTK_RUN", "").strip() in ("1", "true", "yes")
     _req_use_ostk_run = getattr(body, "use_ostk_run", False)
-    _use_ostk_run = not _force_custom
+    # Comprehensive/saa builds are code-edit agents: they require the three
+    # features the ostk-run path explicitly does NOT preserve (worktree
+    # isolation, scaffold-commit watcher, short-cwd) PLUS the spawn-lock dedup
+    # that yields HTTP 409 for a duplicate task, the unmerged-branch auto-suffix
+    # that keeps the comprehensive build button working, and the
+    # BUILD_CONCURRENCY queue that returns build_state="queued" at the limit.
+    # The ostk-run early-return would short-circuit all of those, so
+    # comprehensive/saa spawns always take the bespoke path. A per-request
+    # use_ostk_run=True still forces ostk-run (explicit opt-in wins).
+    _is_comprehensive_template = str(body.template or "").lower() in ("comprehensive", "saa")
+    _use_ostk_run = not _force_custom and (_req_use_ostk_run or not _is_comprehensive_template)
     if _use_ostk_run:
         # _ostk_fallback_ok: False when the caller explicitly requested ostk-run (per-request opt-in).
         # When False and ostk-run fails, raise HTTP error instead of falling back.
