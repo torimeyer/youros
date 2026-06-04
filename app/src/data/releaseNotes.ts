@@ -10,6 +10,25 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.5.1
+  {
+    date: '2026-06-04',
+    label: 'June 4, 2026',
+    entries: [
+      {
+        title: 'New plans stay drafts until you say so',
+        description: 'When you start a new plan, yourOS fills in the suggested details for you but no longer moves it forward on its own. The plan stays a draft until you choose to promote it, so you decide when it becomes real.',
+      },
+      {
+        title: 'Compare mode answers what you actually asked',
+        description: 'When you compare answers from more than one AI at once, each one now replies helpfully to your question instead of saying a tool is missing.',
+      },
+      {
+        title: 'Steadier when lots is running at once',
+        description: 'yourOS no longer slows to a stop when many background helpers are working at the same time. The running-helpers list is lighter and stale sessions are cleaned up, so the app stays responsive.',
+      },
+    ],
+  },
   // v5.5.0
   {
     date: '2026-06-03',

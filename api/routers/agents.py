@@ -689,6 +689,11 @@ _STDOUT_API_HANG_LIMIT_SECONDS: float = 120.0
 # user-facing delivery status line so UI copy and agent contract never
 # drift. Tests assert the fast cap stays <= 15 and the slow cap <= 120.
 MAILBOX_FAST_POLL_SECONDS = 10
+# Restored to the documented 60s target (was briefly bumped to 300 during the
+# →2165 wedge work, which violated this block's own "slow cap <= 120" contract
+# and the needle-238 responsiveness guard: an idle agent must still notice a
+# nudge within ~a minute). The real wedge mitigations (threaded reconciliation,
+# transcript cap, sweep-pass lock) are unaffected by this value.
 MAILBOX_SLOW_POLL_SECONDS = 60
 
 # Legacy alias kept so existing callers and tests that import
@@ -2141,8 +2146,15 @@ def _stale_sweep_summary_for(name: str) -> str:
             return _STALE_SWEEP_SUMMARY_NO_WORK
         edit_tool_names = {"Edit", "Write", "str_replace",
                            "mcp__ostk__edit", "mcp__ostk__fs_write"}
+        _bytes_read = 0
+        _MAX_SCAN_BYTES = 512 * 1024
         with source.open("r", encoding="utf-8", errors="replace") as fh:
             for line in fh:
+                _bytes_read += len(line)
+                if _bytes_read > _MAX_SCAN_BYTES:
+                    # Cap scan at 512 KB to avoid stalling the thread pool on
+                    # massive transcripts (->2165).
+                    break
                 if not line.strip():
                     continue
                 # Cheap substring check first to avoid json.loads on every
@@ -2890,9 +2902,7 @@ def _run_enrich_pipeline(
     function does not hold any threading.Lock (→1144).
     """
     # 1. Status flip for terminated_stale rows still active on disk.
-    for _flip_idx, agent in enumerate(all_agents):
-        if _flip_idx % 10 == 0:
-            time.sleep(0)  # yield GIL so event loop can service health probes
+    for agent in all_agents:
         if agent.get("status") == "terminated_stale" and _transcript_recently_active(
             agent["name"], now_for_sweep
         ):
@@ -2926,9 +2936,10 @@ def _run_enrich_pipeline(
     # 1000+ entries takes 14s. Only running and recently-spawned agents
     # need live transcript byte/line counts.
     _enrich_cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    for _enrich_idx, agent in enumerate(filtered):
-        if _enrich_idx % 10 == 0:
-            time.sleep(0)  # yield GIL so event loop can service health probes
+    for agent in filtered:
+        # Note: we used to call time.sleep(0) here to "yield GIL", but since
+        # this function already runs in a thread via asyncio.to_thread, the
+        # event loop is never blocked. Removed to reduce overhead (->2165).
         _status = agent.get("status", "")
         _spawned_at = agent.get("spawned_at") or ""
         _is_old_stopped = (
@@ -4382,34 +4393,9 @@ async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
                     agents_map[name]["terminated_reason"] = "workflow ended"
 
     # Merge live Claude Code sessions inferred from transcript file mtimes.
-    try:
-        from pathlib import Path as _Path
-        from config import PROJECT_ROOT as _PROJECT_ROOT
-        projects_dir = _Path.home() / ".claude" / "projects" / str(_PROJECT_ROOT).replace("/", "-")
-        if projects_dir.is_dir():
-            cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
-            for jsonl in projects_dir.glob("*.jsonl"):
-                try:
-                    mtime = datetime.fromtimestamp(jsonl.stat().st_mtime, tz=timezone.utc)
-                except OSError:
-                    continue
-                if mtime < cutoff:
-                    continue
-                inferred_name = f"claude-code-{jsonl.stem[:10]}"
-                if inferred_name in agents_map:
-                    continue
-                agents_map[inferred_name] = {
-                    "name": inferred_name,
-                    "source": "claude-code",
-                    "status": "running",
-                    "spawned_at": mtime.isoformat(),
-                    "last_heartbeat_at": mtime.isoformat(),
-                    "model": "claude-code",
-                    "budget": "0",
-                    "description": "Claude Code session (inferred from transcript mtime)",
-                }
-    except Exception:
-        pass
+    loop = asyncio.get_running_loop()
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+    await loop.run_in_executor(None, _infer_cc_sessions, agents_map, cutoff)
 
     all_agents = list(agents_map.values())
 
@@ -4475,6 +4461,42 @@ async def _merge_debt_tick_loop() -> None:
         except Exception:
             logger.exception("merge_debt_tick_loop iteration failed")
         await asyncio.sleep(60)
+
+
+def _infer_cc_sessions(agents_map: dict, cutoff: datetime) -> None:
+    """Scan JSONL session files and inject inferred CC session rows.
+
+    This runs in a thread (via run_in_executor) to avoid blocking the event
+    loop with synchronous glob/stat calls (->2165).
+    """
+    try:
+        from pathlib import Path as _Path
+        from config import PROJECT_ROOT as _PROJECT_ROOT
+        projects_dir = _Path.home() / ".claude" / "projects" / str(_PROJECT_ROOT).replace("/", "-")
+        if not projects_dir.is_dir():
+            return
+        for jsonl in projects_dir.glob("*.jsonl"):
+            try:
+                mtime = datetime.fromtimestamp(jsonl.stat().st_mtime, tz=timezone.utc)
+            except OSError:
+                continue
+            if mtime < cutoff:
+                continue
+            inferred_name = f"claude-code-{jsonl.stem[:10]}"
+            if inferred_name in agents_map:
+                continue
+            agents_map[inferred_name] = {
+                "name": inferred_name,
+                "source": "claude-code",
+                "status": "running",
+                "spawned_at": mtime.isoformat(),
+                "last_heartbeat_at": mtime.isoformat(),
+                "model": "claude-code",
+                "budget": "0",
+                "description": "Claude Code session (inferred from transcript mtime)",
+            }
+    except Exception:
+        pass
 
 
 @router.get("/agents")
@@ -8595,18 +8617,8 @@ async def cancel_all_agents():
 RECONCILE_INTERVAL_SECONDS = 60  # 1 minute
 
 
-@router.post("/agents/reconcile")
-async def reconcile_agents():
-    """Scan running agent records and mark orphans as stopped.
-
-    For each agent_metadata entry with status "running":
-    - If a live subprocess exists in active_agents, leave it alone.
-    - If the transcript was recently active, leave it alone.
-    - If no live process and no recent heartbeat (>5 min), mark stopped.
-
-    Returns the count of reconciled (stopped) agents and the count of
-    agents that are still legitimately running.
-    """
+def _reconcile_agents_sync() -> tuple[list[str], int]:
+    """Synchronous core of agent reconciliation. Runs in a thread (->2165)."""
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
     reconciled_names: list[str] = []
@@ -8667,6 +8679,19 @@ async def reconcile_agents():
         active_agents.pop(name, None)
         _agent_stdin_writers.pop(name, None)
 
+    return reconciled_names, still_running
+
+
+@router.post("/agents/reconcile")
+async def reconcile_agents():
+    """Scan running agent records and mark orphans as stopped.
+...
+    Returns the count of reconciled (stopped) agents and the count of
+    agents that are still legitimately running.
+    """
+    async with _sweep_pass_lock:
+        reconciled_names, still_running = await asyncio.to_thread(_reconcile_agents_sync)
+
     if reconciled_names:
         await _save_agent_state_async()
         for rname in reconciled_names:
@@ -8710,9 +8735,14 @@ async def _reconcile_loop():
             # loop (blocking it for stat × N agents) and two concurrent
             # asyncio.to_thread(_autocomplete_exited_subagents) calls competed
             # for the GIL, starving all request handling.
+            _t0 = time.monotonic()
             async with _sweep_pass_lock:
                 stale_changed = await asyncio.to_thread(_sweep_stale_running_agents)
                 ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
+            _dt = time.monotonic() - _t0
+            if _dt > 1.0:
+                logger.warning("agent sweep/autocomplete pass took %.2fs (N=%d agents)", _dt, len(agent_metadata))
+
             if stale_changed or ac_changed:
                 await _save_agent_state_async()
                 await _agent_events_bus.publish("sweep", {})
@@ -8724,7 +8754,11 @@ async def _reconcile_loop():
         except Exception:
             pass
         try:
-            await reconcile_agents()
+            _t_rec = time.monotonic()
+            rec_result = await reconcile_agents()
+            _dt_rec = time.monotonic() - _t_rec
+            if _dt_rec > 1.0:
+                logger.warning("reconcile_agents took %.2fs (N=%d agents)", _dt_rec, len(agent_metadata))
         except Exception:
             pass
         await asyncio.sleep(RECONCILE_INTERVAL_SECONDS)
