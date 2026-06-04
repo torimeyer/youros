@@ -488,10 +488,12 @@ def _friendly_gemini_error(error_text: str) -> str:
     original message through unchanged.
     """
     if _is_vertex_service_disabled(error_text):
+        project = os.environ.get("GOOGLE_CLOUD_PROJECT", "your GCP project")
+        suffix = os.environ.get("GEMINI_VERTEX_ERROR_SUFFIX", "or pick a different provider.")
         return (
-            "Gemini's Vertex AI Agent Platform API isn't enabled on your GCP project. "
-            "Enable aiplatform.googleapis.com in the GCP console for that project, "
-            "or pick a different provider."
+            f"Gemini's Vertex AI Agent Platform API isn't enabled on the GCP project {project}. "
+            f"Enable aiplatform.googleapis.com in the GCP console for that project, "
+            f"{suffix}"
         )
 
     lowered = error_text.lower()
@@ -3503,7 +3505,8 @@ class ChatService:
                     raise
 
         # Priority 2: Gemini CLI (automatic fallback).
-        if await gemini_cli_provider.is_gemini_cli_available():
+        # GEMINI_CLI_FALLBACK_ENABLED=false disables this path (e.g. set by install-nr.sh).
+        if os.environ.get("GEMINI_CLI_FALLBACK_ENABLED", "true").lower() != "false" and await gemini_cli_provider.is_gemini_cli_available():
             try:
                 return await gemini_cli_provider.stream_chat(
                     messages, websocket, system_prompt=system_instruction, **kwargs

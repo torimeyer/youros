@@ -249,15 +249,17 @@ async def _refresh_atlassian_token() -> bool:
         return False
 
 
-async def _request_with_refresh(product: str, fn):
+async def _request_with_refresh(product: str, fn, timeout: float = 10.0):
     """Execute fn(client, auth_kwargs, base_url, site); retry once on 401 after refresh.
 
     fn must be an async callable that performs ONE httpx request and returns the response.
     On 401 we attempt _refresh_atlassian_token() once; on success we re-resolve auth and redo the call.
     Returns (resp, base_url, site).
+    ``timeout`` controls the httpx connect+read timeout; pass a short value (e.g. 3.0)
+    for probe calls so a slow/unreachable host doesn't wedge the event loop.
     """
     auth_kwargs, base_url, site = await _get_auth_and_base(product=product)
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=timeout, read=timeout, write=timeout, pool=timeout)) as client:
         resp = await fn(client, auth_kwargs, base_url, site)
         if resp.status_code != 401:
             return resp, base_url, site
@@ -296,13 +298,16 @@ async def probe_token_validity() -> bool:
         if time.time() < expires_at:
             return result
 
-    # Try Jira first.
+    # Try Jira first. Use a short timeout so an unreachable host doesn't block
+    # the event loop — the outer asyncio.wait_for in the router is belt-and-suspenders.
+    _PROBE_TIMEOUT = 3.0
+
     async def call_jira(client, auth_kwargs, base_url, site):
         return await client.get(f"{base_url}/rest/api/3/myself", **auth_kwargs)
 
     jira_ok = False
     try:
-        resp, _, _ = await _request_with_refresh("jira", call_jira)
+        resp, _, _ = await _request_with_refresh("jira", call_jira, timeout=_PROBE_TIMEOUT)
         jira_ok = resp.status_code == 200
     except Exception as exc:
         _log.warning("atlassian probe_token_validity jira probe failed: %s", exc, exc_info=True)
@@ -317,7 +322,7 @@ async def probe_token_validity() -> bool:
 
     confluence_ok = False
     try:
-        resp, _, _ = await _request_with_refresh("confluence", call_confluence)
+        resp, _, _ = await _request_with_refresh("confluence", call_confluence, timeout=_PROBE_TIMEOUT)
         confluence_ok = resp.status_code == 200
     except Exception as exc:
         _log.warning(

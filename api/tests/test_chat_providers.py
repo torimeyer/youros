@@ -4775,6 +4775,29 @@ class TestStreamGeminiCascadeFallback:
             await service.stream_gemini(messages, websocket)
             mock_cli.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_gemini_cli_fallback_disabled_env_skips_cli(self, websocket):
+        """GEMINI_CLI_FALLBACK_ENABLED=false bypasses the CLI path entirely."""
+        import os
+        messages = [{"role": "user", "content": "hello no-cli"}]
+        service = ChatService()
+
+        mock_cli_detect = AsyncMock(return_value=True)
+        with patch(
+            "services.provider_detection.detect_vertex_gemini",
+            return_value={"available": False},
+        ), patch(
+            "services.gemini_cli_provider.is_gemini_cli_available",
+            new=mock_cli_detect,
+        ), patch.dict(os.environ, {"GEMINI_CLI_FALLBACK_ENABLED": "false"}):
+            # Let it fall through to Priority 3 (API key path) and fail naturally —
+            # we only care that the CLI gate was never evaluated.
+            try:
+                await service.stream_gemini(messages, websocket)
+            except Exception:
+                pass
+            mock_cli_detect.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # TestFriendlyGeminiErrorServiceDisabled (->2165)
@@ -4795,3 +4818,19 @@ class TestFriendlyGeminiErrorServiceDisabled:
         err = "SERVICE_DISABLED: Vertex AI is off."
         friendly = _friendly_gemini_error(err)
         assert "Vertex AI Agent Platform API isn't enabled" in friendly
+
+    def test_google_cloud_project_substituted(self):
+        import os
+        from services.chat_providers import _friendly_gemini_error
+        err = "SERVICE_DISABLED: Vertex AI is off."
+        with patch.dict(os.environ, {"GOOGLE_CLOUD_PROJECT": "my-test-project"}):
+            friendly = _friendly_gemini_error(err)
+        assert "my-test-project" in friendly
+
+    def test_gemini_vertex_error_suffix_substituted(self):
+        import os
+        from services.chat_providers import _friendly_gemini_error
+        err = "SERVICE_DISABLED: Vertex AI is off."
+        with patch.dict(os.environ, {"GEMINI_VERTEX_ERROR_SUFFIX": "Until then, Claude is your default."}):
+            friendly = _friendly_gemini_error(err)
+        assert "Until then, Claude is your default." in friendly
