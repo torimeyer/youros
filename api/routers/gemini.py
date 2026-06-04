@@ -101,12 +101,57 @@ async def _detect_gemini() -> dict:
         return _unavailable
 
 
+# UAT item 9: a single in-flight background refresh guard so repeated stale
+# hits while the connections page polls do not each spawn their own 5s
+# credential check.
+_gemini_refreshing: bool = False
+
+
+async def _refresh_gemini_cache() -> None:
+    """Run detection and update the module cache. Background-only."""
+    global _gemini_status_cache, _gemini_cache_ts, _gemini_refreshing
+    try:
+        result = await _detect_gemini()
+        _gemini_status_cache = result
+        _gemini_cache_ts = time.monotonic()
+    finally:
+        _gemini_refreshing = False
+
+
+def _schedule_gemini_refresh() -> None:
+    global _gemini_refreshing
+    if _gemini_refreshing:
+        return
+    _gemini_refreshing = True
+    try:
+        asyncio.create_task(_refresh_gemini_cache())
+    except RuntimeError:
+        # No running loop (e.g. called from sync context); reset the guard so a
+        # later call can retry.
+        _gemini_refreshing = False
+
+
 @router.get("/gemini/status")
 async def gemini_status() -> dict:
+    """Return the Gemini connection status.
+
+    UAT item 9: the underlying credential check does a live Google token
+    refresh plus list_models(), which can take ~5s. The connections page used
+    to block on that on every cache miss, so the page felt frozen on first
+    load. We now serve stale-while-revalidate: if we have ANY prior result we
+    return it instantly and refresh in the background; only the very first call
+    after a restart (no cache at all) pays the detection cost.
+    """
     global _gemini_status_cache, _gemini_cache_ts
     now = time.monotonic()
-    if _gemini_status_cache is not None and (now - _gemini_cache_ts) < _CACHE_TTL:
+    if _gemini_status_cache is not None:
+        if (now - _gemini_cache_ts) >= _CACHE_TTL:
+            # Stale: serve the last known status now, revalidate in the
+            # background so the next load is fresh without blocking this one.
+            _schedule_gemini_refresh()
         return _gemini_status_cache
+    # Cold start (no cache yet): pay the one-time blocking detection so the
+    # first answer is real rather than an optimistic guess.
     result = await _detect_gemini()
     _gemini_status_cache = result
     _gemini_cache_ts = now
