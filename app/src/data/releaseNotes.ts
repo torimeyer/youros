@@ -10,6 +10,41 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.5.0
+  {
+    date: '2026-06-03',
+    label: 'June 3, 2026',
+    entries: [
+      {
+        title: 'Your private content stays on your computer',
+        description: 'yourOS now blocks your chats, notes, specs, and settings from ever being saved into the shared code, and writes your working files to your own machine instead.',
+      },
+      {
+        title: 'Your task list is complete again',
+        description: 'Open tasks that had been moved into the archive during a daily cleanup now show up on your board again instead of quietly disappearing. If your list looks longer, those tasks were always open.',
+      },
+      {
+        title: 'Ghost sessions no longer show as running',
+        description: 'A stuck or stale agent session no longer appears as Running in Active Sessions. Live agents are kept, only confirmed dead ones are hidden.',
+      },
+      {
+        title: 'Connect Confluence on its own site',
+        description: 'If your Confluence lives on a different site than Jira, you can now give it its own address when you connect Atlassian.',
+      },
+      {
+        title: 'Clearer message when the AI model is unreachable',
+        description: 'Breaking a spec into tasks now fails fast with a plain message if the AI model cannot be reached, instead of hanging.',
+      },
+      {
+        title: 'Tidier task rows',
+        description: 'Removed the dead drag handle. The task number is now the drag handle, and the status circle reads Mark done or Reopen.',
+      },
+      {
+        title: 'Specs can track the files a requirement covers',
+        description: 'A requirement can list the files it covers, and the drift check now warns when one of those files is missing.',
+      },
+    ],
+  },
   // v5.4.0
   {
     date: '2026-06-03',
