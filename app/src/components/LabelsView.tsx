@@ -44,7 +44,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
   const [error, setError] = useState<string | null>(null);
   const [sharingLabelId, setSharingLabelId] = useState<string | null>(null);
   const [labelAllBusy, setLabelAllBusy] = useState(false);
-  const [labelAllResult, setLabelAllResult] = useState<number | null>(null);
+  const [labelAllResult, setLabelAllResult] = useState<string | null>(null);
   const [labelAllError, setLabelAllError] = useState<string | null>(null);
 
   const fetchLabels = useCallback(async () => {
@@ -125,7 +125,24 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
       const res = await api.post<{ processed: number; labeled: number; total_open: number }>(
         "/tasks/backfill-labels"
       );
-      setLabelAllResult(res.labeled);
+      // UAT item 10: report honestly. "labeled 0" is ambiguous between
+      // "already labeled" and "processed some but matched no label".
+      const processed = res.processed ?? 0;
+      const labeled = res.labeled ?? 0;
+      const totalOpen = res.total_open ?? 0;
+      if (labeled > 0) {
+        const missed = processed - labeled;
+        setLabelAllResult(
+          `Labeled ${labeled} item${labeled === 1 ? "" : "s"}.` +
+            (missed > 0 ? ` ${missed} had no matching label yet.` : "")
+        );
+      } else if (processed > 0) {
+        setLabelAllResult(`No matching labels for ${processed} item${processed === 1 ? "" : "s"}. Add a few labels first.`);
+      } else if (totalOpen > 0) {
+        setLabelAllResult("Every open task already has labels.");
+      } else {
+        setLabelAllResult("No open tasks to label.");
+      }
       await fetchLabels();
       onLabelsChanged?.();
     } catch (e: unknown) {
@@ -166,7 +183,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
         </div>
       </div>
       {labelAllResult !== null && (
-        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Labeled {labelAllResult} items.</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">{labelAllResult}</p>
       )}
       {labelAllError && (
         <p className="text-xs text-red-600 dark:text-red-400 mb-3">{labelAllError}</p>

@@ -26,7 +26,7 @@ def test_find_gemini_binary_uses_path_first(tmp_path):
 
 def test_find_gemini_binary_falls_back_to_install_dir(tmp_path):
     # PATH lookup fails (the backend's narrow PATH), but the binary is present
-    # in a known install dir — it must still be found.
+    # in a known install dir, it must still be found.
     install = tmp_path / "npm-global" / "bin"
     install.mkdir(parents=True)
     fake = install / "gemini"

@@ -1015,9 +1015,29 @@ export default function Tasks() {
     setLabelAllLoading(true);
     setLabelAllResult(null);
     try {
-      const res = await api.post<{ labeled: number }>("/tasks/backfill-labels");
-      const count = res.labeled ?? 0;
-      setLabelAllResult(count === 0 ? "All tasks already labeled." : `Labeled ${count} task${count === 1 ? "" : "s"}.`);
+      const res = await api.post<{ processed: number; labeled: number; total_open: number }>("/tasks/backfill-labels");
+      // UAT item 10: `labeled === 0` is ambiguous. It happens both when every
+      // task already had labels AND when we processed unlabeled tasks but found
+      // no matching label for any of them. The old copy always said "All tasks
+      // already labeled", which was wrong (and confusing) in the second case.
+      // Use `processed` to tell the two apart and never claim tasks are labeled
+      // when they are not.
+      const processed = res.processed ?? 0;
+      const labeled = res.labeled ?? 0;
+      const totalOpen = res.total_open ?? 0;
+      let resultMsg: string;
+      if (labeled > 0) {
+        resultMsg = `Labeled ${labeled} task${labeled === 1 ? "" : "s"}.`;
+        const missed = processed - labeled;
+        if (missed > 0) resultMsg += ` ${missed} had no matching label yet.`;
+      } else if (processed > 0) {
+        resultMsg = `No matching labels for ${processed} task${processed === 1 ? "" : "s"}. Add a few labels first, then try again.`;
+      } else if (totalOpen > 0) {
+        resultMsg = "Every open task already has labels.";
+      } else {
+        resultMsg = "No open tasks to label.";
+      }
+      setLabelAllResult(resultMsg);
       await fetchTasks();
       fetchLabels();
     } catch (e: unknown) {

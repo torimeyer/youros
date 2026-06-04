@@ -303,6 +303,24 @@ describe('LabelsView – Label all button', () => {
     })
   })
 
+  it('does not claim tasks are labeled when none matched (UAT item 10)', async () => {
+    const user = userEvent.setup()
+    // Processed 2 unlabeled tasks but matched no label for either. The old copy
+    // showed "Labeled 0 items." / "already labeled", which read as success.
+    mockApi.post.mockResolvedValue({ processed: 2, labeled: 0, total_open: 4 })
+
+    render(<LabelsView />)
+    await waitFor(() => screen.getByText('Bug'))
+
+    await user.click(screen.getByRole('button', { name: /label all/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/no matching labels for 2/i)).toBeTruthy()
+    })
+    expect(screen.queryByText(/already has labels/i)).toBeNull()
+    expect(screen.queryByText(/labeled 0/i)).toBeNull()
+  })
+
   it('calls onLabelsChanged after labeling completes', async () => {
     const user = userEvent.setup()
     const onLabelsChanged = vi.fn()
