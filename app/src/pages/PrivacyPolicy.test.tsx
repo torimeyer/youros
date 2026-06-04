@@ -30,7 +30,7 @@ function renderPage() {
 describe('PrivacyPolicy page', () => {
   it('renders without crashing', () => {
     renderPage()
-    expect(screen.getByText('Privacy')).toBeTruthy()
+    expect(screen.getByTestId('privacy-section-what-we-store')).toBeTruthy()
   })
 
   it('shows the "what we store" section', () => {

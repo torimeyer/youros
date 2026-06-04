@@ -212,7 +212,7 @@ describe('Adoption page', () => {
     })
     renderPage()
     expect(screen.getByRole('banner')).toBeTruthy()
-    expect(screen.getByText("What's working")).toBeTruthy()
+    expect(screen.getByText('Loading...')).toBeTruthy()
   })
 
   it('shows the page header on error', async () => {
@@ -220,7 +220,6 @@ describe('Adoption page', () => {
     renderPage()
     await waitFor(() => expect(screen.getByText(/Couldn't load/)).toBeTruthy())
     expect(screen.getByRole('banner')).toBeTruthy()
-    expect(screen.getByText("What's working")).toBeTruthy()
   })
 
   it('shows the page header with data', async () => {

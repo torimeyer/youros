@@ -661,10 +661,10 @@ describe('Transcripts page', () => {
     })
   })
 
-  it('TopBar title is "Conversations" not "History"', () => {
+  it('TopBar title is "Transcripts" not "History"', () => {
     mockedApiGet.mockReturnValue(new Promise(() => {}))
     renderTranscripts()
 
-    expect(screen.getByText('Conversations')).toBeInTheDocument()
+    expect(screen.getByText('Transcripts')).toBeInTheDocument()
   })
 })
