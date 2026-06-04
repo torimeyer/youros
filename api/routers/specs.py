@@ -923,14 +923,16 @@ async def create_from_template(body: SpecFromTemplate):
         trace_event("needle_created", title=title, source="from-template", task_id=payload.get("task_id"))
         return {**payload, "template_id": body.template_id}
 
-    # Create the draft on disk via ostk. This returns a relative path
-    # like "docs/draft/foo.md".
-    try:
-        result = await ostk.doc_draft(title)
-    except OstkError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    draft_path = result.strip()
+    # Create the draft directly in USER_DRAFTS_DIR (→2104 pattern; avoids
+    # the CLI binary that writes to docs/draft/ in the repo).
+    from services.spec_templates import canonical_spec_template_body as _tmpl_body
+    _slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:80] or "untitled"
+    USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    _draft_file = USER_DRAFTS_DIR / f"{_slug}.md"
+    _draft_file.write_text(
+        f"---\ntitle: {title}\nstatus: draft\n---\n\n" + _tmpl_body()
+    )
+    draft_path = str(_draft_file)
 
     # Append the template's goal body and acceptance criteria checklist
     # to the drafted file. The file already has its front matter and
@@ -958,10 +960,9 @@ async def create_from_template(body: SpecFromTemplate):
     if ac_block:
         appended_body += ac_block
 
-    docs_root = (Path(ostk.cwd) / "docs").resolve()
-    full_path = (Path(ostk.cwd) / draft_path).resolve()
+    full_path = Path(draft_path)  # already absolute path in USER_DRAFTS_DIR
     ac_written = False
-    if appended_body and full_path.exists() and full_path.is_relative_to(docs_root):
+    if appended_body and full_path.exists():
         content = full_path.read_text()
         if content.endswith("\n"):
             content += "\n" + appended_body
@@ -1024,12 +1025,16 @@ async def import_spec(body: SpeckitImport):
         trace_event("needle_created", title=spec["title"], source="import", task_id=payload.get("task_id"))
         return {**payload, "title": spec["title"]}
 
-    # Draft the spec via ostk.
-    try:
-        result = await ostk.doc_draft(spec["title"])
-    except OstkError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    draft_path = result.strip()
+    # Create the draft directly in USER_DRAFTS_DIR (→2104 pattern; avoids
+    # the CLI binary that writes to docs/draft/ in the repo).
+    from services.spec_templates import canonical_spec_template_body as _tmpl_body
+    _slug = re.sub(r"[^a-z0-9]+", "-", spec["title"].lower()).strip("-")[:80] or "untitled"
+    USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    _draft_file = USER_DRAFTS_DIR / f"{_slug}.md"
+    _draft_file.write_text(
+        f"---\ntitle: {spec['title']}\nstatus: draft\n---\n\n" + _tmpl_body()
+    )
+    draft_path = str(_draft_file)
 
     # Write description + acceptance criteria from tasks into the draft.
     tasks = spec.get("tasks") or []
@@ -1058,10 +1063,9 @@ async def import_spec(body: SpeckitImport):
                 body_lines.append(f"  {t['description']}")
         body_lines.append("")
 
-    docs_root = (Path(ostk.cwd) / "docs").resolve()
-    full_path = (Path(ostk.cwd) / draft_path).resolve()
+    full_path = Path(draft_path)  # already absolute path in USER_DRAFTS_DIR
     ac_written = False
-    if body_lines and full_path.exists() and full_path.is_relative_to(docs_root):
+    if body_lines and full_path.exists():
         content = full_path.read_text()
         appended = "\n".join(body_lines)
         if content.endswith("\n"):
@@ -1440,7 +1444,7 @@ async def unlock_spec(spec_path: str):
     to ``docs/draft/<name>.md`` and flips the ``status:`` front matter field
     from ``spec`` to ``draft``. This is the inverse of promote.
     """
-    from services.ostk import USER_SPECS_DIR
+    from services.ostk import USER_SPECS_DIR, USER_DRAFTS_DIR
 
     _validate_doc_path(spec_path)
     
@@ -1456,20 +1460,21 @@ async def unlock_spec(spec_path: str):
     
     if is_user_local:
         source = abs_source
-        target_rel = f"docs/draft/{source.name}"
+        # User-local specs unlock back to USER_DRAFTS_DIR, not docs/draft/ in the repo.
+        target = USER_DRAFTS_DIR / source.name
+        target_rel = str(target)
     else:
         source = (Path(PROJECT_ROOT) / spec_path).resolve()
         target_rel = spec_path.replace("docs/spec/", "docs/draft/", 1)
+        target = (Path(PROJECT_ROOT) / target_rel).resolve()
+        # Safety: legacy target must live under docs/draft/
+        draft_root = (Path(PROJECT_ROOT) / "docs" / "draft").resolve()
+        if not target.is_relative_to(draft_root):
+            raise HTTPException(status_code=400, detail="Invalid target path")
 
     if not source.exists():
         raise HTTPException(status_code=404, detail="Plan not found")
     
-    target = (Path(PROJECT_ROOT) / target_rel).resolve()
-    # Safety: target must live under docs/draft/
-    draft_root = (Path(PROJECT_ROOT) / "docs" / "draft").resolve()
-    if not target.is_relative_to(draft_root):
-        raise HTTPException(status_code=400, detail="Invalid target path")
-
     target.parent.mkdir(parents=True, exist_ok=True)
     # Flip the status field in front matter. doc_promote writes
     # "status: spec"; unlock reverses that. We also strip any
@@ -1560,8 +1565,15 @@ async def create_spec_from_task(body: SpecFromTask):
         title = task.get("title", "Untitled")
         description = task.get("description", "")
 
-        # Create the draft
-        result = await ostk.doc_draft(title)
+        # Create the draft directly in USER_DRAFTS_DIR (→2104 pattern).
+        from services.spec_templates import canonical_spec_template_body as _tmpl_body
+        _slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:80] or "untitled"
+        USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+        _draft_file = USER_DRAFTS_DIR / f"{_slug}.md"
+        _draft_file.write_text(
+            f"---\ntitle: {title}\nstatus: draft\n---\n\n" + _tmpl_body()
+        )
+        result = str(_draft_file)
 
         # Auto-generate acceptance criteria
         try:
@@ -1590,9 +1602,8 @@ async def create_spec_from_task(body: SpecFromTask):
                 ac_text = response.content[0].text.strip()
 
                 draft_path = result.strip()
-                docs_root = (Path(PROJECT_ROOT) / "docs").resolve()
-                full_path = (Path(PROJECT_ROOT) / draft_path).resolve()
-                if full_path.exists() and full_path.is_relative_to(docs_root):
+                full_path = Path(draft_path)  # already absolute in USER_DRAFTS_DIR
+                if full_path.exists():
                     content = full_path.read_text()
                     content = content.rstrip() + "\n\n" + ac_text + "\n"
                     full_path.write_text(content)
@@ -1660,20 +1671,23 @@ async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
         trace_event("needle_created", title=title, source="from-roadmap-line", task_id=payload.get("task_id"))
         return {**payload, "title": title, "roadmap_path": raw_path}
 
-    try:
-        result = await ostk.doc_draft(title)
-    except OstkError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    # Create the draft directly in USER_DRAFTS_DIR (→2104 pattern).
+    from services.spec_templates import canonical_spec_template_body as _tmpl_body
+    _slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:80] or "untitled"
+    USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    _draft_file = USER_DRAFTS_DIR / f"{_slug}.md"
+    _draft_file.write_text(
+        f"---\ntitle: {title}\nstatus: draft\n---\n\n" + _tmpl_body()
+    )
+    draft_path = str(_draft_file)
 
-    draft_path = result.strip()
-    docs_root = (Path(PROJECT_ROOT) / "docs").resolve()
-    full_path = (Path(PROJECT_ROOT) / draft_path).resolve()
+    full_path = Path(draft_path)  # already absolute in USER_DRAFTS_DIR
 
     # Write the initiative as the plan goal with a short header that
     # links back to the source roadmap by its basename. Keeps the plan
     # self describing when the user opens it later.
     header_written = False
-    if full_path.exists() and full_path.is_relative_to(docs_root):
+    if full_path.exists():
         existing = full_path.read_text()
         header = f"## From roadmap: {roadmap_file.name}\n\n{initiative}\n\n"
         existing = existing.rstrip() + "\n\n" + header
@@ -3311,12 +3325,16 @@ async def wizard_create(body: WizardCreateRequest):
     if not body.problem.strip():
         raise HTTPException(status_code=400, detail="Problem statement is required")
 
-    try:
-        result = await ostk.doc_draft(body.title.strip())
-    except OstkError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    draft_path = result.strip()
+    # Create the draft directly in USER_DRAFTS_DIR (→2104 pattern).
+    from services.spec_templates import canonical_spec_template_body as _tmpl_body
+    _title = body.title.strip()
+    _slug = re.sub(r"[^a-z0-9]+", "-", _title.lower()).strip("-")[:80] or "untitled"
+    USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    _draft_file = USER_DRAFTS_DIR / f"{_slug}.md"
+    _draft_file.write_text(
+        f"---\ntitle: {_title}\nstatus: draft\n---\n\n" + _tmpl_body()
+    )
+    draft_path = str(_draft_file)
 
     from services.spec_types import SPEC_TYPES
     spec_type = body.type if body.type in SPEC_TYPES else "engineering"
@@ -3386,10 +3404,9 @@ async def wizard_create(body: WizardCreateRequest):
 
     body_text = "\n".join(sections)
 
-    docs_root = (Path(PROJECT_ROOT) / "docs").resolve()
-    full_path = (Path(PROJECT_ROOT) / draft_path).resolve()
+    full_path = Path(draft_path)  # already absolute in USER_DRAFTS_DIR
     ac_written = False
-    if full_path.exists() and full_path.is_relative_to(docs_root):
+    if full_path.exists():
         content = full_path.read_text()
         # Record the spec type so readiness uses the right per-type profile.
         content = _inject_frontmatter_key(content, "type", spec_type)
