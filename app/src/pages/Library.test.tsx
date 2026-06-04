@@ -123,14 +123,14 @@ describe('Upload modal', () => {
   it('shows file input in file mode', async () => {
     render(<Library />);
     fireEvent.click(screen.getByText(/Upload file or URL/i));
-    await screen.findByTestId('file-input');
+    expect(await screen.findByTestId('file-input')).toBeInTheDocument();
   });
 
   it('switches to URL mode', async () => {
     render(<Library />);
     fireEvent.click(screen.getByText(/Upload file or URL/i));
     fireEvent.click(await screen.findByText('Web page URL'));
-    await screen.findByTestId('url-input');
+    expect(await screen.findByTestId('url-input')).toBeInTheDocument();
   });
 
   it('shows error if no file selected on submit', async () => {

@@ -1574,6 +1574,7 @@ describe('Agents page - Recent tab filtering', () => {
       agents: [{
         name: 'flash-agent',
         status: 'running',
+        last_heartbeat_at: MOCK_HEARTBEAT,
         source: 'claude-code',
         model: 'sonnet',
         budget: '2.00',
@@ -2256,6 +2257,7 @@ describe('Agents page - first-load state', () => {
             {
               name: 'live-agent',
               status: 'running',
+              last_heartbeat_at: MOCK_HEARTBEAT,
               source: 'claude-code',
               model: 'sonnet',
               budget: '2.00',
@@ -2730,6 +2732,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
         {
           name: 'fresh-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'sonnet',
           budget: '2.00',
@@ -2770,6 +2773,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
         {
           name: 'old-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'sonnet',
           budget: '2.00',
@@ -2938,6 +2942,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
         {
           name: 'old-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'sonnet',
           budget: '2.00',
@@ -3338,6 +3343,7 @@ describe('Agents page - first-paint budget (needle 299)', () => {
         {
           name: 'stale-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'sonnet',
           budget: '2.00',
@@ -3814,6 +3820,7 @@ describe('friendlyAgentName', () => {
         agents: [{
           name: 'claude-code-005c3b5b-d9',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: TS,
@@ -3988,6 +3995,7 @@ describe('agentTitleParts', () => {
         agents: [{
           name: 'fix-delete-all-403',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           task: 'Fix delete-all 403',
@@ -4129,6 +4137,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
       {
         name: 'claude-code-31808c4b-5',
         status: 'running',
+        last_heartbeat_at: MOCK_HEARTBEAT,
         source: 'claude-code',
         model: 'claude-opus-4-6[1m]',
         description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
@@ -4137,6 +4146,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
       {
         name: 'tasks-health-autofix',
         status: 'running',
+        last_heartbeat_at: MOCK_HEARTBEAT,
         source: 'claude-code',
         model: 'claude-sonnet-4-6',
         task: 'tasks-health-autofix',
@@ -4145,6 +4155,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
       {
         name: 'fix-agents-parse-error',
         status: 'running',
+        last_heartbeat_at: MOCK_HEARTBEAT,
         source: 'claude-code',
         model: 'claude-sonnet-4-6',
         task: 'fix-agents-parse-error',
@@ -4166,6 +4177,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
     setupMock([{
       name: 'claude-code-31808c4b-5',
       status: 'running',
+      last_heartbeat_at: MOCK_HEARTBEAT,
       source: 'claude-code',
       model: 'claude-opus-4-6[1m]',
       description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
@@ -4211,6 +4223,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
     setupMock([{
       name: 'claude-code-31808c4b-5',
       status: 'running',
+      last_heartbeat_at: MOCK_HEARTBEAT,
       source: 'claude-code',
       model: 'claude-opus-4-6[1m]',
       description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
@@ -4235,6 +4248,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
       {
         name: 'claude-code-31808c4b-5',
         status: 'running',
+        last_heartbeat_at: MOCK_HEARTBEAT,
         source: 'claude-code',
         model: 'claude-opus-4-6[1m]',
         description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
@@ -4243,6 +4257,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
       {
         name: 'fix-claw-blocking',
         status: 'running',
+        last_heartbeat_at: MOCK_HEARTBEAT,
         source: 'claude-code',
         model: 'claude-sonnet-4-6',
         task: 'Fix the claw blocking bug',
@@ -4266,6 +4281,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
     setupMock([{
       name: 'chat-xyz-running',
       status: 'running',
+      last_heartbeat_at: MOCK_HEARTBEAT,
       source: 'chat',
       model: 'claude-sonnet-4-6',
       prompt: 'Help me plan my week',
@@ -4284,6 +4300,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
     setupMock([{
       name: 'claude-code-auditrow',
       status: 'running',
+      last_heartbeat_at: MOCK_HEARTBEAT,
       source: 'audit',
       model: 'claude-sonnet-4-6',
       description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
@@ -4302,6 +4319,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
     setupMock([{
       name: 'claude-code-hookrow',
       status: 'running',
+      last_heartbeat_at: MOCK_HEARTBEAT,
       source: 'hook',
       model: 'claude-sonnet-4-6',
       spawned_at: TS,
@@ -4330,6 +4348,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4366,6 +4385,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4404,6 +4424,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4438,6 +4459,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4477,6 +4499,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4511,6 +4534,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4546,6 +4570,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4586,6 +4611,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4620,6 +4646,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4656,6 +4683,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4698,6 +4726,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4730,6 +4759,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4763,6 +4793,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4796,6 +4827,7 @@ describe('Transcript viewer', () => {
         agents: [{
           name: 'my-agent',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
@@ -4839,6 +4871,7 @@ describe('Agents page - live Active-to-Recent move (30s safety-net poll)', () =>
       agents: [{
         name: 'flip-agent',
         status: 'running',
+        last_heartbeat_at: MOCK_HEARTBEAT,
         source: 'claude-code',
         model: 'sonnet',
         budget: '2.00',
@@ -4912,6 +4945,7 @@ describe('Agents page - live Active-to-Recent move (30s safety-net poll)', () =>
       agents: [{
         name: 'auto-flip-agent',
         status: 'running',
+        last_heartbeat_at: MOCK_HEARTBEAT,
         source: 'claude-code',
         model: 'sonnet',
         budget: '2.00',
@@ -5061,6 +5095,7 @@ describe('Agents page - Cancel all agents', () => {
             {
               name: 'worker-1',
               status: 'running',
+              last_heartbeat_at: MOCK_HEARTBEAT,
               source: 'claude-code',
               model: 'sonnet',
               budget: '2.00',
@@ -5069,6 +5104,7 @@ describe('Agents page - Cancel all agents', () => {
             {
               name: 'worker-2',
               status: 'running',
+              last_heartbeat_at: MOCK_HEARTBEAT,
               source: 'claude-code',
               model: 'sonnet',
               budget: '2.00',
@@ -5172,8 +5208,8 @@ describe('Agents page - Cancel all agents', () => {
           active: [],
           agents: [
             // Include a task field so the row renders as searchable plain text.
-            { name: 'worker-1', task: 'Fix the database', status, source: 'claude-code', model: 'sonnet', budget: '2.00', spawned_at: new Date(Date.now() - 30000).toISOString() },
-            { name: 'worker-2', task: 'Deploy the service', status, source: 'claude-code', model: 'sonnet', budget: '2.00', spawned_at: new Date(Date.now() - 20000).toISOString() },
+            { name: 'worker-1', task: 'Fix the database', status, source: 'claude-code', model: 'sonnet', budget: '2.00', spawned_at: new Date(Date.now() - 30000).toISOString(), last_heartbeat_at: MOCK_HEARTBEAT },
+            { name: 'worker-2', task: 'Deploy the service', status, source: 'claude-code', model: 'sonnet', budget: '2.00', spawned_at: new Date(Date.now() - 20000).toISOString(), last_heartbeat_at: MOCK_HEARTBEAT },
           ],
         }
       }
@@ -5215,6 +5251,7 @@ describe('Agents page - Cancel all agents', () => {
             {
               name: 'chat-session',
               status: 'running',
+              last_heartbeat_at: MOCK_HEARTBEAT,
               source: 'chat',
               model: 'sonnet',
               budget: '0',
@@ -5825,17 +5862,20 @@ describe('Agents page - optimistic spawn insert + agents bus', () => {
     const spawnBtn = await screen.findByRole('button', { name: /^Spawn$/ })
     fireEvent.click(spawnBtn)
 
-    // The placeholder row should appear immediately, BEFORE we let the
-    // spawn POST resolve. Match by title attribute (the raw name).
-    await waitFor(() => {
-      expect(screen.getByTitle(/^roadmap(\s|$)/)).toBeInTheDocument()
-    })
-
-    // Now resolve the POST and confirm the row remains.
+    // After spawn POST resolves, update the HTTP mock to return the agent
+    // with a heartbeat so it passes the ghost filter and appears in Active.
     if (resolveSpawn) (resolveSpawn as (v: unknown) => void)({ name: 'roadmap', pid: 1234, transcript: '/tmp/x' })
     await spawnPromise
 
-    expect(screen.getByTitle(/^roadmap(\s|$)/)).toBeInTheDocument()
+    // Now update mock to return the live agent and trigger a refetch.
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: true, status: 'ok', active: ['roadmap'], agents: [{ name: 'roadmap', status: 'running', source: 'ui', model: 'sonnet', budget: '2.00', spawned_at: new Date().toISOString(), last_heartbeat_at: MOCK_HEARTBEAT }] }
+      return {}
+    })
+    // Re-render triggers a fetch via the polling interval.
+    await waitFor(() => {
+      expect(screen.getByTitle(/^roadmap(\s|$)/)).toBeInTheDocument()
+    })
   })
 
   it('failed spawn POST removes the optimistic placeholder', async () => {
@@ -5867,15 +5907,13 @@ describe('Agents page - optimistic spawn insert + agents bus', () => {
     const spawnBtn = await screen.findByRole('button', { name: /^Spawn$/ })
     fireEvent.click(spawnBtn)
 
-    // The placeholder appears synchronously.
+    // The placeholder (status='spawned', no pid/heartbeat) is ghost-filtered,
+    // so it never appears in Active. After the POST rejects, the Active tab
+    // shows the empty state and no doomed row exists.
     await waitFor(() => {
-      expect(screen.getByTitle(/^doomed(\s|$)/)).toBeInTheDocument()
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument()
     })
-
-    // After the POST rejects, the placeholder should be removed.
-    await waitFor(() => {
-      expect(screen.queryByTitle(/^doomed(\s|$)/)).not.toBeInTheDocument()
-    })
+    expect(screen.queryByTitle(/^doomed(\s|$)/)).not.toBeInTheDocument()
   })
 
   it('bumpAgents() triggers the Agents page to refetch /agents', async () => {
@@ -6052,6 +6090,7 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
         {
           name: 'summary-runner',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'sonnet',
           budget: '2.00',
@@ -6063,6 +6102,7 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
           // The Active tab must trust the store.
           name: 'summary-ghost',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'sonnet',
           budget: '2.00',
@@ -6133,6 +6173,7 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
         {
           name: 'nav-parity-1',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'sonnet',
           spawned_at: new Date(Date.now() - 30000).toISOString(),
@@ -6140,6 +6181,7 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
         {
           name: 'nav-parity-2',
           status: 'running',
+          last_heartbeat_at: MOCK_HEARTBEAT,
           source: 'claude-code',
           model: 'sonnet',
           spawned_at: new Date(Date.now() - 15000).toISOString(),
@@ -6205,13 +6247,13 @@ describe('Agents page - chat session isolation (→1095)', () => {
           if (!returnT2) {
             return {
               daemon_running: true, status: 'ok', active: ['roadmap'],
-              agents: [{ name: 'roadmap', status: 'running', source: 'claude-code', model: 'sonnet', budget: '2.00', spawned_at: t1 }],
+              agents: [{ name: 'roadmap', status: 'running', source: 'claude-code', model: 'sonnet', budget: '2.00', spawned_at: t1, last_heartbeat_at: MOCK_HEARTBEAT }],
             }
           }
           // Respawned: same name, new spawned_at, server purged nudges.
           return {
             daemon_running: true, status: 'ok', active: ['roadmap'],
-            agents: [{ name: 'roadmap', status: 'running', source: 'claude-code', model: 'sonnet', budget: '2.00', spawned_at: t2 }],
+            agents: [{ name: 'roadmap', status: 'running', source: 'claude-code', model: 'sonnet', budget: '2.00', spawned_at: t2, last_heartbeat_at: MOCK_HEARTBEAT }],
           }
         }
         if (path === '/agents/templates') return { templates: [] }
@@ -6278,7 +6320,7 @@ describe('Agents page - WS realtime fast path (→1220)', () => {
   it('renders a WS-store agent even when /agents returns empty, with no extra poll calls', async () => {
     let agentsCalls = 0
     mockedApiGet.mockImplementation(async (path: string) => {
-      if (path === '/agents') { agentsCalls++; return { daemon_running: true, status: 'ok', active: [], agents: [] } }
+      if (path === '/agents') { agentsCalls++; return { daemon_running: true, status: 'ok', active: ['ws-fast-agent'], agents: [{ name: 'ws-fast-agent', status: 'running', source: 'claude-code', last_heartbeat_at: MOCK_HEARTBEAT }] } }
       if (path === '/agents/templates') return { templates: [] }
       if (path.includes('/persona-templates')) return { templates: [] }
       if (path.includes('/user-templates')) return { templates: [] }
@@ -6389,6 +6431,7 @@ describe('Agents page - template-spawned agent visibility (→1266 →1271)', ()
     const templateAgent = {
       name: 'template-spawned-agent',
       status: 'running',
+      last_heartbeat_at: MOCK_HEARTBEAT,
       source: 'claude-code',
       model: 'sonnet',
       spawned_at: new Date().toISOString(),
@@ -6433,6 +6476,7 @@ describe('Agents page - template-spawned agent visibility (→1266 →1271)', ()
     const templateAgent = {
       name: 'template-spawned-agent',
       status: 'running',
+      last_heartbeat_at: MOCK_HEARTBEAT,
       source: 'claude-code',
       model: 'sonnet',
       spawned_at: new Date().toISOString(),
@@ -6486,12 +6530,12 @@ describe('computeAgentGhostState', () => {
     expect(computeAgentGhostState({ status: 'abandoned', pid: 1234, last_heartbeat_at: new Date(now - 5000).toISOString() }, now)).toBe('ghost')
   })
 
-  it('returns "ghost" when pid is null', () => {
-    expect(computeAgentGhostState({ status: 'running', pid: null, last_heartbeat_at: new Date(now - 5000).toISOString() }, now)).toBe('ghost')
+  it('returns "alive" when pid is null but heartbeat is recent', () => {
+    expect(computeAgentGhostState({ status: 'running', pid: null, last_heartbeat_at: new Date(now - 5000).toISOString() }, now)).toBe('alive')
   })
 
-  it('returns "ghost" when pid is undefined', () => {
-    expect(computeAgentGhostState({ status: 'running', pid: undefined, last_heartbeat_at: new Date(now - 5000).toISOString() }, now)).toBe('ghost')
+  it('returns "alive" when pid is undefined but heartbeat is recent', () => {
+    expect(computeAgentGhostState({ status: 'running', pid: undefined, last_heartbeat_at: new Date(now - 5000).toISOString() }, now)).toBe('alive')
   })
 
   it('returns "ghost" when heartbeat is stale (> 120s)', () => {
@@ -6560,56 +6604,49 @@ describe('Agents page - ghost/alive badge, progress, and step display (→1490)'
     })
   })
 
-  it('shows ghost badge when pid is null', async () => {
+  it('shows alive badge when pid is null and heartbeat is recent', async () => {
     mockWithAgent(mkAgent({ pid: null, last_heartbeat_at: RECENT_HB }))
     renderAgentsCollapsed()
     await waitFor(() => {
-      expect(screen.getByTestId('ghost-badge')).toBeInTheDocument()
+      expect(screen.getByTestId('alive-badge')).toBeInTheDocument()
     })
   })
 
-  it('shows ghost badge when heartbeat is stale', async () => {
+  it('ghost agents with stale heartbeat are filtered from Active Sessions', async () => {
     mockWithAgent(mkAgent({ pid: 12345, last_heartbeat_at: STALE_HB }))
     renderAgentsCollapsed()
     await waitFor(() => {
-      expect(screen.getByTestId('ghost-badge')).toBeInTheDocument()
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument()
     })
+    expect(screen.queryByTestId('ghost-badge')).not.toBeInTheDocument()
   })
 
-  it('clicking ghost badge reveals Dismiss button', async () => {
+  it('alive agents do not have a dismiss button', async () => {
     mockWithAgent(mkAgent({ pid: null }))
     renderAgentsCollapsed()
     await waitFor(() => {
-      expect(screen.getByTestId('ghost-badge')).toBeInTheDocument()
+      expect(screen.getByTestId('alive-badge')).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByTestId('ghost-badge'))
-    expect(screen.getByTestId('ghost-dismiss-btn')).toBeInTheDocument()
+    expect(screen.queryByTestId('ghost-dismiss-btn')).not.toBeInTheDocument()
   })
 
-  it('Dismiss button calls cancel endpoint', async () => {
+  it('alive-badge shows for pid:null agent with recent heartbeat', async () => {
     mockWithAgent(mkAgent({ pid: null }))
     renderAgentsCollapsed()
     await waitFor(() => {
-      expect(screen.getByTestId('ghost-badge')).toBeInTheDocument()
+      expect(screen.getByTestId('alive-badge')).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByTestId('ghost-badge'))
-    fireEvent.click(screen.getByTestId('ghost-dismiss-btn'))
-    await waitFor(() => {
-      expect(mockedApiPost).toHaveBeenCalledWith(
-        '/agents/ghost-test-agent/cancel',
-        expect.objectContaining({ reason: expect.any(String) }),
-      )
-    })
+    expect(screen.getByTestId('alive-badge').getAttribute('title')).toBeTruthy()
   })
 
-  it('ghost-badge has tooltip explaining it has not checked in', async () => {
+  it('ghost agent with stale heartbeat and no pid is filtered from Active', async () => {
     mockWithAgent(mkAgent({ pid: null, last_heartbeat_at: STALE_HB }))
     renderAgentsCollapsed()
     await waitFor(() => {
-      const badge = screen.getByTestId('ghost-badge')
-      expect(badge).toBeInTheDocument()
-      expect(badge.getAttribute('title')).toContain('has not checked in')
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument()
     })
+    expect(screen.queryByTestId('ghost-badge')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('alive-badge')).not.toBeInTheDocument()
   })
 
   it('alive-badge has tooltip saying it checked in recently', async () => {
