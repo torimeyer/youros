@@ -75,10 +75,16 @@ fi
 
 echo "PASS: edit-verb agent registered when pre-agent-guard.sh is absent (→2027)"
 
-# ── Regression: with bridge present, bridge-skip still fires (no double-register) ──
+# ── Regression: with bridge WIRED in settings, bridge-skip still fires (no double-register) ──
+# (→2027) The skip now keys on the hook being referenced in a settings.json,
+# not merely present as a file. Wire pre-agent-guard into the project settings
+# so _BRIDGE_WIRED is true and the skip is expected to fire.
 FAKE_WITH_BRIDGE="$SCRATCH/fake_with_bridge"
 mkdir -p "$FAKE_WITH_BRIDGE/.claude/hooks"
 touch "$FAKE_WITH_BRIDGE/.claude/hooks/pre-agent-guard.sh"
+cat > "$FAKE_WITH_BRIDGE/.claude/settings.json" <<'SETTINGS'
+{"hooks":{"PreToolUse":[{"matcher":"Agent","hooks":[{"type":"command","command":".claude/hooks/pre-agent-guard.sh"}]}]}}
+SETTINGS
 
 HITS_BEFORE=$(wc -l < "$HIT_LOG" | tr -d ' ')
 
@@ -90,10 +96,10 @@ echo "$INPUT" \
 HITS_AFTER=$(wc -l < "$HIT_LOG" | tr -d ' ')
 
 if [ "$HITS_AFTER" -gt "$HITS_BEFORE" ]; then
-    echo "FAIL: bridge-skip regression — registration called when bridge IS present (would double-register)" >&2
+    echo "FAIL: bridge-skip regression — registration called when bridge IS wired (would double-register)" >&2
     exit 1
 fi
 
-echo "PASS: bridge-skip fires when pre-agent-guard.sh exists (no double-register regression)"
+echo "PASS: bridge-skip fires when pre-agent-guard is wired in settings (no double-register regression)"
 
 exit 0
