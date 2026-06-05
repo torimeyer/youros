@@ -1017,3 +1017,46 @@ async def resolve_contact_phrase(phrase: str) -> dict:
     return await asyncio.get_event_loop().run_in_executor(
         None, lambda: resolve_contact_phrase_sync(phrase)
     )
+
+
+def get_all_recent_messages_sync(limit: int = 50) -> list[dict]:
+    """Fetch the most recent messages across ALL chats for inbound polling.
+
+    Unlike get_messages_sync (which requires a chat_id), this returns a
+    flat list of the N most recent messages regardless of conversation,
+    ordered newest-first. Used by InboundPoller to detect new inbound texts.
+
+    Returns dicts with:
+      id, text, date (float Unix timestamp), is_from_me, sender
+    """
+    conn = _open_db()
+    try:
+        rows = conn.execute("""
+            SELECT
+                m.ROWID as message_id,
+                m.text,
+                m.attributedBody,
+                m.date as message_date,
+                m.is_from_me,
+                h.id as sender_identifier
+            FROM message m
+            LEFT JOIN handle h ON m.handle_id = h.ROWID
+            ORDER BY m.date DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+
+        messages = []
+        for row in rows:
+            msg_date_ts = _apple_epoch_to_unix(row["message_date"])
+            text = row["text"] or _decode_attributed_body(row["attributedBody"]) or ""
+            sender = row["sender_identifier"] or ("me" if row["is_from_me"] else "")
+            messages.append({
+                "id": row["message_id"],
+                "text": text,
+                "date": msg_date_ts,
+                "is_from_me": bool(row["is_from_me"]),
+                "sender": sender,
+            })
+        return messages
+    finally:
+        conn.close()
