@@ -1153,6 +1153,7 @@ export default function Settings() {
           </div>
 
           {/* Features (F) */}
+          <div className={`lg:col-span-2 ${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
           <div className={cardClass}>
           <h2 className="text-lg font-semibold mb-5">Features</h2>
           <p className="text-xs text-slate-500 mb-3">Toggle to show or hide in the sidebar. Drag items in the sidebar itself to reorder.</p>
@@ -1169,6 +1170,7 @@ export default function Settings() {
             ))}
           </div>
 
+          </div>
           </div>
           </div>
 
@@ -2008,7 +2010,7 @@ export default function Settings() {
           </div>
 
           {/* AI behavior */}
-          <div className={`lg:col-span-2 ${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
+          <div className={`${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
             <div className={cardClass}>
               <h2 className="text-lg font-semibold mb-5">AI behavior</h2>
               <div className="space-y-4">
@@ -2147,7 +2149,7 @@ export default function Settings() {
           </div>
 
           {/* Focus */}
-          <div className={`lg:col-span-2 ${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
+          <div className={`${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
             <div className={cardClass}>
               <div className="flex items-center gap-3 mb-2">
                 <h2 className="text-lg font-semibold">ADHD mode</h2>
@@ -2191,7 +2193,7 @@ export default function Settings() {
           </div>
 
           {/* ── Shortcuts (I) ────────────────────── */}
-          <div id="section-shortcuts" className={`lg:col-span-2 ${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
+          <div id="section-shortcuts" className={`${activeSection !== 'section-preferences' ? 'hidden' : ''}` }>
             <div className={cardClass}>
               <h2 className="text-lg font-semibold mb-4">Shortcuts</h2>
               {Object.keys(customShortcuts).length === 0 ? (
