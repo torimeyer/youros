@@ -170,6 +170,7 @@ export default function Settings() {
     Drive: { loading: true, connected: false, label: '' },
     Slack: { loading: true, connected: false, label: '' },
     iMessage: { loading: true, connected: false, label: '' },
+    GitHub: { loading: true, connected: false, label: '' },
   });
 
   // Push notification state
@@ -348,12 +349,14 @@ export default function Settings() {
       type DriveStatus = { authenticated: boolean; email: string | null };
       type SlackStat = { connected: boolean; team_name: string };
       type iMessageStat = { available: boolean; reason: string };
-      const [gmail, cal, drive, slack, imsg] = await Promise.all([
+      type GitHubStat = { connected: boolean };
+      const [gmail, cal, drive, slack, imsg, github] = await Promise.all([
         api.get<GmailStatus>('/gmail/auth/status').catch(() => ({ authenticated: false, email: null })),
         api.get<CalStatus>('/calendar/auth/status').catch(() => ({ authenticated: false, email: null })),
         api.get<DriveStatus>('/drive/auth/status').catch(() => ({ authenticated: false, email: null })),
         api.get<SlackStat>('/slack/status').catch(() => ({ connected: false, team_name: '' })),
         api.get<iMessageStat>('/imessage/status').catch(() => ({ available: false, reason: '' })),
+        api.get<GitHubStat>('/github/status').catch(() => ({ connected: false })),
       ]);
       setConnectionStatus({
         Gmail: { loading: false, connected: !!gmail.authenticated, label: gmail.email || '' },
@@ -361,6 +364,7 @@ export default function Settings() {
         Drive: { loading: false, connected: !!drive.authenticated, label: drive.email || '' },
         Slack: { loading: false, connected: !!slack.connected, label: slack.team_name || '' },
         iMessage: { loading: false, connected: !!imsg.available, label: '' },
+        GitHub: { loading: false, connected: !!github.connected, label: '' },
       });
     })();
     api.get<{ configured?: boolean; remote_url?: string | null; last_synced?: string | null }>('/sync/status')
@@ -1645,7 +1649,7 @@ export default function Settings() {
               <div className={cardClass} data-testid="google-connect-section">
                 <div className="flex items-center gap-2 mb-3">
                   <Icon name="travel_explore" size={18} className="text-blue-600 dark:text-blue-400" />
-                  <h2 className="text-base font-semibold">Google</h2>
+                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">Google</h2>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 mb-3">Gmail, Calendar, and Drive</p>
                 {connectionStatus.Drive.connected ? (
@@ -1722,7 +1726,7 @@ export default function Settings() {
               <div className={cardClass} data-testid="slack-connect-section">
                 <div className="flex items-center gap-2 mb-4">
                   <Icon name="forum" size={18} className="text-purple-600 dark:text-purple-400" />
-                  <h2 className="text-base font-semibold">Slack</h2>
+                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">Slack</h2>
                 </div>
                 <SlackConnect />
               </div>
@@ -1754,7 +1758,7 @@ export default function Settings() {
               <div className={cardClass} data-testid="imessage-connect-section">
                 <div className="flex items-center gap-2 mb-4">
                   <Icon name="chat_bubble" size={18} className="text-green-600 dark:text-green-400" />
-                  <h2 className="text-base font-semibold">iMessage</h2>
+                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">iMessage</h2>
                 </div>
                 <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
                   Read and reply to iMessages from within yourOS. Requires macOS.
@@ -1787,13 +1791,40 @@ export default function Settings() {
               <div className={cardClass} data-testid="github-connect-section">
                 <div className="flex items-center gap-2 mb-4">
                   <Icon name="code" size={18} className="text-slate-700 dark:text-slate-300" />
-                  <h2 className="text-base font-semibold">GitHub</h2>
+                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">GitHub</h2>
                 </div>
-                <GithubSetupCard
-                  darkMode={true}
-                  inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                  subtextCls="text-slate-600 dark:text-slate-400"
-                />
+                {connectionStatus.GitHub.connected ? (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                      <p className="text-sm text-slate-800 dark:text-slate-200 font-medium">Connected</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await api.delete('/github/disconnect');
+                          setConnectionStatus(prev => ({
+                            ...prev,
+                            GitHub: { loading: false, connected: false, label: '' }
+                          }));
+                        } catch (err) {
+                          reportError('Failed to disconnect GitHub', err);
+                        }
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                    >
+                      <Icon name="link_off" size={15} />
+                      Disconnect
+                    </button>
+                  </div>
+                ) : (
+                  <GithubSetupCard
+                    darkMode={true}
+                    inputCls="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                    subtextCls="text-slate-600 dark:text-slate-400"
+                  />
+                )}
               </div>
             )}
 

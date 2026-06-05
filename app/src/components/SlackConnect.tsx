@@ -110,7 +110,7 @@ export default function SlackConnect() {
             value={accessToken}
             onChange={(e) => setAccessToken(e.target.value)}
             placeholder="xoxb-your-bot-access-token"
-            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500/50"
+            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-purple-500/50"
             data-testid="slack-access-token-input"
           />
         </div>
@@ -122,7 +122,7 @@ export default function SlackConnect() {
             value={appId}
             onChange={(e) => setAppId(e.target.value)}
             placeholder="A0XXXXXXXXX"
-            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500/50"
+            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-purple-500/50"
             data-testid="slack-app-id-input"
           />
         </div>
