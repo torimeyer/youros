@@ -91,7 +91,12 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
           <p className="text-sm text-amber-700 dark:text-amber-300">Atlassian credentials expired</p>
         </div>
         <button
-          onClick={() => { window.location.href = '/api/atlassian/auth?return_to=/settings' }}
+          onClick={() => {
+            const p = new URLSearchParams({ return_to: '/settings' })
+            if (status?.jira_site) p.set('jira_site', status.jira_site)
+            if (status?.confluence_site && status.confluence_site !== status.jira_site) p.set('confluence_site', status.confluence_site)
+            window.location.href = `/api/atlassian/auth?${p.toString()}`
+          }}
           data-testid="atlassian-reconnect-btn"
           className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
         >
@@ -140,7 +145,12 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
         </p>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { window.location.href = '/api/atlassian/auth?return_to=/settings' }}
+            onClick={() => {
+              const p = new URLSearchParams({ return_to: '/settings' })
+              if (status?.jira_site) p.set('jira_site', status.jira_site)
+              if (status?.confluence_site && status.confluence_site !== status.jira_site) p.set('confluence_site', status.confluence_site)
+              window.location.href = `/api/atlassian/auth?${p.toString()}`
+            }}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
             data-testid="atlassian-oauth-btn"
           >

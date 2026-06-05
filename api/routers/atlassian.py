@@ -87,7 +87,7 @@ async def atlassian_defaults():
 
 
 @router.get("/atlassian/auth")
-async def atlassian_auth(request: Request, return_to: str = ""):
+async def atlassian_auth(request: Request, return_to: str = "", jira_site: str = "", confluence_site: str = ""):
     """Redirect the user to Atlassian's OAuth consent screen."""
     client_id = os.environ.get("ATLASSIAN_CLIENT_ID", "")
     if not client_id:
@@ -98,7 +98,7 @@ async def atlassian_auth(request: Request, return_to: str = ""):
     state = secrets.token_urlsafe(32)
     frontend = _frontend_url(request)
     effective_return_to = _validate_return_to(return_to, f"{frontend}/", request)
-    oauth_states[state] = {"return_to": effective_return_to}
+    oauth_states[state] = {"return_to": effective_return_to, "jira_site": jira_site, "confluence_site": confluence_site}
 
     base_url = str(request.base_url).rstrip("/")
     redirect_uri = f"{base_url}/api/atlassian/callback"
@@ -131,8 +131,12 @@ async def atlassian_callback(
     state_data = oauth_states.pop(state)
     if isinstance(state_data, dict):
         return_to = state_data.get("return_to", f"{frontend_url}/")
+        wanted_jira = state_data.get("jira_site", "")
+        wanted_confluence = state_data.get("confluence_site", "")
     else:
         return_to = f"{frontend_url}/"
+        wanted_jira = ""
+        wanted_confluence = ""
 
     def _error_redirect(reason: str) -> RedirectResponse:
         sep = "&" if "?" in return_to else "?"
@@ -178,10 +182,24 @@ async def atlassian_callback(
         if not resources:
             return _error_redirect("no_atlassian_sites")
 
-    first = resources[0]
-    cloud_id = first.get("id", "")
-    site_url = first.get("url", "")
-    site_host = site_url.replace("https://", "").replace("http://", "").rstrip("/")
+    def _match_resource(resources, wanted_site):
+        """Return the resource whose URL matches wanted_site, or resources[0] as fallback."""
+        if not wanted_site:
+            return resources[0]
+        normalized = wanted_site.replace("https://", "").replace("http://", "").rstrip("/")
+        for r in resources:
+            host = r.get("url", "").replace("https://", "").replace("http://", "").rstrip("/")
+            if host == normalized:
+                return r
+        return resources[0]
+
+    jira_resource = _match_resource(resources, wanted_jira)
+    confluence_resource = _match_resource(resources, wanted_confluence)
+    jira_cloud_id = jira_resource.get("id", "")
+    confluence_cloud_id = confluence_resource.get("id", "")
+    cloud_id = jira_cloud_id
+    site_host = jira_resource.get("url", "").replace("https://", "").replace("http://", "").rstrip("/")
+    conf_host = confluence_resource.get("url", "").replace("https://", "").replace("http://", "").rstrip("/")
 
     # Best-effort: ask the API for the user's email so we can show it on the
     # connection card. If it fails, leave email blank — connection still works.
@@ -204,6 +222,10 @@ async def atlassian_callback(
         cloud_id=cloud_id,
         access_token=access_token,
         refresh_token=refresh_token,
+        jira_site=wanted_jira or site_host,
+        confluence_site=wanted_confluence or conf_host,
+        jira_cloud_id=jira_cloud_id,
+        confluence_cloud_id=confluence_cloud_id,
     )
 
     sep = "&" if "?" in return_to else "?"

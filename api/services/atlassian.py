@@ -191,7 +191,10 @@ async def _get_auth_and_base(product: str = "jira") -> tuple[dict, str, str]:
     site_host = _site_host(config, product=product)
     access_token = await ostk.secret_get(ATLASSIAN_ACCESS_TOKEN_KEY)
     if access_token:
-        cloud_id = config.get("cloud_id", "")
+        if product == "confluence":
+            cloud_id = config.get("confluence_cloud_id") or config.get("cloud_id", "")
+        else:
+            cloud_id = config.get("jira_cloud_id") or config.get("cloud_id", "")
         if not cloud_id:
             raise RuntimeError(
                 "Atlassian connected via OAuth but cloud_id is missing. Please reconnect."
@@ -398,6 +401,8 @@ async def save_oauth_config(
     refresh_token: str,
     jira_site: Optional[str] = None,
     confluence_site: Optional[str] = None,
+    jira_cloud_id: Optional[str] = None,
+    confluence_cloud_id: Optional[str] = None,
 ) -> None:
     """Persist OAuth-flow connection details. site/email/cloud_id on disk; tokens in keychain.
 
@@ -411,7 +416,15 @@ async def save_oauth_config(
     conf_host = (confluence_site or site).replace("https://", "").replace("http://", "").rstrip("/")
     atomic_write_json(
         CONFIG_PATH,
-        {"email": email, "jira_site": jira_host, "confluence_site": conf_host, "cloud_id": cloud_id, "auth_method": "oauth"},
+        {
+            "email": email,
+            "jira_site": jira_host,
+            "confluence_site": conf_host,
+            "cloud_id": cloud_id,
+            "jira_cloud_id": jira_cloud_id or cloud_id,
+            "confluence_cloud_id": confluence_cloud_id or cloud_id,
+            "auth_method": "oauth",
+        },
     )
     await ostk.secret_set(ATLASSIAN_ACCESS_TOKEN_KEY, access_token)
     if refresh_token:
