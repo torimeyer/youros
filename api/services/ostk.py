@@ -593,6 +593,15 @@ class OstkService:
             raise OstkError(f"ostk command timed out: {' '.join(cmd)}")
         output = result.stdout.strip()
         if result.returncode != 0:
+            # →2193: robust success detection. ostk may exit non-zero when a
+            # post-action hook (like a git commit or AC check) fails even
+            # though the core operation successfully updated the substrate.
+            # If the output confirms the action, we treat it as success so
+            # the UI doesn't report a failure for a task that was actually updated.
+            confirmations = ("added ", "closed ", "shelved ", "unshelved ", "reopened ")
+            if any(output.startswith(c) or f"\n{c}" in output for c in confirmations):
+                _maybe_invalidate_after_write(args)
+                return output
             err = result.stderr.strip() or output
             raise OstkError(err)
         _maybe_invalidate_after_write(args)

@@ -1404,13 +1404,25 @@ function ConnectStep({
                         rel="noopener noreferrer"
                         className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
                       >
-                        Generative Language API
-                      </a>
-                      {' '}in the API library.
+                        "Gemini API"
+                      </a>{' '}
+                      (formerly Generative Language API) in the API library.
                     </li>
                     <li>Open Credentials, click Create credentials, then API key.</li>
-                    <li>Open the key, set API restrictions to Generative Language API.</li>
+                    <li>Open the key, set API restrictions to "Gemini API".</li>
                   </ol>
+                  <div className={`text-[10px] mt-2 leading-normal ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                    <strong>Privacy:</strong> Google uses data from the free Gemini API tier to improve its products. For strict privacy, use a paid tier or Vertex AI. See the{' '}
+                    <a
+                      href="https://ai.google.dev/gemini-api/terms#data-use-unpaid"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline text-blue-600 dark:text-blue-400"
+                    >
+                      official privacy notice
+                    </a>{' '}
+                    for details.
+                  </div>
                 </div>
               </div>
             ) : (

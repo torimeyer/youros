@@ -1319,16 +1319,29 @@ export default function Settings() {
                               rel="noreferrer"
                               className={`underline ${darkMode ? 'text-blue-700 dark:text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
                             >
-                              "Generative Language API"
+                              "Gemini API"
                             </a>{' '}
-                            in the API library. It takes about 30 seconds.
+                            (formerly Generative Language API) in the API library. It takes about 30 seconds.
                           </li>
                           <li>Open Credentials and click Create credentials, API key.</li>
                           <li>
-                            Edit the new key and restrict it to "Generative Language API" under API restrictions. It only appears in the dropdown after step 1.
+                            Edit the new key and restrict it to "Gemini API" under API restrictions. It only appears in the dropdown after step 1.
                           </li>
-                        </ol>
-                        <p>
+                          </ol>
+                          <div className={`text-[10px] mt-2 leading-normal ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                          <strong>Privacy:</strong> Google uses data from the free Gemini API tier to improve its products. For strict privacy, use a paid tier or Vertex AI. See the{' '}
+                          <a
+                            href="https://ai.google.dev/gemini-api/terms#data-use-unpaid"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline text-blue-600 dark:text-blue-400"
+                          >
+                            official privacy notice
+                          </a>{' '}
+                          for details.
+                          </div>
+                          <p>
+
                           Only using Gemini for chat? Grab a free key at{' '}
                           <a
                             href="https://aistudio.google.com/apikey"

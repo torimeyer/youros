@@ -80,6 +80,8 @@ def _detect_gemini_sync() -> dict:
 
 async def _detect_gemini() -> dict:
     """Run credential check in a thread pool so the event loop stays free."""
+    from services.ostk_secrets import get_gemini_key
+
     _unavailable = {
         "available": False,
         "authenticated": False,
@@ -88,17 +90,47 @@ async def _detect_gemini() -> dict:
         "api_reachable": False,
         "api_error": None,
     }
+
+    # 1. Check for Enterprise/Workspace credentials (ADC)
     try:
-        return await asyncio.wait_for(
+        res = await asyncio.wait_for(
             asyncio.to_thread(_detect_gemini_sync),
             timeout=_DETECT_TIMEOUT,
         )
+        if res.get("available"):
+            return res
     except asyncio.TimeoutError:
         logger.debug("gemini.detect: timed out after %ss", _DETECT_TIMEOUT)
-        return _unavailable
     except Exception as exc:
         logger.debug("gemini.detect: error: %s", exc)
-        return _unavailable
+
+    # 2. Fall back to personal API key detection
+    try:
+        key = await get_gemini_key()
+        if key:
+            # We have a key. Verify it by listing models, just like ADC does.
+            api_reachable = False
+            api_error = None
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=key)
+                await asyncio.to_thread(lambda: list(genai.list_models()))
+                api_reachable = True
+            except Exception as api_exc:
+                api_error = str(api_exc)[:300]
+
+            return {
+                "available": True,
+                "authenticated": True,
+                "email": "Configured via API Key",
+                "workspace_connected": False,
+                "api_reachable": api_reachable,
+                "api_error": api_error,
+            }
+    except Exception as exc:
+        logger.debug("gemini.detect: api_key check failed: %s", exc)
+
+    return _unavailable
 
 
 # UAT item 9: a single in-flight background refresh guard so repeated stale

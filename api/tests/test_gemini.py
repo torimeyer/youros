@@ -8,10 +8,22 @@ from routers.gemini import _detect_gemini, is_gemini_available
 @pytest.mark.asyncio
 async def test_detect_gemini_returns_unavailable_when_no_credentials():
     with patch("google.auth.default", side_effect=Exception("no credentials")):
-        result = await _detect_gemini()
+        with patch("services.ostk_secrets.get_gemini_key", return_value=None):
+            result = await _detect_gemini()
     assert result["available"] is False
     assert result["authenticated"] is False
     assert result["email"] is None
+
+
+@pytest.mark.asyncio
+async def test_detect_gemini_available_with_api_key_only():
+    with patch("google.auth.default", side_effect=Exception("no credentials")):
+        with patch("services.ostk_secrets.get_gemini_key", return_value="test-key"):
+            with patch("google.generativeai.list_models", return_value=[]):
+                result = await _detect_gemini()
+    assert result["available"] is True
+    assert result["authenticated"] is True
+    assert result["email"] == "Configured via API Key"
 
 
 @pytest.mark.asyncio

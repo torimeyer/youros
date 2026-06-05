@@ -108,15 +108,27 @@ export default function GoogleSetupGuideModal({ onClose }: { onClose: () => void
                 rel="noreferrer"
                 className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline"
               >
-                "Generative Language API"
+                "Gemini API"
               </a>{' '}
-              in the API library. It takes about 30 seconds.
+              (formerly Generative Language API) in the API library. It takes about 30 seconds.
             </li>
             <li>Open Credentials and click Create credentials, API key.</li>
             <li>
-              Edit the new key and restrict it to "Generative Language API" under API restrictions. It only appears in the dropdown after step 1. Paste the key into Settings under AI Provider.
+              Edit the new key and restrict it to "Gemini API" under API restrictions. It only appears in the dropdown after step 1. Paste the key into Settings under AI Provider.
             </li>
           </ol>
+          <div className="mt-2 text-[10px] text-slate-500 leading-normal">
+            <strong>Privacy:</strong> Google uses data from the free Gemini API tier to improve its products. For strict privacy, use a paid tier or Vertex AI. See the{' '}
+            <a
+              href="https://ai.google.dev/gemini-api/terms#data-use-unpaid"
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline"
+            >
+              official privacy notice
+            </a>{' '}
+            for details.
+          </div>
           <p className="text-xs text-slate-500 mt-2">
             Only using Gemini chat and nothing else from Google? Grab a free key at{' '}
             <a

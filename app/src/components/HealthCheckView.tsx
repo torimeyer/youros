@@ -148,12 +148,15 @@ export default function HealthCheckView() {
         keep_id: pair.task_a.id,
         discard_id: pair.task_b.id,
       });
+      // Optimistic update: remove any pair containing the discarded task
       setDuplicates((prev) =>
         prev.filter(
-          (p) => !(p.task_a.id === pair.task_a.id && p.task_b.id === pair.task_b.id)
+          (p) => p.task_a.id !== pair.task_b.id && p.task_b.id !== pair.task_b.id
         )
       );
       setResolveMessage({ text: `Closed #${pair.task_b.id} as duplicate.`, ok: true });
+      // Re-run the health check to update the bottom issues list
+      await runHealthCheck(false);
     } catch (e: unknown) {
       const msg =
         e instanceof Error ? e.message : "Could not resolve this pair. Try again.";
@@ -162,7 +165,7 @@ export default function HealthCheckView() {
     } finally {
       setResolvingPair(null);
     }
-  }, []);
+  }, [runHealthCheck]);
 
   const resolveAll = useCallback(async () => {
     setResolvingAll(true);
@@ -174,6 +177,8 @@ export default function HealthCheckView() {
         text: `Closed ${res.resolved} duplicate task${res.resolved === 1 ? "" : "s"}.`,
         ok: true,
       });
+      // Re-run the health check to update the bottom issues list
+      await runHealthCheck(false);
     } catch (e: unknown) {
       const msg =
         e instanceof Error ? e.message : "Could not resolve all duplicates. Try again.";
@@ -182,7 +187,7 @@ export default function HealthCheckView() {
     } finally {
       setResolvingAll(false);
     }
-  }, []);
+  }, [runHealthCheck]);
 
   const fixIssue = useCallback(async (issue: HealthIssue, taskId: string) => {
     const key = `${issue.type}:${taskId}`;

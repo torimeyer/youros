@@ -429,16 +429,18 @@ _GEMINI_KEY_HELP = (
     "Recommended: use the same Google Cloud project "
     "(https://console.cloud.google.com) you already set up for Drive, "
     "Calendar, or Gmail. Three steps:\n"
-    "  1. Enable \"Generative Language API\" in the API library "
+    "  1. Enable \"Gemini API\" (formerly Generative Language API) in the API library "
     "(https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com). "
     "It takes about 30 seconds.\n"
     "  2. Open Credentials and click Create credentials, API key.\n"
-    "  3. Edit the new key and restrict it to \"Generative Language "
-    "API\" under API restrictions. It only appears in the dropdown "
+    "  3. Edit the new key and restrict it to \"Gemini API\" "
+    "under API restrictions. It only appears in the dropdown "
     "after step 1.\n\n"
     "Only using Gemini chat and nothing else from Google? Grab a free key "
     "at Google AI Studio (https://aistudio.google.com/apikey) instead. It "
-    "ties to your personal Google account and is one click."
+    "ties to your personal Google account and is one click.\n\n"
+    "Note: Google uses data from the free Gemini API tier to improve its products. "
+    "For strict privacy, use a paid tier or Vertex AI."
 )
 
 

@@ -25,6 +25,11 @@ the third party. yourOS is not in the middle.
   Claude, the prompt and response go to Anthropic's API using the API
   key you configured. See Anthropic's privacy policy for what they do
   with it.
+* **Google (Gemini)** - prompts and responses go directly to Google.
+  **Note on Free Tier:** If you use the Gemini API free tier, Google
+  may use your data to improve its products. For strict privacy, use
+  a paid tier or Vertex AI. See the [Gemini API Privacy Notice](https://ai.google.dev/gemini-api/terms#data-use-unpaid)
+  for details.
 * **Google (Gmail, Calendar, Drive)** - only if you connect these in
   Settings. Requests go straight from your machine to Google.
 * **GitHub, Slack, and other integrations** - same pattern. Only
