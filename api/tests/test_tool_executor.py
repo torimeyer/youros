@@ -62,6 +62,7 @@ class TestToolDefinitions:
             "get_calendar_events",
             "create_calendar_event",
             "send_email",
+            "send_imessage",
             "delete_emails",
             "upload_to_drive",
             "create_tasks_from_spec",

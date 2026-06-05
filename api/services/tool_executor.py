@@ -430,6 +430,31 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "send_imessage",
+        "description": (
+            "Send an iMessage or SMS text to someone. "
+            "Use this when the user says 'text', 'message', 'iMessage', 'let [name] know via text', "
+            "or anything that implies sending a text message (not email). "
+            "Sends immediately from the user's Mac Messages app. "
+            "Recipient should be a phone number (e.g. +15551234567) or email address registered with iMessage. "
+            "Only works on macOS with the Messages app available."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "recipient": {
+                    "type": "string",
+                    "description": "Phone number (+1XXXXXXXXXX) or iMessage-registered email address of the recipient.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "The message text to send.",
+                },
+            },
+            "required": ["recipient", "text"],
+        },
+    },
+    {
         "name": "delete_emails",
         "description": (
             "Move Gmail messages to Trash (or permanently delete them). "
@@ -674,6 +699,11 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
                 to=input_data["to"],
                 subject=input_data["subject"],
                 body=input_data["body"],
+            )
+        elif name == "send_imessage":
+            return await _send_imessage(
+                recipient=input_data["recipient"],
+                text=input_data["text"],
             )
         elif name == "delete_emails":
             return await _delete_emails(
@@ -1643,6 +1673,20 @@ async def _send_email(to: str, subject: str, body: str) -> str:
         return f"Email sent to {to} with subject \"{subject}\"."
     except Exception as exc:
         return f"Could not send email: {exc}"
+
+
+async def _send_imessage(recipient: str, text: str) -> str:
+    """Send an iMessage via the Mac Messages app."""
+    try:
+        from services import imessage as imessage_svc
+        status = imessage_svc.is_available()
+        if not status.get("available"):
+            reason = status.get("reason", "iMessage is not available on this device.")
+            return reason
+        await imessage_svc.send_message(recipient=recipient, text=text)
+        return f'Sent to {recipient}: "{text}"'
+    except Exception as exc:
+        return f"Could not send the message: {exc}"
 
 
 async def _delete_emails(

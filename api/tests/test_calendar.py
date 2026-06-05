@@ -855,6 +855,44 @@ def test_tool_definitions_include_new_tools():
     assert "create_calendar_event" in names
     assert "send_email" in names
     assert "upload_to_drive" in names
+    assert "send_imessage" in names
+
+
+# ---------------------------------------------------------------------------
+# Tool executor: send_imessage
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tool_send_imessage_not_available():
+    """send_imessage returns a plain message when iMessage is unavailable."""
+    from services.tool_executor import execute_tool
+
+    with patch("services.imessage.is_available", return_value={"available": False, "reason": "iMessage database not found. This feature only works on macOS."}):
+        result = await execute_tool("send_imessage", {
+            "recipient": "+15551234567",
+            "text": "Running 5 minutes late!",
+        })
+
+    assert "not found" in result.lower() or "macos" in result.lower() or "not available" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_tool_send_imessage_success():
+    """send_imessage returns a confirmation string on success."""
+    from services.tool_executor import execute_tool
+
+    with (
+        patch("services.imessage.is_available", return_value={"available": True, "reason": None}),
+        patch("services.imessage.send_message", new_callable=AsyncMock),
+    ):
+        result = await execute_tool("send_imessage", {
+            "recipient": "+15551234567",
+            "text": "Running 5 minutes late!",
+        })
+
+    assert "+15551234567" in result
+    assert "Running 5 minutes late!" in result
 
 
 # ---------------------------------------------------------------------------
