@@ -22,6 +22,8 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
   const [oauthAvailable, setOauthAvailable] = useState(false)
   const [forceTokenForm, setForceTokenForm] = useState(false)
   const [site, setSite] = useState('')
+  const [confluenceSite, setConfluenceSite] = useState('')
+  const [separateConfluence, setSeparateConfluence] = useState(true)
   const [email, setEmail] = useState('')
   const [token, setToken] = useState('')
   const [connectStatus, setConnectStatus] = useState<'idle' | 'connecting' | 'done' | 'error'>('idle')
@@ -48,7 +50,10 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
   const handleConnect = () => {
     setConnectStatus('connecting')
     setError(null)
-    api.post('/atlassian/connect', { site, email, api_token: token })
+    const payload = separateConfluence
+      ? { jira_site: site, confluence_site: confluenceSite, email, api_token: token }
+      : { site, email, api_token: token }
+    api.post('/atlassian/connect', payload)
       .then(() => { setConnectStatus('done'); fetchStatus() })
       .catch((e: Error) => {
         setConnectStatus('error')
@@ -161,10 +166,29 @@ export default function AtlassianConnect({ product }: AtlassianConnectProps = {}
           type="text"
           value={site}
           onChange={(e) => setSite(e.target.value)}
-          placeholder="https://company.atlassian.net"
+          placeholder={separateConfluence ? "Jira site, e.g. https://company.atlassian.net" : "https://company.atlassian.net"}
           className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
           data-testid="atlassian-site-input"
         />
+        <label className="flex items-center gap-2 text-xs cursor-pointer select-none text-slate-500">
+          <input
+            type="checkbox"
+            checked={separateConfluence}
+            onChange={(e) => setSeparateConfluence(e.target.checked)}
+            data-testid="atlassian-separate-confluence"
+          />
+          <span>Confluence is on a different site</span>
+        </label>
+        {separateConfluence && (
+          <input
+            type="text"
+            value={confluenceSite}
+            onChange={(e) => setConfluenceSite(e.target.value)}
+            placeholder="Confluence site, e.g. https://wiki.company.com"
+            className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+            data-testid="atlassian-confluence-site-input"
+          />
+        )}
         <input
           type="text"
           value={email}
