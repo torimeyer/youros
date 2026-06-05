@@ -238,7 +238,7 @@ async def stream_chat(
         "-p", prompt,
         "--output-format", "stream-json",
         "--skip-trust",
-        "--approval-mode", "auto",  # allow file reads without interactive approval
+        "--approval-mode", "yolo",  # allow file reads without interactive approval (->0.45.1)
     ]
 
     try:
@@ -255,8 +255,10 @@ async def stream_chat(
         return ""
 
     full_text = ""
+    error_sent = False
+
     async def _read_stdout():
-        nonlocal full_text
+        nonlocal full_text, error_sent
         assert proc.stdout is not None
         while True:
             line = await proc.stdout.readline()
@@ -270,6 +272,7 @@ async def stream_chat(
                     full_text += token
                     await websocket.send_json({"type": "token", "data": token})
                 elif event.get("type") == "error":
+                    error_sent = True
                     await websocket.send_json({"type": "error", "data": event.get("data")})
             except:
                 continue
@@ -279,8 +282,20 @@ async def stream_chat(
     except asyncio.TimeoutError:
         try: proc.kill()
         except: pass
+        error_sent = True
         await websocket.send_json({"type": "error", "data": "Gemini CLI timed out."})
 
     await proc.wait()
+
+    if error_sent:
+        # An error was already sent; return what we have (likely empty)
+        # and let the caller decide if it wants to fall back.
+        return full_text
+
+    if not full_text.strip():
+        # CLI exited 0 but produced no tokens — likely a version mismatch
+        # or auth error hidden by the CLI's internal handling.
+        raise RuntimeError("Gemini CLI returned no tokens")
+
     await websocket.send_json({"type": "done", "usage": {"input_tokens": 0, "output_tokens": 0}})
     return full_text
