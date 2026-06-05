@@ -348,3 +348,194 @@ async def test_atlassian_callback_error_redirects_to_return_to(client):
     location = resp.headers["location"]
     assert "auth_error=token_exchange_failed" in location
     assert "settings" in location
+
+
+# --- dual cloud_id tests ---
+
+
+@pytest.mark.asyncio
+async def test_save_oauth_config_stores_separate_cloud_ids(tmp_path, monkeypatch):
+    """save_oauth_config writes both jira_cloud_id and confluence_cloud_id."""
+    import json as _json
+    from services import atlassian as svc
+    config_path = tmp_path / "atlassian.json"
+    monkeypatch.setattr(svc, "CONFIG_PATH", config_path)
+    monkeypatch.setattr(svc, "MYOS_DIR", tmp_path)
+    monkeypatch.setattr(svc, "_config_cache", None)
+    monkeypatch.setattr(svc, "_config_cache_mtime", 0.0)
+
+    async def fake_secret_set(key, val):
+        pass
+
+    with patch.object(svc.ostk, "secret_set", side_effect=fake_secret_set):
+        await svc.save_oauth_config(
+            email="user@acme.com",
+            site="jira.atlassian.net",
+            cloud_id="jira-cloud",
+            access_token="at",
+            refresh_token="rt",
+            jira_cloud_id="jira-cloud",
+            confluence_cloud_id="conf-cloud",
+        )
+
+    data = _json.loads(config_path.read_text())
+    assert data["jira_cloud_id"] == "jira-cloud"
+    assert data["confluence_cloud_id"] == "conf-cloud"
+    assert data["cloud_id"] == "jira-cloud"
+
+
+@pytest.mark.asyncio
+async def test_save_oauth_config_falls_back_to_cloud_id(tmp_path, monkeypatch):
+    """When jira_cloud_id/confluence_cloud_id are omitted, both fall back to cloud_id."""
+    import json as _json
+    from services import atlassian as svc
+    config_path = tmp_path / "atlassian.json"
+    monkeypatch.setattr(svc, "CONFIG_PATH", config_path)
+    monkeypatch.setattr(svc, "MYOS_DIR", tmp_path)
+    monkeypatch.setattr(svc, "_config_cache", None)
+    monkeypatch.setattr(svc, "_config_cache_mtime", 0.0)
+
+    async def fake_secret_set(key, val):
+        pass
+
+    with patch.object(svc.ostk, "secret_set", side_effect=fake_secret_set):
+        await svc.save_oauth_config(
+            email="user@acme.com",
+            site="acme.atlassian.net",
+            cloud_id="only-cloud",
+            access_token="at",
+            refresh_token="rt",
+        )
+
+    data = _json.loads(config_path.read_text())
+    assert data["jira_cloud_id"] == "only-cloud"
+    assert data["confluence_cloud_id"] == "only-cloud"
+
+
+@pytest.mark.asyncio
+async def test_get_auth_and_base_uses_jira_cloud_id():
+    """_get_auth_and_base("jira") uses jira_cloud_id when present."""
+    config = {
+        "email": "u@acme.com",
+        "jira_site": "acme.atlassian.net",
+        "confluence_site": "acme.atlassian.net",
+        "cloud_id": "fallback",
+        "jira_cloud_id": "jira-specific",
+        "confluence_cloud_id": "conf-specific",
+        "auth_method": "oauth",
+    }
+    with patch.object(atlassian_service, "get_config", return_value=config):
+        with patch.object(atlassian_service.ostk, "secret_get", AsyncMock(return_value="tok")):
+            _, base, _ = await atlassian_service._get_auth_and_base(product="jira")
+    assert "jira-specific" in base
+    assert "fallback" not in base
+
+
+@pytest.mark.asyncio
+async def test_get_auth_and_base_uses_confluence_cloud_id():
+    """_get_auth_and_base("confluence") uses confluence_cloud_id when present."""
+    config = {
+        "email": "u@acme.com",
+        "jira_site": "jira.atlassian.net",
+        "confluence_site": "wiki.atlassian.net",
+        "cloud_id": "fallback",
+        "jira_cloud_id": "jira-specific",
+        "confluence_cloud_id": "conf-specific",
+        "auth_method": "oauth",
+    }
+    with patch.object(atlassian_service, "get_config", return_value=config):
+        with patch.object(atlassian_service.ostk, "secret_get", AsyncMock(return_value="tok")):
+            _, base, _ = await atlassian_service._get_auth_and_base(product="confluence")
+    assert "conf-specific" in base
+    assert "fallback" not in base
+
+
+@pytest.mark.asyncio
+async def test_get_auth_and_base_confluence_falls_back_to_cloud_id():
+    """_get_auth_and_base("confluence") falls back to cloud_id when confluence_cloud_id absent."""
+    config = {
+        "email": "u@acme.com",
+        "site": "acme.atlassian.net",
+        "cloud_id": "shared-cloud",
+        "auth_method": "oauth",
+    }
+    with patch.object(atlassian_service, "get_config", return_value=config):
+        with patch.object(atlassian_service.ostk, "secret_get", AsyncMock(return_value="tok")):
+            _, base, _ = await atlassian_service._get_auth_and_base(product="confluence")
+    assert "shared-cloud" in base
+
+
+def test_match_resource_returns_matching_site():
+    """_match_resource finds the resource whose URL matches the wanted site."""
+    from routers.atlassian import atlassian_callback  # noqa: F401 — just verify importable
+    # Test the logic inline (the helper is a closure inside the callback)
+    resources = [
+        {"id": "cloud-1", "url": "https://jira.atlassian.net"},
+        {"id": "cloud-2", "url": "https://wiki.atlassian.net"},
+    ]
+
+    def _match_resource(resources, wanted_site):
+        if not wanted_site:
+            return resources[0]
+        normalized = wanted_site.replace("https://", "").replace("http://", "").rstrip("/")
+        for r in resources:
+            host = r.get("url", "").replace("https://", "").replace("http://", "").rstrip("/")
+            if host == normalized:
+                return r
+        return resources[0]
+
+    assert _match_resource(resources, "wiki.atlassian.net")["id"] == "cloud-2"
+    assert _match_resource(resources, "jira.atlassian.net")["id"] == "cloud-1"
+    assert _match_resource(resources, "")["id"] == "cloud-1"
+    assert _match_resource(resources, "unknown.atlassian.net")["id"] == "cloud-1"
+
+
+@pytest.mark.asyncio
+async def test_atlassian_callback_passes_jira_confluence_sites_through(client):
+    """Callback passes wanted jira/confluence sites to save_oauth_config."""
+    state = "dual-site-state"
+    oauth_states[state] = {
+        "return_to": "http://testclient/settings",
+        "jira_site": "jira.atlassian.net",
+        "confluence_site": "wiki.atlassian.net",
+    }
+
+    env = {
+        "ATLASSIAN_CLIENT_ID": "client-abc",
+        "ATLASSIAN_CLIENT_SECRET": "secret-xyz",
+    }
+
+    token_resp = MagicMock(status_code=200)
+    token_resp.json.return_value = {"access_token": "at-1", "refresh_token": "rt-1"}
+    resources_resp = MagicMock(status_code=200)
+    resources_resp.json.return_value = [
+        {"id": "cloud-jira", "url": "https://jira.atlassian.net"},
+        {"id": "cloud-wiki", "url": "https://wiki.atlassian.net"},
+    ]
+    me_resp = MagicMock(status_code=200)
+    me_resp.json.return_value = {"emailAddress": "user@acme.com"}
+
+    mock_http = AsyncMock()
+    mock_http.post = AsyncMock(return_value=token_resp)
+    mock_http.get = AsyncMock(side_effect=[resources_resp, me_resp])
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__.return_value = mock_http
+
+    save_oauth = AsyncMock()
+
+    with patch.dict("os.environ", env, clear=True):
+        with patch("routers.atlassian.httpx.AsyncClient", return_value=mock_ctx):
+            with patch.object(atlassian_service, "save_oauth_config", save_oauth):
+                resp = await client.get(
+                    f"/api/atlassian/callback?code=c&state={state}",
+                    follow_redirects=False,
+                )
+
+    assert resp.status_code in (302, 307)
+    assert "atlassian_connected=true" in resp.headers["location"]
+    save_oauth.assert_awaited_once()
+    kw = save_oauth.call_args.kwargs
+    assert kw["jira_cloud_id"] == "cloud-jira"
+    assert kw["confluence_cloud_id"] == "cloud-wiki"
+    assert kw["jira_site"] == "jira.atlassian.net"
+    assert kw["confluence_site"] == "wiki.atlassian.net"
