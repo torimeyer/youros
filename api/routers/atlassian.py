@@ -467,6 +467,41 @@ class JiraPromoteRequest(BaseModel):
     key: str
 
 
+@router.post("/atlassian/issues/{issue_key}/sync-signals")
+async def sync_issue_signals(issue_key: str):
+    """Compute local activity signals and write confidence/risk back to the Jira issue.
+
+    Returns {"updated": true, "fields": {...}} on success, or
+    {"updated": false, "reason": "..."} when skipped (not configured, fields not found).
+    Safe to call fire-and-forget — never raises.
+    """
+    if not atlassian_service.is_connected():
+        return {"updated": False, "reason": "Jira not configured"}
+
+    signals = await atlassian_service.compute_issue_signals(issue_key)
+    values = atlassian_service._signals_to_values(signals)
+
+    field_ids = await atlassian_service.discover_custom_field_ids(["confidence", "risk"])
+    if not field_ids:
+        return {"updated": False, "reason": "confidence/risk fields not found on this Jira instance"}
+
+    payload: dict = {}
+    if "confidence" in field_ids:
+        payload[field_ids["confidence"]] = {"value": values["confidence"]}
+    if "risk" in field_ids:
+        payload[field_ids["risk"]] = {"value": values["risk"]}
+
+    if not payload:
+        return {"updated": False, "reason": "no writable confidence/risk fields found"}
+
+    try:
+        await atlassian_service.update_issue_fields(issue_key, payload)
+    except RuntimeError as exc:
+        return {"updated": False, "reason": str(exc)}
+
+    return {"updated": True, "fields": {**values, "signals": signals}}
+
+
 @router.post("/atlassian/jira/promote")
 async def jira_promote_to_task(body: JiraPromoteRequest) -> dict:
     """Convert a Jira issue into a tracked task (needle)."""

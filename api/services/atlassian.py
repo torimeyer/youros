@@ -1087,3 +1087,122 @@ async def search(query: str, limit: int = 10) -> list:
         _safe(search_confluence(query, limit)),
     )
     return list(jira_results) + list(conf_results)
+
+
+# ---------------------------------------------------------------------------
+# →2113: Confidence / risk signal gathering and write-back
+# ---------------------------------------------------------------------------
+
+async def _get_running_agents_mentioning(issue_key: str) -> bool:
+    """Return True if any currently-running agent's task text mentions issue_key."""
+    try:
+        from routers.agents import agent_metadata  # lazy import avoids circular dep
+        key_lower = issue_key.lower()
+        for meta in agent_metadata.values():
+            if meta.get("status") == "running" and key_lower in (meta.get("task") or "").lower():
+                return True
+    except Exception:
+        pass
+    return False
+
+
+async def _count_recent_commits(issue_key: str) -> int:
+    """Count git commits in the last 7 days whose message mentions issue_key."""
+    import asyncio as _asyncio
+    try:
+        proc = await _asyncio.create_subprocess_exec(
+            "git", "log", "--since=7 days ago", "--oneline", f"--grep={issue_key}",
+            stdout=_asyncio.subprocess.PIPE,
+            stderr=_asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await _asyncio.wait_for(proc.communicate(), timeout=5.0)
+        return sum(1 for line in stdout.decode().splitlines() if line.strip())
+    except Exception:
+        return 0
+
+
+async def _count_closed_tasks(issue_key: str) -> int:
+    """Count closed ostk needles whose output mentions issue_key."""
+    import asyncio as _asyncio
+    try:
+        proc = await _asyncio.create_subprocess_exec(
+            "ostk", "work", "list", "--status", "closed",
+            stdout=_asyncio.subprocess.PIPE,
+            stderr=_asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await _asyncio.wait_for(proc.communicate(), timeout=5.0)
+        key_lower = issue_key.lower()
+        return sum(1 for line in stdout.decode().splitlines() if key_lower in line.lower())
+    except Exception:
+        return 0
+
+
+async def compute_issue_signals(issue_key: str) -> dict:
+    """Return real-activity signals for a Jira issue.
+
+    Returns:
+        has_active_agent: bool -- a running agent's task mentions issue_key
+        recent_commits: int   -- git commits in last 7 days mentioning issue_key
+        completed_tasks: int  -- closed ostk needles mentioning issue_key
+    """
+    import asyncio as _asyncio
+    has_active_agent, recent_commits, completed_tasks = await _asyncio.gather(
+        _get_running_agents_mentioning(issue_key),
+        _count_recent_commits(issue_key),
+        _count_closed_tasks(issue_key),
+    )
+    return {
+        "has_active_agent": has_active_agent,
+        "recent_commits": recent_commits,
+        "completed_tasks": completed_tasks,
+    }
+
+
+def _signals_to_values(signals: dict) -> dict:
+    """Map signal dict to {'confidence': str, 'risk': str} string values."""
+    has_active = signals.get("has_active_agent", False)
+    commits = signals.get("recent_commits", 0)
+    tasks = signals.get("completed_tasks", 0)
+
+    if has_active or commits > 0:
+        confidence = "High"
+    elif tasks > 0:
+        confidence = "Medium"
+    else:
+        confidence = "Low"
+
+    if commits > 2:
+        risk = "Low"
+    elif commits > 0:
+        risk = "Medium"
+    else:
+        risk = "High"
+
+    return {"confidence": confidence, "risk": risk}
+
+
+async def discover_custom_field_ids(names: list) -> dict:
+    """Return {name_lower: customfield_id} for Jira fields matching names.
+
+    Calls GET /rest/api/3/field. Returns {} on any error so callers can
+    skip gracefully when the fields don't exist on this Jira instance.
+    """
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.get(f"{base_url}/rest/api/3/field", **auth_kwargs)
+
+    try:
+        resp, _, _ = await _request_with_refresh("jira", call)
+    except Exception:
+        return {}
+
+    if resp.status_code != 200:
+        return {}
+
+    wanted = {n.lower() for n in names}
+    result: dict = {}
+    for field in resp.json():
+        fname = (field.get("name") or "").lower()
+        fid = field.get("id") or ""
+        if fname in wanted and fid:
+            result[fname] = fid
+    return result
