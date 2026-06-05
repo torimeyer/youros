@@ -1645,7 +1645,7 @@ export default function Settings() {
                   <Icon name="travel_explore" size={18} className="text-blue-600 dark:text-blue-400" />
                   <h2 className="text-base font-semibold">Google</h2>
                 </div>
-                <p className="text-xs text-slate-500 mb-3">Gmail, Calendar, and Drive</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mb-3">Gmail, Calendar, and Drive</p>
                 {connectionStatus.Drive.connected ? (
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -1813,7 +1813,7 @@ export default function Settings() {
                 <div className={cardClass} data-testid="atlassian-connect-section">
                   <div className="flex items-center gap-2 mb-4">
                     <Icon name="link" size={18} className="text-blue-600 dark:text-blue-400" />
-                    <h2 className="text-base font-semibold">Jira & Confluence</h2>
+                    <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">Jira & Confluence</h2>
                   </div>
                   {/* UAT item 6: AtlassianConnect always renders a connect path
                       (OAuth button + token form) and never blanks while
@@ -1823,7 +1823,7 @@ export default function Settings() {
                   <AtlassianConnect />
                 </div>
                 <div className={cardClass} data-testid="atlassian-preferences-section">
-                  <h2 className="text-base font-semibold mb-3">Confluence preferences</h2>
+                  <h2 className="text-base font-semibold mb-3 text-slate-800 dark:text-slate-200">Confluence preferences</h2>
                   <div>
                     <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1" htmlFor="default-confluence-space">
                       Default Confluence space

@@ -2359,7 +2359,7 @@ export default function Tasks() {
                         className="p-1 text-slate-600 hover:text-slate-600 dark:hover:text-slate-400 transition-colors"
                         title="Actions"
                       >
-                        <Icon name="more_vert" className="text-sm" />
+                        <Icon name="more_vert" className="text-sm text-slate-600 dark:text-slate-400" />
                       </button>
                       {openActionMenu === task.id && (
                         <div
