@@ -119,3 +119,17 @@ def _summarize_action(action: RoutedAction) -> str:
     if action.intent.get("action") == "status":
         return "Checking agent status..."
     return "Done."
+
+
+class ChannelRouter:
+    """Routes inbound messages to backend actions (logging only — no live dispatch)."""
+
+    async def handle_inbound_message(self, msg: dict) -> None:
+        text = msg.get("text", "") or ""
+        intent = parse_intent(text)
+        build_action(intent)
+
+
+def build_default_router() -> ChannelRouter:
+    """Return a ChannelRouter wired to the standard parse+route pipeline."""
+    return ChannelRouter()
