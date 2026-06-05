@@ -147,6 +147,14 @@ describe('HealthCheckView', () => {
     await waitFor(() => {
       expect(screen.getByTestId('resolve-pair-0')).toBeInTheDocument()
     })
+
+    // Update mock for the refresh call
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.includes('/tasks/duplicates')) return Promise.resolve({ duplicates: [] })
+      if (url.includes('/tasks/health')) return Promise.resolve(mockHealthResult)
+      return Promise.resolve({})
+    })
+
     fireEvent.click(screen.getByTestId('resolve-pair-0'))
     await waitFor(() => {
       expect(screen.queryByText(/Fix the bug/)).not.toBeInTheDocument()
@@ -176,6 +184,14 @@ describe('HealthCheckView', () => {
     await waitFor(() => {
       expect(screen.getByTestId('resolve-all-button')).toBeInTheDocument()
     })
+
+    // Update mock for the refresh call
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.includes('/tasks/duplicates')) return Promise.resolve({ duplicates: [] })
+      if (url.includes('/tasks/health')) return Promise.resolve(mockHealthResult)
+      return Promise.resolve({})
+    })
+
     fireEvent.click(screen.getByTestId('resolve-all-button'))
     await waitFor(() => {
       expect(screen.queryByText(/Fix the bug/)).not.toBeInTheDocument()
