@@ -15,8 +15,8 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
-const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'Profile', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
 
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
@@ -534,6 +534,13 @@ export default function OnboardingWizard() {
                 </div>
               </div>
             </div>
+          )}
+          {step === 'Customize' && (
+            <CustomizeStep
+              selectedPersonaId={selectedPersonaId}
+              subtextCls={subtextCls}
+              cardCls={cardCls}
+            />
           )}
           {step === 'Theme' && (
             <ThemeStep darkMode={pickedDark} onChoose={handleDarkModeChoice} subtextCls={subtextCls} />
@@ -1478,7 +1485,7 @@ export function AtlassianSetupCard({
   const [site, setSite] = useState('')
   const [email, setEmail] = useState('')
   const [token, setToken] = useState('')
-  const [separateConfluence, setSeparateConfluence] = useState(true)
+  const [separateConfluence, setSeparateConfluence] = useState(false)
   const [confluenceSite, setConfluenceSite] = useState('')
   const [status, setStatus] = useState<'idle' | 'connecting' | 'done' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -1497,7 +1504,6 @@ export function AtlassianSetupCard({
 
   const handleExpand = () => {
     setExpanded(true)
-    setForceTokenForm(true)
     api.get<{ site?: string; email?: string; oauth_available?: boolean }>('/atlassian/defaults')
       .then((data) => {
         if (data.site) setSite(data.site)
@@ -1545,14 +1551,50 @@ export function AtlassianSetupCard({
     return (
       <div data-testid="onboarding-atlassian-card" className={cardBase}>
         <p className="text-sm font-semibold mb-3">Connect Jira & Confluence (optional)</p>
+        <div className="space-y-2 mb-3">
+          <input
+            type="text"
+            value={site}
+            onChange={(e) => setSite(e.target.value)}
+            placeholder={separateConfluence ? "Jira site, e.g. https://company.atlassian.net" : "https://company.atlassian.net"}
+            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+            data-testid="onboarding-atlassian-site"
+          />
+          <p className={`text-xs ${subtextCls}`}>
+            One connection usually covers both Jira and Confluence.
+          </p>
+          <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={separateConfluence}
+              onChange={(e) => setSeparateConfluence(e.target.checked)}
+              data-testid="onboarding-atlassian-separate-confluence"
+            />
+            <span>Confluence is on a different site</span>
+          </label>
+          {separateConfluence && (
+            <input
+              type="text"
+              value={confluenceSite}
+              onChange={(e) => setConfluenceSite(e.target.value)}
+              placeholder="Confluence site, e.g. https://wiki.company.com"
+              className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+              data-testid="onboarding-atlassian-confluence-site"
+            />
+          )}
+        </div>
         <p className={`text-xs mb-3 ${subtextCls}`}>
-          One click. Atlassian will ask for your permission, then bring you back here.
+          Atlassian will ask for your permission, then bring you back here.
         </p>
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
               if (stepIndex !== undefined) api.patch('/settings', { onboarding_step: stepIndex }).catch(() => {})
-              window.location.href = '/api/atlassian/auth'
+              const params = new URLSearchParams()
+              if (site) params.set('jira_site', site)
+              if (separateConfluence && confluenceSite) params.set('confluence_site', confluenceSite)
+              const qs = params.toString()
+              window.location.href = `/api/atlassian/auth${qs ? `?${qs}` : ''}`
             }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
             data-testid="onboarding-atlassian-oauth"

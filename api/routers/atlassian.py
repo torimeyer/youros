@@ -39,7 +39,8 @@ ATLASSIAN_OAUTH_SCOPES = (
 
 
 def _frontend_url(request: Request) -> str:
-    return os.environ.get("FRONTEND_URL") or str(request.base_url).rstrip("/")
+    url = os.environ.get("FRONTEND_URL") or str(request.base_url).rstrip("/")
+    return url.replace("://127.0.0.1:", "://localhost:")
 
 
 def _validate_return_to(return_to: str, default: str, request: Request) -> str:

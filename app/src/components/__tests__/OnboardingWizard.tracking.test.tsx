@@ -34,7 +34,7 @@ function clickNext(n: number) {
 }
 
 function goToTrackingStep() {
-  clickNext(5) // Welcome(0)->You->Name->Profile->Theme->Tracking(5)
+  clickNext(6) // Welcome(0)->You->Name->Profile->Customize->Theme->Tracking(6)
 }
 
 describe('OnboardingWizard - Tracking step', () => {
