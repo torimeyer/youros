@@ -462,7 +462,7 @@ export default function Slack() {
           <div className={cardClass}>
             <div className="flex items-center gap-2 mb-4">
               <Icon name="tag" className="text-purple-600 dark:text-purple-400" size={18} />
-              <h2 className="text-base font-semibold">Channels</h2>
+              <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">Channels</h2>
             </div>
             {channels.length === 0 ? (
               <EmptyState icon="tag" title="No channels yet" description="Sync to pull your Slack channels." />
@@ -495,7 +495,7 @@ export default function Slack() {
           <div className={`${cardClass} lg:col-span-2`}>
             <div className="flex items-center gap-2 mb-4">
               <Icon name="forum" className="text-purple-600 dark:text-purple-400" size={18} />
-              <h2 className="text-base font-semibold">
+              <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">
                 {selectedChannel
                   ? `#${channels.find((c) => c.id === selectedChannel)?.name || ''}`
                   : 'Messages'}
