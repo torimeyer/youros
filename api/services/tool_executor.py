@@ -1676,15 +1676,41 @@ async def _send_email(to: str, subject: str, body: str) -> str:
 
 
 async def _send_imessage(recipient: str, text: str) -> str:
-    """Send an iMessage via the Mac Messages app."""
+    """Send an iMessage via the Mac Messages app.
+
+    If recipient looks like a name (no @ and no digits), tries to resolve it
+    via the local Contacts book before sending.
+    """
+    import re
     try:
         from services import imessage as imessage_svc
         status = imessage_svc.is_available()
         if not status.get("available"):
-            reason = status.get("reason", "iMessage is not available on this device.")
-            return reason
-        await imessage_svc.send_message(recipient=recipient, text=text)
-        return f'Sent to {recipient}: "{text}"'
+            return status.get("reason", "iMessage is not available on this device.")
+
+        resolved = recipient.strip()
+        looks_like_name = "@" not in resolved and not re.search(r"\d", resolved)
+        if looks_like_name:
+            from services import imessage_contacts as contacts_svc
+            matches = contacts_svc.search_by_prefix(resolved, limit=5)
+            if not matches:
+                return (
+                    f"Could not find a contact named \"{resolved}\". "
+                    "Try again with their phone number or email address."
+                )
+            if len(matches) > 1:
+                names = ", ".join(m["name"] for m in matches)
+                return (
+                    f"Found multiple contacts matching \"{resolved}\": {names}. "
+                    "Please be more specific or use a phone number."
+                )
+            resolved = matches[0]["identifier"]
+            display_name = matches[0]["name"]
+        else:
+            display_name = resolved
+
+        await imessage_svc.send_message(recipient=resolved, text=text)
+        return f'Sent to {display_name}: "{text}"'
     except Exception as exc:
         return f"Could not send the message: {exc}"
 

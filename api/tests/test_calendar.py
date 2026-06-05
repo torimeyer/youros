@@ -895,6 +895,64 @@ async def test_tool_send_imessage_success():
     assert "Running 5 minutes late!" in result
 
 
+@pytest.mark.asyncio
+async def test_tool_send_imessage_resolves_name():
+    """send_imessage resolves a contact name to an identifier and sends."""
+    from services.tool_executor import execute_tool
+
+    contact = {"name": "Sarah Kim", "phone": "+15559876543", "email": None, "identifier": "+15559876543"}
+    with (
+        patch("services.imessage.is_available", return_value={"available": True, "reason": None}),
+        patch("services.imessage_contacts.search_by_prefix", return_value=[contact]),
+        patch("services.imessage.send_message", new_callable=AsyncMock),
+    ):
+        result = await execute_tool("send_imessage", {
+            "recipient": "Sarah",
+            "text": "Running 5 minutes late!",
+        })
+
+    assert "Sarah Kim" in result
+    assert "Running 5 minutes late!" in result
+
+
+@pytest.mark.asyncio
+async def test_tool_send_imessage_name_not_found():
+    """send_imessage returns a helpful message when the contact name is not found."""
+    from services.tool_executor import execute_tool
+
+    with (
+        patch("services.imessage.is_available", return_value={"available": True, "reason": None}),
+        patch("services.imessage_contacts.search_by_prefix", return_value=[]),
+    ):
+        result = await execute_tool("send_imessage", {
+            "recipient": "Zorp",
+            "text": "Hello",
+        })
+
+    assert "could not find" in result.lower() or "no contact" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_tool_send_imessage_ambiguous_name():
+    """send_imessage asks for clarification when multiple contacts match."""
+    from services.tool_executor import execute_tool
+
+    matches = [
+        {"name": "Sarah Kim", "phone": "+1555001", "email": None, "identifier": "+1555001"},
+        {"name": "Sarah Lee", "phone": "+1555002", "email": None, "identifier": "+1555002"},
+    ]
+    with (
+        patch("services.imessage.is_available", return_value={"available": True, "reason": None}),
+        patch("services.imessage_contacts.search_by_prefix", return_value=matches),
+    ):
+        result = await execute_tool("send_imessage", {
+            "recipient": "Sarah",
+            "text": "Hello",
+        })
+
+    assert "sarah kim" in result.lower() and "sarah lee" in result.lower()
+
+
 # ---------------------------------------------------------------------------
 # /calendar/events ?days= range selector (Day / Week / Month)
 # ---------------------------------------------------------------------------
