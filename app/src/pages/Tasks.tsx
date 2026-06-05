@@ -345,7 +345,7 @@ export default function Tasks() {
   // open. Null when none. We track by task id so the popover is
   // anchored next to the right row.
   const [openBuildHelp, setOpenBuildHelp] = useState<string | null>(null);
-  const [showNeedsClarity, setShowNeedsClarity] = useState(false);
+  const [showNeedsClarity] = useState(false);
   const [pendingClaritySpawn, setPendingClaritySpawn] = useState<{
     taskId: string;
     spawnMode: SpawnMode;

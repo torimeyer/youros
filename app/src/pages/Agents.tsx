@@ -2378,6 +2378,7 @@ export default function Agents() {
   const [newAgentPrompt, setNewAgentPrompt] = useState("");
   const [newAgentTokenLimit, setNewAgentTokenLimit] = useState<string>("");
   const [recoveringAgents, setRecoveringAgents] = useState<Record<string, boolean>>({});
+  const [slidePickerFor, setSlidePickerFor] = useState<string | null>(null);
   const [, setLastUpdate] = useState<Date | null>(null);
   const [transcriptModal, setTranscriptModal] = useState<{name: string; content: string; loading: boolean; error?: string; retryable?: boolean} | null>(null);
   const { confirm, confirmProps } = useConfirm();
@@ -2401,6 +2402,16 @@ export default function Agents() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [transcriptModal]);
+
+  // Escape dismisses the slide format picker.
+  useEffect(() => {
+    if (!slidePickerFor) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSlidePickerFor(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [slidePickerFor]);
 
   const openTranscript = async (name: string) => {
     setTranscriptModal({name, content: "", loading: true, error: undefined});
@@ -4879,15 +4890,17 @@ export default function Agents() {
                                   data-testid="follow-on-action-btn"
                                   onClick={async () => {
                                     const isSlide = action.label.toLowerCase().includes('slide');
+                                    if (isSlide) {
+                                      setSlidePickerFor(`${agent.name}::${action.label}`);
+                                      return;
+                                    }
                                     let context = '';
                                     try {
                                       const data = await fetch(`/api/agents/${encodeURIComponent(agent.name)}/transcript`).then(r => r.json());
                                       if (!data.empty && data.content) context = data.content;
                                     } catch { /* proceed without transcript */ }
                                     const agentName = action.label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now();
-                                    const spawnPrompt = isSlide
-                                      ? `Using fcp-slides, create a slide deck presentation from the following content. Save the .pptx file to ~/myos/files/.\n\n${context || action.prompt}`
-                                      : context ? `${action.prompt}\n\nContext from the previous agent:\n\n${context}` : action.prompt;
+                                    const spawnPrompt = context ? `${action.prompt}\n\nContext from the previous agent:\n\n${context}` : action.prompt;
                                     handleSpawn(agentName, spawnPrompt, undefined, undefined, undefined, undefined, 'none');
                                     navigate('/agents');
                                   }}
@@ -4898,6 +4911,49 @@ export default function Agents() {
                                 </button>
                               ))}
                             </div>
+                            {slidePickerFor?.startsWith(`${agent.name}::`) && (() => {
+                              const actionLabel = slidePickerFor.substring(agent.name.length + 2);
+                              const pickerAction = getFollowOns(agent).find(a => a.label === actionLabel);
+                              if (!pickerAction) return null;
+                              const pick = async (google: boolean) => {
+                                let context = '';
+                                try {
+                                  const data = await fetch(`/api/agents/${encodeURIComponent(agent.name)}/transcript`).then(r => r.json());
+                                  if (!data.empty && data.content) context = data.content;
+                                } catch { /* proceed without transcript */ }
+                                const agentName = pickerAction.label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now();
+                                const spawnPrompt = google
+                                  ? `Using fcp-slides, create a slide deck presentation from the following content. Export it as a Google Slides presentation to Google Drive.\n\n${context || pickerAction.prompt}`
+                                  : `Using fcp-slides, create a slide deck presentation from the following content. Save the .pptx file to ~/myos/files/.\n\n${context || pickerAction.prompt}`;
+                                setSlidePickerFor(null);
+                                handleSpawn(agentName, spawnPrompt, undefined, undefined, undefined, undefined, 'none');
+                                navigate('/agents');
+                              };
+                              return (
+                                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs text-slate-500 dark:text-slate-400">Save as:</span>
+                                  <button
+                                    onClick={() => pick(false)}
+                                    className="inline-flex items-center gap-1 text-xs bg-slate-100 dark:bg-slate-800 hover:bg-blue-900/60 border border-slate-200 dark:border-slate-700 hover:border-blue-600 text-slate-700 dark:text-slate-300 hover:text-blue-300 rounded-full px-3 py-1 transition-colors"
+                                  >
+                                    <span className="material-symbols-outlined text-[12px]">description</span>
+                                    PowerPoint (.pptx)
+                                  </button>
+                                  <button
+                                    onClick={() => pick(true)}
+                                    className="inline-flex items-center gap-1 text-xs bg-slate-100 dark:bg-slate-800 hover:bg-emerald-900/60 border border-slate-200 dark:border-slate-700 hover:border-emerald-600 text-slate-700 dark:text-slate-300 hover:text-emerald-300 rounded-full px-3 py-1 transition-colors"
+                                  >
+                                    <span className="material-symbols-outlined text-[12px]">slideshow</span>
+                                    Google Slides
+                                  </button>
+                                  <button
+                                    onClick={() => setSlidePickerFor(null)}
+                                    className="text-xs text-slate-400 hover:text-slate-300 transition-colors ml-1"
+                                    aria-label="Cancel"
+                                  >✕</button>
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
                         {isRecentExpanded && (
