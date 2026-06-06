@@ -1,4 +1,4 @@
-"""Tests for →1699: torichat efficiency — tool-loop cap + workspace context pre-load.
+"""Tests for →1699: chat efficiency — tool-loop cap + workspace context pre-load.
 
 Problem: a simple "what is the status of this draft?" fires ~11 sequential tool calls
 (search/ls/find/grep/read) rediscovering everything from scratch. Each call is a
@@ -235,7 +235,7 @@ async def test_baseline_context_includes_workspace_doc_index(tmp_path):
     draft_dir = tmp_path / "docs" / "draft"
     draft_dir.mkdir(parents=True)
     (draft_dir / "1652-diagnosis.md").write_text("# Diagnosis\nstatus: draft")
-    (draft_dir / "1699-torichat.md").write_text("# Torichat efficiency\nstatus: draft")
+    (draft_dir / "1699-chat.md").write_text("# Chat efficiency\nstatus: draft")
 
     spec_dir = tmp_path / "docs" / "spec"
     spec_dir.mkdir(parents=True)
@@ -251,7 +251,7 @@ async def test_baseline_context_includes_workspace_doc_index(tmp_path):
 
     # Must include draft files
     assert "1652-diagnosis.md" in result, f"Draft doc missing from baseline context. Got:\n{result}"
-    assert "1699-torichat.md" in result, f"Draft doc missing from baseline context. Got:\n{result}"
+    assert "1699-chat.md" in result, f"Draft doc missing from baseline context. Got:\n{result}"
     # Must include spec files
     assert "1211-errors.md" in result, f"Spec doc missing from baseline context. Got:\n{result}"
     # Must have a section header

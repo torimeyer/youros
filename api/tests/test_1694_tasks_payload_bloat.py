@@ -3,7 +3,7 @@
 Before the fix, GET /api/tasks called ostk.list_tasks(status=None) which ran
 `ostk work list --json` and returned ALL ~1440 needles (1426 closed + 14 open),
 producing a 1.4 MB payload on every 3-second poll. This bloat aggravated the
-Vite proxy wedge (→1684) and torichat slowness (→1699).
+Vite proxy wedge (→1684) and chat slowness (→1699).
 
 After the fix:
   - Default: calls ostk.list_tasks(status="open") → only active needles

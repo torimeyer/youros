@@ -2949,6 +2949,8 @@ class OstkService:
                             doc["title"] = val
                         elif key == "status":
                             doc["status"] = val
+                        elif key == "no_ac_needed":
+                            doc["no_ac_needed"] = (val.lower() == "true")
                         elif key == "created_at":
                             doc["created_at"] = val
                         elif key == "promoted_at":

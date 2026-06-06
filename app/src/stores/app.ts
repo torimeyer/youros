@@ -211,7 +211,7 @@ const LS_KEYS = {
   osName: 'myos-os-name',
   instanceName: 'myos-instance-name',
   defaultChatModel: 'myos-default-chat-model',
-  sideBySideEnabled: 'myos-ephemeral-side-by-side-enabled',
+  sideBySideEnabled: 'myos-side-by-side-enabled',
   useOstkTerms: 'myos-use-ostk-terms',
   tourComplete: 'myos-tour-complete',
   powerUserMode: 'myos-power-user-mode',
@@ -794,6 +794,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       lsSet(LS_KEYS.defaultChatModel, v)
     } else if (state.defaultChatModel && state.defaultChatModel !== 'claude') {
       backfill.default_model = modelKeyToServer(state.defaultChatModel)
+    }
+
+    // side_by_side_enabled
+    if (hasValue(server.side_by_side_enabled)) {
+      const v = Boolean(server.side_by_side_enabled)
+      updates.sideBySideEnabled = v
+      lsSet(LS_KEYS.sideBySideEnabled, String(v))
+    } else if (state.sideBySideEnabled) {
+      backfill.side_by_side_enabled = state.sideBySideEnabled
     }
 
     // use_ostk_terms

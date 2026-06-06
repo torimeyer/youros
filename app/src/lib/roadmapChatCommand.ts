@@ -1,7 +1,7 @@
 /**
  * Chat-side matcher and handler for "create tasks from this roadmap".
  *
- * The torichat panel calls {@link isRoadmapToTasksRequest} before it
+ * The chat panel calls {@link isRoadmapToTasksRequest} before it
  * hands a message off to the normal WebSocket AI routing. When the
  * matcher returns true the panel calls {@link runRoadmapToTasks}
  * instead, which hits the backend endpoint and posts the reply as an

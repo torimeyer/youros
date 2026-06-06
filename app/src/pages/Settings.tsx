@@ -13,7 +13,6 @@ import SlackConnect from '../components/SlackConnect';
 import { GithubSetupCard } from '../components/OnboardingWizard';
 import AtlassianConnect from '../components/AtlassianConnect';
 import CustomVerbs from '../components/CustomVerbs';
-import ChannelRoutingPanel from '../components/ChannelRoutingPanel';
 import { parseMemoryProvenance } from '../lib/parseMemoryProvenance';
 
 
@@ -125,6 +124,7 @@ export default function Settings() {
   const [memoryOverflow, setMemoryOverflow] = useState<{ overflowed: boolean; reason: string; kb: number; lines: number; total_kb: number; hard_cap: boolean } | null>(null);
   const [suggestTopicsLoading, setSuggestTopicsLoading] = useState(false);
   const [suggestedTopics, setSuggestedTopics] = useState<{ topic: string; bullets: string[] }[] | null>(null);
+  const [selectedSplitBullets, setSelectedSplitBullets] = useState<Record<string, string[]>>({});
   const [standingInstructions, setStandingInstructions] = useState('');
   const [standingSaveStatus, setStandingSaveStatus] = useState<string | null>(null);
   const [standingSaveIsError, setStandingSaveIsError] = useState(false);
@@ -197,8 +197,39 @@ export default function Settings() {
   const [projectsDir, setProjectsDir] = useState<string>('');
   const [plansBecomesSpecs, setPlansBecomesSpecs] = useState<boolean>(true);
   const [inboundImessageRoutingEnabled, setInboundImessageRoutingEnabled] = useState<boolean>(false);
+  const [textBridgeEnabled, setTextBridgeEnabled] = useState<boolean>(false);
+  const [textBridgeChannels, setTextBridgeChannels] = useState<{ iMessage: boolean; Telegram: boolean }>({ iMessage: true, Telegram: false });
+  const [textBridgeTrustedContacts, setTextBridgeTrustedContacts] = useState<string[]>([]);
+  const [textBridgeConfirmCommands, setTextBridgeConfirmCommands] = useState<string | null>(null);
+  const [textBridgeTelegramToken, setTextBridgeTelegramToken] = useState<string>('');
+  const [textBridgeTelegramChatId, setTextBridgeTelegramChatId] = useState<string>('');
+  const [contactSearch, setContactSearch] = useState('');
+  const [contactResults, setContactSearchResults] = useState<{ name: string; identifier: string }[]>([]);
   const [defaultConfluenceSpace, setDefaultConfluenceSpace] = useState('');
   const [wipeDataError, setWipeDataError] = useState<string | null>(null);
+  const handleUpdateTextBridgeConfig = async (updates: Partial<{ enabled: boolean; trusted_contacts: string[]; confirm_commands: string | null }>) => {
+    try {
+      const resp = await api.patch<{ ok: boolean; config: any }>('/text-bridge/config', updates);
+      if (resp.ok) {
+        setTextBridgeEnabled(resp.config.enabled);
+        setTextBridgeTrustedContacts(resp.config.trusted_contacts);
+        setTextBridgeConfirmCommands(resp.config.confirm_commands);
+      }
+    } catch (err) {
+      reportError('Failed to update Text Bridge config', err);
+    }
+  };
+
+  const handleUpdateTelegramConfig = async (updates: Partial<{ token: string; chat_id: string }>) => {
+    // These live in regular settings.json under a telegram key
+    try {
+      await api.patch('/settings', { telegram: updates });
+      if (updates.token !== undefined) setTextBridgeTelegramToken(updates.token);
+      if (updates.chat_id !== undefined) setTextBridgeTelegramChatId(updates.chat_id);
+    } catch (err) {
+      reportError('Failed to update Telegram config', err);
+    }
+  };
 
 
   useEffect(() => {
@@ -372,6 +403,14 @@ export default function Settings() {
         setSyncConfigured(data.configured ?? false);
         setSyncRepoUrl(data.remote_url ?? null);
         setSyncLastSynced(data.last_synced ?? null);
+      })
+      .catch(() => {});
+    // Fetch Text Bridge status
+    api.get<{ enabled: boolean; trusted_contacts: string[]; confirm_commands: string | null }>('/text-bridge/status')
+      .then((data) => {
+        setTextBridgeEnabled(data.enabled);
+        setTextBridgeTrustedContacts(data.trusted_contacts);
+        setTextBridgeConfirmCommands(data.confirm_commands);
       })
       .catch(() => {});
     // Check push subscription state
@@ -620,9 +659,10 @@ export default function Settings() {
     }
   };
 
-  const handleApplySplit = async (bullet: string, topic: string) => {
+  const handleApplySplits = async (bullets: string[], topic: string) => {
+    if (bullets.length === 0) return;
     try {
-      await api.post('/memory/user/split-topic', { bullet_text: bullet, topic_name: topic });
+      await api.post('/memory/user/split-topic', { bullet_texts: bullets, topic_name: topic });
       // Reload memory content and overflow status after split.
       const [mem, status] = await Promise.all([
         api.get<{ content: string }>('/memory'),
@@ -630,14 +670,26 @@ export default function Settings() {
       ]);
       setMemoryContent(mem.content ?? '');
       setMemoryOverflow(status);
-      // Remove the applied bullet from suggestions.
+      // Remove the applied bullets from suggestions.
       setSuggestedTopics(prev =>
-        prev?.map(t => t.topic === topic ? { ...t, bullets: t.bullets.filter(b => b !== bullet) } : t)
+        prev?.map(t => t.topic === topic ? { ...t, bullets: t.bullets.filter(b => !bullets.includes(b)) } : t)
             .filter(t => t.bullets.length > 0) ?? null
       );
+      // Clear selections for this topic
+      setSelectedSplitBullets(prev => ({ ...prev, [topic]: [] }));
     } catch {
-      // Silent — bullet may have already been moved.
+      // Silent, bullets may have already been moved.
     }
+  };
+
+  const toggleSplitBullet = (bullet: string, topic: string) => {
+    setSelectedSplitBullets(prev => {
+      const current = prev[topic] ?? [];
+      const next = current.includes(bullet)
+        ? current.filter(b => b !== bullet)
+        : [...current, bullet];
+      return { ...prev, [topic]: next };
+    });
   };
 
   // Ask the backend to draft standing instructions from the user's own
@@ -828,9 +880,9 @@ export default function Settings() {
                   Controls how messages sent to your phone get turned into agent actions. When the iMessage poller is active, incoming texts are read and parsed into one of these commands:
                 </p>
                 <ul className="text-xs text-slate-500 dark:text-slate-400 space-y-1 mb-3 list-none">
-                  <li><span className="font-mono text-slate-700 dark:text-slate-300">spawn &lt;name&gt; to &lt;task&gt;</span> — starts a new agent with that task</li>
-                  <li><span className="font-mono text-slate-700 dark:text-slate-300">nudge &lt;agent&gt; &lt;message&gt;</span> — sends a follow-up message to a running agent</li>
-                  <li><span className="font-mono text-slate-700 dark:text-slate-300">status</span> — returns a summary of what agents are currently running</li>
+                  <li><span className="font-mono text-slate-700 dark:text-slate-300">spawn &lt;name&gt; to &lt;task&gt;</span> - starts a new agent with that task</li>
+                  <li><span className="font-mono text-slate-700 dark:text-slate-300">nudge &lt;agent&gt; &lt;message&gt;</span> - sends a follow-up message to a running agent</li>
+                  <li><span className="font-mono text-slate-700 dark:text-slate-300">status</span> - returns a summary of what agents are currently running</li>
                 </ul>
                 <p className="text-xs text-slate-400 dark:text-slate-500">
                   The live poller that reads new iMessages is off by default. Set the environment variable <span className="font-mono">CHANNEL_ROUTING_LIVE_POLLER_ENABLED=1</span> to turn it on.
@@ -1020,50 +1072,6 @@ export default function Settings() {
             >
               Open
             </NavLink>
-          </div>
-
-          {/* What it's learned (D) */}
-          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-800">
-            <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">What it's learned</p>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">Things you've told me to remember. Edit or remove anytime.</p>
-            {memoryOverflow?.hard_cap && (
-              <div data-testid="memory-hard-cap-banner" className="mb-4 rounded-lg bg-red-900/40 border border-red-700 px-4 py-3 text-sm text-red-200">
-                Your memory file is very large ({memoryOverflow.total_kb.toFixed(0)} KB). Remove anything outdated.
-              </div>
-            )}
-            {(() => {
-              const bullets = parseMemoryProvenance(memoryContent);
-              if (bullets.length > 0) {
-                return (
-                  <ul data-testid="memory-bullet-list" className="mb-4 space-y-2">
-                    {bullets.map((bullet, i) => {
-                      const label = bullet.added
-                        ? `added ${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(bullet.added)}`
-                        : 'edited manually';
-                      return (
-                        <li key={i} className="flex items-baseline gap-3">
-                          <span className="text-sm text-slate-800 dark:text-slate-200 flex-1">{bullet.text}</span>
-                          <span data-testid={`memory-provenance-${i}`} className="text-xs text-slate-500 shrink-0">{label}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                );
-              }
-              return null;
-            })()}
-            <textarea
-              data-testid="memory-editor"
-              value={memoryContent}
-              onChange={(e) => setMemoryContent(e.target.value)}
-              placeholder="Things you tell me to remember will show up here."
-              rows={8}
-              className="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm text-slate-800 dark:text-slate-200 px-3 py-2 font-mono resize-y focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            <div className="mt-3 flex items-center gap-3">
-              <button data-testid="memory-save-button" onClick={handleSaveMemory} className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">Save</button>
-              {memorySaveStatus && <span className="text-xs text-slate-600 dark:text-slate-400">{memorySaveStatus}</span>}
-            </div>
           </div>
           </div>
           </div>
@@ -1906,10 +1914,175 @@ export default function Settings() {
               <CustomVerbs />
             </div>
 
-            {/* Channel routing (Wave 6, →1872) */}
-            <div className={cardClass} data-testid="channel-routing-section">
-              <ChannelRoutingPanel />
+            {/* Text yourOS section (->1872) */}
+            <div className={cardClass} data-testid="text-bridge-section">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Icon name="sms" size={18} className="text-blue-600 dark:text-blue-400" />
+                  <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">Text yourOS</h2>
+                </div>
+                <Toggle
+                  checked={textBridgeEnabled}
+                  onChange={() => handleUpdateTextBridgeConfig({ enabled: !textBridgeEnabled })}
+                  testId="text-bridge-toggle"
+                />
+              </div>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                Command yourOS via iMessage or Telegram from your phone. Send a message like "remind me to call the vet" or "spawn research-agent to look into X".
+              </p>
+
+              {textBridgeEnabled && (
+                <div className="space-y-6 mt-6 pt-6 border-t border-slate-200 dark:border-slate-800 animate-in fade-in slide-in-from-top-2 duration-200">
+                  {/* Channels */}
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-2">Channels</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={textBridgeChannels.iMessage}
+                          onChange={(e) => setTextBridgeChannels(prev => ({ ...prev, iMessage: e.target.checked }))}
+                          className="rounded border-slate-300 dark:border-slate-700 bg-transparent text-blue-500 focus:ring-blue-500"
+                        />
+                        <span className="text-sm text-slate-600 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-slate-200 transition-colors">iMessage</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={textBridgeChannels.Telegram}
+                          onChange={(e) => setTextBridgeChannels(prev => ({ ...prev, Telegram: e.target.checked }))}
+                          className="rounded border-slate-300 dark:border-slate-700 bg-transparent text-blue-500 focus:ring-blue-500"
+                        />
+                        <span className="text-sm text-slate-600 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-slate-200 transition-colors">Telegram</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Trusted Contacts */}
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-2">Trusted Contacts</label>
+                    <p className="text-xs text-slate-500 mb-3">
+                      Only messages from these identifiers will be processed.
+                      <span className="ml-1 text-blue-600 dark:text-blue-400">Identity 'vmeyer' is automatically trusted.</span>
+                    </p>
+                    
+                    <div className="space-y-2 mb-3">
+                      {textBridgeTrustedContacts.map(id => (
+                        <div key={id} className="flex items-center justify-between px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-lg group">
+                          <span className="text-sm font-mono text-slate-700 dark:text-slate-300">{id}</span>
+                          <button
+                            onClick={() => handleUpdateTextBridgeConfig({ 
+                              trusted_contacts: textBridgeTrustedContacts.filter(t => t !== id) 
+                            })}
+                            className="text-slate-400 hover:text-red-500 transition-colors"
+                          >
+                            <Icon name="close" size={16} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="relative">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={contactSearch}
+                          onChange={(e) => {
+                            setContactSearch(e.target.value);
+                            if (e.target.value.length > 2) {
+                              api.get<{ results: any[] }>(`/imessage/contacts/search?q=${encodeURIComponent(e.target.value)}`)
+                                .then(d => setContactSearchResults(d.results))
+                                .catch(() => {});
+                            } else {
+                              setContactSearchResults([]);
+                            }
+                          }}
+                          placeholder="Search iMessage contacts..."
+                          className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                      {contactResults.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-10 max-h-48 overflow-y-auto">
+                          {contactResults.map(r => (
+                            <button
+                              key={r.identifier}
+                              onClick={() => {
+                                if (!textBridgeTrustedContacts.includes(r.identifier)) {
+                                  handleUpdateTextBridgeConfig({ 
+                                    trusted_contacts: [...textBridgeTrustedContacts, r.identifier] 
+                                  });
+                                }
+                                setContactSearch('');
+                                setContactSearchResults([]);
+                              }}
+                              className="w-full text-left px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                            >
+                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{r.name}</p>
+                              <p className="text-xs text-slate-500">{r.identifier}</p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Safety */}
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-2">Safety</label>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-slate-600 dark:text-slate-400">Confirm before running commands</span>
+                        <select
+                          value={textBridgeConfirmCommands || 'null'}
+                          onChange={(e) => handleUpdateTextBridgeConfig({ 
+                            confirm_commands: e.target.value === 'null' ? null : e.target.value 
+                          })}
+                          className="bg-slate-100 dark:bg-slate-800 border-none rounded-lg text-xs font-medium text-slate-700 dark:text-slate-300 focus:ring-1 focus:ring-blue-500"
+                        >
+                          <option value="null">Ask me on first use</option>
+                          <option value="always">Always ask</option>
+                          <option value="never">Never ask</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {textBridgeChannels.Telegram && (
+                    <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800 animate-in fade-in duration-300">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Icon name="send" size={16} className="text-sky-500" />
+                        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Telegram Bot</h3>
+                      </div>
+                      <div className="space-y-3">
+                        <div>
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Bot Token</label>
+                          <input
+                            type="password"
+                            value={textBridgeTelegramToken}
+                            onChange={(e) => setTextBridgeTelegramToken(e.target.value)}
+                            onBlur={() => handleUpdateTelegramConfig({ token: textBridgeTelegramToken })}
+                            placeholder="Enter your Telegram bot token"
+                            className="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Your Chat ID</label>
+                          <input
+                            type="text"
+                            value={textBridgeTelegramChatId}
+                            onChange={(e) => setTextBridgeTelegramChatId(e.target.value)}
+                            onBlur={() => handleUpdateTelegramConfig({ chat_id: textBridgeTelegramChatId })}
+                            placeholder="Enter your Telegram chat ID"
+                            className="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+
           </div>
 
           {/* Divider */}
@@ -2120,25 +2293,39 @@ export default function Settings() {
                   )}
                   {suggestedTopics && suggestedTopics.length > 0 && (
                     <div data-testid="suggested-topics-list" className="mt-3 space-y-3">
-                      {suggestedTopics.map(({ topic, bullets }) => (
-                        <div key={topic}>
-                          <p className="text-xs font-semibold text-amber-100 mb-1">{topic}</p>
-                          <ul className="space-y-1">
-                            {bullets.map((bullet) => (
-                              <li key={bullet} className="flex items-center gap-2">
-                                <span className="text-xs text-slate-700 dark:text-slate-300 flex-1">{bullet}</span>
-                                <button
-                                  data-testid={`apply-split-${topic}`}
-                                  onClick={() => handleApplySplit(bullet, topic)}
-                                  className="shrink-0 px-2 py-0.5 rounded bg-amber-700 hover:bg-amber-600 text-white text-xs transition-colors"
-                                >
-                                  Move
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ))}
+                      {suggestedTopics.map(({ topic, bullets }) => {
+                        const selected = selectedSplitBullets[topic] ?? [];
+                        return (
+                          <div key={topic} className="bg-amber-500/5 rounded-lg p-3 border border-amber-500/10">
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-xs font-semibold text-amber-100 uppercase tracking-wider">{topic}</p>
+                              <button
+                                data-testid={`apply-split-${topic}`}
+                                onClick={() => handleApplySplits(selected, topic)}
+                                disabled={selected.length === 0}
+                                className="shrink-0 px-3 py-1 rounded bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-medium transition-colors"
+                              >
+                                Move {selected.length > 0 ? selected.length : ''} {selected.length === 1 ? 'bullet' : 'bullets'}
+                              </button>
+                            </div>
+                            <ul className="space-y-1.5">
+                              {bullets.map((bullet) => (
+                                <li key={bullet} className="flex items-start gap-2 group">
+                                  <input
+                                    type="checkbox"
+                                    checked={selected.includes(bullet)}
+                                    onChange={() => toggleSplitBullet(bullet, topic)}
+                                    className="mt-0.5 rounded border-amber-700 bg-transparent text-amber-600 focus:ring-amber-500"
+                                  />
+                                  <span className="text-[11px] text-slate-700 dark:text-slate-300 flex-1 leading-normal group-hover:text-slate-200 transition-colors cursor-pointer" onClick={() => toggleSplitBullet(bullet, topic)}>
+                                    {bullet}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

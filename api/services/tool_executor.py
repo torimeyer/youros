@@ -1842,13 +1842,13 @@ async def _upload_to_drive(filename: str, content: str) -> str:
         return f"Could not upload to Drive: {exc}"
 
 
-def _torichat_close_prelude(agent_name: str) -> str:
-    """Return a torichat-specific close-task prelude.
+def _chat_close_prelude(agent_name: str) -> str:
+    """Return a chat-specific close-task prelude.
 
     The long ``agent_mailbox_instruction`` block already tells the agent
     to POST /complete when done, but claude-code subagents spawned via
     the ``spawn_agent`` tool exit naturally at the end of their turn
-    without executing the sidecar curl. That leaves every torichat-spawned
+    without executing the sidecar curl. That leaves every chat-spawned
     agent's row stuck in the "Agent finished its work. It didn't formally
     close the task" fallback.
 
@@ -1861,7 +1861,7 @@ def _torichat_close_prelude(agent_name: str) -> str:
     """
     base = "https://127.0.0.1:8000/api/agents"
     return (
-        "IMPORTANT: You were spawned from torichat. Your VERY LAST action, "
+        "IMPORTANT: You were spawned from chat. Your VERY LAST action, "
         "after all code changes and tests pass, must be to formally close "
         "this task. Run this exact shell command as your final tool call "
         "(not optional, not skippable):\n"
@@ -1879,13 +1879,14 @@ async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:
 
     Bug 3 fix: validates that name is non-empty (hyphens are allowed and
     the API accepts them), validates that prompt is non-empty, and returns
-    a specific actionable error for each failure mode instead of the raw
+    specific actionable error for each failure mode instead of the raw
     exception message.
 
-    Torichat close fix: prepends an explicit "post /complete as your final
+    Chat close fix: prepends an explicit "post /complete as your final
     tool call" prelude so the agent actually formally closes the task
     instead of exiting silently and tripping the stale-sweep fallback.
     """
+
     import re as _re
 
     if not name or not name.strip():
@@ -1907,11 +1908,11 @@ async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:
             "numbers, hyphens, and underscores (e.g. 'api-spec' or 'roadmap_tasks')."
         )
 
-    # Prepend the torichat-specific close prelude so the subagent treats
+    # Prepend the chat-specific close prelude so the subagent treats
     # the POST /complete as a non-optional final tool call rather than
     # drifting into the natural-exit path that tripped the stale-sweep
-    # fallback notification for every torichat-spawned agent.
-    final_prompt = _torichat_close_prelude(clean_name) + "\n\n---\n\n" + prompt
+    # fallback notification for every chat-spawned agent.
+    final_prompt = _chat_close_prelude(clean_name) + "\n\n---\n\n" + prompt
 
     try:
         # Use the API endpoint so it's tracked consistently

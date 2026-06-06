@@ -1,4 +1,4 @@
-"""Torichat system-message helper.
+"""Chat system-message helper.
 
 Lets backend code post a myOS-authored message into the user's current
 chat tab so they see it inline the next time they open the chat panel.

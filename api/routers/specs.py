@@ -1336,6 +1336,69 @@ async def patch_spec_body(spec_path: str, body: SpecBodyUpdate):
     return {"ok": True}
 
 
+class SpecNoAcNeededUpdate(BaseModel):
+    no_ac_needed: bool
+
+
+@router.patch("/specs/{spec_path:path}/no-ac-needed")
+async def patch_spec_no_ac_needed(spec_path: str, body: SpecNoAcNeededUpdate):
+    """Update the no_ac_needed field in a spec's YAML frontmatter."""
+    _validate_doc_path(spec_path)
+
+    abs_path = (
+        spec_path
+        if spec_path.startswith("/") or spec_path.startswith("~")
+        else str(Path(PROJECT_ROOT) / spec_path)
+    )
+    abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
+
+    if not Path(abs_path).exists():
+        raise HTTPException(status_code=404, detail="Spec file not found")
+
+    text = Path(abs_path).read_text(encoding="utf-8")
+    lines = text.split("\n")
+    new_lines: list[str] = []
+    
+    in_fm = False
+    fm_start_idx = -1
+    fm_end_idx = -1
+    
+    if lines and lines[0].strip() == "---":
+        in_fm = True
+        fm_start_idx = 0
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                fm_end_idx = i
+                break
+
+    if fm_start_idx == 0 and fm_end_idx > 0:
+        # We have frontmatter. Update or add the key.
+        saw_key = False
+        for i in range(len(lines)):
+            if i > fm_start_idx and i < fm_end_idx:
+                if lines[i].strip().startswith("no_ac_needed:"):
+                    indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+                    new_lines.append(f"{indent}no_ac_needed: {str(body.no_ac_needed).lower()}")
+                    saw_key = True
+                    continue
+            
+            new_lines.append(lines[i])
+            
+            if i == fm_end_idx - 1 and not saw_key:
+                # Add it before the end of frontmatter
+                new_lines.append(f"no_ac_needed: {str(body.no_ac_needed).lower()}")
+    else:
+        # No frontmatter? Add it.
+        new_lines.append("---")
+        new_lines.append(f"no_ac_needed: {str(body.no_ac_needed).lower()}")
+        new_lines.append("---")
+        if lines:
+            new_lines.extend(lines)
+
+    Path(abs_path).write_text("\n".join(new_lines), encoding="utf-8")
+    return {"ok": True, "no_ac_needed": body.no_ac_needed}
+
+
 class SpecTitleUpdate(BaseModel):
     title: str
 

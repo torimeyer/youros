@@ -28,7 +28,7 @@ os.environ.setdefault("MYOS_SKIP_RETRO_AGENT_FILES_SAVE", "1")
 # directly with a patched MYOS_FILES_DIR.
 os.environ.setdefault("MYOS_SKIP_AUTOMATION_FILES_SAVE", "1")
 
-# Roadmap /complete runs now post a torichat system message via
+# Roadmap /complete runs now post a chat system message via
 # services.chat_notifications. That helper writes to the real
 # ~/.myos/chat_history.json by default. Opt out during tests so the
 # user's actual chat panel never inherits a stray pytest entry.

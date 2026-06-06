@@ -1116,7 +1116,7 @@ describe('Settings - Enter key submit', () => {
 
 
 
-describe('Settings page — Developer section', () => {
+describe('Settings page: Developer section', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({
@@ -1170,7 +1170,7 @@ describe('Settings page — Developer section', () => {
   })
 })
 
-describe('Settings page — Push notifications toggle', () => {
+describe('Settings page: Push notifications toggle', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({
@@ -1338,7 +1338,7 @@ describe('Settings page — Push notifications toggle', () => {
   })
 })
 
-describe('Settings — Memory provenance (F4)', () => {
+describe('Settings: Memory provenance (F4)', () => {
   function switchToPreferences() {
     const btn = screen.getAllByRole('button').find(b => b.textContent?.trim() === 'Preferences')
     if (btn) fireEvent.click(btn)
@@ -1462,7 +1462,7 @@ describe('Settings — Memory provenance (F4)', () => {
   })
 })
 
-describe('Settings — Gemini provider clarity', () => {
+describe('Settings: Gemini provider clarity', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({ osName: 'yourOS', darkMode: false, accentColor: 'blue', features: [] })
@@ -1506,5 +1506,65 @@ describe('Settings — Gemini provider clarity', () => {
     await waitFor(() => expect(screen.getByTestId('api-key-setup-section')).toBeInTheDocument())
     expect(screen.queryByTestId('gemini-advanced-toggle')).not.toBeInTheDocument()
     expect(screen.queryByText(/Gemini Advanced/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('Settings: Memory split suggestions (→1820)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/memory/user/overflow-status') {
+        return Promise.resolve({ overflowed: true, reason: 'lines', lines: 150, hard_cap: false })
+      }
+      if (path === '/memory') return Promise.resolve({ content: '- fact 1\n- fact 2' })
+      return Promise.resolve({})
+    })
+    vi.mocked(api.post).mockImplementation((path: string) => {
+      if (path === '/memory/user/suggest-topics') {
+        return Promise.resolve({
+          topics: [
+            { topic: 'coding', bullets: ['fact 1', 'fact 2'] }
+          ]
+        })
+      }
+      return Promise.resolve({ ok: true })
+    })
+  })
+
+  it('renders overflow banner and suggest button when overflowed', async () => {
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('memory-overflow-banner')).toBeInTheDocument())
+    expect(screen.getByTestId('suggest-topics-button')).toBeInTheDocument()
+  })
+
+  it('suggest-topics button renders the topic list with checkboxes', async () => {
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('suggest-topics-button')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('suggest-topics-button'))
+    await waitFor(() => expect(screen.getByTestId('suggested-topics-list')).toBeInTheDocument())
+    expect(screen.getByText('coding')).toBeInTheDocument()
+    expect(screen.getAllByRole('checkbox').length).toBe(2)
+  })
+
+  it('Move button calls api.post with selected bullet_texts', async () => {
+    render(<MemoryRouter><Settings /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('suggest-topics-button')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('suggest-topics-button'))
+    await waitFor(() => expect(screen.getByTestId('suggested-topics-list')).toBeInTheDocument())
+
+    const checkboxes = screen.getAllByRole('checkbox')
+    fireEvent.click(checkboxes[0])
+    fireEvent.click(checkboxes[1])
+
+    const moveBtn = screen.getByTestId('apply-split-coding')
+    expect(moveBtn).not.toBeDisabled()
+    fireEvent.click(moveBtn)
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/memory/user/split-topic', {
+        bullet_texts: ['fact 1', 'fact 2'],
+        topic_name: 'coding'
+      })
+    })
   })
 })

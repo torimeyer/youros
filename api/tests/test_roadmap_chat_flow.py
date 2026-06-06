@@ -1,4 +1,4 @@
-"""Tests for the Roadmap torichat notification and chat-command flow.
+"""Tests for the Roadmap chat notification and chat-command flow.
 
 Covers Part A (notification fires + auto-task suppression for Roadmap
 outputs) and Part B (chat command endpoint parses the roadmap and

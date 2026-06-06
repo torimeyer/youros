@@ -8373,7 +8373,7 @@ async def test_list_agents_user_spawned_only_filter_matches_frontend():
     rows, using the exact same rule as isUserSpawnedAgent in
     app/src/lib/agentUtils.ts.
 
-    Regression: an ad-hoc curl status loop counted a torichat session as a
+    Regression: an ad-hoc curl status loop counted a chat session as a
     running agent and reported "2 agents" while the Agents page showed 1.
     The page applies isUserSpawnedAgent; this endpoint flag now does too so
     scripts/status.sh never diverges from the UI.
@@ -8389,7 +8389,7 @@ async def test_list_agents_user_spawned_only_filter_matches_frontend():
     # same code path as a live register + heartbeat, so the filter runs on
     # realistic output rather than hand-built fixtures.
     seeded = {
-        "chat-default": {  # torichat session, excluded
+        "chat-default": {  # chat session, excluded
             "status": "running",
             "source": "chat",
             "model": "sonnet",
@@ -11101,9 +11101,9 @@ async def test_complete_still_runs_ac_gate_for_non_claude_code_source(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Chat feedback endpoint (torichat spawn bubble follow-up)
+# Chat feedback endpoint (chat spawn bubble follow-up)
 #
-# The torichat panel polls GET /api/agents/{name}/status-feedback after a
+# The chat panel polls GET /api/agents/{name}/status-feedback after a
 # spawn_agent tool call so it can drop a plain-language bubble into the
 # conversation when the agent finishes, fails, or stalls. These tests
 # cover the shape and plain-language rendering of that endpoint.

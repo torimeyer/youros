@@ -32,7 +32,7 @@ describe('isUserSpawnedAgent (shared sidebar + Agents page filter)', () => {
     ).toBe(true)
   })
 
-  it('excludes source=chat (torichat session)', () => {
+  it('excludes source=chat (chat session)', () => {
     expect(
       isUserSpawnedAgent({
         name: 'chat-default',

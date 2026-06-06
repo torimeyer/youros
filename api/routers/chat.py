@@ -832,7 +832,7 @@ async def _wait_for_roadmap(timeout: float = 90.0) -> Optional[Path]:
 async def chat_create_tasks_from_roadmap(body: Optional[dict] = None):
     """Convert the latest roadmap ``.md`` into tasks on user request.
 
-    The torichat UI calls this endpoint when the user types a phrase
+    The chat UI calls this endpoint when the user types a phrase
     like "create tasks from this roadmap". It reads the most recent
     roadmap under ``~/.myos/files/``, harvests actionable items via
     :func:`services.automation_outputs.parse_roadmap_items`, and runs

@@ -931,10 +931,10 @@ class TestDeleteEmailsTool:
         assert "Gmail is not connected" in result
 
 
-# ---- torichat spawn-agent close prelude ----
+# ---- chat spawn-agent close prelude ----
 
-class TestTorichatSpawnClosePrelude:
-    """Regression: every torichat-spawned agent was hitting the stale-sweep
+class TestChatSpawnClosePrelude:
+    """Regression: every chat-spawned agent was hitting the stale-sweep
     fallback summary ``Agent finished its work. It didn't formally close the
     task``. Root cause: claude-code subagents exit naturally at end-of-turn
     without executing the POST /complete sidecar curl buried in the long
@@ -943,9 +943,9 @@ class TestTorichatSpawnClosePrelude:
     """
 
     def test_prelude_contains_complete_endpoint_and_agent_name(self):
-        from services.tool_executor import _torichat_close_prelude
+        from services.tool_executor import _chat_close_prelude
 
-        block = _torichat_close_prelude("fix-tests-42")
+        block = _chat_close_prelude("fix-tests-42")
 
         assert "/agents/fix-tests-42/complete" in block
         assert "final tool call" in block.lower()

@@ -60,6 +60,11 @@ interface Spec {
   husk_reason?: string;
   missing_files?: string[];
   open_linked_needles?: string[];
+  updated_at_ms?: number;
+  last_promote_attempt_ms?: number;
+  last_promote_error?: string | null;
+  is_promoted?: boolean;
+  no_ac_needed?: boolean;
 }
 
 interface SpecsResponse {
@@ -356,13 +361,22 @@ function renderInline(text: string): React.ReactNode {
 // that the pill flips to green when Verify passes.
 
 function AcceptanceCriteria({ criteria }: { criteria: AcceptanceCriterion[] }) {
-  if (criteria.length === 0) return null;
+  if (criteria.length === 0) {
+    return (
+      <div className="mt-6 text-xs text-slate-500 italic opacity-60" data-testid="no-criteria-message">
+        No acceptance criteria yet.
+      </div>
+    );
+  }
   return (
-    <div className="mt-3" data-testid="acceptance-criteria">
-      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+    <div className="mt-6" data-testid="acceptance-criteria">
+      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
         Acceptance Criteria
+        <span className="normal-case font-medium opacity-70">
+          ({criteria.length} {criteria.length === 1 ? 'criterion' : 'criteria'})
+        </span>
       </h4>
-      <ul role="list" className="space-y-1.5">
+      <ul role="list" className="space-y-2">
         {criteria.map((c, i) => (
           <li key={i} className="flex items-start gap-2 text-sm">
             <span
@@ -579,6 +593,8 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const [linkedTasks, setLinkedTasks] = useState<Record<string, LinkedTask[]>>({});
   const [claimsMap, setClaimsMap] = useState<Record<string, SpecClaim[]>>({});
   const [buildingSpec, setBuildingSpec] = useState<string | null>(null);
+  const [promotingPath, setPromotingPath] = useState<string | null>(null);
+  const [promoteStatus, setPromoteStatus] = useState<Record<string, { tried: number, error: string | null, ok: boolean }>>({});
   const [buildResult, setBuildResult] = useState<Record<string, { agents: string[]; message: string; has_unchecked_acs?: boolean }>>({});
   const [templates, setTemplates] = useState<SpecTemplate[]>([]);
   const [templateLoading, setTemplateLoading] = useState<string | null>(null);
@@ -633,6 +649,34 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
       setMessageType("error");
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const handleCopySpec = (doc: Spec) => {
+    const criteria = getAcceptanceCriteria(doc);
+    let text = `${doc.title}\n\n`;
+    if (criteria.length > 0) {
+      text += "Acceptance Criteria:\n";
+      criteria.forEach((c) => {
+        text += `- [${c.checked ? "x" : " "}] ${c.text}\n`;
+      });
+    } else {
+      text += "No acceptance criteria yet.\n";
+    }
+    navigator.clipboard.writeText(text)
+      .then(() => showMessage("Spec copied to clipboard!"))
+      .catch((e) => reportError("copy spec", e));
+  };
+
+  const handleToggleNoAcNeeded = async (doc: Spec, val: boolean) => {
+    try {
+      const encodedPath = doc.path.split("/").map(encodeURIComponent).join("/");
+      await api.patch(`/specs/${encodedPath}/no-ac-needed`, { no_ac_needed: val });
+      setDocs((prev) =>
+        prev.map((d) => (d.path === doc.path ? { ...d, no_ac_needed: val } : d))
+      );
+    } catch (e) {
+      reportError("toggle no_ac_needed", e);
     }
   };
 
@@ -823,20 +867,32 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
 
 
   const handlePromote = async (path: string) => {
-    setLoading(true);
+    setPromotingPath(path);
+    setPromoteStatus(prev => ({
+      ...prev,
+      [path]: { tried: Date.now(), error: null, ok: false }
+    }));
     try {
       const res = await api.post<{ result: string }>("/specs/promote", { path });
+      setPromoteStatus(prev => ({
+        ...prev,
+        [path]: { tried: Date.now(), error: null, ok: true }
+      }));
       await fetchDocs();
       showMessage(`Promoted to spec: ${res.result}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
-      if (msg.includes("checkbox")) {
-        showMessage("This draft needs at least one checklist item (acceptance criteria) before it can be promoted.", "error");
-      } else {
-        showMessage("Could not promote draft. Make sure it has acceptance criteria.", "error");
-      }
+      const userMsg = msg.includes("checkbox")
+        ? "This draft needs at least one checklist item (acceptance criteria) before it can be promoted."
+        : `Could not promote draft: ${msg}`;
+      
+      setPromoteStatus(prev => ({
+        ...prev,
+        [path]: { tried: Date.now(), error: userMsg, ok: false }
+      }));
+      showMessage(userMsg, "error");
     } finally {
-      setLoading(false);
+      setPromotingPath(null);
     }
   };
 
@@ -1374,6 +1430,32 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
 
                       </div>
                       <div className="flex items-center gap-4 flex-shrink-0">
+                        {doc.no_ac_needed ? (
+                          <span className="text-slate-500 text-[10px] font-medium uppercase tracking-wider hidden md:block">
+                            No AC
+                          </span>
+                        ) : criteria.length > 0 ? (
+                          <div className="hidden md:flex items-center gap-2">
+                            <span
+                              className="text-slate-500 text-[10px] font-medium uppercase tracking-wider"
+                              title={`${criteria.filter((c) => c.checked).length} of ${criteria.length} acceptance criteria complete`}
+                            >
+                              {criteria.filter((c) => c.checked).length} of {criteria.length} done
+                            </span>
+                            {criteria.every((c) => c.checked) && (
+                              <span
+                                className="text-[10px] font-bold text-emerald-500 uppercase tracking-tight bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20"
+                                data-testid="ready-to-build-label"
+                              >
+                                Ready to build
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-500 text-[10px] font-medium uppercase tracking-wider hidden md:block">
+                            No criteria yet
+                          </span>
+                        )}
                         {hasTaskSummary && (
                           <TaskProgressBar summary={doc.task_summary!} />
                         )}
@@ -1396,6 +1478,18 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                           className="text-slate-500 hover:text-violet-400 rounded-lg p-1 transition-colors"
                         >
                           <Icon name="rate_review" size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Copy spec"
+                          data-testid="copy-spec-button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopySpec(doc);
+                          }}
+                          className="text-slate-500 hover:text-white rounded-lg p-1 transition-colors"
+                        >
+                          <Icon name="content_copy" size={18} />
                         </button>
                         <button
                           type="button"
@@ -1447,7 +1541,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                               onChange={(e) => setEditBody(e.target.value)}
                               onClick={(e) => e.stopPropagation()}
                             />
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 items-center">
                               <button
                                 type="button"
                                 data-testid="save-spec-body-button"
@@ -1465,24 +1559,42 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                               >
                                 Cancel
                               </button>
+
+                              <label className="flex items-center gap-2 ml-auto cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  data-testid="no-ac-needed-checkbox"
+                                  checked={!!doc.no_ac_needed}
+                                  onChange={(e) => handleToggleNoAcNeeded(doc, e.target.checked)}
+                                  className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500"
+                                />
+                                <span className="text-xs text-slate-500">No acceptance criteria needed</span>
+                              </label>
                             </div>
                           </div>
                         ) : (
                           <div>
                             {doc.body && <SpecBody body={doc.body} />}
-                            <button
-                              type="button"
-                              data-testid="edit-spec-body-button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditBody(doc.body || "");
-                                setEditingPath(doc.path);
-                              }}
-                              className="mt-2 flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
-                            >
-                              <Icon name="edit" size={14} />
-                              Edit
-                            </button>
+                            <div className="flex items-center gap-4 mt-2">
+                              <button
+                                type="button"
+                                data-testid="edit-spec-body-button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditBody(doc.body || "");
+                                  setEditingPath(doc.path);
+                                }}
+                                className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+                              >
+                                <Icon name="edit" size={14} />
+                                Edit
+                              </button>
+                              {doc.updated_at_ms && (
+                                <span className="text-[10px] text-slate-600 italic">
+                                  edited {formatRelative(new Date(doc.updated_at_ms))}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1568,87 +1680,108 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                             the user is waiting on, so the button does not
                             look broken. */}
                         {(() => {
-                          // Promote is valid only when the draft has at
-                          // least one acceptance-criterion checklist item.
-                          // Trust the server array first, fall back to
-                          // parsing "- [ ]" / "- [x]" lines out of the body
-                          // so the UI flips to enabled the moment the
-                          // checkboxes appear.
                           const parsedAc = getAcceptanceCriteria(doc);
-                          const hasAc =
-                            (doc.acceptance_criteria?.length ?? 0) > 0 ||
-                            parsedAc.length > 0;
-                          // If every in-progress task is closed, Build
-                          // would surface "No open tasks to build". Gate
-                          // the button's tooltip and disabled state on
-                          // that instead of on the removed verify flow.
+                          const hasAc = (doc.acceptance_criteria?.length ?? 0) > 0 || parsedAc.length > 0;
+                          const canBuild = hasAc || doc.no_ac_needed;
                           const totalTasks = doc.task_summary?.total ?? 0;
                           const openTasks = doc.task_summary?.open ?? 0;
-                          const allClosed =
-                            totalTasks > 0 && openTasks === 0;
+                          const allClosed = totalTasks > 0 && openTasks === 0;
+                          const pStat = promoteStatus[doc.path];
+
                           return (
-                            <div className="flex flex-wrap gap-2">
-                              {doc.status === "draft" && (
+                            <div className="flex flex-col gap-3">
+                              <div className="flex flex-wrap gap-2">
+                                {doc.status === "draft" && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handlePromote(doc.path); }}
+                                    disabled={loading || promotingPath === doc.path || !canBuild}
+                                    className="bg-green-500/20 text-green-600 dark:text-green-400 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-green-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                    data-testid="promote-button"
+                                    title={canBuild ? "Promote this draft to a spec." : "Waiting for acceptance criteria. This button unlocks once at least one checklist item appears."}
+                                  >
+                                    {promotingPath === doc.path ? (
+                                      <span className="block w-3 h-3 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                      <Icon name="verified" size={16} />
+                                    )}
+                                    {promotingPath === doc.path ? "Promoting..." : "Promote to Spec"}
+                                  </button>
+                                )}
+                                {(doc.status === "ready" || doc.status === "spec" as string) && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleBuild(doc.path); }}
+                                    disabled={loading || buildingSpec === doc.path || !canBuild}
+                                    className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                    data-testid="build-button"
+                                    title="Turns this spec into tasks and starts a builder agent for each one."
+                                  >
+                                    <Icon name="rocket_launch" size={16} />
+                                    {buildingSpec === doc.path ? "Building..." : "Build it"}
+                                  </button>
+                                )}
+                                {doc.status === "in-progress" && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleBuild(doc.path); }}
+                                    disabled={loading || buildingSpec === doc.path || allClosed || !canBuild}
+                                    className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                    data-testid="build-button"
+                                    title={allClosed ? "Every task is already closed. The spec is done." : "Turns this spec into tasks and starts a builder agent for each one."}
+                                  >
+                                    <Icon name="rocket_launch" size={16} />
+                                    {buildingSpec === doc.path ? "Building..." : "Build it"}
+                                  </button>
+                                )}
+                                {(doc.status === "ready" || doc.status === "spec" as string) && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleUnlock(doc.path); }}
+                                    disabled={loading}
+                                    className="border border-slate-600 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                    data-testid="unlock-spec-button"
+                                    title="Reopen this spec so you can change the acceptance criteria."
+                                  >
+                                    <Icon name="lock_open" size={16} />
+                                    Unlock and edit
+                                  </button>
+                                )}
                                 <button
-                                  onClick={(e) => { e.stopPropagation(); handlePromote(doc.path); }}
-                                  disabled={loading || !hasAc}
-                                  className="bg-green-500/20 text-green-600 dark:text-green-400 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-green-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-                                  data-testid="promote-button"
-                                  title={hasAc ? "Promote this draft to a spec." : "Waiting for acceptance criteria. This button unlocks once at least one checklist item appears."}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    window.open(`/api/specs/${doc.path}/export?format=speckit`);
+                                  }}
+                                  className="border border-slate-600 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+                                  data-testid="export-spec-button"
+                                  title="Download this spec as a YAML file you can share or reimport."
                                 >
-                                  <Icon name="verified" size={16} />
-                                  Promote to Spec
+                                  <Icon name="download" size={16} />
+                                  Export YAML
                                 </button>
+                              </div>
+
+                              {pStat && (
+                                <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50" data-testid="promote-status-feedback">
+                                  {pStat.ok ? (
+                                    <>
+                                      <Icon name="check_circle" size={14} className="text-green-500" />
+                                      <span className="text-[11px] text-green-500 font-medium">Promoted</span>
+                                    </>
+                                  ) : pStat.error ? (
+                                    <>
+                                      <Icon name="error" size={14} className="text-red-500" />
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-[11px] text-red-500 font-medium">Failed: {pStat.error}</p>
+                                        <p className="text-[10px] text-slate-500 mt-0.5">Last tried: {formatRelative(new Date(pStat.tried))}</p>
+                                      </div>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); handlePromote(doc.path); }}
+                                        className="text-[11px] font-bold text-blue-500 hover:underline"
+                                      >
+                                        Retry
+                                      </button>
+                                    </>
+                                  ) : null}
+                                </div>
                               )}
-                              {(doc.status === "ready" || doc.status === "spec" as string) && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleBuild(doc.path); }}
-                                  disabled={loading || buildingSpec === doc.path}
-                                  className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-                                  data-testid="build-button"
-                                  title="Turns this spec into tasks and starts a builder agent for each one."
-                                >
-                                  <Icon name="rocket_launch" size={16} />
-                                  {buildingSpec === doc.path ? "Building..." : "Build it"}
-                                </button>
-                              )}
-                              {doc.status === "in-progress" && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleBuild(doc.path); }}
-                                  disabled={loading || buildingSpec === doc.path || allClosed}
-                                  className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-                                  data-testid="build-button"
-                                  title={allClosed ? "Every task is already closed. The spec is done." : "Turns this spec into tasks and starts a builder agent for each one."}
-                                >
-                                  <Icon name="rocket_launch" size={16} />
-                                  {buildingSpec === doc.path ? "Building..." : "Build it"}
-                                </button>
-                              )}
-                              {(doc.status === "ready" || doc.status === "spec" as string) && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleUnlock(doc.path); }}
-                                  disabled={loading}
-                                  className="border border-slate-600 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-                                  data-testid="unlock-spec-button"
-                                  title="Reopen this spec so you can change the acceptance criteria."
-                                >
-                                  <Icon name="lock_open" size={16} />
-                                  Unlock and edit
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  window.open(`/api/specs/${doc.path}/export?format=speckit`);
-                                }}
-                                className="border border-slate-600 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
-                                data-testid="export-spec-button"
-                                title="Download this spec as a YAML file you can share or reimport."
-                              >
-                                <Icon name="download" size={16} />
-                                Export YAML
-                              </button>
                             </div>
                           );
                         })()}

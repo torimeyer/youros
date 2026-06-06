@@ -7398,7 +7398,7 @@ def _save_agent_output_to_files(
         #
         # Roadmap outputs are also opted out: Tori wants to preview the
         # roadmap in chat first and explicitly say "create tasks from
-        # this roadmap" before any tasks get generated. The torichat
+        # this roadmap" before any tasks get generated. The chat
         # notification below carries the link and the prompt.
         suppress_auto_tasks = skip_auto_tasks or is_roadmap
         if next_steps and not suppress_auto_tasks:
@@ -10235,7 +10235,7 @@ async def bulk_delete_agents(body: BulkDeleteAgents):
 def _plain_language_feedback(name: str, meta: dict) -> str:
     """Return a plain-language one-liner for the chat bubble.
 
-    Used by ``GET /agents/{name}/status-feedback`` so the torichat panel
+    Used by ``GET /agents/{name}/status-feedback`` so the chat panel
     can surface meaningful progress without the user having to ask.
     The text is deliberately conversational, jargon-free, and never
     exposes raw field names like ``gate_results`` or
@@ -10276,7 +10276,7 @@ def _plain_language_feedback(name: str, meta: dict) -> str:
 async def agent_status_feedback(name: str):
     """Chat-friendly status snapshot for a single agent.
 
-    The torichat panel polls this after a ``spawn_agent`` tool call so it
+    The chat panel polls this after a ``spawn_agent`` tool call so it
     can drop a plain-language bubble into the conversation when the
     agent transitions to a terminal state. Returns ``exists=false`` if
     the name is unknown so the poller can stop cleanly.

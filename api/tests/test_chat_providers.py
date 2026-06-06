@@ -3032,7 +3032,7 @@ class TestAgentAnthropicStripsModelField:
 
 # --- Gemini image vision: GIF and pasted image support ---
 #
-# When Tori pastes a GIF or image into torichat addressed to @gemini,
+# When Tori pastes a GIF or image into chat addressed to @gemini,
 # transform_image_messages produces Anthropic-shaped content blocks:
 #   [{"type": "image", "source": {"type": "base64",
 #                                  "media_type": "image/gif", "data": "..."}},

@@ -203,7 +203,7 @@ def _agent_sessions() -> list[dict]:
     """Synthesize session records from the live agent registry.
 
     The ``.ostk/sessions/`` directory only reflects sessions that wrote
-    ostk events. External Claude Code tabs and torichat turns never
+    ostk events. External Claude Code tabs and chat turns never
     touch that directory, so they were invisible to the sidebar's
     "sessions" counter even when they were clearly open. Using the
     agent registry as a secondary source fixes that: every registered
@@ -507,7 +507,7 @@ def _build_active_sessions() -> dict:
 @router.get("/sessions/active")
 async def get_active_sessions():
     """Return all sessions that have written events in the last 30 minutes,
-    merged with every live agent record (Claude Code tabs, torichat turns,
+    merged with every live agent record (Claude Code tabs, chat turns,
     spawned fleet members). Without the merge the counter was always zero
     for tabs that never ran an ostk command.
 

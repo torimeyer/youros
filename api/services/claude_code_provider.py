@@ -100,7 +100,7 @@ _last_response_cache: dict[str, str] = {}
 
 def _session_id_for_tab(tab_id: str) -> str:
     """Deterministic UUID from a tab ID so the same tab always resumes."""
-    return str(_uuid_mod.uuid5(_uuid_mod.NAMESPACE_URL, f"torichat:{tab_id}"))
+    return str(_uuid_mod.uuid5(_uuid_mod.NAMESPACE_URL, f"chat:{tab_id}"))
 
 
 # How long to trust a cached detection result.

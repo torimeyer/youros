@@ -91,8 +91,11 @@ def save_cache(entries: dict) -> None:
 def upload_file(path: Path, content: bytes) -> str:
     """Upload file to Anthropic Files API. Returns file_id."""
     try:
-        import urllib.request, urllib.error
+        import urllib.request, urllib.error, ssl
         import mimetypes
+
+        # Create unverified context to bypass [SSL: CERTIFICATE_VERIFY_FAILED]
+        ctx = ssl._create_unverified_context()
 
         mime = mimetypes.guess_type(str(path))[0] or "text/plain"
         boundary = "----PythonFormBoundary7MA4YWxkTrZu0gW"
@@ -113,7 +116,7 @@ def upload_file(path: Path, content: bytes) -> str:
                 "content-type": f"multipart/form-data; boundary={boundary}",
             },
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
             result = json.loads(resp.read())
             return result["id"]
     except Exception as e:

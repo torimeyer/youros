@@ -523,7 +523,7 @@ export function Sidebar() {
       try {
         // Read `count`, not `active_count`. `active_count` only
         // includes sessions that wrote an event in the last 5 minutes,
-        // so a Claude Code tab (or torichat tab, or any other session)
+        // so a Claude Code tab (or chat tab, or any other session)
         // that has been sitting idle without a tool call briefly falls
         // out and the sidebar lies "No sessions" while the user is
         // clearly still there. `count` includes every session alive

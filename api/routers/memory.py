@@ -99,7 +99,7 @@ async def get_overflow_status():
 
 
 class SplitTopicRequest(BaseModel):
-    bullet_text: str
+    bullet_texts: list[str]
     topic_name: str
 
 
@@ -110,11 +110,19 @@ class RenameTopicRequest(BaseModel):
 
 @router.post("/user/split-topic")
 async def split_topic(body: SplitTopicRequest):
-    """Move a bullet from the index into a named topic file."""
-    ok = _user_mem.split_into_topic(body.bullet_text, body.topic_name)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Bullet not found in memory")
-    return {"ok": True}
+    """Move bullets from the index into a named topic file."""
+    succeeded = []
+    failed = []
+    for bullet in body.bullet_texts:
+        if _user_mem.split_into_topic(bullet, body.topic_name):
+            succeeded.append(bullet)
+        else:
+            failed.append(bullet)
+            
+    if not succeeded and failed:
+        raise HTTPException(status_code=404, detail="None of the bullets were found in memory")
+        
+    return {"ok": True, "succeeded": len(succeeded), "failed": len(failed)}
 
 
 @router.post("/user/rename-topic")

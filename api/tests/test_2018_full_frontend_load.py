@@ -77,7 +77,7 @@ def _p95(samples):
 LOOP_BLOCK_P95_BUDGET = 0.15
 
 # Number of seeded session dirs. A busy live box easily has this many open
-# Claude Code tabs / torichat turns / spawned fleet members writing events.
+# Claude Code tabs / chat turns / spawned fleet members writing events.
 # (The live box that wedged had ~96 stale procs plus dozens of transcripts.)
 NUM_SEEDED_SESSIONS = 300
 # Lines per events.jsonl tail (each gets json.loads'd by _parse_event).

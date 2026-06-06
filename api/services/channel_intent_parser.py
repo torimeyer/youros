@@ -81,10 +81,15 @@ class InboundPoller:
                             m for m in msgs
                             if m["date"] > self._cursor and not m.get("is_from_me")
                         ]
+                        # Process oldest first
+                        new.sort(key=lambda x: x["date"])
                         for msg in new:
-                            await self._handler(msg)
-                        if new:
-                            self._cursor = max(m["date"] for m in new)
+                            try:
+                                await self._handler(msg)
+                                # Advance cursor immediately on success
+                                self._cursor = msg["date"]
+                            except Exception as exc:
+                                logger.error("error handling message %s: %s", msg.get("id"), exc)
             except Exception:
                 pass
             await asyncio.sleep(self.POLL_INTERVAL_S)
