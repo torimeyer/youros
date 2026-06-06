@@ -128,6 +128,16 @@ else
     echo "Claude Code not installed. Skipping."
 fi
 
+# Update Gemini CLI if a newer version is available (best-effort, 15s timeout)
+if command -v gemini &> /dev/null; then
+    echo "Checking Gemini CLI..."
+    timeout 15 npm update -g @google/gemini-cli --silent 2>/dev/null \
+        && echo -e "${GREEN}Gemini CLI is up to date.${NC}" \
+        || echo -e "${YELLOW}Could not check Gemini CLI updates. Continuing.${NC}"
+else
+    echo "Gemini CLI not installed. Skipping."
+fi
+
 # Check if frontend is built
 if [ ! -d "$DIR/app/dist" ]; then
     echo "Building the frontend (first time only)..."

@@ -404,12 +404,12 @@ async def test_spawn_worktree_copies_mcp_json(tmp_path, monkeypatch):
 
     # Fake project root with a .mcp.json and a pre-created worktree dir.
     fake_project = tmp_path / "project"
-    fake_project.mkdir()
+    fake_project.mkdir(exist_ok=True)
     fake_mcp = fake_project / ".mcp.json"
     fake_mcp.write_text('{"mcpServers":{"ostk":{"command":"ostk"}}}')
 
     wt_dir = fake_project / ".claude" / "worktrees" / f"agent-{agent_name}"
-    wt_dir.mkdir(parents=True)
+    wt_dir.mkdir(parents=True, exist_ok=True)
 
     import config as _config_mod
     monkeypatch.setattr(_config_mod, "PROJECT_ROOT", fake_project)

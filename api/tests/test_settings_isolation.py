@@ -49,7 +49,7 @@ def isolated_store(tmp_path, monkeypatch):
     so the global singleton goes back to the real ~/.myos path.
     """
     isolated_dir = tmp_path / "myos-isolated"
-    isolated_dir.mkdir()
+    isolated_dir.mkdir(exist_ok=True)
     monkeypatch.setenv("MYOS_HOME", str(isolated_dir))
 
     import services.settings_store as ss_mod
@@ -149,7 +149,7 @@ def test_init_does_not_touch_real_settings(isolated_store):
 def test_default_path_after_teardown(tmp_path, monkeypatch):
     """After removing MYOS_HOME, SETTINGS_PATH goes back to the real ~/.myos path."""
     isolated_dir = tmp_path / "temp-isolated"
-    isolated_dir.mkdir()
+    isolated_dir.mkdir(exist_ok=True)
     monkeypatch.setenv("MYOS_HOME", str(isolated_dir))
 
     import services.settings_store as ss_mod

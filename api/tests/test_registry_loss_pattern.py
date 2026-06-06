@@ -109,7 +109,7 @@ def test_ghost_reaper_resolver_prevents_false_reap(tmp_path):
     """
     # JSONL transcript lives somewhere ghost_reaper doesn't scan directly.
     jsonl_dir = tmp_path / "projects" / "session-abc"
-    jsonl_dir.mkdir(parents=True)
+    jsonl_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = jsonl_dir / "agent-live.jsonl"
     jsonl_path.write_text('{"type":"assistant","text":"working"}\n')
 

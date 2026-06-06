@@ -29,8 +29,8 @@ from services.spawn_isolation import sync_claude_dir_to_worktree
 
 
 def _make_fake_claude(root: Path) -> None:
-    (root / ".claude" / "hooks").mkdir(parents=True)
-    (root / ".claude" / "lib").mkdir(parents=True)
+    (root / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
+    (root / ".claude" / "lib").mkdir(parents=True, exist_ok=True)
     (root / ".claude" / "hooks" / "register-agent.sh").write_text(
         "#!/bin/bash\ncurl --connect-timeout 3 -m 5 -sSk ...\n"
     )
@@ -44,7 +44,7 @@ def test_worktree_write_does_not_leak_to_parent():
         tmp_p = Path(tmp)
         _make_fake_claude(tmp_p)
         wt = tmp_p / "worktree"
-        wt.mkdir()
+        wt.mkdir(exist_ok=True)
 
         ok = asyncio.run(
             sync_claude_dir_to_worktree(tmp_p / ".claude", wt / ".claude")
@@ -67,7 +67,7 @@ def test_hooks_dir_is_real_directory_not_symlink():
         tmp_p = Path(tmp)
         _make_fake_claude(tmp_p)
         wt = tmp_p / "worktree"
-        wt.mkdir()
+        wt.mkdir(exist_ok=True)
 
         asyncio.run(
             sync_claude_dir_to_worktree(tmp_p / ".claude", wt / ".claude")
@@ -85,7 +85,7 @@ def test_hooks_content_copied_at_spawn_time():
         tmp_p = Path(tmp)
         _make_fake_claude(tmp_p)
         wt = tmp_p / "worktree"
-        wt.mkdir()
+        wt.mkdir(exist_ok=True)
 
         asyncio.run(
             sync_claude_dir_to_worktree(tmp_p / ".claude", wt / ".claude")
@@ -103,7 +103,7 @@ def test_non_hooks_content_is_rsynced():
         tmp_p = Path(tmp)
         _make_fake_claude(tmp_p)
         wt = tmp_p / "worktree"
-        wt.mkdir()
+        wt.mkdir(exist_ok=True)
 
         asyncio.run(
             sync_claude_dir_to_worktree(tmp_p / ".claude", wt / ".claude")

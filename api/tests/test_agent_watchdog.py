@@ -76,7 +76,7 @@ def test_find_transcript_finds_worktree_project_jsonl(tmp_path):
     )
 
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    repo_root.mkdir(exist_ok=True)
 
     with patch("services.heartbeat_idle.Path.home", return_value=fake_home):
         result = find_transcript(agent_name, repo_root=repo_root)
@@ -93,12 +93,12 @@ def test_find_transcript_worktree_ignores_unrelated_dirs(tmp_path):
     unrelated_dir = (
         fake_home / ".claude" / "projects" / "-some-other-project-dir"
     )
-    unrelated_dir.mkdir(parents=True)
+    unrelated_dir.mkdir(parents=True, exist_ok=True)
     unrelated_jsonl = unrelated_dir / "sess.jsonl"
     unrelated_jsonl.write_text(json.dumps({"content": "unrelated"}) + "\n")
 
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    repo_root.mkdir(exist_ok=True)
 
     with patch("services.heartbeat_idle.Path.home", return_value=fake_home):
         result = find_transcript(agent_name, repo_root=repo_root)
@@ -113,19 +113,19 @@ def test_find_transcript_worktree_prefers_freshest(tmp_path):
     projects_root = fake_home / ".claude" / "projects"
 
     old_dir = projects_root / f"-foo--worktrees-agent-{agent_name}"
-    old_dir.mkdir(parents=True)
+    old_dir.mkdir(parents=True, exist_ok=True)
     old_file = old_dir / "sess-old.jsonl"
     old_file.write_text("{}\n")
     os.utime(old_file, (time.time() - 300, time.time() - 300))
 
     new_dir = projects_root / f"-bar--worktrees-agent-{agent_name}"
-    new_dir.mkdir(parents=True)
+    new_dir.mkdir(parents=True, exist_ok=True)
     new_file = new_dir / "sess-new.jsonl"
     new_file.write_text("{}\n")
     os.utime(new_file, (time.time() - 10, time.time() - 10))
 
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    repo_root.mkdir(exist_ok=True)
 
     with patch("services.heartbeat_idle.Path.home", return_value=fake_home):
         result = find_transcript(agent_name, repo_root=repo_root)
@@ -247,7 +247,7 @@ def test_watchdog_snapshot_reads_real_transcript(tmp_path):
     agent_name = "snapshot-agent-xyz"
     fake_home = tmp_path / "home"
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    repo_root.mkdir(exist_ok=True)
 
     transcript = _make_worktree_transcript(
         fake_home,
@@ -276,7 +276,7 @@ def test_watchdog_integration_transcript_growing_not_stalled(tmp_path):
     agent_name = "conflict-resolver-xyz"
     fake_home = tmp_path / "home"
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    repo_root.mkdir(exist_ok=True)
 
     transcript = _make_worktree_transcript(
         fake_home,

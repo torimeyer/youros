@@ -158,7 +158,7 @@ def test_disk_cache_skips_full_scan_on_cold_start(tmp_path: Path):
     instead of a 4+ second full scan of the 500 MB+ metrics.jsonl (→29 fix).
     """
     metrics_file = tmp_path / ".ostk" / "metrics.jsonl"
-    metrics_file.parent.mkdir(parents=True)
+    metrics_file.parent.mkdir(parents=True, exist_ok=True)
     disk_cache_file = tmp_path / ".ostk" / "metrics_totals_cache.json"
 
     # Write 3 known lines to metrics.jsonl
@@ -196,7 +196,7 @@ def test_disk_cache_written_after_full_scan(tmp_path: Path):
     so the NEXT cold start uses the fast tail-read path.
     """
     metrics_file = tmp_path / ".ostk" / "metrics.jsonl"
-    metrics_file.parent.mkdir(parents=True)
+    metrics_file.parent.mkdir(parents=True, exist_ok=True)
     disk_cache_file = tmp_path / ".ostk" / "metrics_totals_cache.json"
 
     metrics_file.write_text(

@@ -217,6 +217,25 @@ upgrade_ostk() {
 upgrade_ostk
 echo ""
 
+# --- Upgrade Gemini CLI ---
+
+upgrade_gemini() {
+    if ! command -v gemini &> /dev/null; then
+        echo "Gemini CLI is not installed. Skipping upgrade check."
+        return 0
+    fi
+
+    echo "Checking for Gemini CLI upgrades..."
+    if npm update -g @google/gemini-cli --silent 2>/dev/null; then
+        echo -e "${GREEN}Gemini CLI updated to latest version.${NC}"
+    else
+        echo -e "${YELLOW}Could not update Gemini CLI. Continuing.${NC}"
+    fi
+}
+
+upgrade_gemini
+echo ""
+
 # --- Re-run the installer to refresh dependencies ---
 
 # Capture the commit we started from so we can roll back on smoke failure.

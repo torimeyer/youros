@@ -197,7 +197,7 @@ async def test_reaper_skips_running_agent_worktree(tmp_path, monkeypatch):
 
     # Set up a minimal git repo.
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     _git(repo, "init", "-q", "-b", "main")
     _git(repo, "config", "user.email", "test@example.com")
     _git(repo, "config", "user.name", "Test")
@@ -210,7 +210,7 @@ async def test_reaper_skips_running_agent_worktree(tmp_path, monkeypatch):
     # git bug where `worktree add -b` can fail with ".git/index: Not a directory"
     # when the parent directory is pre-created.
     wt_parent = repo / ".claude" / "worktrees"
-    wt_parent.mkdir(parents=True)
+    wt_parent.mkdir(parents=True, exist_ok=True)
     wt_dir = wt_parent / "agent-test-live-abc123"
     _git(repo, "branch", "worktree-agent-test-live-abc123")
     _git(repo, "worktree", "add", "-q", str(wt_dir), "worktree-agent-test-live-abc123")

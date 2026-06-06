@@ -198,7 +198,7 @@ class TestReadAnchorPid:
     def test_returns_dict_when_valid(self, tmp_path):
         from services.upgrade_check import _read_anchor_pid
         anchor = {"pid": 12345, "ostk_version": "6.0.0"}
-        (tmp_path / ".ostk").mkdir()
+        (tmp_path / ".ostk").mkdir(exist_ok=True)
         (tmp_path / ".ostk" / "anchor.pid").write_text(json.dumps(anchor))
         result = _read_anchor_pid(tmp_path)
         assert result == anchor
@@ -210,7 +210,7 @@ class TestReadAnchorPid:
 
     def test_returns_none_on_bad_json(self, tmp_path):
         from services.upgrade_check import _read_anchor_pid
-        (tmp_path / ".ostk").mkdir()
+        (tmp_path / ".ostk").mkdir(exist_ok=True)
         (tmp_path / ".ostk" / "anchor.pid").write_text("not json")
         result = _read_anchor_pid(tmp_path)
         assert result is None
@@ -221,7 +221,7 @@ class TestRestartStaleDaemon:
         """Stale daemon (old version) must receive SIGTERM after upgrade."""
         from services import upgrade_check as mod
         anchor = {"pid": 99999, "ostk_version": "6.0.0"}
-        (tmp_path / ".ostk").mkdir()
+        (tmp_path / ".ostk").mkdir(exist_ok=True)
         (tmp_path / ".ostk" / "anchor.pid").write_text(json.dumps(anchor))
 
         with patch.object(mod, "PROJECT_ROOT", tmp_path), \
@@ -234,7 +234,7 @@ class TestRestartStaleDaemon:
         """No kill when daemon already runs the new version."""
         from services import upgrade_check as mod
         anchor = {"pid": 99999, "ostk_version": "6.0.5"}
-        (tmp_path / ".ostk").mkdir()
+        (tmp_path / ".ostk").mkdir(exist_ok=True)
         (tmp_path / ".ostk" / "anchor.pid").write_text(json.dumps(anchor))
 
         with patch.object(mod, "PROJECT_ROOT", tmp_path), \
@@ -256,7 +256,7 @@ class TestRestartStaleDaemon:
         """ProcessLookupError (daemon already stopped) must not propagate."""
         from services import upgrade_check as mod
         anchor = {"pid": 99999, "ostk_version": "6.0.0"}
-        (tmp_path / ".ostk").mkdir()
+        (tmp_path / ".ostk").mkdir(exist_ok=True)
         (tmp_path / ".ostk" / "anchor.pid").write_text(json.dumps(anchor))
 
         with patch.object(mod, "PROJECT_ROOT", tmp_path), \
@@ -280,7 +280,7 @@ class TestRestartStaleDaemonIntegration:
 
         # Simulate daemon running at 6.0.0 while binary is now 6.0.5
         anchor = {"pid": 54321, "ostk_version": "6.0.0", "build_hash": "abc"}
-        (tmp_path / ".ostk").mkdir()
+        (tmp_path / ".ostk").mkdir(exist_ok=True)
         (tmp_path / ".ostk" / "anchor.pid").write_text(json.dumps(anchor))
 
         with patch.object(mod, "PROJECT_ROOT", tmp_path), \

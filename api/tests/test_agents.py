@@ -65,7 +65,7 @@ def _reset_transcript_caches():
 def audit_dir(tmp_path):
     """Create a temporary .ostk directory with an audit log."""
     ostk_dir = tmp_path / ".ostk"
-    ostk_dir.mkdir()
+    ostk_dir.mkdir(exist_ok=True)
     return ostk_dir
 
 
@@ -1110,7 +1110,7 @@ async def test_list_nudges_does_not_include_replies_subdir(tmp_path):
     svc = OstkService()
     nudges_dir = tmp_path / "nudges"
     agent_dir = nudges_dir / "a"
-    agent_dir.mkdir(parents=True)
+    agent_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "20260409T030000_000.json").write_text(json.dumps({
         "agent": "a",
         "message": "user msg",
@@ -1158,7 +1158,7 @@ async def test_list_nudges_reads_files(tmp_path):
     svc = OstkService()
     nudges_dir = tmp_path / "nudges"
     agent_dir = nudges_dir / "my-agent"
-    agent_dir.mkdir(parents=True)
+    agent_dir.mkdir(parents=True, exist_ok=True)
 
     # Write two nudge files
     (agent_dir / "20260404T210000_001.json").write_text(json.dumps({
@@ -1768,7 +1768,7 @@ def test_transcript_metrics_returns_size_and_lines(tmp_path):
     """_get_transcript_metrics should return byte count and line count."""
     from routers.agents import _get_transcript_metrics
     transcripts_dir = tmp_path / "transcripts"
-    transcripts_dir.mkdir()
+    transcripts_dir.mkdir(exist_ok=True)
     transcript = transcripts_dir / "my-agent.md"
     transcript.write_text("line one\nline two\nline three\n")
 
@@ -1783,7 +1783,7 @@ def test_transcript_metrics_missing_file(tmp_path):
     """When no transcript file exists, return zeros."""
     from routers.agents import _get_transcript_metrics
     transcripts_dir = tmp_path / "transcripts"
-    transcripts_dir.mkdir()
+    transcripts_dir.mkdir(exist_ok=True)
 
     with patch("config.PROJECT_ROOT", tmp_path):
         metrics = _get_transcript_metrics("nonexistent")
@@ -1796,7 +1796,7 @@ def test_transcript_metrics_empty_file(tmp_path):
     """An empty transcript should return 0 bytes and 0 lines."""
     from routers.agents import _get_transcript_metrics
     transcripts_dir = tmp_path / "transcripts"
-    transcripts_dir.mkdir()
+    transcripts_dir.mkdir(exist_ok=True)
     transcript = transcripts_dir / "empty-agent.md"
     transcript.write_text("")
 
@@ -1824,7 +1824,7 @@ def test_resolve_transcript_source_is_cached(tmp_path):
     )
 
     transcripts_dir = tmp_path / "transcripts"
-    transcripts_dir.mkdir()
+    transcripts_dir.mkdir(exist_ok=True)
     (transcripts_dir / "slow-agent.md").write_text("hello\n")
 
     call_count = {"n": 0}
@@ -3157,10 +3157,10 @@ def test_resolve_transcript_finds_jsonl_in_claude_projects(tmp_path):
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
     jsonl = _write_subagent_jsonl(project_dir, "audit-test-coverage")
 
     agent_metadata["audit-test-coverage"] = {
@@ -3187,10 +3187,10 @@ def test_resolve_transcript_picks_freshest_matching_jsonl(tmp_path):
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
 
     older = _write_subagent_jsonl(project_dir, "scout-agent", session="session-older")
     import os, time
@@ -3223,10 +3223,10 @@ async def test_view_transcript_endpoint_returns_jsonl_for_claude_code_agent(tmp_
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
     _write_subagent_jsonl(project_dir, "end-to-end-agent")
 
     transport = ASGITransport(app=app)
@@ -3265,10 +3265,10 @@ def test_transcript_metrics_reads_jsonl_for_claude_code_agent(tmp_path):
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
     jsonl = _write_subagent_jsonl(project_dir, "metrics-jsonl-agent")
     body = jsonl.read_text()
 
@@ -3293,10 +3293,10 @@ async def test_share_snapshot_includes_jsonl_for_claude_code_agent(tmp_path):
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
     _write_subagent_jsonl(project_dir, "share-jsonl-agent")
 
     agent_metadata["share-jsonl-agent"] = {"source": "claude-code", "status": "completed"}
@@ -3349,10 +3349,10 @@ async def test_view_transcript_discovers_tasks_output_for_claude_code_agent(tmp_
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
 
     fake_tasks_root = tmp_path / "tasks-root"
     tasks_project_dir = fake_tasks_root / f"-{project_label}"
@@ -3404,10 +3404,10 @@ async def test_complete_does_not_clobber_real_transcript_with_stub(tmp_path):
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
     _write_subagent_jsonl(project_dir, "clobber-test-agent")
 
     transport = ASGITransport(app=app)
@@ -3521,17 +3521,17 @@ def test_resolve_transcript_rejects_stub_markdown(tmp_path):
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     # Stub markdown at the legacy location.
     transcripts_dir = fake_repo / "transcripts"
-    transcripts_dir.mkdir()
+    transcripts_dir.mkdir(exist_ok=True)
     stub = transcripts_dir / "stub-agent.md"
     stub.write_text("Agent 'stub-agent' completed (registered externally).\n")
 
     # Real subagent jsonl at the Claude Code path.
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
     real = _write_subagent_jsonl(project_dir, "stub-agent")
 
     agent_metadata["stub-agent"] = {"source": "claude-code", "status": "completed"}
@@ -3555,15 +3555,15 @@ def test_resolve_transcript_falls_back_to_stub_when_no_real_transcript(tmp_path)
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     transcripts_dir = fake_repo / "transcripts"
-    transcripts_dir.mkdir()
+    transcripts_dir.mkdir(exist_ok=True)
     stub = transcripts_dir / "lonely-agent.md"
     stub.write_text("Agent 'lonely-agent' completed (registered externally).\n")
 
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
     # No real subagent jsonl anywhere.
 
     agent_metadata["lonely-agent"] = {"source": "claude-code", "status": "completed"}
@@ -3586,7 +3586,7 @@ def test_register_autodiscovers_transcript_path_from_tasks_root(tmp_path):
     from routers.agents import _autodiscover_recent_transcript_path
 
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     fake_tasks_root = tmp_path / "tasks-root"
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     tasks_project_dir = fake_tasks_root / f"-{project_label}"
@@ -3606,7 +3606,7 @@ def test_register_autodiscover_ignores_stale_files(tmp_path):
     from routers.agents import _autodiscover_recent_transcript_path
 
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     fake_tasks_root = tmp_path / "tasks-root"
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     tasks_project_dir = fake_tasks_root / f"-{project_label}"
@@ -5038,7 +5038,7 @@ async def test_templates_route_returns_capabilities(tmp_path, monkeypatch):
     from routers import agents as agents_module
 
     agents_dir = tmp_path / "agents"
-    agents_dir.mkdir()
+    agents_dir.mkdir(exist_ok=True)
     (agents_dir / "demo.agent").write_text(
         'FROM auto\n'
         'PROMPT "hi"\n'
@@ -5083,7 +5083,7 @@ async def test_templates_route_surfaces_parse_errors(tmp_path, monkeypatch):
     from routers import agents as agents_module
 
     agents_dir = tmp_path / "agents"
-    agents_dir.mkdir()
+    agents_dir.mkdir(exist_ok=True)
     (agents_dir / "broken.agent").write_text(
         'FROM auto\nPROMPT "x"\nISOLATION spaceship\n'
     )
@@ -5396,9 +5396,9 @@ async def test_spawn_with_category_prefixed_template_resolves_correctly(tmp_path
     -> 'roadmap'), which matches the actual file naming convention.
     """
     agents_dir = tmp_path / "agents"
-    agents_dir.mkdir()
+    agents_dir.mkdir(exist_ok=True)
     marketplace_dir = agents_dir / "marketplace"
-    marketplace_dir.mkdir()
+    marketplace_dir.mkdir(exist_ok=True)
     (agents_dir / "builder.agent").write_text(
         'FROM auto\nPROMPT "builder"\nTOOL shell\n'
     )
@@ -8190,19 +8190,19 @@ async def test_transcript_path_plain_text_falls_through_to_subagent_scan(tmp_pat
 
     # Create a fake ostk task output (plain text, not a conversation)
     task_out = tmp_path / "tasks" / "abc123.output"
-    task_out.parent.mkdir(parents=True)
+    task_out.parent.mkdir(parents=True, exist_ok=True)
     task_out.write_text("ready\nregistered 5/5\n")
 
     # Set up the subagent JSONL in the expected location:
     #   <projects_root>/-<project_label>/<session>/subagents/agent-xyz.jsonl
     fake_projects_root = tmp_path / "projects"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_projects_root / f"-{project_label}"
     session_dir = project_dir / "session-aabbcc"
     subagent_dir = session_dir / "subagents"
-    subagent_dir.mkdir(parents=True)
+    subagent_dir.mkdir(parents=True, exist_ok=True)
     subagent_jsonl = subagent_dir / "agent-xyz.jsonl"
 
     spawn_prompt_line = json.dumps({
@@ -8260,7 +8260,7 @@ async def test_transcript_endpoint_fast_after_warm_cache(tmp_path):
     from routers.agents import agent_metadata, _reset_transcript_resolver_cache, _reset_candidates_cache
 
     transcripts_dir = tmp_path / "transcripts"
-    transcripts_dir.mkdir(parents=True)
+    transcripts_dir.mkdir(parents=True, exist_ok=True)
     agent_md = transcripts_dir / "fast-agent.md"
     # Write a reasonably-sized transcript (simulates a real agent output)
     agent_md.write_text("## Summary\n\n" + ("This is a line of transcript content.\n" * 200))
@@ -8289,7 +8289,7 @@ async def test_transcript_missing_returns_actionable_empty_response(tmp_path):
     instead of treating a missing transcript as a network error.
     """
     empty_projects = tmp_path / "projects"
-    empty_projects.mkdir()
+    empty_projects.mkdir(exist_ok=True)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         with patch("config.PROJECT_ROOT", tmp_path), \
@@ -8328,7 +8328,7 @@ def test_candidates_cache_ttl_behavior(tmp_path):
     # Session 1 with a subagent file
     session1 = tmp_path / "session-aaa"
     subdir1 = session1 / "subagents"
-    subdir1.mkdir(parents=True)
+    subdir1.mkdir(parents=True, exist_ok=True)
     file1 = subdir1 / "agent-111.jsonl"
     file1.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "hello"}}) + "\n")
 
@@ -8342,7 +8342,7 @@ def test_candidates_cache_ttl_behavior(tmp_path):
     # New session dir created AFTER the first call
     session2 = tmp_path / "session-bbb"
     subdir2 = session2 / "subagents"
-    subdir2.mkdir(parents=True)
+    subdir2.mkdir(parents=True, exist_ok=True)
     file2 = subdir2 / "agent-222.jsonl"
     file2.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "world"}}) + "\n")
 
@@ -8838,7 +8838,7 @@ async def test_roadmap_saves_output_to_roadmap_md(tmp_path):
     }
 
     fake_home = tmp_path / "home"
-    fake_home.mkdir()
+    fake_home.mkdir(exist_ok=True)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -8899,7 +8899,7 @@ async def test_roadmap_save_skipped_for_non_roadmap_agents(tmp_path):
         "status": "running",
     }
     fake_home = tmp_path / "home"
-    fake_home.mkdir()
+    fake_home.mkdir(exist_ok=True)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -8964,7 +8964,7 @@ async def test_complete_saves_summary_as_md_file_in_myos_files(tmp_path):
         "status": "running",
     }
     fake_home = tmp_path / "home"
-    fake_home.mkdir()
+    fake_home.mkdir(exist_ok=True)
     files_dir = fake_home / ".myos" / "files"
 
     summary = (
@@ -9027,7 +9027,7 @@ async def test_complete_skips_empty_summary(tmp_path):
         "status": "running",
     }
     fake_home = tmp_path / "home"
-    fake_home.mkdir()
+    fake_home.mkdir(exist_ok=True)
     files_dir = fake_home / ".myos" / "files"
 
     transport = ASGITransport(app=app)
@@ -9076,7 +9076,7 @@ async def test_complete_skips_test_artifact_agent_names(tmp_path):
         "otherwise land a file on disk."
     )
     fake_home = tmp_path / "home"
-    fake_home.mkdir()
+    fake_home.mkdir(exist_ok=True)
     files_dir = fake_home / ".myos" / "files"
 
     infra_names = [
@@ -9154,7 +9154,7 @@ async def test_solo_agent_without_opt_in_does_not_produce_md(tmp_path):
         "status": "running",
     }
     fake_home = tmp_path / "home"
-    fake_home.mkdir()
+    fake_home.mkdir(exist_ok=True)
     files_dir = fake_home / ".myos" / "files"
 
     summary = (
@@ -9221,7 +9221,7 @@ async def test_agent_with_produces_doc_opt_in_writes_md(tmp_path):
         "status": "running",
     }
     fake_home = tmp_path / "home"
-    fake_home.mkdir()
+    fake_home.mkdir(exist_ok=True)
     files_dir = fake_home / ".myos" / "files"
 
     summary = (
@@ -10172,7 +10172,7 @@ def test_complete_agent_hook_posts_to_complete_endpoint(tmp_path, monkeypatch):
 
     # Point the hook at a fake HOME so we do not touch ~/.myos.
     fake_home = tmp_path / "home"
-    (fake_home / ".myos" / "subagents").mkdir(parents=True)
+    (fake_home / ".myos" / "subagents").mkdir(parents=True, exist_ok=True)
     name_file = fake_home / ".myos" / "subagents" / "last.name"
     fake_agent_name = "perf-agent-templates-instant-abc123"
     name_file.write_text(fake_agent_name)
@@ -10180,7 +10180,7 @@ def test_complete_agent_hook_posts_to_complete_endpoint(tmp_path, monkeypatch):
     # Stub curl so the hook calls our fake binary instead of hitting
     # localhost. The stub records its argv to a file we can inspect.
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+    bin_dir.mkdir(exist_ok=True)
     curl_log = tmp_path / "curl.log"
     fake_curl = bin_dir / "curl"
     fake_curl.write_text(
@@ -10249,11 +10249,11 @@ def test_complete_agent_hook_uses_tool_use_id_for_parallel_safety(tmp_path):
     assert register_hook.exists() and complete_hook.exists()
 
     fake_home = tmp_path / "home"
-    (fake_home / ".myos" / "subagents").mkdir(parents=True)
+    (fake_home / ".myos" / "subagents").mkdir(parents=True, exist_ok=True)
 
     # Stub curl so the hooks do not hit the real server during tests.
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+    bin_dir.mkdir(exist_ok=True)
     curl_log = tmp_path / "curl.log"
     fake_curl = bin_dir / "curl"
     fake_curl.write_text(
@@ -10360,13 +10360,13 @@ def test_complete_agent_hook_queues_on_transport_failure(tmp_path):
     complete_hook = hooks_dir / "complete-agent.sh"
 
     fake_home = tmp_path / "home"
-    (fake_home / ".myos" / "subagents").mkdir(parents=True)
+    (fake_home / ".myos" / "subagents").mkdir(parents=True, exist_ok=True)
     name_file = fake_home / ".myos" / "subagents" / "last.name"
     name_file.write_text("queued-agent")
 
     # Fake curl that always fails.
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+    bin_dir.mkdir(exist_ok=True)
     fake_curl = bin_dir / "curl"
     fake_curl.write_text("#!/bin/bash\nexit 7\n")  # 7 = couldn't connect
     fake_curl.chmod(0o755)
@@ -10434,10 +10434,10 @@ def test_complete_agent_hook_queues_on_transport_failure__isolation_stress(
     )
     complete_hook = hooks_dir / "complete-agent.sh"
     fake_home = tmp_path / "home"
-    (fake_home / ".myos" / "subagents").mkdir(parents=True)
+    (fake_home / ".myos" / "subagents").mkdir(parents=True, exist_ok=True)
     (fake_home / ".myos" / "subagents" / "last.name").write_text("stress-agent")
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+    bin_dir.mkdir(exist_ok=True)
     fake_curl = bin_dir / "curl"
     fake_curl.write_text("#!/bin/bash\nexit 7\n")
     fake_curl.chmod(0o755)
@@ -10861,9 +10861,9 @@ async def test_live_jsonl_beats_stale_legacy_md_in_resolver(tmp_path, monkeypatc
 
     # Fake project root and Claude Code projects dir.
     project_root = tmp_path / "repo"
-    project_root.mkdir()
+    project_root.mkdir(exist_ok=True)
     cc_projects = tmp_path / "claude_projects"
-    cc_projects.mkdir()
+    cc_projects.mkdir(exist_ok=True)
 
     monkeypatch.setattr("config.PROJECT_ROOT", project_root)
     monkeypatch.setattr(agents_module, "_claude_code_projects_dir", lambda: cc_projects)
@@ -10872,7 +10872,7 @@ async def test_live_jsonl_beats_stale_legacy_md_in_resolver(tmp_path, monkeypatc
 
     # Stale legacy .md from a prior run: real content (not a stub), old mtime.
     legacy_dir = project_root / "transcripts"
-    legacy_dir.mkdir()
+    legacy_dir.mkdir(exist_ok=True)
     legacy_md = legacy_dir / f"{agent_name}.md"
     legacy_md.write_text(
         "## Prior session notes\n\n"
@@ -10888,7 +10888,7 @@ async def test_live_jsonl_beats_stale_legacy_md_in_resolver(tmp_path, monkeypatc
     # Live subagent JSONL: freshly written, first line references the agent name.
     project_label = str(project_root).replace("/", "-").lstrip("-")
     session_dir = cc_projects / f"-{project_label}" / "session-abc" / "subagents"
-    session_dir.mkdir(parents=True)
+    session_dir.mkdir(parents=True, exist_ok=True)
     live_jsonl = session_dir / "agent-xyz.jsonl"
     first_line = json.dumps({
         "type": "user",
@@ -10923,9 +10923,9 @@ async def test_autocomplete_does_not_complete_running_agent_with_live_jsonl(tmp_
     )
 
     project_root = tmp_path / "repo"
-    project_root.mkdir()
+    project_root.mkdir(exist_ok=True)
     cc_projects = tmp_path / "claude_projects"
-    cc_projects.mkdir()
+    cc_projects.mkdir(exist_ok=True)
 
     monkeypatch.setattr("config.PROJECT_ROOT", project_root)
     monkeypatch.setattr(agents_module, "_claude_code_projects_dir", lambda: cc_projects)
@@ -10934,7 +10934,7 @@ async def test_autocomplete_does_not_complete_running_agent_with_live_jsonl(tmp_
 
     # Stale non-stub legacy .md (the trap).
     legacy_dir = project_root / "transcripts"
-    legacy_dir.mkdir()
+    legacy_dir.mkdir(exist_ok=True)
     legacy_md = legacy_dir / f"{agent_name}.md"
     legacy_md.write_text(
         "## Old session notes\n\n"
@@ -10949,7 +10949,7 @@ async def test_autocomplete_does_not_complete_running_agent_with_live_jsonl(tmp_
     # Live subagent JSONL (mtime = now).
     project_label = str(project_root).replace("/", "-").lstrip("-")
     session_dir = cc_projects / f"-{project_label}" / "session-live" / "subagents"
-    session_dir.mkdir(parents=True)
+    session_dir.mkdir(parents=True, exist_ok=True)
     live_jsonl = session_dir / "agent-live.jsonl"
     first_line = json.dumps({
         "type": "user",
@@ -11414,10 +11414,10 @@ def test_stale_sweep_summary_reflects_work_done(tmp_path):
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
     _write_stale_sweep_jsonl(project_dir, "fix-edit-agent", with_edit=True)
 
     agent_metadata["fix-edit-agent"] = {
@@ -11453,10 +11453,10 @@ def test_stale_sweep_summary_when_nothing_done(tmp_path):
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
     _write_stale_sweep_jsonl(project_dir, "read-only-agent", with_edit=False)
 
     agent_metadata["read-only-agent"] = {
@@ -11680,11 +11680,11 @@ def test_resolve_transcript_description_match_rescues_name_divergence(tmp_path):
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
     subagents_dir = project_dir / "session-x" / "subagents"
-    subagents_dir.mkdir(parents=True)
+    subagents_dir.mkdir(parents=True, exist_ok=True)
 
     # The on-disk JSONL uses the INTERNAL name "inner-name", not the row
     # name. Strict-needle match on the row's name will fail here.
@@ -11752,11 +11752,11 @@ def test_resolve_transcript_description_match_ignores_wrong_description(tmp_path
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
     subagents_dir = project_dir / "session-x" / "subagents"
-    subagents_dir.mkdir(parents=True)
+    subagents_dir.mkdir(parents=True, exist_ok=True)
 
     jsonl = subagents_dir / "agent-xyz.jsonl"
     jsonl.write_text(_build_jsonl_session("some-other-agent"))
@@ -12025,7 +12025,7 @@ async def test_cancelled_zero_token_agent_does_not_write_transcript(tmp_path, mo
     from routers.agents import agent_metadata
 
     transcripts_dir = tmp_path / "transcripts"
-    transcripts_dir.mkdir()
+    transcripts_dir.mkdir(exist_ok=True)
     # The /complete handler re-imports PROJECT_ROOT via
     # ``from config import PROJECT_ROOT`` inside the function body, so
     # patching config.PROJECT_ROOT is what actually redirects writes.
@@ -12101,7 +12101,7 @@ async def test_completed_agent_with_tokens_writes_transcript(tmp_path, monkeypat
     import routers.agents as agents_mod
     from routers.agents import agent_metadata
 
-    (tmp_path / "transcripts").mkdir()
+    (tmp_path / "transcripts").mkdir(exist_ok=True)
     import config as config_mod
     monkeypatch.setattr(config_mod, "PROJECT_ROOT", tmp_path)
 
@@ -12746,20 +12746,20 @@ def test_resolve_transcript_finds_jsonl_in_worktree_project_dir(tmp_path):
 
     fake_home = tmp_path / "home"
     fake_repo = tmp_path / "repo"
-    fake_repo.mkdir()
+    fake_repo.mkdir(exist_ok=True)
     fake_worktree = tmp_path / "repo" / ".claude" / "worktrees" / "agent-wt-test"
-    fake_worktree.mkdir(parents=True)
+    fake_worktree.mkdir(parents=True, exist_ok=True)
 
     # Main project dir (where resolver looked before the fix).
     main_project_label = str(fake_repo).replace("/", "-").lstrip("-")
     main_project_dir = fake_home / ".claude" / "projects" / f"-{main_project_label}"
-    main_project_dir.mkdir(parents=True)
+    main_project_dir.mkdir(parents=True, exist_ok=True)
     # No JSONL in main project dir -- simulates the bug condition.
 
     # Worktree project dir (where Claude Code actually writes for worktree agents).
     wt_project_label = str(fake_worktree).replace("/", "-").lstrip("-")
     wt_project_dir = fake_home / ".claude" / "projects" / f"-{wt_project_label}"
-    wt_project_dir.mkdir(parents=True)
+    wt_project_dir.mkdir(parents=True, exist_ok=True)
     wt_jsonl = _write_subagent_jsonl(wt_project_dir, "wt-test-agent")
 
     agent_metadata["wt-test-agent"] = {
@@ -12808,7 +12808,7 @@ async def test_drain_stderr_writes_note_when_transcript_empty_after_exit(tmp_pat
 
     # Build a fake transcript path that starts empty (simulating touch()).
     transcript = tmp_path / "transcripts" / "empty-exit-agent.md"
-    transcript.parent.mkdir(parents=True)
+    transcript.parent.mkdir(parents=True, exist_ok=True)
     transcript.touch()
     stderr_log = transcript.with_suffix(".md.stderr.log")
 
@@ -13860,7 +13860,7 @@ async def test_create_worktree_reuses_abandoned_worktree_when_safe(tmp_path):
 
     branch = "worktree-agent-retry-reuse-1546"
     wt_path = tmp_path / f"agent-retry-reuse-1546"
-    wt_path.mkdir()  # simulate existing worktree directory
+    wt_path.mkdir(exist_ok=True)  # simulate existing worktree directory
 
     # Track which git operations are called to verify no destructive ops
     git_calls = []
@@ -13899,7 +13899,7 @@ async def test_create_worktree_refuses_when_unsafe_to_reuse(tmp_path):
 
     branch = "worktree-agent-unsafe-reuse-1546"
     wt_path = tmp_path / "agent-unsafe-reuse-1546"
-    wt_path.mkdir()
+    wt_path.mkdir(exist_ok=True)
 
     async def _fake_has_unmerged(_cwd, _branch):
         return True

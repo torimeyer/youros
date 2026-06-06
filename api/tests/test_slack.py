@@ -321,7 +321,7 @@ class TestSlackService:
 
     def test_disconnect_specific_workspace(self, tmp_path):
         workspaces_dir = tmp_path / "slack_workspaces"
-        workspaces_dir.mkdir(parents=True)
+        workspaces_dir.mkdir(parents=True, exist_ok=True)
         import json as _json
         (workspaces_dir / "T1.json").write_text(_json.dumps({"workspace_id": "T1", "workspace_name": "Acme", "access_token": "tok1"}))
         (workspaces_dir / "T2.json").write_text(_json.dumps({"workspace_id": "T2", "workspace_name": "Beta", "access_token": "tok2"}))

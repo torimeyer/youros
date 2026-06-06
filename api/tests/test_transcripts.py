@@ -54,9 +54,9 @@ def _create_session_meta(tmpdir, session_id, name="Test Session", kind="interact
 def transcript_dirs(tmp_path):
     """Create temporary session and project directories with test data."""
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir()
+    sessions_dir.mkdir(exist_ok=True)
     project_dir = tmp_path / "projects" / "-test-project"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
 
     # Create two transcripts: one with "hello world", one with "goodbye moon"
     now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
@@ -231,9 +231,9 @@ async def test_combined_search_and_kind_match(client, mock_dirs):
 async def test_list_transcripts_succeeds_with_bad_first_line(client, tmp_path):
     """GET /api/transcripts returns 200 when one session has a malformed first JSONL line."""
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir()
+    sessions_dir.mkdir(exist_ok=True)
     project_dir = tmp_path / "projects" / "-test-bad"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
 
     # One session with a corrupt first line followed by a valid line
     bad_file = project_dir / "bad-sess.jsonl"
@@ -281,9 +281,9 @@ async def test_list_transcripts_empty_when_projects_dir_missing(client, tmp_path
 async def test_list_transcripts_tolerates_mixed_directory(client, tmp_path):
     """GET /api/transcripts works with a mix of valid, empty, and binary-like session files."""
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir()
+    sessions_dir.mkdir(exist_ok=True)
     project_dir = tmp_path / "projects" / "-test-mixed"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
 
     # Valid session
     (project_dir / "valid-sess.jsonl").write_text(
@@ -349,9 +349,9 @@ async def test_get_transcript_returns_404_for_unknown_session(client, mock_dirs)
 async def test_get_transcript_skips_ismeta_system_reminders(client, tmp_path):
     """isMeta: true user entries (system reminders) must be dropped."""
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir()
+    sessions_dir.mkdir(exist_ok=True)
     project_dir = tmp_path / "projects" / "-meta-test"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
 
     reminder = "<system-reminder>Respond with just the action.</system-reminder>"
     real_ask = "actually diagnose the duplicate opening bug"
@@ -387,9 +387,9 @@ async def test_get_transcript_skips_ismeta_system_reminders(client, tmp_path):
 async def test_get_transcript_collapses_consecutive_identical_user_messages(client, tmp_path):
     """Consecutive identical user bubbles collapse to a single bubble."""
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir()
+    sessions_dir.mkdir(exist_ok=True)
     project_dir = tmp_path / "projects" / "-dup-test"
-    project_dir.mkdir(parents=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
 
     ping = "60s check: idle, stay ready."
     session_id = "sess-dup-ping"

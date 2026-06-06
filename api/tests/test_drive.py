@@ -504,7 +504,7 @@ async def test_drive_files_returns_cached(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "drive_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     index_path = cache_dir / "index.json"
     fake_files = _make_drive_files(2)
     index_path.write_text(json.dumps(fake_files))
@@ -529,7 +529,7 @@ async def test_drive_files_fetches_when_cache_stale(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "drive_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     index_path = cache_dir / "index.json"
     fake_files = _make_drive_files(5)
     index_path.write_text(json.dumps(fake_files))
@@ -561,7 +561,7 @@ async def test_drive_files_search_skips_cache(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "drive_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     index_path = cache_dir / "index.json"
     index_path.write_text(json.dumps(_make_drive_files(10)))
 
@@ -586,7 +586,7 @@ async def test_drive_files_cached_response_includes_last_synced_at(client, tmp_p
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "drive_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     index_path = cache_dir / "index.json"
     fake_files = _make_drive_files(2)
     index_path.write_text(json.dumps(fake_files))
@@ -652,7 +652,7 @@ async def test_drive_preview_cache_hit(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "drive_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     pdf_bytes = b"%PDF-1.4 fake-pdf"
     (cache_dir / "file-abc.pdf").write_bytes(pdf_bytes)
 
@@ -674,7 +674,7 @@ async def test_drive_preview_cache_miss_exports_pdf(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "drive_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
 
     fake_meta = {
         "id": "doc-id",
@@ -709,7 +709,7 @@ async def test_drive_preview_non_exportable_returns_json(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "drive_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
 
     fake_meta = {
         "id": "zip-id",
@@ -757,7 +757,7 @@ async def test_drive_preview_native_pdf_cold_cache_streams_response(client, tmp_
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "drive_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
 
     fake_pdf = b"%PDF-1.4 native-pdf-content"
     fake_meta = {
@@ -803,7 +803,7 @@ async def test_drive_preview_upload_uses_native_pdf_mimetype(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "drive_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
 
     fake_file_result = {
         "id": "new-pdf-id",
@@ -870,7 +870,7 @@ async def test_drive_sync_success(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "drive_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     index_path = cache_dir / "index.json"
     fresh = _make_drive_files(4)
 
@@ -1918,7 +1918,7 @@ async def test_drive_files_non_default_sort_skips_cache(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "drive_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     index_path = cache_dir / "index.json"
     index_path.write_text(json.dumps(_make_drive_files(5)))
 

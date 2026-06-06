@@ -12,7 +12,52 @@ import pytest_asyncio
 import httpx
 
 # Ensure api/ is on sys.path so imports like `from main import app` work
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+api_path = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(api_path))
+
+# PRE-EMPTIVE ISOLATION (→2042): Patch PROJECT_ROOT before any other module
+# imports it. This ensures that even top-level assignments in test modules
+# pick up the isolated path.
+import config as _config_mod
+import tempfile
+
+# Capture real root for the guard fixture before we clobber it
+REAL_PROJECT_ROOT = _config_mod.PROJECT_ROOT
+
+_fake_root = Path(tempfile.gettempdir()) / "pytest_myos_root"
+_fake_root.mkdir(parents=True, exist_ok=True)
+(_fake_root / "transcripts").mkdir(parents=True, exist_ok=True)
+(_fake_root / "agents").mkdir(parents=True, exist_ok=True)
+(_fake_root / "README.md").write_text("# Test Root")
+# Seed the fake root with real agentfiles so templates-based spawns work
+# without requiring each test to mock the agentfile parser.
+for agent_file in REAL_PROJECT_ROOT.glob("agents/*.agent"):
+    dest = _fake_root / "agents" / agent_file.name
+    if not dest.exists():
+        try:
+            os.symlink(agent_file, dest)
+        except OSError:
+            shutil.copy2(agent_file, dest)
+
+# Also seed the manifest
+manifest_src = REAL_PROJECT_ROOT / "agents" / "manifest.json"
+manifest_dest = _fake_root / "agents" / "manifest.json"
+if manifest_src.exists() and not manifest_dest.exists():
+    try:
+        os.symlink(manifest_src, manifest_dest)
+    except OSError:
+        shutil.copy2(manifest_src, manifest_dest)
+
+(_fake_root / ".ostk" / "needles").mkdir(parents=True, exist_ok=True)
+(_fake_root / ".ostk" / "needles" / "issues.jsonl").write_text("")
+
+_config_mod.PROJECT_ROOT = _fake_root
+_config_mod.OSTK_DIR = _fake_root / ".ostk"
+_config_mod.AGENTS_DIR = _fake_root / "agents"
+
+# Also patch the global ostk singleton early
+from services.ostk import ostk as _global_ostk
+_global_ostk.cwd = str(_fake_root)
 
 # The agents router runs a one-shot retroactive sweep at import time that
 # scans ~/.myos/agent_memory/ and writes summaries into ~/.myos/files/.
@@ -46,6 +91,22 @@ os.environ.setdefault("MYOS_DISABLE_RATE_LIMIT", "1")
 os.environ.setdefault("MYOS_REAPER_ENABLED", "0")
 
 from main import app
+
+
+@pytest.fixture(autouse=True)
+def _isolate_tasks_ostk(tmp_path, monkeypatch):
+    """Redirect ostk.cwd to a tmp path for every test (→1323).
+
+    This ensures that any code path calling 'ostk work add' or similar
+    writes to a per-test sandbox, not the shared _fake_root (which would
+    cause isolation tests to fail) and certainly not the real repo.
+    """
+    from services.ostk import ostk
+    monkeypatch.setattr(ostk, "cwd", str(tmp_path))
+    # Ensure the directory structure exists so ostk doesn't fail on boot
+    (tmp_path / ".ostk" / "needles").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".ostk" / "needles" / "issues.jsonl").write_text("")
+    yield
 
 
 @pytest.fixture(autouse=True)
@@ -587,35 +648,6 @@ def _check_no_live_agents(curl_stdout: str) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_tasks_ostk(tmp_path, monkeypatch):
-    """Redirect routers.tasks.ostk to a tmp OstkService so no test writes
-    to the real .ostk/needles/issues.jsonl.
-
-    Tests that already patch routers.tasks.ostk with their own ``with patch(...)``
-    are unaffected — their inner patch wins for that scope. This fixture is a
-    safety net for any test that hits the tasks router via the ASGI client
-    without its own ostk mock.
-
-    Root cause of →1323: the real ostk singleton's cwd pointed at the project
-    root, so any POST /api/tasks call (including those from e2e_smoke.sh phase 4)
-    wrote real needles into .ostk/needles/issues.jsonl.
-    """
-    from services.ostk import OstkService
-    import routers.tasks as tasks_mod
-
-    # Use a dedicated subdirectory so we don't collide with tests that also
-    # create .ostk/needles/ inside tmp_path for their own fixtures.
-    tmp_root = tmp_path / "_ostk_isolation"
-    tmp_needles = tmp_root / ".ostk" / "needles"
-    tmp_needles.mkdir(parents=True, exist_ok=True)
-    (tmp_needles / "issues.jsonl").write_text("")
-
-    tmp_svc = OstkService(cwd=str(tmp_root))
-    monkeypatch.setattr(tasks_mod, "ostk", tmp_svc)
-    yield
-
-
-@pytest.fixture(autouse=True)
 def _isolate_threads_store(tmp_path, monkeypatch):
     """Redirect threads_store to a per-test tmp file so no test writes to
     the real ~/.myos/threads.json.
@@ -693,7 +725,8 @@ def _guard_real_store_writes():
     still patched — it can see the real on-disk files, not the tmp copies.
     """
     from pathlib import Path
-    from config import PROJECT_ROOT
+    # Use REAL_PROJECT_ROOT captured at the top of conftest.py (→2042)
+    # so we guard the real repo even when config.PROJECT_ROOT is patched.
 
     # Sentinel: file exists but the read blocked (e.g. ostk kernel holds an
     # exclusive lock on issues.jsonl while rewriting it).  When either snap
@@ -725,7 +758,7 @@ def _guard_real_store_writes():
         t.join(timeout=0.1)
         return result[0]
 
-    issues_path = PROJECT_ROOT / ".ostk" / "needles" / "issues.jsonl"
+    issues_path = REAL_PROJECT_ROOT / ".ostk" / "needles" / "issues.jsonl"
     threads_path = Path.home() / ".myos" / "threads.json"
 
     # In worktree contexts .ostk/needles is a symlink to the live repo store.

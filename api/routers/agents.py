@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 _TERMINAL_STATUSES = frozenset({
     "completed", "failed", "cancelled", "terminated_stale",
-    "killed", "stopped", "abandoned", "completed_timeout",
+    "killed", "stopped", "abandoned", "completed_timeout", "stalled",
 })
 
 
@@ -10451,8 +10451,11 @@ _WS_ACTIVE_STATUSES = frozenset({"running", "spawned", "starting"})
 def _compute_running_snapshot() -> dict:
     """Return running_count and agents list filtered to user-spawned active rows."""
     from services.agent_filters import is_user_spawned_agent
+    deleted_names = _load_deleted_agents()
     running = []
     for _name, _meta in agent_metadata.items():
+        if _name in deleted_names:
+            continue
         row = {"name": _name, **_meta}
         if is_user_spawned_agent(row) and _meta.get("status") in _WS_ACTIVE_STATUSES:
             running.append({

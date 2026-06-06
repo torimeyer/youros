@@ -57,7 +57,7 @@ def _call_emit(event: str, data: dict, ostk_dir: Path) -> None:
 def test_emit_audit_event_dedupes_within_60s(tmp_path):
     """Calling _emit_audit_event twice for agent.completed within 60s writes only one row."""
     ostk_dir = tmp_path / ".ostk"
-    ostk_dir.mkdir()
+    ostk_dir.mkdir(exist_ok=True)
 
     _call_emit("agent.completed", {"name": "dedup-test-bot"}, ostk_dir)
     _call_emit("agent.completed", {"name": "dedup-test-bot"}, ostk_dir)
@@ -72,7 +72,7 @@ def test_emit_audit_event_dedupes_within_60s(tmp_path):
 def test_emit_audit_event_allows_unique_events(tmp_path):
     """Two different event types for the same agent within 60s both land."""
     ostk_dir = tmp_path / ".ostk"
-    ostk_dir.mkdir()
+    ostk_dir.mkdir(exist_ok=True)
 
     _call_emit("agent.spawned", {"name": "dedup-test-bot"}, ostk_dir)
     _call_emit("agent.completed", {"name": "dedup-test-bot"}, ostk_dir)
@@ -87,7 +87,7 @@ def test_emit_audit_event_allows_unique_events(tmp_path):
 def test_emit_audit_event_allows_event_after_60s(tmp_path):
     """An agent.completed that is >60s after the last one is NOT suppressed."""
     ostk_dir = tmp_path / ".ostk"
-    ostk_dir.mkdir()
+    ostk_dir.mkdir(exist_ok=True)
     audit_path = ostk_dir / "audit.jsonl"
 
     # Pre-seed an old completed event (70 seconds ago)
@@ -113,7 +113,7 @@ async def test_dedupe_endpoint_collapses_existing_dupes(tmp_path):
     import routers.activity as activity_module
 
     ostk_dir = tmp_path / ".ostk"
-    ostk_dir.mkdir()
+    ostk_dir.mkdir(exist_ok=True)
     audit_path = ostk_dir / "audit.jsonl"
 
     # Six duplicate agent.completed rows within a 30-second window
@@ -154,7 +154,7 @@ async def test_dedupe_endpoint_no_dupes(tmp_path):
     import routers.activity as activity_module
 
     ostk_dir = tmp_path / ".ostk"
-    ostk_dir.mkdir()
+    ostk_dir.mkdir(exist_ok=True)
     audit_path = ostk_dir / "audit.jsonl"
 
     # Each completed event is >60s apart -- should not be deduped
@@ -186,7 +186,7 @@ async def test_register_does_not_reset_completed_to_running(tmp_path):
     import uuid
 
     ostk_dir = tmp_path / ".ostk"
-    ostk_dir.mkdir()
+    ostk_dir.mkdir(exist_ok=True)
 
     original_meta_copy = dict(agents_module.agent_metadata)
     original_state_path = agents_module.AGENT_STATE_PATH
@@ -237,7 +237,7 @@ async def test_register_respects_explicit_running_for_new_agent(tmp_path):
     import uuid
 
     ostk_dir = tmp_path / ".ostk"
-    ostk_dir.mkdir()
+    ostk_dir.mkdir(exist_ok=True)
 
     original_state_path = agents_module.AGENT_STATE_PATH
 

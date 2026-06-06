@@ -91,7 +91,7 @@ class TestSourceLibraryService:
 
         # Create a fake source with metadata
         src_dir = tmp_path / "default"
-        src_dir.mkdir(parents=True)
+        src_dir.mkdir(parents=True, exist_ok=True)
         source_id = "abc123"
         content_file = src_dir / f"{source_id}.txt"
         content_file.write_text("Our brand voice is warm, direct, and plain-spoken.")
@@ -265,7 +265,7 @@ class TestSpawnGrounding:
         from services.source_library import get_knowledge_excerpts
 
         src_dir = tmp_path / "default"
-        src_dir.mkdir(parents=True)
+        src_dir.mkdir(parents=True, exist_ok=True)
 
         for i, tag in enumerate(["brand", "icp"]):
             sid = f"src{i}"

@@ -306,7 +306,7 @@ class TestComponentIndexInjection:
         from services import chat_providers
 
         components = tmp_path / "app" / "src" / "components"
-        components.mkdir(parents=True)
+        components.mkdir(parents=True, exist_ok=True)
         (components / "TemplateCard.tsx").write_text("// TemplateCard")
         (components / "Sidebar.tsx").write_text("// Sidebar")
         (components / "Sidebar.test.tsx").write_text("// test")
@@ -323,7 +323,7 @@ class TestComponentIndexInjection:
         from services import chat_providers
 
         pages = tmp_path / "app" / "src" / "pages"
-        pages.mkdir(parents=True)
+        pages.mkdir(parents=True, exist_ok=True)
         (pages / "Settings.tsx").write_text("// Settings")
         (pages / "Dashboard.tsx").write_text("// Dashboard")
 
@@ -338,7 +338,7 @@ class TestComponentIndexInjection:
         from services import chat_providers
 
         components = tmp_path / "app" / "src" / "components"
-        components.mkdir(parents=True)
+        components.mkdir(parents=True, exist_ok=True)
         for i in range(200):
             (components / f"Component{i:03d}.tsx").write_text("")
 
@@ -352,7 +352,7 @@ class TestComponentIndexInjection:
         from services import chat_providers
 
         components = tmp_path / "app" / "src" / "components"
-        components.mkdir(parents=True)
+        components.mkdir(parents=True, exist_ok=True)
         (components / "TemplateCard.tsx").write_text("")
 
         with (
@@ -371,7 +371,7 @@ class TestComponentIndexInjection:
         from services import chat_providers
 
         components = tmp_path / "app" / "src" / "components"
-        components.mkdir(parents=True)
+        components.mkdir(parents=True, exist_ok=True)
         (components / "TemplateCard.tsx").write_text("")
 
         with (

@@ -26,13 +26,20 @@ from services.ostk import OstkService
 
 
 @pytest.fixture
-def svc_with_tmp():
+def svc_with_tmp(monkeypatch):
     """An OstkService pointed at a fresh tmpdir with ``docs/`` scaffolded."""
-    tmpdir = tempfile.mkdtemp()
-    (Path(tmpdir) / "docs" / "draft").mkdir(parents=True)
-    (Path(tmpdir) / "docs" / "spec").mkdir(parents=True)
-    svc = OstkService(cwd=tmpdir)
-    return svc, Path(tmpdir)
+    import services.ostk as ostk_mod
+    tmpdir = Path(tempfile.mkdtemp())
+    specs_dir = tmpdir / "docs" / "spec"
+    drafts_dir = tmpdir / "docs" / "draft"
+    specs_dir.mkdir(parents=True, exist_ok=True)
+    drafts_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(ostk_mod, "USER_SPECS_DIR", specs_dir)
+    monkeypatch.setattr(ostk_mod, "USER_DRAFTS_DIR", drafts_dir)
+
+    svc = OstkService(cwd=str(tmpdir))
+    return svc, tmpdir
 
 
 @pytest.mark.asyncio
@@ -247,8 +254,8 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
     # Point the ostk service at an isolated tmpdir so test artifacts do
     # not touch the live project. Also redirect PROJECT_ROOT in the specs
     # router so the pure-Python promote_draft reads/writes the same tmpdir.
-    (tmp_path / "docs" / "draft").mkdir(parents=True)
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
 
     import routers.specs as specs_mod

@@ -1769,7 +1769,7 @@ async def close_task(
             "close_task: spec-status advance failed for task %s", task_id
         )
 
-    trace_event("task_closed", task_id=task_id, reason=structured_reason)
+    trace_event("task_closed", task_id=task_id, title=deleted_title, reason=structured_reason)
     await _notifications_events_bus.publish("needle_closed", {"task_id": normalised_id})
     return {"result": result}
 

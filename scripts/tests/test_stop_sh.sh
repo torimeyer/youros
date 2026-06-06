@@ -36,7 +36,7 @@ else
 fi
 
 # --- Test 2: pid file is cleaned up ---
-PID_FILE="/tmp/myos-backend-${TEST_UVICORN_PORT}.pid"
+PID_FILE="/tmp/youros-backend-${TEST_UVICORN_PORT}.pid"
 echo "99999" > "$PID_FILE"
 PORT="$TEST_UVICORN_PORT" VITE_PORT="$TEST_VITE_PORT" bash "$STOP" >/dev/null 2>&1 || true
 if [ ! -f "$PID_FILE" ]; then

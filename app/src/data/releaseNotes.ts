@@ -10,6 +10,21 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.7.0
+  {
+    date: '2026-06-06',
+    label: 'June 6, 2026',
+    entries: [
+      {
+        title: 'Enhanced Light Mode Clarity',
+        description: 'A comprehensive visual overhaul for Light Mode. Every page, from your Messages to your Calendar, has been updated with high-contrast text and refined inputs for maximum legibility in bright environments.',
+      },
+      {
+        title: 'Unified Messaging',
+        description: 'The messaging module has been renamed to Messages to better reflect its function as your central communication hub for iMessage and beyond.',
+      },
+    ],
+  },
   // v5.5.1
   {
     date: '2026-06-04',

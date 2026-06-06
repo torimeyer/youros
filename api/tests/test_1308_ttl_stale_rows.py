@@ -59,7 +59,7 @@ async def test_case2_worktree_exists_included(client, tmp_path, monkeypatch):
     import routers.agents as agents_mod
 
     live_path = str(tmp_path / "live-worktree")
-    (tmp_path / "live-worktree").mkdir()  # exists
+    (tmp_path / "live-worktree").mkdir(exist_ok=True)  # exists
 
     _register(agents_mod, "live-worktree-agent-1308", worktree_path=live_path)
 

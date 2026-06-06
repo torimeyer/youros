@@ -107,7 +107,7 @@ def test_build_files_context_empty(tmp_path, monkeypatch):
 def test_build_files_context_reads_txt(tmp_path, monkeypatch):
     monkeypatch.setattr(uploads_mod, "AGENT_UPLOADS_DIR", tmp_path)
     upload_dir = tmp_path / "custom-abc"
-    upload_dir.mkdir()
+    upload_dir.mkdir(exist_ok=True)
     (upload_dir / "notes.txt").write_text("Hello from notes")
 
     result = build_files_context("custom-abc", ["notes.txt"])
@@ -125,7 +125,7 @@ def test_build_files_context_skips_missing_files(tmp_path, monkeypatch):
 def test_build_files_context_multiple_files(tmp_path, monkeypatch):
     monkeypatch.setattr(uploads_mod, "AGENT_UPLOADS_DIR", tmp_path)
     d = tmp_path / "custom-multi"
-    d.mkdir()
+    d.mkdir(exist_ok=True)
     (d / "a.txt").write_text("Content A")
     (d / "b.txt").write_text("Content B")
 
@@ -142,7 +142,7 @@ def test_build_files_context_multiple_files(tmp_path, monkeypatch):
 def test_read_attached_file_content_txt(tmp_path, monkeypatch):
     monkeypatch.setattr(uploads_mod, "AGENT_UPLOADS_DIR", tmp_path)
     d = tmp_path / "tpl-1"
-    d.mkdir()
+    d.mkdir(exist_ok=True)
     (d / "doc.txt").write_text("Line one\nLine two")
 
     result = read_attached_file_content("tpl-1", "doc.txt")
@@ -160,7 +160,7 @@ def test_read_attached_file_content_pdf(tmp_path, monkeypatch):
     """PDF extraction returns empty string gracefully when pypdf is absent or file is invalid."""
     monkeypatch.setattr(uploads_mod, "AGENT_UPLOADS_DIR", tmp_path)
     d = tmp_path / "tpl-pdf"
-    d.mkdir()
+    d.mkdir(exist_ok=True)
     # Write a minimal but invalid PDF — pypdf will fail; function returns ""
     (d / "test.pdf").write_bytes(b"%PDF-1.4 invalid content")
 

@@ -44,7 +44,7 @@ async def test_plan_waves_no_include_specs_returns_only_needles(client, tmp_path
     import routers.tasks as rt
     monkeypatch.setattr(rt, "_WAVES_PATH", tmp_path / "waves.json")
     specs_dir = tmp_path / "specs"
-    specs_dir.mkdir()
+    specs_dir.mkdir(exist_ok=True)
     monkeypatch.setattr(rt, "_SPECS_DIR", specs_dir)
     _write_spec(specs_dir, "my-spec.md", "My Feature Spec")
 
@@ -65,7 +65,7 @@ async def test_plan_waves_include_specs_true_adds_spec_items(client, tmp_path, m
     import routers.tasks as rt
     monkeypatch.setattr(rt, "_WAVES_PATH", tmp_path / "waves.json")
     specs_dir = tmp_path / "specs"
-    specs_dir.mkdir()
+    specs_dir.mkdir(exist_ok=True)
     monkeypatch.setattr(rt, "_SPECS_DIR", specs_dir)
     _write_spec(specs_dir, "my-spec.md", "My Feature Spec")
 
@@ -106,9 +106,9 @@ async def test_plan_waves_include_specs_excludes_archive(client, tmp_path, monke
     import routers.tasks as rt
     monkeypatch.setattr(rt, "_WAVES_PATH", tmp_path / "waves.json")
     specs_dir = tmp_path / "specs"
-    specs_dir.mkdir()
+    specs_dir.mkdir(exist_ok=True)
     archive_dir = specs_dir / "archive"
-    archive_dir.mkdir()
+    archive_dir.mkdir(exist_ok=True)
     monkeypatch.setattr(rt, "_SPECS_DIR", specs_dir)
     _write_spec(archive_dir, "old-spec.md", "Old Archived Spec")
     _write_spec(specs_dir, "active-spec.md", "Active Spec")

@@ -28,7 +28,7 @@ def test_find_gemini_binary_falls_back_to_install_dir(tmp_path):
     # PATH lookup fails (the backend's narrow PATH), but the binary is present
     # in a known install dir, it must still be found.
     install = tmp_path / "npm-global" / "bin"
-    install.mkdir(parents=True)
+    install.mkdir(parents=True, exist_ok=True)
     fake = install / "gemini"
     fake.write_text("#!/bin/sh\n")
     fake.chmod(0o755)
@@ -45,7 +45,7 @@ def test_find_gemini_binary_none_when_absent(tmp_path):
 
 def test_gemini_signed_in_reads_creds_file(tmp_path):
     creds = tmp_path / ".gemini" / "oauth_creds.json"
-    creds.parent.mkdir(parents=True)
+    creds.parent.mkdir(parents=True, exist_ok=True)
     creds.write_text("{}")
     with patch("services.gemini_cli_provider.Path.home", return_value=tmp_path):
         assert gcp._gemini_signed_in() is True
@@ -58,7 +58,7 @@ def test_gemini_signed_in_false_without_creds(tmp_path):
 
 def test_build_subprocess_env_prepends_install_dirs_and_strips_keys(tmp_path):
     d = tmp_path / "bin"
-    d.mkdir()
+    d.mkdir(exist_ok=True)
     with patch("services.gemini_cli_provider._gemini_install_dirs", return_value=[d]), \
          patch.dict(os.environ, {"GOOGLE_API_KEY": "x", "PATH": "/usr/bin"}, clear=False):
         env = gcp._build_subprocess_env()

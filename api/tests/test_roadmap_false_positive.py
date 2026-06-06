@@ -167,7 +167,7 @@ def test_retroactive_sweep_skips_solo_agent_without_optin(tmp_path):
 
     mem_dir = tmp_path / "agent_memory"
     files_dir = tmp_path / "files"
-    mem_dir.mkdir()
+    mem_dir.mkdir(exist_ok=True)
 
     agent_name = "settings-cost-tracking-rename"
     _write_memory_json(
@@ -201,7 +201,7 @@ def test_retroactive_sweep_skips_diagnose_named_agent(tmp_path):
 
     mem_dir = tmp_path / "agent_memory"
     files_dir = tmp_path / "files"
-    mem_dir.mkdir()
+    mem_dir.mkdir(exist_ok=True)
 
     agent_name = "diagnose-roadmap-issue"
     _write_memory_json(
@@ -234,7 +234,7 @@ def test_retroactive_sweep_writes_for_fleet_member(tmp_path):
 
     mem_dir = tmp_path / "agent_memory"
     files_dir = tmp_path / "files"
-    mem_dir.mkdir()
+    mem_dir.mkdir(exist_ok=True)
 
     agent_name = "fleet-build-website-product-manager"
     _write_memory_json(
@@ -271,7 +271,7 @@ def test_retroactive_sweep_writes_for_roadmap_template(tmp_path):
 
     mem_dir = tmp_path / "agent_memory"
     files_dir = tmp_path / "files"
-    mem_dir.mkdir()
+    mem_dir.mkdir(exist_ok=True)
 
     agent_name = "quarterly-plan"
     _write_memory_json(

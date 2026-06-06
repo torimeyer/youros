@@ -59,6 +59,7 @@ HIDDEN_EVENTS = {
     "tool.bash",
     "heartbeat_injected",
     "tack.unknown",
+    "cli.deprecated",
 }
 
 
@@ -78,6 +79,15 @@ async def get_activity(
     """
     raw_events = await ostk.get_history(last=last, target=target)
 
+    # Pre-fetch tasks to enrich titles for 'Closed' events that only have IDs.
+    # ostk.list_tasks is TTL-cached so this is fast across concurrent calls.
+    task_map = {}
+    try:
+        all_tasks = await ostk.list_tasks()
+        task_map = {t["id"]: t.get("title", "") for t in all_tasks}
+    except Exception:
+        pass
+
     events = []
     for ev in raw_events:
         event_type = ev.get("event", "")
@@ -92,6 +102,13 @@ async def get_activity(
             # Strip the meaningless "reason: none" / "reason: null" suffix so
             # the feed shows the task ID and title only.
             detail = re.sub(r"\s+reason:\s*(none|null)\s*$", "", detail, flags=re.IGNORECASE).strip()
+            
+            # Enrich with title if detail is just an ID (e.g. "→2203")
+            if detail.startswith("→") and " " not in detail:
+                title = task_map.get(detail)
+                if title:
+                    detail = f"{detail} {title}"
+
         events.append({
             "timestamp": ev.get("timestamp", ""),
             "event": event_type,

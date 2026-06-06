@@ -30,7 +30,7 @@ def test_scan_merge_debt_skips_non_completed_agents(tmp_path):
     from services.merge_debt import scan_merge_debt
 
     wt = tmp_path / "agent-1234-some-feature-abc123"
-    wt.mkdir()
+    wt.mkdir(exist_ok=True)
 
     # Inject a running status — should be skipped even if git says commits ahead.
     statuses = {"agent-1234-some-feature-abc123": "running"}
@@ -48,8 +48,8 @@ def test_scan_merge_debt_counts_completed_worktrees(tmp_path):
 
     wt1 = tmp_path / "agent-100-foo-aaa"
     wt2 = tmp_path / "agent-200-bar-bbb"
-    wt1.mkdir()
-    wt2.mkdir()
+    wt1.mkdir(exist_ok=True)
+    wt2.mkdir(exist_ok=True)
 
     statuses = {
         "agent-100-foo-aaa": "completed",
@@ -73,7 +73,7 @@ def test_scan_merge_debt_completed_timeout_also_counts(tmp_path):
     from services.merge_debt import scan_merge_debt
 
     wt = tmp_path / "agent-999-timeout-ccc"
-    wt.mkdir()
+    wt.mkdir(exist_ok=True)
 
     statuses = {"agent-999-timeout-ccc": "completed_timeout"}
 

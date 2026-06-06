@@ -196,7 +196,7 @@ class TestImportEndpoint:
     @pytest.mark.asyncio
     async def test_valid_import_creates_spec(self, client, tmp_path):
         docs_dir = tmp_path / "docs" / "draft"
-        docs_dir.mkdir(parents=True)
+        docs_dir.mkdir(parents=True, exist_ok=True)
         draft_file = docs_dir / "feature-name.md"
         draft_file.write_text(
             "---\ntitle: Feature name\nstatus: draft\n---\n\nFeature name\n"
@@ -227,7 +227,7 @@ class TestImportEndpoint:
     @pytest.mark.asyncio
     async def test_import_creates_tasks(self, client, tmp_path):
         docs_dir = tmp_path / "docs" / "draft"
-        docs_dir.mkdir(parents=True)
+        docs_dir.mkdir(parents=True, exist_ok=True)
         draft_file = docs_dir / "feature-name.md"
         draft_file.write_text("---\ntitle: Feature name\nstatus: draft\n---\n\n")
         draft_rel = "docs/draft/feature-name.md"
@@ -262,7 +262,7 @@ class TestExportEndpoint:
     @pytest.mark.asyncio
     async def test_unsupported_format_returns_400(self, client, tmp_path):
         spec_dir = tmp_path / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_file = spec_dir / "foo.md"
         spec_file.write_text("---\ntitle: foo\nstatus: spec\n---\n\n## Acceptance criteria\n- [ ] do thing\n")
         with patch("routers.specs.PROJECT_ROOT", tmp_path):
@@ -274,7 +274,7 @@ class TestExportEndpoint:
     @pytest.mark.asyncio
     async def test_missing_spec_returns_404(self, client, tmp_path):
         spec_dir = tmp_path / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         with patch("routers.specs.PROJECT_ROOT", tmp_path):
             resp = await client.get(
                 "/api/specs/docs/spec/missing.md/export?format=speckit"
@@ -284,7 +284,7 @@ class TestExportEndpoint:
     @pytest.mark.asyncio
     async def test_export_returns_yaml(self, client, tmp_path):
         spec_dir = tmp_path / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_file = spec_dir / "my-feature.md"
         spec_file.write_text(
             "---\ntitle: My feature\nstatus: spec\n---\n\n"

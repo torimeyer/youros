@@ -694,7 +694,7 @@ export default function Calendar() {
       {/* Header row */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold">Calendar</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Calendar</h1>
             {authStatus.email && (
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">{authStatus.email}</p>
             )}
@@ -728,7 +728,7 @@ export default function Calendar() {
         <div className={`${cardClass} mb-6`}>
           <div className="flex items-center gap-2 mb-4">
             <Icon name="today" className="text-blue-600 dark:text-blue-400" size={18} />
-            <h2 className="text-base font-semibold">Today</h2>
+            <h2 className="text-base font-semibold text-slate-900 dark:text-white">Today</h2>
           </div>
           {todayEvents.length === 0 ? (
             <p className="text-sm text-slate-500">Nothing on your calendar today.</p>

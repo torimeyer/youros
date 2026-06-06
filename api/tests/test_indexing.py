@@ -59,7 +59,7 @@ async def test_build_index(client, tmp_path):
     # JSON files into tmp_path (e.g. _redirect_async_state_save) don't get
     # swept into the scan and inflate file_count.
     project_dir = tmp_path / "project"
-    project_dir.mkdir()
+    project_dir.mkdir(exist_ok=True)
     (project_dir / "hello.py").write_text("print('hello world')")
     (project_dir / "readme.md").write_text("# My Project\n\nA description.")
     (project_dir / "image.png").write_bytes(b"\x89PNG")

@@ -11,7 +11,7 @@ def _redirect_narratives_dir(tmp_path, monkeypatch):
     """Redirect NARRATIVES_DIR to tmp so tests never touch ~/.myos/narratives/."""
     import routers.narrative as _nar
     fake_dir = tmp_path / "narratives"
-    fake_dir.mkdir()
+    fake_dir.mkdir(exist_ok=True)
     monkeypatch.setattr(_nar, "NARRATIVES_DIR", fake_dir)
     monkeypatch.setenv("MYOS_DIR", str(tmp_path))
     yield

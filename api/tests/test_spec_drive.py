@@ -90,7 +90,7 @@ async def test_publish_raises_when_spec_not_found(tmp_path):
 @pytest.mark.asyncio
 async def test_publish_creates_doc_and_stores_link(tmp_path):
     spec_dir = tmp_path / "docs" / "draft"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
     spec_file = spec_dir / "my-spec.md"
     spec_file.write_text("# My Spec\n")
 
@@ -126,7 +126,7 @@ async def test_publish_creates_doc_and_stores_link(tmp_path):
 @pytest.mark.asyncio
 async def test_sync_creates_when_no_existing_link(tmp_path):
     spec_dir = tmp_path / "docs" / "draft"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
     (spec_dir / "spec.md").write_text("# Spec\n")
 
     links_path = tmp_path / "spec_drive_links.json"
@@ -149,7 +149,7 @@ async def test_sync_creates_when_no_existing_link(tmp_path):
 @pytest.mark.asyncio
 async def test_sync_updates_existing_doc(tmp_path):
     spec_dir = tmp_path / "docs" / "draft"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
     (spec_dir / "spec.md").write_text("# Updated\n")
 
     links_path = tmp_path / "spec_drive_links.json"
@@ -210,7 +210,7 @@ async def test_pull_raises_when_no_link(tmp_path):
 @pytest.mark.asyncio
 async def test_pull_writes_drive_content_to_local_file(tmp_path):
     spec_dir = tmp_path / "docs" / "draft"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
 
     links_path = tmp_path / "spec_drive_links.json"
     links_path.write_text(
@@ -287,7 +287,7 @@ async def test_publish_endpoint_creates_doc(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "tok"}))
 
     spec_dir = tmp_path / "docs" / "draft"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
     (spec_dir / "spec.md").write_text("# Spec\n")
 
     links_path = tmp_path / "spec_drive_links.json"
@@ -312,7 +312,7 @@ async def test_sync_endpoint_returns_action(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "tok"}))
 
     spec_dir = tmp_path / "docs" / "draft"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
     (spec_dir / "spec.md").write_text("# Spec\n")
 
     links_path = tmp_path / "spec_drive_links.json"

@@ -74,7 +74,7 @@ async def test_sync_status_configured(client, tmp_path):
 async def test_configure_stores_repo_url(client, tmp_path):
     config_path = tmp_path / "sync_config.json"
     sync_repo = tmp_path / "sync_repo"
-    sync_repo.mkdir()
+    sync_repo.mkdir(exist_ok=True)
 
     with (
         patch("services.settings_sync.MYOS_DIR", tmp_path),
@@ -122,10 +122,10 @@ async def test_push_copies_and_commits_files(client, tmp_path):
     config_path.write_text(json.dumps({"repo_url": "git@github.com:user/sync.git"}))
 
     myos_dir = tmp_path / "myos"
-    myos_dir.mkdir()
+    myos_dir.mkdir(exist_ok=True)
     sync_repo = myos_dir / "sync_repo"
-    sync_repo.mkdir()
-    (sync_repo / ".git").mkdir()
+    sync_repo.mkdir(exist_ok=True)
+    (sync_repo / ".git").mkdir(exist_ok=True)
 
     # Create a settings.json to sync
     settings_file = myos_dir / "settings.json"
@@ -158,10 +158,10 @@ async def test_push_nothing_to_sync_when_no_files(client, tmp_path):
     config_path.write_text(json.dumps({"repo_url": "git@github.com:user/sync.git"}))
 
     myos_dir = tmp_path / "myos"
-    myos_dir.mkdir()
+    myos_dir.mkdir(exist_ok=True)
     sync_repo = myos_dir / "sync_repo"
-    sync_repo.mkdir()
-    (sync_repo / ".git").mkdir()
+    sync_repo.mkdir(exist_ok=True)
+    (sync_repo / ".git").mkdir(exist_ok=True)
 
     # No files in SYNC_FILES exist in myos_dir
     with (
@@ -195,11 +195,11 @@ async def test_pull_restores_files(client, tmp_path):
     config_path.write_text(json.dumps({"repo_url": "git@github.com:user/sync.git"}))
 
     myos_dir = tmp_path / "myos"
-    myos_dir.mkdir()
+    myos_dir.mkdir(exist_ok=True)
     sync_repo = myos_dir / "sync_repo"
-    sync_repo.mkdir()
+    sync_repo.mkdir(exist_ok=True)
     git_dir = sync_repo / ".git"
-    git_dir.mkdir()
+    git_dir.mkdir(exist_ok=True)
     (git_dir / "FETCH_HEAD").write_text("abc123 origin/main")
 
     # Put a settings.json in the sync repo (as if pulled from remote)

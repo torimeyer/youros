@@ -235,7 +235,7 @@ async def test_recover_stale_agent(tmp_path):
     }
 
     transcript_dir = tmp_path / "transcripts"
-    transcript_dir.mkdir()
+    transcript_dir.mkdir(exist_ok=True)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -313,7 +313,7 @@ async def test_recover_with_handoff_note(tmp_path):
     """Recovery with a handoff note uses it as context in the prompt."""
     state_path = _make_state_path(tmp_path)
     handoff_dir = tmp_path / "handoffs"
-    handoff_dir.mkdir()
+    handoff_dir.mkdir(exist_ok=True)
     (handoff_dir / "handoff-agent.md").write_text("I was working on the API tests.")
 
     meta = {
@@ -353,7 +353,7 @@ async def test_sweep_with_handoff_marks_recovering(tmp_path):
     )
 
     handoff_dir = tmp_path / "handoffs"
-    handoff_dir.mkdir()
+    handoff_dir.mkdir(exist_ok=True)
     (handoff_dir / "sweep-agent.md").write_text("Left off at step 3.")
 
     old_time = (
@@ -416,7 +416,7 @@ async def test_sweep_exhausted_recovery_terminates(tmp_path):
     )
 
     handoff_dir = tmp_path / "handoffs"
-    handoff_dir.mkdir()
+    handoff_dir.mkdir(exist_ok=True)
     (handoff_dir / "maxed-agent.md").write_text("Still trying.")
 
     old_time = (
@@ -480,7 +480,7 @@ def test_read_handoff_note_exists(tmp_path):
     from routers.agents import _read_handoff_note
 
     handoff_dir = tmp_path / "handoffs"
-    handoff_dir.mkdir()
+    handoff_dir.mkdir(exist_ok=True)
     (handoff_dir / "my-agent.md").write_text("Working on tests.")
 
     with patch("routers.agents.OSTK_DIR", tmp_path):
@@ -493,7 +493,7 @@ def test_read_handoff_note_empty(tmp_path):
     from routers.agents import _read_handoff_note
 
     handoff_dir = tmp_path / "handoffs"
-    handoff_dir.mkdir()
+    handoff_dir.mkdir(exist_ok=True)
     (handoff_dir / "empty-agent.md").write_text("")
 
     with patch("routers.agents.OSTK_DIR", tmp_path):

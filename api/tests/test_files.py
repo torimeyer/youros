@@ -60,7 +60,7 @@ async def test_delete_rejects_directory(client):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
         subdir = tmppath / "mydir"
-        subdir.mkdir()
+        subdir.mkdir(exist_ok=True)
 
         with patch("routers.projects.TORIOS_DIR", tmppath):
             resp = await client.delete("/api/files/delete?path=mydir")
@@ -139,7 +139,7 @@ async def test_recent_files_includes_local_md_files(client):
 
         # Put roadmap.md under the fake home's ~/.myos/files/ directory.
         myos_files = Path(fake_home) / ".myos" / "files"
-        myos_files.mkdir(parents=True)
+        myos_files.mkdir(parents=True, exist_ok=True)
         roadmap = myos_files / "roadmap.md"
         roadmap.write_text(
             "---\nkind: roadmap\n---\n\n# Roadmap\n\nQ1 2026 theme line."
@@ -175,7 +175,7 @@ async def test_recent_files_includes_agent_output_md_files(client):
         (workspace_path / "workspace.md").write_text("# Workspace\n\nBody.")
 
         myos_files = Path(fake_home) / ".myos" / "files"
-        myos_files.mkdir(parents=True)
+        myos_files.mkdir(parents=True, exist_ok=True)
 
         ia_review = myos_files / "ia-review-session-7-2026-04-16T18-31.md"
         ia_review.write_text(

@@ -54,7 +54,7 @@ def test_sync_outbound_respects_visibility(tmp_path, monkeypatch):
     from services import team_sync
 
     team_repo = tmp_path / "repo"
-    team_repo.mkdir()
+    team_repo.mkdir(exist_ok=True)
 
     cfg = TeamConfig(
         team_repo=str(team_repo),

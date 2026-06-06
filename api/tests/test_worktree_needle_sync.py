@@ -67,8 +67,8 @@ def ostk_main_repo(tmp_path: Path) -> Path:
 def ostk_worktree(tmp_path: Path, ostk_main_repo: Path) -> Path:
     """Simulate a spawned worktree: .ostk/ dir with needles/ symlink."""
     wt_path = tmp_path / "worktree"
-    wt_path.mkdir()
-    (wt_path / ".ostk").mkdir()
+    wt_path.mkdir(exist_ok=True)
+    (wt_path / ".ostk").mkdir(exist_ok=True)
 
     main_needles = ostk_main_repo / ".ostk" / "needles"
     wt_needles = wt_path / ".ostk" / "needles"
@@ -168,8 +168,8 @@ def test_worktree_without_needles_symlink_fails_ostk_add(ostk_main_repo: Path, t
         pytest.skip("ostk daemon is running — routes around missing needles/, daemon-down path not exercisable")
 
     wt_path = tmp_path / "broken_worktree"
-    wt_path.mkdir()
-    (wt_path / ".ostk").mkdir()
+    wt_path.mkdir(exist_ok=True)
+    (wt_path / ".ostk").mkdir(exist_ok=True)
     # Deliberately do NOT create needles/ symlink
 
     result = subprocess.run(

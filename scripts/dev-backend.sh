@@ -1,6 +1,6 @@
 #!/bin/bash
 # --- trunk guard: yourOS serves from main. Warn (do not block) if not. ---
-_GB="$(git -C "$(dirname "$0")/.." branch --show-current 2>/dev/null)"
+_GB="$(git -C "$(dirname "$0")/.." branch --show-current 2>/tmp/git_branch_err.log)"
 if [ -n "$_GB" ] && [ "$_GB" != "main" ]; then
   printf '\033[33mWARNING: serving backend from branch "%s", not main. Work merged to main will NOT appear here. Run: git checkout main (ALLOW_NONMAIN=1 silences this).\033[0m\n' "$_GB" >&2
   [ -n "$ALLOW_NONMAIN" ] || sleep 2
@@ -45,8 +45,8 @@ export FRONTEND_URL="${FRONTEND_URL:-https://localhost:3010}"
 
 # Pidfile + launcher lock live in /tmp and are scoped by port so parallel
 # ports (e.g. :8001 in tests, :8000 in dev) do not clobber each other.
-PIDFILE="/tmp/myos-backend-${UVICORN_PORT}.pid"
-LAUNCHER_LOCK="/tmp/myos-backend-launcher-${UVICORN_PORT}.lock"
+PIDFILE="/tmp/youros-backend-${UVICORN_PORT}.pid"
+LAUNCHER_LOCK="/tmp/youros-backend-launcher-${UVICORN_PORT}.lock"
 
 if [ ! -f "$API_DIR/.venv/bin/activate" ]; then
     echo "Python virtualenv not found at $API_DIR/.venv. Run install.sh first." >&2
@@ -294,9 +294,9 @@ source .venv/bin/activate
 WATCHDOG_SCRIPT="$SCRIPT_DIR/backend_watchdog.sh"
 if [ "${MYOS_NO_WATCHDOG:-0}" != "1" ] && [ -x "$WATCHDOG_SCRIPT" ]; then
     # Only start the watchdog if one is not already running. The watchdog
-    # writes its pid to /tmp/myos-backend-watchdog.pid; if that file exists
+    # writes its pid to /tmp/youros-backend-watchdog.pid; if that file exists
     # and the pid is still alive, leave it alone.
-    _wd_pidfile="/tmp/myos-backend-watchdog.pid"
+    _wd_pidfile="/tmp/youros-backend-watchdog.pid"
     _wd_running=0
     if [ -f "$_wd_pidfile" ]; then
         _wd_pid=$(cat "$_wd_pidfile" 2>/dev/null || true)
@@ -305,9 +305,9 @@ if [ "${MYOS_NO_WATCHDOG:-0}" != "1" ] && [ -x "$WATCHDOG_SCRIPT" ]; then
         fi
     fi
     if [ "$_wd_running" = "0" ]; then
-        nohup "$WATCHDOG_SCRIPT" >> /tmp/myos-backend-watchdog.log 2>&1 &
+        nohup "$WATCHDOG_SCRIPT" >> /tmp/youros-backend-watchdog.log 2>&1 &
         echo $! > "$_wd_pidfile"
-        echo "Backend watchdog started (pid $(cat "$_wd_pidfile"), log /tmp/myos-backend-watchdog.log)"
+        echo "Backend watchdog started (pid $(cat "$_wd_pidfile"), log /tmp/youros-backend-watchdog.log)"
     fi
 fi
 

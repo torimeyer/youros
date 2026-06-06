@@ -135,7 +135,7 @@ def test_does_not_reap_worktree_with_commits_ahead_of_main(tmp_path):
     import subprocess
 
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
 
     # Minimal git repo setup
     for cmd in [
@@ -189,7 +189,7 @@ def test_reaps_worktree_agent_with_no_commits(tmp_path):
     import subprocess
 
     repo = tmp_path / "repo2"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     for cmd in [
         ["git", "init", "-b", "main"],
         ["git", "config", "user.email", "test@example.com"],

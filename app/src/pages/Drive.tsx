@@ -677,8 +677,9 @@ export default function Drive() {
       const res = await api.post<SyncResponse>('/drive/sync');
       setLastSyncedAt(res.synced_at);
       await fetchFiles(search || undefined);
-    } catch {
-      setSyncError('Sync failed. Please try again.');
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setSyncError(detail || 'Sync failed. Please try again.');
     } finally {
       setSyncing(false);
     }

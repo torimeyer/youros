@@ -28,7 +28,7 @@ async def test_preview_rejects_missing(client):
 async def test_preview_rejects_directory(client):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
-        (tmppath / "subdir").mkdir()
+        (tmppath / "subdir").mkdir(exist_ok=True)
         with patch("routers.projects.TORIOS_DIR", tmppath):
             resp = await client.get("/api/files/preview?path=subdir")
     assert resp.status_code == 400
@@ -275,7 +275,7 @@ async def test_raw_rejects_path_traversal(client):
 async def test_raw_rejects_directory(client):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
-        (tmppath / "folder").mkdir()
+        (tmppath / "folder").mkdir(exist_ok=True)
         with patch("routers.projects.TORIOS_DIR", tmppath):
             resp = await client.get("/api/files/raw?path=folder")
     assert resp.status_code == 400

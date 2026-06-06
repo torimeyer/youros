@@ -44,7 +44,7 @@ async def test_remove_worktree_refuses_staged_changes(tmp_path):
     from services.spawn_isolation import remove_worktree
 
     wt = tmp_path / "agent-wt"
-    wt.mkdir()
+    wt.mkdir(exist_ok=True)
 
     call_log: list[tuple] = []
 
@@ -77,7 +77,7 @@ async def test_remove_worktree_refuses_unstaged_changes(tmp_path):
     from services.spawn_isolation import remove_worktree
 
     wt = tmp_path / "agent-wt"
-    wt.mkdir()
+    wt.mkdir(exist_ok=True)
 
     async def mock_run_git(*args, cwd="", timeout=15.0):
         if "rev-list" in args:
@@ -106,7 +106,7 @@ async def test_remove_worktree_allows_clean_worktree(tmp_path):
     from services.spawn_isolation import remove_worktree
 
     wt = tmp_path / "agent-wt"
-    wt.mkdir()
+    wt.mkdir(exist_ok=True)
 
     async def mock_run_git(*args, cwd="", timeout=15.0):
         if "rev-list" in args:
@@ -140,7 +140,7 @@ async def test_remove_worktree_refuses_unmerged_commits(tmp_path):
     from services.spawn_isolation import remove_worktree
 
     wt = tmp_path / "agent-wt"
-    wt.mkdir()
+    wt.mkdir(exist_ok=True)
 
     async def mock_run_git(*args, cwd="", timeout=15.0):
         if "rev-list" in args:

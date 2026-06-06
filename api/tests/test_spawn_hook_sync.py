@@ -25,10 +25,10 @@ from services.spawn_isolation import sync_claude_dir_to_worktree
 
 def _make_fake_claude(root: Path) -> None:
     """Seed a minimal .claude/ layout for tests."""
-    (root / ".claude" / "hooks").mkdir(parents=True)
-    (root / ".claude" / "lib").mkdir(parents=True)
-    (root / ".claude" / "worktrees").mkdir(parents=True)
-    (root / ".claude" / "session-history").mkdir(parents=True)
+    (root / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
+    (root / ".claude" / "lib").mkdir(parents=True, exist_ok=True)
+    (root / ".claude" / "worktrees").mkdir(parents=True, exist_ok=True)
+    (root / ".claude" / "session-history").mkdir(parents=True, exist_ok=True)
     (root / ".claude" / "hooks" / "example.sh").write_text("#!/bin/bash\necho hi\n")
     (root / ".claude" / "lib" / "helper.sh").write_text("# lib helper\n")
     (root / ".claude" / "worktrees" / "stray-wt.txt").write_text("must-not-copy")
@@ -41,7 +41,7 @@ def test_hook_sync_copies_hooks_dir():
         tmp_p = Path(tmp)
         _make_fake_claude(tmp_p)
         wt = tmp_p / "worktree"
-        wt.mkdir()
+        wt.mkdir(exist_ok=True)
 
         result = asyncio.run(
             sync_claude_dir_to_worktree(tmp_p / ".claude", wt / ".claude")
@@ -58,7 +58,7 @@ def test_hook_sync_excludes_worktrees_and_session_history():
         tmp_p = Path(tmp)
         _make_fake_claude(tmp_p)
         wt = tmp_p / "worktree"
-        wt.mkdir()
+        wt.mkdir(exist_ok=True)
 
         asyncio.run(
             sync_claude_dir_to_worktree(tmp_p / ".claude", wt / ".claude")
@@ -71,7 +71,7 @@ def test_hook_sync_returns_false_on_missing_src():
     with tempfile.TemporaryDirectory() as tmp:
         tmp_p = Path(tmp)
         wt = tmp_p / "worktree"
-        wt.mkdir()
+        wt.mkdir(exist_ok=True)
 
         result = asyncio.run(
             sync_claude_dir_to_worktree(tmp_p / ".claude-does-not-exist", wt / ".claude")
@@ -86,7 +86,7 @@ def test_hooks_dir_is_copy_not_symlink():
         tmp_p = Path(tmp)
         _make_fake_claude(tmp_p)
         wt = tmp_p / "worktree"
-        wt.mkdir()
+        wt.mkdir(exist_ok=True)
 
         asyncio.run(
             sync_claude_dir_to_worktree(tmp_p / ".claude", wt / ".claude")
@@ -113,16 +113,16 @@ def test_no_phantom_deletes_after_hook_sync():
     with tempfile.TemporaryDirectory() as tmp:
         tmp_p = Path(tmp)
         repo = tmp_p / "repo"
-        repo.mkdir()
+        repo.mkdir(exist_ok=True)
 
         _git(["init", "-b", "main"], cwd=str(repo))
         _git(["config", "user.email", "test@test.com"], cwd=str(repo))
         _git(["config", "user.name", "Test"], cwd=str(repo))
 
-        (repo / ".claude" / "hooks").mkdir(parents=True)
+        (repo / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
         (repo / ".claude" / "hooks" / "guard.sh").write_text("#!/bin/bash\nexit 0\n")
         (repo / ".claude" / "hooks" / "logger.sh").write_text("#!/bin/bash\necho log\n")
-        (repo / ".claude" / "lib").mkdir(parents=True)
+        (repo / ".claude" / "lib").mkdir(parents=True, exist_ok=True)
         (repo / ".claude" / "lib" / "helper.sh").write_text("# lib\n")
         _git(["add", "-A"], cwd=str(repo))
         _git(["commit", "-m", "initial"], cwd=str(repo))

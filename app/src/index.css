@@ -106,6 +106,21 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+[data-theme="light"] h1,
+[data-theme="light"] h2,
+[data-theme="light"] h3,
+[data-theme="light"] h4,
+[data-theme="light"] h5,
+[data-theme="light"] h6 {
+  color: #0f172a !important; /* Force very dark slate for headers in light mode */
+}
+
+/* Improve placeholder contrast in light mode */
+[data-theme="light"] input::placeholder,
+[data-theme="light"] textarea::placeholder {
+  color: #64748b !important;
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;

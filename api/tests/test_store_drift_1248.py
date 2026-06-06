@@ -55,7 +55,7 @@ def _make_fake_close(issues_path: Path, open_entry: dict):
 @pytest.fixture
 def tmp_repo(tmp_path: Path) -> Path:
     needles_dir = tmp_path / ".ostk" / "needles"
-    needles_dir.mkdir(parents=True)
+    needles_dir.mkdir(parents=True, exist_ok=True)
     (needles_dir / "issues.lock").touch()
     return tmp_path
 

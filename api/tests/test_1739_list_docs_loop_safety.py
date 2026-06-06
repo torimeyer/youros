@@ -49,7 +49,7 @@ async def test_list_docs_spec_audit_does_not_block_event_loop(tmp_path, monkeypa
     stays free and the heartbeat accumulates ticks throughout.
     """
     spec_dir = tmp_path / "docs" / "spec"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
     for i in range(5):
         (spec_dir / f"spec-{i}.md").write_text(SPEC_CONTENT.format(title=f"Spec {i}"))
 
@@ -60,6 +60,11 @@ async def test_list_docs_spec_audit_does_not_block_event_loop(tmp_path, monkeypa
         return audit_mod.ShippedResult(is_shipped=True)
 
     monkeypatch.setattr(audit_mod, "compute_shipped", slow_compute_shipped)
+
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", spec_dir)
+    empty_drafts = tmp_path / "myos_drafts"
+    empty_drafts.mkdir(exist_ok=True)
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", empty_drafts)
 
     async def fake_list_tasks(status=None, priority=None):
         return []
@@ -90,22 +95,18 @@ async def test_list_docs_spec_audit_does_not_block_event_loop(tmp_path, monkeypa
 async def test_list_docs_audit_fields_correct_after_offload(tmp_path, monkeypatch):
     """Offloading to a thread must not corrupt the returned doc list."""
     spec_dir = tmp_path / "docs" / "spec"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
     (spec_dir / "my-spec.md").write_text(SPEC_CONTENT.format(title="My Spec"))
 
     async def fake_list_tasks(status=None, priority=None):
         return []
 
     # Patch USER_SPECS_DIR and USER_DRAFTS_DIR (→2104) so real ~/.myos/
-    # specs/ and drafts/ are not scanned. Without USER_DRAFTS_DIR patched,
-    # the test picks up files like handoff-release-flight.md from the user's
-    # actual ~/.myos/drafts/.
+    # specs/ and drafts/ are not scanned.
     import services.ostk as ostk_module
-    empty_user_specs = tmp_path / "myos_specs"
-    empty_user_specs.mkdir()
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", spec_dir)
     empty_user_drafts = tmp_path / "myos_drafts"
-    empty_user_drafts.mkdir()
-    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", empty_user_specs)
+    empty_user_drafts.mkdir(exist_ok=True)
     monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", empty_user_drafts)
 
     svc = OstkService(cwd=str(tmp_path))

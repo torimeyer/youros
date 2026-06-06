@@ -128,8 +128,8 @@ class TestDocPromoteSpecId:
         draft_dir = tmp_path / "docs" / "draft"
         spec_dir = tmp_path / "docs" / "spec"
         user_specs = tmp_path / "user_specs"
-        draft_dir.mkdir(parents=True)
-        spec_dir.mkdir(parents=True)
+        draft_dir.mkdir(parents=True, exist_ok=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
 
         draft = draft_dir / "my-spec.md"
         draft.write_text(
@@ -150,10 +150,10 @@ class TestDocPromoteSpecId:
 
         draft_dir = tmp_path / "docs" / "draft"
         user_specs = tmp_path / "user_specs"
-        draft_dir.mkdir(parents=True)
+        draft_dir.mkdir(parents=True, exist_ok=True)
         # Pre-populate one existing spec with S001
         existing_spec = user_specs / "existing.md"
-        user_specs.mkdir(parents=True)
+        user_specs.mkdir(parents=True, exist_ok=True)
         existing_spec.write_text(
             "---\nspec_id: S001\nstatus: spec\n---\n\n- [ ] done\n"
         )
@@ -177,8 +177,8 @@ class TestDocPromoteSpecId:
 
         draft_dir = tmp_path / "docs" / "draft"
         user_specs = tmp_path / "user_specs"
-        draft_dir.mkdir(parents=True)
-        user_specs.mkdir(parents=True)
+        draft_dir.mkdir(parents=True, exist_ok=True)
+        user_specs.mkdir(parents=True, exist_ok=True)
 
         draft = draft_dir / "pre-id.md"
         draft.write_text(
@@ -212,7 +212,7 @@ def _load_backfill():
 class TestBackfillScript:
     def test_assigns_ids_alphabetically(self, tmp_path):
         spec_dir = tmp_path / "specs"
-        spec_dir.mkdir()
+        spec_dir.mkdir(exist_ok=True)
 
         for name in ["zebra.md", "alpha.md", "middle.md"]:
             (spec_dir / name).write_text(

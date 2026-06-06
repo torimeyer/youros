@@ -39,7 +39,7 @@ def test_atomic_write_text_leaves_no_tmp_file_on_success(tmp_path: Path) -> None
     # also write into tmp_path, e.g. MYOS_FILES_DIR) do not leak into
     # the directory listing we assert on.
     work = tmp_path / "atomic_write"
-    work.mkdir()
+    work.mkdir(exist_ok=True)
     target = work / "file.json"
     atomic_write_text(target, "payload")
     # No .tmp sibling should remain after a successful write.

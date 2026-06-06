@@ -17,7 +17,7 @@ class TestSearchNear:
     def setup_method(self):
         self.tmpdir = tempfile.mkdtemp()
         self.ostk_dir = Path(self.tmpdir) / ".ostk"
-        self.ostk_dir.mkdir()
+        self.ostk_dir.mkdir(exist_ok=True)
         self.audit_path = self.ostk_dir / "audit.jsonl"
         self.svc = OstkService(cwd=self.tmpdir)
 

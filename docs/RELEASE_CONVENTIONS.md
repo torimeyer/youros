@@ -1,53 +1,38 @@
 # Release conventions
 
-Short checklist that runs before every release tag. The script
-`scripts/test_release_conventions.sh` enforces these automatically.
-Read this when you need to understand why a check failed.
+This document defines the canonical release process for myOS. Adhering to this sequence ensures consistency, automated verification, and high visibility of new features.
 
-## The rules
+## The Release Checklist (ostk)
 
-1. **Version strings stay consistent.** The GitHub tag looks like `v4.0.0`.
-   The tarball filename looks like `ostk-4.0.0-...` (no leading `v`). The
-   URL path uses the tag (with the `v`). If you ever change this, update
-   `install.sh` and this doc together.
+Follow these 8 steps for every release:
 
-2. **Release notes file names use strict semver.** Every file under
-   `docs/releases/` must be named `vN.N.N.md`, for example `v3.5.0.md`.
-   Names like `v3.5.md` or `v3.5.0-beta.md` fail the check.
+1. **Merge feature branches**: Ensure all work is merged into `main`.
+2. **Bump version**: Update the version string in `app/package.json`.
+3. **Draft Release Notes**:
+   - Create `docs/releases/vX.Y.Z.md`.
+   - Update `app/src/data/releaseNotes.ts`.
+   - **Critical**: Do not start the body of the release notes with the version title (it's redundant). Focus ONLY on new features, never bug fixes.
+4. **Verification (Smoke Test)**:
+   - Run `./scripts/e2e_smoke.sh`.
+   - Run backend tests: `api/.venv/bin/python3 -m pytest api/tests/`.
+   - **Must be 100% green**.
+5. **Commit**: `git add . && git commit -m "chore: release vX.Y.Z"`
+6. **Tag**: `git tag vX.Y.Z`
+7. **Push**: `git push origin main --tags`
+   - *Note*: The pre-push hook runs `scripts/test_release_conventions.sh` automatically. If it fails, fix and retry.
+8. **Publish**: `gh release create vX.Y.Z --title "myOS vX.Y.Z" --notes-file docs/releases/vX.Y.Z.md`
+   - *Critical*: The release is not "shipped" until this step produces a public GitHub URL.
 
-3. **The latest tag has release notes.** If the most recent git tag is
-   `v3.5.0`, then `docs/releases/v3.5.0.md` must exist. You cannot ship
-   a release without a notes file.
+## Automated Checks
 
-4. **The in-app What's New is fresh.** The top entry in
-   `app/src/data/releaseNotes.ts` must be dated within the last 14 days.
-   If it is older, you probably forgot to add an entry for the release
-   you are cutting today.
+The `scripts/test_release_conventions.sh` script enforces these rules:
 
-5. **Every ostk tarball URL loads.** The script asks GitHub for the
-   latest ostk version, builds the filename install.sh would request
-   for each platform (Mac ARM, Mac Intel, Linux x86_64), and verifies
-   each URL returns HTTP 200. This is the check that catches the bug
-   where the filename and URL path disagree about the `v` prefix.
+- **Version string consistency**: Tag format matches tarball format and URLs.
+- **Release notes filenames**: Use strict semver (vN.N.N.md).
+- **Notes presence**: Latest tag must have a corresponding notes file in `docs/releases/`.
+- **In-app "What's New"**: Top entry must be dated within the last 14 days.
+- **Tarball availability**: Every ostk tarball URL must return HTTP 200.
+- **Privacy check**: No hardcoded personal paths (`/Users/torimeyer/`) in shipped code.
+- **API Integrity**: No deprecated backend fields are being read by the frontend.
 
-6. **No hardcoded personal paths.** The script scans git-tracked files
-   under `api/` and `app/src/` for `/Users/torimeyer/`. Test files are
-   allowed to have them. Shipped code is not.
-
-7. **No deprecated fields leak.** When the backend removes a public
-   response field, add its name to the `DEPRECATED_FIELDS` list inside
-   the script. It then fails the release if the frontend still reads
-   that field.
-
-## How it runs
-
-- **Manually:** `./scripts/test_release_conventions.sh`
-- **Automatically:** the git pre-push hook runs it before every push,
-  right after `tests/test_install.sh`.
-
-## When a check fails
-
-- Read the FAIL line. It names exactly what is wrong.
-- Fix the file the check points at, not the check itself, unless the
-  rule needs to evolve. If you change the rule, update this doc and
-  write a note in the PR.
+If any check fails, the push will be rejected. Fix the reported files and retry the push.

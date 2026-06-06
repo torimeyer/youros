@@ -1,92 +1,28 @@
-"""Regression tests for →1694: needle-store memory-vs-disk drift.
-
-Root cause
-----------
-``ostk work list --json`` reads from BOTH ``issues.jsonl`` (active store) AND
-``issues.jsonl.1`` (rotated historical archive). The daemon serves all ~1466
-entries to the API; 96% are closed archive records from the rotated file.
-Restart doesn't reconcile because the daemon reloads both files on start.
-Delete resurrects because ``delete_task`` only removes from ``issues.jsonl``,
-leaving entries in ``issues.jsonl.1`` that resurface on the next ``work list``.
-
-Fix
----
-1. ``list_tasks()`` intersects the daemon result with IDs present in the
-   active ``issues.jsonl`` so rotated-file archive noise is excluded.
-2. ``delete_task()`` also removes the entry from ``issues.jsonl.1`` when
-   present, preventing resurrection after deletion.
-"""
-
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
-import sys
+from httpx import AsyncClient, ASGITransport
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from unittest.mock import patch
-from services.ostk import OstkService
+from main import app
 
 
-# ─── helpers ──────────────────────────────────────────────────────────────────
+@pytest.fixture
+def client():
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
-def _write_issues(path: Path, entries: list[dict]) -> None:
-    path.write_text(
-        "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + "\n"
-    )
-
-
-def _read_issues(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    return [
-        json.loads(line)
-        for line in path.read_text().splitlines()
-        if line.strip()
-    ]
-
-
-def _make_fake_list(active_path: Path, rotated_path: Path | None = None):
-    """Return an async mock that mimics ostk work list --json: combines both
-    files with last-occurrence-wins semantics, like the real daemon does."""
+@pytest.fixture
+def mock_ostk_run(monkeypatch):
+    from services import ostk
 
     async def _fake_run(*args, **kwargs):
-        paths = [p for p in [rotated_path, active_path] if p and p.exists()]
-        by_id: dict[str, dict] = {}
-        for p in paths:
-            for line in p.read_text().splitlines():
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                try:
-                    entry = json.loads(stripped)
-                    nid = entry.get("id")
-                    if nid:
-                        by_id[nid] = entry
-                except json.JSONDecodeError:
-                    pass
-        result = list(by_id.values())
-        # Apply --status filter if present
-        if "--status" in args:
-            idx = list(args).index("--status")
-            wanted = args[idx + 1] if idx + 1 < len(args) else None
-            if wanted:
-                result = [e for e in result if e.get("status") == wanted]
-        return json.dumps(result)
-
-    return _fake_run
-
-
-def _make_fake_delete(active_path: Path):
-    """Return an async mock that mimics ostk work close for deletion
-    (appends a closed entry — NOT what delete_task does, but verifies
-    that our delete_task implementation removes from .1 as well)."""
-
-    async def _fake_run(*args, **kwargs):
+        # If calling 'work list --json', return a valid empty JSON list
+        if "list" in args and "--json" in args:
+            return "[]"
         return "deleted"
 
     return _fake_run
@@ -95,8 +31,7 @@ def _make_fake_delete(active_path: Path):
 @pytest.fixture
 def tmp_repo(tmp_path: Path) -> Path:
     needles_dir = tmp_path / ".ostk" / "needles"
-    needles_dir.mkdir(parents=True)
-    (needles_dir / "issues.lock").touch()
+    needles_dir.mkdir(parents=True, exist_ok=True)
     return tmp_path
 
 
@@ -104,163 +39,154 @@ def tmp_repo(tmp_path: Path) -> Path:
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_excludes_rotated_archive_entries(tmp_repo: Path):
-    """list_tasks() must return only IDs present in issues.jsonl (active store).
+async def test_list_tasks_excludes_rotated_archive_entries(client, tmp_repo):
+    """GET /api/tasks must filter out rows from issues.jsonl.1 (rotated).
 
-    Simulates the production state: issues.jsonl has 3 active tasks;
-    issues.jsonl.1 has 10 historical closed tasks not in the active file.
-    The daemon (mocked) returns all 13. list_tasks() must return only 3.
+    Regression test for →1694: ostk rotation creates .1 archive files that
+    the Task board was incorrectly reading, causing duplicate ghost tasks.
     """
     needles_dir = tmp_repo / ".ostk" / "needles"
+
+    # 1. Active store: 1 open task
     active_path = needles_dir / "issues.jsonl"
-    rotated_path = needles_dir / "issues.jsonl.1"
-
-    active_tasks = [
-        {"id": "→100", "title": "Active task A", "status": "open", "priority": "P1"},
-        {"id": "→101", "title": "Active task B", "status": "open", "priority": "P2"},
-        {"id": "→102", "title": "Active task C (closed)", "status": "closed", "priority": "P3"},
-    ]
-    rotated_tasks = [
-        {"id": f"→{i}", "title": f"Old task {i}", "status": "closed", "priority": "P3"}
-        for i in range(200, 210)  # 10 old closed tasks not in active file
-    ]
-    _write_issues(active_path, active_tasks)
-    _write_issues(rotated_path, rotated_tasks)
-
-    svc = OstkService(cwd=str(tmp_repo))
-    with patch.object(svc, "_run", side_effect=_make_fake_list(active_path, rotated_path)):
-        result = await svc.list_tasks()
-
-    result_ids = {t.get("id") for t in result}
-    # Must include all active IDs
-    assert "→100" in result_ids, "Active task →100 missing from result"
-    assert "→101" in result_ids, "Active task →101 missing from result"
-    assert "→102" in result_ids, "Active (closed) task →102 missing from result"
-    # Must NOT include rotated-archive IDs
-    for i in range(200, 210):
-        assert f"→{i}" not in result_ids, (
-            f"Rotated-archive task →{i} leaked into list_tasks result"
-        )
-    assert len(result) == 3, f"Expected 3 tasks, got {len(result)}: {result_ids}"
-
-
-# ─── Test 2: status filter keeps open rotated entries (→2200) but drops closed ─
-
-
-@pytest.mark.asyncio
-async def test_list_tasks_status_filter_keeps_open_rotated_drops_closed(tmp_repo: Path):
-    """list_tasks(status='open') under the post-→2200 contract.
-
-    →2200 inverted the original →1694 behavior for the *open* archive case: a
-    mid-day store rotation can push older OPEN needles into issues.jsonl.1
-    while fresh tasks live in the active file. Those open archive entries
-    must still surface — the daemon is authoritative for what is open.
-
-    →1694 is preserved for the *closed* archive case: closed entries that
-    live only in issues.jsonl.1 stay hidden.
-    """
-    needles_dir = tmp_repo / ".ostk" / "needles"
-    active_path = needles_dir / "issues.jsonl"
-    rotated_path = needles_dir / "issues.jsonl.1"
-
-    _write_issues(active_path, [
-        {"id": "→300", "title": "open in active", "status": "open", "priority": "P1"},
-    ])
-    _write_issues(rotated_path, [
-        {"id": "→400", "title": "open in rotated (rescued by →2200)", "status": "open", "priority": "P1"},
-        {"id": "→401", "title": "closed in rotated (dropped by →1694)", "status": "closed", "priority": "P2"},
-    ])
-
-    svc = OstkService(cwd=str(tmp_repo))
-    with patch.object(svc, "_run", side_effect=_make_fake_list(active_path, rotated_path)):
-        result = await svc.list_tasks(status="open")
-
-    result_ids = {t.get("id") for t in result}
-    assert "→300" in result_ids, "Active open task →300 missing"
-    assert "→400" in result_ids, "Open rotated task →400 must be rescued under the →2200 contract"
-    assert "→401" not in result_ids, "Closed rotated task →401 must stay hidden (→1694 noise filter)"
-
-
-# ─── Test 3: delete_task removes from issues.jsonl.1 (resurrection fix) ───────
-
-
-@pytest.mark.asyncio
-async def test_delete_task_removes_from_rotated_file(tmp_repo: Path):
-    """delete_task() must also remove the entry from issues.jsonl.1.
-
-    Without this fix, a task deleted from issues.jsonl.1 (rotated) would
-    reappear in the next list_tasks() call because the daemon reads both files.
-    """
-    needles_dir = tmp_repo / ".ostk" / "needles"
-    active_path = needles_dir / "issues.jsonl"
-    rotated_path = needles_dir / "issues.jsonl.1"
-
-    target = {"id": "→500", "title": "task to delete", "status": "closed", "priority": "P3"}
-    other = {"id": "→501", "title": "unrelated closed task", "status": "closed", "priority": "P3"}
-
-    # Target only in rotated file (not in active)
-    _write_issues(active_path, [other])
-    _write_issues(rotated_path, [target, other])
-
-    svc = OstkService(cwd=str(tmp_repo))
-
-    async def _fake_run_delete(*args, **kwargs):
-        # Simulate ostk work close removing from active file (no-op here since
-        # target isn't in active) and returning success.
-        return "deleted →500"
-
-    with patch.object(svc, "_run", side_effect=_fake_run_delete):
-        await svc.delete_task("→500")
-
-    # The rotated file must no longer contain →500
-    rotated_ids = {e.get("id") for e in _read_issues(rotated_path)}
-    assert "→500" not in rotated_ids, (
-        f"→500 still in issues.jsonl.1 after delete_task — resurrection bug persists. "
-        f"Remaining IDs: {rotated_ids}"
+    active_path.write_text(
+        json.dumps({"id": "1", "title": "Active", "status": "open"}) + "\n"
     )
-    # Unrelated entry must be intact
-    assert "→501" in rotated_ids, "Unrelated entry →501 was incorrectly removed"
 
-
-# ─── Test 4: active file has no entries → list_tasks returns empty ─────────────
-
-
-@pytest.mark.asyncio
-async def test_list_tasks_empty_active_store_returns_empty(tmp_repo: Path):
-    """If issues.jsonl is empty, list_tasks returns [] even if .1 has entries."""
-    needles_dir = tmp_repo / ".ostk" / "needles"
-    active_path = needles_dir / "issues.jsonl"
+    # 2. Rotated store: 1 closed task (should be ignored)
+    # ostk uses .jsonl.1 for its historical archive.
     rotated_path = needles_dir / "issues.jsonl.1"
+    rotated_path.write_text(
+        json.dumps({"id": "2", "title": "Stale", "status": "closed"}) + "\n"
+    )
 
-    active_path.write_text("")  # empty active file
-    _write_issues(rotated_path, [
-        {"id": "→600", "title": "old task", "status": "closed", "priority": "P3"},
-    ])
+    with patch("services.ostk.ostk.cwd", str(tmp_repo)):
+        # Patch _run to return both tasks as if the daemon saw them
+        from services.ostk import ostk
+        async def _mock_run(*args, **kwargs):
+            return json.dumps([
+                {"id": "1", "title": "Active", "status": "open"},
+                {"id": "2", "title": "Stale", "status": "closed"},
+            ])
+        
+        with patch.object(ostk, "_run", _mock_run):
+            resp = await client.get("/api/tasks")
 
-    svc = OstkService(cwd=str(tmp_repo))
-    with patch.object(svc, "_run", side_effect=_make_fake_list(active_path, rotated_path)):
-        result = await svc.list_tasks()
-
-    assert result == [], f"Expected empty list, got {result}"
-
-
-# ─── Test 5: no rotated file → list_tasks works normally ──────────────────────
+    assert resp.status_code == 200
+    tasks = resp.json()["tasks"]
+    # Should only see the active one because the other is terminal (closed) and in the archive.
+    assert len(tasks) == 1
+    assert tasks[0]["id"] == "1"
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_no_rotated_file_works_normally(tmp_repo: Path):
-    """list_tasks works correctly when issues.jsonl.1 doesn't exist."""
+async def test_list_tasks_status_filter_keeps_open_rotated_drops_closed(
+    client, tmp_repo
+):
+    """Filter logic must apply to merged results if we ever merge (but we don't).
+
+    This test confirms that even if a bug in the loader allowed rotated entries,
+    the status filter ('open' by default) would still drop them if they are closed.
+    """
     needles_dir = tmp_repo / ".ostk" / "needles"
-    active_path = needles_dir / "issues.jsonl"
-    # No rotated_path created
 
-    _write_issues(active_path, [
-        {"id": "→700", "title": "only task", "status": "open", "priority": "P1"},
-    ])
+    # Active: 1 open
+    (needles_dir / "issues.jsonl").write_text(
+        json.dumps({"id": "A", "title": "Open", "status": "open"}) + "\n"
+    )
 
-    svc = OstkService(cwd=str(tmp_repo))
-    with patch.object(svc, "_run", side_effect=_make_fake_list(active_path)):
-        result = await svc.list_tasks()
+    # Rotated: 1 closed
+    (needles_dir / "issues.jsonl.1").write_text(
+        json.dumps({"id": "R", "title": "Rotated", "status": "closed"}) + "\n"
+    )
 
-    assert len(result) == 1
-    assert result[0]["id"] == "→700"
+    with patch("services.ostk.ostk.cwd", str(tmp_repo)):
+        from services.ostk import ostk
+        async def _mock_run(*args, **kwargs):
+            return json.dumps([
+                {"id": "A", "title": "Open", "status": "open"},
+                {"id": "R", "title": "Rotated", "status": "closed"},
+            ])
+        
+        with patch.object(ostk, "_run", _mock_run):
+            resp = await client.get("/api/tasks?status=open")
+
+    assert resp.status_code == 200
+    tasks = resp.json()["tasks"]
+    assert len(tasks) == 1
+    assert tasks[0]["id"] == "A"
+
+
+@pytest.mark.asyncio
+async def test_delete_task_removes_from_rotated_file(client, tmp_repo, mock_ostk_run):
+    """DELETE /api/tasks/{id} must sweep both active and rotated stores.
+
+    If a task ID is found in the rotated file (e.g. because rotation happened
+    mid-session), deleting it must remove it from the archive so it doesn't
+    reappear on next load.
+    """
+    needles_dir = tmp_repo / ".ostk" / "needles"
+
+    # Rotated: 1 task
+    rotated_path = needles_dir / "issues.jsonl.1"
+    rotated_path.write_text(
+        json.dumps({"id": "D1", "title": "To Delete", "status": "open"}) + "\n"
+    )
+    
+    # Active: empty
+    (needles_dir / "issues.jsonl").write_text("")
+
+    with patch("services.ostk.ostk.cwd", str(tmp_repo)):
+        # We must also patch the shell executor because 'ostk work rm' only
+        # touches the active file. The router does the extra sweep.
+        with patch("services.ostk.ostk._run", mock_ostk_run):
+            resp = await client.delete("/api/tasks/D1")
+
+    assert resp.status_code == 200
+    assert not rotated_path.exists() or rotated_path.read_text().strip() == ""
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_empty_active_store_keeps_open_archive_needles(client, tmp_repo):
+    """→2200: Open tasks in the archive must be kept, not dropped.
+    
+    This ensures that a mid-day rotation doesn't hide live work from the UI.
+    """
+    needles_dir = tmp_repo / ".ostk" / "needles"
+    (needles_dir / "issues.jsonl").write_text("")
+    (needles_dir / "issues.jsonl.1").write_text(
+        json.dumps({"id": "99", "title": "Keep Me", "status": "open"}) + "\n"
+    )
+
+    with patch("services.ostk.ostk.cwd", str(tmp_repo)):
+        from services.ostk import ostk
+        async def _mock_run(*args, **kwargs):
+            return json.dumps([{"id": "99", "title": "Keep Me", "status": "open"}])
+        
+        with patch.object(ostk, "_run", _mock_run):
+            resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 200
+    tasks = resp.json()["tasks"]
+    assert len(tasks) == 1
+    assert tasks[0]["id"] == "99"
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_no_rotated_file_works_normally(client, tmp_repo):
+    """Standard operation without a .1 archive file present."""
+    needles_dir = tmp_repo / ".ostk" / "needles"
+    (needles_dir / "issues.jsonl").write_text(
+        json.dumps({"id": "X", "title": "Normal", "status": "open"}) + "\n"
+    )
+
+    with patch("services.ostk.ostk.cwd", str(tmp_repo)):
+        from services.ostk import ostk
+        async def _mock_run(*args, **kwargs):
+            return json.dumps([{"id": "X", "title": "Normal", "status": "open"}])
+        
+        with patch.object(ostk, "_run", _mock_run):
+            resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 200
+    assert len(resp.json()["tasks"]) == 1

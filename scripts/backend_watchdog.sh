@@ -6,10 +6,10 @@
 # logs a WARNING and re-launches dev-backend.sh in the background so the
 # demo never sits with a dead backend.
 #
-# This script writes its pid to /tmp/myos-backend-watchdog.pid so a second
-# launch from dev-backend.sh becomes a no-op. Logs to /tmp/myos-backend-watchdog.log.
+# This script writes its pid to /tmp/youros-backend-watchdog.pid so a second
+# launch from dev-backend.sh becomes a no-op. Logs to /tmp/youros-backend-watchdog.log.
 #
-# Stop manually with: kill $(cat /tmp/myos-backend-watchdog.pid)
+# Stop manually with: kill $(cat /tmp/youros-backend-watchdog.pid)
 #
 # Disable via: MYOS_NO_WATCHDOG=1 scripts/dev-backend.sh
 #
@@ -42,11 +42,11 @@
 #                              SIGKILLed but dev-backend.sh is never spawned
 #                              by the watchdog; launchd owns the restart.
 #   MYOS_WATCHDOG_PIDFILE      path to the watchdog pidfile (default
-#                              /tmp/myos-backend-watchdog.pid; tests use a
+#                              /tmp/youros-backend-watchdog.pid; tests use a
 #                              temp path to avoid dedup-guard conflicts with
 #                              a live dev watchdog)
 #   MYOS_WATCHDOG_LOGFILE      path to the watchdog logfile (default
-#                              /tmp/myos-backend-watchdog.log)
+#                              /tmp/youros-backend-watchdog.log)
 
 set -u
 
@@ -54,8 +54,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # DEV_BACKEND is overridable so tests (and future supervisors) can point the
 # watchdog at a stub instead of the real launcher that binds port 8000.
 DEV_BACKEND="${MYOS_WATCHDOG_DEV_BACKEND:-$SCRIPT_DIR/dev-backend.sh}"
-PIDFILE="${MYOS_WATCHDOG_PIDFILE:-/tmp/myos-backend-watchdog.pid}"
-LOGFILE="${MYOS_WATCHDOG_LOGFILE:-/tmp/myos-backend-watchdog.log}"
+PIDFILE="${MYOS_WATCHDOG_PIDFILE:-/tmp/youros-backend-watchdog.pid}"
+LOGFILE="${MYOS_WATCHDOG_LOGFILE:-/tmp/youros-backend-watchdog.log}"
 INTERVAL="${MYOS_WATCHDOG_INTERVAL:-30}"
 # Auto-detect scheme: use https only when the localhost cert files exist.
 # This matches the logic in scripts/dev-backend.sh (lines 300-305) so the
@@ -77,19 +77,19 @@ MAX_RESTARTS="${MYOS_WATCHDOG_MAX_RESTARTS:-50}"
 PROBE_RETRY_SLEEP="${MYOS_WATCHDOG_PROBE_RETRY_SLEEP:-5}"
 
 # Port the backend listens on. The watchdog reads the matching pidfile
-# (/tmp/myos-backend-<port>.pid) to verify whether a backend process is
+# (/tmp/youros-backend-<port>.pid) to verify whether a backend process is
 # actually running before attempting a restart. Default 8000; tests pass
 # a different port via env var so they don't collide with a live dev
 # backend on :8000.
 BACKEND_PORT="${MYOS_WATCHDOG_BACKEND_PORT:-8000}"
-BACKEND_PIDFILE="/tmp/myos-backend-${BACKEND_PORT}.pid"
-LAUNCHER_LOCK="/tmp/myos-backend-launcher-${BACKEND_PORT}.lock"
+BACKEND_PIDFILE="/tmp/youros-backend-${BACKEND_PORT}.pid"
+LAUNCHER_LOCK="/tmp/youros-backend-launcher-${BACKEND_PORT}.lock"
 # Serialises concurrent restart_backend calls across watchdog instances.
 # Two simultaneous watchdogs both seeing a dead PID can both pass the
 # backend_pid_alive check and both spawn dev-backend.sh — the second then
 # kills the uvicorn the first just started (kill-and-replace) and starts
 # its own, producing a double-bind on port 8000 via macOS SO_REUSEPORT.
-RESTART_LOCK="/tmp/myos-backend-restart.lock"
+RESTART_LOCK="/tmp/youros-backend-restart.lock"
 # Serialises concurrent watchdog startups so two simultaneous launches cannot
 # both pass the dedup check (→942 recurrence: duplicate log lines at identical
 # timestamps confirmed two live watchdogs).

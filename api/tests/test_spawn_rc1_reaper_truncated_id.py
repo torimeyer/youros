@@ -99,7 +99,7 @@ def test_reaper_protects_worktree_when_truncated_id_matches_active_agent(tmp_pat
     _init_repo(repo)
 
     wt_base = repo / ".claude" / "worktrees"
-    wt_base.mkdir(parents=True)
+    wt_base.mkdir(parents=True, exist_ok=True)
     wt_path = wt_base / f"agent-{wt_id}"
     branch = f"worktree-agent-{wt_id}"
 
@@ -142,7 +142,7 @@ def test_reaper_protects_worktree_short_name_unchanged(tmp_path):
     _init_repo(repo)
 
     wt_base = repo / ".claude" / "worktrees"
-    wt_base.mkdir(parents=True)
+    wt_base.mkdir(parents=True, exist_ok=True)
     wt_path = wt_base / f"agent-{agent_name}"
     branch = f"worktree-agent-{agent_name}"
 
@@ -178,9 +178,9 @@ def test_session_start_skips_reaper_when_myos_agent_name_set(tmp_path):
     # when MYOS_AGENT_NAME is set. We do this by providing a fake CWD that
     # has a reaper script that writes a sentinel file if invoked.
     fake_cwd = tmp_path / "fakerepo"
-    fake_cwd.mkdir()
+    fake_cwd.mkdir(exist_ok=True)
     scripts_dir = fake_cwd / "scripts"
-    scripts_dir.mkdir()
+    scripts_dir.mkdir(exist_ok=True)
     sentinel = tmp_path / "reaper_was_called"
     (scripts_dir / "worktree-reaper.sh").write_text(
         f"#!/bin/bash\ntouch {sentinel}\n"

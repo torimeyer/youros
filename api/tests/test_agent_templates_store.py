@@ -68,7 +68,7 @@ def test_seeder_reconciles_when_prompt_template_drifts(tmp_path, monkeypatch):
 
     # Seed an agentfile with the OLD prompt to simulate a stale on-disk file.
     mp_dir = tmp_path / "marketplace"
-    mp_dir.mkdir()
+    mp_dir.mkdir(exist_ok=True)
     stem = _name_to_stem(fake_template["name"])
     stale_path = mp_dir / f"{stem}.agent"
     old_template = {**fake_template, "prompt_template": "OLD PROMPT: do the old thing"}
@@ -100,7 +100,7 @@ def test_seeder_skips_write_when_already_in_sync(tmp_path, monkeypatch):
     }
 
     mp_dir = tmp_path / "marketplace"
-    mp_dir.mkdir()
+    mp_dir.mkdir(exist_ok=True)
     stem = _name_to_stem(fake_template["name"])
     sync_path = mp_dir / f"{stem}.agent"
     sync_path.write_text(_make_agentfile_text(fake_template))

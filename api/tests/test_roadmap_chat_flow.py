@@ -90,7 +90,7 @@ async def test_roadmap_completion_emits_notification_not_chat_message(tmp_path):
     agent_name = "roadmap-notify-agent"
     agent_metadata[agent_name] = _roadmap_metadata()
     fake_home = tmp_path / "home"
-    fake_home.mkdir()
+    fake_home.mkdir(exist_ok=True)
 
     notif_calls: list[dict] = []
 
@@ -173,7 +173,7 @@ async def test_retro_save_does_not_emit_notification_or_chat(tmp_path):
     agent_name = "roadmap-retro-save-agent"
     agent_metadata[agent_name] = _roadmap_metadata()
     fake_home = tmp_path / "home"
-    fake_home.mkdir()
+    fake_home.mkdir(exist_ok=True)
 
     notif_calls: list[dict] = []
 
@@ -225,7 +225,7 @@ async def test_roadmap_writes_exactly_one_file(tmp_path):
     agent_name = "roadmap-single-file-probe"
     agent_metadata[agent_name] = _roadmap_metadata()
     fake_files = tmp_path / ".myos" / "files"
-    fake_files.mkdir(parents=True)
+    fake_files.mkdir(parents=True, exist_ok=True)
 
     class _FakeNotif:
         def add(self, **_):
@@ -272,7 +272,7 @@ async def test_non_roadmap_agent_still_writes_timestamped_file(tmp_path):
         "source": "api",
     }
     fake_files = tmp_path / ".myos" / "files"
-    fake_files.mkdir(parents=True)
+    fake_files.mkdir(parents=True, exist_ok=True)
 
     class _FakeNotif:
         def add(self, **_):
@@ -313,7 +313,7 @@ async def test_roadmap_complete_suppresses_auto_task_creation(tmp_path):
     agent_name = "roadmap-no-autotasks-agent"
     agent_metadata[agent_name] = _roadmap_metadata()
     fake_home = tmp_path / "home"
-    fake_home.mkdir()
+    fake_home.mkdir(exist_ok=True)
 
     captured = {"called": False}
 
@@ -388,7 +388,7 @@ async def test_non_roadmap_complete_still_auto_creates_tasks(tmp_path):
         "status": "running",
     }
     fake_home = tmp_path / "home"
-    fake_home.mkdir()
+    fake_home.mkdir(exist_ok=True)
 
     captured = {"called": False}
 
@@ -461,7 +461,7 @@ async def test_chat_create_tasks_from_roadmap_parses_and_creates(tmp_path):
     from routers import chat as chat_module
 
     files_dir = tmp_path / "files"
-    files_dir.mkdir()
+    files_dir.mkdir(exist_ok=True)
     roadmap = files_dir / "roadmap.md"
     roadmap.write_text(
         "---\nkind: roadmap\n---\n\n"
@@ -514,7 +514,7 @@ async def test_chat_create_tasks_from_roadmap_e2e_agent_name_prefixes_source(tmp
     from routers import chat as chat_module
 
     files_dir = tmp_path / "files"
-    files_dir.mkdir()
+    files_dir.mkdir(exist_ok=True)
     # Filename does NOT start with e2e-. Only the agent name does.
     roadmap = files_dir / "plain-roadmap.md"
     roadmap.write_text(
@@ -557,7 +557,7 @@ async def test_chat_create_tasks_from_roadmap_non_e2e_agent_leaves_source_alone(
     from routers import chat as chat_module
 
     files_dir = tmp_path / "files"
-    files_dir.mkdir()
+    files_dir.mkdir(exist_ok=True)
     roadmap = files_dir / "quarterly-plan.md"
     roadmap.write_text(
         "---\nkind: roadmap\n---\n\n"
@@ -596,7 +596,7 @@ async def test_chat_create_tasks_from_roadmap_no_agent_name_backwards_compat(tmp
     from routers import chat as chat_module
 
     files_dir = tmp_path / "files"
-    files_dir.mkdir()
+    files_dir.mkdir(exist_ok=True)
     roadmap = files_dir / "roadmap.md"
     roadmap.write_text(
         "---\nkind: roadmap\n---\n\n"
@@ -633,7 +633,7 @@ async def test_chat_create_tasks_from_roadmap_no_roadmap_returns_hint(tmp_path):
     from routers import chat as chat_module
 
     files_dir = tmp_path / "files"
-    files_dir.mkdir()  # empty
+    files_dir.mkdir(exist_ok=True)  # empty
 
     call_counter = {"n": 0}
 
@@ -757,9 +757,9 @@ async def test_roadmap_completion_md_appears_in_recent_docs(tmp_path):
 
     fake_home = tmp_path / "home"
     fake_ws = tmp_path / "workspace"
-    fake_ws.mkdir(parents=True)
+    fake_ws.mkdir(parents=True, exist_ok=True)
     myos_files = fake_home / ".myos" / "files"
-    myos_files.mkdir(parents=True)
+    myos_files.mkdir(parents=True, exist_ok=True)
 
     (myos_files / "roadmap.md").write_text(
         "---\nsource: roadmap-agent\nkind: roadmap\n---\n\n# Roadmap\n\n"

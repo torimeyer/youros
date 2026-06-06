@@ -105,7 +105,7 @@ async def test_calendar_auth_status_warm_cache_zero_probes(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
     cache_dir = tmp_path / "calendar_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "events.json"
     cache_path.write_text(json.dumps(_make_events(3)))
 
@@ -196,7 +196,7 @@ async def test_calendar_events_cache_hit(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
     cache_dir = tmp_path / "calendar_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "events.json"
     fake_events = _make_events(2)
     from datetime import datetime as _dt
@@ -221,7 +221,7 @@ async def test_calendar_events_cache_miss_fetches_api(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
     cache_dir = tmp_path / "calendar_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "events.json"
     # Write a stale cache
     fake_events = _make_events(3)
@@ -254,7 +254,7 @@ async def test_calendar_events_insufficient_scope_returns_403(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
     cache_dir = tmp_path / "calendar_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "events.json"
     # No cache file
 
@@ -292,7 +292,7 @@ async def test_calendar_events_endpoint_returns_recent_events(client, tmp_path):
     }))
 
     cache_dir = tmp_path / "calendar_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "events.json"
     # Cache file does not exist, forcing a fetch.
 
@@ -323,7 +323,7 @@ async def test_calendar_save_cache_skips_empty_list(tmp_path):
     from services import calendar as cal
 
     cache_dir = tmp_path / "calendar_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "events.json"
 
     with patch("services.calendar.EVENTS_CACHE_PATH", cache_path):
@@ -343,7 +343,7 @@ async def test_calendar_load_cache_treats_empty_list_as_miss(tmp_path):
     from datetime import datetime as _dt
 
     cache_dir = tmp_path / "calendar_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "events.json"
     today_str = _dt.now().strftime("%Y-%m-%d")
     cache_path.write_text(json.dumps({"fetched_date": today_str, "events": []}))
@@ -377,7 +377,7 @@ async def test_calendar_sync_success(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
     cache_dir = tmp_path / "calendar_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "events.json"
     # Pre-populate stale cache
     cache_path.write_text(json.dumps(_make_events(1)))
@@ -967,7 +967,7 @@ async def test_calendar_events_day_range_skips_cache(client, tmp_path):
         "scope": "https://www.googleapis.com/auth/calendar.readonly",
     }))
     cache_path = tmp_path / "calendar_cache" / "events.json"
-    cache_path.parent.mkdir()
+    cache_path.parent.mkdir(exist_ok=True)
     # Pre-seed cache with a different shape so we know the day fetch
     # bypassed it.
     today_str = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
@@ -1003,7 +1003,7 @@ async def test_calendar_events_week_range_default_uses_cache(client, tmp_path):
         "scope": "https://www.googleapis.com/auth/calendar.readonly",
     }))
     cache_path = tmp_path / "calendar_cache" / "events.json"
-    cache_path.parent.mkdir()
+    cache_path.parent.mkdir(exist_ok=True)
 
     fresh = _make_events(3)
 
@@ -1029,7 +1029,7 @@ async def test_calendar_events_month_range_skips_cache(client, tmp_path):
         "scope": "https://www.googleapis.com/auth/calendar.readonly",
     }))
     cache_path = tmp_path / "calendar_cache" / "events.json"
-    cache_path.parent.mkdir()
+    cache_path.parent.mkdir(exist_ok=True)
 
     fresh = _make_events(10)
 
@@ -1061,7 +1061,7 @@ async def test_calendar_events_clamps_unsupported_days(client, tmp_path):
         "scope": "https://www.googleapis.com/auth/calendar.readonly",
     }))
     cache_path = tmp_path / "calendar_cache" / "events.json"
-    cache_path.parent.mkdir()
+    cache_path.parent.mkdir(exist_ok=True)
 
     fresh = _make_events(1)
 
@@ -1156,7 +1156,7 @@ async def test_calendar_events_filters_wfh_on_fetch(client, tmp_path):
         "scope": "https://www.googleapis.com/auth/calendar.readonly",
     }))
     cache_path = tmp_path / "calendar_cache" / "events.json"
-    cache_path.parent.mkdir()
+    cache_path.parent.mkdir(exist_ok=True)
 
     real_events = _make_events(2)
     wfh_events = [
@@ -1199,7 +1199,7 @@ async def test_calendar_events_filters_wfh_from_cache(client, tmp_path):
         "scope": "https://www.googleapis.com/auth/calendar.readonly",
     }))
     cache_path = tmp_path / "calendar_cache" / "events.json"
-    cache_path.parent.mkdir()
+    cache_path.parent.mkdir(exist_ok=True)
 
     from datetime import datetime as _dt
     today_str = _dt.now().strftime("%Y-%m-%d")

@@ -186,7 +186,7 @@ def test_cleanup_stale_backend_sessions_retires_older_workers(tmp_path):
     from routers import sessions as sessions_module
 
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir(parents=True)
+    sessions_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
     recent_ts = (now - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -197,7 +197,7 @@ def test_cleanup_stale_backend_sessions_retires_older_workers(tmp_path):
         ("myos-api-12", -1),
     ]:
         folder = sessions_dir / name
-        folder.mkdir()
+        folder.mkdir(exist_ok=True)
         events = folder / "events.jsonl"
         events.write_text(json.dumps(_make_event(recent_ts)) + "\n")
         mtime = (now + timedelta(seconds=offset_seconds)).timestamp()
@@ -206,7 +206,7 @@ def test_cleanup_stale_backend_sessions_retires_older_workers(tmp_path):
 
     # A non-backend session should be untouched.
     user_folder = sessions_dir / "chat-default"
-    user_folder.mkdir()
+    user_folder.mkdir(exist_ok=True)
     user_events = user_folder / "events.jsonl"
     user_events.write_text(json.dumps(_make_event(recent_ts)) + "\n")
     user_mtime_before = user_events.stat().st_mtime

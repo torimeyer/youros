@@ -95,8 +95,8 @@ async def test_browse_lists_directory_contents(client):
 
         # Create a subdirectory structure
         project_dir = tmppath / "my-project"
-        project_dir.mkdir()
-        (project_dir / "src").mkdir()
+        project_dir.mkdir(exist_ok=True)
+        (project_dir / "src").mkdir(exist_ok=True)
         (project_dir / "README.md").write_text("Hello world")
         (project_dir / "index.ts").write_text("console.log('hi')")
 
@@ -142,7 +142,7 @@ async def test_browse_nested_breadcrumbs(client):
         tmppath = Path(tmpdir)
 
         nested = tmppath / "project" / "src" / "components"
-        nested.mkdir(parents=True)
+        nested.mkdir(parents=True, exist_ok=True)
         (nested / "Button.tsx").write_text("export default function Button() {}")
 
         with patch("routers.projects.TORIOS_DIR", tmppath):
@@ -170,8 +170,8 @@ async def test_browse_hides_hidden_files(client):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
         project = tmppath / "proj"
-        project.mkdir()
-        (project / ".git").mkdir()
+        project.mkdir(exist_ok=True)
+        (project / ".git").mkdir(exist_ok=True)
         (project / ".DS_Store").write_text("")
         (project / "visible.txt").write_text("hello")
 
@@ -191,7 +191,7 @@ async def test_browse_empty_directory(client):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
         empty = tmppath / "empty-project"
-        empty.mkdir()
+        empty.mkdir(exist_ok=True)
 
         with patch("routers.projects.TORIOS_DIR", tmppath):
             resp = await client.get("/api/projects/browse?path=empty-project")
@@ -208,7 +208,7 @@ async def test_open_file_rejects_directory(client):
     """Opening a directory should return 400."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
-        (tmppath / "some-dir").mkdir()
+        (tmppath / "some-dir").mkdir(exist_ok=True)
 
         with patch("routers.projects.TORIOS_DIR", tmppath):
             resp = await client.post("/api/projects/open-file", json={"path": "some-dir"})
@@ -393,7 +393,7 @@ async def test_read_file_rejects_directory(client):
     """Reading a directory should return 400."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
-        (tmppath / "some-dir").mkdir()
+        (tmppath / "some-dir").mkdir(exist_ok=True)
 
         with patch("routers.projects.TORIOS_DIR", tmppath):
             resp = await client.get("/api/files/read?path=some-dir")
@@ -445,7 +445,7 @@ async def test_read_file_accepts_absolute_myos_files_path(client):
          tempfile.TemporaryDirectory() as fake_home:
         tmppath = Path(tmpdir)
         myos_files = Path(fake_home) / ".myos" / "files"
-        myos_files.mkdir(parents=True)
+        myos_files.mkdir(parents=True, exist_ok=True)
         target = myos_files / "ia-review-session-7-2026-04-17T02-30.md"
         target.write_text("# IA Review Session 7\n\nPreview should work.")
 
@@ -507,7 +507,7 @@ async def test_recent_docs_and_preview_are_consistent(client):
 
         # ~/.myos/files/ .md file (absolute path in /docs/recent).
         myos_files = Path(fake_home) / ".myos" / "files"
-        myos_files.mkdir(parents=True)
+        myos_files.mkdir(parents=True, exist_ok=True)
         fleet_output = myos_files / "ia-review-session-7-2026-04-17T02-30.md"
         fleet_output.write_text(
             "---\n"
@@ -556,7 +556,7 @@ async def test_automation_output_is_previewable(client):
          tempfile.TemporaryDirectory() as fake_home:
         tmppath = Path(tmpdir)
         myos_files = Path(fake_home) / ".myos" / "files"
-        myos_files.mkdir(parents=True)
+        myos_files.mkdir(parents=True, exist_ok=True)
 
         body = (
             "This is a realistic IA review summary that is long enough "
@@ -599,7 +599,7 @@ async def test_recent_docs_returns_md_files(client):
 
         # Create some markdown files with staggered mtimes
         docs_dir = tmppath / "docs"
-        docs_dir.mkdir()
+        docs_dir.mkdir(exist_ok=True)
         old_file = docs_dir / "old.md"
         old_file.write_text("# Old\n\nOld content here.")
         new_file = docs_dir / "new.md"
@@ -667,10 +667,10 @@ async def test_recent_docs_skips_hidden_dirs(client):
         tmppath = Path(tmpdir)
         (tmppath / "visible.md").write_text("# Visible")
         hidden = tmppath / ".git"
-        hidden.mkdir()
+        hidden.mkdir(exist_ok=True)
         (hidden / "hidden.md").write_text("# Hidden")
         node_modules = tmppath / "node_modules"
-        node_modules.mkdir()
+        node_modules.mkdir(exist_ok=True)
         (node_modules / "dep.md").write_text("# Dep")
 
         with patch("routers.projects.TORIOS_DIR", tmppath), \
@@ -736,7 +736,7 @@ async def test_delete_recent_doc_in_myos_files(client):
          tempfile.TemporaryDirectory() as fake_home:
         tmppath = Path(tmpdir)
         myos_files = Path(fake_home) / ".myos" / "files"
-        myos_files.mkdir(parents=True)
+        myos_files.mkdir(parents=True, exist_ok=True)
         target = myos_files / "roadmap.md"
         target.write_text("# Roadmap\n\nPlan.")
 
@@ -760,7 +760,7 @@ async def test_delete_recent_doc_in_workspace(client):
          tempfile.TemporaryDirectory() as fake_home:
         tmppath = Path(tmpdir)
         docs_dir = tmppath / "docs"
-        docs_dir.mkdir()
+        docs_dir.mkdir(exist_ok=True)
         target = docs_dir / "note.md"
         target.write_text("# Note")
 

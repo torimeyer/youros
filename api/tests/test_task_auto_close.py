@@ -166,7 +166,7 @@ def test_mark_agent_complete_closes_all_needle_ids():
 
 def _make_issues_jsonl(tmp_path: Path, entries: list[dict]) -> Path:
     issues_dir = tmp_path / ".ostk" / "needles"
-    issues_dir.mkdir(parents=True)
+    issues_dir.mkdir(parents=True, exist_ok=True)
     issues_file = issues_dir / "issues.jsonl"
     issues_file.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
     return issues_file

@@ -292,7 +292,7 @@ async def test_gather_sources_enriches_spec_with_body_excerpt(tmp_path):
     from routers.narrative import _gather_sources
 
     spec_dir = tmp_path / "specs"
-    spec_dir.mkdir()
+    spec_dir.mkdir(exist_ok=True)
     spec_file = spec_dir / "my-feature.md"
     spec_file.write_text(
         "# My Feature\n\n"

@@ -98,7 +98,7 @@ async def test_list_docs_writes_complete_status_to_frontmatter(
     from services.ostk import OstkService
 
     # Wire up a temp project directory
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
 
     spec_file = tmp_path / "docs" / "spec" / "auto-close-test.md"
@@ -143,7 +143,7 @@ async def test_list_docs_does_not_writeback_when_already_complete(
     """
     from services import ostk as ostk_module
 
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
 
     spec_file = tmp_path / "docs" / "spec" / "already-complete.md"
@@ -175,7 +175,7 @@ async def test_list_docs_does_not_writeback_incomplete_spec(
     """Writeback must not happen when spec still has open tasks."""
     from services import ostk as ostk_module
 
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
 
     spec_file = tmp_path / "docs" / "spec" / "still-open.md"

@@ -88,10 +88,10 @@ trap 'rm -rf "$_tmpdir"; jobs -p | xargs kill 2>/dev/null || true' EXIT
 _wd_pidfile="$_tmpdir/watchdog.pid"
 _wd_logfile="$_tmpdir/watchdog.log"
 _be_port=19876   # unused port — health probes will always fail (ECONNREFUSED)
-# The watchdog computes BACKEND_PIDFILE="/tmp/myos-backend-${BACKEND_PORT}.pid".
+# The watchdog computes BACKEND_PIDFILE="/tmp/youros-backend-${BACKEND_PORT}.pid".
 # The fake PID must go there, not into _tmpdir, or backend_pid_alive() returns
 # false and the deadlock-threshold SIGKILL path is never reached.
-_be_pidfile="/tmp/myos-backend-${_be_port}.pid"
+_be_pidfile="/tmp/youros-backend-${_be_port}.pid"
 
 # Fake backend: a long-running sleep.
 sleep 3600 &
@@ -157,8 +157,8 @@ rm -f "$_be_pidfile" 2>/dev/null || true
 _tmpdir2=$(mktemp -d)
 _wd_pidfile2="$_tmpdir2/watchdog.pid"
 _wd_logfile2="$_tmpdir2/watchdog.log"
-# Must write to the path the watchdog reads: /tmp/myos-backend-${BACKEND_PORT}.pid
-_be_pidfile2="/tmp/myos-backend-${_be_port}.pid"
+# Must write to the path the watchdog reads: /tmp/youros-backend-${BACKEND_PORT}.pid
+_be_pidfile2="/tmp/youros-backend-${_be_port}.pid"
 
 sleep 3600 &
 _fake_pid2=$!
@@ -271,7 +271,7 @@ _tmpdir6=$(mktemp -d)
 _wd_pidfile6="$_tmpdir6/watchdog.pid"
 _wd_logfile6="$_tmpdir6/watchdog.log"
 _be_port6=19877
-_be_pidfile6="/tmp/myos-backend-${_be_port6}.pid"
+_be_pidfile6="/tmp/youros-backend-${_be_port6}.pid"
 rm -f "$_stub_marker"
 
 sleep 3600 &

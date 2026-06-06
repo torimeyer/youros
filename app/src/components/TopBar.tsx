@@ -4,11 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import Icon from './Icon'
 import { useAppStore } from '../stores/app'
 import { useNotificationStore } from '../stores/notifications'
-import type { AppNotification } from '../stores/notifications'
-import { useNotificationsStore } from '../stores/notificationsStore'
-import type { Notification as WsNotification } from '../stores/notificationsStore'
 import { api } from '../lib/api'
-import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications'
 
 const isMac = () => navigator.platform.toUpperCase().includes('MAC') || navigator.userAgent.toUpperCase().includes('MAC OS')
 const modKey = isMac() ? '⌘' : 'Ctrl+'
@@ -62,66 +58,9 @@ function statusMessage(status: string): string {
 
 
 
-function NotificationItem({ n }: { n: AppNotification }) {
-  const { icon, color } = statusIcon(n.status)
-  return (
-    <div className={`flex items-start gap-3 px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors ${n.read ? 'opacity-60' : ''}`}>
-      <Icon name={icon} size={18} className={`${color} mt-0.5 shrink-0`} />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-white font-medium truncate">{n.agentName}</p>
-        <p className="text-xs text-slate-600 dark:text-slate-400">Agent {statusMessage(n.status)}</p>
-      </div>
-      <span className="text-[10px] text-slate-600 shrink-0 mt-0.5">{formatRelative(n.timestamp)}</span>
-    </div>
-  )
-}
 
-function PersistentNotificationItem({
-  n,
-  onRead,
-}: {
-  n: WsNotification
-  onRead: (id: string) => void
-}) {
-  const navigate = useNavigate()
-  return (
-    <div
-      className={`flex items-start gap-3 px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors cursor-pointer ${n.read ? 'opacity-60' : ''}`}
-      onClick={() => {
-        if (!n.read) onRead(n.id)
-        if (n.action_url) navigate(n.action_url as string)
-      }}
-    >
-      <Icon
-        name={
-          n.type === 'upgrade' ? 'system_update_alt'
-          : n.type === 'agent' ? 'check_circle'
-          : n.type === 'sync' ? 'sync'
-          : n.type === 'task_overdue' ? 'schedule'
-          : 'info'
-        }
-        size={18}
-        className={
-          (n.type === 'upgrade' ? 'text-blue-600 dark:text-blue-400'
-          : n.type === 'agent' ? 'text-green-600 dark:text-green-400'
-          : n.type === 'sync' ? 'text-purple-600 dark:text-purple-400'
-          : n.type === 'task_overdue' ? 'text-orange-600 dark:text-orange-400'
-          : 'text-slate-600 dark:text-slate-400') + ' mt-0.5 shrink-0'
-        }
-      />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-white font-medium">{n.title}</p>
-        <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">{n.body ?? ''}</p>
-        {n.action_label && (
-          <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">{n.action_label} &rarr;</p>
-        )}
-      </div>
-      <span className="text-[10px] text-slate-600 shrink-0 mt-0.5">
-        {formatRelative(n.created_at)}
-      </span>
-    </div>
-  )
-}
+
+
 
 export default function TopBar() {
   const navigate = useNavigate()
@@ -335,92 +274,6 @@ export default function TopBar() {
         >
           <Icon name="chat" />
         </button>
-        <div className="relative">
-          <button
-            onClick={handleOpenNotifications}
-            className="relative p-2.5 sm:p-2 text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all"
-          >
-            <Icon name="notifications" />
-            {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 min-w-[16px] h-4 bg-blue-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-1">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
-          {showNotifications && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={handleCloseNotifications} />
-              <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 overflow-hidden">
-                <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                  <span className="text-sm font-semibold text-white">Notifications</span>
-                  <div className="flex items-center gap-3">
-                    {unreadCount > 0 && (
-                      <button
-                        onClick={() => {
-                          if (agentUnreadCount > 0) markAllRead()
-                          if (persistentUnread > 0) handleMarkAllPersistentRead()
-                        }}
-                        className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
-                      >
-                        Mark all read
-                      </button>
-                    )}
-                    {(notifications.length > 0 || wsNotifications.length > 0) && (
-                      <button
-                        onClick={clearAll}
-                        className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
-                      >
-                        Clear all
-                      </button>
-                    )}
-                    <button onClick={handleCloseNotifications} className="text-slate-500 hover:text-white">
-                      <Icon name="close" size={16} />
-                    </button>
-                  </div>
-                </div>
-
-                {notifications.length === 0 && wsNotifications.length === 0 ? (
-                  <div className="p-6 text-center">
-                    <Icon name="notifications_none" size={32} className="text-slate-700 mb-2" />
-                    <p className="text-sm text-slate-500">You&apos;re all caught up.</p>
-                    <p className="text-xs text-slate-600 mt-1">Alerts from agents and updates will show up here.</p>
-                  </div>
-                ) : (
-                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-800/50">
-                    {wsNotifications.map((n) => (
-                      <PersistentNotificationItem
-                        key={n.id}
-                        n={n}
-                        onRead={handleMarkPersistentRead}
-                      />
-                    ))}
-                    {notifications.map((n) => (
-                      <NotificationItem key={n.id} n={n} />
-                    ))}
-                  </div>
-                )}
-                {isPushSupported() && (
-                  <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                    <span className="text-xs text-slate-600 dark:text-slate-400">Push notifications</span>
-                    <button
-                      onClick={handleTogglePush}
-                      disabled={pushToggling}
-                      className={`w-9 h-5 rounded-full relative transition-colors ${
-                        pushEnabled ? 'accent-bg' : 'bg-slate-200 dark:bg-slate-700'
-                      } ${pushToggling ? 'opacity-50' : ''}`}
-                    >
-                      <span
-                        className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                          pushEnabled ? 'left-4' : 'left-0.5'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </div>
         {isOffline && (
           <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-900/50 border border-amber-700/50">
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />

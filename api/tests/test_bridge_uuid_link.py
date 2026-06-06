@@ -44,12 +44,12 @@ def test_link_finds_fresh_jsonl(tmp_path):
 
     # Set up fake ~/.claude/projects/<encoded>/  directory
     fake_projects = tmp_path / ".claude" / "projects"
-    fake_projects.mkdir(parents=True)
+    fake_projects.mkdir(parents=True, exist_ok=True)
 
     cwd = "/fake/worktree/path"
     encoded = cwd.replace("/", "-").lstrip("-")
     project_dir = fake_projects / f"-{encoded}"
-    project_dir.mkdir()
+    project_dir.mkdir(exist_ok=True)
 
     # Write a fake session JSONL (size > 0) with mtime = now
     jsonl_file = project_dir / "aabbccdd-1111-2222-3333-444455556666.jsonl"
@@ -75,11 +75,11 @@ def test_link_skips_old_jsonl(tmp_path):
     register_iso = (now + timedelta(seconds=60)).isoformat()
 
     fake_projects = tmp_path / ".claude" / "projects"
-    fake_projects.mkdir(parents=True)
+    fake_projects.mkdir(parents=True, exist_ok=True)
     cwd = "/fake/worktree/old"
     encoded = cwd.replace("/", "-").lstrip("-")
     project_dir = fake_projects / f"-{encoded}"
-    project_dir.mkdir()
+    project_dir.mkdir(exist_ok=True)
 
     jsonl_file = project_dir / "old-session.jsonl"
     jsonl_file.write_text('{"type": "user"}\n')
@@ -103,7 +103,7 @@ def test_link_returns_false_when_no_project_dir(tmp_path):
 
     register_iso = datetime.now(timezone.utc).isoformat()
     fake_projects = tmp_path / ".claude" / "projects"
-    fake_projects.mkdir(parents=True)
+    fake_projects.mkdir(parents=True, exist_ok=True)
 
     meta = {"worktree_path": "/no/such/worktree"}
 
@@ -119,11 +119,11 @@ def test_link_skips_empty_jsonl(tmp_path):
 
     register_iso = datetime.now(timezone.utc).isoformat()
     fake_projects = tmp_path / ".claude" / "projects"
-    fake_projects.mkdir(parents=True)
+    fake_projects.mkdir(parents=True, exist_ok=True)
     cwd = "/fake/empty"
     encoded = cwd.replace("/", "-").lstrip("-")
     project_dir = fake_projects / f"-{encoded}"
-    project_dir.mkdir()
+    project_dir.mkdir(exist_ok=True)
 
     empty = project_dir / "empty-session.jsonl"
     empty.write_text("")  # 0 bytes
@@ -149,7 +149,7 @@ def test_register_sets_uuid_pending_when_no_session_file(tmp_path):
     client = TestClient(app, raise_server_exceptions=True)
 
     empty_projects = tmp_path / ".claude" / "projects"
-    empty_projects.mkdir(parents=True)
+    empty_projects.mkdir(parents=True, exist_ok=True)
 
     with patch("routers.agents._claude_code_projects_dir", return_value=empty_projects):
         with patch("routers.agents._autodiscover_recent_transcript_path", return_value=None):
@@ -184,11 +184,11 @@ def test_heartbeat_links_uuid_and_refreshes_bytes(tmp_path):
     client = TestClient(app, raise_server_exceptions=True)
 
     fake_projects = tmp_path / ".claude" / "projects"
-    fake_projects.mkdir(parents=True)
+    fake_projects.mkdir(parents=True, exist_ok=True)
     cwd = "/fake/worktree/hb-test"
     encoded = cwd.replace("/", "-").lstrip("-")
     project_dir = fake_projects / f"-{encoded}"
-    project_dir.mkdir()
+    project_dir.mkdir(exist_ok=True)
 
     # Register without a JSONL present → pending
     with patch("routers.agents._claude_code_projects_dir", return_value=fake_projects):

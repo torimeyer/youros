@@ -207,7 +207,7 @@ async def test_gmail_messages_cache_hit(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "gmail_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     full_cache_path = cache_dir / "inbox_full.json"
     fake_messages = _make_messages(2)
     full_cache_path.write_text(json.dumps(fake_messages))
@@ -230,7 +230,7 @@ async def test_gmail_messages_cache_miss_fetches_api(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "gmail_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     full_cache_path = cache_dir / "inbox_full.json"
     # Write a stale cache (mtime older than full inbox TTL of 300 s)
     old_messages = _make_messages(1)
@@ -260,7 +260,7 @@ async def test_gmail_messages_insufficient_scope_returns_403(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "gmail_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     full_cache_path = cache_dir / "inbox_full.json"
     # No cache file
 
@@ -390,7 +390,7 @@ async def test_gmail_sync_success(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "gmail_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "inbox.json"
     full_cache_path = cache_dir / "inbox_full.json"
     cache_path.write_text(json.dumps(_make_messages(1)))
@@ -432,7 +432,7 @@ async def test_gmail_messages_empty_cache_retries_api(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "gmail_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "inbox.json"
     full_cache_path = cache_dir / "inbox_full.json"
     # Write an empty cache that is FRESH (mtime = now) so the TTL would
@@ -706,7 +706,7 @@ async def test_inbox_endpoint_response_shape(client, tmp_path):
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "gmail_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "inbox.json"
     full_cache_path = cache_dir / "inbox_full.json"
 
@@ -735,7 +735,7 @@ async def test_inbox_endpoint_does_not_silently_swallow_errors(client, tmp_path)
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "gmail_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "inbox.json"
     full_cache_path = cache_dir / "inbox_full.json"
 
@@ -768,7 +768,7 @@ def test_inbox_cache_invalidates_on_send(tmp_path):
     from services import gmail as gmail_service
 
     cache_dir = tmp_path / "gmail_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     full_cache_path = cache_dir / "inbox_full.json"
     full_cache_path.write_text(json.dumps(_make_messages(3)))
 
@@ -1185,7 +1185,7 @@ async def test_gmail_messages_invalid_grant_returns_403_needs_reauth(client, tmp
     token_path.write_text(json.dumps({"access_token": "ya29.expired", "scope": "https://www.googleapis.com/auth/gmail.readonly"}))
 
     cache_dir = tmp_path / "gmail_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "inbox.json"
     full_cache_path = cache_dir / "inbox_full.json"
 

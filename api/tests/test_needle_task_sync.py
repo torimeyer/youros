@@ -56,7 +56,7 @@ def test_post_commit_hook_exits_zero_on_backend_down(tmp_path):
     """Running the hook with no backend should still exit 0."""
     # Build a tiny throwaway git repo so git log works
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "feat: →9999 close this needle"],
@@ -73,7 +73,7 @@ def test_post_commit_hook_exits_zero_on_backend_down(tmp_path):
 
     # Stub out ostk so the hook thinks the close succeeded
     stub_bin = tmp_path / "bin"
-    stub_bin.mkdir()
+    stub_bin.mkdir(exist_ok=True)
     ostk_stub = stub_bin / "ostk"
     ostk_stub.write_text(textwrap.dedent("""\
         #!/usr/bin/env bash

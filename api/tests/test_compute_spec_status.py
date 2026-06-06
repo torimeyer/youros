@@ -167,7 +167,7 @@ async def test_post_claim_flips_ready_spec_to_in_progress(
     from services import ostk as ostk_module
     from routers import specs as specs_router
 
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
 
@@ -222,7 +222,7 @@ async def test_build_endpoint_records_source_build_claim(
     from routers import agents as agents_router
     from unittest.mock import AsyncMock
 
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
 

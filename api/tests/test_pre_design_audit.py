@@ -62,7 +62,7 @@ def test_search_codebase_hit_shape(tmp_path):
     """Each hit dict must have 'path' and 'match_type' keys."""
     # search_codebase only looks inside _SRC_DIRS; create the file there.
     src_dir = tmp_path / "app" / "src"
-    src_dir.mkdir(parents=True)
+    src_dir.mkdir(parents=True, exist_ok=True)
     (src_dir / "SomeWidget.tsx").write_text("export function SomeWidget() {}")
     audit = _load_audit_module()
     hits = audit.search_codebase("SomeWidget", tmp_path)

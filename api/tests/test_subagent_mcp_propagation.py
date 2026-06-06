@@ -69,11 +69,9 @@ def test_long_path_routed_through_short_tmp_symlink():
     rewritten to a short /tmp symlink that resolves to the worktree."""
     # Build a synthetic long path that mimics the real failure mode:
     # .../.claude/worktrees/agent-<long-name>/  ~ 110+ chars total
+    from config import PROJECT_ROOT
     long_name = "fix-subagent-ostk-mcp-propagatio-7ba164"
-    real_target = (
-        "/Users/torimeyer/claude/torios/.claude/worktrees/"
-        f"agent-{long_name}"
-    )
+    real_target = str(PROJECT_ROOT / ".claude" / "worktrees" / f"agent-{long_name}")
     target_path = Path(real_target)
     # The test does not need the real target to exist; we only verify the
     # symlink redirect chooses a short cwd. Stub the target so os.symlink
@@ -83,7 +81,7 @@ def test_long_path_routed_through_short_tmp_symlink():
         # Don't clobber the live worktree if the test runs there.
         out = short_cwd_for_worktree(target_path)
     else:
-        target_path.mkdir()
+        target_path.mkdir(exist_ok=True)
         try:
             out = short_cwd_for_worktree(target_path)
         finally:
@@ -106,16 +104,14 @@ def test_long_path_routed_through_short_tmp_symlink():
 def test_short_link_is_idempotent_across_respawn():
     """Re-running the helper with the same long path must succeed without
     EEXIST. Re-spawn replaces a stale symlink in place."""
+    from config import PROJECT_ROOT
     long_name = "test-respawn-deadbeef-cafebabe-cafef00d"
-    real_target = (
-        "/Users/torimeyer/claude/torios/.claude/worktrees/"
-        f"agent-{long_name}-respawn"
-    )
+    real_target = str(PROJECT_ROOT / ".claude" / "worktrees" / f"agent-{long_name}-respawn")
     target_path = Path(real_target)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     created = False
     if not target_path.exists():
-        target_path.mkdir()
+        target_path.mkdir(exist_ok=True)
         created = True
     try:
         first = short_cwd_for_worktree(target_path)

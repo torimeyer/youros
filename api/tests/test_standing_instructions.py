@@ -53,9 +53,9 @@ def test_standing_instructions_generator_pulls_recent_chat(tmp_path):
         ],
     )
     empty_memory = tmp_path / "memory_empty"
-    empty_memory.mkdir()
+    empty_memory.mkdir(exist_ok=True)
     myos_dir = tmp_path / "myos"
-    myos_dir.mkdir()
+    myos_dir.mkdir(exist_ok=True)
 
     signals = gen.collect_signals_summary(
         chat_path=chat_path,
@@ -76,7 +76,7 @@ def test_standing_instructions_generator_reads_feedback_memory(tmp_path):
     crisp summary, not the filename.
     """
     memory = tmp_path / "memory"
-    memory.mkdir()
+    memory.mkdir(exist_ok=True)
     (memory / "feedback_plain_language.md").write_text(
         "# Plain language\n\nUser asked me to stop using jargon on the Usage page.\n"
     )
@@ -85,7 +85,7 @@ def test_standing_instructions_generator_reads_feedback_memory(tmp_path):
     )
     chat_path = tmp_path / "chat_history.json"  # does not exist, that's fine
     myos_dir = tmp_path / "myos"
-    myos_dir.mkdir()
+    myos_dir.mkdir(exist_ok=True)
 
     signals = gen.collect_signals_summary(
         chat_path=chat_path,
@@ -103,9 +103,9 @@ def test_standing_instructions_fallback_when_no_api_key(tmp_path):
     the user sees an editable checklist rather than a dead button."""
     chat_path = _write_chat_history(tmp_path, [])
     memory = tmp_path / "memory"
-    memory.mkdir()
+    memory.mkdir(exist_ok=True)
     myos_dir = tmp_path / "myos"
-    myos_dir.mkdir()
+    myos_dir.mkdir(exist_ok=True)
     # Connected integrations: only Google (gmail + calendar).
     (myos_dir / "google_token.json").write_text("{}")
 
@@ -135,9 +135,9 @@ def test_standing_instructions_uses_haiku_when_available(tmp_path):
         [{"role": "user", "content": "Keep replies short."}],
     )
     memory = tmp_path / "memory"
-    memory.mkdir()
+    memory.mkdir(exist_ok=True)
     myos_dir = tmp_path / "myos"
-    myos_dir.mkdir()
+    myos_dir.mkdir(exist_ok=True)
 
     fake_block = MagicMock()
     fake_block.type = "text"
@@ -232,7 +232,7 @@ def test_standing_instructions_integration_signals(tmp_path):
     disk. Haiku uses this to bias suggestions toward apps the user
     actually has connected."""
     myos_dir = tmp_path / "myos"
-    myos_dir.mkdir()
+    myos_dir.mkdir(exist_ok=True)
     (myos_dir / "google_token.json").write_text("{}")
     (myos_dir / "slack_token.json").write_text("{}")
 

@@ -57,7 +57,7 @@ def _git(args: list[str], cwd: str, check: bool = True) -> subprocess.CompletedP
 def _setup_main_repo(tmp_path: Path) -> Path:
     """Create a minimal git repo at tmp_path/main and return its path."""
     main = tmp_path / "main"
-    main.mkdir()
+    main.mkdir(exist_ok=True)
     _git(["init", "-b", "main"], cwd=str(main))
     _git(["config", "user.email", "test@test.com"], cwd=str(main))
     _git(["config", "user.name", "Test"], cwd=str(main))

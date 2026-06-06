@@ -60,7 +60,7 @@ def _make_fake_worktree(tmp_path: Path, *, with_scaffold_commit: bool = True, wi
     Returns the path to the fake worktree directory.
     """
     wt = tmp_path / "fake-wt"
-    wt.mkdir()
+    wt.mkdir(exist_ok=True)
     subprocess.run(["git", "init", "-b", "main"], cwd=str(wt), check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(wt), check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=str(wt), check=True, capture_output=True)

@@ -157,7 +157,7 @@ def test_split_is_undoable(tmp_path):
 def test_rename_topic_renames_file(tmp_path):
     """rename_topic moves the topic file."""
     topic_dir = tmp_path / "memory"
-    topic_dir.mkdir()
+    topic_dir.mkdir(exist_ok=True)
     (topic_dir / "vocab.md").write_text("# vocab\n- Don't say grep.\n", encoding="utf-8")
     _write_memory(tmp_path, "# Preferences\n\n[vocab](memory/vocab.md)\n")
     result = store.rename_topic("vocab", "vocabulary")
@@ -169,7 +169,7 @@ def test_rename_topic_renames_file(tmp_path):
 def test_rename_topic_updates_index_link(tmp_path):
     """Index link is updated to new name after rename."""
     topic_dir = tmp_path / "memory"
-    topic_dir.mkdir()
+    topic_dir.mkdir(exist_ok=True)
     (topic_dir / "vocab.md").write_text("# vocab\n- Don't say grep.\n", encoding="utf-8")
     _write_memory(tmp_path, "# Preferences\n\n[vocab](memory/vocab.md)\n")
     store.rename_topic("vocab", "vocabulary")
@@ -194,7 +194,7 @@ def test_read_for_context_always_loads_index(tmp_path):
     content = "\n".join(lines) + "\n\n[vocabulary](memory/vocabulary.md)\n"
     _write_memory(tmp_path, content)
     topic_dir = tmp_path / "memory"
-    topic_dir.mkdir()
+    topic_dir.mkdir(exist_ok=True)
     (topic_dir / "vocabulary.md").write_text("# vocabulary\n- Don't say grep.\n", encoding="utf-8")
     result = store.read_for_context(["something unrelated"])
     assert "Bullet 0" in result
@@ -206,7 +206,7 @@ def test_read_for_context_loads_matching_topic_files(tmp_path):
     content = "\n".join(lines) + "\n\n[vocabulary](memory/vocabulary.md)\n"
     _write_memory(tmp_path, content)
     topic_dir = tmp_path / "memory"
-    topic_dir.mkdir()
+    topic_dir.mkdir(exist_ok=True)
     (topic_dir / "vocabulary.md").write_text("# vocabulary\n- Don't say grep.\n", encoding="utf-8")
     result = store.read_for_context(["vocabulary"])
     assert "Don't say grep" in result
@@ -218,7 +218,7 @@ def test_read_for_context_skips_non_matching_topics(tmp_path):
     content = "\n".join(lines) + "\n\n[vocabulary](memory/vocabulary.md)\n[git-style](memory/git-style.md)\n"
     _write_memory(tmp_path, content)
     topic_dir = tmp_path / "memory"
-    topic_dir.mkdir()
+    topic_dir.mkdir(exist_ok=True)
     (topic_dir / "vocabulary.md").write_text("# vocabulary\n- Don't say grep.\n", encoding="utf-8")
     (topic_dir / "git-style.md").write_text("# git-style\n- Use plain commit messages.\n", encoding="utf-8")
     result = store.read_for_context(["vocabulary"])

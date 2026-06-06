@@ -127,7 +127,7 @@ async def test_meeting_prep_cache_hit(tmp_path):
 
     event = _make_event("evt-cached", "Weekly Sync", minutes_from_now=60)
     prep_cache_dir = tmp_path / "meeting_prep_cache"
-    prep_cache_dir.mkdir(parents=True)
+    prep_cache_dir.mkdir(parents=True, exist_ok=True)
 
     # Pre-populate cache.
     cached_text = "Your cached briefing for Weekly Sync."
@@ -158,7 +158,7 @@ async def test_meeting_prep_cache_expired_when_meeting_started(tmp_path):
 
     event = _make_event("evt-started", "Kickoff", minutes_from_now=-5)
     prep_cache_dir = tmp_path / "meeting_prep_cache"
-    prep_cache_dir.mkdir(parents=True)
+    prep_cache_dir.mkdir(parents=True, exist_ok=True)
 
     cache_file = prep_cache_dir / "evt-started.txt"
     cache_file.write_text("Stale cache content.")
@@ -368,7 +368,7 @@ async def test_create_tasks_with_cached_briefing(client, tmp_path):
 
     event = _make_event("evt-cached2", "Review Meeting", minutes_from_now=60)
     prep_cache_dir = tmp_path / "meeting_prep_cache"
-    prep_cache_dir.mkdir(parents=True)
+    prep_cache_dir.mkdir(parents=True, exist_ok=True)
 
     # Pre-populate the briefing cache.
     cache_file = prep_cache_dir / "evt-cached2.txt"

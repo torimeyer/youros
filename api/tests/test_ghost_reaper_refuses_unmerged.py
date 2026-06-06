@@ -97,7 +97,7 @@ def test_reap_ghost_agents_identifies_ghost_with_worktree_branch(tmp_path):
     verifies the branch field does not prevent identification.
     """
     transcripts_dir = tmp_path / "transcripts"
-    transcripts_dir.mkdir()
+    transcripts_dir.mkdir(exist_ok=True)
 
     registry = {
         "ghost-with-branch": _make_ghost_meta(
@@ -120,7 +120,7 @@ def test_reap_ghost_agents_does_not_touch_git_branch(tmp_path):
     and the branch must still exist with its commit afterward.
     """
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     _init_repo(repo)
 
     branch = "worktree-agent-ghost-reaper-test"
@@ -158,7 +158,7 @@ def test_reap_ghost_agents_does_not_touch_git_branch(tmp_path):
 
     # Build a ghost registry entry for this agent.
     transcripts_dir = tmp_path / "transcripts"
-    transcripts_dir.mkdir()
+    transcripts_dir.mkdir(exist_ok=True)
 
     registry = {
         "ghost-reaper-test": _make_ghost_meta(

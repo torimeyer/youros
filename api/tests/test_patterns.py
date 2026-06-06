@@ -25,7 +25,7 @@ import routers.patterns as patterns_router
 def obs_dir(tmp_path, monkeypatch):
     """Point the patterns router at a tmp observations dir and return it."""
     d = tmp_path / "observations"
-    d.mkdir()
+    d.mkdir(exist_ok=True)
     monkeypatch.setattr(patterns_router, "_OBS_DIR", d)
     return d
 

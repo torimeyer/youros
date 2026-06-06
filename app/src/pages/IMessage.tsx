@@ -285,7 +285,7 @@ function ContactPicker({
                     {(c.name || '?').charAt(0).toUpperCase()}
                   </span>
                 </div>
-                <span className="font-medium text-white">{c.name}</span>
+                <span className="font-medium text-slate-900 dark:text-white">{c.name}</span>
                 <span className="text-slate-600 dark:text-slate-400 text-xs truncate">
                   {c.phone_numbers[0] || c.emails[0] || ''}
                 </span>
@@ -305,7 +305,7 @@ function ContactPicker({
                 <div className="w-6 h-6 rounded-full bg-blue-900/40 flex items-center justify-center shrink-0">
                   <Icon name="chat_bubble" size={12} className="text-blue-600 dark:text-blue-400" />
                 </div>
-                <span className="font-medium text-white truncate">
+                <span className="font-medium text-slate-900 dark:text-white truncate">
                   {c.display_name || c.identifier}
                 </span>
                 <span className="text-slate-600 dark:text-slate-400 text-xs truncate">{c.last_message_preview}</span>
@@ -321,7 +321,7 @@ function ContactPicker({
                 onClick={() => handleSelectApiSuggestion(s)}
                 className="w-full text-left px-3 py-2 hover:bg-slate-200 dark:hover:bg-slate-700 text-sm transition-colors flex items-center gap-2"
               >
-                <span className="font-medium text-white">{s.name}</span>
+                <span className="font-medium text-slate-900 dark:text-white">{s.name}</span>
                 <span className="text-slate-600 dark:text-slate-400 text-xs truncate">{s.identifier}</span>
               </button>
             </li>
@@ -507,7 +507,7 @@ export default function IMessage() {
 
   if (connectionState === 'loading' && conversations.length === 0) {
     return (
-      <PageShell title="People">
+      <PageShell title="Messages">
           <LoadingState variant="spinner" />
       </PageShell>
     )
@@ -515,7 +515,7 @@ export default function IMessage() {
 
   if (connectionState === 'not_connected') {
     return (
-      <PageShell title="People">
+      <PageShell title="Messages">
           <ConnectCard
             icon="chat_bubble"
             accentColor="#22c55e"
@@ -541,11 +541,11 @@ export default function IMessage() {
   }
 
   return (
-    <PageShell title="People">
+    <PageShell title="Messages">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold">People</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Messages</h1>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
               {conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
               {contacts.length > 0 && ` · ${contacts.length} contact${contacts.length !== 1 ? 's' : ''}`}
@@ -558,7 +558,7 @@ export default function IMessage() {
           <div className={`${cardClass} mb-4`}>
             <div className="flex items-center gap-2 mb-3">
               <Icon name="search" className="text-blue-600 dark:text-blue-400" size={18} />
-              <h2 className="text-base font-semibold">
+              <h2 className="text-base font-semibold text-slate-900 dark:text-white">
                 Search results ({searchResults.length})
               </h2>
             </div>
@@ -592,7 +592,7 @@ export default function IMessage() {
         <div className={`${cardClass} mb-4`}>
           <div className="flex items-center gap-2 mb-3">
             <Icon name="edit" className="text-blue-600 dark:text-blue-400" size={18} />
-            <h2 className="text-base font-semibold">Send a message</h2>
+            <h2 className="text-base font-semibold text-slate-900 dark:text-white">Send a message</h2>
           </div>
           <div className="space-y-2">
             <ContactPicker
@@ -645,7 +645,7 @@ export default function IMessage() {
         <div className={cardClass}>
           <div className="flex items-center gap-2 mb-4">
             <Icon name="chat_bubble" className="text-blue-600 dark:text-blue-400" size={18} />
-            <h2 className="text-base font-semibold">Conversations</h2>
+            <h2 className="text-base font-semibold text-slate-900 dark:text-white">Conversations</h2>
           </div>
 
           {loading ? (
@@ -673,7 +673,7 @@ export default function IMessage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
-                            <p className={`text-sm truncate ${convo.unread_count > 0 ? 'font-semibold text-white' : 'text-slate-700 dark:text-slate-300'}`}>
+                            <p className={`text-sm truncate ${convo.unread_count > 0 ? 'font-semibold text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>
                               {convo.display_name || convo.identifier}
                             </p>
                             <span className="text-xs text-slate-500 shrink-0">
@@ -812,7 +812,7 @@ export default function IMessage() {
                                   handleReply(convo.id, replyText)
                                 }
                               }}
-                              className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                              className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                             />
                             <button
                               aria-label="Send reply"

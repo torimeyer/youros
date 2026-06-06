@@ -9,10 +9,12 @@ import pytest
 # --- GET /api/atlassian/defaults ---
 
 @pytest.mark.asyncio
-async def test_atlassian_defaults_no_env(client):
-    with patch.dict("os.environ", {}, clear=False):
-        import os
-        os.environ.pop("ATLASSIAN_SITE", None)
+async def test_atlassian_defaults_no_env(client, monkeypatch):
+    monkeypatch.delenv("ATLASSIAN_SITE", raising=False)
+    monkeypatch.delenv("ATLASSIAN_USER_EMAIL", raising=False)
+    # Also patch atlassian_service to ensure no saved config is read (→2042)
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.get_config.side_effect = RuntimeError("Not connected")
         resp = await client.get("/api/atlassian/defaults")
     assert resp.status_code == 200
     data = resp.json()
@@ -26,7 +28,10 @@ async def test_atlassian_defaults_with_env(client):
     env = {k: v for k, v in os.environ.items() if k not in ("ATLASSIAN_SITE", "ATLASSIAN_CLIENT_ID")}
     env["ATLASSIAN_SITE"] = "https://company.atlassian.net"
     with patch.dict("os.environ", env, clear=True):
-        resp = await client.get("/api/atlassian/defaults")
+        # Also patch atlassian_service to ensure no saved config is read (→2042)
+        with patch("routers.atlassian.atlassian_service") as mock_svc:
+            mock_svc.get_config.side_effect = RuntimeError("Not connected")
+            resp = await client.get("/api/atlassian/defaults")
     assert resp.status_code == 200
     data = resp.json()
     assert data["site"] == "https://company.atlassian.net"

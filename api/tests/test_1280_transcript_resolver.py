@@ -29,7 +29,7 @@ def _make_project_tree(tmp_path: Path, agent_name: str, jsonl_sizes: list[int]) 
     """
     dir_name = f"-Users-tori-claude-torios--claude-worktrees-agent-{agent_name}"
     proj_dir = tmp_path / dir_name
-    proj_dir.mkdir(parents=True)
+    proj_dir.mkdir(parents=True, exist_ok=True)
 
     paths = []
     for i, size in enumerate(jsonl_sizes):
@@ -134,12 +134,12 @@ class TestResolveTranscript:
         agent = "multi-dir-agent"
         # Dir A: smaller file
         dir_a = tmp_path / f"-path-A--claude-worktrees-agent-{agent}"
-        dir_a.mkdir()
+        dir_a.mkdir(exist_ok=True)
         (dir_a / "a.jsonl").write_bytes(b"a" * 200)
 
         # Dir B: larger file
         dir_b = tmp_path / f"-path-B--claude-worktrees-agent-{agent}"
-        dir_b.mkdir()
+        dir_b.mkdir(exist_ok=True)
         big = dir_b / "b.jsonl"
         big.write_bytes(b"b" * 800)
 

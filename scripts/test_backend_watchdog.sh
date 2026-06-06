@@ -162,7 +162,7 @@ wait 2>/dev/null || true
 # --- Test 5: when the backend PID is alive but health consistently fails,
 #             the watchdog should SIGKILL the process and restart. ---
 DEADLOCK_PORT=18801
-DEADLOCK_PIDFILE="/tmp/myos-backend-${DEADLOCK_PORT}.pid"
+DEADLOCK_PIDFILE="/tmp/youros-backend-${DEADLOCK_PORT}.pid"
 
 # Start a long-running process to impersonate a deadlocked backend (alive but silent).
 sleep 300 &
@@ -204,7 +204,7 @@ assert "watchdog_sigkills_deadlocked_pid_and_restarts" "$got_deadlock_restart"
 
 # --- Test 6: py-spy is invoked when the deadlock branch fires ---
 PYSPY_PORT=18802
-PYSPY_PIDFILE="/tmp/myos-backend-${PYSPY_PORT}.pid"
+PYSPY_PIDFILE="/tmp/youros-backend-${PYSPY_PORT}.pid"
 MOCK_PYSPY_DIR="$WORKDIR/mock-pyspy-bin"
 PYSPY_SENTINEL="$WORKDIR/pyspy_called"
 
@@ -256,7 +256,7 @@ assert "pyspy_invoked_on_deadlock_detection" "$got_pyspy"
 
 # --- Test 7: SIGKILL still fires when py-spy is absent from PATH ---
 NOPYSPY_PORT=18803
-NOPYSPY_PIDFILE="/tmp/myos-backend-${NOPYSPY_PORT}.pid"
+NOPYSPY_PIDFILE="/tmp/youros-backend-${NOPYSPY_PORT}.pid"
 
 sleep 300 &
 FAKE_PID7=$!
@@ -299,7 +299,7 @@ assert "sigkill_still_fires_when_pyspy_absent" "$got_nopyspy_restart"
 # if the timeout is not enforced. With PYSPY_TIMEOUT=2, the watchdog must
 # kill it and proceed to SIGKILL + restart within the 60s window.
 TIMEOUT_PORT=18804
-TIMEOUT_PIDFILE="/tmp/myos-backend-${TIMEOUT_PORT}.pid"
+TIMEOUT_PIDFILE="/tmp/youros-backend-${TIMEOUT_PORT}.pid"
 SLOW_PYSPY_DIR="$WORKDIR/slow-pyspy-bin"
 
 mkdir -p "$SLOW_PYSPY_DIR"

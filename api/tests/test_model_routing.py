@@ -97,7 +97,7 @@ def test_escalate_to_opus_returns_opus_model():
 def test_escalate_to_opus_writes_log(tmp_path, monkeypatch):
     """escalate_to_opus must append a JSON line to the escalation log."""
     log_file = tmp_path / ".ostk" / "escalation_log.jsonl"
-    log_file.parent.mkdir(parents=True)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
 
     from services import model_routing

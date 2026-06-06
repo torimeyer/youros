@@ -76,7 +76,7 @@ def test_find_transcript_subagents_dir(tmp_path):
     """find_transcript locates a subagent jsonl file that mentions the agent."""
     # Mirror: ~/.claude/projects/-<label>/<session>/subagents/agent-xxx.jsonl
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    repo_root.mkdir(exist_ok=True)
     label = str(repo_root).replace("/", "-").lstrip("-")
 
     # Patch home so the claude projects dir lands in tmp_path
@@ -84,7 +84,7 @@ def test_find_transcript_subagents_dir(tmp_path):
     projects_dir = fake_home / ".claude" / "projects" / f"-{label}"
     session_dir = projects_dir / "sess-abc123"
     subagents_dir = session_dir / "subagents"
-    subagents_dir.mkdir(parents=True)
+    subagents_dir.mkdir(parents=True, exist_ok=True)
 
     agent_file = subagents_dir / "agent-001.jsonl"
     agent_file.write_text(
@@ -99,7 +99,7 @@ def test_find_transcript_subagents_dir(tmp_path):
 
 def test_find_transcript_returns_none_when_no_match(tmp_path):
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    repo_root.mkdir(exist_ok=True)
     with patch("services.heartbeat_idle.Path.home", return_value=tmp_path / "empty_home"):
         result = find_transcript("no-such-agent", repo_root=repo_root)
     assert result is None
@@ -107,9 +107,9 @@ def test_find_transcript_returns_none_when_no_match(tmp_path):
 
 def test_find_transcript_legacy_markdown(tmp_path):
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    repo_root.mkdir(exist_ok=True)
     transcripts = repo_root / "transcripts"
-    transcripts.mkdir()
+    transcripts.mkdir(exist_ok=True)
     md = transcripts / "legacy-agent.md"
     md.write_text("# Legacy Agent\nsome content\n")
 
@@ -122,19 +122,19 @@ def test_find_transcript_legacy_markdown(tmp_path):
 def test_find_transcript_prefers_freshest_subagent(tmp_path):
     """When two subagent files match, the freshest is returned."""
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    repo_root.mkdir(exist_ok=True)
     label = str(repo_root).replace("/", "-").lstrip("-")
 
     fake_home = tmp_path / "home"
     projects_dir = fake_home / ".claude" / "projects" / f"-{label}"
 
     older_dir = projects_dir / "sess-old" / "subagents"
-    older_dir.mkdir(parents=True)
+    older_dir.mkdir(parents=True, exist_ok=True)
     older_file = older_dir / "agent-0.jsonl"
     older_file.write_text('{"type":"user","content":"my-agent start"}\n')
 
     newer_dir = projects_dir / "sess-new" / "subagents"
-    newer_dir.mkdir(parents=True)
+    newer_dir.mkdir(parents=True, exist_ok=True)
     newer_file = newer_dir / "agent-1.jsonl"
     newer_file.write_text('{"type":"user","content":"my-agent continue"}\n')
 
@@ -249,14 +249,14 @@ def test_find_transcript_rejects_substring_false_match(tmp_path):
     the idle-sweep could never close its row.
     """
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    repo_root.mkdir(exist_ok=True)
     label = str(repo_root).replace("/", "-").lstrip("-")
 
     fake_home = tmp_path / "home"
     projects_dir = fake_home / ".claude" / "projects" / f"-{label}"
     session_dir = projects_dir / "sess-xyz"
     subagents_dir = session_dir / "subagents"
-    subagents_dir.mkdir(parents=True)
+    subagents_dir.mkdir(parents=True, exist_ok=True)
 
     # An unrelated subagent JSONL that happens to include a LONGER name
     # with our probe's name as a prefix.
@@ -277,14 +277,14 @@ def test_find_transcript_rejects_substring_false_match(tmp_path):
 def test_find_transcript_allows_quoted_name(tmp_path):
     """The strict match must still succeed when the name is a full JSON value."""
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    repo_root.mkdir(exist_ok=True)
     label = str(repo_root).replace("/", "-").lstrip("-")
 
     fake_home = tmp_path / "home"
     projects_dir = fake_home / ".claude" / "projects" / f"-{label}"
     session_dir = projects_dir / "sess-abc"
     subagents_dir = session_dir / "subagents"
-    subagents_dir.mkdir(parents=True)
+    subagents_dir.mkdir(parents=True, exist_ok=True)
 
     transcript = subagents_dir / "agent-real.jsonl"
     transcript.write_text(

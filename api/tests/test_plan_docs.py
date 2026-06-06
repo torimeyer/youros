@@ -26,7 +26,7 @@ class TestListDocsPlanScanning:
     def setup_method(self):
         self.tmpdir = tempfile.mkdtemp()
         self.svc = OstkService(cwd=self.tmpdir)
-        (Path(self.tmpdir) / "transcripts").mkdir()
+        (Path(self.tmpdir) / "transcripts").mkdir(exist_ok=True)
 
     def _write_plan(self, name: str, content: str = "") -> Path:
         p = Path(self.tmpdir) / "transcripts" / name
@@ -104,7 +104,7 @@ class TestListDocsPlanScanning:
     @pytest.mark.asyncio
     async def test_list_docs_preserves_existing_spec_docs(self):
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         (spec_dir / "my-spec.md").write_text(
             "---\ntitle: My Spec\nstatus: spec\n---\n\n- [ ] Do the thing\n"
         )
@@ -136,7 +136,7 @@ async def test_task_list_includes_plan_path_when_plan_exists(client, tmp_path, m
     import routers.tasks as tasks_router
 
     plan_file = tmp_path / "transcripts" / "plan-853.md"
-    plan_file.parent.mkdir(parents=True)
+    plan_file.parent.mkdir(parents=True, exist_ok=True)
     plan_file.write_text("Plan for needle 853.")
 
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))

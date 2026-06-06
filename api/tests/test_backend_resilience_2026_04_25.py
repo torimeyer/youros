@@ -180,7 +180,7 @@ def test_restart_lock_prevents_concurrent_spawns():
     with tempfile.TemporaryDirectory() as tmpdir:
         restart_lock = f"{tmpdir}/restart.lock"
         result_dir = f"{tmpdir}/results"
-        Path(result_dir).mkdir()
+        Path(result_dir).mkdir(exist_ok=True)
 
         # Minimal script that replicates the restart_backend locking section
         script = f"""\
@@ -260,13 +260,13 @@ def test_startup_lock_prevents_duplicate_watchdog_registration():
     Without the STARTUP_LOCK fix, all four would read the dead PID, all four
     would pass the kill -0 check, and all four would write their own PID —
     producing four live watchdogs confirmed by duplicate log lines at identical
-    timestamps in /tmp/myos-backend-watchdog.log.
+    timestamps in /tmp/youros-backend-watchdog.log.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         pidfile = f"{tmpdir}/watchdog.pid"
         startup_lock = f"{tmpdir}/watchdog-startup.lock"
         result_dir = f"{tmpdir}/results"
-        Path(result_dir).mkdir()
+        Path(result_dir).mkdir(exist_ok=True)
 
         # Pre-populate PIDFILE with a dead PID to simulate the stale-pid race.
         Path(pidfile).write_text("99999")
@@ -456,7 +456,7 @@ def test_five_sequential_restart_cycles_no_cascade():
     with tempfile.TemporaryDirectory() as tmpdir:
         restart_lock = f"{tmpdir}/restart.lock"
         result_dir = f"{tmpdir}/results"
-        Path(result_dir).mkdir()
+        Path(result_dir).mkdir(exist_ok=True)
 
         script = f"""\
 #!/usr/bin/env bash

@@ -233,12 +233,12 @@ async def test_baseline_context_includes_workspace_doc_index(tmp_path):
     from routers.chat import build_baseline_context
 
     draft_dir = tmp_path / "docs" / "draft"
-    draft_dir.mkdir(parents=True)
+    draft_dir.mkdir(parents=True, exist_ok=True)
     (draft_dir / "1652-diagnosis.md").write_text("# Diagnosis\nstatus: draft")
     (draft_dir / "1699-chat.md").write_text("# Chat efficiency\nstatus: draft")
 
     spec_dir = tmp_path / "docs" / "spec"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
     (spec_dir / "1211-errors.md").write_text("# Error classification\nstatus: promoted")
 
     with (

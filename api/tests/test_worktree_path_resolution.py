@@ -68,7 +68,7 @@ def test_ostk_service_cwd_uses_worktree_when_env_set(tmp_path):
 def test_ostk_service_explicit_cwd_overrides_env(tmp_path):
     """An explicit cwd= argument takes precedence over OSTK_PROJECT_ROOT."""
     explicit = tmp_path / "override"
-    explicit.mkdir()
+    explicit.mkdir(exist_ok=True)
     from services.ostk import OstkService
     with patch.dict(os.environ, {"OSTK_PROJECT_ROOT": str(tmp_path)}):
         svc = OstkService(cwd=str(explicit))
@@ -124,7 +124,7 @@ def test_spawn_env_includes_ostk_project_root(tmp_path):
     """
     import os as _os
     wt_path = tmp_path / "agent-test-wt"
-    wt_path.mkdir()
+    wt_path.mkdir(exist_ok=True)
 
     # Simulate what spawn_agent does after worktree creation succeeds.
     spawn_env: dict[str, str] = {**_os.environ}
@@ -151,7 +151,7 @@ def test_spawn_env_includes_myos_agent_name(tmp_path):
     """
     import os as _os
     wt_path = tmp_path / "agent-my-worker-abc123"
-    wt_path.mkdir()
+    wt_path.mkdir(exist_ok=True)
     agent_name = "my-worker-abc123"
 
     spawn_env: dict[str, str] = {**_os.environ}
@@ -179,7 +179,7 @@ def test_worktree_and_main_repo_paths_differ(tmp_path):
     from services.ostk import get_effective_root
 
     worktree = tmp_path / "worktree"
-    worktree.mkdir()
+    worktree.mkdir(exist_ok=True)
 
     with patch.dict(os.environ, {"OSTK_PROJECT_ROOT": str(worktree)}):
         effective = get_effective_root()

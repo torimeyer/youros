@@ -28,7 +28,7 @@ async def test_build_spec_slash_claims_with_source_slash(tmp_path, monkeypatch):
     from routers.chat import _handle_slash_command
 
     specs_dir = tmp_path / ".myos" / "specs"
-    specs_dir.mkdir(parents=True)
+    specs_dir.mkdir(parents=True, exist_ok=True)
     (specs_dir / "my-feature.md").write_text(
         "---\ntitle: my feature\nstatus: spec\n---\n\n- [ ] do a thing\n"
     )
@@ -91,7 +91,7 @@ async def test_build_spec_slash_not_found(tmp_path, monkeypatch):
     from routers.chat import _handle_slash_command
 
     empty_dir = tmp_path / "no-specs"
-    empty_dir.mkdir()
+    empty_dir.mkdir(exist_ok=True)
     monkeypatch.setenv("MYOS_USER_SPECS_DIR", str(empty_dir))
 
     mock_ws = AsyncMock()
@@ -111,7 +111,7 @@ async def test_build_spec_slash_tab_id_used_in_agent_name(tmp_path, monkeypatch)
     from routers.chat import _handle_slash_command
 
     specs_dir = tmp_path / "specs"
-    specs_dir.mkdir()
+    specs_dir.mkdir(exist_ok=True)
     (specs_dir / "agent-name-spec.md").write_text(
         "---\ntitle: agent name spec\nstatus: spec\n---\n"
     )

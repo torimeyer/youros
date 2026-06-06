@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import IMessage from './IMessage'
 
-// jsdom does not provide window.matchMedia — stub it so TopBar doesn't crash
+// jsdom does not provide window.matchMedia : stub it so TopBar doesn't crash
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: vi.fn().mockImplementation((query: string) => ({
@@ -73,7 +73,7 @@ function setup() {
 const CACHE_KEY = 'myos.imessageCache.v1'
 const CONNECTION_KEY = 'myos.imessageConnection.v1'
 
-describe('connection state — bug fixes (→1577)', () => {
+describe('connection state : bug fixes (→1577)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
@@ -105,15 +105,15 @@ describe('connection state — bug fixes (→1577)', () => {
   })
 })
 
-describe('People page — unified contact picker', () => {
+describe('Messages page : unified contact picker', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
   })
 
-  it('renders the People heading', async () => {
+  it('renders the Messages heading', async () => {
     setup()
-    await waitFor(() => expect(screen.getByText('People')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Messages')).toBeTruthy())
   })
 
   it('shows contacts matching a name query in the send-message picker', async () => {
@@ -155,14 +155,14 @@ describe('People page — unified contact picker', () => {
     })
   })
 
-  it('does not show a top-level people-search-input field', async () => {
+  it('does not show a top-level messages-search-input field', async () => {
     setup()
-    await waitFor(() => screen.getByText('People'))
-    expect(screen.queryByTestId('people-search-input')).toBeNull()
+    await waitFor(() => screen.getByText('Messages'))
+    expect(screen.queryByTestId('messages-search-input')).toBeNull()
   })
 })
 
-describe('message thread — bubbles (→1632)', () => {
+describe('message thread : bubbles (→1632)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()

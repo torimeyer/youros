@@ -385,10 +385,10 @@ def test_ostk_root_traversal_regression():
     with tempfile.TemporaryDirectory() as tmp:
         parent = Path(tmp)
         # Shared parent .ostk/ (the one that caused the bug)
-        (parent / ".ostk").mkdir()
+        (parent / ".ostk").mkdir(exist_ok=True)
 
         worktree = parent / "agent-test-fix"
-        worktree.mkdir()
+        worktree.mkdir(exist_ok=True)
 
         # Before fix: no .ostk/ in worktree. Traversal from worktree reaches parent.
         # We model this as: "which .ostk/ does traversal find first?"
@@ -410,7 +410,7 @@ def test_ostk_root_traversal_regression():
         )
 
         # Apply the fix: create .ostk/ in the worktree
-        (worktree / ".ostk").mkdir()
+        (worktree / ".ostk").mkdir(exist_ok=True)
 
         # With fix: traversal stops at the worktree itself
         correct_root = find_ostk_root(worktree)

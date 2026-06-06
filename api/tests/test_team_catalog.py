@@ -175,7 +175,7 @@ class TestInstall:
 
     def test_install_rolled_back_entry_returns_none(self, catalog, tmp_path):
         fake_dir = tmp_path / "agentfiles"
-        fake_dir.mkdir()
+        fake_dir.mkdir(exist_ok=True)
         with patch("services.team_catalog.Path.home", return_value=tmp_path):
             e1 = svc.publish_agentfile("org1", "alpha", "v1", "admin")
             svc.publish_agentfile("org1", "alpha", "v2", "admin")
@@ -275,7 +275,7 @@ class TestRouterInstall:
     @pytest.mark.asyncio
     async def test_install_published_entry(self, client, tmp_path):
         fake_dir = tmp_path / "agentfiles"
-        fake_dir.mkdir()
+        fake_dir.mkdir(exist_ok=True)
         r = await client.post("/api/team/catalog/agentfiles", json={"name": "inst-agent", "content": "FROM auto\n"})
         entry_id = r.json()["entry"]["id"]
 

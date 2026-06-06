@@ -80,10 +80,10 @@ async def test_list_docs_filters_orphan_plan_transcripts(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
 
-    (tmp_path / "docs" / "draft").mkdir(parents=True)
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     transcripts = tmp_path / "transcripts"
-    transcripts.mkdir()
+    transcripts.mkdir(exist_ok=True)
 
     (transcripts / "plan-863.md").write_text(
         "# TERMINATED WITHOUT WORK tokens=0 reason=user cancelled\n\n"
@@ -122,7 +122,7 @@ async def test_cancel_plan_agent_removes_transcript(tmp_path, monkeypatch):
 
     name = "plan-9991"
     transcript = tmp_path / "transcripts" / f"{name}.md"
-    transcript.parent.mkdir(parents=True)
+    transcript.parent.mkdir(parents=True, exist_ok=True)
     transcript.write_text("")
 
     agent_metadata[name] = {
@@ -168,7 +168,7 @@ async def test_complete_plan_agent_skips_stub(tmp_path, monkeypatch):
 
     name = "plan-9992"
     transcript = tmp_path / "transcripts" / f"{name}.md"
-    transcript.parent.mkdir(parents=True)
+    transcript.parent.mkdir(parents=True, exist_ok=True)
 
     agent_metadata[name] = {
         "status": "running",
@@ -208,7 +208,7 @@ async def test_delete_orphan_plan_drafts_endpoint(client, tmp_path, monkeypatch)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
 
     transcripts = tmp_path / "transcripts"
-    transcripts.mkdir()
+    transcripts.mkdir(exist_ok=True)
 
     (transcripts / "plan-863.md").write_text(
         "# TERMINATED WITHOUT WORK tokens=0 reason=user cancelled\n"

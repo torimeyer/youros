@@ -9,7 +9,7 @@ const APP_DIR = path.join(__dirname, 'app');
 module.exports = {
   apps: [
     {
-      name: 'myos-frontend',
+      name: 'youros-frontend',
       cwd: APP_DIR,
       script: 'node',
       args: [path.join(APP_DIR, 'node_modules', '.bin', 'vite')],

@@ -594,7 +594,7 @@ class TestBuildTasksFromFile:
 
         fake_home = tmp_path / "home"
         myos_files = fake_home / ".myos" / "files"
-        myos_files.mkdir(parents=True)
+        myos_files.mkdir(parents=True, exist_ok=True)
         (myos_files / "roadmap.md").write_text(
             "# Roadmap\n\n"
             "- Ship onboarding wizard\n"
@@ -636,7 +636,7 @@ class TestBuildTasksFromFile:
         from services import tool_executor
 
         fake_home = tmp_path / "home"
-        (fake_home / ".myos" / "files").mkdir(parents=True)
+        (fake_home / ".myos" / "files").mkdir(parents=True, exist_ok=True)
 
         with patch("services.tool_executor.Path.home", return_value=fake_home):
             result = await execute_tool(
@@ -725,7 +725,7 @@ class TestBuildTasksFromFile:
         recent_deletes.clear()
         fake_home = tmp_path / "home"
         myos_files = fake_home / ".myos" / "files"
-        myos_files.mkdir(parents=True)
+        myos_files.mkdir(parents=True, exist_ok=True)
         (myos_files / "roadmap.md").write_text(
             "- Build basic homepage\n"
             "- Create contact form\n"
@@ -801,7 +801,7 @@ class TestBuildTasksFromFile:
 
         fake_home = tmp_path / "home"
         myos_files = fake_home / ".myos" / "files"
-        myos_files.mkdir(parents=True)
+        myos_files.mkdir(parents=True, exist_ok=True)
         (myos_files / "roadmap.md").write_text(
             "- Build basic homepage\n"
             "- Create contact form\n"

@@ -86,7 +86,7 @@ if [ -n "$vite_pids" ]; then
 fi
 
 # 4. Clean up stale pid files so the next start isn't confused.
-rm -f "/tmp/myos-backend-${UVICORN_PORT}.pid" 2>/dev/null || true
+rm -f "/tmp/youros-backend-${UVICORN_PORT}.pid" 2>/dev/null || true
 
 # 5. Report final state.
 if [ -z "$(pids_on_port "$UVICORN_PORT")" ] && \

@@ -36,8 +36,8 @@ if [ ! -f "$REPO_DIR/api/.venv/bin/activate" ]; then
 fi
 
 TEST_PORT="${TEST_PORT:-8002}"
-PIDFILE="/tmp/myos-backend-${TEST_PORT}.pid"
-LAUNCHER_LOCK="/tmp/myos-backend-launcher-${TEST_PORT}.lock"
+PIDFILE="/tmp/youros-backend-${TEST_PORT}.pid"
+LAUNCHER_LOCK="/tmp/youros-backend-launcher-${TEST_PORT}.lock"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -228,7 +228,7 @@ echo "$DUMMY_PID" > "$PIDFILE"
 
 # Point at a dead health URL. backend_pid_alive() should short-circuit
 # and emit the "still alive" skip-log line instead of relaunching.
-REAL_WD_LOG="/tmp/myos-backend-watchdog.log"
+REAL_WD_LOG="/tmp/youros-backend-watchdog.log"
 rm -f "$REAL_WD_LOG"
 MYOS_WATCHDOG_INTERVAL=1 \
 MYOS_WATCHDOG_HEALTH_URL="http://127.0.0.1:18797/api/health" \

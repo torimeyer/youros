@@ -47,7 +47,7 @@ def _init_repo(path: Path) -> None:
     _git(path, "config", "user.email", "test@example.com")
     _git(path, "config", "user.name", "Test")
     (path / "README.md").write_text("hello\n")
-    (path / "api").mkdir()
+    (path / "api").mkdir(exist_ok=True)
     (path / "api" / "router.py").write_text("# router\n")
     _git(path, "add", ".")
     _git(path, "commit", "-m", "init")
@@ -79,7 +79,7 @@ def _branches(repo: Path) -> list[str]:
 async def test_create_worktree_is_visible_in_git_worktree_list(tmp_path):
     """A successful create_worktree() must register a real worktree."""
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     _init_repo(repo)
 
     wt_path = repo / ".claude" / "worktrees" / "agent-alpha"
@@ -121,7 +121,7 @@ async def test_create_worktree_succeeds_on_respawn(tmp_path):
     and the handler falls back to the parent checkout.
     """
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     _init_repo(repo)
 
     wt_path = repo / ".claude" / "worktrees" / "agent-beta"
@@ -156,7 +156,7 @@ async def test_two_agents_get_separate_worktrees_no_bleed(tmp_path):
     Edits in worktree-A must not appear in worktree-B or the parent.
     """
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     _init_repo(repo)
 
     wt_a = repo / ".claude" / "worktrees" / "agent-alice"
@@ -197,7 +197,7 @@ async def test_two_agents_get_separate_worktrees_no_bleed(tmp_path):
 async def test_remove_worktree_deregisters_and_deletes_branch(tmp_path):
     """remove_worktree() must deregister the worktree and delete its branch."""
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     _init_repo(repo)
 
     wt_path = repo / ".claude" / "worktrees" / "agent-gamma"
@@ -228,7 +228,7 @@ async def test_remove_worktree_deregisters_and_deletes_branch(tmp_path):
 async def test_create_worktree_no_orphan_on_failure(tmp_path):
     """If worktree creation fails, no orphan directory must remain."""
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     _init_repo(repo)
 
     # Break git so worktree add will fail: pass a non-existent start-point
@@ -276,7 +276,7 @@ async def test_create_and_remove_roundtrip_enables_respawn(tmp_path):
     next create_worktree() succeeds without needing its own pre-clean.
     """
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     _init_repo(repo)
 
     wt_path = repo / ".claude" / "worktrees" / "agent-epsilon"

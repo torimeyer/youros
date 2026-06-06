@@ -6,7 +6,7 @@ interface Verb {
   description: string
 }
 
-const NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]*$/
+const NAME_RE = /^[a-zA-Z][a-zA-Z0-9 _-]*$/
 
 const SUGGESTED_VERBS: Verb[] = [
   { name: 'standup', description: 'Write a daily standup update from recent activity' },

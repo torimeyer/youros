@@ -27,7 +27,7 @@ async def test_claim_spec_source_wrapper(client, tmp_path, monkeypatch):
     from services import ostk as ostk_module
     from routers import specs as specs_router
 
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
 
@@ -55,7 +55,7 @@ async def test_claim_spec_wrapper_returns_task_ids(client, tmp_path, monkeypatch
     from services import ostk as ostk_module
     from routers import specs as specs_router
 
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
 
@@ -130,7 +130,7 @@ def test_mychat_parse_spec_and_with(tmp_path, monkeypatch):
     and resolves paths without making network calls or exec'ing a real CLI.
     """
     specs_dir = tmp_path / "specs"
-    specs_dir.mkdir()
+    specs_dir.mkdir(exist_ok=True)
     spec_file = specs_dir / "my-feature.md"
     spec_file.write_text("---\ntitle: my feature\nstatus: spec\n---\n")
 
@@ -155,7 +155,7 @@ def test_mychat_parse_spec_and_with(tmp_path, monkeypatch):
 def test_mychat_parse_spec_default_claude(tmp_path, monkeypatch):
     """scripts/mychat --spec <slug> defaults to claude if --with is omitted."""
     specs_dir = tmp_path / "specs"
-    specs_dir.mkdir()
+    specs_dir.mkdir(exist_ok=True)
     (specs_dir / "default-cli.md").write_text("---\ntitle: default cli\nstatus: spec\n---\n")
 
     env = os.environ.copy()

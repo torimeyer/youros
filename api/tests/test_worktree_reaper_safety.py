@@ -95,7 +95,7 @@ def _add_commit_to_worktree(repo: Path, wt_path: Path, filename: str) -> None:
 async def test_remove_worktree_refuses_when_branch_has_unmerged_commits(tmp_path):
     """remove_worktree() must not delete a worktree whose branch is ahead of main."""
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     _init_repo(repo)
 
     branch = "worktree-agent-safety-test"
@@ -158,7 +158,7 @@ async def test_create_worktree_pre_clean_refuses_when_branch_has_unmerged_commit
     and its unmerged commit must be completely untouched.
     """
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     _init_repo(repo)
 
     branch = "worktree-agent-respawn-test"
@@ -236,7 +236,7 @@ async def test_create_worktree_refuses_when_dir_gone_but_branch_has_unmerged_com
     import shutil
 
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     _init_repo(repo)
 
     branch = "worktree-agent-dir-gone-test"
@@ -313,7 +313,7 @@ async def test_create_worktree_refuses_when_dir_gone_but_branch_has_unmerged_com
 async def test_remove_worktree_succeeds_when_branch_is_merged(tmp_path):
     """remove_worktree() must proceed normally when there are no unmerged commits."""
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(exist_ok=True)
     _init_repo(repo)
 
     branch = "worktree-agent-merged-test"

@@ -213,8 +213,8 @@ def test_audit_all_empty_dir(tmp_path):
 def test_audit_all_multiple_dirs(tmp_path):
     d1 = tmp_path / "d1"
     d2 = tmp_path / "d2"
-    d1.mkdir()
-    d2.mkdir()
+    d1.mkdir(exist_ok=True)
+    d2.mkdir(exist_ok=True)
     (d1 / "a.md").write_text(FULL_SPEC)
     (d2 / "b.md").write_text(EMPTY_SPEC)
     report = audit_all_specs(spec_dirs=[d1, d2])
@@ -253,7 +253,7 @@ def test_docs_spec_resolved_against_repo_root(tmp_path, monkeypatch):
     """audit_all_specs must find docs/spec even when CWD is /tmp/."""
     # Build a fake repo tree under tmp_path.
     docs_spec = tmp_path / "docs" / "spec"
-    docs_spec.mkdir(parents=True)
+    docs_spec.mkdir(parents=True, exist_ok=True)
     (docs_spec / "a.md").write_text(FULL_SPEC)
 
     # Point MYOS_REPO_ROOT at our fake repo; CWD stays wherever pytest set it.
@@ -275,7 +275,7 @@ def test_myos_specs_resolved_from_home(tmp_path, monkeypatch):
     """~/.myos/specs is always resolved via Path.home(), not CWD."""
     fake_home = tmp_path / "home"
     myos_specs = fake_home / ".myos" / "specs"
-    myos_specs.mkdir(parents=True)
+    myos_specs.mkdir(parents=True, exist_ok=True)
     (myos_specs / "b.md").write_text(FULL_SPEC)
 
     monkeypatch.setenv("HOME", str(fake_home))
@@ -291,13 +291,13 @@ def test_audit_includes_both_dirs_with_env_var(tmp_path, monkeypatch):
     """With MYOS_REPO_ROOT set, default audit_all_specs picks up both dirs."""
     # Fake repo docs/spec.
     docs_spec = tmp_path / "docs" / "spec"
-    docs_spec.mkdir(parents=True)
+    docs_spec.mkdir(parents=True, exist_ok=True)
     (docs_spec / "x.md").write_text(FULL_SPEC)
 
     # Fake ~/.myos/specs using HOME override.
     fake_home = tmp_path / "home"
     myos_specs = fake_home / ".myos" / "specs"
-    myos_specs.mkdir(parents=True)
+    myos_specs.mkdir(parents=True, exist_ok=True)
     (myos_specs / "y.md").write_text(HALF_SPEC)
 
     monkeypatch.setenv("MYOS_REPO_ROOT", str(tmp_path))
@@ -424,9 +424,9 @@ def test_compute_shipped_no_refs(tmp_path):
 
 def test_compute_shipped_all_files_exist_no_needles(tmp_path):
     # Create referenced files
-    (tmp_path / "api" / "services").mkdir(parents=True)
+    (tmp_path / "api" / "services").mkdir(parents=True, exist_ok=True)
     (tmp_path / "api" / "services" / "spec_audit.py").write_text("")
-    (tmp_path / "app" / "src" / "pages").mkdir(parents=True)
+    (tmp_path / "app" / "src" / "pages").mkdir(parents=True, exist_ok=True)
     (tmp_path / "app" / "src" / "pages" / "Specs.tsx").write_text("")
     f = tmp_path / "spec.md"
     f.write_text(SPEC_WITH_FILES_AND_NEEDLES)
@@ -453,9 +453,9 @@ def test_compute_shipped_missing_file(tmp_path):
 
 
 def test_compute_shipped_open_needle(tmp_path):
-    (tmp_path / "api" / "services").mkdir(parents=True)
+    (tmp_path / "api" / "services").mkdir(parents=True, exist_ok=True)
     (tmp_path / "api" / "services" / "spec_audit.py").write_text("")
-    (tmp_path / "app" / "src" / "pages").mkdir(parents=True)
+    (tmp_path / "app" / "src" / "pages").mkdir(parents=True, exist_ok=True)
     (tmp_path / "app" / "src" / "pages" / "Specs.tsx").write_text("")
     f = tmp_path / "spec.md"
     f.write_text(SPEC_WITH_FILES_AND_NEEDLES)
@@ -593,7 +593,7 @@ def test_silent_auto_archive_on_completion(tmp_path):
 
     # Create a real file to reference
     ref_file = tmp_path / "app" / "src" / "pages" / "Specs.tsx"
-    ref_file.parent.mkdir(parents=True)
+    ref_file.parent.mkdir(parents=True, exist_ok=True)
     ref_file.write_text("// real file")
 
     spec_text = f"""\
@@ -643,9 +643,9 @@ async def test_list_docs_hides_husk_draft_when_promoted_spec_exists(tmp_path, mo
     draft_dir = tmp_path / "docs" / "draft"
     spec_dir = tmp_path / "docs" / "spec"
     user_specs_dir = tmp_path / "myos_specs"
-    draft_dir.mkdir(parents=True)
-    spec_dir.mkdir(parents=True)
-    user_specs_dir.mkdir(parents=True)
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    user_specs_dir.mkdir(parents=True, exist_ok=True)
 
     # Real promoted spec: has body content and acceptance criteria.
     promoted = user_specs_dir / "pattern-watcher-v2.md"

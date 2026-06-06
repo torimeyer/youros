@@ -469,7 +469,7 @@ def test_conversations_cache_miss_and_save(tmp_path):
     from services import imessage
 
     cache_dir = tmp_path / "imessage_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "conversations.json"
 
     with (
@@ -492,7 +492,7 @@ def test_conversations_cache_expired(tmp_path):
     from services import imessage
 
     cache_dir = tmp_path / "imessage_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "conversations.json"
     cache_path.write_text(json.dumps(_make_conversations(2)))
 
@@ -509,7 +509,7 @@ def test_conversations_cache_empty_treated_as_miss(tmp_path):
     from services import imessage
 
     cache_dir = tmp_path / "imessage_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "conversations.json"
     cache_path.write_text(json.dumps([]))
 
@@ -522,7 +522,7 @@ def test_invalidate_conversations_cache(tmp_path):
     from services import imessage
 
     cache_dir = tmp_path / "imessage_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "conversations.json"
     cache_path.write_text(json.dumps(_make_conversations(2)))
 
@@ -849,7 +849,7 @@ def test_populate_contacts_indexes_by_10_digit_key(tmp_path):
         {"name": "Bob Jones", "phone_numbers": [], "emails": ["bob@example.com"]},
     ]
     cache_dir = tmp_path / "imessage_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "contacts.json"
 
     with (
@@ -895,7 +895,7 @@ async def test_get_conversations_uses_bulk_loaded_names(tmp_path):
     ]
 
     cache_dir = tmp_path / "imessage_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     contacts_path = cache_dir / "contacts.json"
     convos_path = cache_dir / "conversations.json"
 
@@ -944,7 +944,7 @@ def test_bulk_loader_failure_leaves_applescript_fallback_callable(tmp_path):
     # Simulate Swift failure and confirm populate_contacts_from_bulk_loader
     # does not raise — it should log a warning and return gracefully.
     cache_dir = tmp_path / "imessage_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "contacts.json"
 
     with (
@@ -975,7 +975,7 @@ def test_get_contact_display_name_cached_normalized_key(tmp_path):
     from services import imessage
 
     cache_dir = tmp_path / "imessage_cache"
-    cache_dir.mkdir()
+    cache_dir.mkdir(exist_ok=True)
     cache_path = cache_dir / "contacts.json"
     cache_path.write_text('{"5551234567": "Dad"}')
 

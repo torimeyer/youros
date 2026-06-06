@@ -40,7 +40,7 @@ export default function PageHeader({
       )}
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-xl sm:text-2xl font-bold text-white">{title}</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">{title}</h1>
           {subtitle && (
             <p className="text-sm text-slate-600 dark:text-slate-400">{subtitle}</p>
           )}

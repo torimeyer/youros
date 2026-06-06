@@ -50,7 +50,7 @@ class TestDocService:
         confirms the service method itself injects the scaffold.
         """
         draft_dir = Path(self.tmpdir) / "docs" / "draft"
-        draft_dir.mkdir(parents=True)
+        draft_dir.mkdir(parents=True, exist_ok=True)
         draft_file = draft_dir / "my-feature.md"
         draft_file.write_text("---\ntitle: my feature\nstatus: draft\ncreated_at: 2026-06-02\n---\n")
 
@@ -67,7 +67,7 @@ class TestDocService:
     async def test_doc_draft_skips_scaffold_when_body_already_present(self):
         """doc_draft does not double-write if the file already has body sections."""
         draft_dir = Path(self.tmpdir) / "docs" / "draft"
-        draft_dir.mkdir(parents=True)
+        draft_dir.mkdir(parents=True, exist_ok=True)
         draft_file = draft_dir / "existing.md"
         original = "---\ntitle: existing\nstatus: draft\n---\n\n## Problem\n\nAlready filled.\n"
         draft_file.write_text(original)
@@ -82,7 +82,7 @@ class TestDocService:
     async def test_doc_promote_pure_python(self):
         """doc_promote moves draft to specs and flips front matter."""
         draft_dir = Path(self.tmpdir) / "docs" / "draft"
-        draft_dir.mkdir(parents=True)
+        draft_dir.mkdir(parents=True, exist_ok=True)
         draft_file = draft_dir / "my-plan.md"
         draft_file.write_text(
             "---\ntitle: my plan\nstatus: draft\n---\n\n- [ ] criterion A"
@@ -105,7 +105,7 @@ class TestDocService:
     async def test_doc_decompose_calls_cli_and_returns_task_ids(self):
         """Decompose with auto=True passes --auto flag and parses task IDs."""
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_dir.joinpath("my-plan.md").write_text(
             "---\ntitle: my plan\nstatus: spec\n---\n\n- [ ] criterion A"
         )
@@ -124,7 +124,7 @@ class TestDocService:
     async def test_doc_decompose_no_auto_flag_omitted(self):
         """Decompose with auto=False (default) does not pass --auto to the CLI."""
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_dir.joinpath("my-plan.md").write_text(
             "---\ntitle: my plan\nstatus: spec\n---\n\n- [ ] criterion A"
         )
@@ -140,7 +140,7 @@ class TestDocService:
     async def test_doc_decompose_writes_task_ids_to_frontmatter(self):
         """After decomposing, task IDs are written back to the spec file."""
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_file = spec_dir / "my-plan.md"
         spec_file.write_text(
             "---\ntitle: my plan\nstatus: spec\n---\n\n- [ ] criterion"
@@ -168,7 +168,7 @@ class TestDocService:
     async def test_doc_decompose_parses_unicode_arrow_ids(self):
         """ostk may emit Unicode arrow (→NNN) instead of ASCII (->NNN); both must be parsed."""
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_dir.joinpath("my-plan.md").write_text(
             "---\ntitle: my plan\nstatus: spec\n---\n\n- [ ] criterion A"
         )
@@ -194,8 +194,8 @@ class TestDocService:
         # (USER_DRAFTS_DIR/USER_SPECS_DIR patched to tmpdir/_user_* in setup).
         draft_dir = Path(self.tmpdir) / "_user_drafts"
         spec_dir = Path(self.tmpdir) / "_user_specs"
-        draft_dir.mkdir(parents=True)
-        spec_dir.mkdir(parents=True)
+        draft_dir.mkdir(parents=True, exist_ok=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
 
         draft_dir.joinpath("my-plan.md").write_text(
             "---\ntitle: my plan\nstatus: draft\ncreated_at: 2026-04-01T00:00:00Z\n---\n\nSome body text."
@@ -235,8 +235,8 @@ class TestDocService:
         # Two husks placed ONLY in the repo docs/ tree (the real leak source).
         repo_draft = Path(self.tmpdir) / "docs" / "draft"
         repo_spec = Path(self.tmpdir) / "docs" / "spec"
-        repo_draft.mkdir(parents=True)
-        repo_spec.mkdir(parents=True)
+        repo_draft.mkdir(parents=True, exist_ok=True)
+        repo_spec.mkdir(parents=True, exist_ok=True)
         repo_draft.joinpath("pattern-watcher-v2.md").write_text(
             "---\ntitle: pattern watcher v2\nstatus: draft\n"
             "created_at: 2026-06-01T00:00:00Z\n---\n\nleak husk"
@@ -264,7 +264,7 @@ class TestDocService:
         # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
         # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
         spec_dir = Path(self.tmpdir) / "_user_specs"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
 
         spec_dir.joinpath("active.md").write_text(
             "---\ntitle: active spec\nstatus: spec\ntasks:\n"
@@ -295,7 +295,7 @@ class TestDocService:
         # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
         # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
         spec_dir = Path(self.tmpdir) / "_user_specs"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
 
         spec_dir.joinpath("wip.md").write_text(
             "---\ntitle: wip spec\nstatus: spec\ntasks:\n"
@@ -323,7 +323,7 @@ class TestDocService:
         # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
         # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
         spec_dir = Path(self.tmpdir) / "_user_specs"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
 
         spec_dir.joinpath("done.md").write_text(
             "---\ntitle: done spec\nstatus: spec\ntasks:\n"
@@ -354,7 +354,7 @@ class TestDocService:
         # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
         # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
         spec_dir = Path(self.tmpdir) / "_user_specs"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
 
         spec_dir.joinpath("almost.md").write_text(
             "---\ntitle: almost done\nstatus: spec\ntasks:\n"
@@ -385,7 +385,7 @@ class TestDocService:
         # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
         # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
         spec_dir = Path(self.tmpdir) / "_user_specs"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
 
         spec_dir.joinpath("arrowed.md").write_text(
             "---\ntitle: arrow spec\nstatus: spec\ntasks:\n"
@@ -505,7 +505,7 @@ class TestDocService:
     def test_write_tasks_to_frontmatter_new(self):
         """Write task IDs to a spec that has no tasks field yet."""
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_file = spec_dir / "plan.md"
         spec_file.write_text("---\ntitle: Plan\nstatus: spec\n---\n\nBody text.")
 
@@ -519,7 +519,7 @@ class TestDocService:
     def test_write_tasks_to_frontmatter_merge(self):
         """New task IDs are merged with existing ones, no duplicates."""
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_file = spec_dir / "plan.md"
         spec_file.write_text(
             '---\ntitle: Plan\nstatus: spec\ntasks:\n  - "100"\n---\n\nBody.'
@@ -543,7 +543,7 @@ class TestSpecTasks:
     @pytest.mark.asyncio
     async def test_spec_tasks_returns_linked_tasks(self):
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_dir.joinpath("plan.md").write_text(
             '---\ntitle: Plan\nstatus: spec\ntasks:\n  - "10"\n  - "11"\n---\n\nBody.'
         )
@@ -565,7 +565,7 @@ class TestSpecTasks:
     @pytest.mark.asyncio
     async def test_spec_tasks_empty_when_no_tasks(self):
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_dir.joinpath("plan.md").write_text(
             "---\ntitle: Plan\nstatus: spec\n---\n\nBody."
         )
@@ -589,7 +589,7 @@ class TestSpecVerify:
     @pytest.mark.asyncio
     async def test_verify_mixed_criteria(self):
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_dir.joinpath("plan.md").write_text(
             '---\ntitle: Plan\nstatus: spec\ntasks:\n  - "10"\n---\n\n'
             "- [ ] First criterion\n- [x] Second criterion"
@@ -610,7 +610,7 @@ class TestSpecVerify:
     @pytest.mark.asyncio
     async def test_verify_all_met(self):
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_dir.joinpath("plan.md").write_text(
             '---\ntitle: Plan\nstatus: spec\ntasks:\n  - "10"\n---\n\n'
             "- [x] Done criterion"
@@ -641,7 +641,7 @@ class TestSpecBuild:
     @pytest.mark.asyncio
     async def test_build_returns_agent_configs(self):
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_dir.joinpath("plan.md").write_text(
             '---\ntitle: Plan\nstatus: spec\ntasks:\n  - "10"\n  - "11"\n---\n\n'
             "Build a widget."
@@ -672,7 +672,7 @@ class TestSpecBuild:
     @pytest.mark.asyncio
     async def test_build_no_tasks(self):
         spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True)
+        spec_dir.mkdir(parents=True, exist_ok=True)
         spec_dir.joinpath("plan.md").write_text(
             "---\ntitle: Plan\nstatus: spec\n---\n\nBody."
         )
@@ -1182,9 +1182,9 @@ async def test_delete_spec_user_local_removes_file(client, tmp_path):
     import routers.specs as _specs_mod
 
     user_specs = tmp_path / "user_specs"
-    user_specs.mkdir()
+    user_specs.mkdir(exist_ok=True)
     user_drafts = tmp_path / "user_drafts"
-    user_drafts.mkdir()
+    user_drafts.mkdir(exist_ok=True)
 
     spec_file = user_specs / "delete-me.md"
     spec_file.write_text("---\ntitle: delete me\nstatus: spec\n---\n")
@@ -1209,9 +1209,9 @@ async def test_delete_spec_user_local_draft_removes_file(client, tmp_path):
     import routers.specs as _specs_mod
 
     user_specs = tmp_path / "user_specs"
-    user_specs.mkdir()
+    user_specs.mkdir(exist_ok=True)
     user_drafts = tmp_path / "user_drafts"
-    user_drafts.mkdir()
+    user_drafts.mkdir(exist_ok=True)
 
     draft_file = user_drafts / "my-draft.md"
     draft_file.write_text("---\ntitle: my draft\nstatus: draft\n---\n")
@@ -1236,9 +1236,9 @@ async def test_delete_spec_user_local_not_found(client, tmp_path):
     import routers.specs as _specs_mod
 
     user_specs = tmp_path / "user_specs"
-    user_specs.mkdir()
+    user_specs.mkdir(exist_ok=True)
     user_drafts = tmp_path / "user_drafts"
-    user_drafts.mkdir()
+    user_drafts.mkdir(exist_ok=True)
     nonexistent = user_specs / "gone.md"
 
     with (
@@ -1265,9 +1265,9 @@ async def test_delete_user_local_spec_not_resurfaced_by_list_docs(client, tmp_pa
     import routers.specs as _specs_mod
 
     user_specs = tmp_path / "user_specs"
-    user_specs.mkdir()
+    user_specs.mkdir(exist_ok=True)
     user_drafts = tmp_path / "user_drafts"
-    user_drafts.mkdir()
+    user_drafts.mkdir(exist_ok=True)
 
     spec_file = user_specs / "should-vanish.md"
     spec_file.write_text(
@@ -1745,7 +1745,7 @@ async def test_drift_reconcile_checks_unchecked_acs(client, tmp_path, monkeypatc
     import routers.specs as specs_router
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
     spec_dir = tmp_path / "docs" / "spec"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
     spec_file = spec_dir / "test-reconcile.md"
     spec_file.write_text(
         "---\ntitle: Test\nstatus: complete\n---\n\n- [ ] item one\n- [ ] item two\n"
@@ -1770,7 +1770,7 @@ async def test_drift_reconcile_idempotent(client, tmp_path, monkeypatch):
     import routers.specs as specs_router
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
     spec_dir = tmp_path / "docs" / "spec"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
     spec_file = spec_dir / "already-done.md"
     spec_file.write_text(
         "---\ntitle: Done\nstatus: complete\n---\n\n- [x] already checked\n"
@@ -1787,7 +1787,7 @@ async def test_drift_reconcile_idempotent(client, tmp_path, monkeypatch):
 async def test_drift_reconcile_not_found(client, tmp_path, monkeypatch):
     import routers.specs as specs_router
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
 
     resp = await client.post("/api/specs/docs/spec/nope.md/drift/reconcile")
 
@@ -1800,7 +1800,7 @@ async def test_drift_ack_writes_frontmatter(client, tmp_path, monkeypatch):
     import routers.specs as specs_router
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
     spec_dir = tmp_path / "docs" / "spec"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
     spec_file = spec_dir / "test-ack.md"
     spec_file.write_text("---\ntitle: Test\nstatus: complete\n---\n\nBody text.\n")
 
@@ -1820,7 +1820,7 @@ async def test_drift_ack_idempotent(client, tmp_path, monkeypatch):
     import routers.specs as specs_router
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
     spec_dir = tmp_path / "docs" / "spec"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
     spec_file = spec_dir / "already-acked.md"
     spec_file.write_text(
         "---\ntitle: Test\nstatus: complete\ndrift_acked: true\n---\n\nBody.\n"
@@ -1839,7 +1839,7 @@ async def test_drift_ack_idempotent(client, tmp_path, monkeypatch):
 async def test_drift_ack_not_found(client, tmp_path, monkeypatch):
     import routers.specs as specs_router
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
 
     resp = await client.post("/api/specs/docs/spec/nope.md/drift/ack")
 
@@ -1852,7 +1852,7 @@ async def test_review_spec_includes_acked_field(client, tmp_path, monkeypatch):
     import routers.specs as specs_router
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
     spec_dir = tmp_path / "docs" / "spec"
-    spec_dir.mkdir(parents=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
     spec_file = spec_dir / "test-review.md"
     spec_file.write_text("---\ntitle: Test\nstatus: spec\n---\n\nBody.\n")
 
@@ -1915,7 +1915,7 @@ class TestAcLinkDrift:
 
     def test_drift_when_covered_file_missing(self, tmp_path):
         test_file = tmp_path / "api" / "tests" / "test_real.py"
-        test_file.parent.mkdir(parents=True)
+        test_file.parent.mkdir(parents=True, exist_ok=True)
         test_file.write_text("def test_foo(): pass\n")
         spec = tmp_path / "spec.md"
         spec.write_text(
@@ -1937,7 +1937,7 @@ class TestAcLinkDrift:
 
     def test_no_drift_when_all_refs_exist(self, tmp_path):
         test_file = tmp_path / "api" / "tests" / "test_real.py"
-        test_file.parent.mkdir(parents=True)
+        test_file.parent.mkdir(parents=True, exist_ok=True)
         test_file.write_text("def test_foo(): pass\n")
         cover_file = tmp_path / "api" / "module.py"
         cover_file.write_text("pass\n")
@@ -2000,7 +2000,7 @@ class TestAcLinkDrift:
     def test_covers_only_annotation_present_file_no_drift(self, tmp_path):
         """AC with (covers: path) and the file exists produces no drift."""
         cover_file = tmp_path / "api" / "module.py"
-        cover_file.parent.mkdir(parents=True)
+        cover_file.parent.mkdir(parents=True, exist_ok=True)
         cover_file.write_text("pass\n")
         spec = tmp_path / "spec.md"
         spec.write_text(

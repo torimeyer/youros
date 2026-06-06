@@ -24,7 +24,7 @@ import re
 from typing import Any, Mapping
 
 
-_INFERRED_NAME_RE = re.compile(r"^(claude-code-|gemini-cli-mcp-client-)[0-9a-f0-9]+")
+_INFERRED_NAME_RE = re.compile(r"^(claude-code-|gemini-cli-mcp-client-)(p?[0-9a-f0-9]+)")
 
 
 def is_main_session(agent: Mapping[str, Any]) -> bool:

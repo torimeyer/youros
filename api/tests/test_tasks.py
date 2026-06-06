@@ -2331,7 +2331,7 @@ async def test_ostk_delete_task_removes_entry(tmp_path):
     from services.ostk import OstkService
 
     issues_dir = tmp_path / ".ostk" / "needles"
-    issues_dir.mkdir(parents=True)
+    issues_dir.mkdir(parents=True, exist_ok=True)
     issues_file = issues_dir / "issues.jsonl"
     issues_file.write_text(
         '{"id": "t-1", "title": "First", "status": "open"}\n'
@@ -2353,7 +2353,7 @@ async def test_ostk_delete_task_not_found_raises(tmp_path):
     from services.ostk import OstkService, OstkError
 
     issues_dir = tmp_path / ".ostk" / "needles"
-    issues_dir.mkdir(parents=True)
+    issues_dir.mkdir(parents=True, exist_ok=True)
     issues_file = issues_dir / "issues.jsonl"
     issues_file.write_text('{"id": "t-1", "title": "Only task", "status": "open"}\n')
 
@@ -2368,7 +2368,7 @@ async def test_ostk_delete_task_last_task_leaves_empty_file(tmp_path):
     from services.ostk import OstkService
 
     issues_dir = tmp_path / ".ostk" / "needles"
-    issues_dir.mkdir(parents=True)
+    issues_dir.mkdir(parents=True, exist_ok=True)
     issues_file = issues_dir / "issues.jsonl"
     issues_file.write_text('{"id": "t-1", "title": "Only task", "status": "open"}\n')
 
@@ -2409,7 +2409,7 @@ async def test_ostk_delete_task_not_in_jsonl_falls_back_to_cli(tmp_path):
     from services.ostk import OstkService
 
     issues_dir = tmp_path / ".ostk" / "needles"
-    issues_dir.mkdir(parents=True)
+    issues_dir.mkdir(parents=True, exist_ok=True)
     issues_file = issues_dir / "issues.jsonl"
     # issues.jsonl exists but does NOT contain the target task
     issues_file.write_text('{"id": "t-1", "title": "Other task", "status": "open"}\n')
@@ -2437,7 +2437,7 @@ async def test_ostk_delete_task_not_in_jsonl_run_error_raises(tmp_path):
     from services.ostk import OstkService, OstkError
 
     issues_dir = tmp_path / ".ostk" / "needles"
-    issues_dir.mkdir(parents=True)
+    issues_dir.mkdir(parents=True, exist_ok=True)
     issues_file = issues_dir / "issues.jsonl"
     # File exists but does NOT contain the target task
     issues_file.write_text('{"id": "t-1", "title": "Other task", "status": "open"}\n')
@@ -2466,7 +2466,7 @@ async def test_ostk_delete_task_in_jsonl_run_error_raises(tmp_path):
     from services.ostk import OstkService, OstkError
 
     issues_dir = tmp_path / ".ostk" / "needles"
-    issues_dir.mkdir(parents=True)
+    issues_dir.mkdir(parents=True, exist_ok=True)
     issues_file = issues_dir / "issues.jsonl"
     # issues.jsonl DOES contain the target task (found_in_file will be True)
     issues_file.write_text(
@@ -2497,7 +2497,7 @@ async def test_delete_actually_removes_from_issues_jsonl(tmp_path):
     from services.ostk import OstkService
 
     issues_dir = tmp_path / ".ostk" / "needles"
-    issues_dir.mkdir(parents=True)
+    issues_dir.mkdir(parents=True, exist_ok=True)
     issues_file = issues_dir / "issues.jsonl"
     issues_file.write_text(
         '{"id": "\u2192565", "title": "Land a basic homepage", "status": "open"}\n'
@@ -2533,7 +2533,7 @@ async def test_ostk_delete_task_notifies_daemon_before_file_edit(tmp_path, monke
     from services.ostk import OstkService, OstkError
 
     issues_dir = tmp_path / ".ostk" / "needles"
-    issues_dir.mkdir(parents=True)
+    issues_dir.mkdir(parents=True, exist_ok=True)
     issues_file = issues_dir / "issues.jsonl"
     issues_file.write_text(
         '{"id": "t-1", "title": "Task to delete", "status": "open"}\n'
@@ -3788,7 +3788,7 @@ async def test_update_task_fields_rewrites_title_and_description(tmp_path):
     from services.ostk import OstkService
 
     needles_dir = tmp_path / ".ostk" / "needles"
-    needles_dir.mkdir(parents=True)
+    needles_dir.mkdir(parents=True, exist_ok=True)
     issues_path = needles_dir / "issues.jsonl"
     issues_path.write_text(
         "\n".join(
@@ -3840,7 +3840,7 @@ async def test_update_task_fields_missing_task_raises(tmp_path):
     from services.ostk import OstkService, OstkError
 
     needles_dir = tmp_path / ".ostk" / "needles"
-    needles_dir.mkdir(parents=True)
+    needles_dir.mkdir(parents=True, exist_ok=True)
     (needles_dir / "issues.jsonl").write_text(
         json.dumps({"id": "\u2192100", "title": "t", "description": ""}) + "\n"
     )

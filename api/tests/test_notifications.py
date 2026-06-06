@@ -521,7 +521,7 @@ async def test_roadmap_complete_notification_goes_to_isolated_store(tmp_path):
     }
 
     fake_files = tmp_path / "files"
-    fake_files.mkdir()
+    fake_files.mkdir(exist_ok=True)
     real_file = Path.home() / ".myos" / "notifications.json"
 
     transport = ASGITransport(app=app)

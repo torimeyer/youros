@@ -110,7 +110,7 @@ async def test_coordination_no_sessions(client, tmp_path):
 async def test_coordination_events_from_nudge_history(client, tmp_path):
     """Nudges in nudge_history appear in the events list."""
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir(parents=True)
+    sessions_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
     ts = now.isoformat()
 
@@ -141,7 +141,7 @@ async def test_coordination_events_from_nudge_history(client, tmp_path):
 async def test_coordination_events_capped_at_20(client, tmp_path):
     """events list never exceeds 20 items."""
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir(parents=True)
+    sessions_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
 
     nudges_by_agent: dict = {}
@@ -163,7 +163,7 @@ async def test_coordination_events_capped_at_20(client, tmp_path):
 async def test_coordination_locks_from_ostk(client, tmp_path):
     """Lock data from ostk.list_locks is passed through."""
     sessions_dir = tmp_path / "sessions"
-    sessions_dir.mkdir(parents=True)
+    sessions_dir.mkdir(parents=True, exist_ok=True)
 
     fake_lock = {
         "name": "agent-builder",

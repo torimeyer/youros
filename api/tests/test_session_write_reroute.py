@@ -33,10 +33,10 @@ async def test_unlock_user_local_spec_goes_to_user_drafts_not_repo(
     user_specs = tmp_path / "myos" / "specs"
     user_drafts = tmp_path / "myos" / "drafts"
     repo_root = tmp_path / "repo"
-    (repo_root / "docs" / "draft").mkdir(parents=True)
-    (repo_root / "docs" / "spec").mkdir(parents=True)
-    user_specs.mkdir(parents=True)
-    user_drafts.mkdir(parents=True)
+    (repo_root / "docs" / "draft").mkdir(parents=True, exist_ok=True)
+    (repo_root / "docs" / "spec").mkdir(parents=True, exist_ok=True)
+    user_specs.mkdir(parents=True, exist_ok=True)
+    user_drafts.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", user_specs)
     monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", user_drafts)
@@ -88,8 +88,8 @@ async def test_create_from_template_writes_to_user_drafts_not_repo(
 
     user_drafts = tmp_path / "myos" / "drafts"
     repo_root = tmp_path / "repo"
-    (repo_root / "docs" / "draft").mkdir(parents=True)
-    user_drafts.mkdir(parents=True)
+    (repo_root / "docs" / "draft").mkdir(parents=True, exist_ok=True)
+    user_drafts.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", user_drafts)
     monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", user_drafts)
@@ -154,8 +154,8 @@ async def test_import_spec_writes_to_user_drafts_not_repo(
 
     user_drafts = tmp_path / "myos" / "drafts"
     repo_root = tmp_path / "repo"
-    (repo_root / "docs" / "draft").mkdir(parents=True)
-    user_drafts.mkdir(parents=True)
+    (repo_root / "docs" / "draft").mkdir(parents=True, exist_ok=True)
+    user_drafts.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", user_drafts)
     monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", user_drafts)

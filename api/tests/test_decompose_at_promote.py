@@ -17,7 +17,7 @@ def svc(tmp_path):
 
 def _make_draft(tmp_path: Path) -> Path:
     draft_dir = tmp_path / "docs" / "draft"
-    draft_dir.mkdir(parents=True)
+    draft_dir.mkdir(parents=True, exist_ok=True)
     f = draft_dir / "my-spec.md"
     f.write_text(
         "---\ntitle: my spec\nstatus: draft\n---\n\n- [ ] criterion A\n"

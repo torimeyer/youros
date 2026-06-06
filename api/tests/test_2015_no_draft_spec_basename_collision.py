@@ -54,8 +54,8 @@ def test_collision_helper_detects_shared_basename(tmp_path):
     """The helper flags a shared basename across the two directories."""
     draft = tmp_path / "draft"
     spec = tmp_path / "spec"
-    draft.mkdir()
-    spec.mkdir()
+    draft.mkdir(exist_ok=True)
+    spec.mkdir(exist_ok=True)
 
     (draft / "shared-title.md").write_text("draft fragment\n")
     (spec / "shared-title.md").write_text("full spec\n")
@@ -70,8 +70,8 @@ def test_collision_helper_clean_when_no_overlap(tmp_path):
     """The helper reports no collisions when basenames do not overlap."""
     draft = tmp_path / "draft"
     spec = tmp_path / "spec"
-    draft.mkdir()
-    spec.mkdir()
+    draft.mkdir(exist_ok=True)
+    spec.mkdir(exist_ok=True)
 
     (draft / "draft-only.md").write_text("only a draft\n")
     (spec / "spec-only.md").write_text("only a spec\n")
@@ -82,7 +82,7 @@ def test_collision_helper_clean_when_no_overlap(tmp_path):
 def test_collision_helper_tolerates_missing_dirs(tmp_path):
     """A missing draft or spec directory yields no collisions, not an error."""
     spec = tmp_path / "spec"
-    spec.mkdir()
+    spec.mkdir(exist_ok=True)
     (spec / "spec-only.md").write_text("only a spec\n")
 
     # draft dir does not exist

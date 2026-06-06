@@ -70,7 +70,7 @@ def test_list_needles_reads_jsonl():
     with tempfile.TemporaryDirectory() as tmpdir:
         d = Path(tmpdir)
         needles_dir = d / "needles"
-        needles_dir.mkdir()
+        needles_dir.mkdir(exist_ok=True)
         rows = [
             {"id": "→100", "title": "First", "created_at": "2026-01-01T00:00:00Z"},
             {"id": "→101", "title": "Second", "created_at": "2026-01-02T00:00:00Z"},
@@ -93,7 +93,7 @@ def test_list_needles_skips_bad_json():
     with tempfile.TemporaryDirectory() as tmpdir:
         d = Path(tmpdir)
         needles_dir = d / "needles"
-        needles_dir.mkdir()
+        needles_dir.mkdir(exist_ok=True)
         (needles_dir / "issues.jsonl").write_text(
             '{"id": "→1"}\n{bad json}\n{"id": "→2"}\n'
         )
@@ -167,7 +167,7 @@ async def test_get_needles_endpoint(client):
     with tempfile.TemporaryDirectory() as tmpdir:
         d = Path(tmpdir)
         needles_dir = d / "needles"
-        needles_dir.mkdir()
+        needles_dir.mkdir(exist_ok=True)
         (needles_dir / "issues.jsonl").write_text(
             json.dumps({"id": "→42", "title": "Test needle"}) + "\n"
         )

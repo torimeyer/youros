@@ -40,7 +40,7 @@ def _read_needle_status(issues_path: Path, needle_id: str) -> str:
 
 def _make_issues_jsonl(tmp_path: Path, needle_id: str, status: str) -> Path:
     needles_dir = tmp_path / ".ostk" / "needles"
-    needles_dir.mkdir(parents=True)
+    needles_dir.mkdir(parents=True, exist_ok=True)
     issues_path = needles_dir / "issues.jsonl"
     issues_path.write_text(
         json.dumps({

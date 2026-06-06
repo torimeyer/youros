@@ -272,7 +272,7 @@ The product is called **yourOS** on every screen you see. Under the hood, engine
 
 - `~/.myos/` — the user data directory (renaming moves no data and risks orphaning 200MB+ of history)
 - `MYOS_*` environment variables — 36 of them; renaming requires coordinated operator changes
-- `myos-backend` / `myos-frontend` PM2 process names and PID files
+- `youros-backend` / `youros-frontend` PM2 process names and PID files
 - `com.myos.ostk-watchdog` launchd plist (installed at `~/Library/LaunchAgents/`)
 - `myos.` localStorage key prefixes — renaming clears browser state
 - `/api/health` returns `{"service":"myos-api"}` — e2e smoke tests grep this string

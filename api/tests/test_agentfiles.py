@@ -140,8 +140,8 @@ class TestListEndpoint:
         """User-created Agentfiles in ~/.myos/agentfiles/ should also appear."""
         builtin_dir = tmp_path / "builtin"
         user_dir = tmp_path / "user"
-        builtin_dir.mkdir()
-        user_dir.mkdir()
+        builtin_dir.mkdir(exist_ok=True)
+        user_dir.mkdir(exist_ok=True)
 
         (builtin_dir / "builtin.agent").write_text('FROM auto\nPROMPT "builtin"\n')
         (user_dir / "custom.agent").write_text('FROM opus\nPROMPT "custom"\n')

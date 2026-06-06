@@ -24,8 +24,8 @@ REPO_ROOT="$(cd "$THIS_DIR/../.." && pwd)"
 DEV_BACKEND="$REPO_ROOT/scripts/dev-backend.sh"
 
 TEST_PORT="${TEST_PORT:-8017}"
-PIDFILE="/tmp/myos-backend-${TEST_PORT}.pid"
-LAUNCHER_LOCK="/tmp/myos-backend-launcher-${TEST_PORT}.lock"
+PIDFILE="/tmp/youros-backend-${TEST_PORT}.pid"
+LAUNCHER_LOCK="/tmp/youros-backend-launcher-${TEST_PORT}.lock"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'

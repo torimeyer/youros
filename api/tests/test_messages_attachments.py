@@ -109,7 +109,7 @@ class TestAttachmentEndpoint:
         # Patch _allowed_attachments_dir so the security check uses tmp_path.
         fake_attachments = tmp_path.resolve() / "Attachments"
         att_dir = fake_attachments / "00"
-        att_dir.mkdir(parents=True)
+        att_dir.mkdir(parents=True, exist_ok=True)
         fake_heic = att_dir / "IMG_2328.HEIC"
         fake_heic.write_bytes(b"\x00" * 4)
 
@@ -129,7 +129,7 @@ class TestAttachmentEndpoint:
     def test_heic_transcoding_failure_returns_502(self, client, tmp_path):
         fake_attachments = tmp_path.resolve() / "Attachments"
         att_dir = fake_attachments / "00"
-        att_dir.mkdir(parents=True)
+        att_dir.mkdir(parents=True, exist_ok=True)
         fake_heic = att_dir / "broken.heic"
         fake_heic.write_bytes(b"\x00" * 4)
 

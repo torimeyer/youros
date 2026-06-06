@@ -46,7 +46,7 @@ async def test_context_pages_lists_page_files():
     with tempfile.TemporaryDirectory() as tmp:
         ostk_dir = Path(tmp)
         memory_dir = ostk_dir / "memory"
-        memory_dir.mkdir()
+        memory_dir.mkdir(exist_ok=True)
         (memory_dir / "spec-plan.page").write_text("big content here")
         (memory_dir / "test-output.page").write_text("pass")
         with patch("routers.agents.OSTK_DIR", ostk_dir):
