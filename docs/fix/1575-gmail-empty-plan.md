@@ -2,7 +2,7 @@
 
 ## Root cause
 
-Token file at `~/.myos/google_token.json` has `expires_at` 3.5 days in the past.
+Token file at `~/.youros/google_token.json` has `expires_at` 3.5 days in the past.
 `_refresh_if_needed` attempts a token refresh, Google returns `invalid_grant`
 (refresh token revoked/expired), but the `except Exception: return tokens` swallows
 the error and returns the dead token silently.

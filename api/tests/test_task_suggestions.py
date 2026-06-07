@@ -62,7 +62,7 @@ def isolate_paths(tmp_path, monkeypatch):
     """Redirect every on-disk path the service touches to a tmp dir.
 
     This means the test never reads the real audit.jsonl and never writes
-    to ~/.myos/dismissed_suggestions.json.
+    to ~/.youros/dismissed_suggestions.json.
     """
     fake_audit = tmp_path / "audit.jsonl"
     fake_dismissed = tmp_path / "dismissed.json"

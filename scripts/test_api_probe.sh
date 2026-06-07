@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression test for scripts/api-probe.sh.
 #
-# Ensures the helper picks the right scheme based on ~/.myos/localhost.{key,crt}
+# Ensures the helper picks the right scheme based on ~/.youros/localhost.{key,crt}
 # and passes -k for self-signed HTTPS. This is the →457 protocol-mismatch
 # defense; if it regresses, agents will misdiagnose "Empty reply from server"
 # (curl exit 52) as a backend middleware crash.
@@ -32,9 +32,9 @@ if grep -qE -- '-k( |$)|-sSk' <<<"$out_http_env"; then
 fi
 
 # Case 2: certs present → https, opts include -k (packed as -sSk)
-mkdir -p "$TMPHOME/.myos"
-: > "$TMPHOME/.myos/localhost.key"
-: > "$TMPHOME/.myos/localhost.crt"
+mkdir -p "$TMPHOME/.youros"
+: > "$TMPHOME/.youros/localhost.key"
+: > "$TMPHOME/.youros/localhost.crt"
 
 out_https_base=$(HOME="$TMPHOME" "$SCRIPT" --base)
 if [[ "$out_https_base" != "https://127.0.0.1:8000" ]]; then

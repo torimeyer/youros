@@ -110,7 +110,7 @@ describe('AtlassianConnect', () => {
     })
 
     fireEvent.click(screen.getByTestId('atlassian-reconnect-btn'))
-    expect(assignedHref).toBe('/api/atlassian/auth?return_to=/settings')
+    expect(assignedHref).toBe('/api/atlassian/auth?return_to=%2Fsettings')
   })
 
   it('shows "Connect Jira" on OAuth button when product=jira', async () => {
@@ -180,7 +180,7 @@ describe('AtlassianConnect', () => {
     })
 
     fireEvent.click(screen.getByTestId('atlassian-oauth-btn'))
-    expect(assignedHref).toBe('/api/atlassian/auth?return_to=/settings')
+    expect(assignedHref).toBe('/api/atlassian/auth?return_to=%2Fsettings')
   })
 
   it('shows Jira & Confluence product labels when both sites are in status', async () => {

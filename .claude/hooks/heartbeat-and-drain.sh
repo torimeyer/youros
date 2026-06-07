@@ -71,7 +71,7 @@ disown 2>/dev/null || true
 # Idle-transcript sweep (detached)
 (
     IDLE_COMPLETE_SECONDS="${MYOS_IDLE_COMPLETE_SECONDS:-300}"
-    IDLE_SWEEP_STAMP="$HOME/.myos/subagents/last-idle-sweep.stamp"
+    IDLE_SWEEP_STAMP="$HOME/.youros/subagents/last-idle-sweep.stamp"
     IDLE_SWEEP_INTERVAL="${MYOS_IDLE_SWEEP_INTERVAL:-60}"
     IDLE_LOG="${MYOS_IDLE_COMPLETE_LOG:-/tmp/idle-complete.log}"
     AGENTS_URL="${MYOS_AGENTS_URL:-https://127.0.0.1:8000/api/agents}"
@@ -135,9 +135,9 @@ disown 2>/dev/null || true
 _HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WATCHER_SCRIPT="${_HOOKS_DIR}/lib/agent-completion-watcher.sh"
 
-ANNC_FILE="${MYOS_COMPLETION_ANNC:-$HOME/.myos/subagents/pending-completion-announcements.jsonl}"
-STATE_FILE="${MYOS_COMPLETION_STATE:-$HOME/.myos/subagents/completion-watcher-state.json}"
-PID_FILE="${MYOS_COMPLETION_PID:-$HOME/.myos/subagents/completion-watcher.pid}"
+ANNC_FILE="${MYOS_COMPLETION_ANNC:-$HOME/.youros/subagents/pending-completion-announcements.jsonl}"
+STATE_FILE="${MYOS_COMPLETION_STATE:-$HOME/.youros/subagents/completion-watcher-state.json}"
+PID_FILE="${MYOS_COMPLETION_PID:-$HOME/.youros/subagents/completion-watcher.pid}"
 
 _daemon_alive() {
     [ -f "$PID_FILE" ] || return 1

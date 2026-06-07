@@ -11,7 +11,7 @@ from services import recent_deletes
 router = APIRouter(prefix="/api/memory", tags=["memory"])
 
 # Path to the per-user memory file — patchable in tests.
-_USER_MEMORY_PATH = Path.home() / ".myos" / "users" / "default" / "MEMORY.md"
+_USER_MEMORY_PATH = Path.home() / ".youros" / "users" / "default" / "MEMORY.md"
 
 
 class SaveFactRequest(BaseModel):

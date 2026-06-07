@@ -189,7 +189,7 @@ async def test_probe_confluence_fallback_when_jira_fails(clean_probe_cache):
 
     call_count = 0
 
-    async def mock_request_with_refresh(product, fn):
+    async def mock_request_with_refresh(product, fn, **kwargs):
         nonlocal call_count
         call_count += 1
         if product == "jira":
@@ -213,7 +213,7 @@ async def test_probe_expired_when_both_jira_and_confluence_fail(clean_probe_cach
     """When both Jira and Confluence return non-200, probe reports expired."""
     resp_401 = _make_resp(401)
 
-    async def mock_request_with_refresh(product, fn):
+    async def mock_request_with_refresh(product, fn, **kwargs):
         return resp_401, "https://api.atlassian.com/ex/jira/cloud-1", "acme.atlassian.net"
 
     with patch.object(svc.ostk, "secret_get", AsyncMock(return_value="oauth-access-token")):
@@ -233,7 +233,7 @@ async def test_probe_confluence_fallback_when_jira_raises(clean_probe_cache):
     resp_200 = _make_resp(200)
     confluence_base = "https://api.atlassian.com/ex/confluence/cloud-1"
 
-    async def mock_request_with_refresh(product, fn):
+    async def mock_request_with_refresh(product, fn, **kwargs):
         if product == "jira":
             raise httpx.ConnectError("connection refused")
         return resp_200, confluence_base, "acme.atlassian.net"

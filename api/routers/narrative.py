@@ -7,8 +7,8 @@ Endpoints:
   GET  /api/narrative/draft/{id}        — single full draft JSON
   POST /api/narrative/draft/{id}/promote — emit spec + create exec-update tracking task
 
-Storage: ~/.myos/narratives/{draft_id}.json
-Specs:   ~/.myos/specs/narrative-{draft_id}.md
+Storage: ~/.youros/narratives/{draft_id}.json
+Specs:   ~/.youros/specs/narrative-{draft_id}.md
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ _PERSONAL_EVENT_RE = re.compile(
 # ---------------------------------------------------------------------------
 
 def _myos_dir() -> Path:
-    return Path(os.environ.get("MYOS_DIR", os.path.expanduser("~/.myos")))
+    return Path(os.environ.get("MYOS_DIR", os.path.expanduser("~/.youros")))
 
 def _narratives_dir() -> Path:
     return _myos_dir() / "narratives"
@@ -52,7 +52,7 @@ def _specs_dir() -> Path:
     return _myos_dir() / "specs"
 
 # Module-level alias for backward-compat with tests that patch NARRATIVES_DIR directly
-NARRATIVES_DIR: Path = Path(os.path.expanduser("~/.myos/narratives"))
+NARRATIVES_DIR: Path = Path(os.path.expanduser("~/.youros/narratives"))
 
 router = APIRouter(tags=["narrative"])
 
@@ -121,7 +121,7 @@ async def _gather_sources(window_days: int = 7) -> list[dict]:
     except Exception:
         pass
 
-    # --- Specs (local ~/.myos/specs) with body excerpts ---
+    # --- Specs (local ~/.youros/specs) with body excerpts ---
     try:
         from services.ostk import USER_SPECS_DIR
         if USER_SPECS_DIR.is_dir():
@@ -193,6 +193,36 @@ async def _gather_sources(window_days: int = 7) -> list[dict]:
                     "id": commit_hash,
                     "title": commit_msg,
                     "meta": {"hash": commit_hash},
+                })
+    except Exception:
+        pass
+
+    # --- Git Commits (recent ships) ---
+    try:
+        import subprocess
+        from config import PROJECT_ROOT
+        # git log --since="N days ago" --oneline
+        cmd = ["git", "log", f"--since={window_days} days ago", "--oneline", "-n", "50"]
+        proc = subprocess.run(
+            cmd,
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if proc.returncode == 0:
+            for line in proc.stdout.strip().split("\n"):
+                if not line:
+                    continue
+                parts = line.split(" ", 1)
+                if len(parts) < 2:
+                    continue
+                sha, title = parts
+                sources.append({
+                    "kind": "git_commit",
+                    "id": sha,
+                    "title": title,
+                    "meta": {"sha": sha},
                 })
     except Exception:
         pass
@@ -421,7 +451,7 @@ async def get_narrative_draft(draft_id: str):
 async def promote_narrative_draft(draft_id: str):
     """Promote a draft to a spec file and create an exec-update tracking task.
 
-    Writes spec to ~/.myos/specs/narrative-{draft_id}.md with frontmatter.
+    Writes spec to ~/.youros/specs/narrative-{draft_id}.md with frontmatter.
     Creates a tracking task labeled exec-update via tasks.create_task.
     Returns {spec_path, task_id}.
     404 if draft not found.

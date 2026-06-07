@@ -30,7 +30,7 @@ _MAILBOX_BOILERPLATE_RE = re.compile(
     r"post\s*/api/agents)"
 )
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 TITLE_CACHE_PATH = MYOS_DIR / "transcript_titles.json"
 
 

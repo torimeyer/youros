@@ -1,6 +1,6 @@
 """Notifications router.
 
-Provides persistent notifications stored in ~/.myos/notifications.json.
+Provides persistent notifications stored in ~/.youros/notifications.json.
 These survive app restarts. The bell in the UI polls the unread count
 and fetches the full list when opened.
 """

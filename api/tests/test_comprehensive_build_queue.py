@@ -177,7 +177,7 @@ def test_restart_preserves_queued_entries():
     _reset()
 
     # Write a queue file as if 2 builds are queued.
-    _q_path = Path.home() / ".myos" / "build_queue.json"
+    _q_path = Path.home() / ".youros" / "build_queue.json"
     _q_path.parent.mkdir(parents=True, exist_ok=True)
     entries = [
         {

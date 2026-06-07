@@ -21,7 +21,7 @@ Once connected, yourOS can:
 3. An Atlassian sign-in page opens in your browser. Sign in and approve the permissions yourOS requests.
 4. You are redirected back to yourOS. The connection card shows your email and site name when it worked.
 
-yourOS uses OAuth. It never sees your Atlassian password. Your token is stored locally at `~/.myos/atlassian_config.json`.
+yourOS uses OAuth. It never sees your Atlassian password. Your token is stored locally at `~/.youros/atlassian_config.json`.
 
 ---
 

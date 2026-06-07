@@ -15,8 +15,8 @@ export default function AboutYourOS() {
   const [decisionCount, setDecisionCount] = useState<number | null>(null)
 
   useEffect(() => {
-    api.get<{ myos: { current: string } }>('/upgrade/status')
-      .then((res) => setVersion(res.myos?.current ?? ''))
+    api.get<{ youros: { current: string } }>('/upgrade/status')
+      .then((res) => setVersion(res.youros?.current ?? ''))
       .catch(() => {})
     api.get<{ tasks: unknown[] }>('/tasks')
       .then((res) => setTaskCount(Array.isArray(res.tasks) ? res.tasks.length : 0))
@@ -96,7 +96,7 @@ export default function AboutYourOS() {
       body: (
         <p className="text-sm text-slate-400">
           Your data stays on your machine in{' '}
-          <code className="text-slate-300 bg-slate-800 px-1 rounded">~/.myos/</code>. The AI
+          <code className="text-slate-300 bg-slate-800 px-1 rounded">~/.youros/</code>. The AI
           provider is a setting, not a dependency. Anthropic, Google, and others are pluggable.
           Switch providers without losing your work.
         </p>

@@ -12,7 +12,7 @@ This is NOT machine learning. It is a dumb analyzer that:
 - Detects consecutive failures (3+) and generates suggested adjustments.
 - Identifies consistently successful templates and saves them as "proven".
 
-Proven templates live in ``~/.myos/proven_templates.json`` so they survive
+Proven templates live in ``~/.youros/proven_templates.json`` so they survive
 ``git pull``.
 """
 
@@ -30,8 +30,8 @@ from config import OSTK_DIR
 # patch them cleanly.
 AGENT_STATE_PATH = OSTK_DIR / "agent_state.json"
 AGENT_DURATIONS_PATH = OSTK_DIR / "agent_durations.json"
-AGENT_TEMPLATES_PATH = Path.home() / ".myos" / "agent_templates.json"
-PROVEN_TEMPLATES_PATH = Path.home() / ".myos" / "proven_templates.json"
+AGENT_TEMPLATES_PATH = Path.home() / ".youros" / "agent_templates.json"
+PROVEN_TEMPLATES_PATH = Path.home() / ".youros" / "proven_templates.json"
 DELETED_AGENTS_PATH = OSTK_DIR / "deleted_agents.json"
 
 

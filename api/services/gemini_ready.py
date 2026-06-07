@@ -47,12 +47,12 @@ class Readiness:
 # Regex patterns
 # ---------------------------------------------------------------------------
 
-# Matches docs/spec/*.md, ~/.myos/specs/*.md (~/ or absolute), ~/.claude/plans/*.md
+# Matches docs/spec/*.md, ~/.youros/specs/*.md (~/ or absolute), ~/.claude/plans/*.md
 _PLAN_PATH_RE = re.compile(
     r"(?:"
     r"docs/spec/[\w.\-]+\.md"
     r"|"
-    r"\S*?\.myos/specs/[\w.\-]+\.md"
+    r"\S*?\.youros/specs/[\w.\-]+\.md"
     r"|"
     r"\S*?\.claude/plans/[\w.\-]+\.md"
     r")"
@@ -122,8 +122,8 @@ _CHECK_NAMES = [
 
 def _get_project_root() -> Path:
     try:
-        from config import PROJECT_ROOT
-        return Path(PROJECT_ROOT)
+        import config
+        return Path(config.PROJECT_ROOT)
     except Exception:
         return Path(".").resolve()
 
@@ -141,8 +141,8 @@ def _extract_plan_path(text: str) -> Optional[str]:
     raw = m.group(0)
     if not raw.startswith("/") and not raw.startswith("~"):
         try:
-            from config import PROJECT_ROOT
-            return str(Path(PROJECT_ROOT) / raw)
+            import config
+            return str(Path(config.PROJECT_ROOT) / raw)
         except Exception:
             return raw
     return _expand(raw)

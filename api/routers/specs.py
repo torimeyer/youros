@@ -9,9 +9,10 @@ from typing import Literal, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from config import PROJECT_ROOT
+import config
 from models.schemas import SpecDraft, SpecPromote, SpecDecompose
-from services.ostk import ostk, OstkError, USER_DRAFTS_DIR, USER_SPECS_DIR
+from services import ostk as ostk_module
+from services.ostk import ostk, OstkError
 from services.spec_audit import audit_all_specs, compute_shipped, compute_husk_status
 from services.tracing import trace_event
 
@@ -58,7 +59,7 @@ _spec_task_origin: dict[str, str] = {}
 # Persisted to SPEC_ASSIGNMENTS_PATH on write; loaded at startup.  See →22.
 _spec_claims: dict[str, list[dict]] = {}
 
-SPEC_ASSIGNMENTS_PATH = Path.home() / ".myos" / "spec_assignments.json"
+SPEC_ASSIGNMENTS_PATH = Path.home() / ".youros" / "spec_assignments.json"
 
 
 def _save_assignments() -> None:
@@ -368,8 +369,8 @@ def _is_scratch_note(path: str, title: str, doc: dict | None = None) -> bool:
 
 
 def _validate_doc_path(path: str) -> None:
-    """Reject path traversal and paths outside docs/draft/, docs/spec/, ~/.myos/specs/, or ~/.myos/drafts/."""
-    from services.ostk import USER_SPECS_DIR
+    """Reject path traversal and paths outside docs/draft/, docs/spec/, ~/.youros/specs/, or ~/.youros/drafts/."""
+    from services import ostk as ostk_module
     p = PurePosixPath(path)
     if ".." in p.parts:
         raise HTTPException(status_code=400, detail="Path traversal not allowed")
@@ -377,8 +378,8 @@ def _validate_doc_path(path: str) -> None:
     # Expand ~ for absolute path check
     abs_path = Path(os.path.expanduser(path))
     is_user_local = (
-        str(abs_path).startswith(str(USER_SPECS_DIR))
-        or str(abs_path).startswith(str(USER_DRAFTS_DIR))
+        str(abs_path).startswith(str(ostk_module.USER_SPECS_DIR))
+        or str(abs_path).startswith(str(ostk_module.USER_DRAFTS_DIR))
     )
 
     if not (
@@ -388,15 +389,15 @@ def _validate_doc_path(path: str) -> None:
     ):
         raise HTTPException(
             status_code=400,
-            detail="Path must be under docs/draft/, docs/spec/, ~/.myos/specs/, or ~/.myos/drafts/",
+            detail="Path must be under docs/draft/, docs/spec/, ~/.youros/specs/, or ~/.youros/drafts/",
         )
 
 
 def _validate_write_doc_path(path: str) -> None:
     """Like _validate_doc_path but also rejects docs/spec/ and docs/draft/ for new writes (→1512, →2104).
 
-    All new drafts go to ~/.myos/drafts/ and all promoted specs go to
-    ~/.myos/specs/. Preventing repo writes stops these dirs from being
+    All new drafts go to ~/.youros/drafts/ and all promoted specs go to
+    ~/.youros/specs/. Preventing repo writes stops these dirs from being
     resurrected after migration.
     """
     _validate_doc_path(path)
@@ -406,7 +407,7 @@ def _validate_write_doc_path(path: str) -> None:
             status_code=400,
             detail=(
                 "Writing to docs/spec/ is no longer allowed. "
-                "Promote to ~/.myos/specs/ via /specs/promote."
+                "Promote to ~/.youros/specs/ via /specs/promote."
             ),
         )
     if str(p).startswith("docs/draft/"):
@@ -414,7 +415,7 @@ def _validate_write_doc_path(path: str) -> None:
             status_code=400,
             detail=(
                 "Writing to docs/draft/ is no longer allowed. "
-                "New drafts are written to ~/.myos/drafts/ automatically."
+                "New drafts are written to ~/.youros/drafts/ automatically."
             ),
         )
 
@@ -437,7 +438,7 @@ def _read_umbrella_fields(path_str: str) -> dict:
     elif raw.startswith("/"):
         abs_path = Path(raw)
     else:
-        abs_path = Path(PROJECT_ROOT) / raw
+        abs_path = Path(config.PROJECT_ROOT) / raw
     try:
         text = abs_path.read_text()
     except OSError:
@@ -480,7 +481,7 @@ async def list_specs(clear_to_build: Optional[bool] = None):
 
     Specs that meet the auto-archive condition (all linked tasks closed
     and all referenced files exist) are silently moved to
-    ~/.myos/specs/archive/ and excluded from the list.
+    ~/.youros/specs/archive/ and excluded from the list.
     """
     try:
         # →2018 (live freeze): list_specs used to run ALL of its per-doc
@@ -561,9 +562,9 @@ async def list_specs(clear_to_build: Optional[bool] = None):
 
             # Silent auto-archive: move specs that are fully done off the board.
             try:
-                from services.ostk import USER_SPECS_DIR as _USER_SPECS_DIR
+                from services import ostk as _ostk_module
                 from services.spec_audit import _REPO_ROOT as _SPEC_REPO_ROOT
-                archive_dir = _USER_SPECS_DIR / "archive"
+                archive_dir = _ostk_module.USER_SPECS_DIR / "archive"
                 surviving: list[dict] = []
                 for d in docs:
                     raw_path = d.get("path", "")
@@ -572,7 +573,7 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                         continue
                     abs_path = (
                         Path(raw_path) if raw_path.startswith("/") or raw_path.startswith("~")
-                        else _USER_SPECS_DIR / raw_path
+                        else _ostk_module.USER_SPECS_DIR / raw_path
                     )
                     shipped = compute_shipped(abs_path, _SPEC_REPO_ROOT, needle_statuses)
                     if shipped.is_shipped and abs_path.exists():
@@ -608,7 +609,7 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                     _needle_status = needle_statuses.get(_nid, "open")
                     if _needle_status in ("open",):
                         continue
-                    _abs_sn = Path(PROJECT_ROOT) / _sn_path
+                    _abs_sn = Path(config.PROJECT_ROOT) / _sn_path
                     try:
                         if _abs_sn.exists():
                             _abs_sn.unlink()
@@ -622,13 +623,13 @@ async def list_specs(clear_to_build: Optional[bool] = None):
             # Gemini-ready enrichment
             try:
                 from services.gemini_ready import compute_spec_readiness
-                from config import PROJECT_ROOT
+                import config
                 from pathlib import Path as _Path
                 for d in docs:
                     raw_path = d.get("path", "")
                     abs_path = (
                         raw_path if raw_path.startswith("/") or raw_path.startswith("~")
-                        else str(_Path(PROJECT_ROOT) / raw_path)
+                        else str(_Path(config.PROJECT_ROOT) / raw_path)
                     )
                     r = compute_spec_readiness(abs_path)
                     d["clear_to_build"] = r.ready
@@ -758,19 +759,19 @@ async def create_draft(body: SpecDraft):
         trace_event("needle_created", title=body.title, source="draft", task_id=payload.get("task_id"))
         return payload
 
-    # →2104: write directly to USER_DRAFTS_DIR (not via CLI binary which writes to docs/draft/)
+    # →2104: write directly to ostk_module.USER_DRAFTS_DIR (not via CLI binary which writes to docs/draft/)
     # Validate title (mirrors ostk.doc_draft guards)
     if not body.title.strip():
         raise HTTPException(status_code=400, detail="Title must not be empty")
     if "hook" in body.title.lower():
         raise HTTPException(
             status_code=400,
-            detail="Titles containing 'hook' belong in ~/.myos/hooks/, not as a spec draft.",
+            detail="Titles containing 'hook' belong in ~/.youros/hooks/, not as a spec draft.",
         )
     from services.spec_templates import canonical_spec_template_body
     _slug = re.sub(r"[^a-z0-9]+", "-", body.title.lower()).strip("-")[:80] or "untitled"
-    USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
-    _draft_file = USER_DRAFTS_DIR / f"{_slug}.md"
+    ostk_module.USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    _draft_file = ostk_module.USER_DRAFTS_DIR / f"{_slug}.md"
     _draft_file.write_text(
         f"---\ntitle: {body.title}\nstatus: draft\n---\n\n"
         + canonical_spec_template_body()
@@ -803,7 +804,7 @@ async def create_draft(body: SpecDraft):
 
             # Find the draft file and append the generated content
             draft_path = result.strip()
-            full_path = Path(draft_path)  # already absolute path in USER_DRAFTS_DIR
+            full_path = Path(draft_path)  # already absolute path in ostk_module.USER_DRAFTS_DIR
             if full_path.exists():
                 content = full_path.read_text()
                 if content.endswith("\n"):
@@ -832,7 +833,7 @@ async def create_draft(body: SpecDraft):
     # promote doesn't reject the draft.
     if not ac_written and body.fallback_ac:
         draft_path = result.strip()
-        full_path = Path(draft_path)  # already absolute path in USER_DRAFTS_DIR
+        full_path = Path(draft_path)  # already absolute path in ostk_module.USER_DRAFTS_DIR
         if full_path.exists():
             placeholder = "\n## Acceptance Criteria\n\n- [ ] (e2e smoke test placeholder)\n"
             full_path.write_text(full_path.read_text() + placeholder)
@@ -840,8 +841,8 @@ async def create_draft(body: SpecDraft):
 
     # No auto-promote: a newly created draft stays a draft until the user
     # explicitly promotes it (yourOS informs, never acts without approval).
-    # Auto-promote previously moved the file to USER_SPECS_DIR while the
-    # returned ``result`` still pointed at the USER_DRAFTS_DIR path, which
+    # Auto-promote previously moved the file to ostk_module.USER_SPECS_DIR while the
+    # returned ``result`` still pointed at the ostk_module.USER_DRAFTS_DIR path, which
     # made a subsequent explicit promote fail with "Draft not found".
     status = "draft"
     promoted_path: str | None = None
@@ -914,12 +915,12 @@ async def create_from_template(body: SpecFromTemplate):
         trace_event("needle_created", title=title, source="from-template", task_id=payload.get("task_id"))
         return {**payload, "template_id": body.template_id}
 
-    # Create the draft directly in USER_DRAFTS_DIR (→2104 pattern; avoids
+    # Create the draft directly in ostk_module.USER_DRAFTS_DIR (→2104 pattern; avoids
     # the CLI binary that writes to docs/draft/ in the repo).
     from services.spec_templates import canonical_spec_template_body as _tmpl_body
     _slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:80] or "untitled"
-    USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
-    _draft_file = USER_DRAFTS_DIR / f"{_slug}.md"
+    ostk_module.USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    _draft_file = ostk_module.USER_DRAFTS_DIR / f"{_slug}.md"
     _draft_file.write_text(
         f"---\ntitle: {title}\nstatus: draft\n---\n\n" + _tmpl_body()
     )
@@ -951,7 +952,7 @@ async def create_from_template(body: SpecFromTemplate):
     if ac_block:
         appended_body += ac_block
 
-    full_path = Path(draft_path)  # already absolute path in USER_DRAFTS_DIR
+    full_path = Path(draft_path)  # already absolute path in ostk_module.USER_DRAFTS_DIR
     ac_written = False
     if appended_body and full_path.exists():
         content = full_path.read_text()
@@ -1016,12 +1017,12 @@ async def import_spec(body: SpeckitImport):
         trace_event("needle_created", title=spec["title"], source="import", task_id=payload.get("task_id"))
         return {**payload, "title": spec["title"]}
 
-    # Create the draft directly in USER_DRAFTS_DIR (→2104 pattern; avoids
+    # Create the draft directly in ostk_module.USER_DRAFTS_DIR (→2104 pattern; avoids
     # the CLI binary that writes to docs/draft/ in the repo).
     from services.spec_templates import canonical_spec_template_body as _tmpl_body
     _slug = re.sub(r"[^a-z0-9]+", "-", spec["title"].lower()).strip("-")[:80] or "untitled"
-    USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
-    _draft_file = USER_DRAFTS_DIR / f"{_slug}.md"
+    ostk_module.USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    _draft_file = ostk_module.USER_DRAFTS_DIR / f"{_slug}.md"
     _draft_file.write_text(
         f"---\ntitle: {spec['title']}\nstatus: draft\n---\n\n" + _tmpl_body()
     )
@@ -1054,7 +1055,7 @@ async def import_spec(body: SpeckitImport):
                 body_lines.append(f"  {t['description']}")
         body_lines.append("")
 
-    full_path = Path(draft_path)  # already absolute path in USER_DRAFTS_DIR
+    full_path = Path(draft_path)  # already absolute path in ostk_module.USER_DRAFTS_DIR
     ac_written = False
     if body_lines and full_path.exists():
         content = full_path.read_text()
@@ -1120,11 +1121,11 @@ async def export_spec(spec_path: str, format: str = "speckit"):
     # docs/draft or docs/spec trees. Those dirs can hold husk files carried in
     # from another machine's checkout; returning their content would let a spec
     # leave the machine that created it. Spec content is read ONLY from the
-    # per-user ~/.myos store (list_docs is already locked to ~/.myos). We answer
+    # per-user ~/.youros store (list_docs is already locked to ~/.youros). We answer
     # 404 (not 400) so a husk's presence is never even revealed.
     if spec_path.startswith("docs/draft/") or spec_path.startswith("docs/spec/"):
         raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
-    full_path = (Path(PROJECT_ROOT) / spec_path).resolve()
+    full_path = (Path(config.PROJECT_ROOT) / spec_path).resolve()
     if not full_path.exists():
         raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
     text = full_path.read_text()
@@ -1184,17 +1185,17 @@ async def promote_draft(body: SpecPromote):
 
     Delegates to ``ostk.doc_promote()`` which implements the file move
     and front-matter flip in pure Python to ensure correct routing
-    to ``~/.myos/specs/``.
+    to ``~/.youros/specs/``.
     """
     _validate_doc_path(body.path)
-    # Accept paths from docs/draft/ (legacy) OR absolute paths under USER_DRAFTS_DIR (→2104)
+    # Accept paths from docs/draft/ (legacy) OR absolute paths under ostk_module.USER_DRAFTS_DIR (→2104)
     _is_myos_draft = str(Path(os.path.expanduser(body.path)).resolve()).startswith(
-        str(USER_DRAFTS_DIR.resolve())
+        str(ostk_module.USER_DRAFTS_DIR.resolve())
     )
     if not body.path.startswith("docs/draft/") and not _is_myos_draft:
         raise HTTPException(
             status_code=400,
-            detail="Only drafts can be promoted. Path must be under docs/draft/ or ~/.myos/drafts/.",
+            detail="Only drafts can be promoted. Path must be under docs/draft/ or ~/.youros/drafts/.",
         )
 
     # Readiness is informational: compute it but never block promotion.
@@ -1202,7 +1203,7 @@ async def promote_draft(body: SpecPromote):
     _readiness_payload: dict = {}
     try:
         from services.gemini_ready import compute_spec_readiness
-        abs_path = str(Path(PROJECT_ROOT) / body.path)
+        abs_path = str(Path(config.PROJECT_ROOT) / body.path)
         r = compute_spec_readiness(abs_path)
         _readiness_payload = {
             "clear_to_build": r.ready,
@@ -1227,7 +1228,7 @@ async def promote_draft(body: SpecPromote):
         "References": "<!-- Related specs, needles (→NNN), or files -->",
     }
     try:
-        _promote_path = Path(PROJECT_ROOT) / body.path
+        _promote_path = Path(config.PROJECT_ROOT) / body.path
         if _promote_path.exists():
             _text = _promote_path.read_text(encoding="utf-8", errors="replace")
             _heading_re = re.compile(r"^#{1,3}\s+(.+)$", re.MULTILINE)
@@ -1277,7 +1278,7 @@ async def patch_spec_clarity(spec_path: str, body: SpecClarityFix):
     abs_path = (
         spec_path
         if spec_path.startswith("/") or spec_path.startswith("~")
-        else str(Path(PROJECT_ROOT) / spec_path)
+        else str(Path(config.PROJECT_ROOT) / spec_path)
     )
     abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
 
@@ -1311,7 +1312,7 @@ async def patch_spec_body(spec_path: str, body: SpecBodyUpdate):
     abs_path = (
         spec_path
         if spec_path.startswith("/") or spec_path.startswith("~")
-        else str(Path(PROJECT_ROOT) / spec_path)
+        else str(Path(config.PROJECT_ROOT) / spec_path)
     )
     abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
 
@@ -1348,7 +1349,7 @@ async def patch_spec_no_ac_needed(spec_path: str, body: SpecNoAcNeededUpdate):
     abs_path = (
         spec_path
         if spec_path.startswith("/") or spec_path.startswith("~")
-        else str(Path(PROJECT_ROOT) / spec_path)
+        else str(Path(config.PROJECT_ROOT) / spec_path)
     )
     abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
 
@@ -1415,7 +1416,7 @@ async def patch_spec_title(spec_path: str, body: SpecTitleUpdate):
     abs_path = (
         spec_path
         if spec_path.startswith("/") or spec_path.startswith("~")
-        else str(Path(PROJECT_ROOT) / spec_path)
+        else str(Path(config.PROJECT_ROOT) / spec_path)
     )
     abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
 
@@ -1465,7 +1466,7 @@ async def spec_clarity_suggest(spec_path: str, body: SpecClarifySuggestBody):
     abs_path = (
         spec_path
         if spec_path.startswith("/") or spec_path.startswith("~")
-        else str(Path(PROJECT_ROOT) / spec_path)
+        else str(Path(config.PROJECT_ROOT) / spec_path)
     )
     abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
 
@@ -1502,17 +1503,17 @@ async def spec_clarity_suggest(spec_path: str, body: SpecClarifySuggestBody):
 async def unlock_spec(spec_path: str):
     """Move a ready plan back to draft so the user can edit acceptance criteria.
 
-    Moves the file from ``docs/spec/<name>.md`` or ``~/.myos/specs/<name>.md``
+    Moves the file from ``docs/spec/<name>.md`` or ``~/.youros/specs/<name>.md``
     to ``docs/draft/<name>.md`` and flips the ``status:`` front matter field
     from ``spec`` to ``draft``. This is the inverse of promote.
     """
-    from services.ostk import USER_SPECS_DIR, USER_DRAFTS_DIR
+    from services import ostk as ostk_module
 
     _validate_doc_path(spec_path)
     
     # Expand ~ for absolute path check
     abs_source = Path(os.path.expanduser(spec_path))
-    is_user_local = str(abs_source).startswith(str(USER_SPECS_DIR))
+    is_user_local = str(abs_source).startswith(str(ostk_module.USER_SPECS_DIR))
 
     if not (spec_path.startswith("docs/spec/") or is_user_local):
         raise HTTPException(
@@ -1522,15 +1523,15 @@ async def unlock_spec(spec_path: str):
     
     if is_user_local:
         source = abs_source
-        # User-local specs unlock back to USER_DRAFTS_DIR, not docs/draft/ in the repo.
-        target = USER_DRAFTS_DIR / source.name
+        # User-local specs unlock back to ostk_module.USER_DRAFTS_DIR, not docs/draft/ in the repo.
+        target = ostk_module.USER_DRAFTS_DIR / source.name
         target_rel = str(target)
     else:
-        source = (Path(PROJECT_ROOT) / spec_path).resolve()
+        source = (Path(config.PROJECT_ROOT) / spec_path).resolve()
         target_rel = spec_path.replace("docs/spec/", "docs/draft/", 1)
-        target = (Path(PROJECT_ROOT) / target_rel).resolve()
+        target = (Path(config.PROJECT_ROOT) / target_rel).resolve()
         # Safety: legacy target must live under docs/draft/
-        draft_root = (Path(PROJECT_ROOT) / "docs" / "draft").resolve()
+        draft_root = (Path(config.PROJECT_ROOT) / "docs" / "draft").resolve()
         if not target.is_relative_to(draft_root):
             raise HTTPException(status_code=400, detail="Invalid target path")
 
@@ -1627,11 +1628,11 @@ async def create_spec_from_task(body: SpecFromTask):
         title = task.get("title", "Untitled")
         description = task.get("description", "")
 
-        # Create the draft directly in USER_DRAFTS_DIR (→2104 pattern).
+        # Create the draft directly in ostk_module.USER_DRAFTS_DIR (→2104 pattern).
         from services.spec_templates import canonical_spec_template_body as _tmpl_body
         _slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:80] or "untitled"
-        USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
-        _draft_file = USER_DRAFTS_DIR / f"{_slug}.md"
+        ostk_module.USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+        _draft_file = ostk_module.USER_DRAFTS_DIR / f"{_slug}.md"
         _draft_file.write_text(
             f"---\ntitle: {title}\nstatus: draft\n---\n\n" + _tmpl_body()
         )
@@ -1664,7 +1665,7 @@ async def create_spec_from_task(body: SpecFromTask):
                 ac_text = response.content[0].text.strip()
 
                 draft_path = result.strip()
-                full_path = Path(draft_path)  # already absolute in USER_DRAFTS_DIR
+                full_path = Path(draft_path)  # already absolute in ostk_module.USER_DRAFTS_DIR
                 if full_path.exists():
                     content = full_path.read_text()
                     content = content.rstrip() + "\n\n" + ac_text + "\n"
@@ -1698,7 +1699,7 @@ async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
     Raises 404 when the roadmap file is missing (bad frontend state).
     """
     # Validate the roadmap path exists. Keep the check broad so both
-    # files under ``~/.myos/files`` (the normal Roadmap output) and any
+    # files under ``~/.youros/files`` (the normal Roadmap output) and any
     # absolute path the frontend sends back work. This is a read-only
     # lookup, not a write; we only need to be sure the file is real
     # before we spend model tokens on acceptance criteria.
@@ -1733,17 +1734,17 @@ async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
         trace_event("needle_created", title=title, source="from-roadmap-line", task_id=payload.get("task_id"))
         return {**payload, "title": title, "roadmap_path": raw_path}
 
-    # Create the draft directly in USER_DRAFTS_DIR (→2104 pattern).
+    # Create the draft directly in ostk_module.USER_DRAFTS_DIR (→2104 pattern).
     from services.spec_templates import canonical_spec_template_body as _tmpl_body
     _slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:80] or "untitled"
-    USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
-    _draft_file = USER_DRAFTS_DIR / f"{_slug}.md"
+    ostk_module.USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    _draft_file = ostk_module.USER_DRAFTS_DIR / f"{_slug}.md"
     _draft_file.write_text(
         f"---\ntitle: {title}\nstatus: draft\n---\n\n" + _tmpl_body()
     )
     draft_path = str(_draft_file)
 
-    full_path = Path(draft_path)  # already absolute in USER_DRAFTS_DIR
+    full_path = Path(draft_path)  # already absolute in ostk_module.USER_DRAFTS_DIR
 
     # Write the initiative as the plan goal with a short header that
     # links back to the source roadmap by its basename. Keeps the plan
@@ -1877,7 +1878,7 @@ async def claim_spec(spec_path: str, body: _ClaimBody):
     See spec-auto-status.md §4 for the active-claim paths (→1422).
     """
     _validate_doc_path(spec_path)
-    spec_full_path = Path(PROJECT_ROOT) / spec_path
+    spec_full_path = Path(config.PROJECT_ROOT) / spec_path
     if not spec_full_path.exists():
         raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
 
@@ -1969,9 +1970,9 @@ async def _fresh_verify_spec(spec_path: str) -> dict:
     Informational only, never blocks, never fires completion notifications.
     """
     candidate_roots = [
-        Path(PROJECT_ROOT) / spec_path,
-        Path.home() / ".myos" / "specs" / spec_path,
-        Path.home() / ".myos" / "drafts" / spec_path,
+        Path(config.PROJECT_ROOT) / spec_path,
+        Path.home() / ".youros" / "specs" / spec_path,
+        Path.home() / ".youros" / "drafts" / spec_path,
     ]
     full_path: Optional[Path] = None
     for p in candidate_roots:
@@ -2063,7 +2064,7 @@ def _collect_test_context_for_fresh(spec_text: str) -> str:
         return ""
     parts = []
     for tp in sorted(test_paths):
-        full = Path(PROJECT_ROOT) / tp
+        full = Path(config.PROJECT_ROOT) / tp
         if full.exists():
             try:
                 content = full.read_text(encoding="utf-8", errors="replace")
@@ -2165,7 +2166,7 @@ async def _build_fallback_from_acceptance_criteria(
     ``ostk.spec_build`` emits so the existing spawn loop can consume
     them unchanged.
     """
-    full = Path(PROJECT_ROOT) / spec_path
+    full = Path(config.PROJECT_ROOT) / spec_path
     if not full.exists():
         return []
 
@@ -2393,7 +2394,7 @@ async def _advance_spec_status_if_all_builder_tasks_closed_async(
             return None
 
     # Every sibling closed. Rewrite the spec frontmatter.
-    full = Path(PROJECT_ROOT) / spec_path
+    full = Path(config.PROJECT_ROOT) / spec_path
     if not full.exists():
         return None
     try:
@@ -2469,7 +2470,7 @@ def _set_spec_status(spec_path: str, new_status: str) -> Optional[str]:
     status flip failed. The sibling _advance_spec_status_if_all_builder_
     tasks_closed_async helper uses the same pattern for ``done``.
     """
-    full = Path(PROJECT_ROOT) / spec_path
+    full = Path(config.PROJECT_ROOT) / spec_path
     if not full.exists():
         return None
     try:
@@ -2647,7 +2648,7 @@ async def review_spec(spec_path: str):
     Informational only; never blocks.
     """
     _validate_doc_path(spec_path)
-    full = Path(PROJECT_ROOT) / spec_path
+    full = Path(config.PROJECT_ROOT) / spec_path
     if not full.exists():
         raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
     from services.gemini_ready import compute_spec_readiness
@@ -2691,7 +2692,7 @@ async def reconcile_spec_drift(spec_path: str):
     Returns the updated drift result so the panel can refresh.
     """
     _validate_doc_path(spec_path)
-    full = Path(PROJECT_ROOT) / spec_path
+    full = Path(config.PROJECT_ROOT) / spec_path
     if not full.exists():
         raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
     import re as _re
@@ -2713,7 +2714,7 @@ async def ack_spec_drift(spec_path: str):
     The review panel reads this flag and suppresses the drift warning.
     """
     _validate_doc_path(spec_path)
-    full = Path(PROJECT_ROOT) / spec_path
+    full = Path(config.PROJECT_ROOT) / spec_path
     if not full.exists():
         raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
     text = full.read_text(encoding="utf-8")
@@ -2756,7 +2757,7 @@ async def build_spec(spec_path: str, model: Optional[str] = None, preview: bool 
     # the AC fallback before it has a chance to run. We detect the
     # missing-file case via a direct fs check instead of relying on
     # ostk's error text.
-    spec_full_path = Path(PROJECT_ROOT) / spec_path
+    spec_full_path = Path(config.PROJECT_ROOT) / spec_path
     if not spec_full_path.exists():
         raise HTTPException(
             status_code=404, detail=f"Spec not found: {spec_path}"
@@ -3034,7 +3035,7 @@ async def delete_orphan_plan_drafts():
     import re as _re
 
     _plan_re = _re.compile(r"^plan-(\d+)\.md$")
-    transcripts_dir = Path(PROJECT_ROOT) / "transcripts"
+    transcripts_dir = Path(config.PROJECT_ROOT) / "transcripts"
     deleted: list[str] = []
 
     if not transcripts_dir.is_dir():
@@ -3080,27 +3081,27 @@ async def delete_spec(doc_path: str):
     # "docs/" to an absolute path (which produced "docs//abs/path" and a 404).
     _abs = Path(os.path.expanduser(doc_path))
     is_user_local = (
-        str(_abs).startswith(str(USER_SPECS_DIR.resolve()))
-        or str(_abs).startswith(str(USER_DRAFTS_DIR.resolve()))
+        str(_abs).startswith(str(ostk_module.USER_SPECS_DIR.resolve()))
+        or str(_abs).startswith(str(ostk_module.USER_DRAFTS_DIR.resolve()))
     )
 
     if is_user_local:
         _validate_doc_path(doc_path)
         target = _abs.resolve()
         if not (
-            target.is_relative_to(USER_SPECS_DIR.resolve())
-            or target.is_relative_to(USER_DRAFTS_DIR.resolve())
+            target.is_relative_to(ostk_module.USER_SPECS_DIR.resolve())
+            or target.is_relative_to(ostk_module.USER_DRAFTS_DIR.resolve())
         ):
             raise HTTPException(
                 status_code=400,
-                detail="Path must be under ~/.myos/specs/ or ~/.myos/drafts/",
+                detail="Path must be under ~/.youros/specs/ or ~/.youros/drafts/",
             )
     else:
         if not doc_path.startswith("docs/"):
             doc_path = "docs/" + doc_path
         _validate_doc_path(doc_path)
-        docs_dir = Path(PROJECT_ROOT) / "docs"
-        target = (Path(PROJECT_ROOT) / doc_path).resolve()
+        docs_dir = Path(config.PROJECT_ROOT) / "docs"
+        target = (Path(config.PROJECT_ROOT) / doc_path).resolve()
         # Safety: directory-boundary check (is_relative_to avoids prefix substring false positives)
         if not (
             target.is_relative_to((docs_dir / "draft").resolve())
@@ -3163,11 +3164,11 @@ async def cleanup_test_artifact_specs():
             continue
         if not _is_test_artifact_spec(path, title):
             continue
-        target = (Path(PROJECT_ROOT) / path).resolve()
+        target = (Path(config.PROJECT_ROOT) / path).resolve()
         # Defense in depth: only delete files inside docs/draft/ or
         # docs/spec/ even if the listing somehow returned a path
         # outside those dirs.
-        docs_dir = (Path(PROJECT_ROOT) / "docs").resolve()
+        docs_dir = (Path(config.PROJECT_ROOT) / "docs").resolve()
         if not (
             target.is_relative_to((docs_dir / "draft").resolve())
             or target.is_relative_to((docs_dir / "spec").resolve())
@@ -3387,12 +3388,12 @@ async def wizard_create(body: WizardCreateRequest):
     if not body.problem.strip():
         raise HTTPException(status_code=400, detail="Problem statement is required")
 
-    # Create the draft directly in USER_DRAFTS_DIR (→2104 pattern).
+    # Create the draft directly in ostk_module.USER_DRAFTS_DIR (→2104 pattern).
     from services.spec_templates import canonical_spec_template_body as _tmpl_body
     _title = body.title.strip()
     _slug = re.sub(r"[^a-z0-9]+", "-", _title.lower()).strip("-")[:80] or "untitled"
-    USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
-    _draft_file = USER_DRAFTS_DIR / f"{_slug}.md"
+    ostk_module.USER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    _draft_file = ostk_module.USER_DRAFTS_DIR / f"{_slug}.md"
     _draft_file.write_text(
         f"---\ntitle: {_title}\nstatus: draft\n---\n\n" + _tmpl_body()
     )
@@ -3466,7 +3467,7 @@ async def wizard_create(body: WizardCreateRequest):
 
     body_text = "\n".join(sections)
 
-    full_path = Path(draft_path)  # already absolute in USER_DRAFTS_DIR
+    full_path = Path(draft_path)  # already absolute in ostk_module.USER_DRAFTS_DIR
     ac_written = False
     if full_path.exists():
         content = full_path.read_text()
@@ -3526,9 +3527,9 @@ _BACKFILL_SECTIONS: list[tuple[str, str]] = [
 
 @router.post("/specs/{slug}/backfill")
 async def backfill_spec(slug: str):
-    """Append any missing required sections to a spec in ~/.myos/specs/.
+    """Append any missing required sections to a spec in ~/.youros/specs/.
 
-    Reads ~/.myos/specs/<slug>.md, finds the subset of the 10 required
+    Reads ~/.youros/specs/<slug>.md, finds the subset of the 10 required
     sections that are absent, and appends each missing one as a
     section-header + one-line placeholder:
 
@@ -3538,9 +3539,9 @@ async def backfill_spec(slug: str):
     Returns the updated file content and path.  Idempotent: sections that
     already exist are left untouched.
     """
-    from services.ostk import USER_SPECS_DIR
+    from services import ostk as ostk_module
 
-    spec_file = USER_SPECS_DIR / f"{slug}.md"
+    spec_file = ostk_module.USER_SPECS_DIR / f"{slug}.md"
     if not spec_file.exists():
         raise HTTPException(status_code=404, detail=f"Spec not found: {slug}")
 
@@ -3569,16 +3570,16 @@ async def backfill_spec(slug: str):
 
 @router.post("/specs/{slug}/archive")
 async def archive_spec(slug: str):
-    """Move a spec from ~/.myos/specs/<slug>.md to ~/.myos/specs/archive/<ts>-<slug>.md (→1512).
+    """Move a spec from ~/.youros/specs/<slug>.md to ~/.youros/specs/archive/<ts>-<slug>.md (→1512).
 
     Returns the new path.  The original file is removed.
     404 if the spec does not exist.
     409 if the spec is already in the archive directory.
     """
     from datetime import timezone
-    from services.ostk import USER_SPECS_DIR
+    from services import ostk as ostk_module
 
-    archive_dir = USER_SPECS_DIR / "archive"
+    archive_dir = ostk_module.USER_SPECS_DIR / "archive"
 
     # 409 if already archived (file found in archive/ by any ts prefix)
     if archive_dir.is_dir():
@@ -3589,7 +3590,7 @@ async def archive_spec(slug: str):
                 detail=f"Spec '{slug}' is already archived at {existing[0].name}",
             )
 
-    spec_file = USER_SPECS_DIR / f"{slug}.md"
+    spec_file = ostk_module.USER_SPECS_DIR / f"{slug}.md"
     if not spec_file.exists():
         raise HTTPException(status_code=404, detail=f"Spec not found: {slug}")
 

@@ -2,9 +2,9 @@
 # Shared drain for the pending-register and pending-complete queues.
 #
 # Context: .claude/hooks/register-agent.sh parks subagent register
-# bodies in $HOME/.myos/subagents/pending-register.jsonl when the
+# bodies in $HOME/.youros/subagents/pending-register.jsonl when the
 # backend is down or MCP is flapping. complete-agent.sh does the
-# same with /complete calls in $HOME/.myos/subagents/pending-complete.jsonl
+# same with /complete calls in $HOME/.youros/subagents/pending-complete.jsonl
 # so a transient outage does not leave a subagent row stuck at
 # "running" forever. session-start.sh replays them on the next
 # Claude Code restart, but the user rarely restarts, so entries can
@@ -29,8 +29,8 @@
 
 myos_drain_pending() {
     local queue stamp url interval force budget now last_run elapsed
-    queue="${MYOS_DRAIN_QUEUE:-$HOME/.myos/subagents/pending-register.jsonl}"
-    stamp="${MYOS_DRAIN_STAMP:-$HOME/.myos/subagents/last-drain.stamp}"
+    queue="${MYOS_DRAIN_QUEUE:-$HOME/.youros/subagents/pending-register.jsonl}"
+    stamp="${MYOS_DRAIN_STAMP:-$HOME/.youros/subagents/last-drain.stamp}"
     url="${MYOS_REGISTER_URL:-https://127.0.0.1:8000/api/agents/register}"
     interval="${MYOS_DRAIN_INTERVAL:-60}"
     force="${MYOS_DRAIN_FORCE:-0}"
@@ -127,8 +127,8 @@ myos_drain_pending() {
 # layer stay in the queue for the next drain.
 myos_drain_pending_complete() {
     local queue stamp base interval force budget now last_run elapsed
-    queue="${MYOS_DRAIN_COMPLETE_QUEUE:-$HOME/.myos/subagents/pending-complete.jsonl}"
-    stamp="${MYOS_DRAIN_COMPLETE_STAMP:-$HOME/.myos/subagents/last-drain-complete.stamp}"
+    queue="${MYOS_DRAIN_COMPLETE_QUEUE:-$HOME/.youros/subagents/pending-complete.jsonl}"
+    stamp="${MYOS_DRAIN_COMPLETE_STAMP:-$HOME/.youros/subagents/last-drain-complete.stamp}"
     base="${MYOS_COMPLETE_URL_BASE:-https://127.0.0.1:8000/api/agents}"
     interval="${MYOS_DRAIN_INTERVAL:-60}"
     force="${MYOS_DRAIN_FORCE:-0}"

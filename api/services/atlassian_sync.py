@@ -1,7 +1,7 @@
 """Atlassian background sync: turns Jira ticket activity and Confluence page
 changes into myOS notifications.
 
-Cursor stored at ~/.myos/atlassian_sync_state.json so we never re-notify for
+Cursor stored at ~/.youros/atlassian_sync_state.json so we never re-notify for
 the same update after a restart.
 """
 
@@ -19,7 +19,7 @@ from services.notifications import notifications_service
 
 logger = logging.getLogger(__name__)
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 STATE_PATH = MYOS_DIR / "atlassian_sync_state.json"
 DEDUP_WINDOW_MINUTES = 30
 

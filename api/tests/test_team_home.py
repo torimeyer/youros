@@ -122,7 +122,7 @@ class TestAnnouncements:
 
     def test_loads_list_format(self, app_client):
         client, tmp_path = app_client
-        home = tmp_path / ".myos" / "orgs" / "default" / "announcements.json"
+        home = tmp_path / ".youros" / "orgs" / "default" / "announcements.json"
         home.parent.mkdir(parents=True, exist_ok=True)
         home.write_text(json.dumps([{"id": "a1", "title": "Hello"}]))
 
@@ -133,7 +133,7 @@ class TestAnnouncements:
 
     def test_loads_dict_format_with_announcements_key(self, app_client):
         client, tmp_path = app_client
-        home = tmp_path / ".myos" / "orgs" / "default" / "announcements.json"
+        home = tmp_path / ".youros" / "orgs" / "default" / "announcements.json"
         home.parent.mkdir(parents=True, exist_ok=True)
         home.write_text(json.dumps({"announcements": [{"title": "Scoped"}]}))
 
@@ -144,7 +144,7 @@ class TestAnnouncements:
 
     def test_returns_empty_on_corrupt_file(self, app_client):
         client, tmp_path = app_client
-        home = tmp_path / ".myos" / "orgs" / "default" / "announcements.json"
+        home = tmp_path / ".youros" / "orgs" / "default" / "announcements.json"
         home.parent.mkdir(parents=True, exist_ok=True)
         home.write_text("not json {{")
 

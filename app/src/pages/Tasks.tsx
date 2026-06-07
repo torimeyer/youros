@@ -1102,7 +1102,7 @@ export default function Tasks() {
       } else if (mode === "comprehensive") {
         prompt = `Implement this task: "${task.title}". Follow the comprehensive build pattern. Plan the approach, build the solution, write tests, run them, and only report done when everything is green.`;
         namePrefix = "implement";
-        bannerLabel = "Build";
+        bannerLabel = "Comprehensive build";
         body.template = "comprehensive";
         body.locks = BUILD_LOCKS;
       } else {
@@ -1130,7 +1130,7 @@ export default function Tasks() {
       setTimeout(() => setBanner(null), 4000);
     } catch (e) {
       reportError(`Failed to spawn ${mode} agent`, e);
-      const label = mode === "plan" ? "plan" : mode === "comprehensive" ? "Build" : "Quick build";
+      const label = mode === "plan" ? "plan" : mode === "comprehensive" ? "Comprehensive build" : "Quick build";
       const detail =
         e != null &&
         typeof e === 'object' &&
@@ -2374,6 +2374,14 @@ export default function Tasks() {
                             <Icon name="description" className="text-sm text-purple-600 dark:text-purple-400" />
                             Plan
                           </button>
+                          <button
+                            onClick={() => handleSpawnWithGate(task.id, "quick")}
+                            disabled={actionLoading === task.id}
+                            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
+                          >
+                            <Icon name="bolt" className="text-sm text-amber-600 dark:text-amber-400" />
+                            Quick build
+                          </button>
                           <div className="flex items-center w-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
                             <button
                               onClick={() => handleSpawnWithGate(task.id, "comprehensive")}
@@ -2381,7 +2389,7 @@ export default function Tasks() {
                               className="flex-1 text-left px-3 py-1.5 text-xs flex items-center gap-2 text-slate-700 dark:text-slate-300"
                             >
                               <Icon name="code" className="text-sm text-green-600 dark:text-green-400" />
-                              Build
+                              Comprehensive build
                             </button>
                             <button
                               onClick={(e) => {
@@ -2405,7 +2413,7 @@ export default function Tasks() {
                               onClick={(e) => e.stopPropagation()}
                             >
                               <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm">What does this do?</div>
-                              <p>Build spawns an agent that works the way you would want it to:</p>
+                              <p>Comprehensive build spawns an agent that works the way you would want it to:</p>
                               <ol className="list-decimal list-inside space-y-0.5">
                                 <li>Loads workspace context.</li>
                                 <li>Reads the needle and plans the approach.</li>
@@ -2415,7 +2423,7 @@ export default function Tasks() {
                                 <li>Runs pytest and tsc to catch regressions.</li>
                                 <li>Only reports done when everything is green.</li>
                               </ol>
-                              <p>Use "Build" when you want it done right.</p>
+                              <p>Use "Comprehensive build" when you want it done right.</p>
                             </div>
                           )}
                           {task.status !== 'in_progress' && (
@@ -2544,7 +2552,15 @@ export default function Tasks() {
                           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-500/20 text-green-600 dark:text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-50"
                         >
                           <Icon name="code" className="text-sm" />
-                          Build
+                          Comprehensive build
+                        </button>
+                        <button
+                          onClick={() => handleSpawnWithGate(task.id, "quick")}
+                          disabled={actionLoading === task.id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+                        >
+                          <Icon name="bolt" className="text-sm" />
+                          Quick build
                         </button>
                         <button
                           onClick={() => handleSpawnWithGate(task.id, "plan")}

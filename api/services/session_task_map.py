@@ -1,6 +1,6 @@
 """Store that links Claude Code session IDs to task IDs.
 
-Keeps two maps side-by-side in a single JSON file at ``~/.myos/session_task_map.json``:
+Keeps two maps side-by-side in a single JSON file at ``~/.youros/session_task_map.json``:
 
 * ``session_to_task``: session_id -> task_id of the auto-filed session task
   (the row the SessionStart hook creates so the session shows up on the
@@ -22,7 +22,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 STORE_PATH = MYOS_DIR / "session_task_map.json"
 
 

@@ -75,7 +75,7 @@ curl -sSk --connect-timeout 2 -m 3 \
 # register-agent.sh parks the POST body in this file. Replay each
 # line now. Lines that succeed are dropped; lines that still fail
 # stay in the queue for the next session.
-PENDING_QUEUE="$HOME/.myos/subagents/pending-register.jsonl"
+PENDING_QUEUE="$HOME/.youros/subagents/pending-register.jsonl"
 if [ -f "$PENDING_QUEUE" ] && [ -s "$PENDING_QUEUE" ]; then
     TMP_REMAIN=$(mktemp 2>/dev/null || echo "${PENDING_QUEUE}.tmp.$$")
     : > "$TMP_REMAIN"
@@ -156,7 +156,7 @@ fi
 _GIT_MAIN_WT=$(git -C "${CWD:-.}" worktree list --porcelain 2>/dev/null \
     | awk '/^worktree /{print $2; exit}')
 WATCHER_SCRIPT="${_GIT_MAIN_WT:-$CWD}/.claude/hooks/lib/agent-completion-watcher.sh"
-WATCHER_PID_FILE="$HOME/.myos/subagents/completion-watcher.pid"
+WATCHER_PID_FILE="$HOME/.youros/subagents/completion-watcher.pid"
 
 if [ -x "$WATCHER_SCRIPT" ] && [ -z "${MYOS_AGENT_NAME:-}" ]; then
     if [ -f "$WATCHER_PID_FILE" ]; then
@@ -169,8 +169,8 @@ if [ -x "$WATCHER_SCRIPT" ] && [ -z "${MYOS_AGENT_NAME:-}" ]; then
     fi
     (
         MYOS_BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}" \
-        MYOS_COMPLETION_ANNC="${HOME}/.myos/subagents/pending-completion-announcements.jsonl" \
-        MYOS_COMPLETION_STATE="${HOME}/.myos/subagents/completion-watcher-state.json" \
+        MYOS_COMPLETION_ANNC="${HOME}/.youros/subagents/pending-completion-announcements.jsonl" \
+        MYOS_COMPLETION_STATE="${HOME}/.youros/subagents/completion-watcher-state.json" \
         MYOS_COMPLETION_PID="$WATCHER_PID_FILE" \
         MYOS_COMPLETION_WATCHER_INTERVAL="5" \
             bash "$WATCHER_SCRIPT" </dev/null >/dev/null 2>&1 &

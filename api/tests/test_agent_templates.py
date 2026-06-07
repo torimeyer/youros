@@ -30,7 +30,7 @@ from services.agent_templates_store import (
 
 @pytest.fixture
 def store(tmp_path, monkeypatch):
-    """An AgentTemplatesStore that writes to a temp file, not ~/.myos/."""
+    """An AgentTemplatesStore that writes to a temp file, not ~/.youros/."""
     import services.agent_templates_store as mod
     fake_path = tmp_path / "agent_templates.json"
     monkeypatch.setattr(mod, "AGENT_TEMPLATES_PATH", fake_path)
@@ -380,7 +380,7 @@ def test_marketplace_seed_is_idempotent(tmp_path, monkeypatch):
 
 
 def test_custom_template_create_writes_agentfile_to_user_dir(tmp_path, monkeypatch):
-    """Creating a custom template writes its agentfile to ~/.myos/agents/custom/."""
+    """Creating a custom template writes its agentfile to ~/.youros/agents/custom/."""
     import services.agent_templates_store as mod
 
     fake_path = tmp_path / "at.json"
@@ -1187,7 +1187,7 @@ def test_set_custom_template_description_updates_override(tmp_path, monkeypatch)
     fake_desc_path = tmp_path / "template_descriptions_custom.json"
     monkeypatch.setattr(mod, "AGENT_TEMPLATES_PATH", fake_at_path)
     monkeypatch.setattr(mod, "TEMPLATE_DESCRIPTIONS_PATH", fake_desc_path)
-    # Redirect custom agentfile writes to a temp dir so we do not touch ~/.myos.
+    # Redirect custom agentfile writes to a temp dir so we do not touch ~/.youros.
     monkeypatch.setattr(mod, "CUSTOM_AGENTS_DIR", tmp_path / "custom_agents")
 
     store = mod.AgentTemplatesStore()
@@ -1920,7 +1920,7 @@ def test_invalidate_templates_cache_forces_rebuild(tmp_path, monkeypatch):
 def test_template_create_invalidates_templates_cache(tmp_path, monkeypatch):
     """Creating a custom template via the store invalidates the cache.
 
-    Custom agentfiles live in ~/.myos/agents/custom/, not AGENTS_DIR, so
+    Custom agentfiles live in ~/.youros/agents/custom/, not AGENTS_DIR, so
     the mtime signature on AGENTS_DIR cannot detect them. The store
     must call the invalidation hook explicitly. This test lights that
     wire up.
@@ -1940,7 +1940,7 @@ def test_template_create_invalidates_templates_cache(tmp_path, monkeypatch):
     warm_build = int(agents_mod._templates_cache.get("build_count", 0) or 0)
 
     # Point the store writes to a temp dir so we do not pollute
-    # ~/.myos/agents/custom/ or the overrides file.
+    # ~/.youros/agents/custom/ or the overrides file.
     fake_custom = tmp_path / "custom"
     fake_overrides = tmp_path / "agent_templates.json"
     monkeypatch.setattr(store_mod, "CUSTOM_AGENTS_DIR", fake_custom)

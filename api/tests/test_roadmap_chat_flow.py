@@ -23,9 +23,9 @@ def _isolate_agent_memory(tmp_path):
     """Redirect agent_memory writes to a temp dir.
 
     Without this, tests that POST /api/agents/{name}/complete write to
-    the real ``~/.myos/agent_memory/<name>.json``, and the server's
+    the real ``~/.youros/agent_memory/<name>.json``, and the server's
     retroactive Files-tab sweep on the next cold start picks up those
-    entries and writes <name>-<ts>.md into the real ``~/.myos/files/``.
+    entries and writes <name>-<ts>.md into the real ``~/.youros/files/``.
     Pin to a tmp dir so the tests are hermetic.
     """
     import services.agent_memory as _mem
@@ -108,7 +108,7 @@ async def test_roadmap_completion_emits_notification_not_chat_message(tmp_path):
             with patch.object(
                 agents_module,
                 "MYOS_FILES_DIR",
-                fake_home / ".myos" / "files",
+                fake_home / ".youros" / "files",
             ), patch(
                 "services.chat_notifications.chat_history_store",
                 fresh_store,
@@ -190,7 +190,7 @@ async def test_retro_save_does_not_emit_notification_or_chat(tmp_path):
 
     try:
         with patch.object(
-            agents_module, "MYOS_FILES_DIR", fake_home / ".myos" / "files"
+            agents_module, "MYOS_FILES_DIR", fake_home / ".youros" / "files"
         ), patch(
             "services.notifications.notifications_service",
             _FakeNotif(),
@@ -224,7 +224,7 @@ async def test_roadmap_writes_exactly_one_file(tmp_path):
 
     agent_name = "roadmap-single-file-probe"
     agent_metadata[agent_name] = _roadmap_metadata()
-    fake_files = tmp_path / ".myos" / "files"
+    fake_files = tmp_path / ".youros" / "files"
     fake_files.mkdir(parents=True, exist_ok=True)
 
     class _FakeNotif:
@@ -271,7 +271,7 @@ async def test_non_roadmap_agent_still_writes_timestamped_file(tmp_path):
         "template_produces_doc": True,
         "source": "api",
     }
-    fake_files = tmp_path / ".myos" / "files"
+    fake_files = tmp_path / ".youros" / "files"
     fake_files.mkdir(parents=True, exist_ok=True)
 
     class _FakeNotif:
@@ -331,7 +331,7 @@ async def test_roadmap_complete_suppresses_auto_task_creation(tmp_path):
             with patch.object(
                 agents_module,
                 "MYOS_FILES_DIR",
-                fake_home / ".myos" / "files",
+                fake_home / ".youros" / "files",
             ), patch(
                 "services.automation_outputs.auto_create_tasks",
                 side_effect=_fake_auto_create,
@@ -410,7 +410,7 @@ async def test_non_roadmap_complete_still_auto_creates_tasks(tmp_path):
             with patch.object(
                 agents_module,
                 "MYOS_FILES_DIR",
-                fake_home / ".myos" / "files",
+                fake_home / ".youros" / "files",
             ), patch(
                 "services.automation_outputs.auto_create_tasks",
                 side_effect=_fake_auto_create,
@@ -721,7 +721,7 @@ def test_parse_roadmap_items_empty_content_returns_empty():
 
 
 # ---------------------------------------------------------------------------
-# Regression: roadmap output must land in ~/.myos/files/ not ~/Documents/
+# Regression: roadmap output must land in ~/.youros/files/ not ~/Documents/
 # → Both must appear in /api/docs/recent. Ticket →1097.
 # ---------------------------------------------------------------------------
 
@@ -729,7 +729,7 @@ def test_parse_roadmap_items_empty_content_returns_empty():
 def test_roadmap_template_writes_to_myos_files_not_documents():
     """The roadmap.agent template must NOT direct the agent to write to
     ~/Documents/ (old behavior that caused outputs to be invisible in the UI).
-    The backend saves roadmap output to ~/.myos/files/ automatically via
+    The backend saves roadmap output to ~/.youros/files/ automatically via
     _save_agent_output_to_files when the agent calls /complete; the template
     does not need to reference that path directly.
     See also: test_roadmap_completion_md_appears_in_recent_docs.
@@ -739,7 +739,7 @@ def test_roadmap_template_writes_to_myos_files_not_documents():
     assert "~/Documents/" not in content, (
         "roadmap.agent still references ~/Documents/ — remove it so outputs "
         "appear in Recent Documents on the Files page (backend saves to "
-        "~/.myos/files/ automatically via _save_agent_output_to_files)"
+        "~/.youros/files/ automatically via _save_agent_output_to_files)"
     )
 
 
@@ -758,7 +758,7 @@ async def test_roadmap_completion_md_appears_in_recent_docs(tmp_path):
     fake_home = tmp_path / "home"
     fake_ws = tmp_path / "workspace"
     fake_ws.mkdir(parents=True, exist_ok=True)
-    myos_files = fake_home / ".myos" / "files"
+    myos_files = fake_home / ".youros" / "files"
     myos_files.mkdir(parents=True, exist_ok=True)
 
     (myos_files / "roadmap.md").write_text(
@@ -777,5 +777,5 @@ async def test_roadmap_completion_md_appears_in_recent_docs(tmp_path):
     assert resp.status_code == 200
     names = [f["name"] for f in resp.json()["files"]]
     assert "roadmap.md" in names, (
-        f"roadmap.md written to ~/.myos/files/ must appear in /api/docs/recent, got: {names}"
+        f"roadmap.md written to ~/.youros/files/ must appear in /api/docs/recent, got: {names}"
     )

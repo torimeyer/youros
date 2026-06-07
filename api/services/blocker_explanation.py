@@ -5,7 +5,7 @@ sentence explaining the link in their own words. This service generates
 those sentences with Claude and caches them on disk so we do not pay
 the API cost on every briefing open.
 
-Cache location: ~/.myos/blocker_explanations.json
+Cache location: ~/.youros/blocker_explanations.json
 Cache TTL: 7 days
 
 Cache shape:
@@ -30,7 +30,7 @@ from typing import Optional
 
 from services.atomic_io import atomic_write_json
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 CACHE_PATH = MYOS_DIR / "blocker_explanations.json"
 TTL_DAYS = 7
 

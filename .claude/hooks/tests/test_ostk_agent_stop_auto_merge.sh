@@ -26,8 +26,8 @@ FAIL=0
 run_hook_in_worktree() {
     local wt_dir="$1" name="$2"
     local homed="$WORK/home-$name"
-    mkdir -p "$homed/.myos/subagents"
-    printf '%s' "$name" > "$homed/.myos/subagents/last.name"
+    mkdir -p "$homed/.youros/subagents"
+    printf '%s' "$name" > "$homed/.youros/subagents/last.name"
     local payload='{"session_id":"test-session-'"$name"'"}'
     # Run hook with CWD inside the worktree so git commands see worktree context.
     PATH="$BIN:$PATH" HOME="$homed" \
@@ -65,11 +65,11 @@ fi
 
 # Verify MERGED entry in merge-debt.log
 HOMED1="$WORK/home-test-bg-agent"
-if grep -q "MERGED" "$HOMED1/.myos/logs/merge-debt.log" 2>/dev/null; then
+if grep -q "MERGED" "$HOMED1/.youros/logs/merge-debt.log" 2>/dev/null; then
     echo "PASS: merge-debt.log has MERGED entry"
 else
     echo "FAIL: merge-debt.log missing MERGED entry"
-    cat "$HOMED1/.myos/logs/merge-debt.log" 2>/dev/null || echo "(log missing)"
+    cat "$HOMED1/.youros/logs/merge-debt.log" 2>/dev/null || echo "(log missing)"
     FAIL=1
 fi
 
@@ -126,11 +126,11 @@ else
 fi
 
 HOMED3="$WORK/home-test-div-agent"
-if grep -q "ATTN-NOT-FF" "$HOMED3/.myos/logs/merge-debt.log" 2>/dev/null; then
+if grep -q "ATTN-NOT-FF" "$HOMED3/.youros/logs/merge-debt.log" 2>/dev/null; then
     echo "PASS: merge-debt.log has ATTN-NOT-FF entry"
 else
     echo "FAIL: merge-debt.log missing ATTN-NOT-FF entry"
-    cat "$HOMED3/.myos/logs/merge-debt.log" 2>/dev/null || echo "(log missing)"
+    cat "$HOMED3/.youros/logs/merge-debt.log" 2>/dev/null || echo "(log missing)"
     FAIL=1
 fi
 
@@ -154,7 +154,7 @@ WANT_TIP4=$(git -C "$WT_DIR4" rev-parse "$WT_BRANCH4")
 
 # Use a fresh home dir with NO last.name written (simulating bridge guard)
 HOMED4="$WORK/home-bridge-no-name"
-mkdir -p "$HOMED4/.myos/subagents"
+mkdir -p "$HOMED4/.youros/subagents"
 # Intentionally do NOT write last.name
 
 STDERR4=$(PATH="$BIN:$PATH" HOME="$HOMED4" bash -c "cd '$WT_DIR4' && bash '$HOOK'" <<< '{}' 2>&1 >/dev/null || true)
@@ -169,11 +169,11 @@ else
     FAIL=1
 fi
 
-if grep -q "MERGED" "$HOMED4/.myos/logs/merge-debt.log" 2>/dev/null; then
+if grep -q "MERGED" "$HOMED4/.youros/logs/merge-debt.log" 2>/dev/null; then
     echo "PASS: merge-debt.log has MERGED entry with unknown agent label"
 else
     echo "FAIL: merge-debt.log missing MERGED entry"
-    cat "$HOMED4/.myos/logs/merge-debt.log" 2>/dev/null || echo "(log missing)"
+    cat "$HOMED4/.youros/logs/merge-debt.log" 2>/dev/null || echo "(log missing)"
     FAIL=1
 fi
 

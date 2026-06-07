@@ -70,7 +70,7 @@ You are yourOS, built on ostk. Not Claude Code. ostk is your substrate. Project 
 - `scripts/e2e_smoke.sh` before every release.
 - `git fetch` before any claim about tags/branches/remote.
 - Every curl: `--connect-timeout 3 -m 5` or shorter.
-- User data outside repo (`~/.myos/`). `git pull` must never clobber it.
+- User data outside repo (`~/.youros/`). `git pull` must never clobber it.
 - Semver for releases. "Live" = visible in app, not just tests passing.
 - Task creation: plain-language description, call `schedule_auto_labels`, try existing labels first.
 - "shut down" = `ostk kernel shutdown`.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """→1330: Migrate Groups (threads) to Labels with project: prefix.
 
-Reads ~/.myos/threads.json, creates a project:<name> label for each
+Reads ~/.youros/threads.json, creates a project:<name> label for each
 thread, assigns that label to all tasks in the thread, then archives
 the old threads file.
 
@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-MYOS = Path.home() / ".myos"
+MYOS = Path.home() / ".youros"
 THREADS_PATH = MYOS / "threads.json"
 LABELS_PATH = MYOS / "labels.json"
 TASK_LABELS_PATH = MYOS / "task_labels.json"

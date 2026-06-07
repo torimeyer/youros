@@ -6,4 +6,4 @@ outside the repo so a git pull never clobbers user data.
 
 from pathlib import Path
 
-DOGWALK_LEADS_PATH: Path = Path.home() / ".myos" / "dogwalk_leads.json"
+DOGWALK_LEADS_PATH: Path = Path.home() / ".youros" / "dogwalk_leads.json"

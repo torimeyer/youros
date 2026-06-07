@@ -59,7 +59,7 @@
           <mxGeometry x="420" y="390" width="150" height="60" as="geometry"/>
         </mxCell>
 
-        <mxCell id="settings-store" value="&lt;b&gt;Settings Store&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;~/.myos/settings.json&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3341;fontColor=#e2e8f0;strokeColor=#2980b9;" vertex="1" parent="1">
+        <mxCell id="settings-store" value="&lt;b&gt;Settings Store&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;~/.youros/settings.json&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3341;fontColor=#e2e8f0;strokeColor=#2980b9;" vertex="1" parent="1">
           <mxGeometry x="620" y="230" width="150" height="60" as="geometry"/>
         </mxCell>
 
@@ -67,7 +67,7 @@
           <mxGeometry x="620" y="390" width="150" height="60" as="geometry"/>
         </mxCell>
 
-        <mxCell id="labels-store" value="&lt;b&gt;Labels + Threads&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;~/.myos/labels.json&lt;br&gt;~/.myos/threads.json&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3341;fontColor=#e2e8f0;strokeColor=#2980b9;" vertex="1" parent="1">
+        <mxCell id="labels-store" value="&lt;b&gt;Labels + Threads&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;~/.youros/labels.json&lt;br&gt;~/.youros/threads.json&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3341;fontColor=#e2e8f0;strokeColor=#2980b9;" vertex="1" parent="1">
           <mxGeometry x="620" y="310" width="150" height="60" as="geometry"/>
         </mxCell>
 

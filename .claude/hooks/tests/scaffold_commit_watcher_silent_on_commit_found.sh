@@ -25,7 +25,7 @@ git -C "$WORKTREE" add scaffold.test.ts
 git -C "$WORKTREE" commit -q -m "scaffold: add empty test file" 2>/dev/null
 
 SPAWN_NAME="test-fresh-abc456"
-WARN_FILE="$SCRATCH/home/.myos/subagents/scaffold-warnings.jsonl"
+WARN_FILE="$SCRATCH/home/.youros/subagents/scaffold-warnings.jsonl"
 mkdir -p "$(dirname "$WARN_FILE")"
 
 INPUT=$(cat <<JSON

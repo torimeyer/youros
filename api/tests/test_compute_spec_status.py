@@ -169,7 +169,7 @@ async def test_post_claim_flips_ready_spec_to_in_progress(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "spec" / "my-claim-spec.md"
     spec_file.write_text(
@@ -224,7 +224,7 @@ async def test_build_endpoint_records_source_build_claim(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "spec" / "build-claim-spec.md"
     spec_file.write_text(

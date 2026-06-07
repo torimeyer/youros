@@ -16,14 +16,14 @@
 #
 # Name handoff (two-tier, newer first):
 #   1. Per-tool-use: register-agent.sh writes the name to
-#      ~/.myos/subagents/by-tool-use/<tool_use_id>.name at spawn.
+#      ~/.youros/subagents/by-tool-use/<tool_use_id>.name at spawn.
 #      We read that file using the same tool_use_id the Claude Code
 #      harness passes in the PostToolUse payload. This is the only
 #      lookup that survives parallel Task calls: last.name is a
 #      single shared file and the newest spawn wins that race,
 #      which would cause two subagents finishing together to both
 #      /complete the newer row instead of their own.
-#   2. Fallback: ~/.myos/subagents/last.name, for back-compat with
+#   2. Fallback: ~/.youros/subagents/last.name, for back-compat with
 #      older hook runs that did not key by tool_use_id and for the
 #      common single-agent case where the per-id file was never
 #      written (e.g. Claude Code builds that do not emit tool_use_id).
@@ -44,15 +44,15 @@
 #     backend reload or MCP flap does not leave the row "running"
 #     forever. Total wall-clock budget stays under 10s.
 #   * On exhaustion, park the target name in
-#     ~/.myos/subagents/pending-complete.jsonl so the next
+#     ~/.youros/subagents/pending-complete.jsonl so the next
 #     register-agent.sh / heartbeat-agent.sh hook fires off the
 #     drain and replays it as soon as the backend is reachable.
 
 set -u
 
-PER_ID_DIR="$HOME/.myos/subagents/by-tool-use"
-NAME_FILE="$HOME/.myos/subagents/last.name"
-PENDING_COMPLETE="$HOME/.myos/subagents/pending-complete.jsonl"
+PER_ID_DIR="$HOME/.youros/subagents/by-tool-use"
+NAME_FILE="$HOME/.youros/subagents/last.name"
+PENDING_COMPLETE="$HOME/.youros/subagents/pending-complete.jsonl"
 
 # Drain stdin so the hook system does not hold the pipe open, then
 # derive tool_use_id, summary, and the AGENT_NAME to complete.
@@ -64,8 +64,8 @@ INPUT=$(cat 2>/dev/null || true)
 # see that flag; if the harness strips tool_input from PostToolUse we
 # need to detect the background case some other way. Ring-buffer the
 # last 200 lines (each payload truncated to 5000 bytes) at
-# ~/.myos/subagents/complete-debug.log.
-_DBG_LOG="$HOME/.myos/subagents/complete-debug.log"
+# ~/.youros/subagents/complete-debug.log.
+_DBG_LOG="$HOME/.youros/subagents/complete-debug.log"
 mkdir -p "$(dirname "$_DBG_LOG")" 2>/dev/null || true
 {
     printf '=== %s ===\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -124,7 +124,7 @@ PY
 #
 # Belt (in-payload check): authoritative when tool_input is present.
 # Suspenders (side-channel file): register-agent.sh writes
-#   ~/.myos/subagents/by-tool-use/<tool_use_id>.bg (content "1") for every
+#   ~/.youros/subagents/by-tool-use/<tool_use_id>.bg (content "1") for every
 #   bg spawn at PreToolUse time, plus a legacy-fallback last.bg pointer
 #   for the tool_use_id-less payload case. Reading that file here means
 #   we can tell bg from fg even when the PostToolUse payload is gutted.
@@ -159,7 +159,7 @@ if [ -z "$RUN_IN_BACKGROUND" ] && [ -n "$TOOL_USE_ID" ]; then
     fi
 fi
 if [ -z "$RUN_IN_BACKGROUND" ]; then
-    LAST_BG_FILE="$HOME/.myos/subagents/last.bg"
+    LAST_BG_FILE="$HOME/.youros/subagents/last.bg"
     if [ -f "$LAST_BG_FILE" ] && [ -s "$LAST_BG_FILE" ]; then
         RUN_IN_BACKGROUND="1"
     fi
@@ -176,7 +176,7 @@ if [ "$RUN_IN_BACKGROUND" = "1" ]; then
         SAFE_TUI_BG_CLEANUP=$(printf '%s' "$TOOL_USE_ID" | tr -c 'a-zA-Z0-9_-' '_' | cut -c1-128)
         rm -f "$PER_ID_DIR/$SAFE_TUI_BG_CLEANUP.bg" 2>/dev/null || true
     fi
-    : > "$HOME/.myos/subagents/last.bg" 2>/dev/null || true
+    : > "$HOME/.youros/subagents/last.bg" 2>/dev/null || true
     exit 0
 fi
 
@@ -274,9 +274,9 @@ print(json.dumps({
     fi
 fi
 
-mkdir -p "$HOME/.myos/subagents" 2>/dev/null || true
+mkdir -p "$HOME/.youros/subagents" 2>/dev/null || true
 printf '%s\t%s\tcompleted\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$AGENT_NAME" \
-    >> "$HOME/.myos/subagents/history.log" 2>/dev/null || true
+    >> "$HOME/.youros/subagents/history.log" 2>/dev/null || true
 
 # Clear the per-tool-use pointer so a retry on the same id cannot
 # double-fire, and clear last.name so a stale value cannot misfire
@@ -292,7 +292,7 @@ if [ -n "$TOOL_USE_ID" ]; then
     rm -f "$PER_ID_DIR/$SAFE_TUI_CLEANUP.bg" 2>/dev/null || true
 fi
 : > "$NAME_FILE" 2>/dev/null || true
-: > "$HOME/.myos/subagents/last.bg" 2>/dev/null || true
+: > "$HOME/.youros/subagents/last.bg" 2>/dev/null || true
 
 # ── Auto-merge agent worktree branch onto main ────────────────────────────
 # When a subagent commits on worktree-agent-<name>, fast-forward that
@@ -305,7 +305,7 @@ fi
 # which fires in the child session when the agent actually finishes and has
 # direct access to the worktree branch via git plumbing. See →1548.
 
-_AM_DEBT_LOG="$HOME/.myos/logs/merge-debt.log"
+_AM_DEBT_LOG="$HOME/.youros/logs/merge-debt.log"
 mkdir -p "$(dirname "$_AM_DEBT_LOG")" 2>/dev/null || true
 
 _AM_PROJ="${CLAUDE_PROJECT_DIR:-}"

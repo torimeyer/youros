@@ -3,7 +3,7 @@
 Given a calendar event, generates a short briefing by pulling relevant
 Drive files, open P0/P1 tasks, and asking Claude to summarize.
 
-Cache lives in ~/.myos/meeting_prep_cache/ -- never inside the repo.
+Cache lives in ~/.youros/meeting_prep_cache/ -- never inside the repo.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 PREP_CACHE_DIR = MYOS_DIR / "meeting_prep_cache"
 
 

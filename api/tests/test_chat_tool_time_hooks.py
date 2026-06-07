@@ -7,7 +7,7 @@ Tests verify:
 3. A Time primitive failure does NOT break the chat response
    (try/except wrapping holds in both the start and finish paths).
 
-All tests use tmp_path SQLite — never touches ~/.myos/primitives.db.
+All tests use tmp_path SQLite — never touches ~/.youros/primitives.db.
 The helper under test is ``chat_providers._execute_tool_timed()``,
 a module-level async function extracted from ``_exec_and_notify`` so it
 is directly unit-testable without a WebSocket.

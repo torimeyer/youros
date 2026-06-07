@@ -2,7 +2,7 @@
 # Enable or disable myOS subagent tracking in the current repo.
 #
 # Adds a Claude Code PreToolUse hook at .claude/settings.local.json
-# pointing at ~/.myos/hooks/register-agent.sh, so Task-tool subagents
+# pointing at ~/.youros/hooks/register-agent.sh, so Task-tool subagents
 # spawned in THIS repo register with the myOS backend and show up on
 # the Agents page. Scoped to one project at a time; doesn't touch
 # ~/.claude/ or any other directory.
@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-HOOK_FILE="$HOME/.myos/hooks/register-agent.sh"
+HOOK_FILE="$HOME/.youros/hooks/register-agent.sh"
 SETTINGS=".claude/settings.local.json"
 GLOBAL_SETTINGS="$HOME/.claude/settings.json"
 

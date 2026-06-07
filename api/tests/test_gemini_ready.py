@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 import pytest
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "gemini_ready"
@@ -331,7 +332,11 @@ class TestSpecChecks:
         assert check.passed is False
 
     def test_pass_has_file_paths(self):
-        result = compute_spec_readiness(str(FIXTURE_DIR / "pass_all.md"))
+        import config
+        from pathlib import Path
+        real_root = Path(__file__).parents[2]
+        with patch("config.PROJECT_ROOT", real_root):
+            result = compute_spec_readiness(str(FIXTURE_DIR / "pass_all.md"))
         check = _get_check(result, "has_file_paths")
         assert check.passed is True
 
@@ -341,7 +346,11 @@ class TestSpecChecks:
         assert check.passed is False
 
     def test_pass_referenced_files_exist(self):
-        result = compute_spec_readiness(str(FIXTURE_DIR / "pass_all.md"))
+        import config
+        from pathlib import Path
+        real_root = Path(__file__).parents[2]
+        with patch("config.PROJECT_ROOT", real_root):
+            result = compute_spec_readiness(str(FIXTURE_DIR / "pass_all.md"))
         check = _get_check(result, "referenced_files_exist")
         assert check.passed is True
 
@@ -351,7 +360,11 @@ class TestSpecChecks:
         assert check.passed is True
 
     def test_spec_fully_ready(self):
-        result = compute_spec_readiness(str(FIXTURE_DIR / "pass_all.md"))
+        import config
+        from pathlib import Path
+        real_root = Path(__file__).parents[2]
+        with patch("config.PROJECT_ROOT", real_root):
+            result = compute_spec_readiness(str(FIXTURE_DIR / "pass_all.md"))
         assert result.ready is True
         assert len(result.checks) == 5
         assert all(c.passed for c in result.checks)

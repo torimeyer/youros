@@ -58,7 +58,7 @@ PY
     Bash|Read|Edit|Write|Grep|Glob)
       case "$RESP" in
         *"Blocked: use mcp__ostk__"*)
-          local DIR="$HOME/.myos/subagents"
+          local DIR="$HOME/.youros/subagents"
           mkdir -p "$DIR" 2>/dev/null || true
           local SID="${CLAUDE_SESSION_ID:-}"
           if [ -z "$SID" ]; then
@@ -100,7 +100,7 @@ NAG
           fi
           ;;
         *)
-          local CFILE="$HOME/.myos/subagents/${CLAUDE_SESSION_ID:-$$}-blocks.count"
+          local CFILE="$HOME/.youros/subagents/${CLAUDE_SESSION_ID:-$$}-blocks.count"
           if [ -f "$CFILE" ]; then
             local PREV_COUNT
             read -r _ PREV_COUNT _ < "$CFILE" 2>/dev/null || true
@@ -114,7 +114,7 @@ NAG
   esac
 
   # ---- 3. tool-retry-queue: log connection-error responses ----
-  local QUEUE_DIR="$HOME/.myos/subagents"
+  local QUEUE_DIR="$HOME/.youros/subagents"
   local QUEUE_FILE="$QUEUE_DIR/retry-queue.jsonl"
   mkdir -p "$QUEUE_DIR" 2>/dev/null || true
 

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 @pytest.fixture(autouse=True)
 def _redirect_narratives_dir(tmp_path, monkeypatch):
-    """Redirect NARRATIVES_DIR to tmp so tests never touch ~/.myos/narratives/."""
+    """Redirect NARRATIVES_DIR to tmp so tests never touch ~/.youros/narratives/."""
     import routers.narrative as _nar
     fake_dir = tmp_path / "narratives"
     fake_dir.mkdir(exist_ok=True)

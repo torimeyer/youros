@@ -26,7 +26,7 @@ import pytest
 async def test_unlock_user_local_spec_goes_to_user_drafts_not_repo(
     client, tmp_path, monkeypatch
 ):
-    """Unlock of a ~/.myos/specs file must land in ~/.myos/drafts, not docs/draft/."""
+    """Unlock of a ~/.youros/specs file must land in ~/.youros/drafts, not docs/draft/."""
     import routers.specs as specs_router
     from services import ostk as ostk_module
 
@@ -40,9 +40,7 @@ async def test_unlock_user_local_spec_goes_to_user_drafts_not_repo(
 
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", user_specs)
     monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", user_drafts)
-    monkeypatch.setattr(specs_router, "USER_SPECS_DIR", user_specs)
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", user_drafts)
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(repo_root))
+    monkeypatch.setattr("config.PROJECT_ROOT", str(repo_root))
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(repo_root))
 
     # Bypass path validation — the validator uses the real home dir; we care
@@ -92,8 +90,7 @@ async def test_create_from_template_writes_to_user_drafts_not_repo(
     user_drafts.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", user_drafts)
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", user_drafts)
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(repo_root))
+    monkeypatch.setattr("config.PROJECT_ROOT", str(repo_root))
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(repo_root))
 
     # Suppress promote so it doesn't try to copy to USER_SPECS_DIR
@@ -158,8 +155,7 @@ async def test_import_spec_writes_to_user_drafts_not_repo(
     user_drafts.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", user_drafts)
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", user_drafts)
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(repo_root))
+    monkeypatch.setattr("config.PROJECT_ROOT", str(repo_root))
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(repo_root))
 
     async def _noop_promote(path: str) -> str:

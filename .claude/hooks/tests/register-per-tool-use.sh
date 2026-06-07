@@ -3,7 +3,7 @@
 # register-agent.sh and complete-agent.sh.
 #
 # Why this exists: commit 0795f34 added
-# $HOME/.myos/subagents/by-tool-use/<tool_use_id>.name so parallel
+# $HOME/.youros/subagents/by-tool-use/<tool_use_id>.name so parallel
 # Task spawns stop racing on the single last.name pointer. A later
 # review found the directory did not exist in production even after
 # the fix shipped, so we now assert the round-trip on every hook
@@ -20,7 +20,7 @@ REGISTER="$HOOKS_DIR/register-agent.sh"
 COMPLETE="$HOOKS_DIR/complete-agent.sh"
 
 # Isolate under a temp HOME so we do not touch the real
-# ~/.myos/subagents directory.
+# ~/.youros/subagents directory.
 TMP_HOME=$(mktemp -d)
 trap 'rm -rf "$TMP_HOME"' EXIT
 
@@ -44,13 +44,13 @@ PAYLOAD="{\"tool_name\":\"Task\",\"tool_use_id\":\"$TUID\",\"tool_input\":{\"des
 printf '%s' "$PAYLOAD" | HOME="$TMP_HOME" bash "$REGISTER" >/dev/null 2>&1
 
 # Assertion 1: by-tool-use directory was created.
-if [ ! -d "$TMP_HOME/.myos/subagents/by-tool-use" ]; then
+if [ ! -d "$TMP_HOME/.youros/subagents/by-tool-use" ]; then
     fail "by-tool-use directory was not created"
 fi
 ok "by-tool-use/ exists"
 
 # Assertion 2: the per-tool-use name file exists and matches.
-PER_ID_FILE="$TMP_HOME/.myos/subagents/by-tool-use/$TUID.name"
+PER_ID_FILE="$TMP_HOME/.youros/subagents/by-tool-use/$TUID.name"
 if [ ! -f "$PER_ID_FILE" ]; then
     fail "per-tool-use name file missing: $PER_ID_FILE"
 fi
@@ -70,7 +70,7 @@ COMPLETE_PAYLOAD="{\"tool_name\":\"Task\",\"tool_use_id\":\"$TUID\",\"tool_respo
 printf '%s' "$COMPLETE_PAYLOAD" \
     | HOME="$TMP_HOME" MYOS_COMPLETE_URL_BASE="http://127.0.0.1:1/fake" bash "$COMPLETE" >/dev/null 2>&1
 
-PENDING="$TMP_HOME/.myos/subagents/pending-complete.jsonl"
+PENDING="$TMP_HOME/.youros/subagents/pending-complete.jsonl"
 if [ ! -s "$PENDING" ]; then
     fail "pending-complete queue is empty; complete-agent did not park the retry"
 fi
@@ -103,7 +103,7 @@ printf 'PASS: register-per-tool-use round-trip works\n'
 # embedded-newlines bug that caused every real spawn to write a
 # zero per-tool-use file in production even though tool_use_id was
 # present in the payload).
-rm -rf "$TMP_HOME/.myos/subagents"
+rm -rf "$TMP_HOME/.youros/subagents"
 TUID2="toolu_test_multiline_$(date +%s)_$$"
 AGENT_DESC2="multiline-prompt-regression"
 
@@ -124,7 +124,7 @@ print(json.dumps({
 
 printf '%s' "$MLPAYLOAD" | HOME="$TMP_HOME" bash "$REGISTER" >/dev/null 2>&1
 
-PER_ID_FILE2="$TMP_HOME/.myos/subagents/by-tool-use/$TUID2.name"
+PER_ID_FILE2="$TMP_HOME/.youros/subagents/by-tool-use/$TUID2.name"
 if [ ! -f "$PER_ID_FILE2" ]; then
     fail "multi-line prompt regression: per-tool-use file missing (bash read swallowed tool_use_id again)"
 fi

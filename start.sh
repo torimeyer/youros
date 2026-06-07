@@ -14,7 +14,15 @@ NC='\033[0m'
 
 YELLOW='\033[1;33m'
 
-echo -e "${BLUE}Starting myOS...${NC}"
+echo -e "${BLUE}Starting yourOS...${NC}"
+
+# Migration: .myos -> .youros
+if [ -d "$HOME/.myos" ]; then
+    echo -e "${YELLOW}Migrating configuration from ~/.myos to ~/.youros...${NC}"
+    mkdir -p "$HOME/.youros"
+    rsync -a --ignore-existing "$HOME/.myos/" "$HOME/.youros/"
+    echo -e "${GREEN}Migration complete.${NC}"
+fi
 
 # Check for updates
 # Detect whether launchd is managing the backend (macOS after install).
@@ -22,7 +30,7 @@ echo -e "${BLUE}Starting myOS...${NC}"
 LAUNCHD_MANAGED=0
 if [ "$(uname)" = "Darwin" ]; then
     _uid=$(id -u)
-    if [ -f "$HOME/Library/LaunchAgents/com.myos.backend.plist" ]; then
+    if [ -f "$HOME/Library/LaunchAgents/com.youros.backend.plist" ]; then
         LAUNCHD_MANAGED=1
     fi
 fi
@@ -93,13 +101,13 @@ if command -v ostk &> /dev/null; then
     fi
     ostk boot 2>/dev/null || true
 
-    # Migrate needles to ~/.myos/needles so tasks survive git pull.
+    # Migrate needles to ~/.youros/needles so tasks survive git pull.
     # If needles is a real directory (not already a symlink), move it
     # outside the repo and replace with a symlink.
     NEEDLES_DIR="$DIR/.ostk/needles"
-    SAFE_NEEDLES="$HOME/.myos/needles"
+    SAFE_NEEDLES="$HOME/.youros/needles"
     if [ -d "$NEEDLES_DIR" ] && [ ! -L "$NEEDLES_DIR" ]; then
-        mkdir -p "$HOME/.myos"
+        mkdir -p "$HOME/.youros"
         if [ -d "$SAFE_NEEDLES" ]; then
             # Merge: copy any files not already in the safe location
             cp -n "$NEEDLES_DIR"/* "$SAFE_NEEDLES/" 2>/dev/null || true
@@ -108,7 +116,7 @@ if command -v ostk &> /dev/null; then
         fi
         rm -rf "$NEEDLES_DIR"
         ln -s "$SAFE_NEEDLES" "$NEEDLES_DIR"
-        echo -e "${GREEN}Migrated tasks to ~/.myos/needles (safe from git pull).${NC}"
+        echo -e "${GREEN}Migrated tasks to ~/.youros/needles (safe from git pull).${NC}"
     elif [ ! -e "$NEEDLES_DIR" ] && [ ! -L "$NEEDLES_DIR" ]; then
         # Fresh install: create the safe dir and symlink
         mkdir -p "$SAFE_NEEDLES"
@@ -155,7 +163,7 @@ fi
 source .venv/bin/activate
 
 # Auto-detect scheme (same logic as scripts/api-probe.sh →1338)
-if [ -f "$HOME/.myos/localhost.key" ] && [ -f "$HOME/.myos/localhost.crt" ]; then
+if [ -f "$HOME/.youros/localhost.key" ] && [ -f "$HOME/.youros/localhost.crt" ]; then
     LAUNCH_URL="https://localhost:8000"
 else
     LAUNCH_URL="http://localhost:8000"
@@ -168,10 +176,15 @@ if [ "$LAUNCHD_MANAGED" = "1" ]; then
     # immediately without waiting for the next login, then open the browser.
     echo "Backend is managed by launchd (auto-restart on crash)."
     _uid=$(id -u)
-    launchctl kickstart -k "gui/${_uid}/com.myos.backend" 2>/dev/null || \
-        launchctl start com.myos.backend 2>/dev/null || true
-    launchctl kickstart "gui/${_uid}/com.myos.watchdog" 2>/dev/null || \
-        launchctl start com.myos.watchdog 2>/dev/null || true
+    for label in com.youros.backend com.youros.watchdog; do
+        plist="$HOME/Library/LaunchAgents/${label}.plist"
+        if ! launchctl print "gui/${_uid}/${label}" >/dev/null 2>&1; then
+            launchctl bootstrap "gui/${_uid}" "$plist" 2>/dev/null || true
+        else
+            launchctl kickstart -k "gui/${_uid}/${label}" 2>/dev/null || \
+                launchctl start "$label" 2>/dev/null || true
+        fi
+    done
 
     # Give uvicorn a moment to bind before opening the browser.
     sleep 2
@@ -190,9 +203,9 @@ else
 fi
 
 # Load local env overrides (e.g. GOOGLE_CLIENT_ID for OAuth) if present.
-if [ -f "$HOME/.myos/.env" ]; then
+if [ -f "$HOME/.youros/.env" ]; then
     set -a
-    source "$HOME/.myos/.env"
+    source "$HOME/.youros/.env"
     set +a
 fi
 
@@ -206,8 +219,8 @@ fi
 # Pass SSL args to uvicorn when self-signed certs are present, so the
 # https://localhost:8000 launch URL above actually serves TLS. Mirrors
 # scripts/dev-backend.sh so the two launchers do not drift again.
-SSL_KEY="$HOME/.myos/localhost.key"
-SSL_CERT="$HOME/.myos/localhost.crt"
+SSL_KEY="$HOME/.youros/localhost.key"
+SSL_CERT="$HOME/.youros/localhost.crt"
 SSL_ARGS=""
 if [ -f "$SSL_KEY" ] && [ -f "$SSL_CERT" ]; then
     SSL_ARGS="--ssl-keyfile $SSL_KEY --ssl-certfile $SSL_CERT"

@@ -13,15 +13,15 @@
 #   MYOS_COMPLETION_ANNC              announcements file
 #   MYOS_COMPLETION_STATE             per-run state file (known statuses)
 #   MYOS_COMPLETION_PID               PID file written on start
-#   MYOS_COMPLETION_LOCK              singleton lock file (default ~/.myos/subagents/completion-watcher.lock)
+#   MYOS_COMPLETION_LOCK              singleton lock file (default ~/.youros/subagents/completion-watcher.lock)
 #   MYOS_COMPLETION_WATCHER_INTERVAL  poll interval in seconds (default 5)
 
 POLL_INTERVAL="${MYOS_COMPLETION_WATCHER_INTERVAL:-5}"
 BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}"
-ANNC_FILE="${MYOS_COMPLETION_ANNC:-$HOME/.myos/subagents/pending-completion-announcements.jsonl}"
-STATE_FILE="${MYOS_COMPLETION_STATE:-$HOME/.myos/subagents/completion-watcher-state.json}"
-PID_FILE="${MYOS_COMPLETION_PID:-$HOME/.myos/subagents/completion-watcher.pid}"
-LOCK_FILE="${MYOS_COMPLETION_LOCK:-$HOME/.myos/subagents/completion-watcher.lock}"
+ANNC_FILE="${MYOS_COMPLETION_ANNC:-$HOME/.youros/subagents/pending-completion-announcements.jsonl}"
+STATE_FILE="${MYOS_COMPLETION_STATE:-$HOME/.youros/subagents/completion-watcher-state.json}"
+PID_FILE="${MYOS_COMPLETION_PID:-$HOME/.youros/subagents/completion-watcher.pid}"
+LOCK_FILE="${MYOS_COMPLETION_LOCK:-$HOME/.youros/subagents/completion-watcher.lock}"
 COUNT_FILE="${MYOS_COMPLETION_COUNT:-}"   # running-agent count written by POLL_PY each cycle
 # After this many consecutive zero-running-agent polls (post SAW_RUNNING), exit.
 EMPTY_THRESHOLD="${MYOS_COMPLETION_WATCHER_EMPTY_THRESHOLD:-3}"

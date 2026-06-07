@@ -3,7 +3,7 @@
 Running agents can post findings, questions, results, and context here so
 other agents can read them without going through the user.
 
-Data is stored in ~/.myos/agent_workspace.json, never in the repo.
+Data is stored in ~/.youros/agent_workspace.json, never in the repo.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 WORKSPACE_FILE = MYOS_DIR / "agent_workspace.json"
 
 VALID_TYPES = {"finding", "question", "result", "context"}

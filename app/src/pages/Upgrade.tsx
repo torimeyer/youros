@@ -11,7 +11,7 @@ interface VersionInfo {
 }
 
 interface UpgradeStatus {
-  myos: VersionInfo
+  youros: VersionInfo
   ostk: VersionInfo
 }
 
@@ -61,7 +61,7 @@ export default function Upgrade() {
     }
   }
 
-  const bothBehind = status?.myos.behind && status?.ostk.behind
+  const bothBehind = status?.youros.behind && status?.ostk.behind
 
   return (
     <PageShell title="Updates">
@@ -89,7 +89,7 @@ export default function Upgrade() {
             <ComponentCard
               name="yourOS"
               description="Your personal operating system"
-              info={status.myos}
+              info={status.youros}
               onUpdate={() => runUpgrade('myos')}
               updating={running === 'myos' || running === 'both'}
             />

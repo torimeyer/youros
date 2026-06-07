@@ -2653,12 +2653,12 @@ async def test_smoke_does_not_recreate_deleted_demo_tasks(client):
         return []
 
     # Write a roadmap file into a fake home so we never touch the real
-    # ~/.myos/files/ directory during tests. The resolver uses
+    # ~/.youros/files/ directory during tests. The resolver uses
     # Path.home(), so patching that redirects the lookup.
     import tempfile as _tempfile
     from pathlib import Path as _Path
     with _tempfile.TemporaryDirectory() as fake_home:
-        files_dir = _Path(fake_home) / ".myos" / "files"
+        files_dir = _Path(fake_home) / ".youros" / "files"
         files_dir.mkdir(parents=True, exist_ok=True)
         roadmap = files_dir / "pytest-smoke-roadmap.md"
         roadmap.write_text("# roadmap\n\n- Build basic homepage\n")
@@ -2872,6 +2872,7 @@ async def test_list_tasks_deduplicates_by_last_occurrence(tmp_path):
     list_tasks must return it only once with the status from the last entry."""
     from unittest.mock import patch as _patch
     from services.ostk import OstkService
+    import json
 
     # Simulate ostk CLI returning two entries for the same id: open first,
     # then closed (the append-only log pattern).
@@ -2883,6 +2884,15 @@ async def test_list_tasks_deduplicates_by_last_occurrence(tmp_path):
 
     svc = OstkService.__new__(OstkService)
     svc.cwd = str(tmp_path)
+
+    # Ensure the task IDs exist in the active store so they aren't filtered
+    # out as rotated archive noise (→1694).
+    issues_path = tmp_path / ".ostk" / "needles" / "issues.jsonl"
+    issues_path.parent.mkdir(parents=True, exist_ok=True)
+    issues_path.write_text(
+        json.dumps({"id": "\u2192140"}) + "\n" +
+        json.dumps({"id": "\u2192141"}) + "\n"
+    )
 
     with _patch.object(svc, "_run_json", return_value=duplicate_entries):
         result = await svc.list_tasks()

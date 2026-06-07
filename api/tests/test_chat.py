@@ -3713,7 +3713,7 @@ class TestChatAuthorshipGrounding:
             {
                 "event": "file.written",
                 "name": "roadmap.md",
-                "path": "/Users/torimeyer/.myos/files/roadmap.md",
+                "path": "/Users/torimeyer/.youros/files/roadmap.md",
                 "timestamp": "2026-04-20T12:05:00Z",
             },
         ]

@@ -1,7 +1,7 @@
 """Google Drive OAuth2 authentication service.
 
-Tokens are stored in ~/.myos/google_token.json (outside the repo).
-The user must supply credentials at ~/.myos/google_credentials.json
+Tokens are stored in ~/.youros/google_token.json (outside the repo).
+The user must supply credentials at ~/.youros/google_credentials.json
 (downloaded from Google Cloud Console).
 """
 
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from services.atomic_io import atomic_write_text
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 TOKEN_PATH = MYOS_DIR / "google_token.json"
 CREDENTIALS_PATH = MYOS_DIR / "google_credentials.json"
 DRIVE_CACHE_DIR = MYOS_DIR / "drive_cache"

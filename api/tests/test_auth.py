@@ -790,13 +790,13 @@ async def test_google_auth_uses_google_redirect_uri_env(client):
     """
     with (
         patch("routers.auth._google_client_id", return_value="test-client-id"),
-        patch.dict("os.environ", {"GOOGLE_REDIRECT_URI": "https://work.myos.example.com/api/auth/google/callback"}),
+        patch.dict("os.environ", {"GOOGLE_REDIRECT_URI": "https://work.youros.example.com/api/auth/google/callback"}),
     ):
         resp = await client.get("/api/auth/google", follow_redirects=False)
 
     assert resp.status_code == 307
     location = resp.headers["location"]
-    assert "work.myos.example.com" in location, (
+    assert "work.youros.example.com" in location, (
         f"redirect_uri must use GOOGLE_REDIRECT_URI when set, got: {location}"
     )
 
@@ -809,13 +809,13 @@ async def test_drive_auth_url_uses_google_redirect_uri_env(client, tmp_path):
 
     with (
         patch("services.google_auth.CREDENTIALS_PATH", creds_path),
-        patch.dict("os.environ", {"GOOGLE_REDIRECT_URI": "https://work.myos.example.com/api/auth/google/callback"}),
+        patch.dict("os.environ", {"GOOGLE_REDIRECT_URI": "https://work.youros.example.com/api/auth/google/callback"}),
     ):
         resp = await client.get("/api/drive/auth/url")
 
     assert resp.status_code == 200
     url = resp.json()["url"]
-    assert "work.myos.example.com" in url, (
+    assert "work.youros.example.com" in url, (
         f"GOOGLE_REDIRECT_URI must be reflected in drive auth URL, got: {url}"
     )
 
@@ -841,7 +841,7 @@ async def test_google_callback_uses_google_redirect_uri_env(client):
         patch("routers.auth._google_client_secret", return_value="test-secret"),
         patch("routers.auth.httpx.AsyncClient") as MockHttpxClient,
         patch("services.settings_store.settings_store") as mock_store,
-        patch.dict("os.environ", {"GOOGLE_REDIRECT_URI": "https://work.myos.example.com/api/auth/google/callback"}),
+        patch.dict("os.environ", {"GOOGLE_REDIRECT_URI": "https://work.youros.example.com/api/auth/google/callback"}),
     ):
         mock_client_instance = AsyncMock()
         mock_client_instance.post = AsyncMock(return_value=mock_response)
@@ -855,7 +855,7 @@ async def test_google_callback_uses_google_redirect_uri_env(client):
         )
 
     payload = mock_client_instance.post.call_args.kwargs["data"]
-    assert payload["redirect_uri"] == "https://work.myos.example.com/api/auth/google/callback", (
+    assert payload["redirect_uri"] == "https://work.youros.example.com/api/auth/google/callback", (
         f"Token exchange must use GOOGLE_REDIRECT_URI, got: {payload['redirect_uri']}"
     )
 

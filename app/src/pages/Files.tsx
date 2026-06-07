@@ -463,7 +463,7 @@ export default function Files() {
                     </p>
                     <p className="text-xs text-slate-500 max-w-md mx-auto">
                       Files only shows folders inside your workspace and
-                      ~/.myos/files. Pick a project from the list to browse its
+                      ~/.youros/files. Pick a project from the list to browse its
                       contents.
                     </p>
                   </div>

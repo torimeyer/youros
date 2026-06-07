@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { formatRelative } from '../lib/time'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon from './Icon'
 import { useAppStore } from '../stores/app'
 import { useNotificationStore } from '../stores/notifications'
-import { api } from '../lib/api'
+import { useNotificationsStore } from '../stores/notificationsStore'
+import { isPushSupported, isSubscribed } from '../lib/pushNotifications'
 
 const isMac = () => navigator.platform.toUpperCase().includes('MAC') || navigator.userAgent.toUpperCase().includes('MAC OS')
 const modKey = isMac() ? '⌘' : 'Ctrl+'
@@ -27,41 +27,6 @@ const TOAST_WORTHY_PERSISTENT_TYPES = new Set<string>([
   'spec_complete',
 ])
 
-function statusIcon(status: string): { icon: string; color: string } {
-  switch (status) {
-    case 'completed':
-      return { icon: 'check_circle', color: 'text-green-600 dark:text-green-400' }
-    case 'failed':
-      return { icon: 'error', color: 'text-red-600 dark:text-red-400' }
-    case 'killed':
-    case 'stopped':
-      return { icon: 'cancel', color: 'text-orange-600 dark:text-orange-400' }
-    case 'running':
-    case 'spawned':
-      return { icon: 'play_circle', color: 'text-blue-600 dark:text-blue-400' }
-    default:
-      return { icon: 'info', color: 'text-slate-600 dark:text-slate-400' }
-  }
-}
-
-function statusMessage(status: string): string {
-  switch (status) {
-    case 'completed': return 'finished'
-    case 'failed': return 'failed'
-    case 'killed': return 'was cancelled'
-    case 'stopped': return 'stopped'
-    case 'running':
-    case 'spawned': return 'started'
-    default: return status
-  }
-}
-
-
-
-
-
-
-
 export default function TopBar() {
   const navigate = useNavigate()
   const toggleChat = useAppStore((s) => s.toggleChat)
@@ -80,16 +45,10 @@ export default function TopBar() {
     mql.addEventListener('change', handler)
     return () => mql.removeEventListener('change', handler)
   }, [])
-  const [showNotifications, setShowNotifications] = useState(false)
   const [, setTick] = useState(0)
-  const [pushEnabled, setPushEnabled] = useState(false)
-  const [pushToggling, setPushToggling] = useState(false)
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
 
-  const notifications = useNotificationStore((s) => s.notifications)
-  const markAllRead = useNotificationStore((s) => s.markAllRead)
   const addPersistentToast = useNotificationStore((s) => s.addPersistentToast)
-  const clearAll = useNotificationStore((s) => s.clearAll)
   const wsNotifications = useNotificationsStore((s) => s.notifications)
   // True once the first WS snapshot (or first REST poll) has been
   // delivered. We gate seenNotifIdsRef seeding on this flag so we never
@@ -97,19 +56,6 @@ export default function TopBar() {
   // would cause every notification in the real first snapshot to look
   // "new" and fire a stale toast (→1342).
   const snapshotReceived = useNotificationsStore((s) => s.snapshotReceived)
-
-  // Single source of truth. The badge count and the dropdown body must read
-  // from the exact same arrays, otherwise the bell can show "9+" while the
-  // dropdown shows "You're all caught up".
-  const agentUnreadCount = useMemo(
-    () => notifications.filter((n) => !n.read).length,
-    [notifications]
-  )
-  const persistentUnread = useMemo(
-    () => wsNotifications.filter((n) => !n.read).length,
-    [wsNotifications]
-  )
-  const unreadCount = agentUnreadCount + persistentUnread
 
   // Track WS notification ids seen so far and fire toasts only for new
   // arrivals. Seeded on the first snapshot so existing notifications don't
@@ -152,7 +98,7 @@ export default function TopBar() {
   // Check push subscription state on mount
   useEffect(() => {
     if (isPushSupported()) {
-      isSubscribed().then(setPushEnabled).catch(() => {})
+      isSubscribed().catch(() => {})
     }
   }, [])
 
@@ -167,60 +113,6 @@ export default function TopBar() {
       window.removeEventListener('offline', goOffline)
     }
   }, [])
-
-  const handleTogglePush = useCallback(async () => {
-    setPushToggling(true)
-    try {
-      if (pushEnabled) {
-        await pushUnsubscribe()
-        setPushEnabled(false)
-      } else {
-        const ok = await pushSubscribe()
-        setPushEnabled(ok)
-      }
-    } catch {
-      // ignore
-    } finally {
-      setPushToggling(false)
-    }
-  }, [pushEnabled])
-
-  const handleMarkPersistentRead = useCallback(async (id: string) => {
-    try {
-      await api.post(`/notifications/${id}/read`)
-      useNotificationsStore.setState((s) => ({
-        notifications: s.notifications.map((n) => n.id === id ? { ...n, read: true } : n),
-      }))
-    } catch {
-      // ignore
-    }
-  }, [])
-
-  const handleMarkAllPersistentRead = useCallback(async () => {
-    try {
-      await api.post('/notifications/read-all')
-      useNotificationsStore.setState((s) => ({
-        notifications: s.notifications.map((n) => ({ ...n, read: true })),
-      }))
-    } catch {
-      // ignore
-    }
-  }, [])
-
-  const handleOpenNotifications = () => {
-    setShowNotifications(true)
-  }
-
-  const handleCloseNotifications = useCallback(() => {
-    setShowNotifications(false)
-    // On close, flush any remaining unread items so the bell badge clears.
-    // Clicking a specific item already marks that one read, so this only
-    // catches the ones the user glanced at but did not click.
-    if (agentUnreadCount > 0) markAllRead()
-    if (persistentUnread > 0) {
-      handleMarkAllPersistentRead()
-    }
-  }, [agentUnreadCount, markAllRead, persistentUnread, handleMarkAllPersistentRead])
 
   return (
     <>

@@ -13,7 +13,7 @@
 | Commit | Worktree | Task | What it does |
 |--------|----------|--------|--------------|
 | `8802abc` | agent-1338-http-https-probe-22f8c807 | →1338 | Migrate http probe callsites to https: enterprise.py, extension/background.js, extension/options.js, extension/manifest.json, start.sh, READMEs |
-| `6e1c428` | agent-1345-e2e-settings-pol-da529a69 | →1345 | Isolate e2e settings via MYOS_HOME + fix restore-before-clear bug in e2e_smoke.sh. 6/6 tests pass. |
+| `6e1c428` | agent-1345-e2e-settings-pol-da529a69 | →1345 | Isolate e2e settings via YOUROS_HOME + fix restore-before-clear bug in e2e_smoke.sh. 6/6 tests pass. |
 
 ---
 
@@ -25,7 +25,7 @@
 | agent-1219-backend-snapshot-beb78562 | →1219 | agents.py, main.py | **superseded** | Feature fully incorporated: agents.py line 56 has `→1219` comment, 500ms snapshotter loop and WS delta already live. |
 | agent-1338-http-https-probe-22f8c807 | →1338 | enterprise.py, extension/*, start.sh | **cherry-picked** ✓ | 0 conflicts. enterprise.py and extension/background.js still had http:// defaults. Applied as 8802abc. |
 | agent-1344-premature-close-6fc64692 | →1344 | scaffold_commit_watcher.sh | **superseded** | SPAWNED_AT from API fix incorporated (lines 45-101 of watcher). Further fixes →1346 and →1348 landed on top. |
-| agent-1345-e2e-settings-pol-da529a69 | →1345 | settings_store.py, e2e_smoke.sh | **cherry-picked** ✓ | 0 conflicts. MYOS_HOME not present in main. 6 tests pass. Applied as 6e1c428. |
+| agent-1345-e2e-settings-pol-da529a69 | →1345 | settings_store.py, e2e_smoke.sh | **cherry-picked** ✓ | 0 conflicts. YOUROS_HOME not present in main. 6 tests pass. Applied as 6e1c428. |
 | agent-1496-merge-gemini-specs-e12a43 | →1496 | (none — gitignored) | **superseded** | Commit modifies only docs/spec/ which is gitignored. No git-tracked changes. |
 | agent-add-pdf-docx-support-3e5da0de | →1284 | gems.py, gem_knowledge.py | **superseded** | Already in main as `1e59e4d feat(gems): accept .pdf and .docx for knowledge upload (→1284)`. |
 

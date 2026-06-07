@@ -1,6 +1,6 @@
 """Settings sync service.
 
-Syncs ~/.myos/ user state files to and from a private git repo the user owns.
+Syncs ~/.youros/ user state files to and from a private git repo the user owns.
 This keeps settings, onboarding state, and templates the same across devices.
 """
 
@@ -18,7 +18,7 @@ from services.atomic_io import atomic_write_json
 
 logger = logging.getLogger(__name__)
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 SYNC_CONFIG_PATH = MYOS_DIR / "sync_config.json"
 SYNC_REPO_PATH = MYOS_DIR / "sync_repo"
 CONFLICT_LOG_PATH = MYOS_DIR / "sync_conflicts.log"
@@ -172,7 +172,7 @@ def push() -> dict:
 
 
 def pull() -> dict:
-    """Fetch the remote, merge, and copy files back to ~/.myos/."""
+    """Fetch the remote, merge, and copy files back to ~/.youros/."""
     if not is_configured():
         raise RuntimeError("Sync is not configured. Call configure() first.")
 
@@ -231,7 +231,7 @@ def pull() -> dict:
                 cwd=SYNC_REPO_PATH,
             )
 
-    # Copy files back to ~/.myos/
+    # Copy files back to ~/.youros/
     MYOS_DIR.mkdir(parents=True, exist_ok=True)
     restored = []
     for filename in SYNC_FILES:

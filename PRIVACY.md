@@ -7,12 +7,12 @@ yourOS-operated backend that receives your data.
 
 Everything yourOS keeps about you lives in two places on your own disk:
 
-* `~/.myos/` - tasks, notes, chat history, agent transcripts,
+* `~/.youros/` - tasks, notes, chat history, agent transcripts,
   preferences, and any files you drop into yourOS.
 * The yourOS application folder - the program itself, never your
   personal content.
 
-Nothing in those folders is sent to yourOS. If you delete `~/.myos/`,
+Nothing in those folders is sent to yourOS. If you delete `~/.youros/`,
 your yourOS data is gone.
 
 ## What leaves your computer
@@ -42,12 +42,12 @@ crash reports or usage analytics.
 
 ## Your data, your call
 
-* **Export** - everything is already a plain file under `~/.myos/`.
+* **Export** - everything is already a plain file under `~/.youros/`.
   Copy that folder and you have your data.
-* **Delete** - remove `~/.myos/` and disconnect any integrations in
+* **Delete** - remove `~/.youros/` and disconnect any integrations in
   their respective account settings (Google, GitHub, etc.). Optionally
   revoke the API keys you issued to yourOS.
-* **Move to another computer** - copy `~/.myos/` across. yourOS will
+* **Move to another computer** - copy `~/.youros/` across. yourOS will
   pick it up on launch.
 
 ## Questions

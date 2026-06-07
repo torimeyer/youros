@@ -17,7 +17,7 @@ def client():
 
 def test_timeline_empty_dir(client, tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    (tmp_path / ".myos" / "files").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".youros" / "files").mkdir(parents=True, exist_ok=True)
     resp = client.get("/api/files/timeline")
     assert resp.status_code == 200
     assert resp.json() == {"files": []}
@@ -32,7 +32,7 @@ def test_timeline_missing_dir(client, tmp_path, monkeypatch):
 
 def test_timeline_returns_files(client, tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    files_dir = tmp_path / ".myos" / "files"
+    files_dir = tmp_path / ".youros" / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     (files_dir / "report.md").write_text("# Report")
     resp = client.get("/api/files/timeline")
@@ -50,7 +50,7 @@ def test_timeline_returns_files(client, tmp_path, monkeypatch):
 
 def test_timeline_includes_sidecar(client, tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    files_dir = tmp_path / ".myos" / "files"
+    files_dir = tmp_path / ".youros" / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     target = files_dir / "output.md"
     target.write_text("# Output")
@@ -73,7 +73,7 @@ def test_timeline_includes_sidecar(client, tmp_path, monkeypatch):
 
 def test_timeline_excludes_sidecar_files(client, tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    files_dir = tmp_path / ".myos" / "files"
+    files_dir = tmp_path / ".youros" / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     (files_dir / "report.md").write_text("# Report")
     (files_dir / "report.md.provenance.json").write_text("{}")
@@ -86,7 +86,7 @@ def test_timeline_excludes_sidecar_files(client, tmp_path, monkeypatch):
 
 def test_timeline_sorted_newest_first(client, tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    files_dir = tmp_path / ".myos" / "files"
+    files_dir = tmp_path / ".youros" / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     old_f = files_dir / "old.md"
     old_f.write_text("old")
@@ -102,7 +102,7 @@ def test_timeline_sorted_newest_first(client, tmp_path, monkeypatch):
 
 def test_timeline_limit(client, tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    files_dir = tmp_path / ".myos" / "files"
+    files_dir = tmp_path / ".youros" / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     for i in range(5):
         (files_dir / f"file{i}.md").write_text(f"content {i}")
@@ -113,7 +113,7 @@ def test_timeline_limit(client, tmp_path, monkeypatch):
 
 def test_timeline_path_field_is_absolute(client, tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    files_dir = tmp_path / ".myos" / "files"
+    files_dir = tmp_path / ".youros" / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     (files_dir / "report.md").write_text("hello")
     resp = client.get("/api/files/timeline")

@@ -19,7 +19,7 @@ from httpx import AsyncClient
 
 @pytest.fixture()
 def captures_dir(tmp_path, monkeypatch):
-    """Redirect CAPTURES_DIR to a temp path so tests never write to ~/.myos/."""
+    """Redirect CAPTURES_DIR to a temp path so tests never write to ~/.youros/."""
     d = tmp_path / "intel" / "captures"
     d.mkdir(parents=True, exist_ok=True)
     import routers.intel as intel_router
@@ -29,7 +29,7 @@ def captures_dir(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def specs_dir(tmp_path, monkeypatch):
-    """Redirect DIGEST_SPECS_DIR to a temp path so tests never write to ~/.myos/specs/."""
+    """Redirect DIGEST_SPECS_DIR to a temp path so tests never write to ~/.youros/specs/."""
     d = tmp_path / "specs"
     d.mkdir(parents=True, exist_ok=True)
     import routers.intel as intel_router

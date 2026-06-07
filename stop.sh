@@ -32,12 +32,12 @@ pids_on_port() {
 }
 
 # On macOS after install, the backend and watchdog are launchd agents
-# (com.myos.backend + com.myos.watchdog). KeepAlive=true means a plain
+# (com.youros.backend + com.youros.watchdog). KeepAlive=true means a plain
 # kill will cause launchd to respawn them immediately. Use launchctl
 # bootout first so launchd knows we want them stopped.
 if [ "$(uname)" = "Darwin" ]; then
     USER_UID=$(id -u)
-    for label in com.myos.watchdog com.myos.backend; do
+    for label in com.youros.watchdog com.youros.backend; do
         if launchctl print "gui/${USER_UID}/${label}" >/dev/null 2>&1; then
             echo "Stopping launchd agent: $label"
             launchctl bootout "gui/${USER_UID}/${label}" 2>/dev/null || true

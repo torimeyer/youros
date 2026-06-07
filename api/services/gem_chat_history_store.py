@@ -1,7 +1,7 @@
 """Per-gem chat history store.
 
 Each Gem's conversation turns are persisted to
-``~/.myos/gem_chat/<gem_id>.json`` — one file per Gem, so deleting a
+``~/.youros/gem_chat/<gem_id>.json`` — one file per Gem, so deleting a
 Gem's history is a single unlink and there's no cross-gem data to sweep.
 
 Turn schema (list of objects, ordered oldest-first):
@@ -19,7 +19,7 @@ from typing import Any
 
 from services.atomic_io import atomic_write_json
 
-GEM_CHAT_HISTORY_DIR = Path.home() / ".myos" / "gem_chat"
+GEM_CHAT_HISTORY_DIR = Path.home() / ".youros" / "gem_chat"
 
 
 def _now_iso() -> str:

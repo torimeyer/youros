@@ -132,7 +132,7 @@ sleep 0.4
 
 # Clear any stale pending-register queue so drain-pending.sh doesn't
 # replay old failures and inflate the count for these tests.
-> "$HOME/.myos/subagents/pending-register.jsonl" 2>/dev/null || true
+> "$HOME/.youros/subagents/pending-register.jsonl" 2>/dev/null || true
 
 MOCK_BASE="http://127.0.0.1:$MOCK_PORT"
 REGISTER_HOOK="$HOME/.claude/hooks/register-agent.sh"

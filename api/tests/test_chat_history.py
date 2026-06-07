@@ -26,7 +26,7 @@ def chat_history_file(tmp_path):
 async def test_get_empty_chat_history(client, chat_history_file):
     with patch("services.chat_history_store.CHAT_HISTORY_PATH", chat_history_file):
         # Force a fresh store bound to the temp path so the in process
-        # singleton does not point at the user's real ~/.myos file.
+        # singleton does not point at the user's real ~/.youros file.
         from services.chat_history_store import ChatHistoryStore
         fresh = ChatHistoryStore(chat_history_file)
         with patch("routers.chat.chat_history_store", fresh):

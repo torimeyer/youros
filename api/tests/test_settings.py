@@ -72,11 +72,10 @@ async def test_inbound_imessage_poller_gated_by_setting(monkeypatch, settings_fi
 
     class _FakePoller:
         def __init__(self, *args, **kwargs):
-            pass
+            self._cursor = 0
 
         def start(self):
             calls["start"] += 1
-
     class _FakeRouter:
         async def handle_inbound_message(self, text):
             pass

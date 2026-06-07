@@ -9,7 +9,7 @@ frontend actually applies, so it cannot catch the production freeze.
 The live freeze: the dashboard keeps several WebSockets open and polls
 GET /api/specs + GET /api/agents repeatedly. GET /api/specs runs heavy
 *synchronous* file I/O directly on the event-loop thread:
-ostk.list_docs() globs docs/draft, docs/spec, ~/.myos/specs and read_text()s
+ostk.list_docs() globs docs/draft, docs/spec, ~/.youros/specs and read_text()s
 every file; then per surviving doc list_specs calls compute_shipped()
 (read_text + exists + glob), _read_umbrella_fields() (read_text), and
 compute_spec_readiness() (read_text). None of it is offloaded to a thread

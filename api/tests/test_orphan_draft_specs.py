@@ -204,7 +204,7 @@ async def test_delete_orphan_plan_drafts_endpoint(client, tmp_path, monkeypatch)
     from routers import specs as specs_module
     from services import ostk as ostk_module
 
-    monkeypatch.setattr(specs_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
 
     transcripts = tmp_path / "transcripts"

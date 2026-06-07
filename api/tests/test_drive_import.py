@@ -134,7 +134,7 @@ class TestImportFromDrive:
             )
 
         assert resp.status_code == 200
-        imports_dir = tmp_path / ".myos" / "files" / "imports"
+        imports_dir = tmp_path / ".youros" / "files" / "imports"
         assert imports_dir.exists(), "imports dir should be created"
         files = list(imports_dir.iterdir())
         # Expect the file + sidecar.

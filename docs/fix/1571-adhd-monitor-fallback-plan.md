@@ -1,7 +1,7 @@
 # →1571 ADHD Monitor Fallback Plan
 
 ## Problem
-ADHD mode (`~/.myos/.adhd_mode` exists) requires every Agent spawn to be paired with a Monitor in the same turn. In the →1570 session, the Monitor invocation returned `[Tool result missing due to internal error]` — a known harness bug (→1563). No fallback fired, leaving the user with no proactive heartbeats.
+ADHD mode (`~/.youros/.adhd_mode` exists) requires every Agent spawn to be paired with a Monitor in the same turn. In the →1570 session, the Monitor invocation returned `[Tool result missing due to internal error]` — a known harness bug (→1563). No fallback fired, leaving the user with no proactive heartbeats.
 
 Two failures stacked:
 1. Monitor itself failed silently (harness-side)

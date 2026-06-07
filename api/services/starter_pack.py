@@ -3,7 +3,7 @@
 Admins configure a default set of agents and skills that new org members
 receive automatically during onboarding.
 
-Disk store: ~/.myos/orgs/{org_id}/starter_pack.json
+Disk store: ~/.youros/orgs/{org_id}/starter_pack.json
 Pack shape: {agentfiles: [...], skills: [...], suggested_first_runs: [...]}
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Optional
 
 from services.atomic_io import atomic_write_json
 
-_ORGS_DIR = Path.home() / ".myos" / "orgs"
+_ORGS_DIR = Path.home() / ".youros" / "orgs"
 
 _COMMUNITY_PACK: dict = {
     "agentfiles": [

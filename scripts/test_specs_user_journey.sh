@@ -22,7 +22,7 @@
 set -u
 
 # →1454 plan, Fix 1: redirect spec writes to a tmpdir so this smoke test
-# never accumulates artifacts under ~/.myos/specs/. The backend reads
+# never accumulates artifacts under ~/.youros/specs/. The backend reads
 # MYOS_USER_SPECS_DIR at module load (api/services/ostk.py), so it is the
 # caller's responsibility to restart the backend with this env var set
 # before running the smoke. e2e_smoke.sh sets the same var and child
@@ -41,7 +41,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 API_PORT="${API_PORT:-8000}"
-SSL_CERT="$HOME/.myos/localhost.crt"
+SSL_CERT="$HOME/.youros/localhost.crt"
 if [ -f "$SSL_CERT" ]; then
     API_BASE="${API_BASE:-https://127.0.0.1:${API_PORT}}"
     CURL_OPTS="-k"
@@ -368,7 +368,7 @@ for d in data.get('docs', []):
 
 info "final status: ${final_status}"
 # When all_met=True, the spec either flips to "complete" or gets silently
-# auto-archived (moved to ~/.myos/specs/archive/) per the /api/specs
+# auto-archived (moved to ~/.youros/specs/archive/) per the /api/specs
 # docstring. Either state is correct success.
 if [ "$all_met" = "True" ] && { [ "$final_status" = "complete" ] || [ -z "$final_status" ]; }; then
     if [ -z "$final_status" ]; then

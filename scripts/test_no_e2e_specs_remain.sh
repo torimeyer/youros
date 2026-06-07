@@ -20,7 +20,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 API_PORT="${API_PORT:-8000}"
-SSL_CERT="$HOME/.myos/localhost.crt"
+SSL_CERT="$HOME/.youros/localhost.crt"
 if [ -f "$SSL_CERT" ]; then
     API_BASE="${API_BASE:-https://127.0.0.1:${API_PORT}}"
     CURL_OPTS="-k"

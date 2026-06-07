@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-_MYOS_DIR = Path.home() / ".myos"
+_MYOS_DIR = Path.home() / ".youros"
 
 
 def _org_key_dir(org_id: str) -> Path:

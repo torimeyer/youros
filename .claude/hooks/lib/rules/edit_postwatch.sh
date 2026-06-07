@@ -25,7 +25,7 @@ _edit_postwatch_check() {
 
   # ---- 2. saa-after-3-hypotheses: count edits per file, remind after 3+ ----
   if [ -n "$file_path" ]; then
-    local STATE="${MYOS_EDIT_CYCLES_STATE:-${HOME}/.myos/hooks/edit-cycles.json}"
+    local STATE="${MYOS_EDIT_CYCLES_STATE:-${HOME}/.youros/hooks/edit-cycles.json}"
     mkdir -p "$(dirname "$STATE")" 2>/dev/null || true
     FILE_PATH="$file_path" HOOK_STATE="$STATE" python3 <<'PYEOF' 2>/dev/null
 import os, sys, json, time

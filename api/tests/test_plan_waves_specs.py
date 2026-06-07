@@ -1,7 +1,7 @@
 """Tests for →1428: include_specs toggle on /tasks/waves.
 
 Asserting that GET /tasks/waves?include_specs=true merges open specs
-from ~/.myos/specs/ (excluding archive/) alongside needles.
+from ~/.youros/specs/ (excluding archive/) alongside needles.
 """
 from contextlib import contextmanager
 from pathlib import Path

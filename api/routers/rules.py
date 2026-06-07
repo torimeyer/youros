@@ -1,11 +1,11 @@
 """FastAPI router for the declarative rule-config layer (→1288, wave 4/7).
 
 Surfaces the merged config of `.claude/hooks/lib/default-rules.json` (in-repo
-defaults + schema) overlaid by `~/.myos/rules.json` (per-user, not in repo).
+defaults + schema) overlaid by `~/.youros/rules.json` (per-user, not in repo).
 The frontend `/settings/rules` page uses these endpoints to toggle rules,
 edit their parameters, and view recent firings without hand-editing JSON.
 
-Atomic write pattern for `~/.myos/rules.json`:
+Atomic write pattern for `~/.youros/rules.json`:
   1. Read current file (or {} if missing).
   2. Merge new fields into rules.<key>.
   3. Write to .tmp sibling, then os.rename → atomic on POSIX.
@@ -38,7 +38,7 @@ router = APIRouter()
 # Repo root: api/routers/rules.py → api/routers → api → repo
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_RULES_PATH = _REPO_ROOT / ".claude" / "hooks" / "lib" / "default-rules.json"
-USER_RULES_PATH = Path.home() / ".myos" / "rules.json"
+USER_RULES_PATH = Path.home() / ".youros" / "rules.json"
 RULE_FIRES_LOG = Path.home() / ".claude" / "logs" / "rule-fires.jsonl"
 
 
@@ -76,7 +76,7 @@ def _load_defaults() -> dict:
 
 
 def _load_user() -> dict:
-    """Read ~/.myos/rules.json. Returns the full payload (or {})."""
+    """Read ~/.youros/rules.json. Returns the full payload (or {})."""
     return _load_json(USER_RULES_PATH)
 
 
@@ -188,7 +188,7 @@ async def get_rules() -> list[dict]:
 
 @router.put("/rules/{key}")
 async def put_rule(key: str, body: RuleUpdate) -> dict:
-    """Merge the given enabled/params into ~/.myos/rules.json.rules.<key>.
+    """Merge the given enabled/params into ~/.youros/rules.json.rules.<key>.
 
     Rejects unknown keys (not present in default-rules.json) with 400.
     Writes atomically. Returns the updated row in the same shape as GET.

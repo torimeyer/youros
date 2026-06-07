@@ -8821,7 +8821,7 @@ async def test_session_start_creates_task_and_session_end_closes_it(tmp_path):
 async def test_roadmap_saves_output_to_roadmap_md(tmp_path):
     """When an agent spawned from the Roadmap marketplace template calls
     /complete with its JSON summary, the server must write that output
-    to ~/.myos/files/roadmap.md with a timestamped front matter block.
+    to ~/.youros/files/roadmap.md with a timestamped front matter block.
     """
     from routers import agents as agents_module
     from routers.agents import agent_metadata
@@ -8844,11 +8844,11 @@ async def test_roadmap_saves_output_to_roadmap_md(tmp_path):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         try:
             # Point MYOS_FILES_DIR at the fake home so we do not touch
-            # the real ~/.myos during tests.
+            # the real ~/.youros during tests.
             with patch.object(
                 agents_module,
                 "MYOS_FILES_DIR",
-                fake_home / ".myos" / "files",
+                fake_home / ".youros" / "files",
             ), patch("routers.agents._save_agent_state"), \
                  patch("routers.agents.ostk") as mock_ostk, \
                  patch("config.PROJECT_ROOT", tmp_path):
@@ -8871,7 +8871,7 @@ async def test_roadmap_saves_output_to_roadmap_md(tmp_path):
                 )
 
             assert resp.status_code == 200
-            target = fake_home / ".myos" / "files" / "roadmap.md"
+            target = fake_home / ".youros" / "files" / "roadmap.md"
             assert target.exists(), f"roadmap.md was not written to {target}"
             content = target.read_text()
             assert "kind: roadmap" in content
@@ -8884,7 +8884,7 @@ async def test_roadmap_saves_output_to_roadmap_md(tmp_path):
 @pytest.mark.asyncio
 async def test_roadmap_save_skipped_for_non_roadmap_agents(tmp_path):
     """Only Roadmap-template agents should trigger the file write so
-    unrelated spawns never clobber ~/.myos/files/roadmap.md.
+    unrelated spawns never clobber ~/.youros/files/roadmap.md.
     """
     from routers import agents as agents_module
     from routers.agents import agent_metadata
@@ -8906,7 +8906,7 @@ async def test_roadmap_save_skipped_for_non_roadmap_agents(tmp_path):
         try:
             with patch.object(
                 agents_module, "MYOS_FILES_DIR",
-                fake_home / ".myos" / "files",
+                fake_home / ".youros" / "files",
             ), patch("routers.agents._save_agent_state"), \
                  patch("routers.agents.ostk") as mock_ostk, \
                  patch("config.PROJECT_ROOT", tmp_path):
@@ -8924,7 +8924,7 @@ async def test_roadmap_save_skipped_for_non_roadmap_agents(tmp_path):
                 )
 
             assert resp.status_code == 200
-            target = fake_home / ".myos" / "files" / "roadmap.md"
+            target = fake_home / ".youros" / "files" / "roadmap.md"
             assert not target.exists(), (
                 "Non-roadmap agent should not have written roadmap.md"
             )
@@ -8935,7 +8935,7 @@ async def test_roadmap_save_skipped_for_non_roadmap_agents(tmp_path):
 # ---- Generalized Files-tab artifact capture -------------------------------
 #
 # Every agent run with a non-trivial summary should land a
-# <slug>-<timestamp>.md in ~/.myos/files/, not just the Roadmap template.
+# <slug>-<timestamp>.md in ~/.youros/files/, not just the Roadmap template.
 # These tests cover the generalized hook, the empty-summary skip, and
 # the test-artifact name filter.
 
@@ -8943,7 +8943,7 @@ async def test_roadmap_save_skipped_for_non_roadmap_agents(tmp_path):
 @pytest.mark.asyncio
 async def test_complete_saves_summary_as_md_file_in_myos_files(tmp_path):
     """When an IA Review or PRD agent calls /complete with a long summary,
-    the server writes ~/.myos/files/<slug>-<timestamp>.md with the
+    the server writes ~/.youros/files/<slug>-<timestamp>.md with the
     summary body and a front matter block. This is the generalized
     version of the roadmap capture hook.
     """
@@ -8965,7 +8965,7 @@ async def test_complete_saves_summary_as_md_file_in_myos_files(tmp_path):
     }
     fake_home = tmp_path / "home"
     fake_home.mkdir(exist_ok=True)
-    files_dir = fake_home / ".myos" / "files"
+    files_dir = fake_home / ".youros" / "files"
 
     summary = (
         "IA review findings from the sixth walkthrough. Top five: "
@@ -9014,7 +9014,7 @@ async def test_complete_saves_summary_as_md_file_in_myos_files(tmp_path):
 @pytest.mark.asyncio
 async def test_complete_skips_empty_summary(tmp_path):
     """A short summary like "Done" or "ok" must NOT land in
-    ~/.myos/files/. We only capture real artifacts, not acks.
+    ~/.youros/files/. We only capture real artifacts, not acks.
     """
     from routers import agents as agents_module
     from routers.agents import agent_metadata
@@ -9028,7 +9028,7 @@ async def test_complete_skips_empty_summary(tmp_path):
     }
     fake_home = tmp_path / "home"
     fake_home.mkdir(exist_ok=True)
-    files_dir = fake_home / ".myos" / "files"
+    files_dir = fake_home / ".youros" / "files"
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -9077,7 +9077,7 @@ async def test_complete_skips_test_artifact_agent_names(tmp_path):
     )
     fake_home = tmp_path / "home"
     fake_home.mkdir(exist_ok=True)
-    files_dir = fake_home / ".myos" / "files"
+    files_dir = fake_home / ".youros" / "files"
 
     infra_names = [
         "build-568",
@@ -9155,7 +9155,7 @@ async def test_solo_agent_without_opt_in_does_not_produce_md(tmp_path):
     }
     fake_home = tmp_path / "home"
     fake_home.mkdir(exist_ok=True)
-    files_dir = fake_home / ".myos" / "files"
+    files_dir = fake_home / ".youros" / "files"
 
     summary = (
         "Refactored the payment module. Pulled the validation logic out "
@@ -9205,7 +9205,7 @@ async def test_solo_agent_without_opt_in_does_not_produce_md(tmp_path):
 async def test_agent_with_produces_doc_opt_in_writes_md(tmp_path):
     """An agent whose template carries ``template_produces_doc=True`` in
     metadata (set at spawn time from the template's ``produces_doc``
-    flag) DOES write a .md to ~/.myos/files/ on /complete.
+    flag) DOES write a .md to ~/.youros/files/ on /complete.
     """
     from routers import agents as agents_module
     from routers.agents import agent_metadata
@@ -9222,7 +9222,7 @@ async def test_agent_with_produces_doc_opt_in_writes_md(tmp_path):
     }
     fake_home = tmp_path / "home"
     fake_home.mkdir(exist_ok=True)
-    files_dir = fake_home / ".myos" / "files"
+    files_dir = fake_home / ".youros" / "files"
 
     summary = (
         "Draft PRD for the billing upgrade feature. Problem: monthly "
@@ -10155,7 +10155,7 @@ async def test_externally_registered_agent_keeps_long_window(tmp_path):
 
 def test_complete_agent_hook_posts_to_complete_endpoint(tmp_path, monkeypatch):
     """The PostToolUse hook complete-agent.sh must read the recorded
-    agent name from ~/.myos/subagents/last.name and POST to
+    agent name from ~/.youros/subagents/last.name and POST to
     /api/agents/{name}/complete. Verifies the name handoff between
     register-agent.sh (writes the file) and complete-agent.sh (reads
     it and closes the row)."""
@@ -10170,10 +10170,10 @@ def test_complete_agent_hook_posts_to_complete_endpoint(tmp_path, monkeypatch):
     assert hook_path.exists(), f"Hook missing: {hook_path}"
     assert hook_path.stat().st_mode & 0o111, "Hook must be executable"
 
-    # Point the hook at a fake HOME so we do not touch ~/.myos.
+    # Point the hook at a fake HOME so we do not touch ~/.youros.
     fake_home = tmp_path / "home"
-    (fake_home / ".myos" / "subagents").mkdir(parents=True, exist_ok=True)
-    name_file = fake_home / ".myos" / "subagents" / "last.name"
+    (fake_home / ".youros" / "subagents").mkdir(parents=True, exist_ok=True)
+    name_file = fake_home / ".youros" / "subagents" / "last.name"
     fake_agent_name = "perf-agent-templates-instant-abc123"
     name_file.write_text(fake_agent_name)
 
@@ -10229,7 +10229,7 @@ def test_complete_agent_hook_posts_to_complete_endpoint(tmp_path, monkeypatch):
 def test_complete_agent_hook_uses_tool_use_id_for_parallel_safety(tmp_path):
     """Regression: parallel Agent tool calls must not clobber each other's
     /complete name. Before this fix, register-agent.sh only wrote
-    ``~/.myos/subagents/last.name`` (a single shared file), so when two
+    ``~/.youros/subagents/last.name`` (a single shared file), so when two
     Task calls ran back to back the second spawn's name overwrote the
     first, and the FIRST Task's PostToolUse hook then POSTed /complete
     for the wrong row, leaving its own row stuck at "running" forever.
@@ -10237,7 +10237,7 @@ def test_complete_agent_hook_uses_tool_use_id_for_parallel_safety(tmp_path):
     this race.
 
     After the fix, register-agent.sh writes one file per tool_use_id
-    at ``~/.myos/subagents/by-tool-use/<tool_use_id>.name`` and
+    at ``~/.youros/subagents/by-tool-use/<tool_use_id>.name`` and
     complete-agent.sh reads its matching file, so each PostToolUse
     closes the correct row even when many Task calls overlap."""
     import subprocess
@@ -10249,7 +10249,7 @@ def test_complete_agent_hook_uses_tool_use_id_for_parallel_safety(tmp_path):
     assert register_hook.exists() and complete_hook.exists()
 
     fake_home = tmp_path / "home"
-    (fake_home / ".myos" / "subagents").mkdir(parents=True, exist_ok=True)
+    (fake_home / ".youros" / "subagents").mkdir(parents=True, exist_ok=True)
 
     # Stub curl so the hooks do not hit the real server during tests.
     bin_dir = tmp_path / "bin"
@@ -10305,7 +10305,7 @@ def test_complete_agent_hook_uses_tool_use_id_for_parallel_safety(tmp_path):
     # last.name was overwritten by the second register; per-tool-use
     # files must preserve BOTH names so the first PostToolUse still
     # closes the first row.
-    by_tool_use = fake_home / ".myos" / "subagents" / "by-tool-use"
+    by_tool_use = fake_home / ".youros" / "subagents" / "by-tool-use"
     first_name_path = by_tool_use / f"{first_tui}.name"
     second_name_path = by_tool_use / f"{second_tui}.name"
     assert first_name_path.exists(), "register hook must write first per-tool-use name file"
@@ -10349,7 +10349,7 @@ def test_complete_agent_hook_uses_tool_use_id_for_parallel_safety(tmp_path):
 def test_complete_agent_hook_queues_on_transport_failure(tmp_path):
     """If the /complete POST fails three times in a row (backend down,
     MCP flap, socket error), the hook must park the call in
-    ``~/.myos/subagents/pending-complete.jsonl`` so a later drain
+    ``~/.youros/subagents/pending-complete.jsonl`` so a later drain
     can replay it. Before this fix the hook silently swallowed curl
     errors and the row stayed at "running" forever, which is exactly
     what produced the demo's zombie row."""
@@ -10360,8 +10360,8 @@ def test_complete_agent_hook_queues_on_transport_failure(tmp_path):
     complete_hook = hooks_dir / "complete-agent.sh"
 
     fake_home = tmp_path / "home"
-    (fake_home / ".myos" / "subagents").mkdir(parents=True, exist_ok=True)
-    name_file = fake_home / ".myos" / "subagents" / "last.name"
+    (fake_home / ".youros" / "subagents").mkdir(parents=True, exist_ok=True)
+    name_file = fake_home / ".youros" / "subagents" / "last.name"
     name_file.write_text("queued-agent")
 
     # Fake curl that always fails.
@@ -10387,7 +10387,7 @@ def test_complete_agent_hook_queues_on_transport_failure(tmp_path):
     )
     assert result.returncode == 0, f"Hook must exit cleanly even on total failure: {result.stderr!r}"
 
-    pending = fake_home / ".myos" / "subagents" / "pending-complete.jsonl"
+    pending = fake_home / ".youros" / "subagents" / "pending-complete.jsonl"
     assert pending.exists(), "Hook must queue the failed /complete for later replay"
     payload = pending.read_text().strip()
     assert payload, "Queue file should have at least one entry"
@@ -10434,8 +10434,8 @@ def test_complete_agent_hook_queues_on_transport_failure__isolation_stress(
     )
     complete_hook = hooks_dir / "complete-agent.sh"
     fake_home = tmp_path / "home"
-    (fake_home / ".myos" / "subagents").mkdir(parents=True, exist_ok=True)
-    (fake_home / ".myos" / "subagents" / "last.name").write_text("stress-agent")
+    (fake_home / ".youros" / "subagents").mkdir(parents=True, exist_ok=True)
+    (fake_home / ".youros" / "subagents" / "last.name").write_text("stress-agent")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     fake_curl = bin_dir / "curl"
@@ -10461,7 +10461,7 @@ def test_complete_agent_hook_queues_on_transport_failure__isolation_stress(
             f"Run {i}: hook must exit cleanly: {result.stderr!r}"
         )
 
-    pending = fake_home / ".myos" / "subagents" / "pending-complete.jsonl"
+    pending = fake_home / ".youros" / "subagents" / "pending-complete.jsonl"
     assert pending.exists(), "Hook must have queued the failed /complete"
 
 

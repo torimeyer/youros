@@ -1010,7 +1010,7 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
       }
       if (url.startsWith('/agents')) return { active: [], agents: [] }
       if (url === '/gmail/auth/status') return { authenticated: false, unread_count: 0 }
-      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      if (url === '/upgrade/status') return { youros: { current: 'v1.0.0' } }
       return {}
     })
 
@@ -1042,7 +1042,7 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
       }
       if (url.startsWith('/agents')) return { active: [], agents: [] }
       if (url === '/gmail/auth/status') return { authenticated: false, unread_count: 0 }
-      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      if (url === '/upgrade/status') return { youros: { current: 'v1.0.0' } }
       return {}
     })
 
@@ -1080,7 +1080,7 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
       }
       if (url.startsWith('/agents')) return { active: [], agents: [] }
       if (url === '/gmail/auth/status') return { authenticated: false, unread_count: 0 }
-      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      if (url === '/upgrade/status') return { youros: { current: 'v1.0.0' } }
       return {}
     })
 
@@ -1121,7 +1121,7 @@ describe('Sidebar backend status dot (→1229)', () => {
     mockedApiGet.mockImplementation(async (url: string) => {
       if (url === '/status/clock') return { kernel: 'v2.5.0' }
       if (url.startsWith('/agents')) return { active: [], agents: [] }
-      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      if (url === '/upgrade/status') return { youros: { current: 'v1.0.0' } }
       return {}
     })
     render(<MemoryRouter><Sidebar /></MemoryRouter>)
@@ -1136,7 +1136,7 @@ describe('Sidebar backend status dot (→1229)', () => {
     mockedApiGet.mockImplementation(async (url: string) => {
       if (url === '/status/clock') throw new Error('ECONNREFUSED')
       if (url.startsWith('/agents')) return { active: [], agents: [] }
-      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      if (url === '/upgrade/status') return { youros: { current: 'v1.0.0' } }
       return {}
     })
     render(<MemoryRouter><Sidebar /></MemoryRouter>)
@@ -1160,7 +1160,7 @@ describe('Sidebar backend status dot (→1229)', () => {
         throw new Error('ECONNREFUSED')
       }
       if (url.startsWith('/agents')) return { active: [], agents: [] }
-      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      if (url === '/upgrade/status') return { youros: { current: 'v1.0.0' } }
       return {}
     })
     render(<MemoryRouter><Sidebar /></MemoryRouter>)
@@ -1189,7 +1189,7 @@ describe('Sidebar backend status dot (→1229)', () => {
     mockedApiGet.mockImplementation(async (url: string) => {
       if (url === '/status/clock') throw new Error('ECONNREFUSED')
       if (url.startsWith('/agents')) return { active: [], agents: [] }
-      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      if (url === '/upgrade/status') return { youros: { current: 'v1.0.0' } }
       return {}
     })
     render(<MemoryRouter><Sidebar /></MemoryRouter>)
@@ -1210,7 +1210,7 @@ describe('Sidebar backend status dot (→1229)', () => {
         return { kernel: 'v2.5.0' }
       }
       if (url.startsWith('/agents')) return { active: [], agents: [] }
-      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      if (url === '/upgrade/status') return { youros: { current: 'v1.0.0' } }
       return {}
     })
     render(<MemoryRouter><Sidebar /></MemoryRouter>)
@@ -1234,7 +1234,7 @@ describe('Sidebar backend status dot (→1229)', () => {
     mockedApiGet.mockImplementation(async (url: string) => {
       if (url === '/status/clock') return { kernel: 'v4.0.0' }
       if (url.startsWith('/agents')) return { active: [], agents: [] }
-      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      if (url === '/upgrade/status') return { youros: { current: 'v1.0.0' } }
       return {}
     })
     render(<MemoryRouter><Sidebar /></MemoryRouter>)
@@ -1261,7 +1261,7 @@ describe('Sidebar status panel does not expose Claude indicator', () => {
       if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
       if (url === '/sessions/active') return Promise.resolve({ active_count: 0 })
       if (url === '/status/clock') return Promise.resolve({ kernel: 'v4.0.0' })
-      if (url === '/upgrade/status') return Promise.resolve({ myos: { current: 'v4.0.0' } })
+      if (url === '/upgrade/status') return Promise.resolve({ youros: { current: 'v4.0.0' } })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
   })
@@ -1328,7 +1328,7 @@ describe('Sidebar status panel never shows a sessions count (regression)', () =>
       if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
       if (url === '/sessions/active') return Promise.resolve(payload)
       if (url === '/status/clock') return Promise.resolve({ kernel: 'v4.0.0' })
-      if (url === '/upgrade/status') return Promise.resolve({ myos: { current: 'v4.0.0' } })
+      if (url === '/upgrade/status') return Promise.resolve({ youros: { current: 'v4.0.0' } })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
   }

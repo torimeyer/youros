@@ -21,13 +21,13 @@
 # the row at 15 minutes even though the subagent is still running.
 #
 # Portability notes for the global install:
-#   - All state lives under ~/.myos/ (not inside the project repo),
+#   - All state lives under ~/.youros/ (not inside the project repo),
 #     so it works identically for every project directory.
-#   - API base URL: read from ~/.myos/config.json ("api_base") or
+#   - API base URL: read from ~/.youros/config.json ("api_base") or
 #     the TORIOS_API_BASE environment variable, defaulting to the
 #     local HTTPS listener at https://127.0.0.1:8000.
 #   - heartbeat_idle.py lives inside the torios repo. We resolve the
-#     repo via ~/.myos/config.json ("torios_repo"), the TORIOS_REPO
+#     repo via ~/.youros/config.json ("torios_repo"), the TORIOS_REPO
 #     env var, a handful of well-known install paths, and finally
 #     $CLAUDE_PROJECT_DIR (only if it already looks like the torios
 #     repo). If none of those succeed the heartbeat loop still runs
@@ -44,13 +44,13 @@ TRANSCRIPT_IDLE_SECONDS=120
 INPUT=$(cat)
 
 # --- Resolve API base (portable, non-torios friendly) -----------------
-# Order: TORIOS_API_BASE env > ~/.myos/config.json > default HTTPS local.
+# Order: TORIOS_API_BASE env > ~/.youros/config.json > default HTTPS local.
 API_BASE="${TORIOS_API_BASE:-}"
-if [ -z "$API_BASE" ] && [ -f "$HOME/.myos/config.json" ]; then
+if [ -z "$API_BASE" ] && [ -f "$HOME/.youros/config.json" ]; then
     API_BASE=$(python3 -c "
 import json, os
 try:
-    d = json.load(open(os.path.expanduser('~/.myos/config.json')))
+    d = json.load(open(os.path.expanduser('~/.youros/config.json')))
     v = d.get('api_base')
     if isinstance(v, str) and v.strip():
         print(v.strip())
@@ -66,11 +66,11 @@ fi
 # Only used by the heartbeat loop. If nothing resolves, the heartbeat
 # loop skips the idle-check and relies on the server stale sweep.
 TORIOS_REPO_DIR="${TORIOS_REPO:-}"
-if [ -z "$TORIOS_REPO_DIR" ] && [ -f "$HOME/.myos/config.json" ]; then
+if [ -z "$TORIOS_REPO_DIR" ] && [ -f "$HOME/.youros/config.json" ]; then
     TORIOS_REPO_DIR=$(python3 -c "
 import json, os
 try:
-    d = json.load(open(os.path.expanduser('~/.myos/config.json')))
+    d = json.load(open(os.path.expanduser('~/.youros/config.json')))
     v = d.get('torios_repo')
     if isinstance(v, str) and v.strip():
         print(os.path.expanduser(v.strip()))
@@ -98,10 +98,10 @@ if [ -z "$TORIOS_REPO_DIR" ] || [ ! -f "$TORIOS_REPO_DIR/api/services/heartbeat_
     fi
 fi
 
-# Debug: capture the raw PreToolUse payload. Always lives under ~/.myos/
+# Debug: capture the raw PreToolUse payload. Always lives under ~/.youros/
 # so it works no matter which project this hook fires from. Ring-buffer
 # the last 400 lines; truncate each payload to 5000 bytes.
-_DBG_LOG="$HOME/.myos/subagents/register-debug.log"
+_DBG_LOG="$HOME/.youros/subagents/register-debug.log"
 mkdir -p "$(dirname "$_DBG_LOG")" 2>/dev/null || true
 {
     printf '=== %s ===\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -280,8 +280,8 @@ if [ -z "$BODY" ]; then
     exit 0
 fi
 
-mkdir -p "$HOME/.myos/subagents" 2>/dev/null || true
-PENDING_QUEUE="$HOME/.myos/subagents/pending-register.jsonl"
+mkdir -p "$HOME/.youros/subagents" 2>/dev/null || true
+PENDING_QUEUE="$HOME/.youros/subagents/pending-register.jsonl"
 REGISTER_OK=0
 for delay in 1 2 4 8 16; do
     if curl -sSk --connect-timeout 3 -m 5 \
@@ -311,24 +311,24 @@ fi
 
 REGISTERED_AT=$(date +%s)
 
-printf '%s' "$AGENT_NAME" > "$HOME/.myos/subagents/last.name" 2>/dev/null || true
+printf '%s' "$AGENT_NAME" > "$HOME/.youros/subagents/last.name" 2>/dev/null || true
 if [ "$RUN_IN_BACKGROUND" = "1" ]; then
-    printf '1' > "$HOME/.myos/subagents/last.bg" 2>/dev/null || true
+    printf '1' > "$HOME/.youros/subagents/last.bg" 2>/dev/null || true
 else
-    : > "$HOME/.myos/subagents/last.bg" 2>/dev/null || true
+    : > "$HOME/.youros/subagents/last.bg" 2>/dev/null || true
 fi
 if [ -n "$TOOL_USE_ID" ]; then
-    mkdir -p "$HOME/.myos/subagents/by-tool-use" 2>/dev/null || true
+    mkdir -p "$HOME/.youros/subagents/by-tool-use" 2>/dev/null || true
     SAFE_TUI=$(printf '%s' "$TOOL_USE_ID" | tr -c 'a-zA-Z0-9_-' '_' | cut -c1-128)
     printf '%s' "$AGENT_NAME" \
-        > "$HOME/.myos/subagents/by-tool-use/$SAFE_TUI.name" 2>/dev/null || true
+        > "$HOME/.youros/subagents/by-tool-use/$SAFE_TUI.name" 2>/dev/null || true
     if [ "$RUN_IN_BACKGROUND" = "1" ]; then
         printf '1' \
-            > "$HOME/.myos/subagents/by-tool-use/$SAFE_TUI.bg" 2>/dev/null || true
+            > "$HOME/.youros/subagents/by-tool-use/$SAFE_TUI.bg" 2>/dev/null || true
     fi
 fi
 printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$AGENT_NAME" \
-    >> "$HOME/.myos/subagents/history.log" 2>/dev/null || true
+    >> "$HOME/.youros/subagents/history.log" 2>/dev/null || true
 
 # Detached heartbeat loop. Keeps the subagent row alive while it works.
 # Exits when the agent reaches a terminal status, the 45 minute TTL is

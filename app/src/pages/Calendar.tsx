@@ -233,7 +233,7 @@ export function getEventDate(ev: CalendarEvent): string {
 // Seed the event list from localStorage so the page paints rows
 // immediately on a return visit instead of showing a spinner while
 // the Calendar API (or the backend cache) responds. The backend
-// server cache lives in ~/.myos/calendar_cache and uses a 15 minute
+// server cache lives in ~/.youros/calendar_cache and uses a 15 minute
 // TTL, which means on every cache miss the user waits 400ms for the
 // disk-backed round trip. Painting from localStorage hides that
 // latency entirely. Same pattern as Gmail/Tasks. Needle 316.
@@ -533,7 +533,7 @@ export default function Calendar() {
       window.location.href = res.url
     } catch {
       setConnectError(
-        'Could not get the sign-in link. Make sure the yourOS backend is running and your Google credentials file is saved at ~/.myos/google_credentials.json.'
+        'Could not get the sign-in link. Make sure the yourOS backend is running and your Google credentials file is saved at ~/.youros/google_credentials.json.'
       )
     }
   }

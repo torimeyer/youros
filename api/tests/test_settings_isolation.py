@@ -1,17 +1,17 @@
 """
-Regression tests for →1345: e2e tests must not pollute ~/.myos/settings.json.
+Regression tests for →1345: e2e tests must not pollute ~/.youros/settings.json.
 
-The fix: settings_store.py respects the MYOS_HOME environment variable.
-When it is set, all reads and writes go to that directory instead of ~/.myos.
+The fix: settings_store.py respects the YOUROS_HOME environment variable.
+When it is set, all reads and writes go to that directory instead of ~/.youros.
 
 These tests prove that:
-  1. SETTINGS_PATH is computed from MYOS_HOME when the env var is set.
-  2. Writing through SettingsStore with MYOS_HOME set never touches the real
-     ~/.myos/settings.json.
-  3. Reading through SettingsStore with MYOS_HOME set pulls from the isolated
+  1. SETTINGS_PATH is computed from YOUROS_HOME when the env var is set.
+  2. Writing through SettingsStore with YOUROS_HOME set never touches the real
+     ~/.youros/settings.json.
+  3. Reading through SettingsStore with YOUROS_HOME set pulls from the isolated
      directory, not the real one.
-  4. The real ~/.myos/settings.json hash is unchanged after a full
-     SettingsStore lifecycle (init + update) under MYOS_HOME isolation.
+  4. The real ~/.youros/settings.json hash is unchanged after a full
+     SettingsStore lifecycle (init + update) under YOUROS_HOME isolation.
 """
 
 import hashlib
@@ -35,22 +35,22 @@ def _sha256(path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Fixture: isolated MYOS_HOME
+# Fixture: isolated YOUROS_HOME
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
 def isolated_store(tmp_path, monkeypatch):
     """
-    Yield a (fresh_module, isolated_dir) tuple with MYOS_HOME redirected to
+    Yield a (fresh_module, isolated_dir) tuple with YOUROS_HOME redirected to
     a temporary directory for the duration of the test.
 
     The module is reloaded so SETTINGS_PATH is recomputed from the new env
-    var.  On teardown, MYOS_HOME is removed and the module is reloaded again
-    so the global singleton goes back to the real ~/.myos path.
+    var.  On teardown, YOUROS_HOME is removed and the module is reloaded again
+    so the global singleton goes back to the real ~/.youros path.
     """
     isolated_dir = tmp_path / "myos-isolated"
     isolated_dir.mkdir(exist_ok=True)
-    monkeypatch.setenv("MYOS_HOME", str(isolated_dir))
+    monkeypatch.setenv("YOUROS_HOME", str(isolated_dir))
 
     import services.settings_store as ss_mod
     importlib.reload(ss_mod)
@@ -58,7 +58,7 @@ def isolated_store(tmp_path, monkeypatch):
     yield ss_mod, isolated_dir
 
     # Teardown: restore the module to the real path.
-    monkeypatch.delenv("MYOS_HOME", raising=False)
+    monkeypatch.delenv("YOUROS_HOME", raising=False)
     importlib.reload(ss_mod)
 
 
@@ -67,7 +67,7 @@ def isolated_store(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_settings_path_uses_myos_home(isolated_store):
-    """SETTINGS_PATH reflects MYOS_HOME immediately after module reload."""
+    """SETTINGS_PATH reflects YOUROS_HOME immediately after module reload."""
     ss_mod, isolated_dir = isolated_store
     assert ss_mod.SETTINGS_PATH == isolated_dir / "settings.json", (
         f"Expected {isolated_dir / 'settings.json'}, got {ss_mod.SETTINGS_PATH}"
@@ -75,10 +75,10 @@ def test_settings_path_uses_myos_home(isolated_store):
 
 
 def test_write_does_not_touch_real_settings(isolated_store):
-    """Updating settings under MYOS_HOME isolation never modifies ~/.myos/settings.json."""
+    """Updating settings under YOUROS_HOME isolation never modifies ~/.youros/settings.json."""
     ss_mod, _ = isolated_store
 
-    real_settings = Path.home() / ".myos" / "settings.json"
+    real_settings = Path.home() / ".youros" / "settings.json"
     before_hash = _sha256(real_settings)
 
     store = ss_mod.SettingsStore()
@@ -119,7 +119,7 @@ def test_read_comes_from_isolated_dir(isolated_store):
     assert data["os_name"] == "seed-value-only-in-isolated"
 
     # Real settings should have a different (or absent) os_name.
-    real_settings = Path.home() / ".myos" / "settings.json"
+    real_settings = Path.home() / ".youros" / "settings.json"
     if real_settings.exists():
         real_data = json.loads(real_settings.read_text())
         assert real_data.get("os_name") != "seed-value-only-in-isolated", (
@@ -128,10 +128,10 @@ def test_read_comes_from_isolated_dir(isolated_store):
 
 
 def test_init_does_not_touch_real_settings(isolated_store):
-    """SettingsStore() construction (which creates the file) never touches ~/.myos."""
+    """SettingsStore() construction (which creates the file) never touches ~/.youros."""
     ss_mod, _ = isolated_store
 
-    real_settings = Path.home() / ".myos" / "settings.json"
+    real_settings = Path.home() / ".youros" / "settings.json"
     before_hash = _sha256(real_settings)
 
     # Init creates the isolated settings file if it doesn't exist.
@@ -147,18 +147,18 @@ def test_init_does_not_touch_real_settings(isolated_store):
 
 
 def test_default_path_after_teardown(tmp_path, monkeypatch):
-    """After removing MYOS_HOME, SETTINGS_PATH goes back to the real ~/.myos path."""
+    """After removing YOUROS_HOME, SETTINGS_PATH goes back to the real ~/.youros path."""
     isolated_dir = tmp_path / "temp-isolated"
     isolated_dir.mkdir(exist_ok=True)
-    monkeypatch.setenv("MYOS_HOME", str(isolated_dir))
+    monkeypatch.setenv("YOUROS_HOME", str(isolated_dir))
 
     import services.settings_store as ss_mod
     importlib.reload(ss_mod)
     assert ss_mod.SETTINGS_PATH == isolated_dir / "settings.json"
 
-    monkeypatch.delenv("MYOS_HOME", raising=False)
+    monkeypatch.delenv("YOUROS_HOME", raising=False)
     importlib.reload(ss_mod)
-    expected = Path.home() / ".myos" / "settings.json"
+    expected = Path.home() / ".youros" / "settings.json"
     assert ss_mod.SETTINGS_PATH == expected, (
-        f"After removing MYOS_HOME, expected {expected}, got {ss_mod.SETTINGS_PATH}"
+        f"After removing YOUROS_HOME, expected {expected}, got {ss_mod.SETTINGS_PATH}"
     )

@@ -1,7 +1,7 @@
 """Google Calendar service.
 
 Fetches events from the user's primary calendar and caches them locally.
-Cache lives in ~/.myos/calendar_cache/ -- never inside the repo.
+Cache lives in ~/.youros/calendar_cache/ -- never inside the repo.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from pathlib import Path
 from services.atomic_io import atomic_write_text
 from services.google_auth import get_credentials, is_authenticated
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 CALENDAR_CACHE_DIR = MYOS_DIR / "calendar_cache"
 EVENTS_CACHE_PATH = CALENDAR_CACHE_DIR / "events.json"
 

@@ -3,7 +3,7 @@
 AC SC-007: POST /api/narrative/draft/{id}/promote
 AC SC-008: GET /api/narrative/drafts (summary fields), GET /api/narrative/draft/{id}
 
-Tests use tmp_path via MYOS_DIR env var — never touch real ~/.myos/.
+Tests use tmp_path via MYOS_DIR env var — never touch real ~/.youros/.
 RED tests for →1658 added below (draft body must be non-trivial, heading must say Progress Updates).
 """
 
@@ -130,7 +130,7 @@ async def test_get_single_draft_404_when_not_found(client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_promote_writes_spec_file(client, tmp_path):
-    """Promote writes a markdown spec to ~/.myos/specs/narrative-{id}.md."""
+    """Promote writes a markdown spec to ~/.youros/specs/narrative-{id}.md."""
     draft_id = "cccc-3333-test"
     _write_draft(tmp_path, draft_id, audience="exec")
 
@@ -156,7 +156,7 @@ async def test_promote_writes_spec_file(client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_promote_creates_specs_dir_if_missing(client, tmp_path):
-    """Promote creates ~/.myos/specs/ if it doesn't already exist."""
+    """Promote creates ~/.youros/specs/ if it doesn't already exist."""
     draft_id = "dddd-4444-test"
     _write_draft(tmp_path, draft_id)
 
@@ -235,7 +235,7 @@ async def test_bdd_promote_then_spec_exists_and_task_created(client, tmp_path):
 
     Given a persisted narrative draft,
     When POST /api/narrative/draft/{id}/promote is called,
-    Then a spec file at ~/.myos/specs/narrative-{id}.md exists with valid frontmatter,
+    Then a spec file at ~/.youros/specs/narrative-{id}.md exists with valid frontmatter,
     And a tracking task was created with source='narrative' and source_ref=draft_id.
     """
     draft_id = "bdd-invariant-test"
@@ -356,17 +356,24 @@ async def test_gather_sources_includes_closed_needles(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_gather_sources_includes_recent_git_commits():
+async def test_gather_sources_includes_recent_git_commits(tmp_path):
     """_gather_sources must include recent git commits as sources (RED → GREEN in →1659).
 
     Commit messages are the most reliable signal of what shipped. The generator
     currently ignores git history entirely.
     """
+    import subprocess
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path)
+    (tmp_path / "README.md").write_text("hello")
+    subprocess.run(["git", "add", "README.md"], cwd=tmp_path)
+    subprocess.run(["git", "commit", "-m", "initial commit", "--no-verify"], cwd=tmp_path)
+
     from routers.narrative import _gather_sources
 
     with patch("services.atlassian.is_connected", return_value=False):
         sources = await _gather_sources(window_days=30)
-
     commit_sources = [s for s in sources if s["kind"] == "git_commit"]
     assert commit_sources, (
         "Expected git_commit sources — currently _gather_sources never calls git log. "

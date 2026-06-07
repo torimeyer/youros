@@ -1,7 +1,7 @@
 """Tests for services.automation_outputs.
 
 Every automation run (fleet, solo agent, workflow) must produce a
-persistent .md file in ``~/.myos/files/`` so it shows up on the Files
+persistent .md file in ``~/.youros/files/`` so it shows up on the Files
 tab, and must parse any next-step bullets into real tasks via the
 shared ``schedule_auto_labels`` hook. These tests lock that contract.
 """
@@ -271,7 +271,7 @@ async def test_auto_create_tasks_swallows_single_item_failure():
 @pytest.mark.asyncio
 async def test_fleet_member_complete_writes_md_file(tmp_path: Path):
     """A fleet member calling /complete writes an .md file in
-    ~/.myos/files/ even though its name matches the infra-noise regex.
+    ~/.youros/files/ even though its name matches the infra-noise regex.
     """
     from routers import agents as agents_module
     from routers.agents import agent_metadata
@@ -290,7 +290,7 @@ async def test_fleet_member_complete_writes_md_file(tmp_path: Path):
     }
 
     fake_home = tmp_path / "home"
-    files_dir = fake_home / ".myos" / "files"
+    files_dir = fake_home / ".youros" / "files"
 
     summary = (
         "Wrote the PRD for the Build a Website fleet. Audience: internal "
@@ -389,7 +389,7 @@ async def test_recent_docs_includes_fleet_artifact(tmp_path: Path):
     }
 
     fake_home = tmp_path / "home"
-    files_dir = fake_home / ".myos" / "files"
+    files_dir = fake_home / ".youros" / "files"
 
     summary = (
         "Produced index.html for the Build a Website fleet. Single-file "
@@ -448,12 +448,12 @@ async def test_recent_docs_includes_fleet_artifact(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_workflow_run_writes_rollup_artifact_and_tasks(tmp_path: Path):
     """run_workflow's terminal branch must write a rollup .md file to
-    ~/.myos/files/ and create a task per aggregated next-step bullet.
+    ~/.youros/files/ and create a task per aggregated next-step bullet.
     """
     from services import workflows, automation_outputs
 
     fake_home = tmp_path / "home"
-    files_dir = fake_home / ".myos" / "files"
+    files_dir = fake_home / ".youros" / "files"
 
     # Simulate a completed workflow by invoking the writer helper
     # directly. The full run_workflow path also fires this helper at

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
-const hasCerts = existsSync(join(homedir(), '.myos', 'localhost.key'))
+const hasCerts = existsSync(join(homedir(), '.youros', 'localhost.key'))
 const scheme = hasCerts ? 'https' : 'http'
 
 export default defineConfig({

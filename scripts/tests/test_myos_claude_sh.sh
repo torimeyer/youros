@@ -20,11 +20,11 @@ tmp_dir=$(mktemp -d -t myos-claude-test-XXXXXX)
 trap 'rm -rf "$tmp_dir"' EXIT
 
 FAKE_HOME="$tmp_dir/home"
-FAKE_HOOK="$FAKE_HOME/.myos/hooks/register-agent.sh"
+FAKE_HOOK="$FAKE_HOME/.youros/hooks/register-agent.sh"
 FAKE_REPO="$tmp_dir/repo"
 SETTINGS="$FAKE_REPO/.claude/settings.local.json"
 
-mkdir -p "$FAKE_HOME/.myos/hooks" "$FAKE_REPO"
+mkdir -p "$FAKE_HOME/.youros/hooks" "$FAKE_REPO"
 printf '#!/bin/bash\nexit 0\n' > "$FAKE_HOOK"
 chmod +x "$FAKE_HOOK"
 

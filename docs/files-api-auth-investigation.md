@@ -99,7 +99,7 @@ is available.
   The question is whether that's worth a separate API key and billing account.
 - **If yes:** Set `ANTHROPIC_API_KEY` and run `scripts/populate-ostk-file-cache.py`
   on the three candidate files (MEMORY.md, ~/claude/CLAUDE.md, torios/CLAUDE.md).
-  Verify first `rewrites_applied > 0` event in `.myos/ostk-cache-rewrite-events.jsonl`.
+  Verify first `rewrites_applied > 0` event in `.youros/ostk-cache-rewrite-events.jsonl`.
 - **Correction to earlier research:** Update `docs/ostk-cache-mechanism-4-research.md`
   to remove the "expire ~30 days" claim — files persist indefinitely until deleted,
   which simplifies the refresh strategy (only re-upload on content change).

@@ -10,9 +10,9 @@ const PRIVACY_SECTIONS: { heading: string; body: string[] }[] = [
     heading: 'What torios stores, and where',
     body: [
       'Everything torios keeps about you lives in two places on your own disk:',
-      '\u2022 ~/.myos/ \u2014 tasks, notes, chat history, agent transcripts, preferences, and any files you drop into torios.',
+      '\u2022 ~/.youros/ \u2014 tasks, notes, chat history, agent transcripts, preferences, and any files you drop into torios.',
       '\u2022 The torios application folder \u2014 the program itself, never your personal content.',
-      'Nothing in those folders is sent to torios. If you delete ~/.myos/, your torios data is gone.',
+      'Nothing in those folders is sent to torios. If you delete ~/.youros/, your torios data is gone.',
     ],
   },
   {
@@ -29,9 +29,9 @@ const PRIVACY_SECTIONS: { heading: string; body: string[] }[] = [
   {
     heading: 'Your data, your call',
     body: [
-      'Export \u2014 everything is already a plain file under ~/.myos/. Copy that folder and you have your data.',
-      'Delete \u2014 remove ~/.myos/ and disconnect any integrations in their respective account settings. Optionally revoke the keys you issued to torios.',
-      'Move to another computer \u2014 copy ~/.myos/ across. torios will pick it up on launch.',
+      'Export \u2014 everything is already a plain file under ~/.youros/. Copy that folder and you have your data.',
+      'Delete \u2014 remove ~/.youros/ and disconnect any integrations in their respective account settings. Optionally revoke the keys you issued to torios.',
+      'Move to another computer \u2014 copy ~/.youros/ across. torios will pick it up on launch.',
     ],
   },
 ];

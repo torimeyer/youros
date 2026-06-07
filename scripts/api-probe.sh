@@ -2,7 +2,7 @@
 # api-probe.sh: scheme-aware helper to talk to the myOS backend on :8000.
 #
 # WHY THIS EXISTS (→457 pattern, recurring):
-#   dev-backend.sh serves HTTPS whenever ~/.myos/localhost.{key,crt} exist.
+#   dev-backend.sh serves HTTPS whenever ~/.youros/localhost.{key,crt} exist.
 #   A plain-HTTP curl to https-uvicorn gets exit 52 "Empty reply from
 #   server" because the TLS layer sees a non-TLS ClientHello and closes
 #   the socket without writing an HTTP response. The symptom looks
@@ -36,8 +36,8 @@ set -u
 
 API_PORT="${API_PORT:-8000}"
 
-SSL_KEY="$HOME/.myos/localhost.key"
-SSL_CERT="$HOME/.myos/localhost.crt"
+SSL_KEY="$HOME/.youros/localhost.key"
+SSL_CERT="$HOME/.youros/localhost.crt"
 if [ -f "$SSL_KEY" ] && [ -f "$SSL_CERT" ]; then
     _default_base="https://127.0.0.1:${API_PORT}"
     _default_opts="-sSk --connect-timeout 3 -m 5"

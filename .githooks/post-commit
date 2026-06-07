@@ -11,7 +11,7 @@ set -u
 # Load subject_types_close from rules.json (with fallback to hardcoded defaults).
 _REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
 _DEFAULTS="${_REPO_ROOT}/.claude/hooks/lib/default-rules.json"
-_USER_RULES="${HOME}/.myos/rules.json"
+_USER_RULES="${HOME}/.youros/rules.json"
 SUBJECT_TYPES=$(python3 -c "
 import json, os, sys
 def load(p):

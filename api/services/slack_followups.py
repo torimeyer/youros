@@ -1,6 +1,6 @@
 """Slack follow-up storage service.
 
-Flags are persisted to ~/.myos/slack_followups.json using the same
+Flags are persisted to ~/.youros/slack_followups.json using the same
 atomic-write pattern as other myOS data stores. All reads are
 non-throwing: a missing or corrupted file returns an empty list.
 """
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from services.atomic_io import atomic_write_json
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 FOLLOWUPS_PATH = MYOS_DIR / "slack_followups.json"
 
 

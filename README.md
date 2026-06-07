@@ -4,7 +4,7 @@ Your personal AI operating system. A local web app that gives you a workspace wi
 
 ## How it works
 
-yourOS runs entirely on your computer. You open it in your browser at localhost, no account or login needed. All your data lives in `~/.myos/` and never leaves your machine unless you connect an integration like Gmail or Slack, in which case those requests go directly from your machine to the provider. yourOS is not a cloud service.
+yourOS runs entirely on your computer. You open it in your browser at localhost, no account or login needed. All your data lives in `~/.youros/` and never leaves your machine unless you connect an integration like Gmail or Slack, in which case those requests go directly from your machine to the provider. yourOS is not a cloud service.
 
 Icons and fonts are loaded from Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`). If your network blocks those hosts, the UI will still work but icons will render as text labels. See Troubleshooting below.
 
@@ -32,7 +32,7 @@ When you spawn Claude Code Task-tool subagents, yourOS can register them on its 
 | **Per-session** | `cd some-project && myos-claude` | You occasionally want tracking — one Claude Code session at a time. Wrapper script that cleans up on exit, so the next plain `claude` in that dir isn't tracked. |
 | **Machine-wide** | `./install.sh --with-claude-hooks` | You use yourOS as your daily dashboard for all Claude Code activity. Installs a hook at `~/.claude/hooks/register-agent.sh` that fires on every Claude Code session on this machine. `./uninstall.sh` removes it. |
 
-All three point at the same hook file at `~/.myos/hooks/register-agent.sh`, which `install.sh` stages automatically.
+All three point at the same hook file at `~/.youros/hooks/register-agent.sh`, which `install.sh` stages automatically.
 
 ### On Linux
 
@@ -82,7 +82,7 @@ cd ~/myos
 ./update.sh
 ```
 
-Your settings, chats, tasks, and labels live in `~/.myos/` (separate from the repo) and are never touched by updates. You can also verify this by running `ls -la ~/.myos/` before and after.
+Your settings, chats, tasks, and labels live in `~/.youros/` (separate from the repo) and are never touched by updates. You can also verify this by running `ls -la ~/.youros/` before and after.
 
 ## Uninstall
 
@@ -90,7 +90,7 @@ Your settings, chats, tasks, and labels live in `~/.myos/` (separate from the re
 ./uninstall.sh
 ```
 
-Stops running yourOS processes and removes what `install.sh` put in the repo: `api/.venv`, `app/node_modules`, `app/dist`, `.mcp.json`, and the `myos` / `myos-update` shell aliases. Keeps `~/.myos/` (your tasks, chats, settings), ostk, and the localhost cert trust — so re-running `./install.sh` brings you right back.
+Stops running yourOS processes and removes what `install.sh` put in the repo: `api/.venv`, `app/node_modules`, `app/dist`, `.mcp.json`, and the `myos` / `myos-update` shell aliases. Keeps `~/.youros/` (your tasks, chats, settings), ostk, and the localhost cert trust — so re-running `./install.sh` brings you right back.
 
 To truly reset to a clean slate (useful when testing a fresh install):
 
@@ -98,7 +98,7 @@ To truly reset to a clean slate (useful when testing a fresh install):
 ./uninstall.sh --purge
 ```
 
-Also removes `~/.myos/` (DESTROYS ALL USER DATA), stops the ostk daemon, removes `~/.local/bin/ostk` and `~/.cache/ostk`, and removes the localhost cert from the macOS login Keychain. Prompts before each destructive step — add `--yes` to skip prompts.
+Also removes `~/.youros/` (DESTROYS ALL USER DATA), stops the ostk daemon, removes `~/.local/bin/ostk` and `~/.cache/ostk`, and removes the localhost cert from the macOS login Keychain. Prompts before each destructive step — add `--yes` to skip prompts.
 
 The repo directory is never deleted. Remove it yourself with `rm -rf <path>` when you're done.
 
@@ -270,10 +270,10 @@ Open `roadmap.html` in your browser to see the three-year plan.
 
 The product is called **yourOS** on every screen you see. Under the hood, engineering keeps the old `myos` name in identifiers that would break or lose data if changed:
 
-- `~/.myos/` — the user data directory (renaming moves no data and risks orphaning 200MB+ of history)
+- `~/.youros/` — the user data directory (renaming moves no data and risks orphaning 200MB+ of history)
 - `MYOS_*` environment variables — 36 of them; renaming requires coordinated operator changes
 - `youros-backend` / `youros-frontend` PM2 process names and PID files
-- `com.myos.ostk-watchdog` launchd plist (installed at `~/Library/LaunchAgents/`)
+- `com.youros.ostk-watchdog` launchd plist (installed at `~/Library/LaunchAgents/`)
 - `myos.` localStorage key prefixes — renaming clears browser state
 - `/api/health` returns `{"service":"myos-api"}` — e2e smoke tests grep this string
 - `BACKEND_SESSION_PREFIX = "myos-api-"` — names ostk session directories

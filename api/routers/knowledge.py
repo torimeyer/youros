@@ -23,7 +23,7 @@ from services.source_library import SOURCES_BASE
 
 router = APIRouter(tags=["knowledge"])
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 KNOWLEDGE_PATH = MYOS_DIR / "knowledge.json"
 
 _ALLOWED_TYPES = {"pdf", "md", "docx", "txt"}

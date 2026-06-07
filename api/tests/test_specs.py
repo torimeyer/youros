@@ -34,11 +34,10 @@ async def test_create_draft_stays_draft_until_promoted(
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
     # create_draft (kind='spec') writes directly to USER_DRAFTS_DIR (→2104),
-    # so point it at tmp_path/docs/draft instead of the real ~/.myos/drafts.
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", tmp_path / "docs" / "draft")
+    # so point it at tmp_path/docs/draft instead of the real ~/.youros/drafts.
 
     draft_file = tmp_path / "docs" / "draft" / "wave2-autopromote.md"
     spec_file = tmp_path / "docs" / "spec" / "wave2-autopromote.md"
@@ -104,7 +103,7 @@ async def test_build_locked_spec_is_paused(client, tmp_path, monkeypatch):
     from routers import specs as specs_router
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     spec = tmp_path / "docs" / "spec" / "locked.md"
     spec.write_text(
         "---\ntitle: Locked\nstatus: ready\ntype: engineering\nlocked: true\n---\n\n"
@@ -124,7 +123,7 @@ async def test_build_vision_spec_has_no_build_phase(client, tmp_path, monkeypatc
     from routers import specs as specs_router
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     spec = tmp_path / "docs" / "spec" / "vision.md"
     spec.write_text(
         "---\ntitle: 3yr vision\nstatus: ready\ntype: vision\n---\n\n"
@@ -146,7 +145,7 @@ async def test_build_gemini_degrades_to_claude_with_note(client, tmp_path, monke
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     spec = tmp_path / "docs" / "spec" / "gem-build.md"
     spec.write_text(
         "---\ntitle: Gem\nstatus: spec\ntype: engineering\n---\n\n- [ ] One\n"
@@ -177,7 +176,7 @@ async def test_spec_review_surface(client, tmp_path, monkeypatch):
     from routers import specs as specs_router
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     spec = tmp_path / "docs" / "spec" / "review.md"
     spec.write_text(
         "---\ntitle: R\nstatus: ready\ntype: engineering\n---\n\n"
@@ -201,7 +200,7 @@ async def test_build_preview_returns_breakdown_without_spawning(client, tmp_path
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     spec = tmp_path / "docs" / "spec" / "preview.md"
     spec.write_text("---\ntitle: P\nstatus: spec\ntype: engineering\n---\n\n- [ ] One\n")
 
@@ -236,8 +235,9 @@ async def test_create_draft_leaves_as_draft_when_ac_generation_fails(
     """
     from routers import specs as specs_router
 
+    from services import ostk as ostk_module
     drafts_dir = tmp_path / "myos_drafts"
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
 
     # No API key -> the route skips the AI branch entirely.
     monkeypatch.setattr(
@@ -270,8 +270,9 @@ async def test_create_draft_no_api_key_writes_placeholder_not_stuck(
     """
     from routers import specs as specs_router
 
+    from services import ostk as ostk_module
     drafts_dir = tmp_path / "myos_drafts"
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
 
     # Subscription auth: get_ai_client returns None (no API key available).
     monkeypatch.setattr(
@@ -311,7 +312,7 @@ async def test_build_auto_decomposes_when_plan_has_no_tasks(
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "spec" / "wave2-build-one-click.md"
     spec_file.write_text(
@@ -408,7 +409,7 @@ async def test_build_spawns_builders_in_parallel_and_assigns_tasks_up_front(
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "spec" / "parallel-build.md"
     spec_file.write_text(
@@ -502,7 +503,7 @@ async def test_unlock_moves_spec_back_to_draft(client, tmp_path, monkeypatch):
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "spec" / "wave2-unlock.md"
     spec_file.write_text(
@@ -539,7 +540,7 @@ async def test_unlock_rejects_non_spec_paths(client, tmp_path, monkeypatch):
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     draft_file = tmp_path / "docs" / "draft" / "already-draft.md"
     draft_file.write_text(
@@ -595,7 +596,7 @@ async def test_from_template_creates_ready_plan(
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
 
     draft_file = tmp_path / "docs" / "draft" / "build-a-website.md"
@@ -668,7 +669,7 @@ async def test_from_roadmap_line_creates_ready_plan(
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
 
     roadmap_path = tmp_path / "roadmap.md"
@@ -900,7 +901,7 @@ async def test_auto_advancer_fires_spec_complete_notification_on_last_task_close
         "## Acceptance criteria\n\n"
         "- [ ] Feature ships\n"
     )
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     # Populate the per-process map the advancer reads. In production
     # this is seeded by /specs/{path}/build when the builder is spawned.
     specs_router._spec_task_origin.clear()
@@ -963,7 +964,7 @@ async def test_auto_advancer_does_not_notify_when_some_tasks_still_open(
         "---\ntitle: Partial\nstatus: in-progress\n"
         "linked_tasks: [\"8001\", \"8002\"]\n---\n"
     )
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     specs_router._spec_task_origin.clear()
     specs_router._spec_task_origin["8001"] = spec_path
     specs_router._spec_task_origin["8002"] = spec_path
@@ -1028,7 +1029,7 @@ async def test_auto_advancer_is_noop_when_spec_already_complete(
     spec_file.write_text(original_text)
     original_mtime = spec_file.stat().st_mtime
 
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     specs_router._spec_task_origin.clear()
     specs_router._spec_task_origin["9001"] = spec_path
     monkeypatch.setattr(
@@ -1405,7 +1406,7 @@ async def test_from_roadmap_line_p95_under_demo_budget(
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
 
     roadmap_path = tmp_path / "roadmap.md"
@@ -1524,7 +1525,7 @@ async def test_delete_spec_sweeps_builder_tasks_it_spawned(
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_rel = "docs/spec/cleanup-residue.md"
     spec_file = tmp_path / spec_rel
@@ -1626,7 +1627,7 @@ async def test_build_it_falls_back_to_ac_parsing_when_ostk_returns_empty(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_path_rel = "docs/spec/ac-fallback.md"
     spec_file = tmp_path / spec_path_rel
@@ -1719,7 +1720,7 @@ async def test_build_it_ac_fallback_parses_real_ostk_work_add_output(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_path_rel = "docs/spec/real-ostk-output.md"
     spec_file = tmp_path / spec_path_rel
@@ -1785,7 +1786,7 @@ async def test_build_it_happy_path_still_uses_ostk_spec_build(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_path_rel = "docs/spec/happy-path.md"
     spec_file = tmp_path / spec_path_rel
@@ -1861,7 +1862,7 @@ async def test_build_it_ignores_gemini_default_model_and_uses_sonnet(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_path_rel = "docs/spec/model-leak.md"
     spec_file = tmp_path / spec_path_rel
@@ -1934,7 +1935,7 @@ async def test_close_spec_builder_task_closes_task_on_agent_complete(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_path_rel = "docs/spec/auto-close.md"
     spec_file = tmp_path / spec_path_rel
@@ -2011,7 +2012,7 @@ async def test_spec_status_flips_to_done_when_all_builder_tasks_close(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_path_rel = "docs/spec/status-flip.md"
     spec_file = tmp_path / spec_path_rel
@@ -2094,7 +2095,7 @@ async def test_build_it_always_creates_tasks_for_unchecked_acs(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_path_rel = "docs/spec/ostk-missing.md"
     spec_file = tmp_path / spec_path_rel
@@ -2165,7 +2166,7 @@ async def test_build_it_spawns_one_builder_per_task(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_path_rel = "docs/spec/one-per-ac.md"
     spec_file = tmp_path / spec_path_rel
@@ -2244,7 +2245,7 @@ async def test_build_it_rebuild_creates_fresh_round_when_prior_closed(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_path_rel = "docs/spec/rebuild.md"
     spec_file = tmp_path / spec_path_rel
@@ -2331,7 +2332,7 @@ async def test_builder_spawns_with_live_model(
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "spec" / "live-builder.md"
     spec_file.write_text(
@@ -2411,7 +2412,7 @@ async def test_build_with_indented_ac_checkbox(client, tmp_path, monkeypatch):
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_path_rel = "docs/spec/indented-ac.md"
     spec_file = tmp_path / spec_path_rel
@@ -2470,7 +2471,7 @@ async def test_build_with_asterisk_ac_checkbox(client, tmp_path, monkeypatch):
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_path_rel = "docs/spec/asterisk-ac.md"
     spec_file = tmp_path / spec_path_rel
@@ -2531,7 +2532,7 @@ async def test_build_never_returns_could_not_create_when_acs_exist(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_path_rel = "docs/spec/no-middle-state.md"
     spec_file = tmp_path / spec_path_rel
@@ -2624,7 +2625,7 @@ async def test_build_scopes_to_acceptance_criteria_heading(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_path_rel = "docs/spec/heading-scope.md"
     spec_file = tmp_path / spec_path_rel
@@ -2686,7 +2687,7 @@ async def test_spec_counts_excludes_plan_transcripts(client, monkeypatch):
     docs from the count so badge and page agree.
 
     Isolation: list_docs is mocked directly so no real project docs/ or
-    ~/.myos/specs files can leak into the count regardless of the machine
+    ~/.youros/specs files can leak into the count regardless of the machine
     running the tests.  The previous approach (patching ostk.cwd +
     USER_SPECS_DIR) was fragile — any new code path in list_docs that reads
     outside those two roots would break isolation silently.
@@ -2786,8 +2787,7 @@ async def test_list_specs_umbrella_spec_has_is_umbrella_true(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "no-user-specs")
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "spec" / "big-feature-umbrella.md"
     spec_file.write_text(
@@ -2816,8 +2816,7 @@ async def test_list_specs_leaf_spec_has_parent_slug(client, tmp_path, monkeypatc
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "no-user-specs")
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     (tmp_path / "docs" / "spec" / "big-feature-umbrella.md").write_text(
         "---\ntitle: Big Feature\nstatus: spec\numbrella: true\n---\n\n- [ ] Ship it\n"
@@ -2850,8 +2849,7 @@ async def test_list_specs_standalone_spec_has_no_umbrella_fields(
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "no-user-specs")
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "spec" / "standalone-spec.md"
     spec_file.write_text(
@@ -2871,10 +2869,10 @@ def test_user_specs_dir_honors_myos_user_specs_dir_env_var(tmp_path):
     """USER_SPECS_DIR must read MYOS_USER_SPECS_DIR at module load.
 
     Smoke tests need to redirect spec writes to a tmpdir so the live
-    ~/.myos/specs/ never accumulates artifacts. The contract: set
+    ~/.youros/specs/ never accumulates artifacts. The contract: set
     MYOS_USER_SPECS_DIR in the environment before importing services.ostk,
     and the resolved USER_SPECS_DIR equals that path. Fallback when unset
-    is ~/.myos/specs.
+    is ~/.youros/specs.
 
     Fixes →1411 root cause #1 (per
     ~/.claude/plans/review-our-open-specs-glittery-hejlsberg.md).
@@ -2950,7 +2948,7 @@ async def test_backfill_adds_missing_sections(client, tmp_path, monkeypatch):
     specs_dir = tmp_path / "specs"
     specs_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     slug = "partial-spec"
     spec_file = specs_dir / f"{slug}.md"
@@ -2977,7 +2975,7 @@ async def test_backfill_returns_404_for_missing_spec(client, tmp_path, monkeypat
     specs_dir = tmp_path / "specs"
     specs_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     resp = await client.post("/api/specs/does-not-exist/backfill")
     assert resp.status_code == 404
@@ -2992,7 +2990,7 @@ async def test_archive_moves_spec_file(client, tmp_path, monkeypatch):
     specs_dir = tmp_path / "specs"
     specs_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     slug = "to-archive"
     spec_file = specs_dir / f"{slug}.md"
@@ -3022,7 +3020,7 @@ async def test_archive_returns_404_for_missing_spec(client, tmp_path, monkeypatc
     specs_dir = tmp_path / "specs"
     specs_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     resp = await client.post("/api/specs/ghost-slug/archive")
     assert resp.status_code == 404
@@ -3039,7 +3037,7 @@ async def test_archive_returns_409_if_already_archived(client, tmp_path, monkeyp
     archive_dir = specs_dir / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     slug = "already-done"
     # Spec exists at user-local path
@@ -3060,8 +3058,8 @@ async def test_spec_counts_by_stage_breakdown(client, monkeypatch):
         # →1561: 3-stage model — draft/ready/in_progress only; no shipped/building
         return [
             {"path": "docs/draft/a.md", "status": "draft", "stage": "draft"},
-            {"path": "~/.myos/specs/b.md", "status": "spec", "stage": "ready"},
-            {"path": "~/.myos/specs/c.md", "status": "in-progress", "stage": "in_progress"},
+            {"path": "~/.youros/specs/b.md", "status": "spec", "stage": "ready"},
+            {"path": "~/.youros/specs/c.md", "status": "in-progress", "stage": "in_progress"},
         ]
 
     monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
@@ -3094,7 +3092,7 @@ async def test_validate_write_doc_path_rejects_docs_spec(client):
 async def test_validate_write_doc_path_rejects_docs_draft(client):
     """docs/draft/ paths are rejected by the write validator (→2104).
 
-    New drafts land in USER_DRAFTS_DIR (~/.myos/drafts/). Writes to the legacy
+    New drafts land in USER_DRAFTS_DIR (~/.youros/drafts/). Writes to the legacy
     docs/draft/ path are no longer allowed (same guard as docs/spec/).
     """
     from fastapi import HTTPException
@@ -3111,7 +3109,7 @@ async def test_doc_draft_refuses_hooks_shaped_titles():
     """ostk.doc_draft must refuse titles that look like hooks reviews.
 
     Per the Claude project's memory dir (~/.claude/projects/<project>/memory/)
-    feedback_hooks_at_user_scope.md: hooks reviews live in ~/.myos/hooks/,
+    feedback_hooks_at_user_scope.md: hooks reviews live in ~/.youros/hooks/,
     never under docs/draft/. When a user (or model) calls doc_draft with
     a title containing 'hook', refuse with a message redirecting to the
     correct location instead of silently creating a misplaced draft.
@@ -3132,8 +3130,8 @@ async def test_doc_draft_refuses_hooks_shaped_titles():
         assert "hooks" in str(exc_info.value).lower(), (
             f"Error for {title!r} should mention 'hooks': {exc_info.value}"
         )
-        assert "~/.myos/hooks" in str(exc_info.value), (
-            f"Error for {title!r} should point to ~/.myos/hooks/: {exc_info.value}"
+        assert "~/.youros/hooks" in str(exc_info.value), (
+            f"Error for {title!r} should point to ~/.youros/hooks/: {exc_info.value}"
         )
 
     # Sanity: non-hook titles should NOT be refused (we don't actually
@@ -3146,7 +3144,7 @@ async def test_doc_draft_refuses_hooks_shaped_titles():
             await ostk_module.ostk.doc_draft(title)
         except ostk_module.OstkError as e:
             # Only assert that the validator-level message isn't fired.
-            assert "hooks" not in str(e).lower() or "~/.myos/hooks" not in str(e)
+            assert "hooks" not in str(e).lower() or "~/.youros/hooks" not in str(e)
         except Exception:
             # Other errors (e.g. ostk binary missing in test env) are fine.
             pass
@@ -3167,7 +3165,7 @@ async def test_build_spec_with_gemini_model(client, tmp_path, monkeypatch):
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "spec" / "gemini-build-test.md"
     spec_file.write_text(
@@ -3220,7 +3218,7 @@ async def test_build_spec_invalid_model_rejected(client, tmp_path, monkeypatch):
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "spec" / "model-reject-test.md"
     spec_file.write_text("---\ntitle: test\nstatus: spec\n---\n- [ ] foo\n")
@@ -3250,7 +3248,7 @@ async def test_promotion_succeeds_when_needs_clarity(client, tmp_path, monkeypat
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     draft_file = tmp_path / "docs" / "draft" / "no-ac.md"
     draft_file.write_text(
@@ -3296,8 +3294,7 @@ async def test_ready_spec_effective_status_not_downgraded(client, tmp_path, monk
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "no-user-specs")
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "spec" / "failing-ready.md"
     spec_file.write_text(
@@ -3335,7 +3332,7 @@ async def test_auto_archived_specs_not_surfaced(client, tmp_path, monkeypatch):
     from services import ostk as ostk_module
     from routers import specs as specs_router
 
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     # A real file on disk with no file refs and no needle refs — compute_shipped
     # will return is_shipped=True, causing the endpoint to auto-archive it.
@@ -3380,7 +3377,7 @@ async def test_clarity_patch_appends_and_reruns_readiness(client, tmp_path, monk
     from routers import specs as specs_router
 
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "draft" / "clarity-target.md"
     spec_file.write_text(
@@ -3414,7 +3411,7 @@ def test_terminal_agent_preamble_includes_claim_instruction():
     """Preamble block contains the curl claim command with the correct spec path and agent name."""
     from routers.agents import build_spec_claim_block
 
-    spec_id = "~/.myos/specs/my-feature.md"
+    spec_id = "~/.youros/specs/my-feature.md"
     agent_name = "test-agent-abc123"
 
     block = build_spec_claim_block(spec_id, agent_name)
@@ -3451,7 +3448,7 @@ async def test_spec_clarity_suggest_returns_proposed_fix(client, tmp_path, monke
     spec_file = draft_dir / "my-spec.md"
     spec_file.write_text("# My Feature\n\nSome body text.\n")
 
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     fake_suggest = AsyncMock(return_value={
         "proposed_fix": "- [ ] Criterion A\n- [ ] Criterion B",
@@ -3473,7 +3470,7 @@ async def test_spec_clarity_suggest_returns_proposed_fix(client, tmp_path, monke
 @pytest.mark.asyncio
 async def test_spec_clarity_suggest_404_when_file_missing(client, tmp_path, monkeypatch):
     import routers.specs as specs_router
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     # docs/draft/ dir exists but the file does not
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
@@ -3497,7 +3494,7 @@ async def test_claim_accepts_source_passive(client, tmp_path, monkeypatch):
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
 
     spec_file = tmp_path / "docs" / "spec" / "my-passive-spec.md"
@@ -3557,8 +3554,9 @@ async def test_draft_create_injects_canonical_template(client, tmp_path, monkeyp
     """
     from routers import specs as specs_router
 
+    from services import ostk as ostk_module
     drafts_dir = tmp_path / "myos_drafts"
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
     monkeypatch.setattr(
         "services.ai_backend.get_ai_client",
         AsyncMock(return_value=None),
@@ -3588,7 +3586,7 @@ async def test_promote_appends_missing_headings(client, tmp_path, monkeypatch):
     (tmp_path / "docs" / "draft").mkdir(parents=True, exist_ok=True)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
 
     draft_file = tmp_path / "docs" / "draft" / "minimal-spec.md"
@@ -3744,7 +3742,7 @@ def test_task_spec_assignment_persists_across_restart(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# →2104: draft/spec relocation tests (new writes go to ~/.myos, not docs/)
+# →2104: draft/spec relocation tests (new writes go to ~/.youros, not docs/)
 # ---------------------------------------------------------------------------
 
 
@@ -3761,10 +3759,10 @@ async def test_create_draft_spec_writes_to_myos_drafts(client, tmp_path, monkeyp
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
     monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
 
     # No AI client → AC generation skipped → no auto-promote → status stays "draft"
     monkeypatch.setattr("services.ai_backend.get_ai_client", AsyncMock(return_value=None))
@@ -3803,10 +3801,10 @@ async def test_promote_draft_from_myos_drafts(client, tmp_path, monkeypatch):
     )
 
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
     monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
 
     # stub decompose so it doesn't shell out
     async def _noop_decompose(*a, **kw):
@@ -3827,7 +3825,8 @@ async def test_validate_write_rejects_docs_draft(client, tmp_path, monkeypatch):
     from routers.specs import _validate_write_doc_path
     from fastapi import HTTPException
 
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", tmp_path / "myos_drafts")
+    from services import ostk as ostk_module
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", tmp_path / "myos_drafts")
 
     with pytest.raises(HTTPException) as exc_info:
         _validate_write_doc_path("docs/draft/some-spec.md")
@@ -3889,7 +3888,7 @@ async def test_verify_fresh_returns_fresh_key(client, tmp_path, monkeypatch):
     )
 
     from routers import specs as specs_mod
-    monkeypatch.setattr(specs_mod, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", str(tmp_path))
 
     mock_content = type("Content", (), {"text": "All requirements look untested."})()
     mock_resp = type("Resp", (), {"content": [mock_content]})()
@@ -3911,7 +3910,7 @@ async def test_verify_fresh_returns_fresh_key(client, tmp_path, monkeypatch):
 async def test_verify_fresh_not_found(client, tmp_path, monkeypatch):
     """E4: /verify?fresh=true returns 404 when spec does not exist."""
     from routers import specs as specs_mod
-    monkeypatch.setattr(specs_mod, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", str(tmp_path))
 
     resp = await client.post("/api/specs/docs/spec/nonexistent-e4-fresh.md/verify?fresh=true")
     assert resp.status_code == 404
@@ -3929,7 +3928,7 @@ async def test_verify_fresh_graceful_on_llm_error(client, tmp_path, monkeypatch)
     )
 
     from routers import specs as specs_mod
-    monkeypatch.setattr(specs_mod, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", str(tmp_path))
 
     with patch.object(_anthropic, "Anthropic", side_effect=Exception("no key")):
         resp = await client.post("/api/specs/docs/spec/my-plan.md/verify?fresh=true")
@@ -3980,7 +3979,7 @@ async def test_verify_fresh_prompt_contains_only_ac_not_body(client, tmp_path, m
     )
 
     from routers import specs as specs_mod
-    monkeypatch.setattr(specs_mod, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", str(tmp_path))
 
     mock_content = type("Content", (), {"text": "AC looks covered."})()
     mock_resp = type("Resp", (), {"content": [mock_content]})()

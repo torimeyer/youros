@@ -378,7 +378,7 @@ class TestEdgeCases:
 
 
 class TestUserAliasResolvesInMatcher:
-    """User-set aliases from ~/.myos/template_aliases.json should
+    """User-set aliases from ~/.youros/template_aliases.json should
     be picked up by the explicit invocation layer so typing the alias
     in chat triggers the corresponding template."""
 

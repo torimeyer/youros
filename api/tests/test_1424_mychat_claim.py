@@ -29,7 +29,7 @@ async def test_claim_spec_source_wrapper(client, tmp_path, monkeypatch):
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "spec" / "test-wrapper-claim.md"
     spec_file.write_text(
@@ -57,7 +57,7 @@ async def test_claim_spec_wrapper_returns_task_ids(client, tmp_path, monkeypatch
 
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     spec_file = tmp_path / "docs" / "spec" / "test-claim-taskids.md"
     spec_file.write_text(
@@ -84,7 +84,7 @@ async def test_claim_spec_missing_returns_404(client, tmp_path, monkeypatch):
     """POST /claim for a non-existent spec returns 404."""
     from routers import specs as specs_router
 
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     resp = await client.post(
         "/api/specs/docs/spec/does-not-exist.md/claim",

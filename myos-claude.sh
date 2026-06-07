@@ -18,7 +18,7 @@ if [ $# -gt 0 ] && [ "$1" = "--help" ]; then
     exit 0
 fi
 
-HOOK_FILE="$HOME/.myos/hooks/register-agent.sh"
+HOOK_FILE="$HOME/.youros/hooks/register-agent.sh"
 SETTINGS=".claude/settings.local.json"
 
 if [ ! -f "$HOOK_FILE" ]; then

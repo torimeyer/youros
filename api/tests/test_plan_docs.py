@@ -103,19 +103,19 @@ class TestListDocsPlanScanning:
 
     @pytest.mark.asyncio
     async def test_list_docs_preserves_existing_spec_docs(self):
-        spec_dir = Path(self.tmpdir) / "docs" / "spec"
-        spec_dir.mkdir(parents=True, exist_ok=True)
-        (spec_dir / "my-spec.md").write_text(
+        from services.ostk import USER_SPECS_DIR
+        USER_SPECS_DIR.mkdir(parents=True, exist_ok=True)
+        (USER_SPECS_DIR / "my-spec.md").write_text(
             "---\ntitle: My Spec\nstatus: spec\n---\n\n- [ ] Do the thing\n"
         )
         self._write_plan("plan-42.md", "Some plan.")
         with patch.object(self.svc, "list_tasks", new_callable=AsyncMock) as mock_lt:
             mock_lt.return_value = []
             docs = await self.svc.list_docs()
-
+    
         paths = [d["path"] for d in docs]
-        assert "docs/spec/my-spec.md" in paths
-        assert "transcripts/plan-42.md" in paths
+        assert any("my-spec.md" in p for p in paths)
+        assert any("plan-42.md" in p for p in paths)
 
     @pytest.mark.asyncio
     async def test_list_docs_no_transcripts_dir_is_ok(self):

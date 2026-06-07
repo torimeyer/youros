@@ -1,6 +1,6 @@
 """GitHub integration service.
 
-Personal access token auth for v1. Stores token in ~/.myos/github_token.json.
+Personal access token auth for v1. Stores token in ~/.youros/github_token.json.
 Supports listing repos, fetching issues, creating issues, and syncing with tasks.
 """
 
@@ -15,7 +15,7 @@ import httpx
 
 from services.atomic_io import atomic_write_json
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 TOKEN_PATH = MYOS_DIR / "github_token.json"
 
 GITHUB_API_BASE = "https://api.github.com"

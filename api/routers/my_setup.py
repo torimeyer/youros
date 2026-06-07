@@ -27,7 +27,7 @@ router = APIRouter(tags=["my-setup"])
 # Helpers
 # ---------------------------------------------------------------------------
 
-USER_AGENTFILES_DIR = Path.home() / ".myos" / "agentfiles"
+USER_AGENTFILES_DIR = Path.home() / ".youros" / "agentfiles"
 
 _TEMPLATE_NAMES: dict[str, str] = {
     "builtin-builder":              "Writing assistant",

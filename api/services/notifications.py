@@ -1,6 +1,6 @@
 """Persistent notification service.
 
-Notifications are stored in ~/.myos/notifications.json so they survive
+Notifications are stored in ~/.youros/notifications.json so they survive
 app restarts and git pulls without ever touching the repo.
 """
 
@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 NOTIFICATIONS_FILE = MYOS_DIR / "notifications.json"
 
 # Hard cap on the persistent notification store. When we hit the cap we

@@ -7,7 +7,7 @@ Covers:
   GET /api/rules/fires      — tail of rule-fires.jsonl with filter + limit
 
 All tests redirect USER_RULES_PATH and RULE_FIRES_LOG onto tmp_path so the
-user's real ~/.myos/rules.json and ~/.claude/logs/rule-fires.jsonl are
+user's real ~/.youros/rules.json and ~/.claude/logs/rule-fires.jsonl are
 never read or written.
 """
 

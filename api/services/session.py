@@ -4,7 +4,7 @@ Creates and verifies HttpOnly session tokens so audit events can be
 attributed to specific people. In solo mode (no enterprise active),
 sessions are not required and everything works without cookies.
 
-Signing secret is stored in ~/.myos/session_secret, outside the repo.
+Signing secret is stored in ~/.youros/session_secret, outside the repo.
 """
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ SESSION_EXPIRY_HOURS = 24
 
 
 def _get_secret() -> str:
-    """Get or create a signing secret. Stored in ~/.myos/session_secret."""
-    secret_path = Path.home() / ".myos" / "session_secret"
+    """Get or create a signing secret. Stored in ~/.youros/session_secret."""
+    secret_path = Path.home() / ".youros" / "session_secret"
     if secret_path.exists():
         return secret_path.read_text().strip()
     import secrets

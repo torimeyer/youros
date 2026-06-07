@@ -13,7 +13,7 @@ from typing import Optional
 
 from services.excerpts import Excerpt, format_excerpts
 
-SOURCES_BASE = Path.home() / ".myos" / "sources"
+SOURCES_BASE = Path.home() / ".youros" / "sources"
 _DEFAULT_WORKSPACE = "default"
 _EXCERPT_WINDOW = 400   # chars around each match
 _MAX_EXCERPTS = 3

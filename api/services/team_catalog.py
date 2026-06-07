@@ -3,7 +3,7 @@
 Stores shared agentfiles for an org. Each publish creates a new immutable
 version row. Rollback flips the current_version pointer without deleting
 history. Members install by copying the current version to their local
-~/.myos/agentfiles/ dir.
+~/.youros/agentfiles/ dir.
 """
 
 import json
@@ -15,7 +15,7 @@ from typing import Literal, Optional
 
 logger = logging.getLogger(__name__)
 
-CATALOG_BASE = Path.home() / ".myos" / "team_catalog"
+CATALOG_BASE = Path.home() / ".youros" / "team_catalog"
 
 EntryStatus = Literal["draft", "published", "rolled_back"]
 EntryKind = Literal["agentfile"]
@@ -177,13 +177,13 @@ def rollback(org_id: str, entry_id: str) -> Optional[dict]:
 
 
 def install_agentfile(org_id: str, entry_id: str) -> Optional[dict]:
-    """Copy an entry's content to ~/.myos/agentfiles/. Returns install path info."""
+    """Copy an entry's content to ~/.youros/agentfiles/. Returns install path info."""
     data = _load(org_id)
     entry = data["entries"].get(entry_id)
     if not entry or entry["status"] != "published":
         return None
 
-    dest_dir = Path.home() / ".myos" / "agentfiles"
+    dest_dir = Path.home() / ".youros" / "agentfiles"
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{entry['name']}.agent"
     dest.write_text(entry["content"])

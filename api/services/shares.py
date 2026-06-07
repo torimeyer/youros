@@ -1,6 +1,6 @@
 """Shareable snapshot service.
 
-Shares are stored in ~/.myos/shares.json. Each share has a unique token,
+Shares are stored in ~/.youros/shares.json. Each share has a unique token,
 an expiry date, and a snapshot of content at the time of creation.
 """
 
@@ -15,7 +15,7 @@ from typing import Optional
 
 from services.atomic_io import atomic_write_json, atomic_write_text
 
-SHARES_PATH = Path.home() / ".myos" / "shares.json"
+SHARES_PATH = Path.home() / ".youros" / "shares.json"
 
 SHARE_TYPES = {"task_list", "agent_output", "label_view", "file"}
 

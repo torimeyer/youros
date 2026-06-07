@@ -1,7 +1,7 @@
 """Upgrade check service.
 
 Checks whether myOS or ostk have newer versions available.
-Results are cached in ~/.myos/upgrade_cache.json for 1 hour to avoid
+Results are cached in ~/.youros/upgrade_cache.json for 1 hour to avoid
 hammering GitHub on every page load.
 """
 
@@ -23,7 +23,7 @@ import httpx
 from config import PROJECT_ROOT
 from services.atomic_io import atomic_write_json
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 UPGRADE_CACHE_FILE = MYOS_DIR / "upgrade_cache.json"
 CACHE_TTL_SECONDS = 3600  # 1 hour
 
@@ -190,7 +190,7 @@ async def check_all(force: bool = False) -> dict:
         check_ostk(),
     )
 
-    result = {"myos": myos_info, "ostk": ostk_info}
+    result = {"youros": myos_info, "ostk": ostk_info}
     _save_cache(result)
     return result
 

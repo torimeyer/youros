@@ -21,7 +21,7 @@ HTTP surface:
 - `GET /api/memory` → `{"content": str}`
 - `PUT /api/memory` → replaces the file body
 
-Storage: `~/.myos/users/default/MEMORY.md` (per-user, outside the repo).
+Storage: `~/.youros/users/default/MEMORY.md` (per-user, outside the repo).
 
 ## Events emitted
 

@@ -2,7 +2,7 @@
 
 Lets backend code post a myOS-authored message into the user's current
 chat tab so they see it inline the next time they open the chat panel.
-The chat panel hydrates from ``~/.myos/chat_history.json`` on mount,
+The chat panel hydrates from ``~/.youros/chat_history.json`` on mount,
 so appending a message there makes it land in the UI as an assistant
 bubble labelled "myOS".
 
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # Safety valve for tests. When set, :func:`post_system_message` is a
 # no-op so test runs exercising ``/complete`` paths that now go through
 # the chat-notification hook never pollute the real
-# ``~/.myos/chat_history.json``. Mirrors the same opt-out used by
+# ``~/.youros/chat_history.json``. Mirrors the same opt-out used by
 # :mod:`services.automation_outputs` (``MYOS_SKIP_AUTOMATION_FILES_SAVE``).
 _SKIP_ENV = "MYOS_SKIP_CHAT_NOTIFICATIONS"
 

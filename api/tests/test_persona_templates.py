@@ -30,7 +30,7 @@ from services.agent_templates_store import agent_templates_store, BUILTIN_AGENT_
 
 @pytest.fixture(autouse=True)
 def _isolated_store(tmp_path, monkeypatch):
-    """Redirect the on-disk store to a tmp file so tests never touch ~/.myos."""
+    """Redirect the on-disk store to a tmp file so tests never touch ~/.youros."""
     import services.agent_templates_store as store_mod
 
     fake_path = tmp_path / "agent_templates.json"

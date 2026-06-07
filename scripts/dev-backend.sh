@@ -278,9 +278,9 @@ fi
 cd "$API_DIR"
 
 # Load local env overrides (e.g. GOOGLE_CLIENT_ID for OAuth) if present.
-if [ -f "$HOME/.myos/.env" ]; then
+if [ -f "$HOME/.youros/.env" ]; then
     set -a
-    source "$HOME/.myos/.env"
+    source "$HOME/.youros/.env"
     set +a
 fi
 
@@ -312,8 +312,8 @@ if [ "${MYOS_NO_WATCHDOG:-0}" != "1" ] && [ -x "$WATCHDOG_SCRIPT" ]; then
 fi
 
 # SSL: if self-signed certs exist, serve HTTPS so Slack OAuth works.
-SSL_KEY="$HOME/.myos/localhost.key"
-SSL_CERT="$HOME/.myos/localhost.crt"
+SSL_KEY="$HOME/.youros/localhost.key"
+SSL_CERT="$HOME/.youros/localhost.crt"
 SSL_ARGS=""
 if [ -f "$SSL_KEY" ] && [ -f "$SSL_CERT" ]; then
     SSL_ARGS="--ssl-keyfile $SSL_KEY --ssl-certfile $SSL_CERT"

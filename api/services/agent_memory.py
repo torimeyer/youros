@@ -1,5 +1,5 @@
 """Per-agent persistent memory.
-Each agent gets a JSON file at ~/.myos/agent_memory/{agent_name}.json that
+Each agent gets a JSON file at ~/.youros/agent_memory/{agent_name}.json that
 stores key/value facts and a rolling list of session summaries.
 This file is stored outside the repo so git pull never clobbers it.
 """
@@ -11,7 +11,7 @@ from typing import Optional
 from services.atomic_io import atomic_write_json
 
 # Storage root -- outside the repo, safe from git pull
-AGENT_MEMORY_DIR = Path.home() / ".myos" / "agent_memory"
+AGENT_MEMORY_DIR = Path.home() / ".youros" / "agent_memory"
 
 # Maximum number of session summaries to keep per agent
 MAX_SUMMARIES = 10

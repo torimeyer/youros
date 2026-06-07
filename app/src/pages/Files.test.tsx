@@ -207,7 +207,7 @@ describe('Files page', () => {
   it('recent docs renders rows in newest-first order', async () => {
     const newerDoc = {
       name: 'newer-doc.md',
-      path: '/home/user/.myos/files/newer-doc.md',
+      path: '/home/user/.youros/files/newer-doc.md',
       size: 512,
       size_display: '512 B',
       last_modified: new Date('2026-04-25T12:00:00Z').toISOString(),
@@ -215,7 +215,7 @@ describe('Files page', () => {
     }
     const olderDoc = {
       name: 'older-doc.md',
-      path: '/home/user/.myos/files/older-doc.md',
+      path: '/home/user/.youros/files/older-doc.md',
       size: 256,
       size_display: '256 B',
       last_modified: new Date('2026-04-25T10:00:00Z').toISOString(),
@@ -476,7 +476,7 @@ describe('Files page', () => {
     files: [
       {
         name: 'roadmap-2026-04-16T10-00.md',
-        path: '/home/user/.myos/files/roadmap-2026-04-16T10-00.md',
+        path: '/home/user/.youros/files/roadmap-2026-04-16T10-00.md',
         size: 512,
         size_display: '512 B',
         last_modified: new Date().toISOString(),

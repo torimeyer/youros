@@ -1583,7 +1583,7 @@ async def test_explain_time_saved_second_call_uses_cache(client):
 async def test_explain_time_saved_uses_disk_snapshot(client, tmp_path):
     """Regression: a cold request after backend restart (in-memory cache
     empty) must serve from the on-disk snapshot at
-    ~/.myos/savings_snapshot.json in milliseconds, not recompute.
+    ~/.youros/savings_snapshot.json in milliseconds, not recompute.
     """
     import json as _json
     from routers import costs as costs_router

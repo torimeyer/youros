@@ -16,7 +16,7 @@ def make_service(tmp_path: Path):
     """Return a NotificationsService backed by a temp directory."""
     import services.notifications as mod
 
-    # Patch the module-level constants so nothing writes to ~/.myos
+    # Patch the module-level constants so nothing writes to ~/.youros
     with patch.object(mod, "MYOS_DIR", tmp_path), patch.object(
         mod, "NOTIFICATIONS_FILE", tmp_path / "notifications.json"
     ):
@@ -489,15 +489,15 @@ async def test_infra_agent_complete_no_notification(tmp_path, infra_name):
 
 def test_notifications_store_isolated_from_real_home(tmp_path):
     """Regression: test runs were leaking roadmap_ready notifications into
-    ~/.myos/notifications.json because the conftest did not redirect
+    ~/.youros/notifications.json because the conftest did not redirect
     NOTIFICATIONS_FILE. After the fix, the module-level constant must point
     to a tmp path, never to the real user store."""
     import services.notifications as mod
-    real_file = Path.home() / ".myos" / "notifications.json"
+    real_file = Path.home() / ".youros" / "notifications.json"
     assert mod.NOTIFICATIONS_FILE != real_file, (
         "NOTIFICATIONS_FILE still points at the real user store; "
         "the conftest autouse fixture failed to redirect it. "
-        "Every roadmap test run would pollute ~/.myos/notifications.json."
+        "Every roadmap test run would pollute ~/.youros/notifications.json."
     )
 
 
@@ -505,7 +505,7 @@ def test_notifications_store_isolated_from_real_home(tmp_path):
 async def test_roadmap_complete_notification_goes_to_isolated_store(tmp_path):
     """Roadmap agent /complete must write its roadmap_ready notification to
     the isolated store (the path NOTIFICATIONS_FILE currently points to),
-    not hardcoded to ~/.myos/notifications.json."""
+    not hardcoded to ~/.youros/notifications.json."""
     from unittest.mock import AsyncMock
     from httpx import AsyncClient, ASGITransport
     from main import app
@@ -522,7 +522,7 @@ async def test_roadmap_complete_notification_goes_to_isolated_store(tmp_path):
 
     fake_files = tmp_path / "files"
     fake_files.mkdir(exist_ok=True)
-    real_file = Path.home() / ".myos" / "notifications.json"
+    real_file = Path.home() / ".youros" / "notifications.json"
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -566,7 +566,7 @@ async def test_roadmap_complete_notification_goes_to_isolated_store(tmp_path):
         ]
         assert not any(str(tmp_path) in p for p in paths_in_real), (
             "A roadmap_ready notification pointing at the test tmp_path was "
-            "found in the real ~/.myos/notifications.json — the isolation fix failed."
+            "found in the real ~/.youros/notifications.json — the isolation fix failed."
         )
 
 

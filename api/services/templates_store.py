@@ -1,7 +1,7 @@
 """Store for custom idea templates.
 
 Built-in templates are hardcoded here. Custom templates are stored in
-~/.myos/templates.json so they survive git pulls without being clobbered.
+~/.youros/templates.json so they survive git pulls without being clobbered.
 
 Public surface:
 - ``TEMPLATES_PATH`` -- module-level Path constant (required by data-safety check)
@@ -19,7 +19,7 @@ from typing import Optional
 
 from services.atomic_io import atomic_write_json, atomic_write_text
 
-TEMPLATES_PATH = Path.home() / ".myos" / "templates.json"
+TEMPLATES_PATH = Path.home() / ".youros" / "templates.json"
 
 BUILTIN_TEMPLATES: list[dict] = [
     {
@@ -80,7 +80,7 @@ BUILTIN_TEMPLATES: list[dict] = [
 
 
 class TemplatesStore:
-    """CRUD for custom (user-defined) templates stored in ~/.myos/templates.json."""
+    """CRUD for custom (user-defined) templates stored in ~/.youros/templates.json."""
 
     def _ensure_exists(self) -> None:
         TEMPLATES_PATH.parent.mkdir(parents=True, exist_ok=True)

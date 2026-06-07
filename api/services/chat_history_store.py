@@ -5,7 +5,7 @@ so they survive browser localStorage clears, hard refreshes, and switching
 to another device. The frontend writes the full set of tabs on every change
 (debounced) and reads them once on app boot.
 
-File format (JSON at ~/.myos/chat_history.json):
+File format (JSON at ~/.youros/chat_history.json):
 
     {
       "tabs": [
@@ -30,7 +30,7 @@ from typing import Any
 
 from services.atomic_io import atomic_write_json
 
-CHAT_HISTORY_PATH = Path.home() / ".myos" / "chat_history.json"
+CHAT_HISTORY_PATH = Path.home() / ".youros" / "chat_history.json"
 
 
 def _default_state() -> dict[str, Any]:

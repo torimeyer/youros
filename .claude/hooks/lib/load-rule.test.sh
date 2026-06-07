@@ -31,7 +31,7 @@ assert_exit() {
   fi
 }
 
-# Set up an isolated HOME for each test so ~/.myos/rules.json doesn't bleed in.
+# Set up an isolated HOME for each test so ~/.youros/rules.json doesn't bleed in.
 TMPBASE="/tmp/test-rules-$$"
 mkdir -p "$TMPBASE"
 trap 'rm -rf "$TMPBASE"' EXIT
@@ -44,7 +44,7 @@ run_test() {
 }
 
 # -------------------------------------------------------------------------
-# Test 1: loader returns default when ~/.myos/rules.json is missing
+# Test 1: loader returns default when ~/.youros/rules.json is missing
 # -------------------------------------------------------------------------
 run_test "default_when_no_user_file" bash -c "
   FAKE_HOME='$TMPBASE/t1'
@@ -65,8 +65,8 @@ run_test "default_when_no_user_file" bash -c "
 # -------------------------------------------------------------------------
 run_test "user_override_wins" bash -c "
   FAKE_HOME='$TMPBASE/t2'
-  mkdir -p \"\$FAKE_HOME/.myos\"
-  cat > \"\$FAKE_HOME/.myos/rules.json\" <<'ENDJSON'
+  mkdir -p \"\$FAKE_HOME/.youros\"
+  cat > \"\$FAKE_HOME/.youros/rules.json\" <<'ENDJSON'
 {\"schema_version\":1,\"rules\":{\"saa_must_spawn\":{\"enabled\":true}}}
 ENDJSON
   export HOME=\"\$FAKE_HOME\"
@@ -84,8 +84,8 @@ ENDJSON
 # -------------------------------------------------------------------------
 run_test "deep_merge_preserves_other_keys" bash -c "
   FAKE_HOME='$TMPBASE/t3'
-  mkdir -p \"\$FAKE_HOME/.myos\"
-  cat > \"\$FAKE_HOME/.myos/rules.json\" <<'ENDJSON'
+  mkdir -p \"\$FAKE_HOME/.youros\"
+  cat > \"\$FAKE_HOME/.youros/rules.json\" <<'ENDJSON'
 {\"schema_version\":1,\"rules\":{\"saa_must_spawn\":{\"enabled\":true}}}
 ENDJSON
   export HOME=\"\$FAKE_HOME\"
@@ -146,8 +146,8 @@ run_test "missing_path_returns_default" bash -c "
 # -------------------------------------------------------------------------
 run_test "malformed_user_json_fallback" bash -c "
   FAKE_HOME='$TMPBASE/t6'
-  mkdir -p \"\$FAKE_HOME/.myos\"
-  printf 'THIS IS NOT JSON }{{{' > \"\$FAKE_HOME/.myos/rules.json\"
+  mkdir -p \"\$FAKE_HOME/.youros\"
+  printf 'THIS IS NOT JSON }{{{' > \"\$FAKE_HOME/.youros/rules.json\"
   export HOME=\"\$FAKE_HOME\"
   export CLAUDE_PROJECT_DIR='$(dirname "$SCRIPT_DIR")'
   source '$LOADER'

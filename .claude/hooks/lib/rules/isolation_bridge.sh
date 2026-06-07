@@ -75,11 +75,11 @@ PY
 
   # Resolve API base
   local API_BASE="${TORIOS_API_BASE:-}"
-  if [ -z "$API_BASE" ] && [ -f "$HOME/.myos/config.json" ]; then
+  if [ -z "$API_BASE" ] && [ -f "$HOME/.youros/config.json" ]; then
     API_BASE=$(python3 -c "
 import json, os
 try:
-    d = json.load(open(os.path.expanduser('~/.myos/config.json')))
+    d = json.load(open(os.path.expanduser('~/.youros/config.json')))
     v = d.get('api_base')
     if isinstance(v, str) and v.strip():
         print(v.strip())

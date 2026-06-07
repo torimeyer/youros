@@ -79,7 +79,7 @@ Only files > 512 bytes are worth adding to the cache.
 - Cache file: `.ostk/file_cache.jsonl` — **does not exist**  
 - Rewrite-events log: 202 events, all with `rewrites_applied: 0`, `hits: 0`, `misses: 11`  
   The proxy IS attempting the binding step ("Binding file_id / firmware materialization"
-  appears in `/Users/torimeyer/.myos/ostk-cache.log`) but finds nothing.  
+  appears in `/Users/torimeyer/.youros/ostk-cache.log`) but finds nothing.  
 - The proxy reads `.ostk/` relative to its cwd: `/Users/torimeyer/claude/torios/.ostk/`
 
 ---

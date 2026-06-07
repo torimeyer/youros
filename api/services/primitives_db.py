@@ -1,7 +1,7 @@
 """Shared SQLite connection for the myOS primitives database.
 
 All primitives that need persistent history use a single SQLite file at
-``~/.myos/primitives.db``.  WAL mode is enabled at open so concurrent
+``~/.youros/primitives.db``.  WAL mode is enabled at open so concurrent
 writers (backend, subagents, ostk verbs) never hit "database is locked".
 
 Schema migrations are applied lazily on first open using ``PRAGMA
@@ -16,7 +16,7 @@ Public API
 
 ``PRIMITIVES_DB_PATH``
     The resolved ``Path`` to the database file.  Tests monkeypatch this
-    attribute before calling ``get_db()`` so the real ``~/.myos/``
+    attribute before calling ``get_db()`` so the real ``~/.youros/``
     directory is never touched during test runs.
 """
 
@@ -30,7 +30,7 @@ from pathlib import Path
 # Database location (tests monkeypatch this before the first get_db() call)
 # ---------------------------------------------------------------------------
 
-PRIMITIVES_DB_PATH: Path = Path.home() / ".myos" / "primitives.db"
+PRIMITIVES_DB_PATH: Path = Path.home() / ".youros" / "primitives.db"
 
 # ---------------------------------------------------------------------------
 # Migration catalogue

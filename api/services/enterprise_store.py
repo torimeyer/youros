@@ -1,7 +1,7 @@
 """Enterprise settings store.
 
 Manages the ENTITYFILE: org identity, team members, policies, and
-compliance settings. All data lives in ~/.myos/enterprise.json so
+compliance settings. All data lives in ~/.youros/enterprise.json so
 it survives git pulls and stays outside the repo.
 
 Enterprise mode is opt-in. When no enterprise.json exists, the app
@@ -20,7 +20,7 @@ from typing import Optional
 
 from services.atomic_io import atomic_write_json
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 ENTERPRISE_PATH = MYOS_DIR / "enterprise.json"
 
 

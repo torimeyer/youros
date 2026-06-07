@@ -1,7 +1,7 @@
 """Career growth tracking router.
 
 Tracks skills with proficiency levels (1-5) and optional notes,
-stored in ~/.myos/growth.json.
+stored in ~/.youros/growth.json.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 router = APIRouter(tags=["growth"])
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 GROWTH_PATH = MYOS_DIR / "growth.json"
 
 

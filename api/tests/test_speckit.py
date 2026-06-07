@@ -265,7 +265,7 @@ class TestExportEndpoint:
         spec_dir.mkdir(parents=True, exist_ok=True)
         spec_file = spec_dir / "foo.md"
         spec_file.write_text("---\ntitle: foo\nstatus: spec\n---\n\n## Acceptance criteria\n- [ ] do thing\n")
-        with patch("routers.specs.PROJECT_ROOT", tmp_path):
+        with patch("config.PROJECT_ROOT", tmp_path):
             resp = await client.get(
                 "/api/specs/docs/spec/foo.md/export?format=json"
             )
@@ -275,7 +275,7 @@ class TestExportEndpoint:
     async def test_missing_spec_returns_404(self, client, tmp_path):
         spec_dir = tmp_path / "docs" / "spec"
         spec_dir.mkdir(parents=True, exist_ok=True)
-        with patch("routers.specs.PROJECT_ROOT", tmp_path):
+        with patch("config.PROJECT_ROOT", tmp_path):
             resp = await client.get(
                 "/api/specs/docs/spec/missing.md/export?format=speckit"
             )
@@ -283,9 +283,10 @@ class TestExportEndpoint:
 
     @pytest.mark.asyncio
     async def test_export_returns_yaml(self, client, tmp_path):
-        spec_dir = tmp_path / "docs" / "spec"
-        spec_dir.mkdir(parents=True, exist_ok=True)
-        spec_file = spec_dir / "my-feature.md"
+        import services.ostk as ostk_module
+        user_specs = tmp_path / "_user_specs"
+        user_specs.mkdir(parents=True, exist_ok=True)
+        spec_file = user_specs / "my-feature.md"
         spec_file.write_text(
             "---\ntitle: My feature\nstatus: spec\n---\n\n"
             "Great feature.\n\n"
@@ -293,9 +294,9 @@ class TestExportEndpoint:
             "- [ ] users can do X\n"
             "- [ ] users can do Y\n"
         )
-        with patch("routers.specs.PROJECT_ROOT", tmp_path):
+        with patch("config.PROJECT_ROOT", tmp_path), patch.object(ostk_module, "USER_SPECS_DIR", user_specs):
             resp = await client.get(
-                "/api/specs/docs/spec/my-feature.md/export?format=speckit"
+                f"/api/specs/{str(spec_file)}/export?format=speckit"
             )
         assert resp.status_code == 200
         assert "yaml" in resp.headers.get("content-type", "")

@@ -22,7 +22,7 @@ oauth_states: dict[str, bool] = {}
 
 # Drive/Calendar/Gmail OAuth states — richer payload with return_to and expiry.
 # Persisted to disk so a server restart mid-flow doesn't invalidate in-flight auth.
-_DRIVE_STATES_PATH = Path.home() / ".myos" / "oauth_states.json"
+_DRIVE_STATES_PATH = Path.home() / ".youros" / "oauth_states.json"
 _STATE_TTL_SECONDS = 600  # 10 minutes
 
 drive_oauth_states: dict[str, dict] = {}

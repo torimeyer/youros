@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # spec-audit.sh (→1469)
-# Walks ~/.myos/specs/*.md and docs/spec/*.md, scores each against the
+# Walks ~/.youros/specs/*.md and docs/spec/*.md, scores each against the
 # 10-section template, and prints a JSON report to stdout.
 # Exit 0: report printed (all specs score >= 5).
 # Exit 1: at least one spec scores < 5 (or an error occurred).

@@ -38,7 +38,7 @@ except Exception:
     sys.exit(0)
 session_id = (d.get('session_id') or '').strip() or os.environ.get('CLAUDE_SESSION_ID','').strip() or 'default'
 home = os.path.expanduser('~')
-sentinel = os.path.join(home, '.myos', f'.adhd-monitor-armed-{session_id}')
+sentinel = os.path.join(home, '.youros', f'.adhd-monitor-armed-{session_id}')
 age = -1
 if os.path.exists(sentinel):
     try:

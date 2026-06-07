@@ -46,7 +46,7 @@
       "depth_probe_cadence_seconds": 60,
       "_meta": {
         "title": "Require Monitor paired with every Agent spawn",
-        "description": "When ADHD mode is active (~/.myos/.adhd_mode exists), every Agent spawn must be accompanied by a Monitor call in the same turn. Blocks Agent if no Monitor was armed within the sentinel window.",
+        "description": "When ADHD mode is active (~/.youros/.adhd_mode exists), every Agent spawn must be accompanied by a Monitor call in the same turn. Blocks Agent if no Monitor was armed within the sentinel window.",
         "category": "agent_flow",
         "params": {
           "sentinel_ttl_seconds": {
@@ -306,7 +306,7 @@
       "max_age_seconds": 1800,
       "_meta": {
         "title": "Surface scaffold-commit warnings from background watchers",
-        "description": "Background watchers write warnings to ~/.myos/subagents/scaffold-warnings.jsonl when they detect commits that are structural setup without real functionality. This rule injects those warnings into the next user turn.",
+        "description": "Background watchers write warnings to ~/.youros/subagents/scaffold-warnings.jsonl when they detect commits that are structural setup without real functionality. This rule injects those warnings into the next user turn.",
         "category": "quality",
         "params": {
           "max_age_seconds": {

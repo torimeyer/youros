@@ -9,7 +9,7 @@ Workspace, Auth0). The flow:
 4. We exchange the code for tokens and extract identity claims
 5. A HUMANFILE is auto-created from the claims (name, email, role)
 
-All IdP config lives in ~/.myos/enterprise.json under the "sso" key.
+All IdP config lives in ~/.youros/enterprise.json under the "sso" key.
 """
 
 from __future__ import annotations

@@ -222,7 +222,7 @@ export default function Gmail() {
       window.location.href = res.url
     } catch {
       setConnectError(
-        'Could not get the sign-in link. Make sure the yourOS backend is running and your Google credentials file is saved at ~/.myos/google_credentials.json.'
+        'Could not get the sign-in link. Make sure the yourOS backend is running and your Google credentials file is saved at ~/.youros/google_credentials.json.'
       )
     }
   }

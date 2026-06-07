@@ -1,6 +1,6 @@
 """File upload endpoints for agent templates (→1070).
 
-Attached files are stored at ~/.myos/agent_uploads/{template_id}/ and their
+Attached files are stored at ~/.youros/agent_uploads/{template_id}/ and their
 names are tracked in the template record under the "attached_files" key.
 When an agent from that template is spawned, the file content is injected as
 a context block at the top of the prompt.
@@ -20,7 +20,7 @@ from services.agent_templates_store import agent_templates_store
 
 router = APIRouter(tags=["agents"])
 
-AGENT_UPLOADS_DIR = Path.home() / ".myos" / "agent_uploads"
+AGENT_UPLOADS_DIR = Path.home() / ".youros" / "agent_uploads"
 
 # Max file size: 5 MB
 MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -116,7 +116,7 @@ async def list_template_uploads(template_id: str):
 async def upload_template_file(template_id: str, file: UploadFile = File(...)):
     """Upload and attach a file to a template.
 
-    Stores the file at ~/.myos/agent_uploads/{template_id}/{filename} and
+    Stores the file at ~/.youros/agent_uploads/{template_id}/{filename} and
     adds the filename to the template's attached_files list.
     """
     tpl = agent_templates_store.get_by_id(template_id)

@@ -3,7 +3,7 @@
 This service is the engine behind the "Executive Summary" page. It is fully
 vendor-neutral: NO source-specific identifiers (custom-field IDs, JQL strings,
 KR-page URLs, vendor names) live here. The source-specific mapping is read at
-runtime from ``~/.myos/portfolio.json`` via :func:`load_portfolio_config`. With
+runtime from ``~/.youros/portfolio.json`` via :func:`load_portfolio_config`. With
 no config present the feature is "unconfigured" and writes nothing.
 
 Capabilities:
@@ -27,7 +27,7 @@ from typing import Optional
 
 _log = logging.getLogger(__name__)
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 PORTFOLIO_CONFIG_PATH = MYOS_DIR / "portfolio.json"
 
 HEALTH_ON_TRACK = "on_track"
@@ -39,11 +39,11 @@ _URL_RE = re.compile(r"https?://", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
-# Config (source-specific values live OUTSIDE main, in ~/.myos/portfolio.json)
+# Config (source-specific values live OUTSIDE main, in ~/.youros/portfolio.json)
 # ---------------------------------------------------------------------------
 
 def load_portfolio_config(path: Path | None = None) -> dict:
-    """Read the vendor-neutral portfolio mapping from ~/.myos/portfolio.json.
+    """Read the vendor-neutral portfolio mapping from ~/.youros/portfolio.json.
 
     Recognised keys (all source-specific values supplied by the operator):
       - confidence_field_id: the custom field that holds the confidence level

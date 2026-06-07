@@ -61,7 +61,7 @@ import os, json
 try:
     d = json.loads(os.environ.get('INPUT_JSON','') or '{}')
     sid = (d.get('session_id') or '').strip() or os.environ.get('CLAUDE_SESSION_ID','').strip() or 'default'
-    print(os.path.join(os.path.expanduser('~'), '.myos', f'.adhd-monitor-armed-{sid}'))
+    print(os.path.join(os.path.expanduser('~'), '.youros', f'.adhd-monitor-armed-{sid}'))
 except Exception:
     print('')
 " 2>/dev/null)

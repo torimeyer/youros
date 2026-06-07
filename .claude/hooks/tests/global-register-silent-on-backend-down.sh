@@ -74,7 +74,7 @@ fi
 
 # Confirm the retry loop actually ran: the pending-register queue
 # should have a parked body because all retries failed.
-PENDING="$TMP_HOME/.myos/subagents/pending-register.jsonl"
+PENDING="$TMP_HOME/.youros/subagents/pending-register.jsonl"
 if [ ! -s "$PENDING" ]; then
     fail "pending-register.jsonl is empty; retry loop may have skipped the park step"
 fi

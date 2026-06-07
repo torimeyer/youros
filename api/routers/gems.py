@@ -17,7 +17,7 @@ from services.gem_knowledge import retrieve as _rag_retrieve, index_file as _rag
 from services.gem_chat_history_store import gem_chat_history_store
 from services import recent_deletes
 
-_UPLOAD_DIR = Path.home() / ".myos" / "gem_knowledge" / "uploads"
+_UPLOAD_DIR = Path.home() / ".youros" / "gem_knowledge" / "uploads"
 _ALLOWED_SUFFIXES = {".txt", ".md", ".pdf", ".docx"}
 
 router = APIRouter(tags=["gems"])
@@ -154,7 +154,7 @@ async def delete_gem(gem_id: str):
 
 @router.post("/gems/upload")
 async def upload_knowledge_file(file: UploadFile = File(...)):
-    """Accept a knowledge file, save to ~/.myos/gem_knowledge/uploads/, return filename."""
+    """Accept a knowledge file, save to ~/.youros/gem_knowledge/uploads/, return filename."""
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in _ALLOWED_SUFFIXES:
         raise HTTPException(

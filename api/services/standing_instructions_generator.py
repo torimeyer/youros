@@ -8,7 +8,7 @@ connected integrations) and asks Haiku to draft 5-10 one-liners the user
 can accept or tweak.
 
 Signals pulled:
-- Recent chat messages from ~/.myos/chat_history.json (last 30 days).
+- Recent chat messages from ~/.youros/chat_history.json (last 30 days).
 - Feedback entries from the user's memory dir
   ~/.claude/projects/<slug>/memory/feedback_*.md (correction patterns).
 - Connected integrations (Gmail, Google Calendar, Slack, GitHub tokens).
@@ -29,7 +29,7 @@ from typing import Any, Optional
 
 from config import PROJECT_ROOT
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 CHAT_HISTORY_PATH = MYOS_DIR / "chat_history.json"
 # Claude Code stores per-project memory under ~/.claude/projects/<slug>/memory
 # where <slug> is the absolute repo path with "/" replaced by "-" (so it

@@ -300,7 +300,7 @@ def audit_all_specs(
     if spec_dirs is None:
         home = Path.home()
         spec_dirs = [
-            home / ".myos" / "specs",
+            home / ".youros" / "specs",
             _REPO_ROOT / "docs" / "spec",
         ]
 

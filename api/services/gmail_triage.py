@@ -2,7 +2,7 @@
 
 Reads unread Gmail, classifies each message against the user's current tasks
 and calendar, and returns categorized results with suggested actions.
-Cache lives at ~/.myos/gmail_cache/triage_result.json -- never inside the repo.
+Cache lives at ~/.youros/gmail_cache/triage_result.json -- never inside the repo.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from services.atomic_io import atomic_write_text
 from services.briefing import is_actionable_for_reply
 from services.task_source_store import task_source_store
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 GMAIL_CACHE_DIR = MYOS_DIR / "gmail_cache"
 TRIAGE_CACHE_PATH = GMAIL_CACHE_DIR / "triage_result.json"
 

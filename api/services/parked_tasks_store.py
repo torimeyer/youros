@@ -1,7 +1,7 @@
 """Parked tasks store for mychat background work (→1399).
 
 Tracks tasks parked via chat_schedule_wakeup / chat_monitor tools.
-Persists to ~/.myos/parked_tasks.json so backend restarts resume timers.
+Persists to ~/.youros/parked_tasks.json so backend restarts resume timers.
 Uses contextvars to thread tab_id + ws_send through execute_tool without
 changing its signature.
 """
@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-_PARKED_FILE = Path.home() / ".myos" / "parked_tasks.json"
+_PARKED_FILE = Path.home() / ".youros" / "parked_tasks.json"
 PARKED_TASKS_PATH = _PARKED_FILE
 
 # Context vars set by agent_anthropic before each tool-execution batch.

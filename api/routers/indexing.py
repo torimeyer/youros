@@ -1,7 +1,7 @@
 """Document indexing router.
 
 Scans project files, extracts text content, and stores summaries in
-~/.myos/file_index.json so users can search across their codebase.
+~/.youros/file_index.json so users can search across their codebase.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from fastapi import APIRouter, Query
 
 router = APIRouter(tags=["indexing"])
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 INDEX_PATH = MYOS_DIR / "file_index.json"
 
 # Extensions we consider indexable text files

@@ -9,15 +9,15 @@
 # edit the paths, and run `launchctl load` yourself.
 #
 # ── macOS launchd (recommended) ──────────────────────────────────────
-# Save as ~/Library/LaunchAgents/com.myos.reaper.plist, then:
-#   launchctl load ~/Library/LaunchAgents/com.myos.reaper.plist
+# Save as ~/Library/LaunchAgents/com.youros.reaper.plist, then:
+#   launchctl load ~/Library/LaunchAgents/com.youros.reaper.plist
 #
 #   <?xml version="1.0" encoding="UTF-8"?>
 #   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
 #       "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 #   <plist version="1.0">
 #   <dict>
-#     <key>Label</key>             <string>com.myos.reaper</string>
+#     <key>Label</key>             <string>com.youros.reaper</string>
 #     <key>ProgramArguments</key>
 #     <array>
 #       <string>/bin/bash</string>

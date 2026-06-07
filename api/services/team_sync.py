@@ -1,7 +1,7 @@
 """Team sync service.
 
 Federated team knowledge layer backed by a shared git repo configured in
-~/.myos/team.json. Each member publishes "shared" items there; all members
+~/.youros/team.json. Each member publishes "shared" items there; all members
 can search/read it.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Optional
 
 from models.team_schemas import TeamConfig
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 TEAM_CONFIG_PATH = MYOS_DIR / "team.json"
 TEAM_CACHE_PATH = MYOS_DIR / "team_cache.json"
 

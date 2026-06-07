@@ -298,12 +298,12 @@ fi
 
 # settings.json must be preserved if it already exists.
 if grep -qE '\[ ! -f "\$MYOS_CONFIG_DIR/settings.json" \]|\[\[ ! -f "\$MYOS_CONFIG_DIR/settings.json" \]\]' "$DIR/install.sh"; then
-    assert "install.sh preserves existing ~/.myos/settings.json" 0
+    assert "install.sh preserves existing ~/.youros/settings.json" 0
 else
-    assert "install.sh preserves existing ~/.myos/settings.json" 1
+    assert "install.sh preserves existing ~/.youros/settings.json" 1
 fi
 
-# There must be no unconditional cp into ~/.myos/ anywhere in the script.
+# There must be no unconditional cp into ~/.youros/ anywhere in the script.
 # Every cp into the user config dir must sit inside an "if file does not
 # exist" guard. We check by making sure no line with `cp ... $MYOS_CONFIG_DIR`
 # appears at zero indentation (outside of an if block).
@@ -311,16 +311,16 @@ UNGUARDED_CP=$(grep -nE '^[[:space:]]*cp .*MYOS_CONFIG_DIR' "$DIR/install.sh" | 
 GUARDED_CP=$(grep -B2 -E 'cp .*MYOS_CONFIG_DIR' "$DIR/install.sh" | grep -cE '! -f.*MYOS_CONFIG_DIR' || true)
 # If there is any cp at all, at least one guard must exist before it.
 if [ "$UNGUARDED_CP" -eq 0 ] || [ "$GUARDED_CP" -ge 1 ]; then
-    assert "install.sh has no unguarded cp into ~/.myos/" 0
+    assert "install.sh has no unguarded cp into ~/.youros/" 0
 else
-    assert "install.sh has no unguarded cp into ~/.myos/" 1
+    assert "install.sh has no unguarded cp into ~/.youros/" 1
 fi
 
-# No write redirect (>) can target anything under ~/.myos/ without a guard.
-if grep -qE '>[[:space:]]*"?\$HOME/\.myos|>[[:space:]]*"?\$MYOS_CONFIG_DIR' "$DIR/install.sh"; then
-    assert "install.sh does not redirect output into ~/.myos/" 1
+# No write redirect (>) can target anything under ~/.youros/ without a guard.
+if grep -qE '>[[:space:]]*"?\$HOME/\.youros|>[[:space:]]*"?\$MYOS_CONFIG_DIR' "$DIR/install.sh"; then
+    assert "install.sh does not redirect output into ~/.youros/" 1
 else
-    assert "install.sh does not redirect output into ~/.myos/" 0
+    assert "install.sh does not redirect output into ~/.youros/" 0
 fi
 
 # The myos alias must only be added if not already present.
@@ -351,11 +351,11 @@ if [ -f "$DIR/update.sh" ]; then
     bash -n "$DIR/update.sh" 2>/dev/null
     assert "update.sh has valid bash syntax" $?
 
-    # update.sh must never touch ~/.myos/.
-    if grep -qE '>[[:space:]]*"?\$HOME/\.myos|rm .*\$HOME/\.myos' "$DIR/update.sh"; then
-        assert "update.sh does not write into or delete ~/.myos/" 1
+    # update.sh must never touch ~/.youros/.
+    if grep -qE '>[[:space:]]*"?\$HOME/\.youros|rm .*\$HOME/\.youros' "$DIR/update.sh"; then
+        assert "update.sh does not write into or delete ~/.youros/" 1
     else
-        assert "update.sh does not write into or delete ~/.myos/" 0
+        assert "update.sh does not write into or delete ~/.youros/" 0
     fi
 fi
 

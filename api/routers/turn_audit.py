@@ -22,7 +22,7 @@ def _store() -> TurnAuditStore:
 
     Tests monkeypatch the env var before each call, so instantiating here
     (instead of at import time) makes the store pick up the test directory.
-    In production the env var is empty and the default ~/.myos/ is used.
+    In production the env var is empty and the default ~/.youros/ is used.
     """
     return TurnAuditStore()
 

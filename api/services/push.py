@@ -1,6 +1,6 @@
 """Web Push notification service.
 
-Manages VAPID keys and push subscriptions stored in ~/.myos/ so they
+Manages VAPID keys and push subscriptions stored in ~/.youros/ so they
 survive app restarts and git pulls without touching the repo.
 
 Uses pywebpush when available, falls back to the cryptography package
@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 VAPID_KEYS_FILE = MYOS_DIR / "vapid_keys.json"
 SUBSCRIPTIONS_FILE = MYOS_DIR / "push_subscriptions.json"
 

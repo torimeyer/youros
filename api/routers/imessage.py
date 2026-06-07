@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 _HEIC_EXTS = frozenset({".heic", ".heif"})
-_THUMB_CACHE_DIR = Path.home() / ".myos" / "cache" / "messages-thumbs"
+_THUMB_CACHE_DIR = Path.home() / ".youros" / "cache" / "messages-thumbs"
 
 
 def _jpeg_cache_path(source: Path) -> Path:
@@ -151,7 +151,7 @@ async def imessage_attachment(path: str = Query(...)):
     to prevent path traversal outside the iMessage store.
 
     HEIC/HEIF files are transcoded to JPEG via sips so browsers can display
-    them. Converted images are cached in ~/.myos/cache/messages-thumbs/.
+    them. Converted images are cached in ~/.youros/cache/messages-thumbs/.
     """
     _require_macos()
     resolved = Path(path).resolve()
@@ -305,7 +305,7 @@ async def imessage_save_contact(body: SaveContactRequest):
     """Save a name for a phone number or email to the local contacts cache.
 
     Does NOT modify macOS Contacts. The name is stored in
-    ~/.myos/imessage_cache/contacts.json and takes effect on the next
+    ~/.youros/imessage_cache/contacts.json and takes effect on the next
     conversations refresh.
     """
     name = body.name.strip()

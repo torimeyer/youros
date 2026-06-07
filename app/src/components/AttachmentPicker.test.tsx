@@ -16,7 +16,7 @@ const AGENT_FILES = {
     {
       id: 'f1',
       name: 'report.pdf',
-      path: '/home/.myos/files/report.pdf',
+      path: '/home/.youros/files/report.pdf',
       size: 1024,
       modified_at: '2026-04-27T10:00:00Z',
       mime_type: 'application/pdf',
@@ -25,7 +25,7 @@ const AGENT_FILES = {
     {
       id: 'f2',
       name: 'notes.txt',
-      path: '/home/.myos/files/notes.txt',
+      path: '/home/.youros/files/notes.txt',
       size: 512,
       modified_at: '2026-04-26T08:00:00Z',
       mime_type: 'text/plain',
@@ -39,7 +39,7 @@ const UPLOAD_FILES = {
     {
       id: 'u1',
       name: 'upload.png',
-      path: '/home/.myos/files/uploads/upload.png',
+      path: '/home/.youros/files/uploads/upload.png',
       size: 2048,
       modified_at: '2026-04-25T12:00:00Z',
       mime_type: 'image/png',

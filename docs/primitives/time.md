@@ -38,7 +38,7 @@ HTTP surface:
 
 ## Events emitted
 
-Each state-changing call (`start`, `progress`, `finish`) writes a row into `time_runs` in `~/.myos/primitives.db`. Audit-level introspection is mechanical: the table is the audit.
+Each state-changing call (`start`, `progress`, `finish`) writes a row into `time_runs` in `~/.youros/primitives.db`. Audit-level introspection is mechanical: the table is the audit.
 
 ## Versioning history
 
@@ -71,4 +71,4 @@ for st in time.all_running():
 - **Not a job scheduler.** Time does not start work; it only observes work that other code is doing.
 - **Not a retry mechanism.** Time records `failed`; it does not re-spawn or retry.
 - **Not the chat preamble itself.** Chat's "~Nm" prefix calls Time's `estimate()`; Time does not own the chat UI.
-- **Not a cross-user store.** Each laptop's `~/.myos/primitives.db` is personal.
+- **Not a cross-user store.** Each laptop's `~/.youros/primitives.db` is personal.

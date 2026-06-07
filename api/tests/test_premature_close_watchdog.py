@@ -27,7 +27,7 @@ Fix
   AND untracked).
 * ``mark_agent_complete()`` — gates on the above before auto-merge / status
   flip; returns 200 with ``scaffold_premature_close: True`` and writes a row
-  to ``~/.myos/subagents/scaffold-warnings.jsonl``.
+  to ``~/.youros/subagents/scaffold-warnings.jsonl``.
 * ``remove_worktree()`` in spawn_isolation.py — now also checks untracked
   files via ``git ls-files --others --exclude-standard`` before allowing
   worktree removal.
@@ -249,7 +249,7 @@ async def test_mark_agent_complete_writes_scaffold_warning_jsonl(tmp_path):
         "spawned_at": "2026-05-14T00:00:00Z",
     }
 
-    warn_file = tmp_path / ".myos" / "subagents" / "scaffold-warnings.jsonl"
+    warn_file = tmp_path / ".youros" / "subagents" / "scaffold-warnings.jsonl"
 
     try:
         with (

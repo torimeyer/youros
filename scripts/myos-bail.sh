@@ -2,19 +2,19 @@
 # myos-bail.sh — portable myOS setup export/import (→1313)
 #
 # Wraps `ostk bail pack/unpack/verify` and also bundles the extra directories
-# that ostk does not manage natively: ~/.myos/, memory files, handoffs.
+# that ostk does not manage natively: ~/.youros/, memory files, handoffs.
 #
 # Usage:
-#   scripts/myos-bail.sh pack   <out.myosbail>
-#   scripts/myos-bail.sh unpack <in.myosbail>
-#   scripts/myos-bail.sh verify <in.myosbail>
+#   scripts/myos-bail.sh pack   <out.yourosbail>
+#   scripts/myos-bail.sh unpack <in.yourosbail>
+#   scripts/myos-bail.sh verify <in.yourosbail>
 #
-# Output format (.myosbail = tar.gz containing):
+# Output format (.yourosbail = tar.gz containing):
 #   ostk-state.bail    — signed ostk bail (needles, decisions, docs)
 #   myos-extras.tar.gz — extra dirs archived relative to $HOME
 #
 # Overridable env vars (for tests):
-#   MYOS_DIR     — defaults to $HOME/.myos
+#   MYOS_DIR     — defaults to $HOME/.youros
 #   MEMORY_DIR   — defaults to $HOME/.claude/projects/-Users-$(whoami)-claude-torios/memory
 #   HANDOFFS_DIR — defaults to $HOME/.claude/handoffs
 #   DECISIONS_DIR — defaults to <repo>/.ostk/decisions
@@ -27,13 +27,13 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Resolve whoami-based default only when not overridden
 _whoami="$(whoami)"
-MYOS_DIR="${MYOS_DIR:-$HOME/.myos}"
+MYOS_DIR="${MYOS_DIR:-$HOME/.youros}"
 MEMORY_DIR="${MEMORY_DIR:-$HOME/.claude/projects/-Users-${_whoami}-claude-torios/memory}"
 HANDOFFS_DIR="${HANDOFFS_DIR:-$HOME/.claude/handoffs}"
 DECISIONS_DIR="${DECISIONS_DIR:-$REPO_DIR/.ostk/decisions}"
 POLICY_DIR="${POLICY_DIR:-$REPO_DIR/.ostk/policy}"
 
-# Files excluded from ~/.myos/ — transient/reproducible or secrets
+# Files excluded from ~/.youros/ — transient/reproducible or secrets
 MYOS_EXCLUDES=(
     '*.jsonl'
     'github_token.json'
@@ -51,11 +51,11 @@ MYOS_EXCLUDES=(
 )
 
 usage() {
-    echo "Usage: $0 <pack|unpack|verify> <file.myosbail>" >&2
+    echo "Usage: $0 <pack|unpack|verify> <file.yourosbail>" >&2
     echo "" >&2
-    echo "  pack   <out.myosbail>  — export setup to a portable archive" >&2
-    echo "  unpack <in.myosbail>   — restore setup from archive (verify + apply)" >&2
-    echo "  verify <in.myosbail>   — check archive signature without applying" >&2
+    echo "  pack   <out.yourosbail>  — export setup to a portable archive" >&2
+    echo "  unpack <in.yourosbail>   — restore setup from archive (verify + apply)" >&2
+    echo "  verify <in.yourosbail>   — check archive signature without applying" >&2
     exit 1
 }
 
@@ -84,7 +84,7 @@ do_pack() {
     echo "→ packing ostk state (needles, decisions, docs)..."
     ostk bail pack --out "$tmpdir/ostk-state.bail"
 
-    echo "→ bundling extras (~/.myos, memory, handoffs, decisions, policy)..."
+    echo "→ bundling extras (~/.youros, memory, handoffs, decisions, policy)..."
 
     # Build exclude args for tar (macOS-compatible: --exclude patterns)
     local excl_args=()
@@ -93,8 +93,8 @@ do_pack() {
     done
 
     # Archive extras relative to HOME so they restore cleanly on unpack.
-    # We cd to HOME and use relative paths so tar stores ".myos/config.json"
-    # not "/Users/torimeyer/.myos/config.json".
+    # We cd to HOME and use relative paths so tar stores ".youros/config.json"
+    # not "/Users/torimeyer/.youros/config.json".
     relpath() { python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$1" "$HOME"; }
 
     local dirs_to_pack=()

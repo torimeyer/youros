@@ -8,7 +8,7 @@ finishes.
 Thread safety: threading.Lock (same pattern as spawn_isolation) since
 FastAPI may dispatch concurrent requests on different threads.
 
-Persistence: the pending queue is written to ~/.myos/build_queue.json
+Persistence: the pending queue is written to ~/.youros/build_queue.json
 after every mutation so a backend restart does not lose queued builds.
 Running entries are not persisted; they are ephemeral (the subprocess
 is already launched and running). On startup, running_count resets to 0
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 BUILD_CONCURRENCY: int = int(os.environ.get("BUILD_CONCURRENCY", "3"))
 
-_QUEUE_PATH = Path.home() / ".myos" / "build_queue.json"
+_QUEUE_PATH = Path.home() / ".youros" / "build_queue.json"
 
 
 @dataclass

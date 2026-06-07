@@ -11,7 +11,7 @@
 #      self-signed cert in the login Keychain. No new binary required.
 #
 # The script is idempotent: run it again at any time with no side effects.
-# The vite config already reads ~/.myos/localhost.crt + localhost.key,
+# The vite config already reads ~/.youros/localhost.crt + localhost.key,
 # so no vite changes are needed.
 #
 # Usage:
@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-CERT_DIR="$HOME/.myos"
+CERT_DIR="$HOME/.youros"
 CERT="$CERT_DIR/localhost.crt"
 KEY="$CERT_DIR/localhost.key"
 FORCE_KEYCHAIN="${1:-}"
@@ -45,7 +45,7 @@ use_mkcert() {
     popd > /dev/null
 
     echo ""
-    echo "Done. ~/.myos/localhost.crt is now signed by your local mkcert CA."
+    echo "Done. ~/.youros/localhost.crt is now signed by your local mkcert CA."
     echo "Restart the frontend (scripts/dev-frontend.sh) and open a NEW Chrome tab."
 }
 

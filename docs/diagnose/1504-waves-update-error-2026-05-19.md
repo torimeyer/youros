@@ -18,7 +18,7 @@ TypeError: Cannot read properties of null (reading 'split')
 ## Root cause
 
 `GET /api/tasks` returns all tasks including closed ones. Closed tasks in
-`~/.myos/issues.jsonl` can have `title: null` (the `close_reason` field carries
+`~/.youros/issues.jsonl` can have `title: null` (the `close_reason` field carries
 the relevant text instead). The Tasks subtab rendered:
 
 ```tsx

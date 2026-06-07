@@ -4,7 +4,7 @@ Allows MYOS_SPAWN_BURST_LIMIT (default 3) spawns in any 30-second sliding
 window. Excess spawns sleep until a slot opens. After MYOS_SPAWN_MAX_WAIT_S
 (default 90s), the waiter gets HTTP 429 with Retry-After.
 
-Logging: throttle events are appended to ~/.myos/logs/spawn_throttle.log.
+Logging: throttle events are appended to ~/.youros/logs/spawn_throttle.log.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ _MAX_WAIT_S = float(os.environ.get("MYOS_SPAWN_MAX_WAIT_S", "90"))
 
 def _append_throttle_log(msg: str) -> None:
     try:
-        log_dir = Path.home() / ".myos" / "logs"
+        log_dir = Path.home() / ".youros" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(timezone.utc).isoformat()
         with open(log_dir / "spawn_throttle.log", "a") as f:

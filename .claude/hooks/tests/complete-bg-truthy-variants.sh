@@ -36,8 +36,8 @@ ok() {
 TMP_HOME=$(mktemp -d)
 trap 'rm -rf "$TMP_HOME"' EXIT
 
-mkdir -p "$TMP_HOME/.myos/subagents/by-tool-use"
-printf 'truthy-test-agent' > "$TMP_HOME/.myos/subagents/last.name"
+mkdir -p "$TMP_HOME/.youros/subagents/by-tool-use"
+printf 'truthy-test-agent' > "$TMP_HOME/.youros/subagents/last.name"
 
 # Pinpoint a closed port so a foreground path would spend its full retry
 # budget (~7s) attempting /complete. A true skip path finishes in <2s.
@@ -47,8 +47,8 @@ run_case () {
     local label="$1"
     local payload="$2"
     # Ensure no side-channel files interfere with this case's belt test.
-    rm -f "$TMP_HOME/.myos/subagents/last.bg" 2>/dev/null || true
-    rm -rf "$TMP_HOME/.myos/subagents/by-tool-use"/*.bg 2>/dev/null || true
+    rm -f "$TMP_HOME/.youros/subagents/last.bg" 2>/dev/null || true
+    rm -rf "$TMP_HOME/.youros/subagents/by-tool-use"/*.bg 2>/dev/null || true
     local START END ELAPSED_MS
     START=$(date +%s%N 2>/dev/null || date +%s)
     printf '%s' "$payload" | HOME="$TMP_HOME" \
@@ -86,8 +86,8 @@ run_case 'string "yes"' \
 
 # Case 6: explicit false must NOT skip - falls through to fg path, which
 # exhausts the retry budget against the unreachable URL (~7s).
-rm -f "$TMP_HOME/.myos/subagents/last.bg" 2>/dev/null || true
-: > "$TMP_HOME/.myos/subagents/pending-complete.jsonl"
+rm -f "$TMP_HOME/.youros/subagents/last.bg" 2>/dev/null || true
+: > "$TMP_HOME/.youros/subagents/pending-complete.jsonl"
 START=$(date +%s%N 2>/dev/null || date +%s)
 printf '%s' '{"tool_name":"Agent","tool_use_id":"tF","tool_input":{"run_in_background":false},"tool_response":{"output":""}}' \
     | HOME="$TMP_HOME" MYOS_COMPLETE_URL_BASE="$UNREACHABLE" \
@@ -97,7 +97,7 @@ ELAPSED_MS=$(( (END - START) / 1000000 ))
 if [ "$ELAPSED_MS" -lt 1000 ]; then
     fail "bool false must not short-circuit (${ELAPSED_MS}ms)"
 fi
-if [ ! -s "$TMP_HOME/.myos/subagents/pending-complete.jsonl" ]; then
+if [ ! -s "$TMP_HOME/.youros/subagents/pending-complete.jsonl" ]; then
     fail "foreground path did not park to pending-complete.jsonl"
 fi
 ok "bool false still takes foreground path (${ELAPSED_MS}ms)"

@@ -10,7 +10,7 @@
 # Why side-channel, not payload: SubagentStart fires with a sparse payload
 # (session_id + cwd). Agent name/model/description come from the PreToolUse
 # Agent payload, which register-agent.sh parses at PreToolUse time and
-# writes to ~/.myos/subagents/last.name (and per-tool-use files).
+# writes to ~/.youros/subagents/last.name (and per-tool-use files).
 # This hook reads that side-channel to get the name.
 #
 # Race window: PreToolUse fires before SubagentStart in practice (the
@@ -32,11 +32,11 @@ printf '%s' "$INPUT" | ostk hook agent-start 2>/dev/null || true
 
 # 2. Resolve API base
 API_BASE="${TORIOS_API_BASE:-}"
-if [ -z "$API_BASE" ] && [ -f "$HOME/.myos/config.json" ]; then
+if [ -z "$API_BASE" ] && [ -f "$HOME/.youros/config.json" ]; then
     API_BASE=$(python3 -c "
 import json, os
 try:
-    d = json.load(open(os.path.expanduser('~/.myos/config.json')))
+    d = json.load(open(os.path.expanduser('~/.youros/config.json')))
     v = d.get('api_base')
     if isinstance(v, str) and v.strip():
         print(v.strip())
@@ -49,7 +49,7 @@ if [ -z "$API_BASE" ]; then
 fi
 
 # 3. Read agent name from side-channel (written by register-agent.sh PreToolUse)
-AGENT_NAME=$(cat "${HOME}/.myos/subagents/last.name" 2>/dev/null | tr -d '[:space:]')
+AGENT_NAME=$(cat "${HOME}/.youros/subagents/last.name" 2>/dev/null | tr -d '[:space:]')
 [ -z "$AGENT_NAME" ] && exit 0
 
 # 4. Check if already registered to avoid duplicate rows.

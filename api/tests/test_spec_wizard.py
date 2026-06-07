@@ -99,7 +99,8 @@ def test_create_minimal():
         assert body["status"] == "ready"
         # wizard_create writes directly to USER_DRAFTS_DIR; doc_draft is no longer called.
         from services.ostk import USER_DRAFTS_DIR
-        assert str(USER_DRAFTS_DIR) in body["result"]
+        import pathlib
+        assert str(USER_DRAFTS_DIR.resolve()) in str(pathlib.Path(body["result"]).resolve())
         assert mock_write.called
 
 

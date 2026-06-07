@@ -31,7 +31,7 @@ while [ $# -gt 0 ]; do
 Usage: ./install.sh [--with-claude-hooks] [--help]
 
 Installs ostk (if absent), sets up the Python backend in api/.venv,
-installs and builds the frontend in app/, seeds ~/.myos/settings.json,
+installs and builds the frontend in app/, seeds ~/.youros/settings.json,
 and adds `myos` / `myos-update` aliases to your shell rc.
 
 Flags:
@@ -257,7 +257,7 @@ echo ""
 
 # --- Set up default settings if none exist ---
 
-MYOS_CONFIG_DIR="$HOME/.myos"
+MYOS_CONFIG_DIR="$HOME/.youros"
 if [ ! -f "$MYOS_CONFIG_DIR/settings.json" ]; then
     mkdir -p "$MYOS_CONFIG_DIR"
     cp "$INSTALL_DIR/settings.default.json" "$MYOS_CONFIG_DIR/settings.json"
@@ -278,10 +278,10 @@ fi
 
 # --- Stage the register-agent hook file -------------------------------
 # Always copy .claude/hooks/register-agent.sh and its lib to
-# ~/.myos/hooks/ so myos-track / myos-claude / --with-claude-hooks all
+# ~/.youros/hooks/ so myos-track / myos-claude / --with-claude-hooks all
 # point at the same canonical location. Nothing fires yet — this just
 # places the artifact. Idempotent; refreshes on every install.
-STAGED_HOOKS_DIR="$HOME/.myos/hooks"
+STAGED_HOOKS_DIR="$HOME/.youros/hooks"
 mkdir -p "$STAGED_HOOKS_DIR/lib"
 if [ -f "$INSTALL_DIR/.claude/hooks/register-agent.sh" ]; then
     cp -f "$INSTALL_DIR/.claude/hooks/register-agent.sh" "$STAGED_HOOKS_DIR/register-agent.sh"
@@ -332,7 +332,7 @@ fi
 if [ "$(uname)" = "Darwin" ]; then
     echo "Setting up launchd agents for auto-start..."
 
-    # Ensure cert setup has run (idempotent). This creates ~/.myos/localhost.{key,crt}
+    # Ensure cert setup has run (idempotent). This creates ~/.youros/localhost.{key,crt}
     # if mkcert or the security add-trusted-cert path succeeds. We need the result
     # before computing the health URL for the watchdog plist.
     if [ -x "$INSTALL_DIR/scripts/setup-localhost-cert.sh" ]; then
@@ -341,20 +341,20 @@ if [ "$(uname)" = "Darwin" ]; then
     fi
 
     # Compute the health probe URL that the watchdog plist will use.
-    if [ -f "$HOME/.myos/localhost.key" ] && [ -f "$HOME/.myos/localhost.crt" ]; then
+    if [ -f "$HOME/.youros/localhost.key" ] && [ -f "$HOME/.youros/localhost.crt" ]; then
         HEALTH_URL="https://127.0.0.1:8000/api/health"
     else
         HEALTH_URL="http://127.0.0.1:8000/api/health"
     fi
 
     # Create the log directory launchd will write to.
-    mkdir -p "$HOME/.myos/logs"
+    mkdir -p "$HOME/.youros/logs"
 
     LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
     mkdir -p "$LAUNCH_AGENTS_DIR"
 
     # Render each plist template: substitute __INSTALL_DIR__, __HOME__, __HEALTH_URL__.
-    for tmpl in com.myos.backend com.myos.watchdog; do
+    for tmpl in com.youros.backend com.youros.watchdog; do
         SRC="$INSTALL_DIR/ops/${tmpl}.plist.template"
         DEST="$LAUNCH_AGENTS_DIR/${tmpl}.plist"
         if [ ! -f "$SRC" ]; then
@@ -372,7 +372,7 @@ if [ "$(uname)" = "Darwin" ]; then
     # Bootstrap (or reload) both agents. launchctl bootstrap is idempotent
     # on 10.15+; if the agent is already loaded we bootout first.
     USER_UID=$(id -u)
-    for label in com.myos.backend com.myos.watchdog; do
+    for label in com.youros.backend com.youros.watchdog; do
         plist="$LAUNCH_AGENTS_DIR/${label}.plist"
         [ -f "$plist" ] || continue
         # Unload if already running so we pick up any plist changes.

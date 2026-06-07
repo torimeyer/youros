@@ -23,9 +23,9 @@ def test_get_effective_root_default():
     """Without OSTK_PROJECT_ROOT set, returns the compiled PROJECT_ROOT."""
     env = {k: v for k, v in os.environ.items() if k not in ("OSTK_PROJECT_ROOT", "OSTK_ROOT")}
     with patch.dict(os.environ, env, clear=True):
-        from config import PROJECT_ROOT
+        import config
         from services.ostk import get_effective_root
-        assert get_effective_root() == PROJECT_ROOT
+        assert get_effective_root() == config.PROJECT_ROOT
 
 
 def test_get_effective_root_uses_env_var(tmp_path):
@@ -37,10 +37,10 @@ def test_get_effective_root_uses_env_var(tmp_path):
 
 def test_get_effective_root_nonexistent_falls_back(tmp_path):
     """When OSTK_PROJECT_ROOT points at a non-existent path, falls back to PROJECT_ROOT."""
-    from config import PROJECT_ROOT
+    import config
     from services.ostk import get_effective_root
     with patch.dict(os.environ, {"OSTK_PROJECT_ROOT": "/does/not/exist/worktree_xyz"}):
-        assert get_effective_root() == PROJECT_ROOT
+        assert get_effective_root() == config.PROJECT_ROOT
 
 
 # ---------------------------------------------------------------------------
@@ -50,11 +50,11 @@ def test_get_effective_root_nonexistent_falls_back(tmp_path):
 def test_ostk_service_default_cwd_is_main_repo():
     """Without OSTK_PROJECT_ROOT, OstkService.cwd equals the main repo root."""
     env = {k: v for k, v in os.environ.items() if k not in ("OSTK_PROJECT_ROOT", "OSTK_ROOT")}
+    import config
+    from services.ostk import OstkService
     with patch.dict(os.environ, env, clear=True):
-        from config import PROJECT_ROOT
-        from services.ostk import OstkService
         svc = OstkService()
-        assert svc.cwd == str(PROJECT_ROOT)
+        assert svc.cwd == str(config.PROJECT_ROOT)
 
 
 def test_ostk_service_cwd_uses_worktree_when_env_set(tmp_path):

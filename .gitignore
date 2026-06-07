@@ -31,11 +31,11 @@ workspaces/
 coverage/
 e2e-screenshots/*.png
 
-# User-local specs live in ~/.myos/specs/, not in the repo (→1377)
+# User-local specs live in ~/.youros/specs/, not in the repo (→1377)
 # Use `ostk doc promote` to write there; never commit docs/spec/ contents.
 docs/spec/
 
-# NR-internal strategy content should live outside the repo (~/.myos/) — never commit
+# NR-internal strategy content should live outside the repo (~/.youros/) — never commit
 nr-workspaces-saved/
 frontend/test-results/
 
@@ -53,7 +53,7 @@ config/
 # transient scratch dumps (Drive exports, session notes); never commit
 .tmp/
 
-# User-local specs and drafts live in ~/.myos/specs/. Never commit (->1377, fresh-install leak).
+# User-local specs and drafts live in ~/.youros/specs/. Never commit (->1377, fresh-install leak).
 # Use `ostk doc draft` / `ostk doc promote`; never commit docs/spec or docs/draft contents.
 docs/spec/
 docs/draft/

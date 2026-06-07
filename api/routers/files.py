@@ -7,7 +7,7 @@ or extracted text). Plain text and images are handled by the existing
 
 All paths are resolved through the same readable-path helper used by the
 projects router so previews stay scoped to the two roots that Recent
-Documents walks (the workspace and ``~/.myos/files/``) and cannot
+Documents walks (the workspace and ``~/.youros/files/``) and cannot
 escape them.
 """
 
@@ -341,7 +341,7 @@ async def file_provenance(path: str = Query(..., description="Relative or absolu
     """Return the provenance sidecar for a file, or {} if no sidecar exists.
 
     Same path resolution as /files/preview — accepts workspace-relative
-    paths and absolute paths under ~/.myos/files/.
+    paths and absolute paths under ~/.youros/files/.
     """
     from services.provenance import read_sidecar
 
@@ -354,14 +354,14 @@ async def file_provenance(path: str = Query(..., description="Relative or absolu
 
 
 def _get_files_dir() -> Path:
-    return Path.home() / ".myos" / "files"
+    return Path.home() / ".youros" / "files"
 
 
 @router.get("/files/timeline")
 async def files_timeline(limit: int = Query(50, ge=1, le=200)):
     """Reverse-chronological feed of agent outputs and uploads with provenance.
 
-    Scans ``~/.myos/files/`` for user-visible files, reads provenance sidecars,
+    Scans ``~/.youros/files/`` for user-visible files, reads provenance sidecars,
     and returns them sorted by modified_at descending. Sidecar files
     (.provenance.json) are excluded from the listing.
     """
@@ -498,7 +498,7 @@ class DriveImportBody(BaseModel):
 
 @router.post("/files/import-from-drive")
 async def import_file_from_drive(body: DriveImportBody):
-    """Download a Google Drive file into ~/.myos/files/imports/.
+    """Download a Google Drive file into ~/.youros/files/imports/.
 
     Writes a sidecar JSON next to the file recording provenance
     (source, drive_file_id, imported_at). No inline editing: this is a
@@ -613,7 +613,7 @@ async def import_file_from_drive(body: DriveImportBody):
     if mime in native_types and not safe_stem.lower().endswith(".pdf"):
         safe_stem = safe_stem + ".pdf"
 
-    imports_dir = Path.home() / ".myos" / "files" / "imports"
+    imports_dir = Path.home() / ".youros" / "files" / "imports"
     imports_dir.mkdir(parents=True, exist_ok=True)
 
     dest = imports_dir / safe_stem

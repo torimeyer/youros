@@ -87,7 +87,7 @@ _adhd_monitor_pairing_check() {
   ttl=$(rule_param "adhd_monitor_pairing.sentinel_ttl_seconds" "120")
 
   # Fast out: ADHD mode not active.
-  if [ ! -f "$HOME/.myos/.adhd_mode" ]; then
+  if [ ! -f "$HOME/.youros/.adhd_mode" ]; then
     log_rule_fire "adhd_monitor_pairing" "$tool" "allow" "adhd_mode not active"
     return 0
   fi

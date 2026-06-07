@@ -47,8 +47,7 @@ async def test_keyword_match_finds_existing_label():
     fake_client = AsyncMock()
     fake_client.messages.create = AsyncMock(return_value=_claude_text(""))
 
-    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
-         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client):
+    with patch("services.label_suggester.get_ai_client", return_value=fake_client):
         result = await suggest_labels(
             "Fix auth redirect bug",
             "users get bounced back to the login screen",
@@ -67,8 +66,7 @@ async def test_keyword_match_avoids_partial_matches():
     fake_client = AsyncMock()
     fake_client.messages.create = AsyncMock(return_value=_claude_text(""))
 
-    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
-         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client):
+    with patch("services.label_suggester.get_ai_client", return_value=fake_client):
         result = await suggest_labels(
             "Write a user guide for the platform",
             "needs sample screenshots",
@@ -89,8 +87,7 @@ async def test_ai_suggests_existing_labels():
         return_value=_claude_text("docs\nui\n")
     )
 
-    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
-         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client):
+    with patch("services.label_suggester.get_ai_client", return_value=fake_client):
         result = await suggest_labels(
             "Polish the help center",
             "rewrite copy and refresh visuals",
@@ -113,8 +110,7 @@ async def test_ai_suggests_new_label_when_nothing_fits():
 
     fake_label = {"id": "l-ff", "name": "feature-flags", "color": "#06b6d4"}
 
-    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
-         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client), \
+    with patch("services.label_suggester.get_ai_client", return_value=fake_client), \
          patch.object(label_suggester.labels_store, "create_label", return_value=fake_label) as mock_create:
         result = await suggest_labels(
             "Wire up gradual rollout toggles",
@@ -136,8 +132,7 @@ async def test_invalid_new_label_name_is_dropped():
         return_value=_claude_text("NEW: this is not a valid name with spaces\n")
     )
 
-    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
-         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client), \
+    with patch("services.label_suggester.get_ai_client", return_value=fake_client), \
          patch.object(label_suggester.labels_store, "create_label") as mock_create:
         result = await suggest_labels(
             "Random unrelated thing",
@@ -157,8 +152,7 @@ async def test_existing_labels_take_priority_over_new():
         return_value=_claude_text("docs\nNEW: documentation\n")
     )
 
-    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
-         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client), \
+    with patch("services.label_suggester.get_ai_client", return_value=fake_client), \
          patch.object(label_suggester.labels_store, "create_label") as mock_create:
         result = await suggest_labels(
             "Polish help center",
@@ -178,8 +172,7 @@ async def test_cache_prevents_duplicate_calls():
     fake_client = AsyncMock()
     fake_client.messages.create = AsyncMock(return_value=_claude_text("docs\n"))
 
-    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
-         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client):
+    with patch("services.label_suggester.get_ai_client", return_value=fake_client):
         await suggest_labels("Polish help center", "writeups", EXISTING_LABELS)
         await suggest_labels("Polish help center", "writeups", EXISTING_LABELS)
 
@@ -195,8 +188,7 @@ async def test_capped_at_three_labels():
         return_value=_claude_text("auth\nui\nbug\ndocs\n")
     )
 
-    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
-         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client):
+    with patch("services.label_suggester.get_ai_client", return_value=fake_client):
         result = await suggest_labels(
             "Rework everything",
             "all areas touched",
@@ -214,8 +206,7 @@ async def test_made_up_labels_are_dropped():
         return_value=_claude_text("totally-made-up\n")
     )
 
-    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
-         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client), \
+    with patch("services.label_suggester.get_ai_client", return_value=fake_client), \
          patch.object(label_suggester.labels_store, "create_label") as mock_create:
         result = await suggest_labels(
             "Some random task",
@@ -254,8 +245,7 @@ async def test_mint_then_reuse_no_duplicate():
     )
 
     # First call: label does not exist -> create_label succeeds.
-    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
-         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client), \
+    with patch("services.label_suggester.get_ai_client", return_value=fake_client), \
          patch.object(label_suggester.labels_store, "create_label", return_value=minted) as mock_create1, \
          patch.object(label_suggester.labels_store, "list_labels", return_value=[]):
         result1 = await suggest_labels("gradual rollout", "ship to 5 percent", [])
@@ -268,8 +258,7 @@ async def test_mint_then_reuse_no_duplicate():
     # list_labels returns it -> no duplicate, same label returned.
     clear_cache()
 
-    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
-         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client), \
+    with patch("services.label_suggester.get_ai_client", return_value=fake_client), \
          patch.object(label_suggester.labels_store, "create_label", side_effect=ValueError("already exists")) as mock_create2, \
          patch.object(label_suggester.labels_store, "list_labels", return_value=[minted]):
         result2 = await suggest_labels("gradual rollout", "ship to 5 percent", [])
@@ -285,8 +274,7 @@ async def test_claude_failure_falls_back_gracefully():
     fake_client = AsyncMock()
     fake_client.messages.create = AsyncMock(side_effect=Exception("network down"))
 
-    with patch("services.label_suggester._resolve_api_key", new=AsyncMock(return_value="x")), \
-         patch("services.label_suggester.anthropic.AsyncAnthropic", return_value=fake_client):
+    with patch("services.label_suggester.get_ai_client", return_value=fake_client):
         result = await suggest_labels(
             "Fix auth redirect",
             "login broken",

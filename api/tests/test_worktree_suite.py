@@ -155,13 +155,17 @@ def test_write_status_rejects_bad_suite(tmp_path: Path):
 
 
 def test_write_status_creates_parent_dir(tmp_path: Path):
+    # Use a subfolder so autouse fixtures don't pollute the root
+    repo_root = tmp_path / "fresh_repo"
+    repo_root.mkdir()
+    
     # Parent dir does not exist yet.
-    assert not (tmp_path / ".ostk").exists()
+    assert not (repo_root / ".ostk").exists()
     write_status(
-        repo_root=tmp_path,
+        repo_root=repo_root,
         branch="b",
         path="/x",
         status="ready",
         suite="none",
     )
-    assert (tmp_path / ".ostk" / "worktree_status").is_dir()
+    assert (repo_root / ".ostk" / "worktree_status").is_dir()

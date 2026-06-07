@@ -1792,10 +1792,8 @@ async def test_drive_structured_preview_slides_fallback_on_api_error(client, tmp
     assert resp.status_code == 200
     data = resp.json()
     assert data["kind"] == "slides"
-    # Fallback: single slide entry using the enlarged Drive thumbnail.
-    assert len(data["sample"]["slides"]) == 1
-    assert "=s800" in data["sample"]["slides"][0]["thumbnail_url"]
-
+    # Fallback: empty slides array so the frontend uses the iframe.
+    assert len(data["sample"]["slides"]) == 0
 
 @pytest.mark.asyncio
 async def test_drive_structured_preview_auth_error_returns_401(client, tmp_path):

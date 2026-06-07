@@ -1,6 +1,6 @@
 """Persistent side-store for task source and source_ref fields.
 
-Stored in ~/.myos/task_source.json. Format:
+Stored in ~/.youros/task_source.json. Format:
   { "<task_id>": {"source": "slack", "source_ref": "slack:C123/..."} }
 
 Existing tasks without entries read as None for both fields.
@@ -15,7 +15,7 @@ from typing import Optional
 
 from services.atomic_io import atomic_write_json
 
-TASK_SOURCE_PATH = Path.home() / ".myos" / "task_source.json"
+TASK_SOURCE_PATH = Path.home() / ".youros" / "task_source.json"
 
 _MAX_SOURCE_REF_LEN = 500
 

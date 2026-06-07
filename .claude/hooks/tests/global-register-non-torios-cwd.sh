@@ -78,7 +78,7 @@ PAYLOAD="{\"tool_name\":\"Agent\",\"tool_use_id\":\"$TUID\",\"tool_input\":{\"de
 
 # Run the hook with:
 #   - CLAUDE_PROJECT_DIR = a scratch tmpdir (NOT the torios repo)
-#   - HOME = a scratch HOME so we don't touch real ~/.myos state
+#   - HOME = a scratch HOME so we don't touch real ~/.youros state
 #   - TORIOS_API_BASE = local fake server
 printf '%s' "$PAYLOAD" \
     | CLAUDE_PROJECT_DIR="$CLAUDE_CWD" \
@@ -105,7 +105,7 @@ fi
 
 # Sanity: hook should have created per-tool-use mapping under the
 # scratch HOME (not the real one).
-PER_ID_FILE="$TMP_HOME/.myos/subagents/by-tool-use/$TUID.name"
+PER_ID_FILE="$TMP_HOME/.youros/subagents/by-tool-use/$TUID.name"
 if [ ! -f "$PER_ID_FILE" ]; then
     fail "per-tool-use file missing under scratch HOME: $PER_ID_FILE"
 fi

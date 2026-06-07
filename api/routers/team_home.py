@@ -33,7 +33,7 @@ def _enterprise_org_id() -> str:
 
 
 def _load_announcements(org_id: str) -> list[dict]:
-    path = Path.home() / ".myos" / "orgs" / org_id / "announcements.json"
+    path = Path.home() / ".youros" / "orgs" / org_id / "announcements.json"
     if not path.exists():
         return []
     try:

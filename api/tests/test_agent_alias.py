@@ -33,7 +33,7 @@ from services.agent_templates_store import (
 
 @pytest.fixture
 def aliases_path(tmp_path):
-    """Isolated alias file — does not touch ~/.myos/."""
+    """Isolated alias file — does not touch ~/.youros/."""
     return tmp_path / "template_aliases.json"
 
 

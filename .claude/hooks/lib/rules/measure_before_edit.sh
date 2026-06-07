@@ -20,7 +20,7 @@ _measure_before_edit_check() {
   fi
 
   # Skip if a timing script ran recently (within 15 minutes).
-  local TIMING_FLAG="${MYOS_TIMING_DONE_STAMP:-${HOME}/.myos/hooks/timing-done.stamp}"
+  local TIMING_FLAG="${MYOS_TIMING_DONE_STAMP:-${HOME}/.youros/hooks/timing-done.stamp}"
   if [ -f "$TIMING_FLAG" ]; then
     local STAMP_AGE
     STAMP_AGE=$(python3 -c "import os,time; print(int(time.time()-os.path.getmtime('${TIMING_FLAG}')))" 2>/dev/null || echo 9999)

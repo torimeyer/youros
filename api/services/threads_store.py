@@ -1,7 +1,7 @@
 """Persistent storage for task threads (mini-projects).
 
 Threads let users group related tasks together under a name.
-Stored in ~/.myos/threads.json as a list of thread objects.
+Stored in ~/.youros/threads.json as a list of thread objects.
 Each thread has an id, name, and a list of task IDs (needle_ids).
 """
 
@@ -15,7 +15,7 @@ from typing import Optional
 
 from services.atomic_io import atomic_write_json, atomic_write_text
 
-THREADS_PATH = Path.home() / ".myos" / "threads.json"
+THREADS_PATH = Path.home() / ".youros" / "threads.json"
 
 
 class ThreadsStore:

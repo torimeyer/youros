@@ -1,6 +1,6 @@
 """Tests for the pre-design audit (→1663).
 
-The audit is a standalone script at ~/.myos/pre-design-audit.py that checks
+The audit is a standalone script at ~/.youros/pre-design-audit.py that checks
 three signals before any new infrastructure is proposed:
   1. Codebase search (literal filename + grep)
   2. Recent git log on origin/main
@@ -26,7 +26,7 @@ import pytest
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-SCRIPT = Path.home() / ".myos" / "pre-design-audit.py"
+SCRIPT = Path.home() / ".youros" / "pre-design-audit.py"
 
 
 def _load_audit_module():

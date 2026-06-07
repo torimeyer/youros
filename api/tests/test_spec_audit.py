@@ -272,19 +272,19 @@ def test_docs_spec_resolved_against_repo_root(tmp_path, monkeypatch):
 
 
 def test_myos_specs_resolved_from_home(tmp_path, monkeypatch):
-    """~/.myos/specs is always resolved via Path.home(), not CWD."""
+    """~/.youros/specs is always resolved via Path.home(), not CWD."""
     fake_home = tmp_path / "home"
-    myos_specs = fake_home / ".myos" / "specs"
+    myos_specs = fake_home / ".youros" / "specs"
     myos_specs.mkdir(parents=True, exist_ok=True)
     (myos_specs / "b.md").write_text(FULL_SPEC)
 
     monkeypatch.setenv("HOME", str(fake_home))
 
     from pathlib import Path as _Path
-    report = audit_all_specs(spec_dirs=[_Path.home() / ".myos" / "specs"])
+    report = audit_all_specs(spec_dirs=[_Path.home() / ".youros" / "specs"])
     assert report["summary"]["total"] >= 1
     paths = [r["path"] for r in report["specs"]]
-    assert any(".myos" in p for p in paths), paths
+    assert any(".youros" in p for p in paths), paths
 
 
 def test_audit_includes_both_dirs_with_env_var(tmp_path, monkeypatch):
@@ -294,9 +294,9 @@ def test_audit_includes_both_dirs_with_env_var(tmp_path, monkeypatch):
     docs_spec.mkdir(parents=True, exist_ok=True)
     (docs_spec / "x.md").write_text(FULL_SPEC)
 
-    # Fake ~/.myos/specs using HOME override.
+    # Fake ~/.youros/specs using HOME override.
     fake_home = tmp_path / "home"
-    myos_specs = fake_home / ".myos" / "specs"
+    myos_specs = fake_home / ".youros" / "specs"
     myos_specs.mkdir(parents=True, exist_ok=True)
     (myos_specs / "y.md").write_text(HALF_SPEC)
 
@@ -312,7 +312,7 @@ def test_audit_includes_both_dirs_with_env_var(tmp_path, monkeypatch):
     assert report["summary"]["total"] == 2, report["summary"]
     paths = [r["path"] for r in report["specs"]]
     assert any("docs" in p for p in paths), paths
-    assert any(".myos" in p for p in paths), paths
+    assert any(".youros" in p for p in paths), paths
 
 
 @pytest.mark.anyio
@@ -527,7 +527,7 @@ def test_compute_stage_spec_status_with_open_needle_body_refs_is_ready():
     Renamed from test_compute_stage_in_progress — that test asserted the →1617 bug.
     """
     from services.spec_audit import ShippedResult, HuskResult
-    spec = {"path": "~/.myos/specs/foo.md", "status": "spec"}
+    spec = {"path": "~/.youros/specs/foo.md", "status": "spec"}
     shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=["1234"])
     husk = HuskResult(is_husk=False, reason="")
     assert compute_stage(spec, husk=husk, shipped=shipped) == "ready"
@@ -535,7 +535,7 @@ def test_compute_stage_spec_status_with_open_needle_body_refs_is_ready():
 
 def test_compute_stage_ready():
     from services.spec_audit import ShippedResult, HuskResult
-    spec = {"path": "~/.myos/specs/foo.md", "status": "spec"}
+    spec = {"path": "~/.youros/specs/foo.md", "status": "spec"}
     shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
     husk = HuskResult(is_husk=False, reason="")
     assert compute_stage(spec, husk=husk, shipped=shipped) == "ready"
@@ -561,7 +561,7 @@ def test_compute_stage_ready_spec_with_open_needle_body_refs():
     every healthy ready spec. They are NOT a building signal.
     """
     from services.spec_audit import ShippedResult, HuskResult
-    spec = {"path": "~/.myos/specs/foo.md", "status": "spec", "task_ids": []}
+    spec = {"path": "~/.youros/specs/foo.md", "status": "spec", "task_ids": []}
     shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=["1234"])
     husk = HuskResult(is_husk=False, reason="")
     assert compute_stage(spec, husk=husk, shipped=shipped) == "ready"
@@ -570,7 +570,7 @@ def test_compute_stage_ready_spec_with_open_needle_body_refs():
 def test_compute_stage_in_progress_from_frontmatter_status():
     """Bug →1617: status='in-progress' in frontmatter → 'in_progress', not needle body refs."""
     from services.spec_audit import ShippedResult, HuskResult
-    spec = {"path": "~/.myos/specs/foo.md", "status": "in-progress"}
+    spec = {"path": "~/.youros/specs/foo.md", "status": "in-progress"}
     shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
     husk = HuskResult(is_husk=False, reason="")
     assert compute_stage(spec, husk=husk, shipped=shipped) == "in_progress"
@@ -579,7 +579,7 @@ def test_compute_stage_in_progress_from_frontmatter_status():
 def test_compute_stage_building_from_frontmatter_status():
     """Bug →1617: status='building' in frontmatter → 'in_progress'."""
     from services.spec_audit import ShippedResult, HuskResult
-    spec = {"path": "~/.myos/specs/foo.md", "status": "building"}
+    spec = {"path": "~/.youros/specs/foo.md", "status": "building"}
     shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
     husk = HuskResult(is_husk=False, reason="")
     assert compute_stage(spec, husk=husk, shipped=shipped) == "in_progress"
@@ -629,7 +629,7 @@ References: →9001
 
 @pytest.mark.asyncio
 async def test_list_docs_hides_husk_draft_when_promoted_spec_exists(tmp_path, monkeypatch):
-    """list_docs must NOT surface a docs/draft/ husk when ~/.myos/specs/
+    """list_docs must NOT surface a docs/draft/ husk when ~/.youros/specs/
     already holds a promoted spec with the same slug.
 
     Regression for →1673: empty frontmatter-only files were appearing as

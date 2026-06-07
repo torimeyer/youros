@@ -57,19 +57,19 @@ A "credentials file" from Google Cloud Console. This file lets yourOS sign in to
 Move the downloaded file to:
 
 ```
-~/.myos/google_credentials.json
+~/.youros/google_credentials.json
 ```
 
 On a Mac, open Terminal and run:
 
 ```bash
-mv ~/Downloads/client_secret_*.json ~/.myos/google_credentials.json
+mv ~/Downloads/client_secret_*.json ~/.youros/google_credentials.json
 ```
 
-If the `~/.myos` folder does not exist yet, create it first:
+If the `~/.youros` folder does not exist yet, create it first:
 
 ```bash
-mkdir -p ~/.myos
+mkdir -p ~/.youros
 ```
 
 ---
@@ -85,5 +85,5 @@ Once you sign in, yourOS will sync your file list and you can start browsing.
 ## Notes
 
 - yourOS only requests **read-only** access. It cannot add, edit, or delete any files.
-- Your token is saved locally at `~/.myos/google_token.json`. To disconnect, click **Disconnect** in the Drive tab.
-- File previews are cached for 1 hour at `~/.myos/drive_cache/`. You can delete this folder at any time to clear the cache.
+- Your token is saved locally at `~/.youros/google_token.json`. To disconnect, click **Disconnect** in the Drive tab.
+- File previews are cached for 1 hour at `~/.youros/drive_cache/`. You can delete this folder at any time to clear the cache.

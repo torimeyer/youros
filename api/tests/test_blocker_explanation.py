@@ -19,7 +19,7 @@ from services import blocker_explanation
 
 @pytest.fixture
 def temp_cache(tmp_path, monkeypatch):
-    """Redirect the cache file to a temp path so tests do not touch ~/.myos."""
+    """Redirect the cache file to a temp path so tests do not touch ~/.youros."""
     fake_cache = tmp_path / "blocker_explanations.json"
     monkeypatch.setattr(blocker_explanation, "CACHE_PATH", fake_cache)
     yield fake_cache

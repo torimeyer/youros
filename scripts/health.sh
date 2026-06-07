@@ -30,8 +30,8 @@ FRONTEND_PORT="${FRONTEND_PORT:-3010}"
 # Auto-detect HTTPS for backend (same logic as e2e_smoke.sh).
 # Callers can override API_BASE, FRONTEND_BASE, and CURL_OPTS directly
 # (useful for tests that start plain-HTTP servers on non-standard ports).
-SSL_KEY="$HOME/.myos/localhost.key"
-SSL_CERT="$HOME/.myos/localhost.crt"
+SSL_KEY="$HOME/.youros/localhost.key"
+SSL_CERT="$HOME/.youros/localhost.crt"
 if [ -f "$SSL_KEY" ] && [ -f "$SSL_CERT" ]; then
     API_BASE="${API_BASE:-https://127.0.0.1:${API_PORT}}"
     CURL_OPTS="${CURL_OPTS:--sSk}"

@@ -164,7 +164,7 @@ def _message_hash(message: str) -> str:
 def _inject_user_aliases(templates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Inject user-set aliases into the templates list.
 
-    User aliases from ~/.myos/template_aliases.json are added to the
+    User aliases from ~/.youros/template_aliases.json are added to the
     matching template's aliases list so the explicit-invocation layer
     can pick them up. User aliases take priority over built-in aliases
     on collision.

@@ -5,7 +5,7 @@ Agentfiles are config files in the ``agents/`` directory that ``ostk run``
 uses to spawn an agent with a standardized configuration.
 
 Built-in templates ship with the repo. User-created Agentfiles are stored
-in ``~/.myos/agentfiles/`` so they survive git pulls.
+in ``~/.youros/agentfiles/`` so they survive git pulls.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from services.agentfile_parser import agentfile_to_form, form_to_agentfile
 router = APIRouter(tags=["agentfiles"])
 
 # User-created Agentfiles live outside the repo so git pull never clobbers them.
-USER_AGENTFILES_DIR = Path.home() / ".myos" / "agentfiles"
+USER_AGENTFILES_DIR = Path.home() / ".youros" / "agentfiles"
 
 
 class AgentfileCreate(BaseModel):
@@ -260,7 +260,7 @@ async def update_agentfile_form(name: str, body: AgentfileFormData):
 async def create_agentfile(body: AgentfileCreate):
     """Create a new user Agentfile.
 
-    User-created files are stored in ~/.myos/agentfiles/ so they are
+    User-created files are stored in ~/.youros/agentfiles/ so they are
     never overwritten by a git pull.
     """
     USER_AGENTFILES_DIR.mkdir(parents=True, exist_ok=True)

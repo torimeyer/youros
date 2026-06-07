@@ -259,10 +259,10 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
 
     import routers.specs as specs_mod
-    monkeypatch.setattr(specs_mod, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
     # Redirect USER_SPECS_DIR so promote writes to the isolated tmp tree
-    # instead of the real ~/.myos/specs/. Without this, promote() moves the
+    # instead of the real ~/.youros/specs/. Without this, promote() moves the
     # file out of tmp_path and the subsequent GET /api/specs path match fails.
     import services.ostk as _ostk_svc_mod
     monkeypatch.setattr(_ostk_svc_mod, "USER_SPECS_DIR", tmp_path / "docs" / "spec")
@@ -270,11 +270,9 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
     # Redirect USER_DRAFTS_DIR too (→2104): POST /api/specs/draft no longer
     # shells out to `ostk doc draft`; it writes the draft directly into
     # USER_DRAFTS_DIR. Without this redirect the draft lands in the real
-    # ~/.myos/drafts/ and the subsequent promote can't find it in tmp.
+    # ~/.youros/drafts/ and the subsequent promote can't find it in tmp.
     drafts_dir = tmp_path / "docs" / "draft"
     monkeypatch.setattr(_ostk_svc_mod, "USER_DRAFTS_DIR", drafts_dir)
-    import routers.specs as _specs_router_mod
-    monkeypatch.setattr(_specs_router_mod, "USER_DRAFTS_DIR", drafts_dir)
 
     # --- Draft ---
     draft_file = tmp_path / "docs" / "draft" / "e2e-http-journey.md"

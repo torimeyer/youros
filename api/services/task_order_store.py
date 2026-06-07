@@ -1,6 +1,6 @@
 """Persistent storage for custom task sort order within each priority group.
 
-Stored in ~/.myos/task_order.json. The format is a dict mapping task_id ->
+Stored in ~/.youros/task_order.json. The format is a dict mapping task_id ->
 sort_index (integer). Sort indices are relative within each priority group.
 Tasks without an entry fall back to ordering by created_at.
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 
 from services.atomic_io import atomic_write_json
 
-TASK_ORDER_PATH = Path.home() / ".myos" / "task_order.json"
+TASK_ORDER_PATH = Path.home() / ".youros" / "task_order.json"
 
 
 class TaskOrderStore:

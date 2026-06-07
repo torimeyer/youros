@@ -16,7 +16,7 @@ function mockApiResponses({
 }: { version?: string; taskCount?: number; agentCount?: number; decisionCount?: number } = {}) {
   mockedGet.mockImplementation((path: string) => {
     if (path === '/upgrade/status') {
-      return Promise.resolve({ myos: { current: version } } as never)
+      return Promise.resolve({ youros: { current: version } } as never)
     }
     if (path === '/tasks') {
       return Promise.resolve({ tasks: Array.from({ length: taskCount }, () => ({})) } as never)

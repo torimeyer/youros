@@ -1316,7 +1316,7 @@ export function ChatPanel() {
         return [...prev, { id: genId(), role: 'assistant', content: '', model: '' }]
       })
     } else if (lastMessage.type === 'memory_added') {
-      // A preference was detected and written to ~/.myos/users/default/MEMORY.md.
+      // A preference was detected and written to ~/.youros/users/default/MEMORY.md.
       // Fire the toast so the user sees confirmation immediately.
       useMemoryToastStore.getState().trigger(lastMessage.data as string)
     } else if (lastMessage.type === 'memory_removed') {

@@ -53,14 +53,14 @@ export PATH="$FAKE_BIN:$PATH"
 
 FAKE_HOME="$TESTROOT/home"
 
-# ~/.myos/ — mix of included and excluded files
-mkdir -p "$FAKE_HOME/.myos"
-echo "config"   > "$FAKE_HOME/.myos/config.json"
-echo "token"    > "$FAKE_HOME/.myos/github_token.json"   # SECRET — must exclude
-echo "audit"    > "$FAKE_HOME/.myos/audit.jsonl"          # transient — must exclude
-echo "agents"   > "$FAKE_HOME/.myos/agents.jsonl"         # transient — must exclude
-echo "registry" > "$FAKE_HOME/.myos/registry.jsonl"       # transient — must exclude
-echo "briefing" > "$FAKE_HOME/.myos/briefing_state.json" # included
+# ~/.youros/ — mix of included and excluded files
+mkdir -p "$FAKE_HOME/.youros"
+echo "config"   > "$FAKE_HOME/.youros/config.json"
+echo "token"    > "$FAKE_HOME/.youros/github_token.json"   # SECRET — must exclude
+echo "audit"    > "$FAKE_HOME/.youros/audit.jsonl"          # transient — must exclude
+echo "agents"   > "$FAKE_HOME/.youros/agents.jsonl"         # transient — must exclude
+echo "registry" > "$FAKE_HOME/.youros/registry.jsonl"       # transient — must exclude
+echo "briefing" > "$FAKE_HOME/.youros/briefing_state.json" # included
 
 # ~/.claude/handoffs/
 mkdir -p "$FAKE_HOME/.claude/handoffs"
@@ -80,12 +80,12 @@ mkdir -p "$FAKE_REPO/.ostk/policy"
 echo "decision content" > "$FAKE_REPO/.ostk/decisions/2026-01-01.md"
 echo "policy rule"      > "$FAKE_REPO/.ostk/policy/core.md"
 
-OUT_BAIL="$TESTROOT/test-export.myosbail"
+OUT_BAIL="$TESTROOT/test-export.yourosbail"
 
 # ── pack ──────────────────────────────────────────────────────────────────────
 
 HOME="$FAKE_HOME" \
-MYOS_DIR="$FAKE_HOME/.myos" \
+MYOS_DIR="$FAKE_HOME/.youros" \
 MEMORY_DIR="$FAKE_MEMORY" \
 HANDOFFS_DIR="$FAKE_HOME/.claude/handoffs" \
 DECISIONS_DIR="$FAKE_REPO/.ostk/decisions" \

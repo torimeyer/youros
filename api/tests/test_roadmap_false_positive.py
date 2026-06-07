@@ -4,7 +4,7 @@ the narrow-agent-outputs gate.
 Bug 1: ``_is_roadmap_agent`` previously matched any agent whose name
 contained "roadmap", so a diagnose subagent named
 ``roadmap-e2e-task-leak`` was misclassified as a Roadmap run and its
-summary landed in ``~/.myos/files/`` with ``kind: roadmap`` front
+summary landed in ``~/.youros/files/`` with ``kind: roadmap`` front
 matter. Fix: strictly template-driven. Name-based matching removed.
 
 Bug 2: The boot-time retroactive sweep

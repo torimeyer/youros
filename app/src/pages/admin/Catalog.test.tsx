@@ -181,7 +181,7 @@ describe('AdminCatalog', () => {
 
   it('install calls api.post and shows feedback', async () => {
     mockApi.get.mockResolvedValue({ entries: mockEntries })
-    mockApi.post.mockResolvedValue({ ok: true, installed_path: '/home/.myos/agentfiles/code-reviewer.agent' })
+    mockApi.post.mockResolvedValue({ ok: true, installed_path: '/home/.youros/agentfiles/code-reviewer.agent' })
 
     render(<AdminCatalog />)
     await waitFor(() => screen.getByTestId('install-btn-entry-1'))

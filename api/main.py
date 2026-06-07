@@ -1164,7 +1164,7 @@ async def notify_chat_clients_on_shutdown():
 @app.get("/api/health")
 async def health():
     import shutil
-    data_dir = Path.home() / ".myos"
+    data_dir = Path.home() / ".youros"
     return {
         "status": "ok",
         "service": "myos-api",

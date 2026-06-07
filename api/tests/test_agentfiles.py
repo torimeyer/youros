@@ -137,7 +137,7 @@ class TestListEndpoint:
 
     @pytest.mark.asyncio
     async def test_list_includes_user_agentfiles(self, client, tmp_path):
-        """User-created Agentfiles in ~/.myos/agentfiles/ should also appear."""
+        """User-created Agentfiles in ~/.youros/agentfiles/ should also appear."""
         builtin_dir = tmp_path / "builtin"
         user_dir = tmp_path / "user"
         builtin_dir.mkdir(exist_ok=True)

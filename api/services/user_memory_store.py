@@ -1,6 +1,6 @@
 """Per-user MEMORY.md store.
 
-Provides read/write access to ~/.myos/users/default/MEMORY.md.
+Provides read/write access to ~/.youros/users/default/MEMORY.md.
 The file is plain markdown with two optional top-level sections::
 
     # Preferences
@@ -26,8 +26,8 @@ from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
-_MEMORY_PATH = Path.home() / ".myos" / "users" / "default" / "MEMORY.md"
-_TOPIC_DIR = Path.home() / ".myos" / "users" / "default" / "memory"
+_MEMORY_PATH = Path.home() / ".youros" / "users" / "default" / "MEMORY.md"
+_TOPIC_DIR = Path.home() / ".youros" / "users" / "default" / "memory"
 _WARN_SIZE_BYTES = 50 * 1024   # 50 KB
 _OVERFLOW_KB = 30              # F5: soft threshold (kilobytes)
 _OVERFLOW_LINES = 150          # F5: soft threshold (line count)

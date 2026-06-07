@@ -1,7 +1,7 @@
 """Google Drive integration endpoints.
 
 Provides file browsing, preview (exported as PDF), and sync for Drive files.
-All cached data lives in ~/.myos/drive_cache/ -- never inside the repo.
+All cached data lives in ~/.youros/drive_cache/ -- never inside the repo.
 """
 
 from __future__ import annotations
@@ -88,7 +88,7 @@ _SORT_DEFAULT = "opened"
 
 @router.post("/drive/credentials")
 async def drive_upload_credentials(file: UploadFile = File(...)):
-    """Accept a Google credentials JSON file upload and save it to ~/.myos/.
+    """Accept a Google credentials JSON file upload and save it to ~/.youros/.
 
     Validates that the file contains the required fields before saving.
     Returns {ok: true} on success or {ok: false, error: "..."} on failure.
@@ -875,7 +875,7 @@ async def drive_file_preview(file_id: str):
     For Google Docs / Slides / Sheets, exports via the Drive API.
     For uploaded files (.pptx, .pdf, etc.), downloads the binary directly.
     Non-previewable files return JSON with previewable=false.
-    Exported PDFs are cached in ~/.myos/drive_cache/ for 1 hour.
+    Exported PDFs are cached in ~/.youros/drive_cache/ for 1 hour.
     """
     if not is_authenticated():
         raise HTTPException(status_code=401, detail="Not connected to Google Drive.")

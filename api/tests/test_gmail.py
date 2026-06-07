@@ -423,7 +423,7 @@ async def test_gmail_messages_empty_cache_retries_api(client, tmp_path):
     """A cached empty list must NOT be returned. Retry the Gmail API.
 
     Root cause of the original bug: a transient error wrote [] to
-    ~/.myos/gmail_cache/inbox_full.json and every subsequent fetch
+    ~/.youros/gmail_cache/inbox_full.json and every subsequent fetch
     within the TTL window returned that stale empty list, so the page
     rendered as if the inbox had zero messages even though unread mail
     existed.

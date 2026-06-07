@@ -13,7 +13,7 @@ fi
 SCRATCH=$(mktemp -d)
 trap 'rm -rf "$SCRATCH"' EXIT
 
-WARN_DIR="$SCRATCH/home/.myos/subagents"
+WARN_DIR="$SCRATCH/home/.youros/subagents"
 mkdir -p "$WARN_DIR"
 WARN_FILE="$WARN_DIR/scaffold-warnings.jsonl"
 

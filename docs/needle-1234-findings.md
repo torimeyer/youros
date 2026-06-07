@@ -54,8 +54,8 @@ This ensures the sweep never fires on transcript idle alone when the agent is ac
 #### Path B: complete-agent.sh `last.name` fallback causes wrong-agent completions
 
 `complete-agent.sh` (line ~170–190) has two-tier name resolution:
-1. Per-tool-use: `~/.myos/subagents/by-tool-use/<tool_use_id>.name`
-2. Fallback: `~/.myos/subagents/last.name`
+1. Per-tool-use: `~/.youros/subagents/by-tool-use/<tool_use_id>.name`
+2. Fallback: `~/.youros/subagents/last.name`
 
 When Tier 1 fails (no per-tool-use file — expected for bridge-blocked calls), it falls back to `last.name`. `last.name` is written by `register-agent.sh` and cleared by `complete-agent.sh`. If a prior bridge-spawn wrote to `last.name` but the bridge-blocked complete-agent.sh cleared it... actually the bridge's exit-2 prevents PostToolUse from firing, so complete-agent.sh never runs and `last.name` is NEVER cleared.
 

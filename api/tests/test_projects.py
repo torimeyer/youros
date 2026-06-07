@@ -10,7 +10,7 @@ import pytest
 def _isolate_home(tmp_path):
     """Isolate HOME so _projects_root() does not pick up the real ~/myos.
 
-    _projects_root() now checks ~/myos, ~/.myos/projects, ~/.myos/collections
+    _projects_root() now checks ~/myos, ~/.youros/projects, ~/.youros/collections
     before falling back to TORIOS_DIR. On a dev machine that actually has a
     ~/myos folder, that real directory would shadow the TORIOS_DIR these tests
     patch, so the suite must run against a clean home. Tests that need a
@@ -434,7 +434,7 @@ async def test_read_file_large_text(client):
 
 @pytest.mark.asyncio
 async def test_read_file_accepts_absolute_myos_files_path(client):
-    """Absolute paths under ~/.myos/files/ must be readable.
+    """Absolute paths under ~/.youros/files/ must be readable.
 
     Recent Documents emits these paths as absolute, so the preview
     endpoint must accept them too. Regression guard for the
@@ -444,7 +444,7 @@ async def test_read_file_accepts_absolute_myos_files_path(client):
     with tempfile.TemporaryDirectory() as tmpdir, \
          tempfile.TemporaryDirectory() as fake_home:
         tmppath = Path(tmpdir)
-        myos_files = Path(fake_home) / ".myos" / "files"
+        myos_files = Path(fake_home) / ".youros" / "files"
         myos_files.mkdir(parents=True, exist_ok=True)
         target = myos_files / "ia-review-session-7-2026-04-17T02-30.md"
         target.write_text("# IA Review Session 7\n\nPreview should work.")
@@ -468,7 +468,7 @@ async def test_read_file_accepts_absolute_myos_files_path(client):
 
 @pytest.mark.asyncio
 async def test_read_file_rejects_absolute_path_outside_allowed_roots(client):
-    """Absolute paths outside the workspace and ~/.myos/files/ must be rejected."""
+    """Absolute paths outside the workspace and ~/.youros/files/ must be rejected."""
     stray = None
     with tempfile.TemporaryDirectory() as tmpdir, \
          tempfile.TemporaryDirectory() as fake_home, \
@@ -505,8 +505,8 @@ async def test_recent_docs_and_preview_are_consistent(client):
         workspace_doc.write_text("# Workspace Note\n\nHello.")
         created_paths.append(workspace_doc)
 
-        # ~/.myos/files/ .md file (absolute path in /docs/recent).
-        myos_files = Path(fake_home) / ".myos" / "files"
+        # ~/.youros/files/ .md file (absolute path in /docs/recent).
+        myos_files = Path(fake_home) / ".youros" / "files"
         myos_files.mkdir(parents=True, exist_ok=True)
         fleet_output = myos_files / "ia-review-session-7-2026-04-17T02-30.md"
         fleet_output.write_text(
@@ -555,7 +555,7 @@ async def test_automation_output_is_previewable(client):
     with tempfile.TemporaryDirectory() as tmpdir, \
          tempfile.TemporaryDirectory() as fake_home:
         tmppath = Path(tmpdir)
-        myos_files = Path(fake_home) / ".myos" / "files"
+        myos_files = Path(fake_home) / ".youros" / "files"
         myos_files.mkdir(parents=True, exist_ok=True)
 
         body = (
@@ -731,11 +731,11 @@ async def test_recent_docs_includes_metadata(client):
 
 @pytest.mark.asyncio
 async def test_delete_recent_doc_in_myos_files(client):
-    """Should delete a .md file living under ~/.myos/files/."""
+    """Should delete a .md file living under ~/.youros/files/."""
     with tempfile.TemporaryDirectory() as tmpdir, \
          tempfile.TemporaryDirectory() as fake_home:
         tmppath = Path(tmpdir)
-        myos_files = Path(fake_home) / ".myos" / "files"
+        myos_files = Path(fake_home) / ".youros" / "files"
         myos_files.mkdir(parents=True, exist_ok=True)
         target = myos_files / "roadmap.md"
         target.write_text("# Roadmap\n\nPlan.")
@@ -788,7 +788,7 @@ async def test_delete_recent_doc_rejects_path_escape(client):
 
 @pytest.mark.asyncio
 async def test_delete_recent_doc_rejects_absolute_path_outside_roots(client):
-    """Should reject an absolute path that is not under workspace or ~/.myos/files."""
+    """Should reject an absolute path that is not under workspace or ~/.youros/files."""
     with tempfile.TemporaryDirectory() as tmpdir, \
          tempfile.TemporaryDirectory() as fake_home, \
          tempfile.TemporaryDirectory() as elsewhere:

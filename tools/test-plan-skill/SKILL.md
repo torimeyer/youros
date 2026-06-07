@@ -34,7 +34,7 @@ Run this skill against a markdown test plan file or URL.
      - (Optional) Verify the linked test exists, or skip if already verified by another runner (pytest/vitest).
 
 4. **Reporting**:
-   - Emit a `coverage-report.md` in `~/.myos/test-runs/<timestamp>/`.
+   - Emit a `coverage-report.md` in `~/.youros/test-runs/<timestamp>/`.
    - The report must maintain the same table shape as the input.
    - Include a "Parser Confidence" section for rows where the input format was ambiguous.
 

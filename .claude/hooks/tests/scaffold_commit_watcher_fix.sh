@@ -155,8 +155,8 @@ PARENT_NAME=""  # no parent, so nudge is skipped
     # Override HOME so WARN_FILE resolves to our scratch path
     HOME="$SCRATCH/home1"
     mkdir -p "$HOME/subagents"
-    # Patch WARN_FILE via HOME override: ~/.myos/subagents/scaffold-warnings.jsonl
-    mkdir -p "$HOME/.myos/subagents"
+    # Patch WARN_FILE via HOME override: ~/.youros/subagents/scaffold-warnings.jsonl
+    mkdir -p "$HOME/.youros/subagents"
     export HOME
 
     # Stub rule_enabled and log_rule_fire
@@ -170,7 +170,7 @@ PARENT_NAME=""  # no parent, so nudge is skipped
 ) 2>/dev/null
 
 # No warning expected: transcript_bytes=6000 (>5KB)
-WARN_PATH="$SCRATCH/home1/.myos/subagents/scaffold-warnings.jsonl"
+WARN_PATH="$SCRATCH/home1/.youros/subagents/scaffold-warnings.jsonl"
 if [ -s "$WARN_PATH" ]; then
     fail "test1: unexpected warning for agent with 6KB transcript: $(cat "$WARN_PATH")"
 else
@@ -232,7 +232,7 @@ done
     export TORIOS_API_BASE CLAUDE_PROJECT_DIR
     unset MYOS_SPAWNED_AT 2>/dev/null || true
     HOME="$SCRATCH/home2"
-    mkdir -p "$HOME/.myos/subagents"
+    mkdir -p "$HOME/.youros/subagents"
     export HOME
 
     rule_enabled()  { return 0; }
@@ -245,7 +245,7 @@ done
 
 kill "${SERVER2_PID:-}" 2>/dev/null; wait "${SERVER2_PID:-}" 2>/dev/null
 
-WARN_PATH2="$SCRATCH/home2/.myos/subagents/scaffold-warnings.jsonl"
+WARN_PATH2="$SCRATCH/home2/.youros/subagents/scaffold-warnings.jsonl"
 if [ -s "$WARN_PATH2" ]; then
     pass "test2: premature-close warning written for scaffold-only agent"
 else
@@ -316,7 +316,7 @@ STDERR_CAPTURED=$(
     CLAUDE_PROJECT_DIR="$FAKE_PROJECT3"
     export TORIOS_API_BASE CLAUDE_PROJECT_DIR
     unset MYOS_SPAWNED_AT 2>/dev/null || true
-    HOME="$SCRATCH/home3"; mkdir -p "$HOME/.myos/subagents"; export HOME
+    HOME="$SCRATCH/home3"; mkdir -p "$HOME/.youros/subagents"; export HOME
     rule_enabled() { return 0; }; log_rule_fire() { return 0; }
     . "$WATCHER_LIB"
     _scaffold_commit_watcher_check "Agent" "fixtest-agent" "" 2>&1 >/dev/null

@@ -4,7 +4,7 @@ Reads messages from the macOS iMessage database (~/Library/Messages/chat.db)
 and sends messages via AppleScript. The database is read-only. Reading
 requires Full Disk Access permission in System Settings > Privacy & Security.
 
-Cache lives in ~/.myos/imessage_cache/ so user data stays outside the repo.
+Cache lives in ~/.youros/imessage_cache/ so user data stays outside the repo.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from services.imessage_contacts import list_contacts
 
 logger = logging.getLogger(__name__)
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 IMESSAGE_CACHE_DIR = MYOS_DIR / "imessage_cache"
 CONVERSATIONS_CACHE_PATH = IMESSAGE_CACHE_DIR / "conversations.json"
 CONTACTS_CACHE_PATH = IMESSAGE_CACHE_DIR / "contacts.json"
@@ -301,7 +301,7 @@ def save_contact(identifier: str, name: str) -> None:
     """Save a name for an identifier to the local contacts cache only.
 
     Does NOT modify macOS Contacts. Persists to
-    ~/.myos/imessage_cache/contacts.json so the name survives backend restarts.
+    ~/.youros/imessage_cache/contacts.json so the name survives backend restarts.
     Also invalidates the conversations cache so the new name appears immediately.
     """
     cache = _load_contacts_cache()

@@ -613,7 +613,7 @@ def test_backend_alive_across_five_commits():
 def test_fetch_agents_list_no_hardcoded_http_scheme():
     """_fetch_agents_list in chat.py must not hardcode http:// for loopback (→1178).
 
-    When SSL certs exist in ~/.myos/, the backend runs with HTTPS. A bare
+    When SSL certs exist in ~/.youros/, the backend runs with HTTPS. A bare
     http:// URL returns HTTP 000 / empty reply because the server closes the
     connection before writing any response (TLS handshake never starts).
     The fix is to try https:// first (verify=False for self-signed) then

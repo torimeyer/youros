@@ -24,7 +24,7 @@ import path from 'node:path'
 // ERR_SSL_PROTOCOL_ERROR if vite is plain HTTP. Serve HTTPS here too
 // using the same self-signed cert the backend uses, so the browser
 // never has to pick between http/https and there is only one scheme.
-const myosDir = path.join(os.homedir(), '.myos')
+const myosDir = path.join(os.homedir(), '.youros')
 const keyPath = path.join(myosDir, 'localhost.key')
 const certPath = path.join(myosDir, 'localhost.crt')
 const httpsConfig = fs.existsSync(keyPath) && fs.existsSync(certPath)

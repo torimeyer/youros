@@ -87,7 +87,7 @@ node "$VITE_BIN" --config "$VITE_CONFIG" --port "${PORT}" &>/tmp/vite-wedge-test
 VITE_PID=$!
 
 # Detect HTTPS vs HTTP based on cert presence
-MYOS_DIR="$HOME/.myos"
+MYOS_DIR="$HOME/.youros"
 if [[ -f "$MYOS_DIR/localhost.key" && -f "$MYOS_DIR/localhost.crt" ]]; then
   SCHEME=https
 else

@@ -50,7 +50,7 @@ case "$TOOL" in
     Monitor)
         # Detect Monitor internal error in ADHD mode: disarm sentinel + emit reminder.
         . "$LIB/rules/adhd_monitor_pairing.sh"
-        if rule_enabled adhd_monitor_pairing && [ -f "$HOME/.myos/.adhd_mode" ]; then
+        if rule_enabled adhd_monitor_pairing && [ -f "$HOME/.youros/.adhd_mode" ]; then
             MON_PARSED=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null
 import os, json, sys
 US = '\x1f'
@@ -59,7 +59,7 @@ try:
 except Exception:
     sys.exit(0)
 sid = (d.get('session_id') or '').strip() or os.environ.get('CLAUDE_SESSION_ID','').strip() or 'default'
-sentinel = os.path.join(os.path.expanduser('~'), '.myos', f'.adhd-monitor-armed-{sid}')
+sentinel = os.path.join(os.path.expanduser('~'), '.youros', f'.adhd-monitor-armed-{sid}')
 resp = d.get('tool_response', '') or ''
 if isinstance(resp, dict):
     resp = str(resp.get('output', '') or resp.get('content', '') or '')

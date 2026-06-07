@@ -1,7 +1,7 @@
 # →1495 Spec Headings Rename
 
 **Date:** 2026-05-19  
-**Spec:** `~/.myos/specs/vp-marketing-first-impression.md`  
+**Spec:** `~/.youros/specs/vp-marketing-first-impression.md`  
 **Agent:** build-1495-rename-spec-headings-3038d2
 
 ## Original headings (verbatim)

@@ -182,11 +182,11 @@ async def run_probe():
 
 @router.delete("/settings/data")
 async def wipe_user_data():
-    """Delete all user data inside ~/.myos/ except settings.json."""
+    """Delete all user data inside ~/.youros/ except settings.json."""
     import shutil
     from pathlib import Path
 
-    data_dir = Path.home() / ".myos"
+    data_dir = Path.home() / ".youros"
     if data_dir.exists():
         for item in data_dir.iterdir():
             if item.name == "settings.json":

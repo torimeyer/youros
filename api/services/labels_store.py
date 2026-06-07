@@ -1,6 +1,6 @@
 """Persistent storage for user-created labels.
 
-Labels are stored in ~/.myos/labels.json as a simple list of dicts.
+Labels are stored in ~/.youros/labels.json as a simple list of dicts.
 Each label has an id, name, and color.
 """
 
@@ -13,7 +13,7 @@ from typing import Optional
 
 from services.atomic_io import atomic_write_json, atomic_write_text
 
-LABELS_PATH = Path.home() / ".myos" / "labels.json"
+LABELS_PATH = Path.home() / ".youros" / "labels.json"
 
 # A palette of 10 pleasant colors for labels.
 LABEL_COLORS = [

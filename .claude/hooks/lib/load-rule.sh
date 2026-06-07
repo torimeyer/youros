@@ -18,7 +18,7 @@ _LOAD_RULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 myos_rule_get() {
   local path_arg="$1" default="$2"
   local defaults_file="${_LOAD_RULE_DIR}/default-rules.json"
-  local user_file="${HOME}/.myos/rules.json"
+  local user_file="${HOME}/.youros/rules.json"
 
   python3 - "$path_arg" "$defaults_file" "$user_file" "$default" <<'PYEOF' 2>/dev/null
 import json, os, sys

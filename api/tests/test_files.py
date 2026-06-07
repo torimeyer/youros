@@ -69,7 +69,7 @@ async def test_delete_rejects_directory(client):
 
 
 # ---------------------------------------------------------------------------
-# GET /docs/recent including ~/.myos/files local sources
+# GET /docs/recent including ~/.youros/files local sources
 # ---------------------------------------------------------------------------
 
 
@@ -126,7 +126,7 @@ async def test_open_file_native_nonexistent_path(client):
 
 @pytest.mark.asyncio
 async def test_recent_files_includes_local_md_files(client):
-    """Markdown files under ~/.myos/files/ must appear in /docs/recent so
+    """Markdown files under ~/.youros/files/ must appear in /docs/recent so
     Roadmap template outputs show up on the Files tab without living in
     the repo.
     """
@@ -137,8 +137,8 @@ async def test_recent_files_includes_local_md_files(client):
         # if the local source layer breaks.
         (workspace_path / "workspace.md").write_text("# Workspace\n\nBody.")
 
-        # Put roadmap.md under the fake home's ~/.myos/files/ directory.
-        myos_files = Path(fake_home) / ".myos" / "files"
+        # Put roadmap.md under the fake home's ~/.youros/files/ directory.
+        myos_files = Path(fake_home) / ".youros" / "files"
         myos_files.mkdir(parents=True, exist_ok=True)
         roadmap = myos_files / "roadmap.md"
         roadmap.write_text(
@@ -165,7 +165,7 @@ async def test_recent_files_includes_local_md_files(client):
 async def test_recent_files_includes_agent_output_md_files(client):
     """Agent-output artifacts written by the /complete hook use the
     pattern ``<slug>-<YYYY-MM-DDTHH-MM>.md``. They live under
-    ~/.myos/files/ alongside roadmap.md and must also show up in
+    ~/.youros/files/ alongside roadmap.md and must also show up in
     /docs/recent so Tori sees her IA review, PRD, and custom-build
     outputs on the Files tab.
     """
@@ -174,7 +174,7 @@ async def test_recent_files_includes_agent_output_md_files(client):
         workspace_path = Path(workspace)
         (workspace_path / "workspace.md").write_text("# Workspace\n\nBody.")
 
-        myos_files = Path(fake_home) / ".myos" / "files"
+        myos_files = Path(fake_home) / ".youros" / "files"
         myos_files.mkdir(parents=True, exist_ok=True)
 
         ia_review = myos_files / "ia-review-session-7-2026-04-16T18-31.md"

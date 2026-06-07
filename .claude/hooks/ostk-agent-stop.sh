@@ -31,11 +31,11 @@ printf '%s' "$INPUT" | ostk hook agent-stop 2>/dev/null || true
 
 # 2. Resolve API base
 API_BASE="${TORIOS_API_BASE:-}"
-if [ -z "$API_BASE" ] && [ -f "$HOME/.myos/config.json" ]; then
+if [ -z "$API_BASE" ] && [ -f "$HOME/.youros/config.json" ]; then
     API_BASE=$(python3 -c "
 import json, os
 try:
-    d = json.load(open(os.path.expanduser('~/.myos/config.json')))
+    d = json.load(open(os.path.expanduser('~/.youros/config.json')))
     v = d.get('api_base')
     if isinstance(v, str) and v.strip():
         print(v.strip())
@@ -49,7 +49,7 @@ fi
 
 # 3. Read agent name from side-channel (per-tool-use file, then last.name)
 AGENT_NAME=""
-PER_ID_DIR="${HOME}/.myos/subagents/by-tool-use"
+PER_ID_DIR="${HOME}/.youros/subagents/by-tool-use"
 
 # Extract session_id from SubagentStop payload — Claude Code includes it
 # and it matches the tool_use_id used at PreToolUse time in some builds.
@@ -76,7 +76,7 @@ if [ -n "$SESSION_ID" ]; then
 fi
 
 if [ -z "$AGENT_NAME" ]; then
-    AGENT_NAME=$(cat "${HOME}/.myos/subagents/last.name" 2>/dev/null | tr -d '[:space:]')
+    AGENT_NAME=$(cat "${HOME}/.youros/subagents/last.name" 2>/dev/null | tr -d '[:space:]')
 fi
 
 # ── Auto-merge: SubagentStop fires in the child (worktree context) ────────────
@@ -100,7 +100,7 @@ fi
 #   - must exist as a ref in the main repo
 #   - merge must be --ff-only; diverged branches stay parked
 
-_SA_DEBT_LOG="$HOME/.myos/logs/merge-debt.log"
+_SA_DEBT_LOG="$HOME/.youros/logs/merge-debt.log"
 mkdir -p "$(dirname "$_SA_DEBT_LOG")" 2>/dev/null || true
 
 _SA_BRANCH=$(git branch --show-current 2>/dev/null || true)

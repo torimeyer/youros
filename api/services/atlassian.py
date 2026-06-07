@@ -11,7 +11,7 @@ path. Otherwise we fall back to the original PAT BasicAuth path so existing
 users do not need to reconnect.
 
 Tokens live in the system keychain via ostk secret_set. Site, email, and
-cloud_id (OAuth-only) live in ~/.myos/atlassian.json.
+cloud_id (OAuth-only) live in ~/.youros/atlassian.json.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ import httpx
 from services.atomic_io import atomic_write_json
 from services.ostk import ostk
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 CONFIG_PATH = MYOS_DIR / "atlassian.json"
 ATLASSIAN_TOKEN_KEY = "ATLASSIAN_API_TOKEN"
 ATLASSIAN_ACCESS_TOKEN_KEY = "ATLASSIAN_ACCESS_TOKEN"

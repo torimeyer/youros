@@ -3,7 +3,7 @@
 
 Idempotent — specs that already have spec_id: are left unchanged.
 Ordering: alphabetical by filename within each directory.
-Scan order: docs/spec/ first (project-local), then ~/.myos/specs/ (user-local).
+Scan order: docs/spec/ first (project-local), then ~/.youros/specs/ (user-local).
 
 Usage:
     python scripts/backfill_spec_ids.py          # dry-run (prints what it would do)
@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-USER_SPECS_DIR = Path.home() / ".myos" / "specs"
+USER_SPECS_DIR = Path.home() / ".youros" / "specs"
 
 _ID_RE = re.compile(r"^spec_id:\s*S(\d+)", re.MULTILINE)
 _FM_RE = re.compile(r"^---\n(.*?\n)---\n", re.DOTALL)

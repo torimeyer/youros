@@ -588,8 +588,8 @@ _WAVE_TOKEN_RE = re.compile(r"\b[a-z][a-z0-9_]{3,}\b")
 
 _WAVE_PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 _WAVE_MAX = 4  # max tasks per wave (matches feedback_saa_split_when_scope_is_big.md)
-_WAVES_PATH = Path.home() / ".myos" / "waves.json"
-_SPECS_DIR = Path.home() / ".myos" / "specs"
+_WAVES_PATH = Path.home() / ".youros" / "waves.json"
+_SPECS_DIR = Path.home() / ".youros" / "specs"
 
 
 def _load_open_specs(specs_dir: Path) -> list[dict]:
@@ -680,7 +680,7 @@ async def plan_waves(include_specs: bool = False):
     - Wave capacity is capped at 4 (feedback_saa_split_when_scope_is_big.md).
 
     Query params:
-      include_specs -- when true, open design specs from ~/.myos/specs/ (excluding
+      include_specs -- when true, open design specs from ~/.youros/specs/ (excluding
                        archive/) are merged into the candidate list alongside needles.
                        Spec items carry type="spec"; needle items carry type="needle".
                        Default false -- backward-compatible with existing callers.
@@ -1769,7 +1769,7 @@ async def close_task(
             "close_task: spec-status advance failed for task %s", task_id
         )
 
-    trace_event("task_closed", task_id=task_id, title=deleted_title, reason=structured_reason)
+    trace_event("task_closed", task_id=task_id, reason=structured_reason)
     await _notifications_events_bus.publish("needle_closed", {"task_id": normalised_id})
     return {"result": result}
 

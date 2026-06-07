@@ -128,8 +128,8 @@ for _ in $(seq 10); do
 done
 
 # Write agent name to side-channel in temp HOME
-mkdir -p "$TMP_HOME/.myos/subagents"
-printf '%s' "$AGENT_NAME" > "$TMP_HOME/.myos/subagents/last.name"
+mkdir -p "$TMP_HOME/.youros/subagents"
+printf '%s' "$AGENT_NAME" > "$TMP_HOME/.youros/subagents/last.name"
 
 # Fire ostk-agent-start.sh with mock backend
 printf '{"session_id":"test-session-123"}' \

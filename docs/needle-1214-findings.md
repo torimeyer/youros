@@ -64,7 +64,7 @@ The self-filter fix eliminates the need for this workaround in normal solo use.
 
 | Location checked | Result |
 |---|---|
-| `~/.myos/sync_repo/haystack-main/Cargo.toml` | Not present (empty file) |
+| `~/.youros/sync_repo/haystack-main/Cargo.toml` | Not present (empty file) |
 | `~/Downloads/haystack-main/Cargo.toml` | v2.3.0 — contains gate source |
 | `~/claude/torios/haystack-main/Cargo.toml` | v2.3.0 — contains gate source (same) |
 | `which tori` | Not found |

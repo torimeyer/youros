@@ -14,7 +14,7 @@ def test_frontend_url_default_is_port_8000():
 
     Since v4.1.0, frontend+backend are served together on :8000.
     The old Vite dev server on :3010 is gone. Fresh installs without FRONTEND_URL
-    set in ~/.myos/.env would get ERR_CONNECTION_REFUSED if the default is :3010.
+    set in ~/.youros/.env would get ERR_CONNECTION_REFUSED if the default is :3010.
     """
     assert FRONTEND_URL_DEFAULT == "https://localhost:8000", (
         f"FRONTEND_URL_DEFAULT is '{FRONTEND_URL_DEFAULT}' but must be "

@@ -32,10 +32,10 @@ trap 'rm -rf "$TMP_HOME"' EXIT
 
 # Pre-seed a name so the non-skip path would have something to close
 # if we reached it (isolating the test to the skip behavior).
-mkdir -p "$TMP_HOME/.myos/subagents/by-tool-use"
+mkdir -p "$TMP_HOME/.youros/subagents/by-tool-use"
 TUID="toolu_bg_test_$(date +%s)_$$"
-printf 'bg-test-agent' > "$TMP_HOME/.myos/subagents/by-tool-use/$TUID.name"
-printf 'bg-test-agent' > "$TMP_HOME/.myos/subagents/last.name"
+printf 'bg-test-agent' > "$TMP_HOME/.youros/subagents/by-tool-use/$TUID.name"
+printf 'bg-test-agent' > "$TMP_HOME/.youros/subagents/last.name"
 
 # Case 1: run_in_background=true must short-circuit with no curl.
 PAYLOAD_BG='{"tool_name":"Task","tool_use_id":"'"$TUID"'","tool_input":{"description":"bg-test","prompt":"x","run_in_background":true},"tool_response":{"output":"ok"}}'
@@ -64,7 +64,7 @@ ELAPSED_MS=$(( (END - START) / 1000000 ))
 if [ "$ELAPSED_MS" -lt 1000 ]; then
     fail "run_in_background=false path took ${ELAPSED_MS}ms (<1000ms, curl retry loop did not run)"
 fi
-if [ ! -s "$TMP_HOME/.myos/subagents/pending-complete.jsonl" ]; then
+if [ ! -s "$TMP_HOME/.youros/subagents/pending-complete.jsonl" ]; then
     fail "run_in_background=false path did not park to pending-complete.jsonl after curl failures"
 fi
 ok "run_in_background=false attempted curl and parked (${ELAPSED_MS}ms)"
@@ -72,8 +72,8 @@ ok "run_in_background=false attempted curl and parked (${ELAPSED_MS}ms)"
 # Case 3: no run_in_background key at all must behave like foreground.
 PAYLOAD_MISSING='{"tool_name":"Task","tool_use_id":"'"$TUID"'","tool_input":{"description":"nokey-test","prompt":"x"},"tool_response":{"output":"ok"}}'
 # Reset pending queue for isolation.
-: > "$TMP_HOME/.myos/subagents/pending-complete.jsonl"
-printf 'bg-test-agent' > "$TMP_HOME/.myos/subagents/last.name"
+: > "$TMP_HOME/.youros/subagents/pending-complete.jsonl"
+printf 'bg-test-agent' > "$TMP_HOME/.youros/subagents/last.name"
 START=$(date +%s%N 2>/dev/null || date +%s)
 printf '%s' "$PAYLOAD_MISSING" | HOME="$TMP_HOME" \
     MYOS_COMPLETE_URL_BASE="https://127.0.0.1:1/api/agents" \

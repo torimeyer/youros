@@ -16,7 +16,7 @@ const mockApi = api as { post: ReturnType<typeof vi.fn>; delete: ReturnType<type
 
 describe('FileShareModal', () => {
   const defaultProps = {
-    filePath: '/home/user/.myos/files/report.md',
+    filePath: '/home/user/.youros/files/report.md',
     fileName: 'report.md',
     onClose: vi.fn(),
   }

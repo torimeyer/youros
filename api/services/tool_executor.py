@@ -228,7 +228,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "tasks', or points at a markdown file and asks for a task "
             "list. The file can be a workspace-relative path (e.g. "
             "'roadmap.md') or an absolute path (e.g. "
-            "'~/.myos/files/roadmap.md'). Returns the number of tasks "
+            "'~/.youros/files/roadmap.md'). Returns the number of tasks "
             "created and their IDs. After this tool runs, the same batch "
             "can be turned into live agents by calling "
             "build_from_recent_tasks."
@@ -958,7 +958,7 @@ async def _create_tasks_from_spec(spec_path: str) -> str:
 
     if not (str(p).startswith("docs/draft/") or str(p).startswith("docs/spec/") or is_user_local):
         return (
-            f"Cannot decompose spec: path must be under docs/draft/, docs/spec/, or ~/.myos/specs/. "
+            f"Cannot decompose spec: path must be under docs/draft/, docs/spec/, or ~/.youros/specs/. "
             f"Got: {spec_path}"
         )
     try:
@@ -995,9 +995,9 @@ async def _create_tasks_from_spec(spec_path: str) -> str:
 
 # Path where the most recent "build tasks from <file>" batch is recorded.
 # Used by build_from_recent_tasks to find the right set of tasks to
-# hand to Builder agents. Kept in ~/.myos so a repo checkout wipe does
+# hand to Builder agents. Kept in ~/.youros so a repo checkout wipe does
 # not lose pending batches mid-demo.
-_LAST_BATCH_PATH = Path.home() / ".myos" / "last_task_batch.json"
+_LAST_BATCH_PATH = Path.home() / ".youros" / "last_task_batch.json"
 
 
 def _save_last_task_batch(file_path: str, task_ids: list[str]) -> None:
@@ -1034,8 +1034,8 @@ def _resolve_tasks_file(raw: str) -> Optional[Path]:
     """Resolve a user-supplied file path to an absolute Path, or None.
 
     Accepts three forms in priority order:
-      1. Absolute paths (``/tmp/x.md`` or ``~/.myos/files/roadmap.md``).
-      2. Bare filenames of files living in ``~/.myos/files/``, so the
+      1. Absolute paths (``/tmp/x.md`` or ``~/.youros/files/roadmap.md``).
+      2. Bare filenames of files living in ``~/.youros/files/``, so the
          demo phrasing "build tasks from the roadmap.md" works without
          the user ever typing a path.
       3. Workspace-relative paths resolved against the project root.
@@ -1055,9 +1055,9 @@ def _resolve_tasks_file(raw: str) -> Optional[Path]:
             return direct
         return None
 
-    # Bare filename in ~/.myos/files (e.g. "roadmap.md" or "the roadmap.md").
+    # Bare filename in ~/.youros/files (e.g. "roadmap.md" or "the roadmap.md").
     filename_only = stripped.split("/")[-1]
-    myos_candidate = (Path.home() / ".myos" / "files" / filename_only).resolve()
+    myos_candidate = (Path.home() / ".youros" / "files" / filename_only).resolve()
     if myos_candidate.exists() and myos_candidate.is_file():
         return myos_candidate
 
@@ -1077,17 +1077,17 @@ async def _build_tasks_from_file(file_path: str) -> str:
     Strategy: ask the model to split the document into one bullet per
     task, then create each as a standalone ostk task. This avoids the
     docs/spec/ path constraint of create_tasks_from_spec so files like
-    ~/.myos/files/roadmap.md work directly.
+    ~/.youros/files/roadmap.md work directly.
 
     Returns a plain-language summary with the count and IDs. The same
-    IDs are stashed in ~/.myos/last_task_batch.json so
+    IDs are stashed in ~/.youros/last_task_batch.json so
     build_from_recent_tasks can pick them up on the next turn.
     """
     resolved = _resolve_tasks_file(file_path)
     if resolved is None:
         return (
             f"Could not find a file at '{file_path}'. Try an absolute "
-            "path or drop the file into ~/.myos/files/ and reference it "
+            "path or drop the file into ~/.youros/files/ and reference it "
             "by name."
         )
 

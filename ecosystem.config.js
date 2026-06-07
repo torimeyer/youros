@@ -2,7 +2,7 @@ const path = require('path');
 
 const APP_DIR = path.join(__dirname, 'app');
 
-// Frontend only — the backend is managed by launchd (com.myos.backend).
+// Frontend only — the backend is managed by launchd (com.youros.backend).
 // On macOS after install.sh, launchd owns backend restarts (KeepAlive=true,
 // ThrottleInterval=1s) and the kill-only watchdog handles deadlocked event
 // loops. PM2 handles the Vite dev server only.

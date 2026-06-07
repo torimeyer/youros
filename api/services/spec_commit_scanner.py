@@ -1,7 +1,7 @@
 """Passive git-commit watcher for spec auto-status (→1427, Phase 3).
 
 Scans recent commits every 60 s. For each commit that mentions a spec slug
-(file stem under ~/.myos/specs/*.md) or a task ID (→NNNN owned by a spec),
+(file stem under ~/.youros/specs/*.md) or a task ID (→NNNN owned by a spec),
 records a source=passive claim so the Specs page flips to Building without
 any explicit agent self-registration.
 
@@ -27,7 +27,7 @@ _TASK_ID_RE = re.compile(r"(?:→|->)(\d+)")
 # Commit hashes already processed this process lifetime (survives across ticks).
 _seen_commits: set[str] = set()
 
-_SPECS_DIR_ENV = os.environ.get("MYOS_USER_SPECS_DIR", os.path.expanduser("~/.myos/specs"))
+_SPECS_DIR_ENV = os.environ.get("MYOS_USER_SPECS_DIR", os.path.expanduser("~/.youros/specs"))
 SPECS_DIR = Path(_SPECS_DIR_ENV)
 
 
@@ -120,7 +120,7 @@ async def scan_and_claim(
 
     Args:
         repo_path: git repo to scan.  Defaults to PROJECT_ROOT.
-        specs_dir: directory of spec files.  Defaults to SPECS_DIR (~/.myos/specs).
+        specs_dir: directory of spec files.  Defaults to SPECS_DIR (~/.youros/specs).
         seen_commits: mutable set of already-processed commit hashes.  Defaults
             to the module-level ``_seen_commits`` (persistent across ticks).
 

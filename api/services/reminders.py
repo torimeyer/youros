@@ -1,6 +1,6 @@
 """Reminder service: parse, store, schedule, fire, and deliver.
 
-Reminders live in ~/.myos/reminders.json. The scheduler loop is started
+Reminders live in ~/.youros/reminders.json. The scheduler loop is started
 once in main.py's lifespan and polls every 10 seconds.
 """
 from __future__ import annotations
@@ -15,8 +15,9 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 import services.notifications as notif
+import services.imessage as imessage
 
-_MYOS_DIR = Path.home() / ".myos"
+_MYOS_DIR = Path.home() / ".youros"
 REMINDERS_PATH = _MYOS_DIR / "reminders.json"
 
 # ---------------------------------------------------------------------------
@@ -46,6 +47,10 @@ _HOUR_12_RE = re.compile(
     re.IGNORECASE,
 )
 _HOUR_24_RE = re.compile(r"\b(?:at\s+)?(\d{1,2}):(\d{2})\b")
+_RELATIVE_RE = re.compile(
+    r"\bin\s+(\d+)\s+(minute|hour|min|hr)s?\b",
+    re.IGNORECASE,
+)
 _TOMORROW_RE = re.compile(r"\btomorrow\b", re.IGNORECASE)
 _CHANNEL_RE = re.compile(
     r"\b(text\s+me|via\s+sms|in\s+slack|via\s+slack|email\s+me|via\s+email)\b",
@@ -73,6 +78,7 @@ def _parse_hm(text: str) -> Optional[tuple[int, int]]:
 def _strip_meta(raw: str) -> str:
     t = _CHANNEL_RE.sub("", raw)
     t = _TOMORROW_RE.sub("", t)
+    t = _RELATIVE_RE.sub("", t)
     t = _HOUR_12_RE.sub("", t)
     t = _HOUR_24_RE.sub("", t)
     t = re.sub(r"\bat\s*,?\s*$", "", t, flags=re.IGNORECASE)
@@ -108,10 +114,25 @@ def parse_reminder(
             channel = "email"
 
     is_tomorrow = bool(_TOMORROW_RE.search(text))
+    rel_m = _RELATIVE_RE.search(text)
 
     body_m = _REMIND_ME_RE.search(text)
     raw_body = body_m.group(1) if body_m else text
     clean = _strip_meta(raw_body)
+
+    if rel_m:
+        val = int(rel_m.group(1))
+        unit = rel_m.group(2).lower()
+        if unit.startswith("hour") or unit == "hr":
+            delta = timedelta(hours=val)
+        else:
+            delta = timedelta(minutes=val)
+        fire_utc = now.astimezone(timezone.utc) + delta
+        return {
+            "text": clean,
+            "fire_at_utc": fire_utc,
+            "channel": channel,
+        }
 
     hm = _parse_hm(text)
     h, mn = hm if hm else (9, 0)
@@ -239,8 +260,25 @@ async def send_sms_reminder(to: str, body: str) -> dict:
     return {"ok": False, "error": "SMS channel not available"}
 
 
+async def send_imessage_reminder(to: str, text: str) -> dict:
+    try:
+        if imessage.is_available()["available"]:
+            await imessage.send_message(to, f"Reminder: {text}")
+            return {"ok": True}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": False, "error": "iMessage channel not available"}
+
+
 def _sms_configured(settings: dict) -> bool:
-    return (Path.home() / ".myos" / "sms_provider.json").exists() and bool(settings.get("phone_number"))
+    return (Path.home() / ".youros" / "sms_provider.json").exists() and bool(settings.get("phone_number"))
+
+
+def _imessage_configured(settings: dict) -> bool:
+    # iMessage doesn't need a setting if available on macOS, 
+    # but we might want to check for a phone/email in settings too.
+    # For now, availability + phone_number is a good signal.
+    return imessage.is_available()["available"] and bool(settings.get("phone_number"))
 
 
 def _slack_configured(settings: dict) -> bool:
@@ -258,6 +296,8 @@ def choose_default_channel(settings: dict) -> str:
 def _select_default_channel(settings: dict) -> str:
     if _sms_configured(settings):
         return "sms"
+    if _imessage_configured(settings):
+        return "imessage"
     if _slack_configured(settings):
         return "slack"
     if _email_configured(settings):
@@ -315,6 +355,15 @@ async def dispatch_reminder(reminder: dict, *, settings: dict) -> dict:
                 outside_error = res.get("error")
             except Exception as exc:
                 outside_error = str(exc)
+    elif channel == "imessage":
+        phone = settings.get("phone_number", "")
+        if phone:
+            try:
+                res = await send_imessage_reminder(phone, text)
+                outside_ok = res.get("ok", False)
+                outside_error = res.get("error")
+            except Exception as exc:
+                outside_error = str(exc)
 
     result: dict = {"channel": channel, "ok": True, "in_app": True, "in_app_recorded": True}
     if not outside_ok and outside_error:
@@ -339,7 +388,7 @@ async def fire_due_reminders(*, now: Optional[datetime] = None) -> list[dict]:
 
     settings: dict = {}
     try:
-        settings_path = Path.home() / ".myos" / "settings.json"
+        settings_path = Path.home() / ".youros" / "settings.json"
         if settings_path.exists():
             settings = json.loads(settings_path.read_text())
     except Exception:

@@ -17,7 +17,7 @@ class TestDocService:
     def setup_method(self):
         self.tmpdir = tempfile.mkdtemp()
         self.svc = OstkService(cwd=self.tmpdir)
-        # Prevent list_docs from reading real ~/.myos/ files during tests
+        # Prevent list_docs from reading real ~/.youros/ files during tests
         import services.ostk as _ostk_mod
         self._user_specs_patcher = patch.object(
             _ostk_mod, "USER_SPECS_DIR", Path(self.tmpdir) / "_user_specs"
@@ -190,7 +190,7 @@ class TestDocService:
 
     @pytest.mark.asyncio
     async def test_list_docs_finds_drafts_and_specs(self):
-        # UAT item 8: list_docs reads ONLY the per-user ~/.myos store
+        # UAT item 8: list_docs reads ONLY the per-user ~/.youros store
         # (USER_DRAFTS_DIR/USER_SPECS_DIR patched to tmpdir/_user_* in setup).
         draft_dir = Path(self.tmpdir) / "_user_drafts"
         spec_dir = Path(self.tmpdir) / "_user_specs"
@@ -230,7 +230,7 @@ class TestDocService:
         a copied or shared checkout, and reading them once surfaced one user's
         specs inside a different user/install's app (two pclaude drafts showed
         up on a separate work machine). Reads are locked to the per-user
-        ~/.myos store, so a repo-only husk is invisible.
+        ~/.youros store, so a repo-only husk is invisible.
         """
         # Two husks placed ONLY in the repo docs/ tree (the real leak source).
         repo_draft = Path(self.tmpdir) / "docs" / "draft"
@@ -260,9 +260,9 @@ class TestDocService:
     @pytest.mark.asyncio
     async def test_list_docs_with_tasks_computes_status(self):
         """Specs with linked tasks get in-progress or complete status."""
-        # UAT item 8: list_docs reads ONLY the per-user ~/.myos store
+        # UAT item 8: list_docs reads ONLY the per-user ~/.youros store
         # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
-        # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
+        # Repo docs/spec is never scanned, so the fixture lives in ~/.youros.
         spec_dir = Path(self.tmpdir) / "_user_specs"
         spec_dir.mkdir(parents=True, exist_ok=True)
 
@@ -291,9 +291,9 @@ class TestDocService:
         Guard for the Ready→In-Progress transition: only a *started* task (not
         merely queued) flips the badge. Open/unstarted tasks keep the spec Ready.
         """
-        # UAT item 8: list_docs reads ONLY the per-user ~/.myos store
+        # UAT item 8: list_docs reads ONLY the per-user ~/.youros store
         # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
-        # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
+        # Repo docs/spec is never scanned, so the fixture lives in ~/.youros.
         spec_dir = Path(self.tmpdir) / "_user_specs"
         spec_dir.mkdir(parents=True, exist_ok=True)
 
@@ -319,9 +319,9 @@ class TestDocService:
     @pytest.mark.asyncio
     async def test_list_docs_complete_status(self):
         """Spec where all tasks are closed AND all ACs checked gets complete status."""
-        # UAT item 8: list_docs reads ONLY the per-user ~/.myos store
+        # UAT item 8: list_docs reads ONLY the per-user ~/.youros store
         # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
-        # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
+        # Repo docs/spec is never scanned, so the fixture lives in ~/.youros.
         spec_dir = Path(self.tmpdir) / "_user_specs"
         spec_dir.mkdir(parents=True, exist_ok=True)
 
@@ -350,9 +350,9 @@ class TestDocService:
         is "agents finished the work" and AC verification is a separate
         optional step.
         """
-        # UAT item 8: list_docs reads ONLY the per-user ~/.myos store
+        # UAT item 8: list_docs reads ONLY the per-user ~/.youros store
         # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
-        # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
+        # Repo docs/spec is never scanned, so the fixture lives in ~/.youros.
         spec_dir = Path(self.tmpdir) / "_user_specs"
         spec_dir.mkdir(parents=True, exist_ok=True)
 
@@ -381,9 +381,9 @@ class TestDocService:
         at in-progress. This test proves the IDs are normalized on both
         sides and the summary reflects reality.
         """
-        # UAT item 8: list_docs reads ONLY the per-user ~/.myos store
+        # UAT item 8: list_docs reads ONLY the per-user ~/.youros store
         # (USER_SPECS_DIR is patched to tmpdir/_user_specs in setup_method).
-        # Repo docs/spec is never scanned, so the fixture lives in ~/.myos.
+        # Repo docs/spec is never scanned, so the fixture lives in ~/.youros.
         spec_dir = Path(self.tmpdir) / "_user_specs"
         spec_dir.mkdir(parents=True, exist_ok=True)
 
@@ -714,7 +714,8 @@ async def test_create_draft_endpoint(client, tmp_path, monkeypatch):
     # →2104: create_draft now writes directly to USER_DRAFTS_DIR, not via ostk.doc_draft
     import routers.specs as specs_router
     drafts_dir = tmp_path / "myos_drafts"
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+    from services import ostk as ostk_module
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
     # Disable AI so we don't need a real API key
     monkeypatch.setattr("services.ai_backend.get_ai_client", AsyncMock(return_value=None))
 
@@ -737,7 +738,7 @@ async def test_create_draft_error(client):
 
 @pytest.mark.asyncio
 async def test_promote_endpoint(client):
-    """Promote moves the file from docs/draft/ to ~/.myos/specs/ and returns the new path."""
+    """Promote moves the file from docs/draft/ to ~/.youros/specs/ and returns the new path."""
     from config import PROJECT_ROOT
     from services.ostk import USER_SPECS_DIR, ostk as _ostk_svc
 
@@ -1097,7 +1098,8 @@ async def test_create_draft_compat_endpoint(client, tmp_path, monkeypatch):
     """→2104: compat /api/docs/draft writes to USER_DRAFTS_DIR, not docs/draft/."""
     import routers.specs as specs_router
     drafts_dir = tmp_path / "myos_drafts"
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+    from services import ostk as ostk_module
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
     with patch("services.ai_backend.get_ai_client", new_callable=AsyncMock, return_value=None):
         resp = await client.post("/api/docs/draft", json={"title": "new plan", "kind": "spec"})
 
@@ -1171,11 +1173,11 @@ async def test_delete_spec_completely_outside_docs_rejected(client):
 
 @pytest.mark.asyncio
 async def test_delete_spec_user_local_removes_file(client, tmp_path):
-    """DELETE a spec stored in ~/.myos/specs/ (absolute path) must actually remove it.
+    """DELETE a spec stored in ~/.youros/specs/ (absolute path) must actually remove it.
 
     Root cause of →2133: delete_spec prepended 'docs/' to any non-'docs/' path,
     producing 'docs//abs/path' which resolves inside PROJECT_ROOT and then fails
-    with 404 (file not found there). The file survived in ~/.myos/specs/ and
+    with 404 (file not found there). The file survived in ~/.youros/specs/ and
     list_docs re-surfaced it on the next fetch.
     """
     import services.ostk as _ostk_mod
@@ -1192,8 +1194,6 @@ async def test_delete_spec_user_local_removes_file(client, tmp_path):
     with (
         patch.object(_ostk_mod, "USER_SPECS_DIR", user_specs),
         patch.object(_ostk_mod, "USER_DRAFTS_DIR", user_drafts),
-        patch.object(_specs_mod, "USER_SPECS_DIR", user_specs),
-        patch.object(_specs_mod, "USER_DRAFTS_DIR", user_drafts),
     ):
         abs_path = str(spec_file)
         resp = await client.delete(f"/api/specs/{abs_path}")
@@ -1204,7 +1204,7 @@ async def test_delete_spec_user_local_removes_file(client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_delete_spec_user_local_draft_removes_file(client, tmp_path):
-    """DELETE a draft stored in ~/.myos/drafts/ (absolute path) must actually remove it."""
+    """DELETE a draft stored in ~/.youros/drafts/ (absolute path) must actually remove it."""
     import services.ostk as _ostk_mod
     import routers.specs as _specs_mod
 
@@ -1219,8 +1219,6 @@ async def test_delete_spec_user_local_draft_removes_file(client, tmp_path):
     with (
         patch.object(_ostk_mod, "USER_SPECS_DIR", user_specs),
         patch.object(_ostk_mod, "USER_DRAFTS_DIR", user_drafts),
-        patch.object(_specs_mod, "USER_SPECS_DIR", user_specs),
-        patch.object(_specs_mod, "USER_DRAFTS_DIR", user_drafts),
     ):
         abs_path = str(draft_file)
         resp = await client.delete(f"/api/specs/{abs_path}")
@@ -1244,8 +1242,6 @@ async def test_delete_spec_user_local_not_found(client, tmp_path):
     with (
         patch.object(_ostk_mod, "USER_SPECS_DIR", user_specs),
         patch.object(_ostk_mod, "USER_DRAFTS_DIR", user_drafts),
-        patch.object(_specs_mod, "USER_SPECS_DIR", user_specs),
-        patch.object(_specs_mod, "USER_DRAFTS_DIR", user_drafts),
     ):
         resp = await client.delete(f"/api/specs/{nonexistent}")
 
@@ -1258,7 +1254,7 @@ async def test_delete_user_local_spec_not_resurfaced_by_list_docs(client, tmp_pa
 
     Regression guard for →2133: delete_spec was silently failing for absolute
     paths (it prepended 'docs/' and resolved to a non-existent repo path), so
-    the file survived in ~/.myos/specs/ and list_docs re-surfaced it on the
+    the file survived in ~/.youros/specs/ and list_docs re-surfaced it on the
     next GET /api/specs.
     """
     import services.ostk as _ostk_mod
@@ -1277,8 +1273,6 @@ async def test_delete_user_local_spec_not_resurfaced_by_list_docs(client, tmp_pa
     with (
         patch.object(_ostk_mod, "USER_SPECS_DIR", user_specs),
         patch.object(_ostk_mod, "USER_DRAFTS_DIR", user_drafts),
-        patch.object(_specs_mod, "USER_SPECS_DIR", user_specs),
-        patch.object(_specs_mod, "USER_DRAFTS_DIR", user_drafts),
     ):
         # Step 1: confirm it appears in list_docs before deletion
         svc = OstkService(cwd=str(tmp_path))
@@ -1347,12 +1341,13 @@ async def test_create_draft_appends_ac_to_file(client, tmp_path, monkeypatch):
     """POST /specs/draft runs AI generation and appends acceptance criteria.
 
     →2104: draft now writes to USER_DRAFTS_DIR (not docs/draft/). Monkeypatch
-    USER_DRAFTS_DIR to tmp_path so no real ~/.myos/drafts writes happen.
+    USER_DRAFTS_DIR to tmp_path so no real ~/.youros/drafts writes happen.
     """
     import routers.specs as specs_router
 
     drafts_dir = tmp_path / "myos_drafts"
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+    from services import ostk as ostk_module
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
 
     fake_ac = (
         "## What we want\nA useful feature.\n\n"
@@ -1403,7 +1398,8 @@ async def test_create_draft_succeeds_when_ai_unavailable(client, tmp_path, monke
     import routers.specs as specs_router
 
     drafts_dir = tmp_path / "myos_drafts"
-    monkeypatch.setattr(specs_router, "USER_DRAFTS_DIR", drafts_dir)
+    from services import ostk as ostk_module
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
 
     with patch("services.ai_backend.get_ai_client", new_callable=AsyncMock, return_value=None):
         resp = await client.post("/api/specs/draft", json={"title": "no ac", "kind": "spec"})
@@ -1733,7 +1729,7 @@ def test_scratch_note_pattern_unit_matches_and_misses():
     # Real spec with frontmatter + needle-ID-looking name: frontmatter protects it
     assert not _is_scratch_note("docs/draft/1234-real-spec.md", "My Real Spec", has_fm)
     # User-local specs never in docs/draft/
-    assert not _is_scratch_note("~/.myos/specs/my-spec.md", "My Spec", {})
+    assert not _is_scratch_note("~/.youros/specs/my-spec.md", "My Spec", {})
 
 
 # --- Drift action endpoints (→2139) ---
@@ -1743,7 +1739,7 @@ def test_scratch_note_pattern_unit_matches_and_misses():
 async def test_drift_reconcile_checks_unchecked_acs(client, tmp_path, monkeypatch):
     """POST /drift/reconcile converts - [ ] to - [x] in the spec body."""
     import routers.specs as specs_router
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     spec_dir = tmp_path / "docs" / "spec"
     spec_dir.mkdir(parents=True, exist_ok=True)
     spec_file = spec_dir / "test-reconcile.md"
@@ -1768,7 +1764,7 @@ async def test_drift_reconcile_checks_unchecked_acs(client, tmp_path, monkeypatc
 async def test_drift_reconcile_idempotent(client, tmp_path, monkeypatch):
     """POST /drift/reconcile is idempotent when nothing needs changing."""
     import routers.specs as specs_router
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     spec_dir = tmp_path / "docs" / "spec"
     spec_dir.mkdir(parents=True, exist_ok=True)
     spec_file = spec_dir / "already-done.md"
@@ -1786,7 +1782,7 @@ async def test_drift_reconcile_idempotent(client, tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_drift_reconcile_not_found(client, tmp_path, monkeypatch):
     import routers.specs as specs_router
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
 
     resp = await client.post("/api/specs/docs/spec/nope.md/drift/reconcile")
@@ -1798,7 +1794,7 @@ async def test_drift_reconcile_not_found(client, tmp_path, monkeypatch):
 async def test_drift_ack_writes_frontmatter(client, tmp_path, monkeypatch):
     """POST /drift/ack adds drift_acked: true to the spec frontmatter."""
     import routers.specs as specs_router
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     spec_dir = tmp_path / "docs" / "spec"
     spec_dir.mkdir(parents=True, exist_ok=True)
     spec_file = spec_dir / "test-ack.md"
@@ -1818,7 +1814,7 @@ async def test_drift_ack_writes_frontmatter(client, tmp_path, monkeypatch):
 async def test_drift_ack_idempotent(client, tmp_path, monkeypatch):
     """POST /drift/ack is idempotent when already acked."""
     import routers.specs as specs_router
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     spec_dir = tmp_path / "docs" / "spec"
     spec_dir.mkdir(parents=True, exist_ok=True)
     spec_file = spec_dir / "already-acked.md"
@@ -1838,7 +1834,7 @@ async def test_drift_ack_idempotent(client, tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_drift_ack_not_found(client, tmp_path, monkeypatch):
     import routers.specs as specs_router
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
 
     resp = await client.post("/api/specs/docs/spec/nope.md/drift/ack")
@@ -1850,7 +1846,7 @@ async def test_drift_ack_not_found(client, tmp_path, monkeypatch):
 async def test_review_spec_includes_acked_field(client, tmp_path, monkeypatch):
     """GET /specs/.../review drift object includes 'acked' field."""
     import routers.specs as specs_router
-    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
     spec_dir = tmp_path / "docs" / "spec"
     spec_dir.mkdir(parents=True, exist_ok=True)
     spec_file = spec_dir / "test-review.md"

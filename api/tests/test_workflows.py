@@ -16,7 +16,7 @@ from main import app
 
 @pytest.fixture
 def tmp_workflows_file(tmp_path):
-    """Patch WORKFLOWS_FILE to a temp location so tests don't touch ~/.myos."""
+    """Patch WORKFLOWS_FILE to a temp location so tests don't touch ~/.youros."""
     wf_file = tmp_path / "workflows.json"
     with patch("services.workflows.WORKFLOWS_FILE", wf_file), \
          patch("services.workflows.MYOS_DIR", tmp_path):

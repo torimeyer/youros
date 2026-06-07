@@ -8,7 +8,7 @@ Phase 3 of spec-auto-status: passive git-commit detection so specs flip to
 ## Pieces
 
 1. `scripts/ostk_post_commit_hook.sh` — bash post-commit hook. Reads latest
-   commit message, greps for spec slugs (`~/.myos/specs/*.md` stems) and
+   commit message, greps for spec slugs (`~/.youros/specs/*.md` stems) and
    `→NNNN` task IDs, curls `POST /api/specs/<slug>/claim` with
    `source=passive`. Silent on failure, logs to `/tmp/ostk-post-commit.log`.
 

@@ -33,7 +33,7 @@ TMPDIR_BASE=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_BASE"' EXIT
 
 # ── Test 1: disarm removes sentinel ──────────────────────────────────────────
-T1_SENTINEL="$TMPDIR_BASE/t1/.myos/.adhd-monitor-armed-test"
+T1_SENTINEL="$TMPDIR_BASE/t1/.youros/.adhd-monitor-armed-test"
 mkdir -p "$(dirname "$T1_SENTINEL")"
 touch "$T1_SENTINEL"
 run_disarm "$T1_SENTINEL"
@@ -41,7 +41,7 @@ run_disarm "$T1_SENTINEL"
 assert_eq "disarm removes sentinel" "gone" "$actual"
 
 # ── Test 2: disarm kills keepalive process ────────────────────────────────────
-T2_SENTINEL="$TMPDIR_BASE/t2/.myos/.adhd-monitor-armed-test"
+T2_SENTINEL="$TMPDIR_BASE/t2/.youros/.adhd-monitor-armed-test"
 mkdir -p "$(dirname "$T2_SENTINEL")"
 touch "$T2_SENTINEL"
 sleep 300 &
@@ -57,7 +57,7 @@ fi
 assert_eq "disarm kills keepalive" "killed" "$actual"
 
 # ── Test 3: disarm removes pid file ──────────────────────────────────────────
-T3_SENTINEL="$TMPDIR_BASE/t3/.myos/.adhd-monitor-armed-test"
+T3_SENTINEL="$TMPDIR_BASE/t3/.youros/.adhd-monitor-armed-test"
 mkdir -p "$(dirname "$T3_SENTINEL")"
 touch "$T3_SENTINEL"
 sleep 300 &
@@ -77,9 +77,9 @@ assert_eq "disarm with no sentinel exits 0" "0" "$exit_code"
 
 # ── Test 5: after disarm, _check blocks Agent spawn (ADHD mode active) ───────
 T5="$TMPDIR_BASE/t5"
-T5_SENTINEL="$T5/.myos/.adhd-monitor-armed-test"
-mkdir -p "$T5/.myos"
-touch "$T5/.myos/.adhd_mode"
+T5_SENTINEL="$T5/.youros/.adhd-monitor-armed-test"
+mkdir -p "$T5/.youros"
+touch "$T5/.youros/.adhd_mode"
 touch "$T5_SENTINEL"
 sleep 300 &
 KA5_PID=$!

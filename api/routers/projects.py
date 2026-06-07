@@ -22,15 +22,15 @@ SKIP = {".git", ".ostk", ".vite", ".claude", ".DS_Store", "node_modules", "__pyc
 def _projects_root() -> Path:
     """Return the canonical projects directory.
 
-    Priority: ~/myos > ~/.myos/projects > ~/.myos/projects > TORIOS_DIR.
+    Priority: ~/myos > ~/.youros/projects > ~/.youros/projects > TORIOS_DIR.
     Rooting at ~/myos surfaces the user's peer folders (projects, files,
     observations) so all are reachable from one browser. Checked at request
     time so the user can rename the folder without a restart.
     """
     for candidate in [
         Path.home() / "myos",
-        Path.home() / ".myos" / "projects",
-        Path.home() / ".myos" / "projects",
+        Path.home() / ".youros" / "projects",
+        Path.home() / ".youros" / "projects",
     ]:
         if candidate.is_dir():
             return candidate
@@ -60,8 +60,8 @@ def _resolve_readable_path(path_str: str) -> Path:
 
     * Workspace-relative paths anchored under ``TORIOS_DIR``.
     * Absolute paths under ``~/myos/`` (the user's real workspace),
-      ``~/.myos/files/`` (agent-output and Roadmap artifacts), or the
-      legacy ``~/.myos/projects/`` location.
+      ``~/.youros/files/`` (agent-output and Roadmap artifacts), or the
+      legacy ``~/.youros/projects/`` location.
 
     This is intentionally broader than ``_resolve_safe_path`` because
     Recent Documents legitimately lists .md files from both locations,
@@ -75,8 +75,8 @@ def _resolve_readable_path(path_str: str) -> Path:
         raise HTTPException(status_code=400, detail="Path is required.")
 
     workspace_root = TORIOS_DIR.resolve()
-    myos_files_root = (Path.home() / ".myos" / "files").resolve()
-    myos_projects_root = (Path.home() / ".myos" / "projects").resolve()
+    myos_files_root = (Path.home() / ".youros" / "files").resolve()
+    myos_projects_root = (Path.home() / ".youros" / "projects").resolve()
     myos_root = (Path.home() / "myos").resolve()
 
     incoming = Path(path_str)
@@ -314,7 +314,7 @@ async def read_file(path: str = Query(..., description="Relative path to the fil
     its detected type, and its size in bytes.
 
     Accepts both workspace-relative paths and absolute paths under
-    ``~/.myos/projects/``, matching every path that ``GET /docs/recent``
+    ``~/.youros/projects/``, matching every path that ``GET /docs/recent``
     returns. Any other location is rejected as out of scope.
     """
     resolved = _resolve_readable_path(path)
@@ -379,9 +379,9 @@ async def recent_docs(limit: int = Query(10, ge=1, le=50, description="Max files
     """Return the most recently modified .md files across the workspace.
 
     Walks the workspace recursively, skipping hidden dirs and known clutter.
-    Also includes .md files living under ``~/.myos/files/`` (agent-output
+    Also includes .md files living under ``~/.youros/files/`` (agent-output
     artifacts and the Roadmap template's roadmap.md) and the legacy
-    ``~/.myos/projects/`` location so template and agent outputs appear
+    ``~/.youros/projects/`` location so template and agent outputs appear
     alongside repo docs. Returns files sorted
     newest-first with a short preview snippet.
     """
@@ -407,8 +407,8 @@ async def recent_docs(limit: int = Query(10, ge=1, le=50, description="Max files
 
         ``path_builder`` turns the absolute Path into the string the
         frontend will use for /files/read and preview links. For the
-        workspace that is relative to TORIOS_DIR; for ~/.myos/files
-        and ~/.myos/projects we emit the absolute path so the frontend
+        workspace that is relative to TORIOS_DIR; for ~/.youros/files
+        and ~/.youros/projects we emit the absolute path so the frontend
         is unambiguous.
         """
         if not base.exists() or not base.is_dir():
@@ -490,9 +490,9 @@ async def recent_docs(limit: int = Query(10, ge=1, le=50, description="Max files
     # page can render them with its existing tree navigation.
     _collect(workspace, lambda p: str(p.relative_to(workspace)))
 
-    # Secondary sources: ~/.myos/files (agent outputs + Roadmap's
+    # Secondary sources: ~/.youros/files (agent outputs + Roadmap's
     # roadmap.md, written by the /complete hook) and the legacy
-    # ~/.myos/projects. Both live outside the repo so a `git pull` can
+    # ~/.youros/projects. Both live outside the repo so a `git pull` can
     # never clobber them. Paths are absolute so the frontend knows to
     # read them via the raw endpoint.
     from services.settings_store import settings_store as _ss
@@ -500,11 +500,11 @@ async def recent_docs(limit: int = Query(10, ge=1, le=50, description="Max files
     _projects_secondary = (
         Path(str(_projects_dir_cfg)).expanduser().resolve()
         if _projects_dir_cfg
-        else (Path.home() / ".myos" / "projects").resolve()
+        else (Path.home() / ".youros" / "projects").resolve()
     )
     seen_secondary: set = set()
     for secondary in (
-        (Path.home() / ".myos" / "files").resolve(),
+        (Path.home() / ".youros" / "files").resolve(),
         _projects_secondary,
     ):
         if secondary in seen_secondary:
@@ -525,24 +525,24 @@ async def delete_recent_doc(path: str = Query(..., description="Path of the .md 
     """Delete a single .md file from Recent Documents.
 
     Only .md files living inside the workspace (``TORIOS_DIR``),
-    ``~/.myos/files/``, or the legacy ``~/.myos/projects/`` are deletable.
+    ``~/.youros/files/``, or the legacy ``~/.youros/projects/`` are deletable.
     Any other path, or any attempt to traverse out of those roots via
     ``..``, is rejected with 400. Paths for workspace files are expected
-    relative to ``TORIOS_DIR``. Paths for ``~/.myos/files`` and
-    ``~/.myos/projects`` files are expected as absolute paths, matching
+    relative to ``TORIOS_DIR``. Paths for ``~/.youros/files`` and
+    ``~/.youros/projects`` files are expected as absolute paths, matching
     how ``GET /docs/recent`` emits them.
     """
     if not path:
         raise HTTPException(status_code=400, detail="Path is required.")
 
     workspace_root = TORIOS_DIR.resolve()
-    myos_files_root = (Path.home() / ".myos" / "files").resolve()
-    myos_projects_root = (Path.home() / ".myos" / "projects").resolve()
+    myos_files_root = (Path.home() / ".youros" / "files").resolve()
+    myos_projects_root = (Path.home() / ".youros" / "projects").resolve()
     myos_root = (Path.home() / "myos").resolve()
 
     incoming = Path(path)
-    # Accept either an absolute path (~/.myos/files/... or
-    # ~/.myos/projects/...) or a path
+    # Accept either an absolute path (~/.youros/files/... or
+    # ~/.youros/projects/...) or a path
     # relative to the workspace. Anchor relative paths to the workspace
     # before resolving so "../" tricks still land outside the root and
     # trip the safety check below.

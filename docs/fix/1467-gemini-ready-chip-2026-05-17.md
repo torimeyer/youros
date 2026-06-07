@@ -27,7 +27,7 @@ A "Gemini-ready" chip on the Tasks and Specs pages that auto-computes whether a 
 
 ## Readiness rule (all 6 must hold)
 
-1. Description/spec contains a path matching docs/spec/*.md, ~/.myos/specs/*.md, or ~/.claude/plans/*.md
+1. Description/spec contains a path matching docs/spec/*.md, ~/.youros/specs/*.md, or ~/.claude/plans/*.md
 2. That file exists on disk
 3. File has at least one `- [ ]` AC checkbox
 4. No AC line contains TBD / ? / "should we" / "decide" / TODO (case-insensitive)

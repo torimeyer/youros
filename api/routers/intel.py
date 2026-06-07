@@ -21,10 +21,10 @@ from pydantic import BaseModel
 router = APIRouter()
 
 # Storage root — redirected in tests via monkeypatch.setattr(intel_router, "CAPTURES_DIR", ...)
-CAPTURES_DIR: Path = Path.home() / ".myos" / "intel" / "captures"
+CAPTURES_DIR: Path = Path.home() / ".youros" / "intel" / "captures"
 
 # Spec promotion target — redirected in tests via monkeypatch.setattr(intel_router, "DIGEST_SPECS_DIR", ...)
-DIGEST_SPECS_DIR: Path = Path.home() / ".myos" / "specs"
+DIGEST_SPECS_DIR: Path = Path.home() / ".youros" / "specs"
 
 # Synthesis callable — lazily resolved to routers.chat.synthesize_intel_digest.
 # Tests replace this with a stub via monkeypatch.setattr(intel_router, "_synthesize", stub).

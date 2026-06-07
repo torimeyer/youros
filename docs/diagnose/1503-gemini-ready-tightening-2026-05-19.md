@@ -15,7 +15,7 @@ expanded. The `has_file_paths` check got stricter. The frontend chip now shows a
 
 | # | Name | Rule |
 |---|------|------|
-| 1 | `plan_path_present` | Description mentions a docs/spec, ~/.myos/specs, or ~/.claude/plans path |
+| 1 | `plan_path_present` | Description mentions a docs/spec, ~/.youros/specs, or ~/.claude/plans path |
 | 2 | `file_exists` | That file exists on disk |
 | 3 | `has_ac_checkboxes` | File has at least one `- [ ]` line |
 | 4 | `no_vague_ac` | No AC line contains vague tokens (TBD, ?, TODO, review, maybe, consider, explore, discuss, clarify, figure out, we'll see, either, depends) |

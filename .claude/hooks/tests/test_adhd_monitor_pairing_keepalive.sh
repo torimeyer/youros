@@ -55,27 +55,27 @@ trap 'rm -rf "$TMPDIR_BASE"' EXIT
 
 # ── Test 1: ADHD mode not active → allow regardless ─────────────────────────
 T1="$TMPDIR_BASE/t1"
-mkdir -p "$T1/.myos"
+mkdir -p "$T1/.youros"
 # No .adhd_mode file
-SENTINEL="$T1/.myos/.adhd-monitor-armed-test"
+SENTINEL="$T1/.youros/.adhd-monitor-armed-test"
 touch "$SENTINEL"
 result=$(run_check "$T1" "$SENTINEL" 9999)
 assert_exit "no adhd_mode → allow" 0 "$result"
 
 # ── Test 2: Fresh sentinel (age < TTL) → allow ───────────────────────────────
 T2="$TMPDIR_BASE/t2"
-mkdir -p "$T2/.myos"
-touch "$T2/.myos/.adhd_mode"
-SENTINEL2="$T2/.myos/.adhd-monitor-armed-test"
+mkdir -p "$T2/.youros"
+touch "$T2/.youros/.adhd_mode"
+SENTINEL2="$T2/.youros/.adhd-monitor-armed-test"
 touch "$SENTINEL2"
 result=$(run_check "$T2" "$SENTINEL2" 10)  # 10s old, within 120s TTL
 assert_exit "fresh sentinel (10s) → allow" 0 "$result"
 
 # ── Test 3: Stale sentinel + live keepalive → allow ─────────────────────────
 T3="$TMPDIR_BASE/t3"
-mkdir -p "$T3/.myos"
-touch "$T3/.myos/.adhd_mode"
-SENTINEL3="$T3/.myos/.adhd-monitor-armed-test"
+mkdir -p "$T3/.youros"
+touch "$T3/.youros/.adhd_mode"
+SENTINEL3="$T3/.youros/.adhd-monitor-armed-test"
 touch "$SENTINEL3"
 # Simulate stale mtime (200s old; age passed in as arg, mtime irrelevant here)
 # Spawn a real background process as the "keepalive"
@@ -92,9 +92,9 @@ assert_exit "stale sentinel + live keepalive → allow" 0 "$result"
 # had to call Monitor (with fragile 200-500ms PreToolUse window) before any
 # Agent spawn.
 T4="$TMPDIR_BASE/t4"
-mkdir -p "$T4/.myos"
-touch "$T4/.myos/.adhd_mode"
-SENTINEL4="$T4/.myos/.adhd-monitor-armed-test"
+mkdir -p "$T4/.youros"
+touch "$T4/.youros/.adhd_mode"
+SENTINEL4="$T4/.youros/.adhd-monitor-armed-test"
 touch "$SENTINEL4"
 echo "99999999" > "${SENTINEL4}.keepalive.pid"
 result=$(run_check "$T4" "$SENTINEL4" 200)
@@ -114,9 +114,9 @@ fi
 
 # ── Test 5: Stale sentinel + no PID file → auto-arm + allow ─────────────────
 T5="$TMPDIR_BASE/t5"
-mkdir -p "$T5/.myos"
-touch "$T5/.myos/.adhd_mode"
-SENTINEL5="$T5/.myos/.adhd-monitor-armed-test"
+mkdir -p "$T5/.youros"
+touch "$T5/.youros/.adhd_mode"
+SENTINEL5="$T5/.youros/.adhd-monitor-armed-test"
 touch "$SENTINEL5"
 result=$(run_check "$T5" "$SENTINEL5" 200)
 assert_exit "stale sentinel + no pid file → auto-arm + allow" 0 "$result"
@@ -136,8 +136,8 @@ fi
 # Degenerate input (no path to arm). Real usage always supplies a path via
 # pre-agent-guard.sh. Keep as block.
 T6="$TMPDIR_BASE/t6"
-mkdir -p "$T6/.myos"
-touch "$T6/.myos/.adhd_mode"
+mkdir -p "$T6/.youros"
+touch "$T6/.youros/.adhd_mode"
 result=$(run_check "$T6" "" -1)
 assert_exit "adhd mode + no sentinel path → block (degenerate input)" 2 "$result"
 
@@ -145,9 +145,9 @@ assert_exit "adhd mode + no sentinel path → block (degenerate input)" 2 "$resu
 # This is the real-world first-spawn-of-session case: pre-agent-guard.sh
 # constructs the sentinel path, the file doesn't exist yet, age=-1.
 T7="$TMPDIR_BASE/t7"
-mkdir -p "$T7/.myos"
-touch "$T7/.myos/.adhd_mode"
-SENTINEL7="$T7/.myos/.adhd-monitor-armed-test"
+mkdir -p "$T7/.youros"
+touch "$T7/.youros/.adhd_mode"
+SENTINEL7="$T7/.youros/.adhd-monitor-armed-test"
 # No sentinel file, no pid file — first Agent spawn of the session.
 result=$(run_check "$T7" "$SENTINEL7" -1)
 assert_exit "adhd on + sentinel path absent → auto-arm + allow" 0 "$result"

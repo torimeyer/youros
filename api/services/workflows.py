@@ -3,7 +3,7 @@
 Workflows let you chain agents together. Each step can run in parallel (when
 it has no dependencies) or wait for earlier steps to finish first.
 
-Data is stored in ~/.myos/workflows.json, never in the repo.
+Data is stored in ~/.youros/workflows.json, never in the repo.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from typing import Any, Optional
 from services.atomic_io import atomic_write_json
 from services.workflow_events import bus as _wf_bus
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 WORKFLOWS_FILE = MYOS_DIR / "workflows.json"
 
 # Valid step statuses
@@ -403,7 +403,7 @@ async def run_workflow(workflow_id: str) -> dict:
     asyncio.create_task(_wf_bus.publish("delta", {"id": workflow_id}))
 
     # Files tab artifact + follow-up tasks. Every workflow run writes a
-    # rollup markdown file to ~/.myos/files/ so the run shows up on
+    # rollup markdown file to ~/.youros/files/ so the run shows up on
     # Recent Documents, and any next-step bullets in the output become
     # actual tasks via the shared automation_outputs hook. Best-effort:
     # a filesystem or ostk failure here must never block the workflow's
@@ -412,7 +412,7 @@ async def run_workflow(workflow_id: str) -> dict:
     #
     # Skippable under MYOS_SKIP_AUTOMATION_FILES_SAVE so test suites
     # that exercise workflow lifecycle without stubbing the files path
-    # do not pollute the real ``~/.myos/files/`` directory. conftest.py
+    # do not pollute the real ``~/.youros/files/`` directory. conftest.py
     # sets this flag automatically during pytest runs.
     import os as _os
     if _os.environ.get("MYOS_SKIP_AUTOMATION_FILES_SAVE", "").lower() not in ("1", "true", "yes"):

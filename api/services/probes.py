@@ -11,7 +11,7 @@ import anthropic
 
 logger = logging.getLogger(__name__)
 
-PROBE_STATE_FILE = Path.home() / ".myos" / "probe_state.json"
+PROBE_STATE_FILE = Path.home() / ".youros" / "probe_state.json"
 
 
 async def probe_claude_api() -> dict:

@@ -1,7 +1,7 @@
 """Gmail service.
 
 Fetches unread messages from the user's Gmail inbox and caches them locally.
-Cache lives in ~/.myos/gmail_cache/ -- never inside the repo.
+Cache lives in ~/.youros/gmail_cache/ -- never inside the repo.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path
 from services.atomic_io import atomic_write_text
 from services.google_auth import get_credentials, is_authenticated
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 GMAIL_CACHE_DIR = MYOS_DIR / "gmail_cache"
 INBOX_CACHE_PATH = GMAIL_CACHE_DIR / "inbox.json"
 FULL_INBOX_CACHE_PATH = GMAIL_CACHE_DIR / "inbox_full.json"

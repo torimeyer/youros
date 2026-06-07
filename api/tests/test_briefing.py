@@ -1214,7 +1214,7 @@ async def test_briefing_never_emits_review_agent_cards_when_no_runs(tmp_path):
 #
 # History: removing review_agent cards from generate_action_items() was
 # not enough on its own. The briefing endpoint reads from the cached
-# action_items list in ~/.myos/briefing_state.json and only regenerates
+# action_items list in ~/.youros/briefing_state.json and only regenerates
 # when the task count changes. After the code fix landed, Tori still saw
 # "Review failed: plain-user-agent" on the dashboard because the cache
 # from the previous run still carried the deprecated entry. The fix is

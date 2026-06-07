@@ -21,11 +21,29 @@ sys.path.insert(0, str(api_path))
 import config as _config_mod
 import tempfile
 
+_fake_root = Path(tempfile.gettempdir()) / "pytest_myos_root"
+_fake_root.mkdir(parents=True, exist_ok=True)
+if not (_fake_root / ".git").exists():
+    import subprocess
+    subprocess.run(["git", "init", "-q"], cwd=_fake_root)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=_fake_root)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=_fake_root)
+    (_fake_root / ".gitignore").write_text(".ostk\n")
+    subprocess.run(["git", "add", ".gitignore"], cwd=_fake_root)
+    subprocess.run(["git", "commit", "-m", "initial commit", "--no-verify"], cwd=_fake_root)
+# Ensure specs and drafts are isolated and consistent between unit/functional tests
+_user_specs = _fake_root / "docs" / "spec"
+_user_drafts = _fake_root / "docs" / "draft"
+_user_specs.mkdir(parents=True, exist_ok=True)
+_user_drafts.mkdir(parents=True, exist_ok=True)
+
+os.environ.setdefault("MYOS_USER_SPECS_DIR", str(_user_specs))
+os.environ.setdefault("MYOS_USER_DRAFTS_DIR", str(_user_drafts))
+
 # Capture real root for the guard fixture before we clobber it
 REAL_PROJECT_ROOT = _config_mod.PROJECT_ROOT
 
-_fake_root = Path(tempfile.gettempdir()) / "pytest_myos_root"
-_fake_root.mkdir(parents=True, exist_ok=True)
+_config_mod.PROJECT_ROOT = _fake_root
 (_fake_root / "transcripts").mkdir(parents=True, exist_ok=True)
 (_fake_root / "agents").mkdir(parents=True, exist_ok=True)
 (_fake_root / "README.md").write_text("# Test Root")
@@ -60,12 +78,21 @@ from services.ostk import ostk as _global_ostk
 _global_ostk.cwd = str(_fake_root)
 
 # The agents router runs a one-shot retroactive sweep at import time that
-# scans ~/.myos/agent_memory/ and writes summaries into ~/.myos/files/.
+# scans ~/.youros/agent_memory/ and writes summaries into ~/.youros/files/.
 # That must NEVER fire during tests because it would pollute the user's
 # real home directory with test run artifacts.
 os.environ.setdefault("MYOS_SKIP_RETRO_AGENT_FILES_SAVE", "1")
 
-# services.workflows.run_workflow writes a rollup .md to ~/.myos/files/
+# Ensure specs and drafts are isolated to a temporary directory during tests
+# so they do not read from or write to the real ~/.youros directory.
+_user_data_tmp = Path(tempfile.gettempdir()) / "pytest_youros_user_data"
+_user_data_tmp.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MYOS_USER_SPECS_DIR", str(_user_data_tmp / "specs"))
+os.environ.setdefault("MYOS_USER_DRAFTS_DIR", str(_user_data_tmp / "drafts"))
+(_user_data_tmp / "specs").mkdir(parents=True, exist_ok=True)
+(_user_data_tmp / "drafts").mkdir(parents=True, exist_ok=True)
+
+# services.workflows.run_workflow writes a rollup .md to ~/.youros/files/
 # at terminal state so workflow runs surface on the Files tab. Block
 # that write during tests so exercising the lifecycle does not pollute
 # the user's real home. Individual tests that want to inspect the
@@ -75,7 +102,7 @@ os.environ.setdefault("MYOS_SKIP_AUTOMATION_FILES_SAVE", "1")
 
 # Roadmap /complete runs now post a chat system message via
 # services.chat_notifications. That helper writes to the real
-# ~/.myos/chat_history.json by default. Opt out during tests so the
+# ~/.youros/chat_history.json by default. Opt out during tests so the
 # user's actual chat panel never inherits a stray pytest entry.
 # Tests that specifically want to exercise the helper unset this in
 # their own scope (see test_roadmap_chat_flow.py).
@@ -95,14 +122,27 @@ from main import app
 
 @pytest.fixture(autouse=True)
 def _isolate_tasks_ostk(tmp_path, monkeypatch):
-    """Redirect ostk.cwd to a tmp path for every test (→1323).
+    """Redirect ostk.cwd and PROJECT_ROOT to a tmp path for every test (→1323).
 
     This ensures that any code path calling 'ostk work add' or similar
     writes to a per-test sandbox, not the shared _fake_root (which would
     cause isolation tests to fail) and certainly not the real repo.
     """
     from services.ostk import ostk
+    import services.ostk as ostk_module
+    import config
     monkeypatch.setattr(ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
+    
+    # Isolate user specs and drafts to tmp_path.
+    # Map them to the legacy docs/ paths that most tests already use.
+    user_specs = tmp_path / "docs" / "spec"
+    user_drafts = tmp_path / "docs" / "draft"
+    user_specs.mkdir(parents=True, exist_ok=True)
+    user_drafts.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", user_specs)
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", user_drafts)
+
     # Ensure the directory structure exists so ostk doesn't fail on boot
     (tmp_path / ".ostk" / "needles").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".ostk" / "needles" / "issues.jsonl").write_text("")
@@ -312,7 +352,7 @@ def clear_costs_caches():
     costs_router._savings_cache.clear()
     # Redirect the savings disk snapshot to a per-test tmp file so cold-path
     # tests that patch _compute_savings_for_period still see a cache miss,
-    # and so we never clobber the real user snapshot under ~/.myos/.
+    # and so we never clobber the real user snapshot under ~/.youros/.
     tmp_snapshot = Path(tempfile.mkdtemp()) / "savings_snapshot.json"
     original_path_fn = costs_router._savings_snapshot_path
     costs_router._savings_snapshot_path = lambda: tmp_snapshot
@@ -530,7 +570,7 @@ def _reset_ostk_singleton():
 def _pin_myos_files_dir_to_tmp(tmp_path, monkeypatch):
     """Redirect ``MYOS_FILES_DIR`` to a tmp path for every test.
 
-    The real dir is ``~/.myos/files/`` and is where user-facing artifacts
+    The real dir is ``~/.youros/files/`` and is where user-facing artifacts
     live (roadmap.md, fleet outputs, etc.). Any test that exercises a
     spawn path which calls ``_save_agent_output_to_files`` would
     otherwise overwrite the user's real roadmap.md with the test's fake
@@ -559,7 +599,7 @@ def _isolate_notifications_store(tmp_path, monkeypatch):
 
     Without this, any code path that calls notifications_service.add()
     (e.g. _save_agent_output_to_files for roadmap completions) writes a
-    real entry to ~/.myos/notifications.json. That causes stale
+    real entry to ~/.youros/notifications.json. That causes stale
     'Roadmap ready' toasts to appear in the app after every test run,
     even though the user never created a roadmap.
     """
@@ -650,13 +690,13 @@ def _check_no_live_agents(curl_stdout: str) -> None:
 @pytest.fixture(autouse=True)
 def _isolate_threads_store(tmp_path, monkeypatch):
     """Redirect threads_store to a per-test tmp file so no test writes to
-    the real ~/.myos/threads.json.
+    the real ~/.youros/threads.json.
 
     Patches both routers.threads and routers.tasks, which each hold a
     module-level reference imported from services.threads_store.
 
     Root cause of →1323: the ThreadsStore singleton was initialised at import
-    time with THREADS_PATH = ~/.myos/threads.json. Any POST /api/threads call
+    time with THREADS_PATH = ~/.youros/threads.json. Any POST /api/threads call
     from the test suite wrote directly to the live file, surfacing ghost groups
     in the sidebar.
     """
@@ -759,7 +799,7 @@ def _guard_real_store_writes():
         return result[0]
 
     issues_path = REAL_PROJECT_ROOT / ".ostk" / "needles" / "issues.jsonl"
-    threads_path = Path.home() / ".myos" / "threads.json"
+    threads_path = Path.home() / ".youros" / "threads.json"
 
     # In worktree contexts .ostk/needles is a symlink to the live repo store.
     # The ostk kernel rewrites issues.jsonl atomically on every needle change;

@@ -5,7 +5,7 @@ import services.primitives_db as _pdb
 
 @pytest.fixture(autouse=True)
 def _redirect_primitives_db(tmp_path, monkeypatch):
-    """Redirect the SQLite DB to a per-test tmp file so the real ~/.myos/ is never touched."""
+    """Redirect the SQLite DB to a per-test tmp file so the real ~/.youros/ is never touched."""
     monkeypatch.setattr(_pdb, "PRIMITIVES_DB_PATH", tmp_path / "test_time.db")
     # Clear the per-thread connection cache so get_db() opens the new path.
     _pdb._local.conn = None

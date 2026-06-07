@@ -49,7 +49,7 @@ AGENTS_DIR = PROJECT_ROOT / "agents"
 # ``test_roadmap_template_uses_quick_mode``.
 MARKETPLACE_DIR = PROJECT_ROOT / "agents" / "marketplace"
 try:
-    CUSTOM_DIR = Path.home() / ".myos" / "agents" / "custom"
+    CUSTOM_DIR = Path.home() / ".youros" / "agents" / "custom"
 except Exception:
     CUSTOM_DIR = None  # type: ignore[assignment]
 

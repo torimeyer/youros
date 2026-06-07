@@ -22,9 +22,9 @@ youros() {
 
   # --- Updates (parallel) ---
   if [[ "$_agent" == "claude" ]]; then
-    /usr/bin/script -q /dev/null sh -c 'command claude update' </dev/null >/dev/null 2>&1 &!
+    nohup sh -c 'command claude update' > /tmp/myos-update.log 2>&1 < /dev/null & disown
   elif [[ "$_agent" == "gemini" ]]; then
-    /usr/bin/script -q /dev/null sh -c 'npm update -g @google/gemini-cli' </dev/null >/dev/null 2>&1 &!
+    nohup sh -c 'npm update -g @google/gemini-cli' > /tmp/myos-update.log 2>&1 < /dev/null & disown
   fi
 
   # --- yourOS Launch sequence ---

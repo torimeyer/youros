@@ -5,7 +5,7 @@ If anyone adds a new store that writes files inside the repo directory, a
 fail loudly when that happens.
 
 Rule: every ``*_store.py`` module under ``api/services/`` must resolve its
-storage path to something OUTSIDE the repo root (typically ``~/.myos/``).
+storage path to something OUTSIDE the repo root (typically ``~/.youros/``).
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def test_store_path_is_outside_repo(module_name: str, const_name: str):
     """Every store must write to a path outside the repo directory.
 
     If this test fails, your new store is at risk of being clobbered by
-    ``git pull``. Fix it by moving the path resolver to ``~/.myos/`` (or
+    ``git pull``. Fix it by moving the path resolver to ``~/.youros/`` (or
     another home-directory location).
     """
     module = importlib.import_module(module_name)
@@ -79,7 +79,7 @@ def test_store_path_is_outside_repo(module_name: str, const_name: str):
     assert not _is_inside_repo(path), (
         f"{module_name}.{const_name} = {path} lives inside the repo at {REPO_ROOT}. "
         "User data inside the repo is at risk of being overwritten by git pull. "
-        "Move this store to ~/.myos/ or another location outside the repo."
+        "Move this store to ~/.youros/ or another location outside the repo."
     )
 
 
@@ -116,10 +116,10 @@ def test_task_suggestions_dismissed_path_is_outside_repo():
     assert isinstance(path, Path)
     assert not _is_inside_repo(path), (
         f"task_suggestions.DISMISSED_PATH = {path} lives inside the repo. "
-        "Move it under ~/.myos/ so user data is safe from git pull."
+        "Move it under ~/.youros/ so user data is safe from git pull."
     )
     home = Path.home().resolve()
-    expected_prefix = home / ".myos"
+    expected_prefix = home / ".youros"
     try:
         path.resolve().relative_to(expected_prefix)
     except ValueError:
@@ -160,13 +160,13 @@ def test_agent_durations_path_is_gitignored():
     assert result.returncode == 0, (
         f"agent_patterns.AGENT_DURATIONS_PATH = {path} lives inside the repo "
         f"and is NOT gitignored. Git pull could clobber learned agent durations. "
-        f"Move it to ~/.myos/ or add its directory to .gitignore."
+        f"Move it to ~/.youros/ or add its directory to .gitignore."
     )
 
 
 def test_agent_patterns_proven_templates_path_is_outside_repo():
     """The proven templates file written by agent_patterns must live under
-    ``~/.myos/`` so a ``git pull`` never clobbers it. The agent_patterns
+    ``~/.youros/`` so a ``git pull`` never clobbers it. The agent_patterns
     service writes to this path when promoting templates to proven status.
     """
     from services import agent_patterns
@@ -175,10 +175,10 @@ def test_agent_patterns_proven_templates_path_is_outside_repo():
     assert isinstance(path, Path)
     assert not _is_inside_repo(path), (
         f"agent_patterns.PROVEN_TEMPLATES_PATH = {path} lives inside the repo. "
-        "Move it under ~/.myos/ so user data is safe from git pull."
+        "Move it under ~/.youros/ so user data is safe from git pull."
     )
     home = Path.home().resolve()
-    expected_prefix = home / ".myos"
+    expected_prefix = home / ".youros"
     try:
         path.resolve().relative_to(expected_prefix)
     except ValueError:
@@ -188,7 +188,7 @@ def test_agent_patterns_proven_templates_path_is_outside_repo():
 
 
 def test_myos_home_dir_is_the_canonical_location():
-    """Every tracked store should use ~/.myos/ as the home-directory prefix.
+    """Every tracked store should use ~/.youros/ as the home-directory prefix.
 
     This is a softer check. It enforces that stores all live under one
     predictable place the user can back up, inspect, and move around. If
@@ -196,7 +196,7 @@ def test_myos_home_dir_is_the_canonical_location():
     ~/.local/share/myos/), update this test.
     """
     home = Path.home().resolve()
-    expected_prefix = home / ".myos"
+    expected_prefix = home / ".youros"
     for module_name, const_name in STORE_PATH_CONSTANTS.items():
         module = importlib.import_module(module_name)
         path: Path = getattr(module, const_name)
@@ -206,6 +206,6 @@ def test_myos_home_dir_is_the_canonical_location():
         except ValueError:
             pytest.fail(
                 f"{module_name}.{const_name} = {resolved} is not under {expected_prefix}. "
-                "All myOS stores should live under ~/.myos/ so users have one "
+                "All myOS stores should live under ~/.youros/ so users have one "
                 "predictable place for their data."
             )

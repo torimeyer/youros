@@ -19,7 +19,7 @@
 #      statusLine, enabledPlugins, theme, hooks.PostToolUse, etc.)
 #      are never touched. Idempotent: a second run is a no-op and
 #      prints "already wired".
-#   4. Records torios_repo=<absolute path> in ~/.myos/config.json,
+#   4. Records torios_repo=<absolute path> in ~/.youros/config.json,
 #      merging into the existing JSON when present.
 #
 # Flags:
@@ -219,9 +219,9 @@ case "$MERGE_STATUS" in
         ;;
 esac
 
-# --- Record torios_repo in ~/.myos/config.json -----------------------
-CONFIG="$HOME/.myos/config.json"
-mkdir -p "$HOME/.myos"
+# --- Record torios_repo in ~/.youros/config.json -----------------------
+CONFIG="$HOME/.youros/config.json"
+mkdir -p "$HOME/.youros"
 CONFIG_STATUS=$(CONFIG="$CONFIG" REPO="$CANONICAL_REPO" python3 <<'PY'
 import json, os, sys
 
@@ -260,7 +260,7 @@ if [ $CONFIG_RC -ne 0 ]; then
 fi
 case "$CONFIG_STATUS" in
     ALREADY_SET)
-        printf 'install-claude-hooks: ~/.myos/config.json torios_repo already set\n'
+        printf 'install-claude-hooks: ~/.youros/config.json torios_repo already set\n'
         ;;
     UPDATED)
         printf 'install-claude-hooks: recorded torios_repo=%s in %s\n' "$CANONICAL_REPO" "$CONFIG"

@@ -79,7 +79,7 @@ class Settings(BaseModel):
     onboarding_step: Optional[int] = None
     # Absolute path where torios stores user-visible files (briefs,
     # roadmaps, automation outputs). None means fall back to the default
-    # ~/.myos/files. See api/services/files_dir.py.
+    # ~/.youros/files. See api/services/files_dir.py.
     files_dir: Optional[str] = None
     os_name: str = "yourOS"
     # Instance name shown in the app. yourOS is the product; every user
@@ -276,7 +276,7 @@ class AgentSpawn(BaseModel):
     follow_on: Optional[bool] = None
     # Originating spec path. When a spawn is triggered to implement a spec
     # (e.g. a worktree agent spawned for a spec-linked needle), pass the
-    # spec's relative path here (e.g. "~/.myos/specs/my-feature.md").
+    # spec's relative path here (e.g. "~/.youros/specs/my-feature.md").
     # The spawn path calls _set_spec_status to flip the frontmatter from
     # "spec" (ready) to "building" so the Specs page shows the in-flight
     # state immediately. Optional so spawns with no spec association keep

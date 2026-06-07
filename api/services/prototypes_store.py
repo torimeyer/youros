@@ -1,6 +1,6 @@
 """Persistent store for PM prototype collaboration data.
 
-Data lives at ~/.myos/prototypes.json (outside the repo, safe for git pull).
+Data lives at ~/.youros/prototypes.json (outside the repo, safe for git pull).
 An in-memory dict is the primary source of truth; disk is loaded on startup
 and written after every mutation.
 """
@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
-PROTOTYPES_PATH = Path(os.path.expanduser("~/.myos/prototypes.json"))
+PROTOTYPES_PATH = Path(os.path.expanduser("~/.youros/prototypes.json"))
 
 # In-memory store: {prototype_id: prototype_dict}
 _store: Dict[str, Any] = {}

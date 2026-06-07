@@ -15,7 +15,7 @@ export default function PrivacyPolicy() {
         <>
           <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
             Everything stays local. All data lives in{' '}
-            <code className="text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 rounded">~/.myos/</code> on your
+            <code className="text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 rounded">~/.youros/</code> on your
             computer. Nothing is uploaded to a server run by this project.
           </p>
           <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-2 list-disc list-inside">
@@ -30,7 +30,7 @@ export default function PrivacyPolicy() {
             <li>
               Cached data from services you connect (Google Calendar, Gmail, Drive, Slack, GitHub).
               Caches live in subdirectories of{' '}
-              <code className="text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 rounded">~/.myos/</code> and are
+              <code className="text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 rounded">~/.youros/</code> and are
               only populated when you explicitly connect a service.
             </li>
           </ul>
@@ -84,13 +84,13 @@ export default function PrivacyPolicy() {
         <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-2 list-disc list-inside">
           <li>
             <strong className="text-slate-700 dark:text-slate-300">Delete everything.</strong> Remove{' '}
-            <code className="text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 rounded">~/.myos/</code> to wipe all
+            <code className="text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 rounded">~/.youros/</code> to wipe all
             local data. The app will start fresh on next launch.
           </li>
           <li>
             <strong className="text-slate-700 dark:text-slate-300">Delete specific data.</strong> Remove individual
             files inside{' '}
-            <code className="text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 rounded">~/.myos/</code> (for
+            <code className="text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 rounded">~/.youros/</code> (for
             example,{' '}
             <code className="text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 rounded">chat_history.json</code>)
             to clear just that data.
@@ -106,7 +106,7 @@ export default function PrivacyPolicy() {
           <li>
             <strong className="text-slate-700 dark:text-slate-300">Disconnect services.</strong> Revoke OAuth tokens in
             your Google, Slack, or GitHub account settings. Deleting the token files inside{' '}
-            <code className="text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 rounded">~/.myos/</code> also severs
+            <code className="text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 rounded">~/.youros/</code> also severs
             the connection locally.
           </li>
         </ul>

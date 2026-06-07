@@ -543,8 +543,8 @@ export function Sidebar() {
   }, [])
 
   useEffect(() => {
-    api.get<{ myos: { current: string } }>('/upgrade/status')
-      .then((res) => setVersion(res.myos?.current ?? ''))
+    api.get<{ youros: { current: string } }>('/upgrade/status')
+      .then((res) => setVersion(res.youros?.current ?? ''))
       .catch(() => {})
   }, [])
 

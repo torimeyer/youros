@@ -1,6 +1,6 @@
 """Tests for the Time primitive — api/services/time_primitive.py.
 
-All tests run without a live backend and without ~/.myos/ user data.
+All tests run without a live backend and without ~/.youros/ user data.
 They use tmp_path to point the module at a temporary SQLite database.
 """
 
@@ -309,11 +309,11 @@ class TestTimeStatus:
 
 
 # ---------------------------------------------------------------------------
-# Import guard: importing the module must not write to ~/.myos/
+# Import guard: importing the module must not write to ~/.youros/
 # ---------------------------------------------------------------------------
 
 def test_import_no_side_effects(tmp_path, monkeypatch):
-    """Importing time_primitive must not create ~/.myos/primitives.db."""
+    """Importing time_primitive must not create ~/.youros/primitives.db."""
     import services.primitives_db as pdb
 
     fake_db = tmp_path / "check.db"

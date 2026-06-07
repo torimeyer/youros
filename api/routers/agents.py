@@ -789,7 +789,7 @@ def agent_mailbox_instruction_short(agent_name: str, model: str = "sonnet") -> s
 def _demo_mode_active() -> bool:
     """True when the live-demo build rule should be appended to spawn prompts.
 
-    Off by default. Turned on by creating ~/.myos/.demo_mode (the file the
+    Off by default. Turned on by creating ~/.youros/.demo_mode (the file the
     user toggles before a live demo) or by setting MYOS_DEMO_MODE=1. When on,
     every agent ToriOS spawns is told to deliver a feature that actually works
     in the running app, not just one that passes tests.
@@ -797,7 +797,7 @@ def _demo_mode_active() -> bool:
     if os.environ.get("MYOS_DEMO_MODE") == "1":
         return True
     try:
-        return os.path.exists(os.path.expanduser("~/.myos/.demo_mode"))
+        return os.path.exists(os.path.expanduser("~/.youros/.demo_mode"))
     except Exception:
         return False
 
@@ -883,7 +883,7 @@ def agent_mailbox_instruction(
     delivery fast when Tori is iterating and drops churn during long quiet runs.
 
     Signal file: when the user sends a nudge via POST /agents/{name}/nudge
-    the backend also touches ~/.myos/nudges/{name}.signal. Agents can stat
+    the backend also touches ~/.youros/nudges/{name}.signal. Agents can stat
     this file each cycle: if mtime is newer than the last check, skip ahead
     and poll /nudges immediately without waiting for the interval to expire.
     The stat call is cheap and works even at the slow poll cadence.
@@ -919,7 +919,7 @@ def agent_mailbox_instruction(
         "delivery fast when Tori is replying and saves your turn budget "
         "during long quiet stretches.\n\n"
         f"**Signal file shortcut**: each time the user sends a nudge the "
-        f"backend also touches `~/.myos/nudges/{agent_name}.signal`. On "
+        f"backend also touches `~/.youros/nudges/{agent_name}.signal`. On "
         "each poll cycle, stat that file first. If its mtime is newer than "
         "your last check, skip ahead and poll /nudges immediately rather "
         "than waiting for the interval to expire. The stat call is a single "
@@ -5106,7 +5106,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
     #   (iv) OSTK_PROJECT_ROOT/short-cwd handling parity confirmed for ostk-run path.
     #   (v)  Supervised verification: spawn 3 different agent types, all land via ostk-run, zero fallback.
     # Only after ALL five hold: delete the custom spawn path and this comment block.
-    # See spec AC3 in ~/.myos/specs/adopt-claude-code-s-good-ideas-into-myos-as-vendor-agnostic-abstractions.md
+    # See spec AC3 in ~/.youros/specs/adopt-claude-code-s-good-ideas-into-myos-as-vendor-agnostic-abstractions.md
     #
     # --- ostk run path: env-level canonical (MYOS_SPAWN_USE_OSTK_RUN=1, →1305) or per-request opt-in ---
     # MYOS_SPAWN_USE_OSTK_RUN=1 makes `ostk run <Agentfile>` the default for every spawn.
@@ -6659,7 +6659,7 @@ async def prewarm_fleet(fleet_id: str):
     # Touch the shared agent workspace dir so the first member does not
     # pay for the mkdir. Harmless if the dir already exists.
     try:
-        workspace_dir = Path.home() / ".myos" / "agent_workspace"
+        workspace_dir = Path.home() / ".youros" / "agent_workspace"
         workspace_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
         # Never let a fs hiccup fail the prewarm. The spawn path will
@@ -7217,7 +7217,7 @@ def _should_persist_agent_doc(
     agent_meta: Optional[dict],
 ) -> bool:
     """Single source of truth for "does this agent run produce a ``.md``
-    artifact in ``~/.myos/files/``?"
+    artifact in ``~/.youros/files/``?"
 
     Called by both the live ``/complete`` writer
     (:func:`_save_agent_output_to_files`) and the boot-time
@@ -7252,7 +7252,7 @@ def _save_agent_output_to_files(
     skip_auto_tasks: bool = False,
     emit_notification: bool = True,
 ) -> list[Path]:
-    """Persist an agent's final summary to ``~/.myos/files/`` so it shows
+    """Persist an agent's final summary to ``~/.youros/files/`` so it shows
     up on the Files tab as a Recent Document.
 
     Only runs that make sense as a document land here. The narrow rule
@@ -7489,7 +7489,7 @@ def _maybe_save_roadmap_output(agent_name: str, summary: str) -> Optional[Path]:
 
 
 def _retroactively_save_agent_summaries(limit: int = 50) -> int:
-    """Walk ``~/.myos/agent_memory/*.json`` and write the latest summary
+    """Walk ``~/.youros/agent_memory/*.json`` and write the latest summary
     for every opt-in agent as a Files artifact, if it is not already
     on disk. Runs once at module import so existing IA review / PRD /
     custom-build outputs show up on the Files tab retroactively.
@@ -7807,7 +7807,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
 
         # Files-tab artifact capture: every agent whose summary clears
         # the length / name-filter bar gets its final output written to
-        # ~/.myos/files/<slug>-<timestamp>.md so Tori can find IA review
+        # ~/.youros/files/<slug>-<timestamp>.md so Tori can find IA review
         # / PRD / custom-build output alongside the roadmap on the Files
         # tab. Roadmap-template runs also keep their stable roadmap.md
         # copy so chat's "read the roadmap.md" shortcut still works.
@@ -7905,7 +7905,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
         )
         if _sc_premature:
             import json as _json_sc
-            _warn_path = Path(os.path.expanduser("~/.myos/subagents/scaffold-warnings.jsonl"))
+            _warn_path = Path(os.path.expanduser("~/.youros/subagents/scaffold-warnings.jsonl"))
             _warn_path.parent.mkdir(parents=True, exist_ok=True)
             _warn_entry = _json_sc.dumps({
                 "agent": name,
@@ -7933,7 +7933,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
                 "result": (
                     f"Agent '{name}' blocked: scaffold-only commits exist but worktree "
                     "has uncommitted changes. Commit the real work before closing. "
-                    "Warning written to ~/.myos/subagents/scaffold-warnings.jsonl."
+                    "Warning written to ~/.youros/subagents/scaffold-warnings.jsonl."
                 ),
                 "status": "running",
                 "scaffold_premature_close": True,
@@ -8820,11 +8820,11 @@ async def kill_agent(name: str):
     )
 
 
-_NUDGE_SIGNAL_DIR = Path.home() / ".myos" / "nudges"
+_NUDGE_SIGNAL_DIR = Path.home() / ".youros" / "nudges"
 
 
 def _touch_nudge_signal(name: str) -> None:
-    """Touch ~/.myos/nudges/<name>.signal to let the agent skip ahead.
+    """Touch ~/.youros/nudges/<name>.signal to let the agent skip ahead.
 
     The adaptive poll in the mailbox instruction block stats this file
     each cycle. If mtime changed since the last check the agent polls
@@ -9608,7 +9608,7 @@ def _build_templates_list() -> list[dict]:
 
 @router.get("/agents/roadmap-output")
 async def get_roadmap_output():
-    """Return the raw text of ~/.myos/files/roadmap.md for frontend parsing."""
+    """Return the raw text of ~/.youros/files/roadmap.md for frontend parsing."""
     from services.files_dir import get_files_dir
     roadmap_path = get_files_dir() / "roadmap.md"
     if not roadmap_path.exists():

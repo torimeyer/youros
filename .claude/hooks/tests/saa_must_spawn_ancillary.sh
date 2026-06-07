@@ -68,7 +68,7 @@ FAKE_PROJ="$SCRATCH/fake-proj"
 SLUG=$(echo "$FAKE_PROJ" | sed 's|/|-|g')
 mkdir -p "$FAKE_HOME/.claude/projects/$SLUG"
 mkdir -p "$FAKE_PROJ"
-mkdir -p "$FAKE_HOME/.myos"
+mkdir -p "$FAKE_HOME/.youros"
 
 # Transcript: last user message has "saa" trigger, no Agent after it
 TRANSCRIPT="$FAKE_HOME/.claude/projects/$SLUG/session.jsonl"
@@ -76,7 +76,7 @@ printf '{"type":"user","message":{"content":"saa diagnose why bash was rejected 
     > "$TRANSCRIPT"
 
 # rules.json: enable saa_must_spawn
-cat > "$FAKE_HOME/.myos/rules.json" <<'RULES'
+cat > "$FAKE_HOME/.youros/rules.json" <<'RULES'
 {"schema_version":1,"rules":{"saa_must_spawn":{"enabled":true}}}
 RULES
 

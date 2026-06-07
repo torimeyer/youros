@@ -23,7 +23,7 @@ from services import team_catalog as svc
 
 @pytest.fixture
 def catalog(tmp_path):
-    """A catalog backed by a tmp dir so tests never touch ~/.myos."""
+    """A catalog backed by a tmp dir so tests never touch ~/.youros."""
     with patch.object(svc, "CATALOG_BASE", tmp_path / "team_catalog"):
         yield
 
@@ -163,8 +163,8 @@ class TestInstall:
         assert result is not None
         assert result["name"] == "my-agent"
         assert result["version"] == 1
-        # Service writes to Path.home() / ".myos" / "agentfiles"
-        installed_file = tmp_path / ".myos" / "agentfiles" / "my-agent.agent"
+        # Service writes to Path.home() / ".youros" / "agentfiles"
+        installed_file = tmp_path / ".youros" / "agentfiles" / "my-agent.agent"
         assert installed_file.exists()
         assert installed_file.read_text() == "FROM auto\n"
 

@@ -1,7 +1,7 @@
 """Briefing service.
 
 Generates a short daily briefing using Claude whenever the user asks for
-it. State lives in ~/.myos/briefing_state.json so it never touches the
+it. State lives in ~/.youros/briefing_state.json so it never touches the
 repo and survives git pulls.
 
 Also generates structured action items alongside the text briefing. Each
@@ -21,7 +21,7 @@ from typing import Optional
 from services.atomic_io import atomic_write_json
 from services.settings_store import settings_store
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 BRIEFING_STATE_PATH = MYOS_DIR / "briefing_state.json"
 
 

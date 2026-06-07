@@ -49,8 +49,8 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 API_PORT="${API_PORT:-8000}"
 # Auto-detect HTTPS: use https if self-signed certs are present (same logic
 # as dev-backend.sh so the smoke test always matches the running server scheme).
-SSL_KEY="$HOME/.myos/localhost.key"
-SSL_CERT="$HOME/.myos/localhost.crt"
+SSL_KEY="$HOME/.youros/localhost.key"
+SSL_CERT="$HOME/.youros/localhost.crt"
 if [ -f "$SSL_KEY" ] && [ -f "$SSL_CERT" ]; then
     API_BASE="${API_BASE:-https://127.0.0.1:${API_PORT}}"
     # Self-signed cert: skip TLS verification for local smoke tests.
@@ -68,7 +68,7 @@ RELEASE_MODE="${RELEASE_MODE:-0}"
 export RELEASE_MODE
 
 # →1454 plan, Fix 1: when running the full smoke, point spec writes at a
-# tmpdir so ~/.myos/specs/ never grows by latency-probe-* / wave2-* /
+# tmpdir so ~/.youros/specs/ never grows by latency-probe-* / wave2-* /
 # build-a-website / ship-guided-onboarding-for-solo-pms artifacts. Child
 # dev-backend.sh inherits this env var. Trap cleans up on exit.
 if [ -z "${MYOS_USER_SPECS_DIR:-}" ]; then
@@ -230,7 +230,7 @@ except Exception:
     pass
 " 2>/dev/null || true
 
-    # ~/.myos/files/ disk sweep for any .md that looks like an e2e or
+    # ~/.youros/files/ disk sweep for any .md that looks like an e2e or
     # smoke artifact. The Roadmap/PRD templates, workflows, and fleet
     # agents all write rollup .md files here under names like
     # "e2e-narrow-prd-2026-04-17T03-04.md" when they are exercised by
@@ -243,7 +243,7 @@ except Exception:
     python3 -c "
 import os, re
 from pathlib import Path
-root = Path(os.path.expanduser('~/.myos/files'))
+root = Path(os.path.expanduser('~/.youros/files'))
 if not root.is_dir():
     raise SystemExit(0)
 patterns = [
@@ -274,7 +274,7 @@ for name in os.listdir(root):
     #   - Threads (API) — DELETE /api/threads/<id>
     #   - Knowledge (API) — DELETE /api/knowledge/<note_id>
     #   - Recurring rules (API) — DELETE /api/recurring/<rule_id>
-    #   - Agent memory files (disk) — rm ~/.myos/agent_memory/e2e-*.json
+    #   - Agent memory files (disk) — rm ~/.youros/agent_memory/e2e-*.json
     #   - Transcripts (disk) — rm <repo>/transcripts/e2e-*
     # ------------------------------------------------------------------
 
@@ -423,7 +423,7 @@ except Exception:
     pass
 " 2>/dev/null || true
 
-    # Disk sweep: ~/.myos/agent_memory/e2e-*.json. Agent memory files
+    # Disk sweep: ~/.youros/agent_memory/e2e-*.json. Agent memory files
     # are written by the /api/agents/<name>/memory endpoint the smoke
     # exercises, and also by any live agent the smoke registers. They
     # are not always removed by DELETE /memory because the smoke can
@@ -431,7 +431,7 @@ except Exception:
     python3 -c "
 import os, re
 from pathlib import Path
-root = Path(os.path.expanduser('~/.myos/agent_memory'))
+root = Path(os.path.expanduser('~/.youros/agent_memory'))
 if not root.is_dir():
     raise SystemExit(0)
 pat = re.compile(r'^e2e[-_]', re.IGNORECASE)
@@ -1739,7 +1739,7 @@ _ws_chat_test() {
     local _model="$1" _message="$2"
     PYTHONPATH="$REPO_DIR/api" API_PORT="$API_PORT" \
         _WS_MODEL="$_model" _WS_MESSAGE="$_message" \
-        _WS_USE_TLS="$([ -f "$HOME/.myos/localhost.key" ] && echo 1 || echo 0)" \
+        _WS_USE_TLS="$([ -f "$HOME/.youros/localhost.key" ] && echo 1 || echo 0)" \
         python3 "$REPO_DIR/scripts/lib/e2e_ws_chat.py"
 }
 

@@ -6,11 +6,11 @@ from models.schemas import Settings
 from services.atomic_io import atomic_write_json
 
 # Allow test suites and e2e launchers to redirect all settings I/O to an
-# isolated directory by setting MYOS_HOME in the environment before this
+# isolated directory by setting YOUROS_HOME in the environment before this
 # module is imported.  When unset, the real user home is used as before.
 # This is the primary isolation knob for →1345 (e2e settings pollution).
-_MYOS_HOME = Path(os.environ["MYOS_HOME"]) if "MYOS_HOME" in os.environ else Path.home() / ".myos"
-SETTINGS_PATH = _MYOS_HOME / "settings.json"
+_YOUROS_HOME = Path(os.environ["YOUROS_HOME"]) if "YOUROS_HOME" in os.environ else Path.home() / ".youros"
+SETTINGS_PATH = _YOUROS_HOME / "settings.json"
 
 # Map old lowercase feature keys to canonical TitleCase labels used by the UI.
 _FEATURE_KEY_MAP: dict[str, str] = {

@@ -3,7 +3,7 @@
 # Usage: ./update.sh (from inside the repo)
 #
 # This script updates myOS without ever touching your settings, chat
-# history, labels, or tasks. Your data lives in ~/.myos/ and the update
+# history, labels, or tasks. Your data lives in ~/.youros/ and the update
 # process never writes there. See the project README for the full story.
 
 set -e
@@ -30,12 +30,12 @@ if [ ! -f "$SCRIPT_DIR/install.sh" ] || [ ! -d "$SCRIPT_DIR/api" ] || [ ! -d "$S
     exit 1
 fi
 
-# --- Show what the user already has in ~/.myos/ so they can compare ---
+# --- Show what the user already has in ~/.youros/ so they can compare ---
 
-if [ -d "$HOME/.myos" ]; then
+if [ -d "$HOME/.youros" ]; then
     echo "Your personal data lives here and will NOT be touched:"
     echo ""
-    ls -la "$HOME/.myos/" 2>/dev/null | tail -n +2 | sed 's/^/  /'
+    ls -la "$HOME/.youros/" 2>/dev/null | tail -n +2 | sed 's/^/  /'
     echo ""
 fi
 
@@ -246,7 +246,7 @@ echo ""
 if bash "$SCRIPT_DIR/install.sh"; then
     echo -e "${GREEN}Install step complete.${NC}"
 else
-    echo -e "${RED}The installer reported an error. Your data is still safe in ~/.myos/.${NC}"
+    echo -e "${RED}The installer reported an error. Your data is still safe in ~/.youros/.${NC}"
     if [ "$STASHED" -eq 1 ]; then
         echo "Your unsaved changes are still in the stash. Get them back with: git stash pop"
     fi
@@ -269,7 +269,7 @@ if [ "${RELEASE_MODE:-0}" = "1" ] && [ -x "$SCRIPT_DIR/scripts/e2e_smoke.sh" ]; 
             # Restart launchd agents so they pick up the rolled-back code.
             if [ "$(uname)" = "Darwin" ]; then
                 _uid=$(id -u)
-                for label in com.myos.backend com.myos.watchdog; do
+                for label in com.youros.backend com.youros.watchdog; do
                     launchctl kickstart -k "gui/${_uid}/${label}" 2>/dev/null || true
                 done
             fi
@@ -293,10 +293,10 @@ fi
 # --- Confirm the user's data is still there ---
 
 echo ""
-if [ -d "$HOME/.myos" ]; then
+if [ -d "$HOME/.youros" ]; then
     echo "Your personal data is still here (unchanged):"
     echo ""
-    ls -la "$HOME/.myos/" 2>/dev/null | tail -n +2 | sed 's/^/  /'
+    ls -la "$HOME/.youros/" 2>/dev/null | tail -n +2 | sed 's/^/  /'
     echo ""
 fi
 

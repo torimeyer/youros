@@ -1,7 +1,7 @@
 """Push notifications router.
 
 Endpoints for managing Web Push subscriptions and sending test
-notifications. Subscriptions are stored in ~/.myos/push_subscriptions.json.
+notifications. Subscriptions are stored in ~/.youros/push_subscriptions.json.
 """
 
 from fastapi import APIRouter

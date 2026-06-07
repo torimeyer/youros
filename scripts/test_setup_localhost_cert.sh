@@ -2,7 +2,7 @@
 # test_setup_localhost_cert.sh
 #
 # Tests for setup-localhost-cert.sh.
-# Runs in a temp directory so it never touches ~/.myos or the system Keychain.
+# Runs in a temp directory so it never touches ~/.youros or the system Keychain.
 #
 # Usage:
 #   scripts/test_setup_localhost_cert.sh

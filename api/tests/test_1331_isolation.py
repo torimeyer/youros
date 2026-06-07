@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import PROJECT_ROOT
 
 REAL_ISSUES = PROJECT_ROOT / ".ostk" / "needles" / "issues.jsonl"
-REAL_THREADS = Path.home() / ".myos" / "threads.json"
+REAL_THREADS = Path.home() / ".youros" / "threads.json"
 
 
 def _snap(path: Path):
@@ -57,7 +57,7 @@ async def test_post_threads_does_not_write_real_threads_json(client):
     """POST /api/threads must write to the isolated tmp store, not the real one.
 
     Without _isolate_threads_store in conftest.py this call would append to
-    the real ~/.myos/threads.json and the new group would appear in the live
+    the real ~/.youros/threads.json and the new group would appear in the live
     sidebar Groups section — exactly what happened in the →1323 incident.
     """
     snap_before = _snap(REAL_THREADS)

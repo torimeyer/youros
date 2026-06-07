@@ -9,7 +9,7 @@ Each template may carry ``aliases`` (list of alternate names) and
 ``personas`` (list of persona IDs that get this template by default
 on onboarding). Each template's system prompt lives in ``prompt_template``.
 
-Disk store: custom/installed state lives in ``~/.myos/agent_templates.json``
+Disk store: custom/installed state lives in ``~/.youros/agent_templates.json``
 so ``git pull`` never clobbers user data.
 
 Public surface:
@@ -31,26 +31,26 @@ from typing import Optional
 
 from services.atomic_io import atomic_write_json, atomic_write_text
 
-AGENT_TEMPLATES_PATH = Path.home() / ".myos" / "agent_templates.json"
-TEMPLATE_ALIASES_PATH = Path.home() / ".myos" / "template_aliases.json"
+AGENT_TEMPLATES_PATH = Path.home() / ".youros" / "agent_templates.json"
+TEMPLATE_ALIASES_PATH = Path.home() / ".youros" / "template_aliases.json"
 # User-edited descriptions for built-in or marketplace templates. This lets a
 # user rewrite the short blurb without touching the shipped prompt. Custom
 # templates already persist their description via the overrides file, so the
 # descriptions file is only consulted for builtin / marketplace entries.
-TEMPLATE_DESCRIPTIONS_PATH = Path.home() / ".myos" / "template_descriptions.json"
+TEMPLATE_DESCRIPTIONS_PATH = Path.home() / ".youros" / "template_descriptions.json"
 
 # Agentfile directories for marketplace and custom templates.
 # These are populated at runtime; the directories are created lazily.
 # Built-ins stay in agents/<stem>.agent (unchanged).
 # Marketplace seeds go to agents/marketplace/<stem>.agent (inside repo, tracked).
-# Custom agentfiles go to ~/.myos/agents/custom/<stem>.agent (outside repo).
+# Custom agentfiles go to ~/.youros/agents/custom/<stem>.agent (outside repo).
 try:
     from config import PROJECT_ROOT
     MARKETPLACE_AGENTS_DIR = PROJECT_ROOT / "agents" / "marketplace"
 except Exception:
     MARKETPLACE_AGENTS_DIR = Path(__file__).resolve().parent.parent.parent / "agents" / "marketplace"
 
-CUSTOM_AGENTS_DIR = Path.home() / ".myos" / "agents" / "custom"
+CUSTOM_AGENTS_DIR = Path.home() / ".youros" / "agents" / "custom"
 
 # Sandbox defaults per source type, applied when seeding new agentfiles.
 _SANDBOX_DEFAULTS: dict[str, str] = {
@@ -1532,7 +1532,7 @@ def _resolve_alias(name: str) -> Optional[str]:
     """Return the canonical template ID for a name or alias, or None.
 
     Checks (first match wins):
-    0. User-set aliases from ~/.myos/template_aliases.json (highest priority).
+    0. User-set aliases from ~/.youros/template_aliases.json (highest priority).
     1. Exact match on ``name`` field (case-insensitive).
     2. Match in any template's ``aliases`` list (case-insensitive).
     3. Migration table (old names mapped to new canonical names).
@@ -1654,7 +1654,7 @@ def _dedupe_templates(templates: list[dict]) -> list[dict]:
 class AgentTemplatesStore:
     """CRUD for agent templates.
 
-    Disk layout: ``~/.myos/agent_templates.json`` stores override records.
+    Disk layout: ``~/.youros/agent_templates.json`` stores override records.
     Each record may be:
     - A custom template (id starts with "custom-").
     - An install record for a marketplace template (id matches a builtin id,
@@ -2035,7 +2035,7 @@ class AgentTemplatesStore:
         except OSError:
             pass  # Non-fatal: capabilities will be None for this template
         # Custom templates do not live in AGENTS_DIR (they go to
-        # ~/.myos/agents/custom/), so the /agents/templates cache
+        # ~/.youros/agents/custom/), so the /agents/templates cache
         # signature keyed on AGENTS_DIR will not see them. Call the
         # invalidation hook so the next request rebuilds the list.
         _invalidate_templates_cache()
@@ -2057,7 +2057,7 @@ class AgentTemplatesStore:
     # ---- User alias management ----
 
     def _load_aliases(self) -> dict[str, str]:
-        """Load user aliases from ~/.myos/template_aliases.json.
+        """Load user aliases from ~/.youros/template_aliases.json.
 
         Returns a dict mapping alias -> template_id.
         """

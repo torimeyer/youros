@@ -834,7 +834,7 @@ async def chat_create_tasks_from_roadmap(body: Optional[dict] = None):
 
     The chat UI calls this endpoint when the user types a phrase
     like "create tasks from this roadmap". It reads the most recent
-    roadmap under ``~/.myos/files/``, harvests actionable items via
+    roadmap under ``~/.youros/files/``, harvests actionable items via
     :func:`services.automation_outputs.parse_roadmap_items`, and runs
     the shared :func:`auto_create_tasks` pass so labels and dedup work
     the same way they do for every other automation.
@@ -842,7 +842,7 @@ async def chat_create_tasks_from_roadmap(body: Optional[dict] = None):
     Request body is optional. When present it may carry:
 
         {
-          "roadmap_path": "~/.myos/files/roadmap.md",
+          "roadmap_path": "~/.youros/files/roadmap.md",
           "agent_name": "e2e-roadmap-check-123"
         }
 
@@ -1127,7 +1127,7 @@ async def _handle_slash_command(text: str, websocket: WebSocket, tab_id: str = "
                 from pathlib import Path as _Path
                 from routers.specs import _ClaimBody, claim_spec
 
-                _user_specs = _Path(_os.environ.get("MYOS_USER_SPECS_DIR", _os.path.expanduser("~/.myos/specs")))
+                _user_specs = _Path(_os.environ.get("MYOS_USER_SPECS_DIR", _os.path.expanduser("~/.youros/specs")))
                 _project_root = _Path(__file__).resolve().parent.parent
                 _resolved: Optional[str] = None
 
@@ -1142,7 +1142,7 @@ async def _handle_slash_command(text: str, websocket: WebSocket, tab_id: str = "
                 if _resolved is None:
                     result = (
                         f"Spec '{slug}' not found. "
-                        f"Checked ~/.myos/specs/{slug}.md and docs/draft/{slug}.md."
+                        f"Checked ~/.youros/specs/{slug}.md and docs/draft/{slug}.md."
                     )
                 else:
                     _agent = f"chat-{tab_id[:8]}" if tab_id else "chat-slash"

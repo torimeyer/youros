@@ -16,7 +16,7 @@ The extension icon should appear in your toolbar.
 1. **Get your auth token**
    Open a terminal and run:
    ```
-   cat ~/.myos/extension_token
+   cat ~/.youros/extension_token
    ```
    If the file doesn't exist, start the yourOS backend once and it'll be created automatically.
 

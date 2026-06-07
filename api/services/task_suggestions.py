@@ -15,7 +15,7 @@ Public surface:
   recomputes the suggestion list
 - ``DISMISSED_PATH`` -- module-level Path constant (data-safety check)
 
-The dismissed-suggestion file lives at ``~/.myos/dismissed_suggestions.json``
+The dismissed-suggestion file lives at ``~/.youros/dismissed_suggestions.json``
 so it survives a ``git pull`` and is never overwritten by an update.
 """
 
@@ -34,7 +34,7 @@ from services.ostk import ostk, OstkError
 
 # --- Paths and constants -------------------------------------------------
 
-DISMISSED_PATH = Path.home() / ".myos" / "dismissed_suggestions.json"
+DISMISSED_PATH = Path.home() / ".youros" / "dismissed_suggestions.json"
 
 # How long to keep the analysis result in memory before recomputing.
 CACHE_TTL_SECONDS = 5 * 60

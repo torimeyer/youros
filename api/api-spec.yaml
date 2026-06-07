@@ -8,9 +8,9 @@ info:
     email: support@myos.ai
 
 servers:
-  - url: https://api.myos.ai/v1
+  - url: https://api.youros.ai/v1
     description: Production server
-  - url: https://staging-api.myos.ai/v1
+  - url: https://staging-api.youros.ai/v1
     description: Staging server
 
 security:

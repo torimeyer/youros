@@ -20,7 +20,7 @@ import services.prototypes_store as proto_store
 def clean_store(tmp_path, monkeypatch):
     proto_store._store.clear()
     proto_store._tokens.clear()
-    # Redirect disk writes to a temp path so tests never touch ~/.myos
+    # Redirect disk writes to a temp path so tests never touch ~/.youros
     monkeypatch.setattr(proto_store, "PROTOTYPES_PATH", tmp_path / "prototypes.json")
     yield
     proto_store._store.clear()

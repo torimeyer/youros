@@ -16,7 +16,7 @@ for →1214, →1215, and →1217.
 | `~/.local/bin/ostk` (live) | n/a | **6.0.5** |
 | `~/claude/torios/haystack-main/` | 2.3.0 | 2.3.0 |
 | `~/Downloads/haystack-main/` | 2.3.0 | n/a |
-| `~/.myos/sync_repo/haystack-main/` | no Cargo.toml | partial src only |
+| `~/.youros/sync_repo/haystack-main/` | no Cargo.toml | partial src only |
 
 ---
 
@@ -42,7 +42,7 @@ or via the yourOS `install.sh` which downloads from `os-tack/ostk.ai` releases.
 
 ## Partial source in sync_repo
 
-`~/.myos/sync_repo/haystack-main/src/` contains a partial sync of upstream source:
+`~/.youros/sync_repo/haystack-main/src/` contains a partial sync of upstream source:
 - `src/commands/`
 - `src/kernel/` (policy.rs, helpers.rs)
 - `src/serve/`
@@ -63,7 +63,7 @@ Then: `git clone https://github.com/os-tack/haystack && git checkout -b fix-1214
 Fixes land in the next ostk release; `ostk update` propagates them automatically.
 
 **Option B — File issues on os-tack/haystack**
-Use the partial source in `~/.myos/sync_repo/haystack-main/src/` to identify the exact file/line
+Use the partial source in `~/.youros/sync_repo/haystack-main/src/` to identify the exact file/line
 for each bug, then open a GH issue on `os-tack/haystack` with a patch attached.
 Turnaround depends on upstream release cadence (recently: near-daily releases).
 

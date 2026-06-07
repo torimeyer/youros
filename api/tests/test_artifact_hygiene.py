@@ -1,16 +1,16 @@
-"""Enforce that tests never leak .md files into ``~/.myos/files/``.
+"""Enforce that tests never leak .md files into ``~/.youros/files/``.
 
 Any test that writes a markdown file has one of two responsibilities:
 
 1. Write into a patched ``MYOS_FILES_DIR`` / fake home (``tmp_path`` or
    ``tempfile.TemporaryDirectory()``) so the real user directory is
    untouched.
-2. If it MUST write to the real ``~/.myos/files/`` (because it is
+2. If it MUST write to the real ``~/.youros/files/`` (because it is
    validating surface behavior like the Recent Documents endpoint),
    clean up in a ``try/finally`` block before the test returns.
 
 This module owns a session-scoped autouse fixture that snapshots the
-contents of ``~/.myos/files/`` at suite start and asserts the same set
+contents of ``~/.youros/files/`` at suite start and asserts the same set
 is there at suite end. Any leak fails the suite with the list of new
 paths so the offending test is easy to find. Tori sees a test-y file
 show up in Recent Documents. She should not.
@@ -27,13 +27,13 @@ import pytest
 
 
 def _myos_files_snapshot() -> dict[str, float]:
-    """Return {relative_name: mtime} for every file in ~/.myos/files/.
+    """Return {relative_name: mtime} for every file in ~/.youros/files/.
 
     Uses ``os.path.expanduser`` against the process-level HOME so the
     check always reads the real user directory, not a per-test patched
     one. Missing directory returns an empty dict.
     """
-    root = Path(os.path.expanduser("~/.myos/files"))
+    root = Path(os.path.expanduser("~/.youros/files"))
     if not root.exists():
         return {}
     snap: dict[str, float] = {}
@@ -49,7 +49,7 @@ def _myos_files_snapshot() -> dict[str, float]:
 
 @pytest.fixture(scope="session", autouse=True)
 def _myos_files_hygiene():
-    """Fail the suite if any test leaks a file into ``~/.myos/files/``.
+    """Fail the suite if any test leaks a file into ``~/.youros/files/``.
 
     Runs once per suite. Captures the snapshot before collection, yields
     to let the full suite run, then diffs the snapshot after. Any
@@ -69,12 +69,12 @@ def _myos_files_hygiene():
     problems: list[str] = []
     if added:
         problems.append(
-            "New files landed in ~/.myos/files/ during the test suite:\n  "
+            "New files landed in ~/.youros/files/ during the test suite:\n  "
             + "\n  ".join(added)
         )
     if modified:
         problems.append(
-            "Existing files in ~/.myos/files/ were modified by tests:\n  "
+            "Existing files in ~/.youros/files/ were modified by tests:\n  "
             + "\n  ".join(modified)
         )
     assert not problems, (

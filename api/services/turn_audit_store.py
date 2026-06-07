@@ -15,7 +15,7 @@ Persistence: each turn's record is written to
   <data_dir>/turn_audit/<turn_id>.json
 so records survive a tab refresh or backend restart.
 
-The data_dir defaults to ~/.myos/; tests override via MYOS_TURN_AUDIT_DIR env var
+The data_dir defaults to ~/.youros/; tests override via MYOS_TURN_AUDIT_DIR env var
 or by passing data_dir= directly.
 """
 
@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-_DEFAULT_DATA_DIR = Path.home() / ".myos"
+_DEFAULT_DATA_DIR = Path.home() / ".youros"
 DATA_DIR = _DEFAULT_DATA_DIR
 
 # Patterns for writers that indicate a model wrote the file during a chat turn.

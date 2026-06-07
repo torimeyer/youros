@@ -1,7 +1,7 @@
 """Team mode router.
 
 GET  /team               — team config + member list (or {configured: false})
-POST /team/configure     — save ~/.myos/team.json
+POST /team/configure     — save ~/.youros/team.json
 POST /team/sync          — outbound + inbound sync
 GET  /team/search        — search teammates' items
 GET  /team/feed          — recent items from all teammates

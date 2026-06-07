@@ -1,7 +1,7 @@
 """RAG helpers for Gem knowledge files (→1228).
 
 Chunks uploaded files, embeds with Gemini text-embedding-004, stores vectors
-at ~/.myos/gem_knowledge/{gem_id}/{file_id}.json, and retrieves top-K chunks
+at ~/.youros/gem_knowledge/{gem_id}/{file_id}.json, and retrieves top-K chunks
 at chat time.
 """
 
@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-STORE_ROOT = Path.home() / ".myos" / "gem_knowledge"
+STORE_ROOT = Path.home() / ".youros" / "gem_knowledge"
 
 
 # ---------------------------------------------------------------------------

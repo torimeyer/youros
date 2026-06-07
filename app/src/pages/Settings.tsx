@@ -898,7 +898,7 @@ export default function Settings() {
                     value={filesDir}
                     onChange={(e) => setFilesDir(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { files_dir: filesDir }).catch(() => {}); }}
-                    placeholder="~/.myos/files"
+                    placeholder="~/.youros/files"
                     data-testid="files-dir-input"
                     className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500 transition-colors"
                   />
@@ -921,7 +921,7 @@ export default function Settings() {
                     value={projectsDir}
                     onChange={(e) => setProjectsDir(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { projects_dir: projectsDir }).catch(() => {}); }}
-                    placeholder="~/.myos/projects"
+                    placeholder="~/.youros/projects"
                     data-testid="projects-dir-input"
                     className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500 transition-colors"
                   />

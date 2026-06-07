@@ -27,11 +27,11 @@ _scaffold_commit_watcher_check() {
 
   # Resolve API base
   local API_BASE="${TORIOS_API_BASE:-}"
-  if [ -z "$API_BASE" ] && [ -f "$HOME/.myos/config.json" ]; then
+  if [ -z "$API_BASE" ] && [ -f "$HOME/.youros/config.json" ]; then
     API_BASE=$(python3 -c "
 import json, os
 try:
-    d = json.load(open(os.path.expanduser('~/.myos/config.json')))
+    d = json.load(open(os.path.expanduser('~/.youros/config.json')))
     v = d.get('api_base')
     if isinstance(v, str) and v.strip():
         print(v.strip())
@@ -45,7 +45,7 @@ except Exception:
   local SPAWNED_AT="${MYOS_SPAWNED_AT:-}"
   local PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
   local WORKTREE_PATH="${PROJECT_DIR}/.claude/worktrees/agent-${agent_name}"
-  local WARN_FILE="${HOME}/.myos/subagents/scaffold-warnings.jsonl"
+  local WARN_FILE="${HOME}/.youros/subagents/scaffold-warnings.jsonl"
   local AGENT_TRANSCRIPT_BYTES=0
 
   # Fetch agent metadata from API for accurate spawned_at, worktree_branch, transcript_bytes.

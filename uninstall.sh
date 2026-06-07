@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Uninstall myOS.
 #
-# A fresh `git clone + ./install.sh` is NOT a clean slate: `~/.myos/`
+# A fresh `git clone + ./install.sh` is NOT a clean slate: `~/.youros/`
 # persists, the ostk daemon keeps running from a previous install, the
 # localhost cert stays trusted in the Keychain, and the shell aliases
 # (`myos`, `myos-update`) stick around. This script unwinds each layer
@@ -9,7 +9,7 @@
 #
 # Usage:
 #   ./uninstall.sh             # repo artifacts + aliases. keeps user data, ostk, cert.
-#   ./uninstall.sh --purge     # also ~/.myos, ostk daemon/binary/cache, cert trust.
+#   ./uninstall.sh --purge     # also ~/.youros, ostk daemon/binary/cache, cert trust.
 #   ./uninstall.sh --purge -y  # same, no prompts (for scripts; dangerous).
 #   ./uninstall.sh --help
 
@@ -40,7 +40,7 @@ Default:
   Claude Code hook at ~/.claude/hooks/register-agent.sh and its
   entry in ~/.claude/settings.json, if install.sh wired them.
   Keeps:
-    - ~/.myos/ (your tasks, chats, labels, cert, settings)
+    - ~/.youros/ (your tasks, chats, labels, cert, settings)
     - ostk (binary, cache, daemon)
     - localhost cert trust in the Keychain
   These are preserved so another myOS install (or other tools using
@@ -48,7 +48,7 @@ Default:
 
 --purge:
   Everything above PLUS:
-    - Deletes ~/.myos/ (ALL user data).
+    - Deletes ~/.youros/ (ALL user data).
     - Stops the ostk daemon and kernel.
     - Removes ~/.local/bin/ostk and ~/.cache/ostk.
     - Removes the localhost cert from the macOS login Keychain.
@@ -85,7 +85,7 @@ echo ""
 # causes launchd to respawn them; bootout tells launchd we want them gone).
 if [ "$(uname)" = "Darwin" ]; then
     _uid=$(id -u)
-    for label in com.myos.watchdog com.myos.backend; do
+    for label in com.youros.watchdog com.youros.backend; do
         if launchctl print "gui/${_uid}/${label}" >/dev/null 2>&1; then
             echo "-> Stopping launchd agent: $label"
             launchctl bootout "gui/${_uid}/${label}" 2>/dev/null || true
@@ -93,7 +93,7 @@ if [ "$(uname)" = "Darwin" ]; then
         fi
     done
     # Remove rendered plists from ~/Library/LaunchAgents/
-    for label in com.myos.backend com.myos.watchdog; do
+    for label in com.youros.backend com.youros.watchdog; do
         plist="$HOME/Library/LaunchAgents/${label}.plist"
         if [ -f "$plist" ]; then
             echo "-> Removing $plist"
@@ -114,7 +114,7 @@ rm -rf api/.venv app/node_modules app/dist .mcp.json
 SHELL_RC="$HOME/.zshrc"
 [ -f "$HOME/.bashrc" ] && [ ! -f "$HOME/.zshrc" ] && SHELL_RC="$HOME/.bashrc"
 if [ -f "$SHELL_RC" ] && grep -qE "alias myos(-(update|track|claude))?=" "$SHELL_RC"; then
-    cp "$SHELL_RC" "$SHELL_RC.bak.myos-uninstall"
+    cp "$SHELL_RC" "$SHELL_RC.bak.youros-uninstall"
     # Remove all myos* alias lines. `alias myos=` as a standalone
     # pattern would also match `alias myos-update=` so we anchor with
     # `=`. Using multiple -e expressions keeps each pattern obvious.
@@ -126,7 +126,7 @@ if [ -f "$SHELL_RC" ] && grep -qE "alias myos(-(update|track|claude))?=" "$SHELL
         "$SHELL_RC"
     rm -f "$SHELL_RC.tmp"
     echo "-> Removed myos aliases from $SHELL_RC"
-    echo "   (backup at $SHELL_RC.bak.myos-uninstall)"
+    echo "   (backup at $SHELL_RC.bak.youros-uninstall)"
 fi
 
 # 4. Remove the global Claude Code hook, if install.sh wired it.
@@ -178,7 +178,7 @@ fi
 if [ "$PURGE" -eq 0 ]; then
     echo ""
     echo "Done. Kept (run with --purge to also remove):"
-    [ -d "$HOME/.myos" ]         && echo "  - $HOME/.myos"
+    [ -d "$HOME/.youros" ]         && echo "  - $HOME/.youros"
     [ -x "$HOME/.local/bin/ostk" ] && echo "  - $HOME/.local/bin/ostk"
     [ -d "$HOME/.cache/ostk" ]   && echo "  - $HOME/.cache/ostk"
     if [ "$(uname)" = "Darwin" ] && security find-certificate -c localhost "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
@@ -197,10 +197,10 @@ fi
 echo ""
 echo "=== --purge: removing user data and ostk ==="
 
-if [ -d "$HOME/.myos" ]; then
-    echo "-> $HOME/.myos contains all your tasks, chats, settings, and cert."
-    if confirm "Delete $HOME/.myos?"; then
-        rm -rf "$HOME/.myos"
+if [ -d "$HOME/.youros" ]; then
+    echo "-> $HOME/.youros contains all your tasks, chats, settings, and cert."
+    if confirm "Delete $HOME/.youros?"; then
+        rm -rf "$HOME/.youros"
         echo "   removed."
     else
         echo "   kept."

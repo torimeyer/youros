@@ -5,13 +5,13 @@
 # drops from 60s to 30s, and the model sees an OVERDUE warning faster.
 #
 # Usage:
-#   scripts/adhd-mode.sh on      # touch ~/.myos/.adhd_mode
-#   scripts/adhd-mode.sh off     # remove ~/.myos/.adhd_mode
+#   scripts/adhd-mode.sh on      # touch ~/.youros/.adhd_mode
+#   scripts/adhd-mode.sh off     # remove ~/.youros/.adhd_mode
 #   scripts/adhd-mode.sh status  # print current state
 
 set -uo pipefail
 
-ADHD_FILE="${HOME}/.myos/.adhd_mode"
+ADHD_FILE="${HOME}/.youros/.adhd_mode"
 
 case "${1:-status}" in
     on)

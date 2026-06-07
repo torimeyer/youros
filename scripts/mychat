@@ -6,7 +6,7 @@ Usage:
     scripts/mychat --spec <slug> [--with gemini|claude]
 
 What it does:
-  1. Resolves <slug> to a spec file (~/.myos/specs/<slug>.md, then
+  1. Resolves <slug> to a spec file (~/.youros/specs/<slug>.md, then
      docs/draft/<slug>.md as a fallback).
   2. POSTs /api/specs/<slug>/claim with source=wrapper so the Specs
      page flips to "Building" immediately (Phase 2a of spec-auto-status).
@@ -17,7 +17,7 @@ Environment overrides (for testing):
   MYCHAT_DRY_RUN=1      Parse and resolve, then print what would happen;
                          skip the network POST and exec.
   MYCHAT_SPECS_DIR=<path>  Override the user-local specs directory
-                            (default: ~/.myos/specs).
+                            (default: ~/.youros/specs).
   MYCHAT_API_BASE=<url>  Override the API base URL
                          (default: https://127.0.0.1:8000).
 """
@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Resolve spec path.
     specs_dir_env = os.environ.get("MYCHAT_SPECS_DIR")
-    specs_dir = Path(specs_dir_env) if specs_dir_env else Path.home() / ".myos" / "specs"
+    specs_dir = Path(specs_dir_env) if specs_dir_env else Path.home() / ".youros" / "specs"
     project_root = Path(__file__).resolve().parent.parent
 
     spec_path = _resolve_spec(slug, specs_dir, project_root)
@@ -128,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     # Derive the working directory from the spec's location.
-    work_dir = spec_path.parent.parent  # e.g. ~/.myos (parent of specs/)
+    work_dir = spec_path.parent.parent  # e.g. ~/.youros (parent of specs/)
 
     agent_name = f"wrapper-pid-{os.getpid()}"
 

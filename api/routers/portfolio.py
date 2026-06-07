@@ -1,7 +1,7 @@
 """Executive Summary API (internal code namespace: portfolio).
 
 Vendor-neutral. Returns configured:false and writes nothing when the
-~/.myos/portfolio.json mapping is absent. On EM approval, writes the confidence
+~/.youros/portfolio.json mapping is absent. On EM approval, writes the confidence
 field + a "why" comment back to the source via the existing atlassian helpers.
 
 The user-visible name is "Executive Summary"; "portfolio" is internal only.
@@ -43,7 +43,7 @@ async def approve_confidence(key: str, body: ConfidenceApproval) -> dict:
     """On EM approval, write the confidence field + the "why" comment back.
 
     The confidence field id and (optional) mitigation field id come from the
-    operator-supplied ~/.myos/portfolio.json. With no config we write nothing
+    operator-supplied ~/.youros/portfolio.json. With no config we write nothing
     and return ok:false (information, not a silent failure).
     """
     config = portfolio_health.load_portfolio_config()

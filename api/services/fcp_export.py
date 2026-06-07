@@ -9,7 +9,7 @@ for generating files in a single pass:
     4. Save to a target path
     5. Clean up the session
 
-Output directory defaults to ~/.myos/exports/, created on first use.
+Output directory defaults to ~/.youros/exports/, created on first use.
 
 FCP servers supported:
     - fcp-sheets (Python, via uvx)
@@ -34,7 +34,7 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 # Default output directory for one-shot exports.
-EXPORTS_DIR = Path(os.path.expanduser("~/.myos/exports"))
+EXPORTS_DIR = Path(os.path.expanduser("~/.youros/exports"))
 
 # Map of FCP server name to {"transport": ..., "cmd": [...]} entries.
 # Transport "uvx" means Python package, "npx" means Node package.
@@ -106,7 +106,7 @@ class FCPExporter:
                 {"verb": "add_sheet", "args": {"name": "Daily Spend"}},
                 {"verb": "set_cell", "args": {"sheet": "Daily Spend", "cell": "A1", "value": "Date"}},
             ],
-            output_path=Path("~/.myos/exports/costs-2026-04-15.xlsx"),
+            output_path=Path("~/.youros/exports/costs-2026-04-15.xlsx"),
         )
         # result = {"path": "/Users/.../costs.xlsx", "filename": "costs.xlsx", "size_bytes": 12345}
     """
@@ -311,7 +311,7 @@ class FCPExporter:
         Args:
             mutations: List of mutation dicts, each with "verb" and "args" keys.
             output_path: Where to save the generated file.
-            output_dir: Override for the exports directory (default ~/.myos/exports/).
+            output_dir: Override for the exports directory (default ~/.youros/exports/).
 
         Returns:
             {"path": str, "filename": str, "size_bytes": int}

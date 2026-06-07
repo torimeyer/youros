@@ -18,7 +18,7 @@ PORT=$((20000 + RANDOM % 10000))
 SCRATCH=$(mktemp -d)
 FAKE_CPD=$(mktemp -d)
 TMP_HOME=$(mktemp -d)
-mkdir -p "$TMP_HOME/.myos"
+mkdir -p "$TMP_HOME/.youros"
 # Create pre-agent-guard.sh file under FAKE_CPD so the file-existence
 # check in register-agent.sh would be TRUE — but we do NOT wire it in
 # any settings.json, so the bridge is not actually active.

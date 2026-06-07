@@ -13,7 +13,7 @@ from services.gemini_captures_store import gemini_captures_store
 
 router = APIRouter()
 
-_TOKEN_PATH = Path.home() / ".myos" / "extension_token"
+_TOKEN_PATH = Path.home() / ".youros" / "extension_token"
 
 
 def _get_token() -> str:

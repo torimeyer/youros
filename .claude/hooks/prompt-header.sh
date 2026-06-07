@@ -12,13 +12,13 @@ trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME exit=$?" >> /tmp/hook-trace.log' EXI
 INPUT=$(cat)
 
 # Write user-turn stamp so edit-cycle hooks can reset per-turn counters.
-mkdir -p "${HOME}/.myos/hooks" 2>/dev/null || true
-_SR_PREV_EPOCH=$(cat "${HOME}/.myos/hooks/last-user-turn.stamp" 2>/dev/null | tr -d '[:space:]')
-date +%s > "${HOME}/.myos/hooks/last-user-turn.stamp" 2>/dev/null || true
+mkdir -p "${HOME}/.youros/hooks" 2>/dev/null || true
+_SR_PREV_EPOCH=$(cat "${HOME}/.youros/hooks/last-user-turn.stamp" 2>/dev/null | tr -d '[:space:]')
+date +%s > "${HOME}/.youros/hooks/last-user-turn.stamp" 2>/dev/null || true
 
 # === CONFIG PRE-LOAD (1 python3 call replaces all rule_enabled/rule_param invocations) ===
 # Reads both JSON config files once and emits shell variable assignments.
-eval "$(python3 - "${_LOAD_RULE_DIR}/default-rules.json" "${HOME}/.myos/rules.json" <<'_CFGEOF' 2>/dev/null
+eval "$(python3 - "${_LOAD_RULE_DIR}/default-rules.json" "${HOME}/.youros/rules.json" <<'_CFGEOF' 2>/dev/null
 import json, sys
 
 def load(p):
@@ -164,7 +164,7 @@ fi
 
 # ---- LIVE AGENT SNAPSHOT + RETRY QUEUE + DENY LOG (single python3) ----
 BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}"
-STAMP_FILE="${HOME}/.myos/hooks/agent-snapshot.stamp"
+STAMP_FILE="${HOME}/.youros/hooks/agent-snapshot.stamp"
 
 _USER_MSG_FILE=$(mktemp -t user-msg-XXXXXX)
 trap 'rm -f "$_USER_MSG_FILE"' EXIT
@@ -185,7 +185,7 @@ _STALE_CUTOFF=$((_NOW_EPOCH - 300))
 
 STAMP_FILE_VAL="$STAMP_FILE" \
 DENY_LOG_FILE="${MYOS_DENY_LOG:-${HOME}/.claude/logs/hook-denies.log}" \
-RETRY_QUEUE_FILE="${HOME}/.myos/subagents/retry-queue.jsonl" \
+RETRY_QUEUE_FILE="${HOME}/.youros/subagents/retry-queue.jsonl" \
 STALE_CUTOFF="$_STALE_CUTOFF" \
 INPUT_DATA="$INPUT" \
 USER_MSG_FILE="$_USER_MSG_FILE" \

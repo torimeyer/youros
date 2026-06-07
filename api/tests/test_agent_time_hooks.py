@@ -7,7 +7,7 @@ Tests verify:
 4. agent_duration_stats shim returns Time estimate when available, falls back to local when None
 5. Time failure path: register/heartbeat/complete all succeed even if time_primitive raises
 
-All tests use tmp_path for the SQLite DB — never touches ~/.myos/primitives.db.
+All tests use tmp_path for the SQLite DB — never touches ~/.youros/primitives.db.
 """
 
 from __future__ import annotations

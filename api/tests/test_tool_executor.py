@@ -15,27 +15,33 @@ from services.tool_executor import (
 # ---- _safe_path ----
 
 class TestSafePath:
-    def test_absolute_within_workspace(self):
+    def test_absolute_within_workspace(self, monkeypatch):
+        monkeypatch.setattr("config.PROJECT_ROOT", WORKSPACE)
         result = _safe_path(str(WORKSPACE / "api" / "main.py"))
-        assert str(result).startswith(str(WORKSPACE))
+        # resolve() on macOS prepends /private to /var; ensure both sides match
+        assert str(result).startswith(str(WORKSPACE.resolve()))
 
-    def test_relative_path_resolved(self):
+    def test_relative_path_resolved(self, monkeypatch):
+        monkeypatch.setattr("config.PROJECT_ROOT", WORKSPACE)
         """Relative paths are resolved from cwd, not workspace. The test
         verifies that _safe_path raises on paths outside the workspace."""
         # A relative path that resolves outside workspace should raise
         with pytest.raises(ValueError, match="outside the workspace"):
             _safe_path("/tmp/outside_file.txt")
 
-    def test_path_traversal_blocked(self):
+    def test_path_traversal_blocked(self, monkeypatch):
+        monkeypatch.setattr("config.PROJECT_ROOT", WORKSPACE)
         with pytest.raises(ValueError, match="outside the workspace"):
             _safe_path(str(WORKSPACE / ".." / ".." / "etc" / "passwd"))
 
-    def test_symlink_traversal_blocked(self):
+    def test_symlink_traversal_blocked(self, monkeypatch):
+        monkeypatch.setattr("config.PROJECT_ROOT", WORKSPACE)
         """Ensure /etc/passwd is rejected even if disguised."""
         with pytest.raises(ValueError, match="outside the workspace"):
             _safe_path("/etc/passwd")
 
-    def test_workspace_root_allowed(self):
+    def test_workspace_root_allowed(self, monkeypatch):
+        monkeypatch.setattr("config.PROJECT_ROOT", WORKSPACE)
         result = _safe_path(str(WORKSPACE))
         assert result == WORKSPACE.resolve()
 
@@ -115,8 +121,17 @@ class TestToolDefinitions:
 
 class TestReadFile:
     @pytest.mark.asyncio
-    async def test_read_existing_file(self):
-        result = await execute_tool("read_file", {"path": str(WORKSPACE / "api" / "main.py")})
+    async def test_read_existing_file(self, tmp_path, monkeypatch):
+        """Read a file that we know exists in the workspace."""
+        monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("services.tool_executor.WORKSPACE", tmp_path)
+
+        test_api_dir = tmp_path / "api"
+        test_api_dir.mkdir()
+        test_file = test_api_dir / "main.py"
+        test_file.write_text("import FastAPI")
+
+        result = await execute_tool("read_file", {"path": str(test_file)})
         assert "FastAPI" in result
 
     @pytest.mark.asyncio
@@ -220,19 +235,34 @@ class TestRunCommand:
 
 class TestListDirectory:
     @pytest.mark.asyncio
-    async def test_list_workspace_root(self):
+    async def test_list_workspace_root(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("services.tool_executor.WORKSPACE", tmp_path)
+        
+        (tmp_path / "api").mkdir()
+        (tmp_path / "app").mkdir()
+        
         result = await execute_tool("list_directory", {})
         assert "api" in result
         assert "app" in result
 
     @pytest.mark.asyncio
-    async def test_list_specific_dir(self):
-        result = await execute_tool("list_directory", {"path": str(WORKSPACE / "api")})
+    async def test_list_specific_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("services.tool_executor.WORKSPACE", tmp_path)
+        
+        test_api_dir = tmp_path / "api"
+        test_api_dir.mkdir()
+        (test_api_dir / "main.py").write_text("hello")
+        
+        result = await execute_tool("list_directory", {"path": str(test_api_dir)})
         assert "main.py" in result
 
     @pytest.mark.asyncio
-    async def test_list_nonexistent(self):
-        result = await execute_tool("list_directory", {"path": str(WORKSPACE / "no_such_dir")})
+    async def test_list_nonexistent(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("services.tool_executor.WORKSPACE", tmp_path)
+        result = await execute_tool("list_directory", {"path": str(tmp_path / "no_such_dir")})
         assert "not found" in result.lower()
 
 
@@ -240,9 +270,17 @@ class TestListDirectory:
 
 class TestSearchFiles:
     @pytest.mark.asyncio
-    async def test_search_finds_pattern(self):
+    async def test_search_finds_pattern(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("services.tool_executor.WORKSPACE", tmp_path)
+        
+        test_api_dir = tmp_path / "api"
+        test_api_dir.mkdir()
+        test_file = test_api_dir / "main.py"
+        test_file.write_text("yourOS API")
+        
         # Search for a string that only appears in main.py (updated from myOS → yourOS in v4.0.0)
-        result = await execute_tool("search_files", {"pattern": "yourOS API", "path": str(WORKSPACE / "api")})
+        result = await execute_tool("search_files", {"pattern": "yourOS API", "path": str(test_api_dir)})
         assert "main.py" in result
 
     @pytest.mark.asyncio
@@ -593,7 +631,7 @@ class TestBuildTasksFromFile:
         from services import tool_executor
 
         fake_home = tmp_path / "home"
-        myos_files = fake_home / ".myos" / "files"
+        myos_files = fake_home / ".youros" / "files"
         myos_files.mkdir(parents=True, exist_ok=True)
         (myos_files / "roadmap.md").write_text(
             "# Roadmap\n\n"
@@ -636,7 +674,7 @@ class TestBuildTasksFromFile:
         from services import tool_executor
 
         fake_home = tmp_path / "home"
-        (fake_home / ".myos" / "files").mkdir(parents=True, exist_ok=True)
+        (fake_home / ".youros" / "files").mkdir(parents=True, exist_ok=True)
 
         with patch("services.tool_executor.Path.home", return_value=fake_home):
             result = await execute_tool(
@@ -724,7 +762,7 @@ class TestBuildTasksFromFile:
 
         recent_deletes.clear()
         fake_home = tmp_path / "home"
-        myos_files = fake_home / ".myos" / "files"
+        myos_files = fake_home / ".youros" / "files"
         myos_files.mkdir(parents=True, exist_ok=True)
         (myos_files / "roadmap.md").write_text(
             "- Build basic homepage\n"
@@ -800,7 +838,7 @@ class TestBuildTasksFromFile:
         recent_deletes.record("Create contact form")
 
         fake_home = tmp_path / "home"
-        myos_files = fake_home / ".myos" / "files"
+        myos_files = fake_home / ".youros" / "files"
         myos_files.mkdir(parents=True, exist_ok=True)
         (myos_files / "roadmap.md").write_text(
             "- Build basic homepage\n"

@@ -7,7 +7,7 @@ and never silently claims success.
 
 When someone is ready to turn texts on for real, the only change needed is
 to fill in ``_send_via_provider`` with a hosted SMS provider (for example
-Twilio): read the provider credentials from ``~/.myos`` the same private
+Twilio): read the provider credentials from ``~/.youros`` the same private
 way other secrets are stored, call the provider's send API, and return
 ``{"ok": True, ...}``. The reminders code already falls back to a working
 channel and keeps an in-app record when this returns ``ok: False``, so
@@ -24,7 +24,7 @@ from pathlib import Path
 
 # Where a future provider's credentials would live, kept out of the repo
 # like every other secret. Presence of this file is what flips SMS on.
-SMS_CONFIG_PATH = Path.home() / ".myos" / "sms_provider.json"
+SMS_CONFIG_PATH = Path.home() / ".youros" / "sms_provider.json"
 
 
 def is_configured() -> bool:

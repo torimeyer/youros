@@ -352,7 +352,7 @@ export default function MyGems() {
                       Click the yourOS icon in your Chrome toolbar, then open{' '}
                       <strong className="text-slate-700 dark:text-slate-300">Settings</strong>. Paste your auth token. Find it
                       by opening a terminal and running{' '}
-                      <code className="text-slate-700 dark:text-slate-300 bg-slate-50/60 dark:bg-slate-800/60 px-1 rounded text-xs">cat ~/.myos/extension_token</code>.
+                      <code className="text-slate-700 dark:text-slate-300 bg-slate-50/60 dark:bg-slate-800/60 px-1 rounded text-xs">cat ~/.youros/extension_token</code>.
                     </li>
                     <li>
                       Toggle <strong className="text-slate-700 dark:text-slate-300">Capture conversations</strong> on, then open{' '}

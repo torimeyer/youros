@@ -1,7 +1,7 @@
 """Automation output helpers.
 
 Every automation run (fleet, solo agent, workflow) produces a persistent
-``.md`` file in ``~/.myos/files/`` so it lands in Recent Documents on
+``.md`` file in ``~/.youros/files/`` so it lands in Recent Documents on
 the Files tab, and auto-creates follow-up tasks from any next-steps
 block in the output.
 

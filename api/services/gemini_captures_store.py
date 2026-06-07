@@ -1,6 +1,6 @@
 """Store for Gemini conversation captures from the Chrome extension.
 
-Disk store: ~/.myos/gemini_captures.json (outside repo, never clobbered by git pull).
+Disk store: ~/.youros/gemini_captures.json (outside repo, never clobbered by git pull).
 
 Public surface:
 - GeminiCapturesStore -- add turns, list conversations, get turns
@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-GEMINI_CAPTURES_PATH = Path.home() / ".myos" / "gemini_captures.json"
+GEMINI_CAPTURES_PATH = Path.home() / ".youros" / "gemini_captures.json"
 
 
 class GeminiCapturesStore:

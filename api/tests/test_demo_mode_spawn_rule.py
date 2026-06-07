@@ -28,7 +28,7 @@ def test_demo_mode_inactive_by_default(monkeypatch):
 def test_demo_mode_active_via_flag_file(monkeypatch):
     m = _agents_mod()
     monkeypatch.delenv("MYOS_DEMO_MODE", raising=False)
-    flag = m.os.path.expanduser("~/.myos/.demo_mode")
+    flag = m.os.path.expanduser("~/.youros/.demo_mode")
     monkeypatch.setattr(m.os.path, "exists", lambda p: p == flag)
     assert m._demo_mode_active() is True
 

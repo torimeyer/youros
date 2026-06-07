@@ -80,7 +80,8 @@ SAMPLE_TASKS = [{"id": "1", "title": "Review project proposal", "priority": "P1"
 
 @pytest.fixture
 def mock_authenticated():
-    with patch("services.google_auth.is_authenticated", return_value=True):
+    with patch("routers.gmail_triage.is_authenticated", return_value=True), \
+         patch("services.google_auth.is_authenticated", return_value=True):
         yield
 
 
@@ -363,7 +364,7 @@ def test_triage_endpoint_unauthenticated(client):
 
 
 def test_triage_last_no_cache(client):
-    with patch("services.google_auth.is_authenticated", return_value=True):
+    with patch("routers.gmail_triage.is_authenticated", return_value=True):
         with patch("services.gmail_triage._load_last_triage", return_value=None):
             res = client.get("/api/gmail/triage/last")
     assert res.status_code == 200
@@ -379,7 +380,7 @@ def test_triage_last_with_cache(client):
         "summary": {"noise": 1, "action_needed": 0, "task_worthy": 0, "informational": 0},
         "triaged_at": "2026-05-01T10:00:00+00:00",
     }
-    with patch("services.google_auth.is_authenticated", return_value=True):
+    with patch("routers.gmail_triage.is_authenticated", return_value=True):
         with patch("services.gmail_triage._load_last_triage", return_value=cached):
             res = client.get("/api/gmail/triage/last")
     assert res.status_code == 200
@@ -387,7 +388,7 @@ def test_triage_last_with_cache(client):
 
 
 def test_triage_apply_skip(client):
-    with patch("services.google_auth.is_authenticated", return_value=True):
+    with patch("routers.gmail_triage.is_authenticated", return_value=True):
         res = client.post(
             "/api/gmail/triage/apply",
             json={"action": "skip", "message_id": "msg1"},
@@ -397,7 +398,7 @@ def test_triage_apply_skip(client):
 
 
 def test_triage_apply_unknown_action(client):
-    with patch("services.google_auth.is_authenticated", return_value=True):
+    with patch("routers.gmail_triage.is_authenticated", return_value=True):
         res = client.post(
             "/api/gmail/triage/apply",
             json={"action": "teleport", "message_id": "msg1"},
@@ -415,7 +416,7 @@ def test_triage_apply_unauthenticated(client):
 
 
 def test_triage_apply_draft_reply_missing_thread_id(client):
-    with patch("services.google_auth.is_authenticated", return_value=True):
+    with patch("routers.gmail_triage.is_authenticated", return_value=True):
         res = client.post(
             "/api/gmail/triage/apply",
             json={"action": "draft_reply", "message_id": "msg1"},
@@ -424,7 +425,7 @@ def test_triage_apply_draft_reply_missing_thread_id(client):
 
 
 def test_triage_apply_create_task_no_cache(client):
-    with patch("services.google_auth.is_authenticated", return_value=True):
+    with patch("routers.gmail_triage.is_authenticated", return_value=True):
         with patch("services.gmail_triage._load_last_triage", return_value=None):
             res = client.post(
                 "/api/gmail/triage/apply",

@@ -3,7 +3,7 @@
 GET /api/org/settings  — return current org settings plus policies summary.
 PATCH /api/org/settings — admin-only update of org settings.
 
-Settings persist to ~/.myos/orgs/{org_id}/settings.json so they survive
+Settings persist to ~/.youros/orgs/{org_id}/settings.json so they survive
 git pulls and stay outside the repo.
 """
 
@@ -23,7 +23,7 @@ from services.atomic_io import atomic_write_json
 
 router = APIRouter(tags=["org_settings"])
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 
 
 def _settings_path(org_id: str) -> Path:

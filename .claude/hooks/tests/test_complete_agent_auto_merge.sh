@@ -18,8 +18,8 @@ FAIL=0
 run_hook() {
     local repo="$1" name="$2"
     local homed="$WORK/home-$name"
-    mkdir -p "$homed/.myos/subagents"
-    printf '%s' "$name" > "$homed/.myos/subagents/last.name"
+    mkdir -p "$homed/.youros/subagents"
+    printf '%s' "$name" > "$homed/.youros/subagents/last.name"
     local payload
     payload='{"tool_use_id":"tid-'"$name"'","tool_response":{"output":"done"}}'
     # 2>&1 makes hook stderr go to captured stdout; >/dev/null discards hook stdout.

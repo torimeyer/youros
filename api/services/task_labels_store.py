@@ -1,6 +1,6 @@
 """Persistent storage for task-to-label assignments.
 
-Stored in ~/.myos/task_labels.json. Two top-level keys:
+Stored in ~/.youros/task_labels.json. Two top-level keys:
 
 - ``assignments``: dict mapping task_id -> list of label IDs.
 - ``auto_applied``: dict mapping task_id -> list of label IDs that were
@@ -20,7 +20,7 @@ from pathlib import Path
 
 from services.atomic_io import atomic_write_json
 
-TASK_LABELS_PATH = Path.home() / ".myos" / "task_labels.json"
+TASK_LABELS_PATH = Path.home() / ".youros" / "task_labels.json"
 
 
 class TaskLabelsStore:

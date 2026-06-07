@@ -54,7 +54,7 @@ FAKE_REPO="$tmp_dir/repo"
 FAKE_BIN="$tmp_dir/bin"
 SENTINEL="$tmp_dir/hooks-installed.sentinel"
 
-mkdir -p "$FAKE_HOME/.myos" "$FAKE_BIN"
+mkdir -p "$FAKE_HOME/.youros" "$FAKE_BIN"
 mkdir -p "$FAKE_REPO/api" "$FAKE_REPO/app" "$FAKE_REPO/scripts"
 mkdir -p "$FAKE_REPO/.claude/hooks/lib"
 

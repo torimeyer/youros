@@ -28,7 +28,7 @@ Schedule shapes (all plain language, no cron):
             day_of_month is 1..31. If a month does not have that day
             (e.g. Feb 30), the rule fires on the last day of the month.
 
-The store is a list of rule objects at ~/.myos/recurring_tasks.json. We
+The store is a list of rule objects at ~/.youros/recurring_tasks.json. We
 keep the file outside the repo so git pull never clobbers user data.
 """
 
@@ -44,7 +44,7 @@ from typing import Optional
 
 from services.atomic_io import atomic_write_json, atomic_write_text
 
-RECURRING_TASKS_PATH = Path.home() / ".myos" / "recurring_tasks.json"
+RECURRING_TASKS_PATH = Path.home() / ".youros" / "recurring_tasks.json"
 
 
 def _utcnow() -> datetime:

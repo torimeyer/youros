@@ -1,8 +1,8 @@
 """Slack integration service.
 
 OAuth2 flow for bot + user tokens, message fetching, posting, and search.
-Workspaces are stored in ~/.myos/slack_workspaces/{team_id}.json (outside the
-repo). The legacy single-workspace token at ~/.myos/slack_token.json is
+Workspaces are stored in ~/.youros/slack_workspaces/{team_id}.json (outside the
+repo). The legacy single-workspace token at ~/.youros/slack_token.json is
 migrated to the workspaces directory on first use.
 """
 
@@ -17,7 +17,7 @@ import httpx
 
 from services.atomic_io import atomic_write_json
 
-MYOS_DIR = Path.home() / ".myos"
+MYOS_DIR = Path.home() / ".youros"
 TOKEN_PATH = MYOS_DIR / "slack_token.json"  # legacy single-workspace path
 WORKSPACES_DIR = MYOS_DIR / "slack_workspaces"  # multi-workspace directory
 

@@ -20,10 +20,10 @@ PROJECT_DIR = os.environ.get("OSTK_PROJECT_ROOT", str(PROJECT_ROOT))
 OSTK_DIR = _OSTK_DIR
 NUDGES_DIR = OSTK_DIR / "nudges"
 USER_SPECS_DIR = Path(
-    os.environ.get("MYOS_USER_SPECS_DIR", os.path.expanduser("~/.myos/specs"))
+    os.environ.get("MYOS_USER_SPECS_DIR", os.path.expanduser("~/.youros/specs"))
 )
 USER_DRAFTS_DIR = Path(
-    os.environ.get("MYOS_USER_DRAFTS_DIR", os.path.expanduser("~/.myos/drafts"))
+    os.environ.get("MYOS_USER_DRAFTS_DIR", os.path.expanduser("~/.youros/drafts"))
 )
 
 
@@ -44,7 +44,8 @@ def get_effective_root() -> Path:
         p = Path(root)
         if p.exists():
             return p
-    return PROJECT_ROOT
+    import config as _config
+    return Path(_config.PROJECT_ROOT)
 
 
 # Shared parse cache for .ostk/audit.jsonl. The file is ~400 KB and was
@@ -2494,7 +2495,7 @@ class OstkService:
         """Create a new draft document. Returns the file path.
 
         Refuses titles that look like hooks reviews (containing "hook"
-        case-insensitive). Hooks reviews live in ~/.myos/hooks/, never
+        case-insensitive). Hooks reviews live in ~/.youros/hooks/, never
         under docs/draft/ — per feedback_hooks_at_user_scope.md.
         Fixes →1455.
 
@@ -2505,8 +2506,8 @@ class OstkService:
         if "hook" in title.lower():
             raise OstkError(
                 f"Refusing to draft {title!r}: titles containing 'hook' belong "
-                "in ~/.myos/hooks/, not docs/draft/. Save the file directly to "
-                "~/.myos/hooks/ instead of using `ostk doc draft`."
+                "in ~/.youros/hooks/, not docs/draft/. Save the file directly to "
+                "~/.youros/hooks/ instead of using `ostk doc draft`."
             )
         path_str = await self._run("doc", "draft", title)
         draft_path = Path(self.cwd) / path_str.strip()
@@ -2522,7 +2523,7 @@ class OstkService:
 
         Pure-Python implementation to avoid SIGKILL issues with the
         ostk binary in some environments, and to ensure correct routing
-        to USER_SPECS_DIR (~/.myos/specs/).
+        to USER_SPECS_DIR (~/.youros/specs/).
         """
         source = (Path(self.cwd) / path).resolve()
         if not source.exists():
@@ -2697,7 +2698,7 @@ class OstkService:
         docs_dir = Path(self.cwd) / "docs"
 
         # →2018 (live freeze): the frontmatter scan below globs docs/draft,
-        # docs/spec and ~/.myos/specs and calls read_text()+parse on every
+        # docs/spec and ~/.youros/specs and calls read_text()+parse on every
         # file, plus a transcripts scan. That is pure synchronous filesystem
         # I/O. Running it on the event loop blocks every other request and
         # WebSocket publish tick for the full scan duration — under the
@@ -2713,15 +2714,15 @@ class OstkService:
             _seen_names: set[str] = set()
 
             # SECURITY (UAT item 8): specs and drafts are read ONLY from the
-            # per-user ~/.myos/ store, never from the repo-local docs/draft or
+            # per-user ~/.youros/ store, never from the repo-local docs/draft or
             # docs/spec directories. Those repo dirs travel with any copied or
             # shared checkout, so reading them surfaced one user's specs in a
             # different user/install's app (two pclaude drafts appeared on a
-            # separate work machine). Writes were already locked to ~/.myos/
+            # separate work machine). Writes were already locked to ~/.youros/
             # (→1512/→2104); this locks reads to match so no spec ever leaves
             # the machine that created it.
 
-            # 1. User-local specs (private/promoted, from ~/.myos/specs/)
+            # 1. User-local specs (private/promoted, from ~/.youros/specs/)
             if USER_SPECS_DIR.is_dir():
                 for md in sorted(USER_SPECS_DIR.glob("*.md")):
                     _seen_names.add(md.name)
@@ -2729,7 +2730,7 @@ class OstkService:
                     doc["is_user_local"] = True
                     scanned.append(doc)
 
-            # 2. User-local drafts (from ~/.myos/drafts/, →2104)
+            # 2. User-local drafts (from ~/.youros/drafts/, →2104)
             if USER_DRAFTS_DIR.is_dir():
                 for md in sorted(USER_DRAFTS_DIR.glob("*.md")):
                     if md.name in _seen_names:
@@ -2858,7 +2859,7 @@ class OstkService:
         )
 
         # (Removed UAT item 8) The former docs/draft husk-dedup pass is gone:
-        # reads are now locked to ~/.myos/specs and ~/.myos/drafts only, so no
+        # reads are now locked to ~/.youros/specs and ~/.youros/drafts only, so no
         # result ever carries a docs/draft/ path, and the per-slug collision
         # between a promoted spec and a same-named draft is already handled by
         # the _seen_names skip in _scan_docs_sync above.
@@ -3161,7 +3162,7 @@ class OstkService:
         is_in_user_specs = str(resolved).startswith(str(USER_SPECS_DIR.resolve()))
 
         if not (is_in_docs or is_in_user_specs):
-            raise OstkError("Spec path must be under docs/ or ~/.myos/specs/")
+            raise OstkError("Spec path must be under docs/ or ~/.youros/specs/")
         return full
 
     async def spec_tasks(self, spec_path: str) -> list[dict]:

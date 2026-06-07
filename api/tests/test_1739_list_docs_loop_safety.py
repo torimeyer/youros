@@ -101,7 +101,7 @@ async def test_list_docs_audit_fields_correct_after_offload(tmp_path, monkeypatc
     async def fake_list_tasks(status=None, priority=None):
         return []
 
-    # Patch USER_SPECS_DIR and USER_DRAFTS_DIR (→2104) so real ~/.myos/
+    # Patch USER_SPECS_DIR and USER_DRAFTS_DIR (→2104) so real ~/.youros/
     # specs/ and drafts/ are not scanned.
     import services.ostk as ostk_module
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", spec_dir)

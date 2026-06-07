@@ -1,7 +1,7 @@
 """Spec Drive sync service.
 
 Publishes specs as Google Docs and keeps them in sync.
-Links are stored in ~/.myos/spec_drive_links.json (user data, not in repo).
+Links are stored in ~/.youros/spec_drive_links.json (user data, not in repo).
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Optional
 
 from config import PROJECT_ROOT
 
-_LINKS_PATH = Path.home() / ".myos" / "spec_drive_links.json"
+_LINKS_PATH = Path.home() / ".youros" / "spec_drive_links.json"
 _SPECS_FOLDER_NAME = "myOS Specs"
 
 

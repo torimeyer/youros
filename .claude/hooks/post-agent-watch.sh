@@ -60,7 +60,7 @@ if m:
     spawn_name = m.group(1).strip()
 
 if not spawn_name:
-    last_file = os.path.expanduser("~/.myos/subagents/last.name")
+    last_file = os.path.expanduser("~/.youros/subagents/last.name")
     try:
         spawn_name = open(last_file).read().strip()
     except Exception:
