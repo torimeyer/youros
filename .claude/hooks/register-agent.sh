@@ -1,5 +1,5 @@
 #!/bin/bash
-# Hook: auto-register Claude Code subagents with torios/myOS.
+# Hook: auto-register Claude Code subagents with torios/yourOS.
 #
 # GLOBAL version: installed at ~/.claude/hooks/register-agent.sh and
 # wired via the user-global ~/.claude/settings.json so EVERY Claude
@@ -81,7 +81,7 @@ fi
 if [ -z "$TORIOS_REPO_DIR" ] || [ ! -f "$TORIOS_REPO_DIR/api/services/heartbeat_idle.py" ]; then
     for candidate in \
             "$HOME/claude/torios" \
-            "$HOME/myos" \
+            "$HOME/youros" \
             "$HOME/torios"; do
         if [ -f "$candidate/api/services/heartbeat_idle.py" ]; then
             TORIOS_REPO_DIR="$candidate"
@@ -300,12 +300,12 @@ else
     if [ -f "$HOOKS_DIR/lib/drain-pending.sh" ]; then
         # shellcheck source=lib/drain-pending.sh
         . "$HOOKS_DIR/lib/drain-pending.sh"
-        MYOS_REGISTER_URL="${API_BASE}/api/agents/register" \
-        MYOS_COMPLETE_URL_BASE="${API_BASE}/api/agents" \
-            myos_drain_pending >/dev/null 2>&1 || true
-        MYOS_REGISTER_URL="${API_BASE}/api/agents/register" \
-        MYOS_COMPLETE_URL_BASE="${API_BASE}/api/agents" \
-            myos_drain_pending_complete >/dev/null 2>&1 || true
+        YOUROS_REGISTER_URL="${API_BASE}/api/agents/register" \
+        YOUROS_COMPLETE_URL_BASE="${API_BASE}/api/agents" \
+            youros_drain_pending >/dev/null 2>&1 || true
+        YOUROS_REGISTER_URL="${API_BASE}/api/agents/register" \
+        YOUROS_COMPLETE_URL_BASE="${API_BASE}/api/agents" \
+            youros_drain_pending_complete >/dev/null 2>&1 || true
     fi
 fi
 

@@ -36,7 +36,7 @@ set -u
 AGENT_NAME="${1:-}"
 GIT_SENTINEL="${2:-${AGENT_NAME:-}}"
 INTERVAL="${3:-60}"
-API_BASE="${MYOS_API_BASE:-https://127.0.0.1:8000}"
+API_BASE="${YOUROS_API_BASE:-https://127.0.0.1:8000}"
 CURL_BIN="curl"
 
 if [[ -z "${AGENT_NAME}" ]]; then

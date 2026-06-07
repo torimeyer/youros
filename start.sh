@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start myOS
+# Start yourOS
 # Usage: ./start.sh
 
 set -e
@@ -16,11 +16,11 @@ YELLOW='\033[1;33m'
 
 echo -e "${BLUE}Starting yourOS...${NC}"
 
-# Migration: .myos -> .youros
-if [ -d "$HOME/.myos" ]; then
-    echo -e "${YELLOW}Migrating configuration from ~/.myos to ~/.youros...${NC}"
+# Migration: .youros -> .youros
+if [ -d "$HOME/.youros" ]; then
+    echo -e "${YELLOW}Migrating configuration from ~/.youros to ~/.youros...${NC}"
     mkdir -p "$HOME/.youros"
-    rsync -a --ignore-existing "$HOME/.myos/" "$HOME/.youros/"
+    rsync -a --ignore-existing "$HOME/.youros/" "$HOME/.youros/"
     echo -e "${GREEN}Migration complete.${NC}"
 fi
 
@@ -64,7 +64,7 @@ if [ "$LAUNCHD_MANAGED" = "0" ]; then
         echo -e "${GREEN}Already up to date.${NC}"
     fi
 else
-    echo "Updates are handled by 'myos-update'. Skipping auto pull."
+    echo "Updates are handled by 'youros-update'. Skipping auto pull."
 fi
 
 # Update ostk if a newer version is available (best-effort, 5s timeout)
@@ -169,7 +169,7 @@ else
     LAUNCH_URL="http://localhost:8000"
 fi
 
-echo -e "${GREEN}myOS is starting at ${LAUNCH_URL}${NC}"
+echo -e "${GREEN}yourOS is starting at ${LAUNCH_URL}${NC}"
 
 if [ "$LAUNCHD_MANAGED" = "1" ]; then
     # launchd owns the backend. Kickstart both agents so they come up
@@ -189,11 +189,11 @@ if [ "$LAUNCHD_MANAGED" = "1" ]; then
     # Give uvicorn a moment to bind before opening the browser.
     sleep 2
     open "${LAUNCH_URL}" 2>/dev/null || xdg-open "${LAUNCH_URL}" 2>/dev/null || true
-    echo "Browser opened. myOS is running. Use 'myos-update' to update."
+    echo "Browser opened. yourOS is running. Use 'youros-update' to update."
     exit 0
 fi
 
-echo "Keep this window open while using myOS. Press Ctrl+C to stop."
+echo "Keep this window open while using yourOS. Press Ctrl+C to stop."
 
 # Open the browser after a brief delay
 if [[ "$(uname)" == "Darwin" ]]; then

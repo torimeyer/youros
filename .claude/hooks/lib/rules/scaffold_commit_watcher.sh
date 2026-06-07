@@ -17,8 +17,8 @@ _scaffold_commit_watcher_check() {
 
   # Resolve parent agent name
   local PARENT_NAME=""
-  if [ -n "${MYOS_AGENT_NAME:-}" ]; then
-    PARENT_NAME="${MYOS_AGENT_NAME}"
+  if [ -n "${YOUROS_AGENT_NAME:-}" ]; then
+    PARENT_NAME="${YOUROS_AGENT_NAME}"
   elif [ -n "${session_id:-}" ]; then
     local _raw="claude-code-${session_id:0:10}"
     PARENT_NAME=$(printf '%s' "$_raw" | tr '[:upper:]' '[:lower:]' | \

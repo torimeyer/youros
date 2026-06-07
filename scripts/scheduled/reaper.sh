@@ -2,7 +2,7 @@
 # scripts/scheduled/reaper.sh
 #
 # Periodic wrapper: run worktree-reaper.sh --apply (remove absorbed
-# agent worktrees) then call the myOS backend to sweep stale agent rows.
+# agent worktrees) then call the yourOS backend to sweep stale agent rows.
 # Intended to fire every 15 minutes via launchd, cron, or systemd.
 #
 # DO NOT install a launchd plist automatically. Copy the snippet below,
@@ -24,44 +24,44 @@
 #       <string>/ABSOLUTE/PATH/TO/scripts/scheduled/reaper.sh</string>
 #     </array>
 #     <key>StartInterval</key>     <integer>900</integer>
-#     <key>StandardOutPath</key>   <string>/tmp/myos-reaper.log</string>
-#     <key>StandardErrorPath</key> <string>/tmp/myos-reaper.log</string>
+#     <key>StandardOutPath</key>   <string>/tmp/youros-reaper.log</string>
+#     <key>StandardErrorPath</key> <string>/tmp/youros-reaper.log</string>
 #     <key>EnvironmentVariables</key>
 #     <dict>
-#       <key>MYOS_REPO_ROOT</key>  <string>/ABSOLUTE/PATH/TO/REPO</string>
+#       <key>YOUROS_REPO_ROOT</key>  <string>/ABSOLUTE/PATH/TO/REPO</string>
 #     </dict>
 #   </dict>
 #   </plist>
 #
 # ── Linux systemd (alternative) ──────────────────────────────────────
-# ~/.config/systemd/user/myos-reaper.service:
-#   [Unit]   Description=myOS worktree + agent reaper
+# ~/.config/systemd/user/youros-reaper.service:
+#   [Unit]   Description=yourOS worktree + agent reaper
 #   [Service]
 #   ExecStart=/bin/bash /ABSOLUTE/PATH/TO/scripts/scheduled/reaper.sh
-#   Environment=MYOS_REPO_ROOT=/ABSOLUTE/PATH/TO/REPO
+#   Environment=YOUROS_REPO_ROOT=/ABSOLUTE/PATH/TO/REPO
 #   [Install] WantedBy=default.target
 #
-# ~/.config/systemd/user/myos-reaper.timer:
-#   [Unit]   Description=Run myos-reaper every 15 min
+# ~/.config/systemd/user/youros-reaper.timer:
+#   [Unit]   Description=Run youros-reaper every 15 min
 #   [Timer]  OnBootSec=60  OnUnitActiveSec=900
 #   [Install] WantedBy=timers.target
 #
-# systemctl --user enable --now myos-reaper.timer
+# systemctl --user enable --now youros-reaper.timer
 #
 # ── Environment variables ─────────────────────────────────────────────
-#   MYOS_REPO_ROOT       path to the torios repo (auto-detected if unset)
-#   MYOS_REAPER_SCRIPT   override worktree-reaper.sh path (for tests)
-#   MYOS_BACKEND_URL     override backend URL (default: https://127.0.0.1:8000)
-#   MYOS_SKIP_REAP_API   set to "1" to skip the agent-reap API call
+#   YOUROS_REPO_ROOT       path to the torios repo (auto-detected if unset)
+#   YOUROS_REAPER_SCRIPT   override worktree-reaper.sh path (for tests)
+#   YOUROS_BACKEND_URL     override backend URL (default: https://127.0.0.1:8000)
+#   YOUROS_SKIP_REAP_API   set to "1" to skip the agent-reap API call
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="${MYOS_REPO_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+REPO_ROOT="${YOUROS_REPO_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 
-REAPER="${MYOS_REAPER_SCRIPT:-$REPO_ROOT/scripts/worktree-reaper.sh}"
-BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}"
-SKIP_REAP_API="${MYOS_SKIP_REAP_API:-0}"
+REAPER="${YOUROS_REAPER_SCRIPT:-$REPO_ROOT/scripts/worktree-reaper.sh}"
+BACKEND_URL="${YOUROS_BACKEND_URL:-https://127.0.0.1:8000}"
+SKIP_REAP_API="${YOUROS_SKIP_REAP_API:-0}"
 
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 

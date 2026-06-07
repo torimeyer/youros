@@ -21,7 +21,7 @@ fail() { echo "FAIL: $1 - $2"; FAIL=$((FAIL+1)); }
 TEST_UVICORN_PORT=59981
 TEST_VITE_PORT=59982
 
-# --- Test 1: no processes on ports → exits 0 and prints "myOS stopped." ---
+# --- Test 1: no processes on ports → exits 0 and prints "yourOS stopped." ---
 out=$(PORT="$TEST_UVICORN_PORT" VITE_PORT="$TEST_VITE_PORT" bash "$STOP" 2>&1)
 rc=$?
 if [ "$rc" -eq 0 ]; then
@@ -29,7 +29,7 @@ if [ "$rc" -eq 0 ]; then
 else
   fail "stop_sh_exits_0_when_nothing_running" "exit code $rc"
 fi
-if echo "$out" | grep -q "myOS stopped."; then
+if echo "$out" | grep -q "yourOS stopped."; then
   pass "stop_sh_prints_stopped_message"
 else
   fail "stop_sh_prints_stopped_message" "output was: $out"

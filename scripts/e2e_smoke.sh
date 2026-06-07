@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# myOS end-to-end smoke test.
+# yourOS end-to-end smoke test.
 #
 # Runs a full health check before a release:
 #   1. Backend test suite (pytest)
@@ -71,10 +71,10 @@ export RELEASE_MODE
 # tmpdir so ~/.youros/specs/ never grows by latency-probe-* / wave2-* /
 # build-a-website / ship-guided-onboarding-for-solo-pms artifacts. Child
 # dev-backend.sh inherits this env var. Trap cleans up on exit.
-if [ -z "${MYOS_USER_SPECS_DIR:-}" ]; then
-    MYOS_USER_SPECS_DIR="$(mktemp -d -t myos-specs-e2e.XXXXXX)/specs"
-    export MYOS_USER_SPECS_DIR
-    _E2E_SPECS_TMP_PARENT="$(dirname "$MYOS_USER_SPECS_DIR")"
+if [ -z "${YOUROS_USER_SPECS_DIR:-}" ]; then
+    YOUROS_USER_SPECS_DIR="$(mktemp -d -t youros-specs-e2e.XXXXXX)/specs"
+    export YOUROS_USER_SPECS_DIR
+    _E2E_SPECS_TMP_PARENT="$(dirname "$YOUROS_USER_SPECS_DIR")"
 fi
 
 # Track the original os_name so we can restore it on exit. The settings
@@ -515,7 +515,7 @@ header() {
     echo ""
 }
 
-header "myOS end-to-end smoke test"
+header "yourOS end-to-end smoke test"
 # Time primitive: announce smoke start. Failures here must NOT break smoke.
 SMOKE_OP_ID="smoke-$(date +%s)"
 curl -sk --connect-timeout 3 -m 5 -X POST "${API_BASE}/api/time/start" \
@@ -690,7 +690,7 @@ if [ "$SKIP_LIVE" != "1" ]; then
         check_http_json "GET /api/briefing returns show field"           "/api/briefing"              '"show"'
 
         # --- Upgrade status ---
-        check_http_json "GET /api/upgrade/status returns myos info"      "/api/upgrade/status"        '"myos"'
+        check_http_json "GET /api/upgrade/status returns youros info"      "/api/upgrade/status"        '"youros"'
         check_http_json "GET /api/upgrade/status returns ostk info"      "/api/upgrade/status"        '"ostk"'
 
         # --- Status/clock endpoint ---
@@ -876,9 +876,9 @@ print(d.get('label',{}).get('id', d.get('id','')))
         # can restore it even if the script is interrupted mid-test.
         _E2E_ORIGINAL_OS_NAME=$(curl -sS $CURL_OPTS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
         # Pollution guard: never restore "e2e-test-os" itself (means a prior run
-        # was interrupted between the PATCH and the restore). Fall back to "myOS".
+        # was interrupted between the PATCH and the restore). Fall back to "yourOS".
         if [ "$_E2E_ORIGINAL_OS_NAME" = "e2e-test-os" ] || [ -z "$_E2E_ORIGINAL_OS_NAME" ]; then
-            _E2E_ORIGINAL_OS_NAME="myOS"
+            _E2E_ORIGINAL_OS_NAME="yourOS"
         fi
         curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
             -H 'content-type: application/json' \
@@ -1702,7 +1702,7 @@ print(d.get('id', d.get('member',{}).get('id','')))
             fi
 
             # --- Needles migration in start.sh ---
-            if grep -q 'myos/needles' "$REPO_DIR/start.sh"; then
+            if grep -q 'youros/needles' "$REPO_DIR/start.sh"; then
                 phase_pass "start.sh has needles migration logic"
             else
                 phase_fail "start.sh missing needles migration"
@@ -1874,7 +1874,7 @@ if [ "$FAIL" -eq 0 ]; then
         -H 'Content-Type: application/json' \
         -d "{\"op_id\":\"${SMOKE_OP_ID}\",\"status\":\"completed\"}" \
         > /dev/null 2>&1 || true
-    echo -e "${GREEN}All phases passed.${NC} myOS is ready to release."
+    echo -e "${GREEN}All phases passed.${NC} yourOS is ready to release."
     exit 0
 else
     curl -sk --connect-timeout 3 -m 5 -X POST "${API_BASE}/api/time/finish" \

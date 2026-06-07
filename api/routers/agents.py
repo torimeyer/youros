@@ -5108,8 +5108,8 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
     # Only after ALL five hold: delete the custom spawn path and this comment block.
     # See spec AC3 in ~/.youros/specs/adopt-claude-code-s-good-ideas-into-myos-as-vendor-agnostic-abstractions.md
     #
-    # --- ostk run path: env-level canonical (MYOS_SPAWN_USE_OSTK_RUN=1, →1305) or per-request opt-in ---
-    # MYOS_SPAWN_USE_OSTK_RUN=1 makes `ostk run <Agentfile>` the default for every spawn.
+    # --- ostk run path: env-level canonical (YOUROS_SPAWN_USE_OSTK_RUN=1, →1305) or per-request opt-in ---
+    # YOUROS_SPAWN_USE_OSTK_RUN=1 makes `ostk run <Agentfile>` the default for every spawn.
     # The bespoke claude-code subprocess path is the fallback when:
     #   (a) flag is off and use_ostk_run=False (existing default — no behaviour change)
     #   (b) flag is on but no agentfile resolves for this name  → silent fallback to bespoke
@@ -5128,10 +5128,10 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
     # commits). Full adoption for code-edit agents requires extending run_agentfile
     # or cherry-picking the isolation env-injection. See plan Tier 2.2.
     # AC3: ostk-run is the default spawn path for all agent types.
-    # MYOS_SPAWN_FORCE_CUSTOM=1 is the kill-switch: forces the custom path, skips ostk-run entirely.
-    # MYOS_SPAWN_USE_OSTK_RUN is preserved for backward compat (now a no-op since default is on).
-    _force_custom = os.environ.get("MYOS_SPAWN_FORCE_CUSTOM", "").strip() in ("1", "true", "yes")
-    _env_use_ostk_run = os.environ.get("MYOS_SPAWN_USE_OSTK_RUN", "").strip() in ("1", "true", "yes")
+    # YOUROS_SPAWN_FORCE_CUSTOM=1 is the kill-switch: forces the custom path, skips ostk-run entirely.
+    # YOUROS_SPAWN_USE_OSTK_RUN is preserved for backward compat (now a no-op since default is on).
+    _force_custom = os.environ.get("YOUROS_SPAWN_FORCE_CUSTOM", "").strip() in ("1", "true", "yes")
+    _env_use_ostk_run = os.environ.get("YOUROS_SPAWN_USE_OSTK_RUN", "").strip() in ("1", "true", "yes")
     _req_use_ostk_run = getattr(body, "use_ostk_run", False)
     # Comprehensive/saa builds are code-edit agents: they require the three
     # features the ostk-run path explicitly does NOT preserve (worktree
@@ -5140,17 +5140,11 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
     # that keeps the comprehensive build button working, and the
     # BUILD_CONCURRENCY queue that returns build_state="queued" at the limit.
     # The ostk-run early-return would short-circuit all of those, so
-    # comprehensive/saa spawns always take the bespoke path. Any other
-    # named template also requires the bespoke path by default because
-    # run_agentfile uses stdin=DEVNULL and never injects body.prompt or
-    # the agentfile PROMPT field — the custom launcher (lines ~5533-5900)
-    # does both. The env flag MYOS_SPAWN_USE_OSTK_RUN=1 can still force
-    # ostk-run for non-comprehensive templates (research/pilot use).
+    # comprehensive/saa spawns always take the bespoke path.
     # A per-request use_ostk_run=True still forces ostk-run (explicit opt-in wins).
     _is_comprehensive_template = str(body.template or "").lower() in ("comprehensive", "saa")
     _use_ostk_run = not _force_custom and (
-        _req_use_ostk_run or
-        (not _is_comprehensive_template and (_env_use_ostk_run or not body.template))
+        _req_use_ostk_run or not _is_comprehensive_template
     )
     if _use_ostk_run:
         # _ostk_fallback_ok: False when the caller explicitly requested ostk-run (per-request opt-in).
@@ -5189,7 +5183,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
             else:
                 _ostk_result = await ostk.run_agentfile(
                     str(_ostk_agentfile_path),
-                    env_passthrough=["ANTHROPIC_API_KEY", "MYOS_AGENT_NAME"],
+                    env_passthrough=["ANTHROPIC_API_KEY", "YOUROS_AGENT_NAME"],
                     dry_run=_ostk_dry_run,
                 )
                 _ostk_ran = True
@@ -5748,12 +5742,12 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                     # checkout, causing all edits to land there instead of the
                     # worktree. This is the cwd-leak root cause (→932, →916).
                     _spawn_env["CLAUDE_PROJECT_DIR"] = str(_wt_path)
-                    # heartbeat-agent.sh reads MYOS_AGENT_NAME to route its
+                    # heartbeat-agent.sh reads YOUROS_AGENT_NAME to route its
                     # hook-fired heartbeats to the correct registered row.
                     # Without this the hook derives a session_id-based name
                     # that never matches the custom-named agent row, leaving
                     # last_heartbeat_at null for the entire run.
-                    _spawn_env["MYOS_AGENT_NAME"] = body.name
+                    _spawn_env["YOUROS_AGENT_NAME"] = body.name
                     _worktree_path = str(_wt_path)
                     _worktree_branch = _wt_branch
                     # L2.3 (→902): sync .claude/ into the new worktree so hook

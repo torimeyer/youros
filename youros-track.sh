@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Enable or disable myOS subagent tracking in the current repo.
+# Enable or disable yourOS subagent tracking in the current repo.
 #
 # Adds a Claude Code PreToolUse hook at .claude/settings.local.json
 # pointing at ~/.youros/hooks/register-agent.sh, so Task-tool subagents
-# spawned in THIS repo register with the myOS backend and show up on
+# spawned in THIS repo register with the yourOS backend and show up on
 # the Agents page. Scoped to one project at a time; doesn't touch
 # ~/.claude/ or any other directory.
 #
 # Usage:
-#   myos-track            enable in the current directory
-#   myos-track --remove   disable in the current directory
-#   myos-track --status   report current state
-#   myos-track --help
+#   youros-track            enable in the current directory
+#   youros-track --remove   disable in the current directory
+#   youros-track --status   report current state
+#   youros-track --help
 
 set -u
 
@@ -38,7 +38,7 @@ SETTINGS=".claude/settings.local.json"
 GLOBAL_SETTINGS="$HOME/.claude/settings.json"
 
 if [ ! -f "$HOOK_FILE" ]; then
-    echo "Missing $HOOK_FILE — run ./install.sh in the myOS repo first." >&2
+    echo "Missing $HOOK_FILE — run ./install.sh in the yourOS repo first." >&2
     exit 1
 fi
 
@@ -59,7 +59,7 @@ fi
 case "$ACTION" in
     status)
         if [ ! -f "$SETTINGS" ]; then
-            echo "myos-track: NOT tracking in $REPO_DIR"
+            echo "youros-track: NOT tracking in $REPO_DIR"
             exit 0
         fi
         if python3 -c "
@@ -72,9 +72,9 @@ for e in pre:
             sys.exit(0)
 sys.exit(1)
 " 2>/dev/null; then
-            echo "myos-track: tracking in $REPO_DIR (via $SETTINGS)"
+            echo "youros-track: tracking in $REPO_DIR (via $SETTINGS)"
         else
-            echo "myos-track: NOT tracking in $REPO_DIR ($SETTINGS exists but no hook entry)"
+            echo "youros-track: NOT tracking in $REPO_DIR ($SETTINGS exists but no hook entry)"
         fi
         exit 0
         ;;
@@ -106,8 +106,8 @@ with open(path, "w") as f:
     json.dump(d, f, indent=2); f.write("\n")
 print(f"enabled: {path}")
 PYEOF
-        echo "myos-track: machine-wide tracking enabled (via $GLOBAL_SETTINGS)"
-        echo "Every Claude Code session on this computer will register Task-tool subagents with myOS."
+        echo "youros-track: machine-wide tracking enabled (via $GLOBAL_SETTINGS)"
+        echo "Every Claude Code session on this computer will register Task-tool subagents with yourOS."
         ;;
 
     enable)
@@ -141,13 +141,13 @@ with open(path, "w") as f:
     json.dump(d, f, indent=2); f.write("\n")
 print(f"enabled: {path}")
 PYEOF
-        echo "myos-track: tracking enabled in $REPO_DIR"
-        echo "Claude Code sessions opened here will register Task-tool subagents with myOS."
+        echo "youros-track: tracking enabled in $REPO_DIR"
+        echo "Claude Code sessions opened here will register Task-tool subagents with yourOS."
         ;;
 
     remove)
         if [ ! -f "$SETTINGS" ]; then
-            echo "myos-track: nothing to remove in $REPO_DIR (no $SETTINGS)"
+            echo "youros-track: nothing to remove in $REPO_DIR (no $SETTINGS)"
             exit 0
         fi
         python3 - "$SETTINGS" <<'PYEOF' || { echo "Failed to update $SETTINGS" >&2; exit 1; }
@@ -180,6 +180,6 @@ if removed:
         sys.exit(0)
 print(f"updated {path}")
 PYEOF
-        echo "myos-track: tracking disabled in $REPO_DIR"
+        echo "youros-track: tracking disabled in $REPO_DIR"
         ;;
 esac

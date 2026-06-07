@@ -198,11 +198,11 @@ def test_session_start_skips_reaper_when_myos_agent_name_set(tmp_path):
         input=hook_input,
         capture_output=True,
         text=True,
-        env={**os.environ, "MYOS_AGENT_NAME": "some-subagent", "HOME": str(tmp_path)},
+        env={**os.environ, "YOUROS_AGENT_NAME": "some-subagent", "HOME": str(tmp_path)},
     )
 
     assert not sentinel.exists(), (
-        "session-start.sh ran the worktree reaper despite MYOS_AGENT_NAME being set!\n"
+        "session-start.sh ran the worktree reaper despite YOUROS_AGENT_NAME being set!\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
     # Exit 0 — the hook should still succeed

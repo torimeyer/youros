@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# test-myos-bail.sh — regression tests for scripts/myos-bail.sh (→1313)
+# test-youros-bail.sh — regression tests for scripts/youros-bail.sh (→1313)
 #
 # Creates a fake directory tree, stubs out `ostk`, runs pack/verify/unpack,
 # and asserts included files are present and excluded files are absent.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BAIL_SCRIPT="$SCRIPT_DIR/myos-bail.sh"
+BAIL_SCRIPT="$SCRIPT_DIR/youros-bail.sh"
 
 PASS=0
 FAIL=0
@@ -85,7 +85,7 @@ OUT_BAIL="$TESTROOT/test-export.yourosbail"
 # ── pack ──────────────────────────────────────────────────────────────────────
 
 HOME="$FAKE_HOME" \
-MYOS_DIR="$FAKE_HOME/.youros" \
+YOUROS_DIR="$FAKE_HOME/.youros" \
 MEMORY_DIR="$FAKE_MEMORY" \
 HANDOFFS_DIR="$FAKE_HOME/.claude/handoffs" \
 DECISIONS_DIR="$FAKE_REPO/.ostk/decisions" \
@@ -102,11 +102,11 @@ mkdir -p "$INSPECT"
 tar xzf "$OUT_BAIL" -C "$INSPECT"
 
 [[ -f "$INSPECT/ostk-state.bail" ]]    && pass "bundle contains ostk-state.bail"    || fail "bundle contains ostk-state.bail"
-[[ -f "$INSPECT/myos-extras.tar.gz" ]] && pass "bundle contains myos-extras.tar.gz" || fail "bundle contains myos-extras.tar.gz"
+[[ -f "$INSPECT/youros-extras.tar.gz" ]] && pass "bundle contains youros-extras.tar.gz" || fail "bundle contains youros-extras.tar.gz"
 
 # ── inspect extras archive contents (tar list, not extract to /) ──────────────
 
-EXTRAS_LIST="$(tar tzf "$INSPECT/myos-extras.tar.gz" 2>/dev/null)"
+EXTRAS_LIST="$(tar tzf "$INSPECT/youros-extras.tar.gz" 2>/dev/null)"
 
 echo_extras_check() {
     local label="$1" pattern="$2" want_present="$3"

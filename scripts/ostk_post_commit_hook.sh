@@ -3,7 +3,7 @@
 #
 # Reads the latest commit message, greps for spec slugs (file stems under
 # ~/.youros/specs/*.md) and →NNNN / ->NNNN task IDs, then POSTs a passive
-# claim to the myOS backend for each match.
+# claim to the yourOS backend for each match.
 #
 # Install: copy or symlink this file to .git/hooks/post-commit
 # (scripts/install-post-commit-hook.sh does this automatically).
@@ -14,7 +14,7 @@ set -euo pipefail
 
 LOG=/tmp/ostk-post-commit.log
 BACKEND="https://127.0.0.1:8000"
-SPECS_DIR="${MYOS_USER_SPECS_DIR:-${HOME}/.youros/specs}"
+SPECS_DIR="${YOUROS_USER_SPECS_DIR:-${HOME}/.youros/specs}"
 
 # Only run when the backend is reachable (non-blocking probe).
 if ! curl --connect-timeout 2 -m 3 -skI "${BACKEND}/api/agents" >/dev/null 2>&1; then

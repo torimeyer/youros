@@ -37,12 +37,12 @@ LOCK="$SCRATCH/singleton.lock"
 
 start_watcher() {
     local backend_url="$1"
-    MYOS_BACKEND_URL="$backend_url" \
-    MYOS_COMPLETION_ANNC="$ANNC" \
-    MYOS_COMPLETION_STATE="$STATE" \
-    MYOS_COMPLETION_PID="$WPID" \
-    MYOS_COMPLETION_LOCK="$LOCK" \
-    MYOS_COMPLETION_WATCHER_INTERVAL="1" \
+    YOUROS_BACKEND_URL="$backend_url" \
+    YOUROS_COMPLETION_ANNC="$ANNC" \
+    YOUROS_COMPLETION_STATE="$STATE" \
+    YOUROS_COMPLETION_PID="$WPID" \
+    YOUROS_COMPLETION_LOCK="$LOCK" \
+    YOUROS_COMPLETION_WATCHER_INTERVAL="1" \
         bash "$WATCHER" </dev/null >/dev/null 2>&1 &
     echo $!
 }

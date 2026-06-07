@@ -66,8 +66,8 @@ run_check() {
     local backend_url="${2:-https://127.0.0.1:8000}"
     local frontend_url="${3:-https://localhost:3010}"
     PATH="$stub_dir:$PATH" \
-        MYOS_BACKEND_URL="$backend_url" \
-        MYOS_FRONTEND_URL="$frontend_url" \
+        YOUROS_BACKEND_URL="$backend_url" \
+        YOUROS_FRONTEND_URL="$frontend_url" \
         bash "$TARGET" 2>&1
 }
 
@@ -114,7 +114,7 @@ rm -rf "$SD"
 
 # --- 6. Exit code is always 0 (advisory, not blocking) ---
 SD=$(make_stub_dir "000" "000")
-PATH="$SD:$PATH" MYOS_BACKEND_URL="https://127.0.0.1:8000" MYOS_FRONTEND_URL="https://localhost:3010" \
+PATH="$SD:$PATH" YOUROS_BACKEND_URL="https://127.0.0.1:8000" YOUROS_FRONTEND_URL="https://localhost:3010" \
     bash "$TARGET" >/dev/null 2>&1
 EXIT_CODE=$?
 if [ "$EXIT_CODE" -eq 0 ]; then

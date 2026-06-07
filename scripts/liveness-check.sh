@@ -23,8 +23,8 @@ YELLOW='\033[0;33m'
 NC='\033[0m'
 
 # Honour env overrides so tests can point at a stub server.
-BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}/api/health"
-FRONTEND_URL="${MYOS_FRONTEND_URL:-https://localhost:3010}/"
+BACKEND_URL="${YOUROS_BACKEND_URL:-https://127.0.0.1:8000}/api/health"
+FRONTEND_URL="${YOUROS_FRONTEND_URL:-https://localhost:3010}/"
 
 all_ok=true
 

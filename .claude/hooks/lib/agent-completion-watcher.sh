@@ -9,22 +9,22 @@
 # daemon dies mid-session. Do not start this script directly unless testing.
 #
 # Env overrides:
-#   MYOS_BACKEND_URL                  (default https://127.0.0.1:8000)
-#   MYOS_COMPLETION_ANNC              announcements file
-#   MYOS_COMPLETION_STATE             per-run state file (known statuses)
-#   MYOS_COMPLETION_PID               PID file written on start
-#   MYOS_COMPLETION_LOCK              singleton lock file (default ~/.youros/subagents/completion-watcher.lock)
-#   MYOS_COMPLETION_WATCHER_INTERVAL  poll interval in seconds (default 5)
+#   YOUROS_BACKEND_URL                  (default https://127.0.0.1:8000)
+#   YOUROS_COMPLETION_ANNC              announcements file
+#   YOUROS_COMPLETION_STATE             per-run state file (known statuses)
+#   YOUROS_COMPLETION_PID               PID file written on start
+#   YOUROS_COMPLETION_LOCK              singleton lock file (default ~/.youros/subagents/completion-watcher.lock)
+#   YOUROS_COMPLETION_WATCHER_INTERVAL  poll interval in seconds (default 5)
 
-POLL_INTERVAL="${MYOS_COMPLETION_WATCHER_INTERVAL:-5}"
-BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}"
-ANNC_FILE="${MYOS_COMPLETION_ANNC:-$HOME/.youros/subagents/pending-completion-announcements.jsonl}"
-STATE_FILE="${MYOS_COMPLETION_STATE:-$HOME/.youros/subagents/completion-watcher-state.json}"
-PID_FILE="${MYOS_COMPLETION_PID:-$HOME/.youros/subagents/completion-watcher.pid}"
-LOCK_FILE="${MYOS_COMPLETION_LOCK:-$HOME/.youros/subagents/completion-watcher.lock}"
-COUNT_FILE="${MYOS_COMPLETION_COUNT:-}"   # running-agent count written by POLL_PY each cycle
+POLL_INTERVAL="${YOUROS_COMPLETION_WATCHER_INTERVAL:-5}"
+BACKEND_URL="${YOUROS_BACKEND_URL:-https://127.0.0.1:8000}"
+ANNC_FILE="${YOUROS_COMPLETION_ANNC:-$HOME/.youros/subagents/pending-completion-announcements.jsonl}"
+STATE_FILE="${YOUROS_COMPLETION_STATE:-$HOME/.youros/subagents/completion-watcher-state.json}"
+PID_FILE="${YOUROS_COMPLETION_PID:-$HOME/.youros/subagents/completion-watcher.pid}"
+LOCK_FILE="${YOUROS_COMPLETION_LOCK:-$HOME/.youros/subagents/completion-watcher.lock}"
+COUNT_FILE="${YOUROS_COMPLETION_COUNT:-}"   # running-agent count written by POLL_PY each cycle
 # After this many consecutive zero-running-agent polls (post SAW_RUNNING), exit.
-EMPTY_THRESHOLD="${MYOS_COMPLETION_WATCHER_EMPTY_THRESHOLD:-3}"
+EMPTY_THRESHOLD="${YOUROS_COMPLETION_WATCHER_EMPTY_THRESHOLD:-3}"
 MAX_BACKOFF=30   # seconds; cap for exponential backoff on poll failure
 
 # Singleton: only one watcher may run host-wide at any time, regardless of how

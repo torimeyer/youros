@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# myos_status: list the running user-spawned agents the way the Agents page shows them.
+# youros_status: list the running user-spawned agents the way the Agents page shows them.
 #
 # Why: ad-hoc `curl /api/agents | python3 ...` loops over-count because they
 # never apply the same filter as the Agents page (chat sessions, audit rows,
@@ -20,7 +20,7 @@
 #     scripts/status.sh                 # one line per running user-spawned agent
 #     scripts/status.sh --count         # just the count
 #     API_HOST=... scripts/status.sh    # override host (default https://127.0.0.1:8000)
-#     MYOS_STATUS_FIXTURE=path.json     # read agents from a local JSON fixture (for tests)
+#     YOUROS_STATUS_FIXTURE=path.json     # read agents from a local JSON fixture (for tests)
 #
 # Exits 0 even when the list is empty. Errors on network / parse failure.
 
@@ -34,12 +34,12 @@ if [[ "${1:-}" == "--count" ]]; then
     count_only=1
 fi
 
-if [[ -n "${MYOS_STATUS_FIXTURE:-}" ]]; then
-    if [[ ! -f "${MYOS_STATUS_FIXTURE}" ]]; then
-        echo "status: fixture not found at ${MYOS_STATUS_FIXTURE}" >&2
+if [[ -n "${YOUROS_STATUS_FIXTURE:-}" ]]; then
+    if [[ ! -f "${YOUROS_STATUS_FIXTURE}" ]]; then
+        echo "status: fixture not found at ${YOUROS_STATUS_FIXTURE}" >&2
         exit 1
     fi
-    body="$(cat "${MYOS_STATUS_FIXTURE}")"
+    body="$(cat "${YOUROS_STATUS_FIXTURE}")"
 else
     # Bumped from --connect-timeout 3 -m 5 to 5/10 with one silent retry.
     # The 3/5 budget was tripping false "backend unreachable" reports during
@@ -117,7 +117,7 @@ def format_elapsed(seconds):
 # Allow tests to pin "now" for deterministic elapsed math.
 # Format: ISO8601, same shape as the API timestamps.
 import os
-now_override = os.environ.get("MYOS_STATUS_NOW")
+now_override = os.environ.get("YOUROS_STATUS_NOW")
 if now_override:
     parsed = parse_iso(now_override)
     now = parsed if parsed is not None else datetime.now(timezone.utc)

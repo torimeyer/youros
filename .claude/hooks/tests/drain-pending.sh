@@ -3,8 +3,8 @@
 #
 # Boots a throwaway HTTP server on 127.0.0.1, seeds
 # pending-register.jsonl with 2 valid JSON bodies + 1 malformed line,
-# points the drain lib at the fake server via MYOS_REGISTER_URL, then
-# runs the drain with MYOS_DRAIN_FORCE=1.
+# points the drain lib at the fake server via YOUROS_REGISTER_URL, then
+# runs the drain with YOUROS_DRAIN_FORCE=1.
 #
 # Assertions:
 #   1. Fake server received exactly 2 POSTs (malformed was dropped).
@@ -76,12 +76,12 @@ HOOKS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$HOOKS_DIR/lib/drain-pending.sh"
 
 START=$(date +%s)
-MYOS_DRAIN_FORCE=1 \
-MYOS_DRAIN_QUEUE="$QUEUE" \
-MYOS_DRAIN_STAMP="$STAMP" \
-MYOS_REGISTER_URL="http://127.0.0.1:${PORT}/api/agents/register" \
-MYOS_DRAIN_BUDGET=10 \
-    myos_drain_pending 2>"$SCRATCH/drain.stderr"
+YOUROS_DRAIN_FORCE=1 \
+YOUROS_DRAIN_QUEUE="$QUEUE" \
+YOUROS_DRAIN_STAMP="$STAMP" \
+YOUROS_REGISTER_URL="http://127.0.0.1:${PORT}/api/agents/register" \
+YOUROS_DRAIN_BUDGET=10 \
+    youros_drain_pending 2>"$SCRATCH/drain.stderr"
 END=$(date +%s)
 ELAPSED=$((END - START))
 
@@ -123,11 +123,11 @@ if ! grep -q "dropped malformed line" "$SCRATCH/drain.stderr"; then
 fi
 
 # Idempotency: running again is a no-op.
-MYOS_DRAIN_FORCE=1 \
-MYOS_DRAIN_QUEUE="$QUEUE" \
-MYOS_DRAIN_STAMP="$STAMP" \
-MYOS_REGISTER_URL="http://127.0.0.1:${PORT}/api/agents/register" \
-    myos_drain_pending 2>/dev/null
+YOUROS_DRAIN_FORCE=1 \
+YOUROS_DRAIN_QUEUE="$QUEUE" \
+YOUROS_DRAIN_STAMP="$STAMP" \
+YOUROS_REGISTER_URL="http://127.0.0.1:${PORT}/api/agents/register" \
+    youros_drain_pending 2>/dev/null
 sleep 0.1
 HITS2=$(wc -l < "$HIT_LOG" | tr -d ' ')
 if [ "$HITS2" -ne 2 ]; then

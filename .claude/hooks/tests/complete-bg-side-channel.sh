@@ -43,7 +43,7 @@ printf '1' > "$TMP_HOME/.youros/subagents/by-tool-use/$TUID.bg"
 PAYLOAD_NOINPUT='{"tool_name":"Agent","tool_use_id":"'"$TUID"'","tool_response":{"output":""}}'
 START=$(date +%s%N 2>/dev/null || date +%s)
 printf '%s' "$PAYLOAD_NOINPUT" | HOME="$TMP_HOME" \
-    MYOS_COMPLETE_URL_BASE="https://127.0.0.1:1/api/agents" \
+    YOUROS_COMPLETE_URL_BASE="https://127.0.0.1:1/api/agents" \
     bash "$COMPLETE" >/dev/null 2>&1
 END=$(date +%s%N 2>/dev/null || date +%s)
 ELAPSED_MS=$(( (END - START) / 1000000 ))
@@ -62,7 +62,7 @@ printf '1' > "$TMP_HOME/.youros/subagents/last.bg"
 PAYLOAD_NOID='{"tool_name":"Agent","tool_response":{"output":""}}'
 START=$(date +%s%N 2>/dev/null || date +%s)
 printf '%s' "$PAYLOAD_NOID" | HOME="$TMP_HOME" \
-    MYOS_COMPLETE_URL_BASE="https://127.0.0.1:1/api/agents" \
+    YOUROS_COMPLETE_URL_BASE="https://127.0.0.1:1/api/agents" \
     bash "$COMPLETE" >/dev/null 2>&1
 END=$(date +%s%N 2>/dev/null || date +%s)
 ELAPSED_MS=$(( (END - START) / 1000000 ))
@@ -79,7 +79,7 @@ TUID2="toolu_fg_test_$(date +%s)_$$"
 PAYLOAD_FG_NOINPUT='{"tool_name":"Agent","tool_use_id":"'"$TUID2"'","tool_response":{"output":""}}'
 START=$(date +%s%N 2>/dev/null || date +%s)
 printf '%s' "$PAYLOAD_FG_NOINPUT" | HOME="$TMP_HOME" \
-    MYOS_COMPLETE_URL_BASE="https://127.0.0.1:1/api/agents" \
+    YOUROS_COMPLETE_URL_BASE="https://127.0.0.1:1/api/agents" \
     bash "$COMPLETE" >/dev/null 2>&1
 END=$(date +%s%N 2>/dev/null || date +%s)
 ELAPSED_MS=$(( (END - START) / 1000000 ))

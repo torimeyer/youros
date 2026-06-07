@@ -5,7 +5,7 @@
 #
 # Covers:
 #   1. HEALTH_URL defaults to /api/health (not any heavier endpoint).
-#   2. MYOS_WATCHDOG_DEADLOCK_THRESHOLD defaults to 10.
+#   2. YOUROS_WATCHDOG_DEADLOCK_THRESHOLD defaults to 10.
 #   3. Watchdog does NOT kill a pid-alive backend after < 10 consecutive
 #      failed probes (the false-positive scenario that caused crash loops).
 #   4. Watchdog DOES fire SIGKILL once the threshold is reached.
@@ -33,7 +33,7 @@ fail() { echo "[FAIL] $1"; FAIL=$((FAIL + 1)); _test_failures+=("$1"); }
 
 # Safe stub dev-backend: records that it was invoked (marker file) instead of
 # starting a real uvicorn on port 8000. The restart-path test (4) and the
-# kill-only test (6) point MYOS_WATCHDOG_DEV_BACKEND at this so running the suite
+# kill-only test (6) point YOUROS_WATCHDOG_DEV_BACKEND at this so running the suite
 # on a live machine can never kill the real :8000 backend.
 _stub_dir=$(mktemp -d)
 _stub_marker="$_stub_dir/dev_backend_invoked"
@@ -47,7 +47,7 @@ chmod +x "$_stub_dev_backend"
 # ---------------------------------------------------------------------------
 # Test 1: HEALTH_URL default is /api/health
 # ---------------------------------------------------------------------------
-_default_health_url=$(grep 'HEALTH_URL=.*MYOS_WATCHDOG_HEALTH_URL' "$WATCHDOG" | head -1)
+_default_health_url=$(grep 'HEALTH_URL=.*YOUROS_WATCHDOG_HEALTH_URL' "$WATCHDOG" | head -1)
 if echo "$_default_health_url" | grep -q '/api/health'; then
     pass "HEALTH_URL default contains /api/health"
 else
@@ -64,13 +64,13 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 2: MYOS_WATCHDOG_DEADLOCK_THRESHOLD default is 10
+# Test 2: YOUROS_WATCHDOG_DEADLOCK_THRESHOLD default is 10
 # ---------------------------------------------------------------------------
-_threshold_line=$(grep 'MYOS_WATCHDOG_DEADLOCK_THRESHOLD:-' "$WATCHDOG" | head -1)
+_threshold_line=$(grep 'YOUROS_WATCHDOG_DEADLOCK_THRESHOLD:-' "$WATCHDOG" | head -1)
 if echo "$_threshold_line" | grep -q ':-10}'; then
-    pass "MYOS_WATCHDOG_DEADLOCK_THRESHOLD default is 10"
+    pass "YOUROS_WATCHDOG_DEADLOCK_THRESHOLD default is 10"
 else
-    fail "MYOS_WATCHDOG_DEADLOCK_THRESHOLD default is NOT 10 (got: $_threshold_line)"
+    fail "YOUROS_WATCHDOG_DEADLOCK_THRESHOLD default is NOT 10 (got: $_threshold_line)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -111,15 +111,15 @@ _threshold_under_test=4
 # [(threshold-1)*21, (threshold-1)*21+16) = [63s, 79s).
 # Using (threshold-1)*21 + 8 = 71s gives a safe 8s margin on both sides.
 _run_for=$(((_threshold_under_test - 1) * 21 + 8))
-MYOS_WATCHDOG_PIDFILE="$_wd_pidfile" \
-MYOS_WATCHDOG_LOGFILE="$_wd_logfile" \
-MYOS_WATCHDOG_BACKEND_PORT="$_be_port" \
-MYOS_WATCHDOG_INTERVAL=1 \
-MYOS_WATCHDOG_DEADLOCK_THRESHOLD="$_threshold_under_test" \
-MYOS_WATCHDOG_HEALTH_URL="https://127.0.0.1:${_be_port}/api/health" \
-MYOS_WATCHDOG_RESTART_WAIT=1 \
-MYOS_WATCHDOG_PYSPY_TIMEOUT=1 \
-MYOS_WATCHDOG_PROBE_RETRY_SLEEP=0 \
+YOUROS_WATCHDOG_PIDFILE="$_wd_pidfile" \
+YOUROS_WATCHDOG_LOGFILE="$_wd_logfile" \
+YOUROS_WATCHDOG_BACKEND_PORT="$_be_port" \
+YOUROS_WATCHDOG_INTERVAL=1 \
+YOUROS_WATCHDOG_DEADLOCK_THRESHOLD="$_threshold_under_test" \
+YOUROS_WATCHDOG_HEALTH_URL="https://127.0.0.1:${_be_port}/api/health" \
+YOUROS_WATCHDOG_RESTART_WAIT=1 \
+YOUROS_WATCHDOG_PYSPY_TIMEOUT=1 \
+YOUROS_WATCHDOG_PROBE_RETRY_SLEEP=0 \
 bash "$WATCHDOG" &
 _wd_pid=$!
 
@@ -171,16 +171,16 @@ _threshold2=3
 # Budget 25s per cycle plus margin.
 _run_for2=$((_threshold2 * 25 + 5))
 
-MYOS_WATCHDOG_PIDFILE="$_wd_pidfile2" \
-MYOS_WATCHDOG_LOGFILE="$_wd_logfile2" \
-MYOS_WATCHDOG_BACKEND_PORT="$_be_port" \
-MYOS_WATCHDOG_INTERVAL=1 \
-MYOS_WATCHDOG_DEADLOCK_THRESHOLD="$_threshold2" \
-MYOS_WATCHDOG_HEALTH_URL="https://127.0.0.1:${_be_port}/api/health" \
-MYOS_WATCHDOG_RESTART_WAIT=1 \
-MYOS_WATCHDOG_PYSPY_TIMEOUT=1 \
-MYOS_WATCHDOG_PROBE_RETRY_SLEEP=0 \
-MYOS_WATCHDOG_DEV_BACKEND="$_stub_dev_backend" \
+YOUROS_WATCHDOG_PIDFILE="$_wd_pidfile2" \
+YOUROS_WATCHDOG_LOGFILE="$_wd_logfile2" \
+YOUROS_WATCHDOG_BACKEND_PORT="$_be_port" \
+YOUROS_WATCHDOG_INTERVAL=1 \
+YOUROS_WATCHDOG_DEADLOCK_THRESHOLD="$_threshold2" \
+YOUROS_WATCHDOG_HEALTH_URL="https://127.0.0.1:${_be_port}/api/health" \
+YOUROS_WATCHDOG_RESTART_WAIT=1 \
+YOUROS_WATCHDOG_PYSPY_TIMEOUT=1 \
+YOUROS_WATCHDOG_PROBE_RETRY_SLEEP=0 \
+YOUROS_WATCHDOG_DEV_BACKEND="$_stub_dev_backend" \
 bash "$WATCHDOG" &
 _wd_pid2=$!
 
@@ -262,7 +262,7 @@ rm -rf "$_p5_dir"
 # Test 6: kill-only mode SIGKILLs a wedged backend but NEVER launches dev-backend
 #
 # In production, launchd (KeepAlive=true) owns respawning uvicorn. The watchdog
-# runs with MYOS_WATCHDOG_KILL_ONLY=1: it SIGKILLs a wedged-but-alive backend and
+# runs with YOUROS_WATCHDOG_KILL_ONLY=1: it SIGKILLs a wedged-but-alive backend and
 # then must do NOTHING else -- launching dev-backend.sh would race launchd for the
 # port (the double-bind the restart locking exists to prevent). Assert the stub
 # dev-backend is never invoked (no marker file) even though SIGKILL fired.
@@ -282,18 +282,18 @@ _threshold6=2
 # With all sleeps set to 0 a cycle is ~1s, so SIGKILL fires within a few seconds.
 _run_for6=$((_threshold6 * 3 + 6))
 
-MYOS_WATCHDOG_PIDFILE="$_wd_pidfile6" \
-MYOS_WATCHDOG_LOGFILE="$_wd_logfile6" \
-MYOS_WATCHDOG_BACKEND_PORT="$_be_port6" \
-MYOS_WATCHDOG_INTERVAL=1 \
-MYOS_WATCHDOG_DEADLOCK_THRESHOLD="$_threshold6" \
-MYOS_WATCHDOG_HEALTH_URL="https://127.0.0.1:${_be_port6}/api/health" \
-MYOS_WATCHDOG_RESTART_WAIT=1 \
-MYOS_WATCHDOG_PYSPY_TIMEOUT=1 \
-MYOS_WATCHDOG_PROBE_RETRY_SLEEP=0 \
-MYOS_WATCHDOG_TRANSIENT_RETRY_SLEEP=0 \
-MYOS_WATCHDOG_KILL_ONLY=1 \
-MYOS_WATCHDOG_DEV_BACKEND="$_stub_dev_backend" \
+YOUROS_WATCHDOG_PIDFILE="$_wd_pidfile6" \
+YOUROS_WATCHDOG_LOGFILE="$_wd_logfile6" \
+YOUROS_WATCHDOG_BACKEND_PORT="$_be_port6" \
+YOUROS_WATCHDOG_INTERVAL=1 \
+YOUROS_WATCHDOG_DEADLOCK_THRESHOLD="$_threshold6" \
+YOUROS_WATCHDOG_HEALTH_URL="https://127.0.0.1:${_be_port6}/api/health" \
+YOUROS_WATCHDOG_RESTART_WAIT=1 \
+YOUROS_WATCHDOG_PYSPY_TIMEOUT=1 \
+YOUROS_WATCHDOG_PROBE_RETRY_SLEEP=0 \
+YOUROS_WATCHDOG_TRANSIENT_RETRY_SLEEP=0 \
+YOUROS_WATCHDOG_KILL_ONLY=1 \
+YOUROS_WATCHDOG_DEV_BACKEND="$_stub_dev_backend" \
 bash "$WATCHDOG" &
 _wd_pid6=$!
 

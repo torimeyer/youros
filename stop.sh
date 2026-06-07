@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop myOS cleanly.
+# Stop yourOS cleanly.
 #
 # Ctrl+C in the terminal that started ./start.sh only kills the shell
 # running uvicorn. scripts/dev-backend.sh pairs uvicorn with
@@ -92,7 +92,7 @@ rm -f "/tmp/youros-backend-${UVICORN_PORT}.pid" 2>/dev/null || true
 if [ -z "$(pids_on_port "$UVICORN_PORT")" ] && \
    [ -z "$(pids_on_port "$VITE_PORT")" ] && \
    [ -z "$(pgrep -f 'backend_watchdog\.sh' 2>/dev/null)" ]; then
-    echo "myOS stopped."
+    echo "yourOS stopped."
     exit 0
 else
     echo "Warning: something is still listening; re-run to retry." >&2

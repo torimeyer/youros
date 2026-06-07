@@ -3,7 +3,7 @@
 # branch has unmerged commits ahead of main.
 #
 # Reproduces the pattern that caused live agent worktrees (e.g.
-# implement-about-myos-page-third-9d81d4) to be silently deleted when
+# implement-about-youros-page-third-9d81d4) to be silently deleted when
 # the reaper used git-diff to detect "absorbed" status. The diff approach
 # returned empty when the branch content was byte-identical to main (e.g.
 # after a prior cherry-pick), even though the branch had new commits.

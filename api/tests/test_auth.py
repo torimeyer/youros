@@ -309,6 +309,7 @@ async def test_key_status_google_oauth_unavailable_when_not_configured(client, t
     with (
         patch.dict("os.environ", {}, clear=False),
         patch("routers.secrets.ostk") as mock_ostk,
+        patch("services.google_auth.can_start_oauth", return_value=False),
     ):
         mock_ostk.secret_list = AsyncMock(return_value=[])
         # Remove GOOGLE_CLIENT_ID if it exists

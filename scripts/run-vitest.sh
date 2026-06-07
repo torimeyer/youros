@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# myOS vitest wrapper — single-instance lock + hard wall-clock cap + process-group reaping.
+# yourOS vitest wrapper — single-instance lock + hard wall-clock cap + process-group reaping.
 #
 # WHY THIS EXISTS:
 #   2026-04-08: pipe buffering caused 5 orphaned vitest workers (60s→11min).
@@ -32,8 +32,8 @@
 
 set -uo pipefail
 
-LOCK_DIR="/tmp/myos-vitest.lock"
-LOG_FILE="/tmp/myos-vitest.log"
+LOCK_DIR="/tmp/youros-vitest.lock"
+LOG_FILE="/tmp/youros-vitest.log"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="${VITEST_APP_DIR:-${REPO_DIR}/app}"
 

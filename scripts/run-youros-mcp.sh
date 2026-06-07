@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run the myOS MCP stdio server.
+# Run the yourOS MCP stdio server.
 # Activates the api/.venv and starts the server module on stdin/stdout.
 set -e
 

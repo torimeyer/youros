@@ -1,7 +1,7 @@
 #!/bin/bash
 # Test: scaffold-commit-watcher.sh writes NO warning when the spawned
 # worktree already has a commit after the spawn time.
-# Uses MYOS_SCAFFOLD_WAIT_SECONDS=0 so the watcher fires immediately.
+# Uses YOUROS_SCAFFOLD_WAIT_SECONDS=0 so the watcher fires immediately.
 # Exit 0 on pass, nonzero on fail.
 set -u
 
@@ -37,8 +37,8 @@ JSON
 echo "$INPUT" | \
     HOME="$SCRATCH/home" \
     CLAUDE_PROJECT_DIR="$SCRATCH/project" \
-    MYOS_SCAFFOLD_WAIT_SECONDS="0" \
-    MYOS_SPAWNED_AT=0 \
+    YOUROS_SCAFFOLD_WAIT_SECONDS="0" \
+    YOUROS_SPAWNED_AT=0 \
     TORIOS_API_BASE="http://127.0.0.1:19999" \
     bash "$HOOK" 2>/dev/null
 

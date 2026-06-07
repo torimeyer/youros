@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# myOS browser end-to-end tests.
+# yourOS browser end-to-end tests.
 #
 # Uses agent-browser (Vercel) to drive a real browser against the running
 # frontend on port 3010. Each journey opens pages, clicks elements, fills

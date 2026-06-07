@@ -30,10 +30,10 @@ setup_fake_install() {
   mkdir -p "$home"
   cat > "$home/.zshrc" <<'ZSHRC'
 # some existing config
-alias myos='/fake/path/start.sh'
-alias myos-update='/fake/path/update.sh'
-alias myos-track='/fake/path/myos-track.sh'
-alias myos-claude='/fake/path/myos-claude.sh'
+alias youros='/fake/path/start.sh'
+alias youros-update='/fake/path/update.sh'
+alias youros-track='/fake/path/youros-track.sh'
+alias youros-claude='/fake/path/youros-claude.sh'
 export FOO=bar
 ZSHRC
 }
@@ -67,25 +67,25 @@ fi
 
 # --- Test 2: aliases removed from .zshrc ---
 ZSHRC_FILE="$FAKE_HOME/.zshrc"
-if ! grep -q "alias myos=" "$ZSHRC_FILE" 2>/dev/null; then
-  pass "uninstall_removes_myos_alias"
+if ! grep -q "alias youros=" "$ZSHRC_FILE" 2>/dev/null; then
+  pass "uninstall_removes_youros_alias"
 else
-  fail "uninstall_removes_myos_alias" "alias myos= still in .zshrc"
+  fail "uninstall_removes_youros_alias" "alias youros= still in .zshrc"
 fi
-if ! grep -q "alias myos-update=" "$ZSHRC_FILE" 2>/dev/null; then
-  pass "uninstall_removes_myos_update_alias"
+if ! grep -q "alias youros-update=" "$ZSHRC_FILE" 2>/dev/null; then
+  pass "uninstall_removes_youros_update_alias"
 else
-  fail "uninstall_removes_myos_update_alias" "alias myos-update= still in .zshrc"
+  fail "uninstall_removes_youros_update_alias" "alias youros-update= still in .zshrc"
 fi
-if ! grep -q "alias myos-track=" "$ZSHRC_FILE" 2>/dev/null; then
-  pass "uninstall_removes_myos_track_alias"
+if ! grep -q "alias youros-track=" "$ZSHRC_FILE" 2>/dev/null; then
+  pass "uninstall_removes_youros_track_alias"
 else
-  fail "uninstall_removes_myos_track_alias" "alias myos-track= still in .zshrc"
+  fail "uninstall_removes_youros_track_alias" "alias youros-track= still in .zshrc"
 fi
-if ! grep -q "alias myos-claude=" "$ZSHRC_FILE" 2>/dev/null; then
-  pass "uninstall_removes_myos_claude_alias"
+if ! grep -q "alias youros-claude=" "$ZSHRC_FILE" 2>/dev/null; then
+  pass "uninstall_removes_youros_claude_alias"
 else
-  fail "uninstall_removes_myos_claude_alias" "alias myos-claude= still in .zshrc"
+  fail "uninstall_removes_youros_claude_alias" "alias youros-claude= still in .zshrc"
 fi
 
 # --- Test 3: non-alias lines preserved ---

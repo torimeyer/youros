@@ -1,5 +1,5 @@
 #!/bin/bash
-# OPT-IN installer: adopt myOS under the ostk machined kernel supervisor.
+# OPT-IN installer: adopt yourOS under the ostk machined kernel supervisor.
 #
 # DEFAULT BEHAVIOR IS UNCHANGED. Running this script is optional.
 # Nothing here alters any existing hook, settings file, or running daemon.
@@ -22,7 +22,7 @@
 #   Step 3: Print a summary: cert status, supervisor status, fleet view.
 #
 # WHAT IT DOES NOT DO:
-#   - Does NOT modify /api/agents, kernel_fleet.py, or any myOS API.
+#   - Does NOT modify /api/agents, kernel_fleet.py, or any yourOS API.
 #     The kernel fleet reader from tier 1.1A already merges kernel rows;
 #     this script just gives it richer data to merge.
 #   - Does NOT delete the homegrown worktree reaper or any lifecycle script.
@@ -31,12 +31,12 @@
 #   - Does NOT touch ostk hook wiring (that is install-ostk-hooks.sh's job).
 #
 # WHEN TO RUN THIS:
-#   - Before a multi-machine myOS setup where machined coordinates per-project
+#   - Before a multi-machine yourOS setup where machined coordinates per-project
 #     daemon lifecycle across machines.
 #   - When you want the kernel's supervised view to reflect what /api/agents
 #     already shows (machined is the proper long-term alternative to the reaper,
 #     per Scott).
-#   - Any time after the myOS reaper has been running long enough to trust that
+#   - Any time after the yourOS reaper has been running long enough to trust that
 #     machined is stable on this machine.
 #
 # ADOPTION IS REVERSIBLE:
@@ -50,7 +50,7 @@
 #     # (That file may not exist yet — ostk →1698 wires it; safe to skip if absent.)
 #
 # USAGE:
-#   scripts/adopt-myos-via-machined.sh [FLAGS]
+#   scripts/adopt-youros-via-machined.sh [FLAGS]
 #
 # FLAGS:
 #   --dry-run     Preview all steps without executing any of them.
@@ -63,7 +63,7 @@
 
 set -u
 
-SCRIPT_NAME="adopt-myos-via-machined"
+SCRIPT_NAME="adopt-youros-via-machined"
 
 # --- Flag parsing -----------------------------------------------------------
 
@@ -138,7 +138,7 @@ printf '  Step 3 [read] Print status + fleet view (always runs, read-only).\n'
 printf '\n'
 
 printf 'Adoption is reversible: run `ostk machined stop` to shut down the supervisor.\n'
-printf 'myOS /api/agents and kernel_fleet.py are not changed by this script.\n'
+printf 'yourOS /api/agents and kernel_fleet.py are not changed by this script.\n'
 printf 'The homegrown reaper keeps running alongside machined during the soak period.\n'
 printf '\n'
 

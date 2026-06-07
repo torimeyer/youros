@@ -9,7 +9,7 @@
 #   Tori had to kill the stuck processes by hand.
 #
 # What this test asserts:
-#   1. The MYOS_SKIP_HOOK=1 escape hatch bypasses the hook in under 2s.
+#   1. The YOUROS_SKIP_HOOK=1 escape hatch bypasses the hook in under 2s.
 #   2. The hook's inline perl timeout wrapper kills a command that runs
 #      past its budget and returns exit 124, not infinity.
 #   3. The whole hook script completes in under 5s on an empty stage.
@@ -44,24 +44,24 @@ assert_under() {
   fi
 }
 
-# --- Test 1: MYOS_SKIP_HOOK=1 returns instantly -------------------------
+# --- Test 1: YOUROS_SKIP_HOOK=1 returns instantly -------------------------
 START=$(date +%s)
-MYOS_SKIP_HOOK=1 "${HOOK}" >/dev/null 2>&1
+YOUROS_SKIP_HOOK=1 "${HOOK}" >/dev/null 2>&1
 RC=$?
 END=$(date +%s)
 ELAPSED=$((END - START))
 if [ "${RC}" -ne 0 ]; then
-  echo "FAIL: MYOS_SKIP_HOOK=1 exited ${RC}, expected 0."
+  echo "FAIL: YOUROS_SKIP_HOOK=1 exited ${RC}, expected 0."
   fail=$((fail + 1))
 else
-  assert_under 2 "MYOS_SKIP_HOOK escape hatch" "${ELAPSED}"
+  assert_under 2 "YOUROS_SKIP_HOOK escape hatch" "${ELAPSED}"
 fi
 
 # --- Test 2: hook exits cleanly when nothing is staged ------------------
 # The hook checks `git diff --cached --name-only`. In a freshly checked
 # out tree with nothing staged, it must short-circuit quickly. We run in
 # a scratch git repo so we do not mutate the caller's index.
-SCRATCH="$(mktemp -d -t myos-hook-test.XXXXXX)"
+SCRATCH="$(mktemp -d -t youros-hook-test.XXXXXX)"
 (
   cd "${SCRATCH}"
   git init -q

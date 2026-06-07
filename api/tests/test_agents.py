@@ -5037,6 +5037,7 @@ async def test_templates_route_returns_capabilities(tmp_path, monkeypatch):
     """
     from routers import agents as agents_module
 
+    monkeypatch.setenv("YOUROS_SPAWN_FORCE_CUSTOM", "1")
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir(exist_ok=True)
     (agents_dir / "demo.agent").write_text(
@@ -5082,6 +5083,7 @@ async def test_templates_route_surfaces_parse_errors(tmp_path, monkeypatch):
     """
     from routers import agents as agents_module
 
+    monkeypatch.setenv("YOUROS_SPAWN_FORCE_CUSTOM", "1")
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir(exist_ok=True)
     (agents_dir / "broken.agent").write_text(
@@ -5239,7 +5241,7 @@ async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path
     """POST /agents/spawn with template='builder' (was 'comprehensive') prepends the
     PROMPT, AC gates, TOOL list, and LIMIT lines to the stdin the
     claude subprocess receives. Also confirms the 'comprehensive' alias still works."""
-    monkeypatch.setenv("MYOS_SPAWN_FORCE_CUSTOM", "1")
+    monkeypatch.setenv("YOUROS_SPAWN_FORCE_CUSTOM", "1")
     _patch_build_templates(monkeypatch, tmp_path / "agents")
     monkeypatch.setattr("routers.agents._TRANSCRIPT_FLUSH_INTERVAL", 0.01)
 
@@ -5280,7 +5282,7 @@ async def test_spawn_with_template_saa_alias_resolves_to_comprehensive(tmp_path,
     builder.agent file via the built-in alias map plus the ALIAS
     directive in saa.agent. The spawned agent should see the same
     full envelope as template='builder'."""
-    monkeypatch.setenv("MYOS_SPAWN_FORCE_CUSTOM", "1")
+    monkeypatch.setenv("YOUROS_SPAWN_FORCE_CUSTOM", "1")
     _patch_build_templates(monkeypatch, tmp_path / "agents")
     monkeypatch.setattr("routers.agents._TRANSCRIPT_FLUSH_INTERVAL", 0.01)
 
@@ -5395,6 +5397,7 @@ async def test_spawn_with_category_prefixed_template_resolves_correctly(tmp_path
     The fix derives the stem from the template display name instead ('Roadmap'
     -> 'roadmap'), which matches the actual file naming convention.
     """
+    monkeypatch.setenv("YOUROS_SPAWN_FORCE_CUSTOM", "1")
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir(exist_ok=True)
     marketplace_dir = agents_dir / "marketplace"
@@ -12316,7 +12319,7 @@ async def test_spawn_explicit_httpexception_preserves_original_status(
     fix, the catch-all ``except Exception`` clobbered every
     HTTPException with a fresh ``HTTPException(400, str(e))`` and
     stripped the structured detail into a bare str."""
-    monkeypatch.setenv("MYOS_SPAWN_FORCE_CUSTOM", "1")
+    monkeypatch.setenv("YOUROS_SPAWN_FORCE_CUSTOM", "1")
     _patch_build_templates(monkeypatch, tmp_path / "agents")
 
     async def _returner(*args, **kwargs):
@@ -14153,7 +14156,7 @@ async def test_per_agent_transcript_bytes_computed_in_snapshot(monkeypatch):
 # Three tests covering:
 #   (a) no env override  → ostk-run attempted
 #   (b) ostk-run raises  → fallback recorded (counter + WARNING with OSTK_RUN_FALLBACK tag)
-#   (c) MYOS_SPAWN_FORCE_CUSTOM=1  → ostk-run NOT attempted
+#   (c) YOUROS_SPAWN_FORCE_CUSTOM=1  → ostk-run NOT attempted
 
 
 def _fake_agentfile_path(stem: str):
@@ -14168,7 +14171,7 @@ async def test_ostk_run_default_no_env_override(monkeypatch):
     import routers.agents as agents_mod
     from unittest.mock import AsyncMock, patch
 
-    monkeypatch.delenv("MYOS_SPAWN_FORCE_CUSTOM", raising=False)
+    monkeypatch.delenv("YOUROS_SPAWN_FORCE_CUSTOM", raising=False)
     monkeypatch.delenv("MYOS_SPAWN_USE_OSTK_RUN", raising=False)
     monkeypatch.setenv("MYOS_SKIP_RETRO_AGENT_FILES_SAVE", "1")
 
@@ -14210,7 +14213,7 @@ async def test_ostk_run_fallback_loud_on_error(monkeypatch, caplog):
     import routers.agents as agents_mod
     from unittest.mock import patch
 
-    monkeypatch.delenv("MYOS_SPAWN_FORCE_CUSTOM", raising=False)
+    monkeypatch.delenv("YOUROS_SPAWN_FORCE_CUSTOM", raising=False)
     monkeypatch.delenv("MYOS_SPAWN_USE_OSTK_RUN", raising=False)
     monkeypatch.setenv("MYOS_SKIP_RETRO_AGENT_FILES_SAVE", "1")
 
@@ -14254,11 +14257,11 @@ async def test_ostk_run_fallback_loud_on_error(monkeypatch, caplog):
 
 @pytest.mark.asyncio
 async def test_ostk_run_force_custom_skips_ostk(monkeypatch):
-    """With MYOS_SPAWN_FORCE_CUSTOM=1, ostk-run is never attempted."""
+    """With YOUROS_SPAWN_FORCE_CUSTOM=1, ostk-run is never attempted."""
     import routers.agents as agents_mod
     from unittest.mock import patch
 
-    monkeypatch.setenv("MYOS_SPAWN_FORCE_CUSTOM", "1")
+    monkeypatch.setenv("YOUROS_SPAWN_FORCE_CUSTOM", "1")
     monkeypatch.setenv("MYOS_SKIP_RETRO_AGENT_FILES_SAVE", "1")
 
     run_agentfile_called = {"n": 0}
@@ -14292,5 +14295,5 @@ async def test_ostk_run_force_custom_skips_ostk(monkeypatch):
             )
 
     assert run_agentfile_called["n"] == 0, (
-        "ostk.run_agentfile must NOT be called when MYOS_SPAWN_FORCE_CUSTOM=1"
+        "ostk.run_agentfile must NOT be called when YOUROS_SPAWN_FORCE_CUSTOM=1"
     )

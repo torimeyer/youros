@@ -47,7 +47,7 @@ fail() {
     # or, if you have a cosign key, regenerate .ostk/ENTITYFILE.sigstore
 
   Then re-stage ENTITYFILE + its envelope together and retry the commit.
-  Emergency bypass: MYOS_SKIP_HOOK=1 git commit ...  (discouraged)
+  Emergency bypass: YOUROS_SKIP_HOOK=1 git commit ...  (discouraged)
 EOF
   exit 1
 }

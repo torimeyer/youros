@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# api-probe.sh: scheme-aware helper to talk to the myOS backend on :8000.
+# api-probe.sh: scheme-aware helper to talk to the yourOS backend on :8000.
 #
 # WHY THIS EXISTS (→457 pattern, recurring):
 #   dev-backend.sh serves HTTPS whenever ~/.youros/localhost.{key,crt} exist.

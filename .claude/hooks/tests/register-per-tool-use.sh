@@ -68,7 +68,7 @@ ok "agent name derived from description"
 # inspect the parked body.
 COMPLETE_PAYLOAD="{\"tool_name\":\"Task\",\"tool_use_id\":\"$TUID\",\"tool_response\":{\"output\":\"done\"}}"
 printf '%s' "$COMPLETE_PAYLOAD" \
-    | HOME="$TMP_HOME" MYOS_COMPLETE_URL_BASE="http://127.0.0.1:1/fake" bash "$COMPLETE" >/dev/null 2>&1
+    | HOME="$TMP_HOME" YOUROS_COMPLETE_URL_BASE="http://127.0.0.1:1/fake" bash "$COMPLETE" >/dev/null 2>&1
 
 PENDING="$TMP_HOME/.youros/subagents/pending-complete.jsonl"
 if [ ! -s "$PENDING" ]; then

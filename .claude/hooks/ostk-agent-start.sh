@@ -3,7 +3,7 @@
 #
 # Purpose: when a subagent subprocess starts, write to BOTH the ostk
 # kernel journal (via `ostk hook agent-start`) AND to /api/agents/register
-# so the myOS Agents UI row stays in sync. This is Option A (dual write)
+# so the yourOS Agents UI row stays in sync. This is Option A (dual write)
 # from the →1304 pilot design — lower risk than Option B (bridge reads
 # journal) because it requires no bridge changes and fails silently.
 #

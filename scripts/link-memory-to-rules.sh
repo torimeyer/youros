@@ -24,7 +24,7 @@ set -eo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Claude Code keys per-project memory by the project path with '/' -> '-'.
 _PROJECT_SLUG="$(printf '%s' "$REPO_ROOT" | sed 's#/#-#g')"
-MEMORY_DIR="${MYOS_MEMORY_DIR:-${HOME}/.claude/projects/${_PROJECT_SLUG}/memory}"
+MEMORY_DIR="${YOUROS_MEMORY_DIR:-${HOME}/.claude/projects/${_PROJECT_SLUG}/memory}"
 REVERSE_INDEX="${REPO_ROOT}/.claude/hooks/lib/rule-to-memory.json"
 
 if [[ ! -d "${MEMORY_DIR}" ]]; then

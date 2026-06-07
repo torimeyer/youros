@@ -21,8 +21,7 @@ sys.path.insert(0, str(api_path))
 import config as _config_mod
 import tempfile
 
-_fake_root = Path(tempfile.gettempdir()) / "pytest_myos_root"
-_fake_root.mkdir(parents=True, exist_ok=True)
+_fake_root = Path(tempfile.mkdtemp(prefix="pytest_myos_root_"))
 if not (_fake_root / ".git").exists():
     import subprocess
     subprocess.run(["git", "init", "-q"], cwd=_fake_root)
@@ -133,6 +132,11 @@ def _isolate_tasks_ostk(tmp_path, monkeypatch):
     import config
     monkeypatch.setattr(ostk, "cwd", str(tmp_path))
     monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
+    
+    # Symlink the agents directory from the fake root to the per-test sandbox
+    # so tests can read agentfiles while maintaining full workspace isolation.
+    if not (tmp_path / "agents").exists():
+        (tmp_path / "agents").symlink_to(_fake_root / "agents")
     
     # Isolate user specs and drafts to tmp_path.
     # Map them to the legacy docs/ paths that most tests already use.
@@ -564,6 +568,54 @@ def _reset_ostk_singleton():
     _clean()
     yield
     _clean()
+
+
+@pytest.fixture(autouse=True)
+def _prime_ostk_clock_cache():
+    """Pre-populate _clock_cache so /api/status/clock never spawns a subprocess in tests.
+
+    The live app primes this via start_clock_refresher() at startup. In tests,
+    that background task races with the first request — the cache is cold until
+    the first `ostk os clock` call completes (~500ms). Pre-priming it ensures
+    the endpoint always responds in <1ms in tests so event-loop latency assertions
+    (e.g. test_websocket_round_trip_under_three_seconds_and_event_loop_stays_responsive)
+    are not falsely tripped by the cold-cache subprocess fallback.
+    """
+    import services.ostk as ostk_mod
+    fake_clock = {
+        "wall": "2026-01-01T00:00:00Z",
+        "session": "0s",
+        "kernel": "test",
+        "audit": "0 events",
+        "swap": "none",
+        "focus": "",
+    }
+    ostk_mod._clock_cache.clear()
+    ostk_mod._clock_cache.update(fake_clock)
+    yield
+    ostk_mod._clock_cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_gemini_detection_state():
+    """Reset gemini_cli_provider._detection_lock and _detection_cache between tests.
+
+    _detection_lock is an asyncio.Lock that binds to the first event loop that
+    acquires it. pytest-asyncio creates a fresh loop per test, so any test that
+    calls is_gemini_cli_available leaves the lock bound to a dead event loop.
+    The next test's await of _get_detection_lock() then hangs indefinitely in
+    kqueue.control(None) — same pattern as _reset_spawn_throttle (→2130).
+    Resetting to None forces lazy re-creation in the new loop.
+
+    _detection_cache persists results for 600s. A test that caches True (gemini
+    available) causes subsequent tests to attempt real CLI calls, timing out.
+    """
+    import services.gemini_cli_provider as _gcp
+    _gcp._detection_lock = None
+    _gcp._detection_cache.update({"result": None, "expires_at": 0.0})
+    yield
+    _gcp._detection_lock = None
+    _gcp._detection_cache.update({"result": None, "expires_at": 0.0})
 
 
 @pytest.fixture(autouse=True)

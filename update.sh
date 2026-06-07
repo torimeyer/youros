@@ -1,8 +1,8 @@
 #!/bin/bash
-# myOS safe updater.
+# yourOS safe updater.
 # Usage: ./update.sh (from inside the repo)
 #
-# This script updates myOS without ever touching your settings, chat
+# This script updates yourOS without ever touching your settings, chat
 # history, labels, or tasks. Your data lives in ~/.youros/ and the update
 # process never writes there. See the project README for the full story.
 
@@ -19,14 +19,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo ""
-echo -e "${BLUE}=== myOS Safe Update ===${NC}"
+echo -e "${BLUE}=== yourOS Safe Update ===${NC}"
 echo ""
 
-# --- Make sure we are in a myOS repo ---
+# --- Make sure we are in a yourOS repo ---
 
 if [ ! -f "$SCRIPT_DIR/install.sh" ] || [ ! -d "$SCRIPT_DIR/api" ] || [ ! -d "$SCRIPT_DIR/app" ]; then
-    echo -e "${RED}This does not look like a myOS folder.${NC}"
-    echo "Run ./update.sh from inside your myOS folder (usually ~/myos)."
+    echo -e "${RED}This does not look like a yourOS folder.${NC}"
+    echo "Run ./update.sh from inside your yourOS folder (usually ~/youros)."
     exit 1
 fi
 
@@ -86,7 +86,7 @@ if ! git diff-index --quiet HEAD -- 2>/dev/null; then
         echo "Update cancelled. Your files are unchanged."
         exit 0
     fi
-    STASH_MSG="myos safe-update auto stash $(date +%Y-%m-%d_%H:%M:%S)"
+    STASH_MSG="youros safe-update auto stash $(date +%Y-%m-%d_%H:%M:%S)"
     git stash push -u -m "$STASH_MSG" >/dev/null
     STASHED=1
     echo -e "${GREEN}Your changes are safely tucked away.${NC}"
@@ -274,7 +274,7 @@ if [ "${RELEASE_MODE:-0}" = "1" ] && [ -x "$SCRIPT_DIR/scripts/e2e_smoke.sh" ]; 
                 done
             fi
         fi
-        echo -e "${RED}Update rolled back. Run 'myos' to start the previous version.${NC}"
+        echo -e "${RED}Update rolled back. Run 'youros' to start the previous version.${NC}"
         exit 1
     fi
 fi
@@ -300,5 +300,5 @@ if [ -d "$HOME/.youros" ]; then
     echo ""
 fi
 
-echo "Open a new Terminal window and type 'myos' to start."
+echo "Open a new Terminal window and type 'youros' to start."
 echo ""

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Uninstall myOS.
+# Uninstall yourOS.
 #
 # A fresh `git clone + ./install.sh` is NOT a clean slate: `~/.youros/`
 # persists, the ostk daemon keeps running from a previous install, the
 # localhost cert stays trusted in the Keychain, and the shell aliases
-# (`myos`, `myos-update`) stick around. This script unwinds each layer
+# (`youros`, `youros-update`) stick around. This script unwinds each layer
 # in its own step.
 #
 # Usage:
@@ -33,9 +33,9 @@ if [ "$HELP" -eq 1 ]; then
 Usage: ./uninstall.sh [--purge] [--yes]
 
 Default:
-  Stops running myOS processes, removes the Python venv (api/.venv),
+  Stops running yourOS processes, removes the Python venv (api/.venv),
   npm packages (app/node_modules), built bundle (app/dist), and
-  the generated .mcp.json. Removes the 'myos' and 'myos-update'
+  the generated .mcp.json. Removes the 'youros' and 'youros-update'
   aliases from ~/.zshrc (or ~/.bashrc). Also removes the global
   Claude Code hook at ~/.claude/hooks/register-agent.sh and its
   entry in ~/.claude/settings.json, if install.sh wired them.
@@ -43,7 +43,7 @@ Default:
     - ~/.youros/ (your tasks, chats, labels, cert, settings)
     - ostk (binary, cache, daemon)
     - localhost cert trust in the Keychain
-  These are preserved so another myOS install (or other tools using
+  These are preserved so another yourOS install (or other tools using
   ostk) still works.
 
 --purge:
@@ -76,7 +76,7 @@ confirm() {
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo "=== myOS uninstall ==="
+echo "=== yourOS uninstall ==="
 echo "Repo: $SCRIPT_DIR"
 echo ""
 
@@ -102,7 +102,7 @@ if [ "$(uname)" = "Darwin" ]; then
     done
 fi
 if [ -x "$SCRIPT_DIR/stop.sh" ]; then
-    echo "-> Stopping remaining myOS processes..."
+    echo "-> Stopping remaining yourOS processes..."
     "$SCRIPT_DIR/stop.sh" >/dev/null 2>&1 || true
 fi
 
@@ -110,22 +110,22 @@ fi
 echo "-> Removing api/.venv, app/node_modules, app/dist, .mcp.json..."
 rm -rf api/.venv app/node_modules app/dist .mcp.json
 
-# 3. Remove shell aliases (myos, myos-update, myos-track, myos-claude).
+# 3. Remove shell aliases (youros, youros-update, youros-track, youros-claude).
 SHELL_RC="$HOME/.zshrc"
 [ -f "$HOME/.bashrc" ] && [ ! -f "$HOME/.zshrc" ] && SHELL_RC="$HOME/.bashrc"
-if [ -f "$SHELL_RC" ] && grep -qE "alias myos(-(update|track|claude))?=" "$SHELL_RC"; then
+if [ -f "$SHELL_RC" ] && grep -qE "alias youros(-(update|track|claude))?=" "$SHELL_RC"; then
     cp "$SHELL_RC" "$SHELL_RC.bak.youros-uninstall"
-    # Remove all myos* alias lines. `alias myos=` as a standalone
-    # pattern would also match `alias myos-update=` so we anchor with
+    # Remove all youros* alias lines. `alias youros=` as a standalone
+    # pattern would also match `alias youros-update=` so we anchor with
     # `=`. Using multiple -e expressions keeps each pattern obvious.
     sed -i.tmp \
-        -e '/^alias myos=/d' \
-        -e '/^alias myos-update=/d' \
-        -e '/^alias myos-track=/d' \
-        -e '/^alias myos-claude=/d' \
+        -e '/^alias youros=/d' \
+        -e '/^alias youros-update=/d' \
+        -e '/^alias youros-track=/d' \
+        -e '/^alias youros-claude=/d' \
         "$SHELL_RC"
     rm -f "$SHELL_RC.tmp"
-    echo "-> Removed myos aliases from $SHELL_RC"
+    echo "-> Removed youros aliases from $SHELL_RC"
     echo "   (backup at $SHELL_RC.bak.youros-uninstall)"
 fi
 

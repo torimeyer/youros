@@ -84,7 +84,7 @@ echo "git worktree count: $(git worktree list --porcelain | grep -c '^worktree' 
 # --- DRY RUN ---
 echo
 echo "=== dry-run ==="
-DRY_OUT="$(MYOS_ACTIVE_AGENTS='' bash "$REAPER" 2>&1)"
+DRY_OUT="$(YOUROS_ACTIVE_AGENTS='' bash "$REAPER" 2>&1)"
 echo "$DRY_OUT"
 
 # Dry run must report the 2 orphan dirs.
@@ -113,7 +113,7 @@ fi
 # --- APPLY ---
 echo
 echo "=== apply ==="
-APPLY_OUT="$(MYOS_ACTIVE_AGENTS='' bash "$REAPER" --apply 2>&1)"
+APPLY_OUT="$(YOUROS_ACTIVE_AGENTS='' bash "$REAPER" --apply 2>&1)"
 echo "$APPLY_OUT"
 
 # Orphan dirs must be gone after apply.

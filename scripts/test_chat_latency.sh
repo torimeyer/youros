@@ -12,7 +12,7 @@
 # threshold, something in the pipeline is newly slow and should be
 # investigated.
 #
-# Budget. Claude median must stay within ``MYOS_LATENCY_MAX_RATIO`` of
+# Budget. Claude median must stay within ``YOUROS_LATENCY_MAX_RATIO`` of
 # Gemini median (default 1.75). Why not 1.5? On the Claude subscription
 # path, every turn spawns the local ``claude`` Node.js CLI which has an
 # irreducible ~1.5 second startup cost on top of the API first-byte
@@ -32,13 +32,13 @@
 #   2 - Claude first-token median exceeds 1.5x of Gemini's.
 set -u
 
-API_HOST="${MYOS_API_HOST:-https://127.0.0.1:8000}"
-PROMPT="${MYOS_LATENCY_PROMPT:-hi}"
-RUNS="${MYOS_LATENCY_RUNS:-5}"
+API_HOST="${YOUROS_API_HOST:-https://127.0.0.1:8000}"
+PROMPT="${YOUROS_LATENCY_PROMPT:-hi}"
+RUNS="${YOUROS_LATENCY_RUNS:-5}"
 # Ratio numerator and denominator, expressed as integer percent to keep
 # the script portable across shells that lack floating point (macOS
 # bash 3.2). 175 means 1.75x.
-MAX_RATIO_PCT="${MYOS_LATENCY_MAX_RATIO_PCT:-175}"
+MAX_RATIO_PCT="${YOUROS_LATENCY_MAX_RATIO_PCT:-175}"
 
 probe() {
   curl --connect-timeout 3 -m 5 -sk "${API_HOST}/api/health" >/dev/null 2>&1

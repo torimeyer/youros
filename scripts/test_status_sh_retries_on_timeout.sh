@@ -89,7 +89,7 @@ cat > "$FIXTURE" <<'JSON'
 JSON
 trap 'rm -f "$FIXTURE"' EXIT
 
-fixture_out=$(MYOS_STATUS_FIXTURE="$FIXTURE" MYOS_STATUS_NOW="2026-04-15T00:01:00Z" \
+fixture_out=$(YOUROS_STATUS_FIXTURE="$FIXTURE" YOUROS_STATUS_NOW="2026-04-15T00:01:00Z" \
     bash "$STATUS_SH" 2>&1 || true)
 
 if echo "$fixture_out" | grep -q "demo-agent"; then

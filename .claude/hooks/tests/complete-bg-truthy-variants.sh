@@ -52,7 +52,7 @@ run_case () {
     local START END ELAPSED_MS
     START=$(date +%s%N 2>/dev/null || date +%s)
     printf '%s' "$payload" | HOME="$TMP_HOME" \
-        MYOS_COMPLETE_URL_BASE="$UNREACHABLE" \
+        YOUROS_COMPLETE_URL_BASE="$UNREACHABLE" \
         bash "$COMPLETE" >/dev/null 2>&1
     END=$(date +%s%N 2>/dev/null || date +%s)
     ELAPSED_MS=$(( (END - START) / 1000000 ))
@@ -90,7 +90,7 @@ rm -f "$TMP_HOME/.youros/subagents/last.bg" 2>/dev/null || true
 : > "$TMP_HOME/.youros/subagents/pending-complete.jsonl"
 START=$(date +%s%N 2>/dev/null || date +%s)
 printf '%s' '{"tool_name":"Agent","tool_use_id":"tF","tool_input":{"run_in_background":false},"tool_response":{"output":""}}' \
-    | HOME="$TMP_HOME" MYOS_COMPLETE_URL_BASE="$UNREACHABLE" \
+    | HOME="$TMP_HOME" YOUROS_COMPLETE_URL_BASE="$UNREACHABLE" \
       bash "$COMPLETE" >/dev/null 2>&1
 END=$(date +%s%N 2>/dev/null || date +%s)
 ELAPSED_MS=$(( (END - START) / 1000000 ))

@@ -91,7 +91,7 @@ rm -f "$TMP_HOME/.youros/.env"
 # Test 6: exported var is visible after sourcing a real .env file
 # -----------------------------------------------------------------------
 mkdir -p "$TMP_HOME/.youros"
-echo "MYOS_ENV_TEST=hello" > "$TMP_HOME/.youros/.env"
+echo "YOUROS_ENV_TEST=hello" > "$TMP_HOME/.youros/.env"
 
 result=$(
     export HOME="$TMP_HOME"
@@ -100,13 +100,13 @@ result=$(
         source "$HOME/.youros/.env"
         set +a
     fi
-    echo "$MYOS_ENV_TEST"
+    echo "$YOUROS_ENV_TEST"
 )
 
 if [ "$result" = "hello" ]; then
-    pass "MYOS_ENV_TEST=hello correctly exported after sourcing ~/.youros/.env"
+    pass "YOUROS_ENV_TEST=hello correctly exported after sourcing ~/.youros/.env"
 else
-    fail "expected MYOS_ENV_TEST=hello, got: '$result'"
+    fail "expected YOUROS_ENV_TEST=hello, got: '$result'"
 fi
 
 # -----------------------------------------------------------------------
@@ -119,13 +119,13 @@ child_result=$(
         source "$HOME/.youros/.env"
         set +a
     fi
-    bash -c 'echo "$MYOS_ENV_TEST"'
+    bash -c 'echo "$YOUROS_ENV_TEST"'
 )
 
 if [ "$child_result" = "hello" ]; then
-    pass "MYOS_ENV_TEST inherited by child process (set -a export confirmed)"
+    pass "YOUROS_ENV_TEST inherited by child process (set -a export confirmed)"
 else
-    fail "MYOS_ENV_TEST not inherited by child (expected 'hello', got: '$child_result')"
+    fail "YOUROS_ENV_TEST not inherited by child (expected 'hello', got: '$child_result')"
 fi
 
 echo ""

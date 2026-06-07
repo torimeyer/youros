@@ -1,15 +1,15 @@
 #!/bin/bash
-# Smoke tests for scripts/adopt-myos-via-machined.sh.
+# Smoke tests for scripts/adopt-youros-via-machined.sh.
 # Tests run in --dry-run / --help / PATH-missing mode only.
 # The real adoption ceremony is NEVER invoked here.
 #
-# Usage: scripts/test_adopt_myos_via_machined.sh
+# Usage: scripts/test_adopt_youros_via_machined.sh
 # Exit code: 0 = all tests passed, 1 = one or more tests failed.
 
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TARGET="$SCRIPT_DIR/adopt-myos-via-machined.sh"
+TARGET="$SCRIPT_DIR/adopt-youros-via-machined.sh"
 
 PASS=0
 FAIL=0

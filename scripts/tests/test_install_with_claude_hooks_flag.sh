@@ -59,8 +59,8 @@ mkdir -p "$FAKE_REPO/api" "$FAKE_REPO/app" "$FAKE_REPO/scripts"
 mkdir -p "$FAKE_REPO/.claude/hooks/lib"
 
 # Required repo structure
-touch "$FAKE_REPO/start.sh" "$FAKE_REPO/update.sh" "$FAKE_REPO/myos-track.sh" "$FAKE_REPO/myos-claude.sh"
-chmod +x "$FAKE_REPO/start.sh" "$FAKE_REPO/update.sh" "$FAKE_REPO/myos-track.sh" "$FAKE_REPO/myos-claude.sh"
+touch "$FAKE_REPO/start.sh" "$FAKE_REPO/update.sh" "$FAKE_REPO/youros-track.sh" "$FAKE_REPO/youros-claude.sh"
+chmod +x "$FAKE_REPO/start.sh" "$FAKE_REPO/update.sh" "$FAKE_REPO/youros-track.sh" "$FAKE_REPO/youros-claude.sh"
 echo '{}' > "$FAKE_REPO/settings.default.json"
 echo '{"stitch_api_key": ""}' > "$FAKE_REPO/.mcp.json.example"
 touch "$FAKE_REPO/api/requirements.txt"
@@ -115,11 +115,11 @@ exec "$REAL_PY3" "\$@"
 PYSTUB
 chmod +x "$FAKE_BIN/python3"
 
-# Copy install.sh to tmp_dir so SCRIPT_DIR != FAKE_REPO (forcing MYOS_DIR path)
+# Copy install.sh to tmp_dir so SCRIPT_DIR != FAKE_REPO (forcing YOUROS_DIR path)
 cp "$INSTALL" "$tmp_dir/install.sh"
 
 run_fake_install() {
-  PATH="$FAKE_BIN:$PATH" HOME="$FAKE_HOME" MYOS_DIR="$FAKE_REPO" \
+  PATH="$FAKE_BIN:$PATH" HOME="$FAKE_HOME" YOUROS_DIR="$FAKE_REPO" \
     bash "$tmp_dir/install.sh" "$@" 2>&1
 }
 
@@ -141,20 +141,20 @@ else
   fail "install_with_claude_hooks_flag_calls_hook_installer" "sentinel not created"
 fi
 
-# --- Test 5: MYOS_INSTALL_CLAUDE_HOOKS=1 env var triggers hook install ---
+# --- Test 5: YOUROS_INSTALL_CLAUDE_HOOKS=1 env var triggers hook install ---
 rm -f "$SENTINEL"
-MYOS_INSTALL_CLAUDE_HOOKS=1 PATH="$FAKE_BIN:$PATH" HOME="$FAKE_HOME" \
-  MYOS_DIR="$FAKE_REPO" bash "$tmp_dir/install.sh" >/dev/null 2>&1 || true
+YOUROS_INSTALL_CLAUDE_HOOKS=1 PATH="$FAKE_BIN:$PATH" HOME="$FAKE_HOME" \
+  YOUROS_DIR="$FAKE_REPO" bash "$tmp_dir/install.sh" >/dev/null 2>&1 || true
 if [ -f "$SENTINEL" ]; then
   pass "install_env_var_triggers_hook_install"
 else
-  fail "install_env_var_triggers_hook_install" "MYOS_INSTALL_CLAUDE_HOOKS=1 was ignored"
+  fail "install_env_var_triggers_hook_install" "YOUROS_INSTALL_CLAUDE_HOOKS=1 was ignored"
 fi
 
-# --- Test 6: --without-claude-hooks overrides MYOS_INSTALL_CLAUDE_HOOKS=1 ---
+# --- Test 6: --without-claude-hooks overrides YOUROS_INSTALL_CLAUDE_HOOKS=1 ---
 rm -f "$SENTINEL"
-MYOS_INSTALL_CLAUDE_HOOKS=1 PATH="$FAKE_BIN:$PATH" HOME="$FAKE_HOME" \
-  MYOS_DIR="$FAKE_REPO" bash "$tmp_dir/install.sh" --without-claude-hooks >/dev/null 2>&1 || true
+YOUROS_INSTALL_CLAUDE_HOOKS=1 PATH="$FAKE_BIN:$PATH" HOME="$FAKE_HOME" \
+  YOUROS_DIR="$FAKE_REPO" bash "$tmp_dir/install.sh" --without-claude-hooks >/dev/null 2>&1 || true
 if [ ! -f "$SENTINEL" ]; then
   pass "install_without_flag_overrides_env_var"
 else

@@ -13,10 +13,10 @@
 # Usage:
 #   scripts/test_agent_spawn_latency.sh                 # assert budgets
 #   scripts/test_agent_spawn_latency.sh --print         # print numbers only
-#   MYOS_API=https://127.0.0.1:8000 scripts/test_agent_spawn_latency.sh
+#   YOUROS_API=https://127.0.0.1:8000 scripts/test_agent_spawn_latency.sh
 set -euo pipefail
 
-API_BASE="${MYOS_API:-https://127.0.0.1:8000}"
+API_BASE="${YOUROS_API:-https://127.0.0.1:8000}"
 AGENT_NAME="latency-test-$$-$RANDOM"
 REGISTER_BUDGET_MS=500
 HEARTBEAT_BUDGET_MS=3000

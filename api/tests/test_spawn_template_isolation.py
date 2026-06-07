@@ -152,7 +152,7 @@ async def test_template_with_isolation_nono_registers_despite_edit_verb(monkeypa
     from services.agentfile_parser import AgentfileConfig
     from main import app
 
-    monkeypatch.setenv("MYOS_SPAWN_FORCE_CUSTOM", "1")
+    monkeypatch.setenv("YOUROS_SPAWN_FORCE_CUSTOM", "1")
     _install_doubles(monkeypatch)
 
     # Simulate a template whose agentfile says ISOLATION nono.
@@ -251,7 +251,7 @@ async def test_builder_template_no_locks_registers(monkeypatch):
     from services.agentfile_parser import AgentfileConfig
     from main import app
 
-    monkeypatch.setenv("MYOS_SPAWN_FORCE_CUSTOM", "1")
+    monkeypatch.setenv("YOUROS_SPAWN_FORCE_CUSTOM", "1")
     _install_doubles(monkeypatch)
 
     # builder.agent has no ISOLATION directive → defaults to "none"
@@ -316,7 +316,7 @@ async def test_builder_template_with_locks_still_uses_worktree(monkeypatch):
     from services.agentfile_parser import AgentfileConfig
     from main import app
 
-    monkeypatch.setenv("MYOS_SPAWN_FORCE_CUSTOM", "1")
+    monkeypatch.setenv("YOUROS_SPAWN_FORCE_CUSTOM", "1")
     _install_doubles(monkeypatch)
 
     mock_cfg = AgentfileConfig()

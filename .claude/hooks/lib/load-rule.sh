@@ -4,18 +4,18 @@
 # Provides three functions:
 #   rule_enabled <key>                — returns 0 if rules.<key>.enabled is true, else 1
 #   rule_param   <key_path> <default> — prints the resolved value, falls back to <default>
-#   myos_rule_get <path> <default>    — internal deep-merge query (used by both above)
+#   youros_rule_get <path> <default>    — internal deep-merge query (used by both above)
 #
 # Fail-open: on any error (missing files, bad JSON, python crash),
 # rule_enabled returns 1 (disabled) and rule_param echoes <default>.
 # No caching — reads fresh per call. Correctness > speed.
 
-# Capture the loader's own directory at source time so myos_rule_get can
+# Capture the loader's own directory at source time so youros_rule_get can
 # always find default-rules.json, regardless of the caller's cwd or
 # CLAUDE_PROJECT_DIR.
 _LOAD_RULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-myos_rule_get() {
+youros_rule_get() {
   local path_arg="$1" default="$2"
   local defaults_file="${_LOAD_RULE_DIR}/default-rules.json"
   local user_file="${HOME}/.youros/rules.json"
@@ -68,14 +68,14 @@ PYEOF
 rule_enabled() {
   local key="$1"
   local val
-  val=$(myos_rule_get "rules.${key}.enabled" "false")
+  val=$(youros_rule_get "rules.${key}.enabled" "false")
   [ "${val:-false}" = "true" ]
 }
 
 rule_param() {
   local key_path="$1" default="$2"
   local val
-  val=$(myos_rule_get "rules.${key_path}" "")
+  val=$(youros_rule_get "rules.${key_path}" "")
   if [ -z "$val" ]; then
     echo "$default"
   else

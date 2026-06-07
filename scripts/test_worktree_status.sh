@@ -10,7 +10,7 @@ set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "${HERE}/.." && pwd)"
 
-TMP="$(mktemp -d -t myos-wt-status.XXXXXX)"
+TMP="$(mktemp -d -t youros-wt-status.XXXXXX)"
 trap 'rm -rf "${TMP}"' EXIT
 
 mkdir -p "${TMP}/.ostk/worktree_status" "${TMP}/scripts"

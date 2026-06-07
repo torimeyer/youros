@@ -1,13 +1,13 @@
 #!/bin/bash
-# Test myos-track.sh: enable, idempotent, status, remove, missing hook.
+# Test youros-track.sh: enable, idempotent, status, remove, missing hook.
 set -u
 
 THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$THIS_DIR/../.." && pwd)"
-TRACK="$REPO_ROOT/myos-track.sh"
+TRACK="$REPO_ROOT/youros-track.sh"
 
 if [ ! -f "$TRACK" ]; then
-  echo "FAIL: myos_track_exists - myos-track.sh not found"
+  echo "FAIL: youros_track_exists - youros-track.sh not found"
   exit 1
 fi
 
@@ -16,7 +16,7 @@ FAIL=0
 pass() { echo "PASS: $1"; PASS=$((PASS+1)); }
 fail() { echo "FAIL: $1 - $2"; FAIL=$((FAIL+1)); }
 
-tmp_dir=$(mktemp -d -t myos-track-test-XXXXXX)
+tmp_dir=$(mktemp -d -t youros-track-test-XXXXXX)
 trap 'rm -rf "$tmp_dir"' EXIT
 
 FAKE_HOME="$tmp_dir/home"

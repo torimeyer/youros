@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# myos-handoff.sh — wrap ostk handoff with markdown fallback (→1312)
+# youros-handoff.sh — wrap ostk handoff with markdown fallback (→1312)
 #
-# Routes handoff dispatch based on MYOS_HANDOFF_USE_OSTK flag.
+# Routes handoff dispatch based on YOUROS_HANDOFF_USE_OSTK flag.
 # When set:  delegates to `ostk handoff <target> --transition "<msg>"`
 # When unset: writes markdown to ~/.claude/handoffs/YYYY-MM-DD-<slug>.md
 #
 # Usage:
-#   scripts/myos-handoff.sh <target> [--topic <slug>] [--transition "<msg>"] [--content-file <path>]
+#   scripts/youros-handoff.sh <target> [--topic <slug>] [--transition "<msg>"] [--content-file <path>]
 #
 # With no --content-file, content is read from stdin.
 #
 # Environment:
-#   MYOS_HANDOFF_USE_OSTK — if non-empty, use ostk handoff (kernel-aware path)
+#   YOUROS_HANDOFF_USE_OSTK — if non-empty, use ostk handoff (kernel-aware path)
 #   HANDOFFS_DIR          — override output dir (default: ~/.claude/handoffs)
 #   OSTK_CMD              — override ostk binary (for tests)
 
@@ -44,7 +44,7 @@ done
 
 # ── ostk path ─────────────────────────────────────────────────────────────────
 
-if [[ -n "${MYOS_HANDOFF_USE_OSTK:-}" ]]; then
+if [[ -n "${YOUROS_HANDOFF_USE_OSTK:-}" ]]; then
     args=("$target")
     [[ -n "$transition" ]] && args+=(--transition "$transition")
     exec "$OSTK_CMD" handoff "${args[@]}"

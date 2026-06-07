@@ -31,7 +31,7 @@ WATCHDOG="$SCRIPT_DIR/backend_watchdog.sh"
 if [ ! -f "$REPO_DIR/api/.venv/bin/activate" ]; then
     COMMON_GIT=$(cd "$REPO_DIR" && git rev-parse --git-common-dir 2>/dev/null || true)
     if [ -n "$COMMON_GIT" ] && [ -f "$(dirname "$COMMON_GIT")/api/.venv/bin/activate" ]; then
-        export MYOS_API_DIR="$(dirname "$COMMON_GIT")/api"
+        export YOUROS_API_DIR="$(dirname "$COMMON_GIT")/api"
     fi
 fi
 
@@ -88,7 +88,7 @@ trap cleanup EXIT INT TERM
 cleanup
 
 # --- Test 1: dev-backend.sh starts exactly one uvicorn parent ---
-PORT=$TEST_PORT MYOS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" > /tmp/test_no_double_backend.log 2>&1 &
+PORT=$TEST_PORT YOUROS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" > /tmp/test_no_double_backend.log 2>&1 &
 LAUNCHER_PID=$!
 
 # Wait up to 20s for uvicorn to bind the port.
@@ -151,11 +151,11 @@ rm -f "$PIDFILE"
 # Start two dev-backend.sh launchers back-to-back. The second must wait
 # for the first; both invocations must converge on exactly one uvicorn
 # reloader parent (the second replaces the first).
-PORT=$TEST_PORT MYOS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" >> /tmp/test_no_double_backend.log 2>&1 &
+PORT=$TEST_PORT YOUROS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" >> /tmp/test_no_double_backend.log 2>&1 &
 LAUNCHER_A=$!
 # Tiny stagger so A can claim the lock before B enters acquire_launcher_lock.
 sleep 0.2
-PORT=$TEST_PORT MYOS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" >> /tmp/test_no_double_backend.log 2>&1 &
+PORT=$TEST_PORT YOUROS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" >> /tmp/test_no_double_backend.log 2>&1 &
 LAUNCHER_B=$!
 
 # Wait up to 30s for convergence. The second launcher must wait up to
@@ -230,11 +230,11 @@ echo "$DUMMY_PID" > "$PIDFILE"
 # and emit the "still alive" skip-log line instead of relaunching.
 REAL_WD_LOG="/tmp/youros-backend-watchdog.log"
 rm -f "$REAL_WD_LOG"
-MYOS_WATCHDOG_INTERVAL=1 \
-MYOS_WATCHDOG_HEALTH_URL="http://127.0.0.1:18797/api/health" \
-MYOS_WATCHDOG_MAX_RESTARTS=1 \
-MYOS_WATCHDOG_BACKEND_PORT="$TEST_PORT" \
-MYOS_NO_WATCHDOG=1 \
+YOUROS_WATCHDOG_INTERVAL=1 \
+YOUROS_WATCHDOG_HEALTH_URL="http://127.0.0.1:18797/api/health" \
+YOUROS_WATCHDOG_MAX_RESTARTS=1 \
+YOUROS_WATCHDOG_BACKEND_PORT="$TEST_PORT" \
+YOUROS_NO_WATCHDOG=1 \
 bash "$WATCHDOG" > /dev/null 2>&1 &
 WD_PID=$!
 

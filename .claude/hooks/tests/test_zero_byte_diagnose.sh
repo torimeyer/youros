@@ -40,7 +40,7 @@ STAMP_HOME=$(mktemp -d -t zero-byte-test.XXXXXX)
 # Use a port that is guaranteed not to be listening to force backend-down path.
 DEAD_BACKEND="http://127.0.0.1:19743"
 
-OUT=$(HOME="$STAMP_HOME" MYOS_HUMANFILE_PATH="$REAL_HUMANFILE" MYOS_BACKEND_URL="$DEAD_BACKEND" bash "$HOOK" 2>&1)
+OUT=$(HOME="$STAMP_HOME" YOUROS_HUMANFILE_PATH="$REAL_HUMANFILE" YOUROS_BACKEND_URL="$DEAD_BACKEND" bash "$HOOK" 2>&1)
 
 # 1. Block header present.
 if echo "$OUT" | grep -q "ZERO-BYTE TRANSCRIPT CLAIM CHECK"; then

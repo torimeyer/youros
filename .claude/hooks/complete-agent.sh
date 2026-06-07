@@ -244,7 +244,7 @@ fi
 # Retry with backoff. Transient backend unavailability (uvicorn reload,
 # MCP flap, brief socket error) is the direct cause of zombie rows
 # before this change. Three attempts total 7 seconds at most.
-COMPLETE_URL="${MYOS_COMPLETE_URL_BASE:-https://127.0.0.1:8000/api/agents}/${AGENT_NAME}/complete"
+COMPLETE_URL="${YOUROS_COMPLETE_URL_BASE:-https://127.0.0.1:8000/api/agents}/${AGENT_NAME}/complete"
 COMPLETE_OK=0
 for delay in 1 2 4; do
     if curl -sSk --connect-timeout 2 -m 5 \
@@ -341,7 +341,7 @@ if [ "$_AM_SKIP" -eq 0 ] && [ -n "$_AM_PROJ" ]; then
                 _AM_TIP=$(git -C "$_AM_PROJ" rev-parse --short HEAD 2>/dev/null || true)
                 echo "complete-agent: auto-merged $_AM_BRANCH onto main (HEAD $_AM_TIP)" >&2
                 # Close the needle associated with this agent on merge (→1714).
-                _AM_API="${MYOS_COMPLETE_URL_BASE:-https://127.0.0.1:8000/api/agents}"
+                _AM_API="${YOUROS_COMPLETE_URL_BASE:-https://127.0.0.1:8000/api/agents}"
                 _AM_NID=$(curl -sk --connect-timeout 3 -m 5 "${_AM_API}/${AGENT_NAME}" \
                     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('metadata',{}).get('needle_id',''))" 2>/dev/null || true)
                 if [ -n "$_AM_NID" ]; then

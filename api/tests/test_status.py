@@ -61,6 +61,8 @@ async def test_metrics_handles_string_result(client):
 
 @pytest.mark.asyncio
 async def test_clock_returns_parsed_fields(client):
+    import services.ostk as ostk_mod
+
     mock_clock = {
         "wall": "2026-04-20T17:46:04Z",
         "session": "3h12m",
@@ -70,9 +72,15 @@ async def test_clock_returns_parsed_fields(client):
         "audit": "223 events",
         "focus": "",
     }
-    with patch("routers.status.ostk") as mock_ostk:
-        mock_ostk.os_clock = AsyncMock(return_value=mock_clock)
-        resp = await client.get("/api/status/clock")
+    original_cache = dict(ostk_mod._clock_cache)
+    ostk_mod._clock_cache.clear()
+    try:
+        with patch("routers.status.ostk") as mock_ostk:
+            mock_ostk.os_clock = AsyncMock(return_value=mock_clock)
+            resp = await client.get("/api/status/clock")
+    finally:
+        ostk_mod._clock_cache.clear()
+        ostk_mod._clock_cache.update(original_cache)
 
     assert resp.status_code == 200
     data = resp.json()
@@ -85,11 +93,18 @@ async def test_clock_returns_parsed_fields(client):
 
 @pytest.mark.asyncio
 async def test_clock_handles_error_gracefully(client):
+    import services.ostk as ostk_mod
     from services.ostk import OstkError
 
-    with patch("routers.status.ostk") as mock_ostk:
-        mock_ostk.os_clock = AsyncMock(side_effect=OstkError("clock failed"))
-        resp = await client.get("/api/status/clock")
+    original_cache = dict(ostk_mod._clock_cache)
+    ostk_mod._clock_cache.clear()
+    try:
+        with patch("routers.status.ostk") as mock_ostk:
+            mock_ostk.os_clock = AsyncMock(side_effect=OstkError("clock failed"))
+            resp = await client.get("/api/status/clock")
+    finally:
+        ostk_mod._clock_cache.clear()
+        ostk_mod._clock_cache.update(original_cache)
 
     assert resp.status_code == 200
     data = resp.json()
@@ -101,13 +116,21 @@ async def test_clock_handles_error_gracefully(client):
 @pytest.mark.asyncio
 async def test_clock_handles_partial_data(client):
     """When os_clock returns only some fields, defaults fill the rest."""
+    import services.ostk as ostk_mod
+
     mock_clock = {
         "kernel": "v2.2.9",
         "session": "1h",
     }
-    with patch("routers.status.ostk") as mock_ostk:
-        mock_ostk.os_clock = AsyncMock(return_value=mock_clock)
-        resp = await client.get("/api/status/clock")
+    original_cache = dict(ostk_mod._clock_cache)
+    ostk_mod._clock_cache.clear()
+    try:
+        with patch("routers.status.ostk") as mock_ostk:
+            mock_ostk.os_clock = AsyncMock(return_value=mock_clock)
+            resp = await client.get("/api/status/clock")
+    finally:
+        ostk_mod._clock_cache.clear()
+        ostk_mod._clock_cache.update(original_cache)
 
     assert resp.status_code == 200
     data = resp.json()

@@ -4,7 +4,7 @@
 # Seeded smoke test for did_it_land.sh.
 #
 # We create a throwaway git repo in a temp dir, stage a known diff, and run
-# the probe against a fake agent name. Since the probe hits the live myOS
+# the probe against a fake agent name. Since the probe hits the live yourOS
 # API for agent metadata, we accept an "unknown" status in the output and
 # assert only on the change-detection and outcome branches.
 #
@@ -71,18 +71,18 @@ CASE1_DIR="${TMP}/case1"
 seed_repo "${CASE1_DIR}"
 # Run probe pointed at this repo. The probe hard-codes REPO_ROOT, so we override
 # by writing a thin wrapper that sets REPO_ROOT via env patch is not supported.
-# Instead, we rewrite the probe to honor MYOS_DID_IT_LAND_REPO if set.
+# Instead, we rewrite the probe to honor YOUROS_DID_IT_LAND_REPO if set.
 # (Check below — if the probe doesn't support it, the test prints a hint and skips.)
 
-if ! grep -q 'MYOS_DID_IT_LAND_REPO' "${PROBE}"; then
-  echo "NOTE: probe does not yet honor MYOS_DID_IT_LAND_REPO. Enabling test-override in probe..." >&2
+if ! grep -q 'YOUROS_DID_IT_LAND_REPO' "${PROBE}"; then
+  echo "NOTE: probe does not yet honor YOUROS_DID_IT_LAND_REPO. Enabling test-override in probe..." >&2
   exit 4
 fi
 
 run_probe() {
   local repo="$1"
   local agent="${2:-test-agent}"
-  MYOS_DID_IT_LAND_REPO="${repo}" "${PROBE}" "${agent}"
+  YOUROS_DID_IT_LAND_REPO="${repo}" "${PROBE}" "${agent}"
 }
 
 # CASE 1 assertion

@@ -71,7 +71,7 @@ fi
 if [ ! -f "$REPO_ROOT/api/.venv/bin/activate" ]; then
     _common=$(cd "$REPO_ROOT" && git rev-parse --git-common-dir 2>/dev/null || true)
     if [ -n "$_common" ] && [ -f "$(dirname "$_common")/api/.venv/bin/activate" ]; then
-        export MYOS_API_DIR="$(dirname "$_common")/api"
+        export YOUROS_API_DIR="$(dirname "$_common")/api"
     fi
 fi
 
@@ -100,7 +100,7 @@ cleanup
 
 # ── Test 1: single launch → exactly one uvicorn parent ───────────────────────
 
-PORT=$TEST_PORT MYOS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" \
+PORT=$TEST_PORT YOUROS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" \
     >/tmp/test_dev_backend_no_double_bind_a.log 2>&1 &
 LAUNCHER_A=$!
 
@@ -132,13 +132,13 @@ sleep 0.5
 
 # Launch two dev-backend.sh instances back-to-back with a tiny stagger so
 # both reach acquire_launcher_lock within the same race window.
-PORT=$TEST_PORT MYOS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" \
+PORT=$TEST_PORT YOUROS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" \
     >/tmp/test_dev_backend_no_double_bind_b.log 2>&1 &
 LAUNCHER_B=$!
 
 sleep 0.3
 
-PORT=$TEST_PORT MYOS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" \
+PORT=$TEST_PORT YOUROS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" \
     >>/tmp/test_dev_backend_no_double_bind_b.log 2>&1 &
 LAUNCHER_C=$!
 

@@ -14,7 +14,7 @@
 #   0  clean — no forbidden paths staged
 #   1  blocked — one or more forbidden paths detected (prints details to stderr)
 #
-# Override: MYOS_SKIP_HOOK=1 git commit  (bypass all pre-commit checks)
+# Override: YOUROS_SKIP_HOOK=1 git commit  (bypass all pre-commit checks)
 
 set -u
 
@@ -94,7 +94,7 @@ if [ "${BLOCKED}" -eq 1 ]; then
     printf 'These files belong to your local environment, not the repo.\n' >&2
     printf 'Fix: git reset HEAD <file>  then retry.\n' >&2
     printf 'Override (use only if you know what you are doing):\n' >&2
-    printf '  MYOS_SKIP_HOOK=1 git commit\n' >&2
+    printf '  YOUROS_SKIP_HOOK=1 git commit\n' >&2
     exit 1
 fi
 

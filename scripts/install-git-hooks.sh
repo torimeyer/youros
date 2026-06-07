@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs (or uninstalls) myOS git hooks via core.hooksPath.
+# Installs (or uninstalls) yourOS git hooks via core.hooksPath.
 #
 # Usage:
 #   scripts/install-git-hooks.sh            # install
@@ -20,8 +20,8 @@ GITHOOKS_DIR="${REPO_DIR}/.githooks"
 HOOK_PATH="${GITHOOKS_DIR}/pre-commit"
 LOCAL_HOOK="${GITHOOKS_DIR}/pre-commit.local"
 OLD_GIT_HOOK="${REPO_DIR}/.git/hooks/pre-commit"
-MARKER="# myos-pre-commit-test-check v2"
-OLD_MARKER="# myos-pre-commit-test-check v1"
+MARKER="# youros-pre-commit-test-check v2"
+OLD_MARKER="# youros-pre-commit-test-check v1"
 RUNNER="${REPO_DIR}/scripts/pre-commit-test-check.sh"
 
 if [ ! -d "${REPO_DIR}/.git" ]; then
@@ -33,14 +33,14 @@ case "${1:-install}" in
   --status)
     hooks_path="$(git -C "${REPO_DIR}" config core.hooksPath 2>/dev/null || true)"
     if [ "${hooks_path}" = ".githooks" ] && [ -f "${HOOK_PATH}" ] && grep -q "${MARKER}" "${HOOK_PATH}" 2>/dev/null; then
-      echo "myos git hooks are INSTALLED (core.hooksPath=.githooks)."
+      echo "youros git hooks are INSTALLED (core.hooksPath=.githooks)."
       echo "  pre-commit:  ${HOOK_PATH}"
       echo "  post-commit: ${GITHOOKS_DIR}/post-commit"
       if [ -x "${LOCAL_HOOK}" ]; then
         echo "  pre-existing local hook preserved at ${LOCAL_HOOK} and runs first."
       fi
     else
-      echo "myos git hooks are NOT installed."
+      echo "youros git hooks are NOT installed."
     fi
     exit 0
     ;;
@@ -54,7 +54,7 @@ case "${1:-install}" in
         echo "Restored your previous local hook to .git/hooks/pre-commit."
       fi
     else
-      echo "myos pre-commit hook is not installed, nothing to do."
+      echo "youros pre-commit hook is not installed, nothing to do."
     fi
     git -C "${REPO_DIR}" config --unset core.hooksPath 2>/dev/null || true
     echo "Unset core.hooksPath."
@@ -79,7 +79,7 @@ if [ -f "${OLD_GIT_HOOK}" ] && grep -q "${OLD_MARKER}" "${OLD_GIT_HOOK}" 2>/dev/
   echo "Removed old v1 pre-commit hook from .git/hooks/pre-commit."
 fi
 
-# If a non-myos pre-commit exists in .git/hooks/, preserve it.
+# If a non-youros pre-commit exists in .git/hooks/, preserve it.
 if [ -f "${OLD_GIT_HOOK}" ]; then
   if [ ! -f "${LOCAL_HOOK}" ]; then
     cp "${OLD_GIT_HOOK}" "${LOCAL_HOOK}"
@@ -90,7 +90,7 @@ if [ -f "${OLD_GIT_HOOK}" ]; then
   fi
 fi
 
-# If a non-myos pre-commit already exists in .githooks/, preserve it.
+# If a non-youros pre-commit already exists in .githooks/, preserve it.
 if [ -f "${HOOK_PATH}" ] && ! grep -q "${MARKER}" "${HOOK_PATH}" 2>/dev/null; then
   if [ ! -f "${LOCAL_HOOK}" ]; then
     cp "${HOOK_PATH}" "${LOCAL_HOOK}"
@@ -119,7 +119,7 @@ HOOK
 
 chmod +x "${HOOK_PATH}"
 git -C "${REPO_DIR}" config core.hooksPath .githooks
-echo "Installed myos git hooks:"
+echo "Installed youros git hooks:"
 echo "  core.hooksPath=.githooks"
 echo "  pre-commit  — runs tests on staged files before each commit"
 echo "  post-commit — auto-closes needles (→NNNN) after each commit"

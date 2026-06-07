@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Block em-dashes introduced in this commit's frontend changes.
-# Rule: tori does not want em-dashes in myOS frontend strings.
+# Rule: tori does not want em-dashes in yourOS frontend strings.
 #
 # Default mode: only fails on NEWLY ADDED em-dash lines in staged changes
 # under app/src. Existing em-dashes in unchanged files are NOT blocked so
@@ -42,7 +42,7 @@ HITS=$(git diff --cached --unified=0 2>/dev/null | \
     ' | head -50)
 
 if [ -n "${HITS}" ]; then
-    echo "[em-dash check] em-dashes added in this commit (project rule: no em-dashes in myOS frontend):"
+    echo "[em-dash check] em-dashes added in this commit (project rule: no em-dashes in yourOS frontend):"
     echo "${HITS}"
     echo ""
     echo "Replace with a period, comma, or rewrite. Existing em-dashes are not blocked."

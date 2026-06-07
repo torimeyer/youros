@@ -46,7 +46,7 @@ run_spawn_monitor() {
 
     (
         export PATH="${fake_curl_dir}:${PATH}"
-        export MYOS_API_BASE="http://unused"
+        export YOUROS_API_BASE="http://unused"
         if [[ -n "${pending_file}" ]]; then
             export CLAUDE_PROJECT_DIR="${TMP}/proj_$$_${RANDOM}"
             mkdir -p "${CLAUDE_PROJECT_DIR}/.ostk"

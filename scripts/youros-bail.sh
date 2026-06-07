@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# myos-bail.sh — portable myOS setup export/import (→1313)
+# youros-bail.sh — portable yourOS setup export/import (→1313)
 #
 # Wraps `ostk bail pack/unpack/verify` and also bundles the extra directories
 # that ostk does not manage natively: ~/.youros/, memory files, handoffs.
 #
 # Usage:
-#   scripts/myos-bail.sh pack   <out.yourosbail>
-#   scripts/myos-bail.sh unpack <in.yourosbail>
-#   scripts/myos-bail.sh verify <in.yourosbail>
+#   scripts/youros-bail.sh pack   <out.yourosbail>
+#   scripts/youros-bail.sh unpack <in.yourosbail>
+#   scripts/youros-bail.sh verify <in.yourosbail>
 #
 # Output format (.yourosbail = tar.gz containing):
 #   ostk-state.bail    — signed ostk bail (needles, decisions, docs)
-#   myos-extras.tar.gz — extra dirs archived relative to $HOME
+#   youros-extras.tar.gz — extra dirs archived relative to $HOME
 #
 # Overridable env vars (for tests):
-#   MYOS_DIR     — defaults to $HOME/.youros
+#   YOUROS_DIR     — defaults to $HOME/.youros
 #   MEMORY_DIR   — defaults to $HOME/.claude/projects/-Users-$(whoami)-claude-torios/memory
 #   HANDOFFS_DIR — defaults to $HOME/.claude/handoffs
 #   DECISIONS_DIR — defaults to <repo>/.ostk/decisions
@@ -27,14 +27,14 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Resolve whoami-based default only when not overridden
 _whoami="$(whoami)"
-MYOS_DIR="${MYOS_DIR:-$HOME/.youros}"
+YOUROS_DIR="${YOUROS_DIR:-$HOME/.youros}"
 MEMORY_DIR="${MEMORY_DIR:-$HOME/.claude/projects/-Users-${_whoami}-claude-torios/memory}"
 HANDOFFS_DIR="${HANDOFFS_DIR:-$HOME/.claude/handoffs}"
 DECISIONS_DIR="${DECISIONS_DIR:-$REPO_DIR/.ostk/decisions}"
 POLICY_DIR="${POLICY_DIR:-$REPO_DIR/.ostk/policy}"
 
 # Files excluded from ~/.youros/ — transient/reproducible or secrets
-MYOS_EXCLUDES=(
+YOUROS_EXCLUDES=(
     '*.jsonl'
     'github_token.json'
     'localhost.key'
@@ -69,7 +69,7 @@ extract_bundle() {
     local bundle="$1" dest="$2"
     [[ -f "$bundle" ]] || { echo "error: file not found: $bundle" >&2; exit 1; }
     tar xzf "$bundle" -C "$dest"
-    [[ -f "$dest/ostk-state.bail" ]] || { echo "error: not a myosbail archive (missing ostk-state.bail)" >&2; exit 1; }
+    [[ -f "$dest/ostk-state.bail" ]] || { echo "error: not a yourosbail archive (missing ostk-state.bail)" >&2; exit 1; }
 }
 
 # ── pack ─────────────────────────────────────────────────────────────────────
@@ -88,7 +88,7 @@ do_pack() {
 
     # Build exclude args for tar (macOS-compatible: --exclude patterns)
     local excl_args=()
-    for pat in "${MYOS_EXCLUDES[@]}"; do
+    for pat in "${YOUROS_EXCLUDES[@]}"; do
         excl_args+=(--exclude="$pat")
     done
 
@@ -98,7 +98,7 @@ do_pack() {
     relpath() { python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$1" "$HOME"; }
 
     local dirs_to_pack=()
-    [[ -d "$MYOS_DIR" ]]     && dirs_to_pack+=("$(relpath "$MYOS_DIR")")
+    [[ -d "$YOUROS_DIR" ]]     && dirs_to_pack+=("$(relpath "$YOUROS_DIR")")
     [[ -d "$MEMORY_DIR" ]]   && dirs_to_pack+=("$(relpath "$MEMORY_DIR")")
     [[ -d "$HANDOFFS_DIR" ]] && dirs_to_pack+=("$(relpath "$HANDOFFS_DIR")")
     # decisions + policy are under REPO_DIR; archive relative to HOME too
@@ -106,17 +106,17 @@ do_pack() {
     [[ -d "$POLICY_DIR" ]]    && dirs_to_pack+=("$(relpath "$POLICY_DIR")")
 
     if [[ ${#dirs_to_pack[@]} -gt 0 ]]; then
-        (cd "$HOME" && tar czf "$tmpdir/myos-extras.tar.gz" \
+        (cd "$HOME" && tar czf "$tmpdir/youros-extras.tar.gz" \
             "${excl_args[@]}" \
             "${dirs_to_pack[@]}" 2>/dev/null) || true
     else
         # Create empty archive so bundle format stays consistent
-        (cd "$HOME" && tar czf "$tmpdir/myos-extras.tar.gz" --files-from /dev/null 2>/dev/null) || \
-            touch "$tmpdir/myos-extras.tar.gz"
+        (cd "$HOME" && tar czf "$tmpdir/youros-extras.tar.gz" --files-from /dev/null 2>/dev/null) || \
+            touch "$tmpdir/youros-extras.tar.gz"
     fi
 
     echo "→ sealing bundle..."
-    tar czf "$out" -C "$tmpdir" ostk-state.bail myos-extras.tar.gz
+    tar czf "$out" -C "$tmpdir" ostk-state.bail youros-extras.tar.gz
 
     local size
     size="$(du -sh "$out" | cut -f1)"
@@ -141,9 +141,9 @@ do_unpack() {
     echo "→ unpacking ostk state..."
     ostk bail unpack "$tmpdir/ostk-state.bail"
 
-    if [[ -f "$tmpdir/myos-extras.tar.gz" ]]; then
+    if [[ -f "$tmpdir/youros-extras.tar.gz" ]]; then
         echo "→ restoring extras..."
-        (cd "$HOME" && tar xzf "$tmpdir/myos-extras.tar.gz")
+        (cd "$HOME" && tar xzf "$tmpdir/youros-extras.tar.gz")
     fi
 
     echo "✓ unpacked"

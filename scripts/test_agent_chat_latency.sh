@@ -14,7 +14,7 @@
 #   4. Waits for the long-poll to return and records the elapsed time.
 #   5. Asserts the round trip is under 2000 ms.
 #
-# The script talks to the running myOS backend on localhost:8000. If
+# The script talks to the running yourOS backend on localhost:8000. If
 # the backend is not up it prints a clear error instead of hanging.
 #
 # Usage:

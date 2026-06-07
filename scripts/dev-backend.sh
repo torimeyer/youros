@@ -32,7 +32,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Allow the caller to override API_DIR (useful when this script runs from
 # a git worktree that does not carry its own api/.venv; tests set this
 # to the main repo's api/ directory).
-API_DIR="${MYOS_API_DIR:-$REPO_DIR/api}"
+API_DIR="${YOUROS_API_DIR:-$REPO_DIR/api}"
 UVICORN_PORT="${PORT:-${UVICORN_PORT:-8000}}"
 
 # OAuth callbacks (Slack, GitHub, Atlassian, Drive) redirect the browser to
@@ -52,6 +52,10 @@ if [ ! -f "$API_DIR/.venv/bin/activate" ]; then
     echo "Python virtualenv not found at $API_DIR/.venv. Run install.sh first." >&2
     exit 1
 fi
+
+# Ensure ~/.local/bin is in PATH for tools like ostk, especially when
+# running under launchd where user profiles are not sourced.
+export PATH="$HOME/.local/bin:$PATH"
 
 # Serialize concurrent dev-backend.sh invocations. Without this lock, the
 # operator and the watchdog (scripts/backend_watchdog.sh) can both run
@@ -175,8 +179,8 @@ if [ -n "$existing_pids" ]; then
         # backend can still answer /api/agents AND reports running/queued agents.
         # If the backend is wedged or down, the curl fails, _agents_json is empty,
         # and the guard falls through so watchdog recovery still works. Override
-        # with MYOS_FORCE_RESTART=1 to bounce anyway.
-        if [ "${MYOS_FORCE_RESTART:-0}" != "1" ]; then
+        # with YOUROS_FORCE_RESTART=1 to bounce anyway.
+        if [ "${YOUROS_FORCE_RESTART:-0}" != "1" ]; then
             _agents_json=$(curl -sf --connect-timeout 3 -m 5 -k "https://127.0.0.1:$UVICORN_PORT/api/agents" 2>/dev/null \
                 || curl -sf --connect-timeout 3 -m 5 "http://127.0.0.1:$UVICORN_PORT/api/agents" 2>/dev/null \
                 || true)
@@ -202,7 +206,7 @@ except Exception:
                     echo "REFUSING to restart backend on port $UVICORN_PORT: agents are still running." >&2
                     echo "$_running" >&2
                     echo "Their work lives in the worktrees above and will be orphaned if the backend dies." >&2
-                    echo "Wait for them to finish, or set MYOS_FORCE_RESTART=1 to bounce anyway." >&2
+                    echo "Wait for them to finish, or set YOUROS_FORCE_RESTART=1 to bounce anyway." >&2
                     exit 1
                 fi
             fi
@@ -289,10 +293,10 @@ source .venv/bin/activate
 
 # Auto-recovery watchdog: launch a sibling process that polls /api/health
 # every 30 seconds and re-runs this script if the backend goes unreachable.
-# Disable by setting MYOS_NO_WATCHDOG=1 (e.g. inside test harnesses or when
+# Disable by setting YOUROS_NO_WATCHDOG=1 (e.g. inside test harnesses or when
 # running under a process supervisor that already restarts on exit).
 WATCHDOG_SCRIPT="$SCRIPT_DIR/backend_watchdog.sh"
-if [ "${MYOS_NO_WATCHDOG:-0}" != "1" ] && [ -x "$WATCHDOG_SCRIPT" ]; then
+if [ "${YOUROS_NO_WATCHDOG:-0}" != "1" ] && [ -x "$WATCHDOG_SCRIPT" ]; then
     # Only start the watchdog if one is not already running. The watchdog
     # writes its pid to /tmp/youros-backend-watchdog.pid; if that file exists
     # and the pid is still alive, leave it alone.

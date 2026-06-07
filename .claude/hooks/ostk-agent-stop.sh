@@ -3,7 +3,7 @@
 #
 # Purpose: when a subagent subprocess stops, write to BOTH the ostk
 # kernel journal (via `ostk hook agent-stop`) AND to /api/agents/complete
-# so the myOS Agents UI row is closed. This is the SubagentStop companion
+# so the yourOS Agents UI row is closed. This is the SubagentStop companion
 # to ostk-agent-start.sh.
 #
 # Why this matters: complete-agent.sh fires on PostToolUse Agent in the

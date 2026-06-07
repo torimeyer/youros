@@ -106,7 +106,7 @@ fi
 # the agent is running inside it. The parent session runs this on its next
 # start — no hygiene is lost.
 REAPER="$CWD/scripts/worktree-reaper.sh"
-if [ -n "$CWD" ] && [ -x "$REAPER" ] && [ -z "${MYOS_AGENT_NAME:-}" ]; then
+if [ -n "$CWD" ] && [ -x "$REAPER" ] && [ -z "${YOUROS_AGENT_NAME:-}" ]; then
     REAPER_OUT=$("$REAPER" --apply 2>&1) || true
 
     ABSORBED=$(echo "$REAPER_OUT" | grep -oP 'absorbed=\K[0-9]+' 2>/dev/null || echo 0)
@@ -139,7 +139,7 @@ fi
 # falsely block git mutations (→1522). Run the reaper at every session
 # start so the gate never sees a bloated count.
 FLEET_REAPER="$CWD/scripts/reap-stale-fleet.sh"
-if [ -n "$CWD" ] && [ -x "$FLEET_REAPER" ] && [ -z "${MYOS_AGENT_NAME:-}" ]; then
+if [ -n "$CWD" ] && [ -x "$FLEET_REAPER" ] && [ -z "${YOUROS_AGENT_NAME:-}" ]; then
     FLEET_OUT=$("$FLEET_REAPER" --apply 2>&1) || true
     REAPED=$(echo "$FLEET_OUT" | grep -oP 'Reaped:\s+\K[0-9]+' 2>/dev/null || echo 0)
     if [ "${REAPED:-0}" -gt 0 ]; then
@@ -158,7 +158,7 @@ _GIT_MAIN_WT=$(git -C "${CWD:-.}" worktree list --porcelain 2>/dev/null \
 WATCHER_SCRIPT="${_GIT_MAIN_WT:-$CWD}/.claude/hooks/lib/agent-completion-watcher.sh"
 WATCHER_PID_FILE="$HOME/.youros/subagents/completion-watcher.pid"
 
-if [ -x "$WATCHER_SCRIPT" ] && [ -z "${MYOS_AGENT_NAME:-}" ]; then
+if [ -x "$WATCHER_SCRIPT" ] && [ -z "${YOUROS_AGENT_NAME:-}" ]; then
     if [ -f "$WATCHER_PID_FILE" ]; then
         OLD_PID=$(cat "$WATCHER_PID_FILE" 2>/dev/null)
         case "$OLD_PID" in
@@ -168,11 +168,11 @@ if [ -x "$WATCHER_SCRIPT" ] && [ -z "${MYOS_AGENT_NAME:-}" ]; then
         rm -f "$WATCHER_PID_FILE" 2>/dev/null || true
     fi
     (
-        MYOS_BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}" \
-        MYOS_COMPLETION_ANNC="${HOME}/.youros/subagents/pending-completion-announcements.jsonl" \
-        MYOS_COMPLETION_STATE="${HOME}/.youros/subagents/completion-watcher-state.json" \
-        MYOS_COMPLETION_PID="$WATCHER_PID_FILE" \
-        MYOS_COMPLETION_WATCHER_INTERVAL="5" \
+        YOUROS_BACKEND_URL="${YOUROS_BACKEND_URL:-https://127.0.0.1:8000}" \
+        YOUROS_COMPLETION_ANNC="${HOME}/.youros/subagents/pending-completion-announcements.jsonl" \
+        YOUROS_COMPLETION_STATE="${HOME}/.youros/subagents/completion-watcher-state.json" \
+        YOUROS_COMPLETION_PID="$WATCHER_PID_FILE" \
+        YOUROS_COMPLETION_WATCHER_INTERVAL="5" \
             bash "$WATCHER_SCRIPT" </dev/null >/dev/null 2>&1 &
     )
     disown 2>/dev/null || true
@@ -183,7 +183,7 @@ fi
 # This check fires at every session start so a dead server shows up in the
 # standing-rules header before any work begins. Advisory only — exits 0.
 LIVENESS_SCRIPT="$CWD/scripts/liveness-check.sh"
-if [ -n "$CWD" ] && [ -x "$LIVENESS_SCRIPT" ] && [ -z "${MYOS_AGENT_NAME:-}" ]; then
+if [ -n "$CWD" ] && [ -x "$LIVENESS_SCRIPT" ] && [ -z "${YOUROS_AGENT_NAME:-}" ]; then
     bash "$LIVENESS_SCRIPT" >&2 || true
 fi
 
@@ -191,7 +191,7 @@ fi
 # Retro F2+F6, →1556: show commits, closed needles, live worktrees, and
 # any handoff file so Tori can orient quickly without re-reading git log.
 REPORT_SCRIPT="$CWD/scripts/session-start-report.sh"
-if [ -n "$CWD" ] && [ -x "$REPORT_SCRIPT" ] && [ -z "${MYOS_AGENT_NAME:-}" ]; then
+if [ -n "$CWD" ] && [ -x "$REPORT_SCRIPT" ] && [ -z "${YOUROS_AGENT_NAME:-}" ]; then
     bash "$REPORT_SCRIPT" "$CWD" >&2 || true
 fi
 

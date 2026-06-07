@@ -41,11 +41,11 @@ def emit(prefix, val):
     if not all(c.isalnum() or c == "_" for c in key):
         return
     if isinstance(val, bool):
-        print(f"_MYOS_RULE_{key}={'true' if val else 'false'}")
+        print(f"_YOUROS_RULE_{key}={'true' if val else 'false'}")
     elif isinstance(val, (int, float)):
-        print(f"_MYOS_RULE_{key}={int(val)}")
+        print(f"_YOUROS_RULE_{key}={int(val)}")
     elif isinstance(val, str) and all(c.isalnum() or c in '_-./' for c in val):
-        print(f"_MYOS_RULE_{key}={val}")
+        print(f"_YOUROS_RULE_{key}={val}")
 
 def flatten(d, prefix=""):
     for k, v in d.items():
@@ -61,19 +61,19 @@ _CFGEOF
 
 # Override rule functions with fast cached env-var lookups (zero python3 per call).
 # These replace the python3-spawning versions from load-rule.sh.
-myos_rule_get() {
+youros_rule_get() {
     local path_arg="${1#rules.}" default="$2"
-    local varname="_MYOS_RULE_${path_arg//[.-]/_}"
+    local varname="_YOUROS_RULE_${path_arg//[.-]/_}"
     local val="${!varname}"
     [ -n "$val" ] && echo "$val" || echo "${default}"
 }
 rule_enabled() {
-    local varname="_MYOS_RULE_${1//[.-]/_}_enabled"
+    local varname="_YOUROS_RULE_${1//[.-]/_}_enabled"
     [ "${!varname:-false}" = "true" ]
 }
 rule_param() {
     local key_path="$1" default="$2"
-    local varname="_MYOS_RULE_${key_path//[.-]/_}"
+    local varname="_YOUROS_RULE_${key_path//[.-]/_}"
     local val="${!varname}"
     [ -n "$val" ] && echo "$val" || echo "${default}"
 }
@@ -122,10 +122,10 @@ EOF
 
 # ---- RECEIPTS CHECK (gated on standing_rules_blocks.receipts_check) ----
 . "$LIB/rules/standing_rules_receipts.sh"
-[ "${_MYOS_RULE_standing_rules_blocks_receipts_check:-false}" = "true" ] && _standing_rules_receipts_check
+[ "${_YOUROS_RULE_standing_rules_blocks_receipts_check:-false}" = "true" ] && _standing_rules_receipts_check
 
 # ---- ZERO-BYTE TRANSCRIPT CHECK (gated, compressed) ----
-if [ "${_MYOS_RULE_standing_rules_blocks_zero_byte_transcript_check:-false}" = "true" ]; then
+if [ "${_YOUROS_RULE_standing_rules_blocks_zero_byte_transcript_check:-false}" = "true" ]; then
     cat <<'EOF'
 
 ZERO-BYTE TRANSCRIPT CLAIM CHECK (run before sending any reply):
@@ -136,7 +136,7 @@ EOF
 fi
 
 # ---- STALL/DEATH CHECK (gated, compressed) ----
-if [ "${_MYOS_RULE_standing_rules_blocks_stall_death_check:-false}" = "true" ]; then
+if [ "${_YOUROS_RULE_standing_rules_blocks_stall_death_check:-false}" = "true" ]; then
     cat <<'EOF'
 
 STALL/DEATH ASSERTION CHECK (run before sending any reply):
@@ -163,7 +163,7 @@ if rule_enabled adhd_monitor_pairing; then
 fi
 
 # ---- LIVE AGENT SNAPSHOT + RETRY QUEUE + DENY LOG (single python3) ----
-BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}"
+BACKEND_URL="${YOUROS_BACKEND_URL:-https://127.0.0.1:8000}"
 STAMP_FILE="${HOME}/.youros/hooks/agent-snapshot.stamp"
 
 _USER_MSG_FILE=$(mktemp -t user-msg-XXXXXX)
@@ -184,7 +184,7 @@ _NOW_EPOCH=$(date +%s)
 _STALE_CUTOFF=$((_NOW_EPOCH - 300))
 
 STAMP_FILE_VAL="$STAMP_FILE" \
-DENY_LOG_FILE="${MYOS_DENY_LOG:-${HOME}/.claude/logs/hook-denies.log}" \
+DENY_LOG_FILE="${YOUROS_DENY_LOG:-${HOME}/.claude/logs/hook-denies.log}" \
 RETRY_QUEUE_FILE="${HOME}/.youros/subagents/retry-queue.jsonl" \
 STALE_CUTOFF="$_STALE_CUTOFF" \
 INPUT_DATA="$INPUT" \
@@ -404,7 +404,7 @@ _permission_deny_detector_check() {
   lookback=$(rule_param "permission_deny_detector.lookback_seconds" "60")
 
   local CANNED="user doesn't want to proceed with this tool use"
-  local DENY_LOG_LOCAL="${MYOS_DENY_LOG:-${HOME}/.claude/logs/hook-denies.log}"
+  local DENY_LOG_LOCAL="${YOUROS_DENY_LOG:-${HOME}/.claude/logs/hook-denies.log}"
   local NOW_D
   NOW_D=$(date +%s)
   local CUTOFF=$(( NOW_D - ${lookback:-60} ))

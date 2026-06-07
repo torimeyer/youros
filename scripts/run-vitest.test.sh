@@ -17,8 +17,8 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WRAPPER="${SCRIPT_DIR}/run-vitest.sh"
-LOCK_DIR="/tmp/myos-vitest.lock"
-LOG_FILE="/tmp/myos-vitest.log"
+LOCK_DIR="/tmp/youros-vitest.lock"
+LOG_FILE="/tmp/youros-vitest.log"
 
 FAIL=0
 pass() { echo "  PASS: $1"; }
@@ -50,16 +50,16 @@ else
 fi
 
 # Second wrapper must fail fast with exit 9.
-VITEST_BIN="sleep" "${WRAPPER}" 1 >/tmp/myos-vitest-test-second.out 2>&1
+VITEST_BIN="sleep" "${WRAPPER}" 1 >/tmp/youros-vitest-test-second.out 2>&1
 SECOND_STATUS=$?
 if [ "${SECOND_STATUS}" -eq 9 ]; then
   pass "second wrapper exited with code 9"
 else
   fail "second wrapper exit code was ${SECOND_STATUS}, expected 9"
-  cat /tmp/myos-vitest-test-second.out
+  cat /tmp/youros-vitest-test-second.out
 fi
 
-if grep -q "Another vitest run is already in progress" /tmp/myos-vitest-test-second.out; then
+if grep -q "Another vitest run is already in progress" /tmp/youros-vitest-test-second.out; then
   pass "second wrapper printed already-running message"
 else
   fail "second wrapper did not print already-running message"
@@ -125,7 +125,7 @@ else
   fi
 fi
 
-rm -f /tmp/myos-vitest-test-second.out
+rm -f /tmp/youros-vitest-test-second.out
 
 if [ "${FAIL}" -eq 0 ]; then
   echo ""

@@ -1,5 +1,5 @@
 #!/bin/bash
-# myOS installer
+# yourOS installer
 # Usage: ./install.sh [--with-claude-hooks] [--help]
 
 set -e
@@ -16,11 +16,11 @@ NC='\033[0m'
 # --with-claude-hooks wires a user-global Claude Code hook at
 # ~/.claude/hooks/register-agent.sh that fires on EVERY Claude Code
 # session on this machine (regardless of project) and POSTs to the
-# local myOS backend so Task-tool subagents show up on the Agents
+# local yourOS backend so Task-tool subagents show up on the Agents
 # page. Off by default because it has machine-wide scope and most
-# users never open Claude Code in a non-myOS project anyway.
-# Also honours MYOS_INSTALL_CLAUDE_HOOKS=1 for scripted installs.
-WITH_CLAUDE_HOOKS="${MYOS_INSTALL_CLAUDE_HOOKS:-0}"
+# users never open Claude Code in a non-yourOS project anyway.
+# Also honours YOUROS_INSTALL_CLAUDE_HOOKS=1 for scripted installs.
+WITH_CLAUDE_HOOKS="${YOUROS_INSTALL_CLAUDE_HOOKS:-0}"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -32,19 +32,19 @@ Usage: ./install.sh [--with-claude-hooks] [--help]
 
 Installs ostk (if absent), sets up the Python backend in api/.venv,
 installs and builds the frontend in app/, seeds ~/.youros/settings.json,
-and adds `myos` / `myos-update` aliases to your shell rc.
+and adds `youros` / `youros-update` aliases to your shell rc.
 
 Flags:
   --with-claude-hooks     Also install a user-global Claude Code hook
                           at ~/.claude/hooks/register-agent.sh. Fires
                           on every Claude Code session on this machine
-                          (not just myOS projects) and registers
-                          Task-tool subagents with the local myOS
+                          (not just yourOS projects) and registers
+                          Task-tool subagents with the local yourOS
                           backend. Machine-wide. Off by default.
-                          Equivalent env var: MYOS_INSTALL_CLAUDE_HOOKS=1
+                          Equivalent env var: YOUROS_INSTALL_CLAUDE_HOOKS=1
 
   --without-claude-hooks  Explicitly skip the hook install (the default;
-                          use this if MYOS_INSTALL_CLAUDE_HOOKS=1 is
+                          use this if YOUROS_INSTALL_CLAUDE_HOOKS=1 is
                           set in your environment and you want to
                           override it for one run).
 
@@ -56,18 +56,18 @@ EOF
     esac
 done
 
-INSTALL_DIR="${MYOS_DIR:-$HOME/myos}"
-# Repo to clone from. Override with MYOS_REPO=<org/name> to install from your
+INSTALL_DIR="${YOUROS_DIR:-$HOME/youros}"
+# Repo to clone from. Override with YOUROS_REPO=<org/name> to install from your
 # own fork or mirror. Defaults to the canonical upstream.
-MYOS_REPO="${MYOS_REPO:-torimeyer/youros}"
+YOUROS_REPO="${YOUROS_REPO:-torimeyer/youros}"
 
 echo ""
-echo -e "${BLUE}=== myOS Installer ===${NC}"
+echo -e "${BLUE}=== yourOS Installer ===${NC}"
 echo ""
 
 # --- Check prerequisites ---
 #
-# myOS lists what it needs and exits if anything is missing. We do not try to
+# yourOS lists what it needs and exits if anything is missing. We do not try to
 # install system packages on your behalf. Install the prereqs your way (apt,
 # dnf, pacman, nvm, pyenv, asdf, whatever you use), then run this again.
 
@@ -165,7 +165,7 @@ if ! command -v ostk &> /dev/null; then
                 fi
             else
                 echo -e "${YELLOW}Could not download ostk automatically.${NC}"
-                echo "You can install it manually later. myOS will still work without it"
+                echo "You can install it manually later. yourOS will still work without it"
                 echo "for basic features (chat, tasks, settings)."
             fi
             rm -rf "$OSTK_TMP"
@@ -194,16 +194,16 @@ echo ""
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -f "$SCRIPT_DIR/start.sh" ] && [ -d "$SCRIPT_DIR/app" ] && [ -d "$SCRIPT_DIR/api" ]; then
     INSTALL_DIR="$SCRIPT_DIR"
-    echo "Running from existing myOS repo at $INSTALL_DIR"
+    echo "Running from existing yourOS repo at $INSTALL_DIR"
 elif [ -d "$INSTALL_DIR" ]; then
-    echo "myOS directory already exists at $INSTALL_DIR"
+    echo "yourOS directory already exists at $INSTALL_DIR"
     echo "Updating..."
     cd "$INSTALL_DIR"
     git pull --ff-only 2>/dev/null || echo -e "${YELLOW}Could not auto-update. Continuing with existing files.${NC}"
 else
-    echo "Downloading myOS to $INSTALL_DIR..."
-    git clone "https://github.com/${MYOS_REPO}.git" "$INSTALL_DIR" 2>/dev/null || \
-    git clone "git@github.com:${MYOS_REPO}.git" "$INSTALL_DIR" 2>/dev/null || {
+    echo "Downloading yourOS to $INSTALL_DIR..."
+    git clone "https://github.com/${YOUROS_REPO}.git" "$INSTALL_DIR" 2>/dev/null || \
+    git clone "git@github.com:${YOUROS_REPO}.git" "$INSTALL_DIR" 2>/dev/null || {
         echo -e "${RED}Could not clone the repo. Check your access and try again.${NC}"
         exit 1
     }
@@ -257,11 +257,11 @@ echo ""
 
 # --- Set up default settings if none exist ---
 
-MYOS_CONFIG_DIR="$HOME/.youros"
-if [ ! -f "$MYOS_CONFIG_DIR/settings.json" ]; then
-    mkdir -p "$MYOS_CONFIG_DIR"
-    cp "$INSTALL_DIR/settings.default.json" "$MYOS_CONFIG_DIR/settings.json"
-    echo -e "${GREEN}Default settings created at $MYOS_CONFIG_DIR/settings.json${NC}"
+YOUROS_CONFIG_DIR="$HOME/.youros"
+if [ ! -f "$YOUROS_CONFIG_DIR/settings.json" ]; then
+    mkdir -p "$YOUROS_CONFIG_DIR"
+    cp "$INSTALL_DIR/settings.default.json" "$YOUROS_CONFIG_DIR/settings.json"
+    echo -e "${GREEN}Default settings created at $YOUROS_CONFIG_DIR/settings.json${NC}"
 else
     echo "Settings already exist. Keeping your current preferences."
 fi
@@ -278,7 +278,7 @@ fi
 
 # --- Stage the register-agent hook file -------------------------------
 # Always copy .claude/hooks/register-agent.sh and its lib to
-# ~/.youros/hooks/ so myos-track / myos-claude / --with-claude-hooks all
+# ~/.youros/hooks/ so youros-track / youros-claude / --with-claude-hooks all
 # point at the same canonical location. Nothing fires yet — this just
 # places the artifact. Idempotent; refreshes on every install.
 STAGED_HOOKS_DIR="$HOME/.youros/hooks"
@@ -295,14 +295,14 @@ echo ""
 
 # --- Install Claude Code hooks into ~/.claude/ (opt-in) --------------
 # Wires the Agent PreToolUse register hook globally so every Claude
-# Code session on this machine registers its subagents with myOS,
+# Code session on this machine registers its subagents with yourOS,
 # not just sessions inside this repo. Scoped off by default because
 # the scope is machine-wide, not per-project. Enable with
-# --with-claude-hooks or MYOS_INSTALL_CLAUDE_HOOKS=1. Idempotent.
+# --with-claude-hooks or YOUROS_INSTALL_CLAUDE_HOOKS=1. Idempotent.
 #
 # Per-project alternatives (no ~/.claude/ modification):
-#   myos-track                    enable tracking in current repo
-#   myos-claude                   one-shot wrapper around `claude`
+#   youros-track                    enable tracking in current repo
+#   youros-claude                   one-shot wrapper around `claude`
 if [ "$WITH_CLAUDE_HOOKS" = "1" ]; then
     if [ -x "$INSTALL_DIR/scripts/install-claude-hooks.sh" ]; then
         echo "Wiring global Claude Code hooks into ~/.claude/..."
@@ -315,9 +315,9 @@ else
     echo "Project-local hooks under .claude/hooks/ still activate when Claude"
     echo "Code is opened in this repo."
     echo ""
-    echo "To opt any OTHER project into myOS subagent tracking:"
-    echo "  myos-track              (persistent, writes .claude/settings.local.json)"
-    echo "  myos-claude             (one-shot, cleans up on exit)"
+    echo "To opt any OTHER project into yourOS subagent tracking:"
+    echo "  youros-track              (persistent, writes .claude/settings.local.json)"
+    echo "  youros-claude             (one-shot, cleans up on exit)"
     echo ""
     echo "To register every Claude Code session on this machine (any project),"
     echo "rerun with --with-claude-hooks."
@@ -396,44 +396,44 @@ SHELL_RC="$HOME/.zshrc"
 [ -f "$HOME/.bashrc" ] && [ ! -f "$HOME/.zshrc" ] && SHELL_RC="$HOME/.bashrc"
 
 # Add alias if not already present
-if ! grep -q "alias myos=" "$SHELL_RC" 2>/dev/null; then
+if ! grep -q "alias youros=" "$SHELL_RC" 2>/dev/null; then
     echo "" >> "$SHELL_RC"
-    echo "alias myos='$INSTALL_DIR/start.sh'" >> "$SHELL_RC"
-    echo "Added 'myos' command to $SHELL_RC"
+    echo "alias youros='$INSTALL_DIR/start.sh'" >> "$SHELL_RC"
+    echo "Added 'youros' command to $SHELL_RC"
 fi
 
 # Add safe-update alias if not already present and update.sh exists.
-if [ -f "$INSTALL_DIR/update.sh" ] && ! grep -q "alias myos-update=" "$SHELL_RC" 2>/dev/null; then
+if [ -f "$INSTALL_DIR/update.sh" ] && ! grep -q "alias youros-update=" "$SHELL_RC" 2>/dev/null; then
     chmod +x "$INSTALL_DIR/update.sh"
     echo "" >> "$SHELL_RC"
-    echo "alias myos-update='$INSTALL_DIR/update.sh'" >> "$SHELL_RC"
-    echo "Added 'myos-update' command to $SHELL_RC"
+    echo "alias youros-update='$INSTALL_DIR/update.sh'" >> "$SHELL_RC"
+    echo "Added 'youros-update' command to $SHELL_RC"
 fi
 
-# myos-track: enable/disable myOS subagent tracking in the current repo
+# youros-track: enable/disable yourOS subagent tracking in the current repo
 # (no global modification). Writes .claude/settings.local.json.
-if [ -f "$INSTALL_DIR/myos-track.sh" ] && ! grep -q "alias myos-track=" "$SHELL_RC" 2>/dev/null; then
-    chmod +x "$INSTALL_DIR/myos-track.sh"
+if [ -f "$INSTALL_DIR/youros-track.sh" ] && ! grep -q "alias youros-track=" "$SHELL_RC" 2>/dev/null; then
+    chmod +x "$INSTALL_DIR/youros-track.sh"
     echo "" >> "$SHELL_RC"
-    echo "alias myos-track='$INSTALL_DIR/myos-track.sh'" >> "$SHELL_RC"
-    echo "Added 'myos-track' command to $SHELL_RC"
+    echo "alias youros-track='$INSTALL_DIR/youros-track.sh'" >> "$SHELL_RC"
+    echo "Added 'youros-track' command to $SHELL_RC"
 fi
 
-# myos-claude: one-shot tracked Claude Code session (transient, cleans
+# youros-claude: one-shot tracked Claude Code session (transient, cleans
 # up .claude/settings.local.json on exit).
-if [ -f "$INSTALL_DIR/myos-claude.sh" ] && ! grep -q "alias myos-claude=" "$SHELL_RC" 2>/dev/null; then
-    chmod +x "$INSTALL_DIR/myos-claude.sh"
+if [ -f "$INSTALL_DIR/youros-claude.sh" ] && ! grep -q "alias youros-claude=" "$SHELL_RC" 2>/dev/null; then
+    chmod +x "$INSTALL_DIR/youros-claude.sh"
     echo "" >> "$SHELL_RC"
-    echo "alias myos-claude='$INSTALL_DIR/myos-claude.sh'" >> "$SHELL_RC"
-    echo "Added 'myos-claude' command to $SHELL_RC"
+    echo "alias youros-claude='$INSTALL_DIR/youros-claude.sh'" >> "$SHELL_RC"
+    echo "Added 'youros-claude' command to $SHELL_RC"
 fi
 
 echo ""
-echo -e "${GREEN}=== myOS is installed! ===${NC}"
+echo -e "${GREEN}=== yourOS is installed! ===${NC}"
 echo ""
-echo "To start myOS:"
-echo "  1. Open a new Terminal window (so the 'myos' command is available)"
-echo "  2. Type: myos"
+echo "To start yourOS:"
+echo "  1. Open a new Terminal window (so the 'youros' command is available)"
+echo "  2. Type: youros"
 echo "  3. Your browser will open automatically"
 echo ""
 echo "Or run it right now:"
@@ -442,5 +442,5 @@ echo ""
 echo "Optional: if you want to use a Claude subscription instead of an API key,"
 echo "install the Claude command line tool yourself:"
 echo "  npm install -g @anthropic-ai/claude-code"
-echo "myOS works fine without it."
+echo "yourOS works fine without it."
 echo ""

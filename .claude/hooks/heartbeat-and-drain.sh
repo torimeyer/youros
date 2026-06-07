@@ -40,8 +40,8 @@ case "$TOOL_NAME" in
 esac
 
 # Resolve agent name
-if [ -n "${MYOS_AGENT_NAME:-}" ]; then
-    AGENT_NAME="${MYOS_AGENT_NAME}"
+if [ -n "${YOUROS_AGENT_NAME:-}" ]; then
+    AGENT_NAME="${YOUROS_AGENT_NAME}"
 else
     SESSION_ID=$(extract session_id)
     if [ -n "$SESSION_ID" ]; then
@@ -56,8 +56,8 @@ AGENT_NAME=$(echo "$AGENT_NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '
 HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$HOOKS_DIR/lib/drain-pending.sh" ]; then
     . "$HOOKS_DIR/lib/drain-pending.sh"
-    myos_drain_pending >/dev/null 2>&1 || true
-    myos_drain_pending_complete >/dev/null 2>&1 || true
+    youros_drain_pending >/dev/null 2>&1 || true
+    youros_drain_pending_complete >/dev/null 2>&1 || true
 fi
 
 # Fully detached heartbeat
@@ -70,14 +70,14 @@ disown 2>/dev/null || true
 
 # Idle-transcript sweep (detached)
 (
-    IDLE_COMPLETE_SECONDS="${MYOS_IDLE_COMPLETE_SECONDS:-300}"
+    IDLE_COMPLETE_SECONDS="${YOUROS_IDLE_COMPLETE_SECONDS:-300}"
     IDLE_SWEEP_STAMP="$HOME/.youros/subagents/last-idle-sweep.stamp"
-    IDLE_SWEEP_INTERVAL="${MYOS_IDLE_SWEEP_INTERVAL:-60}"
-    IDLE_LOG="${MYOS_IDLE_COMPLETE_LOG:-/tmp/idle-complete.log}"
-    AGENTS_URL="${MYOS_AGENTS_URL:-https://127.0.0.1:8000/api/agents}"
-    HEARTBEAT_IDLE_PY="${MYOS_HEARTBEAT_IDLE_PY:-${CLAUDE_PROJECT_DIR:-$HOME/torios}/api/services/heartbeat_idle.py}"
+    IDLE_SWEEP_INTERVAL="${YOUROS_IDLE_SWEEP_INTERVAL:-60}"
+    IDLE_LOG="${YOUROS_IDLE_COMPLETE_LOG:-/tmp/idle-complete.log}"
+    AGENTS_URL="${YOUROS_AGENTS_URL:-https://127.0.0.1:8000/api/agents}"
+    HEARTBEAT_IDLE_PY="${YOUROS_HEARTBEAT_IDLE_PY:-${CLAUDE_PROJECT_DIR:-$HOME/torios}/api/services/heartbeat_idle.py}"
 
-    if [ "${MYOS_IDLE_SWEEP_FORCE:-0}" != "1" ] && [ -f "$IDLE_SWEEP_STAMP" ]; then
+    if [ "${YOUROS_IDLE_SWEEP_FORCE:-0}" != "1" ] && [ -f "$IDLE_SWEEP_STAMP" ]; then
         now=$(date +%s)
         last_run=$(cat "$IDLE_SWEEP_STAMP" 2>/dev/null)
         case "$last_run" in
@@ -135,9 +135,9 @@ disown 2>/dev/null || true
 _HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WATCHER_SCRIPT="${_HOOKS_DIR}/lib/agent-completion-watcher.sh"
 
-ANNC_FILE="${MYOS_COMPLETION_ANNC:-$HOME/.youros/subagents/pending-completion-announcements.jsonl}"
-STATE_FILE="${MYOS_COMPLETION_STATE:-$HOME/.youros/subagents/completion-watcher-state.json}"
-PID_FILE="${MYOS_COMPLETION_PID:-$HOME/.youros/subagents/completion-watcher.pid}"
+ANNC_FILE="${YOUROS_COMPLETION_ANNC:-$HOME/.youros/subagents/pending-completion-announcements.jsonl}"
+STATE_FILE="${YOUROS_COMPLETION_STATE:-$HOME/.youros/subagents/completion-watcher-state.json}"
+PID_FILE="${YOUROS_COMPLETION_PID:-$HOME/.youros/subagents/completion-watcher.pid}"
 
 _daemon_alive() {
     [ -f "$PID_FILE" ] || return 1
@@ -151,11 +151,11 @@ _daemon_alive() {
 
 if ! _daemon_alive && [ -x "$WATCHER_SCRIPT" ]; then
     (
-        MYOS_BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}" \
-        MYOS_COMPLETION_ANNC="$ANNC_FILE" \
-        MYOS_COMPLETION_STATE="$STATE_FILE" \
-        MYOS_COMPLETION_PID="$PID_FILE" \
-        MYOS_COMPLETION_WATCHER_INTERVAL="${MYOS_COMPLETION_WATCHER_INTERVAL:-5}" \
+        YOUROS_BACKEND_URL="${YOUROS_BACKEND_URL:-https://127.0.0.1:8000}" \
+        YOUROS_COMPLETION_ANNC="$ANNC_FILE" \
+        YOUROS_COMPLETION_STATE="$STATE_FILE" \
+        YOUROS_COMPLETION_PID="$PID_FILE" \
+        YOUROS_COMPLETION_WATCHER_INTERVAL="${YOUROS_COMPLETION_WATCHER_INTERVAL:-5}" \
             bash "$WATCHER_SCRIPT" </dev/null >/dev/null 2>&1 &
     )
     disown 2>/dev/null || true

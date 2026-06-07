@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# test-myos-handoff.sh — regression tests for myos-handoff.sh (→1312)
+# test-youros-handoff.sh — regression tests for youros-handoff.sh (→1312)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-WRAPPER="$SCRIPT_DIR/myos-handoff.sh"
+WRAPPER="$SCRIPT_DIR/youros-handoff.sh"
 PASS=0
 FAIL=0
 
@@ -63,7 +63,7 @@ else
 fi
 
 # ── test: ostk path dispatches to ostk handoff ────────────────────────────────
-output="$(MYOS_HANDOFF_USE_OSTK=1 OSTK_CMD="$mock_ostk" bash "$WRAPPER" claude-opus-4-7 --transition "switching for context" 2>&1)"
+output="$(YOUROS_HANDOFF_USE_OSTK=1 OSTK_CMD="$mock_ostk" bash "$WRAPPER" claude-opus-4-7 --transition "switching for context" 2>&1)"
 if echo "$output" | grep -q "ostk_called: handoff claude-opus-4-7 --transition switching for context"; then
     pass "ostk path: calls ostk handoff with target + --transition"
 else
@@ -71,7 +71,7 @@ else
 fi
 
 # ── test: ostk path omits --transition when not given ─────────────────────────
-output2="$(MYOS_HANDOFF_USE_OSTK=1 OSTK_CMD="$mock_ostk" bash "$WRAPPER" claude-opus-4-7 2>&1)"
+output2="$(YOUROS_HANDOFF_USE_OSTK=1 OSTK_CMD="$mock_ostk" bash "$WRAPPER" claude-opus-4-7 2>&1)"
 if echo "$output2" | grep -qE "^ostk_called: handoff claude-opus-4-7$"; then
     pass "ostk path: omits --transition flag when not provided"
 else

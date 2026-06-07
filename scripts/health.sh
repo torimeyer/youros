@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# myOS health check: pings backend (port 8000) and frontend (port 3010).
+# yourOS health check: pings backend (port 8000) and frontend (port 3010).
 #
 # Prints green OK or red FAIL for each service. Exits 0 only if both are up.
 #

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# myOS Specs user-journey smoke test.
+# yourOS Specs user-journey smoke test.
 #
 # Walks the full demo flow against a running backend:
 #   1. Create a draft named "e2e-specs-journey-..." via /api/specs/draft
@@ -23,16 +23,16 @@ set -u
 
 # →1454 plan, Fix 1: redirect spec writes to a tmpdir so this smoke test
 # never accumulates artifacts under ~/.youros/specs/. The backend reads
-# MYOS_USER_SPECS_DIR at module load (api/services/ostk.py), so it is the
+# YOUROS_USER_SPECS_DIR at module load (api/services/ostk.py), so it is the
 # caller's responsibility to restart the backend with this env var set
 # before running the smoke. e2e_smoke.sh sets the same var and child
 # dev-backend.sh inherits it. Without that restart, this export protects
 # nothing on its own — but the trap still cleans up the dir if anything
 # did land there during the run.
-if [ -z "${MYOS_USER_SPECS_DIR:-}" ]; then
-    MYOS_USER_SPECS_DIR="$(mktemp -d -t myos-specs-smoke.XXXXXX)/specs"
-    export MYOS_USER_SPECS_DIR
-    trap 'rm -rf "$(dirname "$MYOS_USER_SPECS_DIR")"' EXIT INT TERM HUP
+if [ -z "${YOUROS_USER_SPECS_DIR:-}" ]; then
+    YOUROS_USER_SPECS_DIR="$(mktemp -d -t youros-specs-smoke.XXXXXX)/specs"
+    export YOUROS_USER_SPECS_DIR
+    trap 'rm -rf "$(dirname "$YOUROS_USER_SPECS_DIR")"' EXIT INT TERM HUP
 fi
 
 GREEN='\033[0;32m'
@@ -123,7 +123,7 @@ info "spec title: ${SPEC_TITLE}"
 # past a naive timeout. We retry up to 3 times with a short backoff and
 # surface the real curl error on final failure so the smoke log actually
 # tells us WHY it failed instead of just "empty body".
-DRAFT_ERR_FILE="$(mktemp -t myos-specs-draft-err.XXXXXX)"
+DRAFT_ERR_FILE="$(mktemp -t youros-specs-draft-err.XXXXXX)"
 draft_resp=""
 draft_attempt=0
 draft_max=3
@@ -263,7 +263,7 @@ fi
 # --- Step 3: Break into tasks ---
 # Like draft, decompose makes an AI call and benefits from the same
 # retry-with-backoff guard when the smoke has the backend under load.
-DECOMP_ERR_FILE="$(mktemp -t myos-specs-decomp-err.XXXXXX)"
+DECOMP_ERR_FILE="$(mktemp -t youros-specs-decomp-err.XXXXXX)"
 decompose_resp=""
 decomp_attempt=0
 decomp_max=3

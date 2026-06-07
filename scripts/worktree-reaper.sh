@@ -227,7 +227,7 @@ if [ "$APPLY" -eq 1 ]; then
 # agent is still in a non-terminal state.
 #
 # Source priority:
-#   1. MYOS_ACTIVE_AGENTS env var (comma-separated names; set by the
+#   1. YOUROS_ACTIVE_AGENTS env var (comma-separated names; set by the
 #      Python worktree_reaper service before calling this script).
 #   2. $PRIMARY/.ostk/agent_state.json (used when called standalone,
 #      e.g. via launchd / scripts/scheduled/reaper.sh).
@@ -243,8 +243,8 @@ if [ "$APPLY" -eq 1 ]; then
 _ACTIVE_NAMES_LOADED=0
 ACTIVE_AGENT_NAMES=""
 
-if [ "${MYOS_ACTIVE_AGENTS+set}" = "set" ]; then
-  ACTIVE_AGENT_NAMES="${MYOS_ACTIVE_AGENTS}"
+if [ "${YOUROS_ACTIVE_AGENTS+set}" = "set" ]; then
+  ACTIVE_AGENT_NAMES="${YOUROS_ACTIVE_AGENTS}"
   _ACTIVE_NAMES_LOADED=1
 elif [ -f "$PRIMARY/.ostk/agent_state.json" ]; then
   _state_out=$(STATE_FILE="$PRIMARY/.ostk/agent_state.json" python3 -c "
@@ -277,11 +277,11 @@ fi
 # Fail safe: if we could not load active agent names from any source,
 # skip all removals. Removing a running agent's worktree corrupts in-flight
 # work; it is safer to do nothing and let the operator re-run with
-# MYOS_ACTIVE_AGENTS set (see needle →947, →1051).
+# YOUROS_ACTIVE_AGENTS set (see needle →947, →1051).
 if [ "$_ACTIVE_NAMES_LOADED" -eq 0 ]; then
-  echo "  warning: could not load active agent names from MYOS_ACTIVE_AGENTS or agent_state.json" >&2
+  echo "  warning: could not load active agent names from YOUROS_ACTIVE_AGENTS or agent_state.json" >&2
   echo "  skipping all removals to avoid deleting a running agent's worktree" >&2
-  echo "  re-run with MYOS_ACTIVE_AGENTS='' (empty, not unset) to force removal" >&2
+  echo "  re-run with YOUROS_ACTIVE_AGENTS='' (empty, not unset) to force removal" >&2
   exit 1
 fi
 

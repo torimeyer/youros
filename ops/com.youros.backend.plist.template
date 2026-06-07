@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  com.myos.backend.plist.template
-  Rendered by install.sh into ~/Library/LaunchAgents/com.myos.backend.plist.
-  Placeholders: __REPO__ __HOME__ __HEALTH_URL__
+  com.youros.backend.plist.template
+  Rendered by install.sh into ~/Library/LaunchAgents/com.youros.backend.plist.
+  Placeholders: __INSTALL_DIR__ __HOME__ __HEALTH_URL__
 
   launchd owns backend restarts (KeepAlive=true, ThrottleInterval=1s).
   The watchdog runs in KILL_ONLY mode and handles deadlocked event loops;
@@ -16,16 +16,16 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.myos.backend</string>
+    <string>com.youros.backend</string>
 
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>__REPO__/scripts/dev-backend.sh</string>
+        <string>__INSTALL_DIR__/scripts/dev-backend.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>__REPO__</string>
+    <string>__INSTALL_DIR__</string>
 
     <key>EnvironmentVariables</key>
     <dict>
@@ -49,9 +49,9 @@
     <integer>1</integer>
 
     <key>StandardOutPath</key>
-    <string>__HOME__/.myos/logs/backend.out</string>
+    <string>__HOME__/.youros/logs/backend.out</string>
 
     <key>StandardErrorPath</key>
-    <string>__HOME__/.myos/logs/backend.err</string>
+    <string>__HOME__/.youros/logs/backend.err</string>
 </dict>
 </plist>

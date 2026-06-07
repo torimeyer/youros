@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# myOS pre-commit test check.
+# yourOS pre-commit test check.
 #
 # Runs a fast, TARGETED subset of pytest and vitest against only the
 # files that are staged in this commit. The goal is to catch broken
@@ -20,12 +20,12 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${REPO_DIR}"
 
 # --- Escape hatch for subagents and emergency commits --------------------
-# Setting MYOS_SKIP_HOOK=1 bypasses the whole test check. This exists
+# Setting YOUROS_SKIP_HOOK=1 bypasses the whole test check. This exists
 # because the hook can hang the tree (holding .git/index.lock for minutes
 # if pytest/vitest/tsc stalls) when many subagents commit in parallel.
 # The hook always applies hard timeouts below even when not skipped.
-if [ "${MYOS_SKIP_HOOK:-0}" = "1" ]; then
-  echo "[pre-commit] MYOS_SKIP_HOOK=1, skipping test check."
+if [ "${YOUROS_SKIP_HOOK:-0}" = "1" ]; then
+  echo "[pre-commit] YOUROS_SKIP_HOOK=1, skipping test check."
   exit 0
 fi
 
@@ -35,7 +35,7 @@ fi
 # On timeout we kill the whole process group with SIGKILL and return 124,
 # matching GNU timeout. This is the single most important change in this
 # file: without it a stuck pytest/tsc/vitest holds .git/index.lock forever.
-MYOS_HOOK_STEP_TIMEOUT="${MYOS_HOOK_STEP_TIMEOUT:-90}"
+YOUROS_HOOK_STEP_TIMEOUT="${YOUROS_HOOK_STEP_TIMEOUT:-90}"
 run_with_timeout() {
   local secs="$1"; shift
   perl - "$secs" "$@" <<'PERL_EOF'
@@ -156,15 +156,15 @@ FAILED=0
 if [ -n "${TS_STAGED}" ]; then
   if [ -d "${REPO_DIR}/app/node_modules" ]; then
     say "running tsc -b on app..."
-    TSC_LOG="$(mktemp -t myos-precommit-tsc.XXXXXX)"
-    ( cd "${REPO_DIR}/app" && run_with_timeout "${MYOS_HOOK_STEP_TIMEOUT}" npx --no-install tsc -b --pretty false ) > "${TSC_LOG}" 2>&1
+    TSC_LOG="$(mktemp -t youros-precommit-tsc.XXXXXX)"
+    ( cd "${REPO_DIR}/app" && run_with_timeout "${YOUROS_HOOK_STEP_TIMEOUT}" npx --no-install tsc -b --pretty false ) > "${TSC_LOG}" 2>&1
     TSC_STATUS=$?
     tail -40 "${TSC_LOG}"
     rm -f "${TSC_LOG}"
     if [ "${TSC_STATUS}" -eq 0 ]; then
       ok "tsc passed."
     elif [ "${TSC_STATUS}" -eq 124 ]; then
-      warn "tsc timed out after ${MYOS_HOOK_STEP_TIMEOUT}s, skipping. Run 'cd app && tsc -b' manually."
+      warn "tsc timed out after ${YOUROS_HOOK_STEP_TIMEOUT}s, skipping. Run 'cd app && tsc -b' manually."
     else
       fail "tsc found type errors."
       FAILED=1
@@ -209,12 +209,12 @@ if [ -n "${API_STAGED}" ]; then
       say "running pytest on:"
       echo "${UNIQ_TARGETS}" | sed 's/^/    /'
       # shellcheck disable=SC2086
-      ( cd "${REPO_DIR}" && run_with_timeout "${MYOS_HOOK_STEP_TIMEOUT}" "${VENV_PY}" -m pytest -x -q --no-header ${UNIQ_TARGETS} )
+      ( cd "${REPO_DIR}" && run_with_timeout "${YOUROS_HOOK_STEP_TIMEOUT}" "${VENV_PY}" -m pytest -x -q --no-header ${UNIQ_TARGETS} )
       PYT_STATUS=$?
       if [ "${PYT_STATUS}" -eq 0 ]; then
         ok "pytest passed."
       elif [ "${PYT_STATUS}" -eq 124 ]; then
-        warn "pytest timed out after ${MYOS_HOOK_STEP_TIMEOUT}s, skipping. A test is hanging: investigate before push."
+        warn "pytest timed out after ${YOUROS_HOOK_STEP_TIMEOUT}s, skipping. A test is hanging: investigate before push."
       else
         fail "pytest found failures."
         FAILED=1
@@ -261,14 +261,14 @@ if [ -n "${APP_STAGED}" ]; then
       # Use the wrapper to avoid parallel runs. It acquires a lock and
       # exits 9 if another run is already going. We treat 9 as a skip.
       # shellcheck disable=SC2086
-      run_with_timeout "${MYOS_HOOK_STEP_TIMEOUT}" "${REPO_DIR}/scripts/run-vitest.sh" ${UNIQ_VITEST}
+      run_with_timeout "${YOUROS_HOOK_STEP_TIMEOUT}" "${REPO_DIR}/scripts/run-vitest.sh" ${UNIQ_VITEST}
       VSTATUS=$?
       if [ "${VSTATUS}" = "0" ]; then
         ok "vitest passed."
       elif [ "${VSTATUS}" = "9" ]; then
         warn "another vitest run is already in flight, skipping."
       elif [ "${VSTATUS}" = "124" ]; then
-        warn "vitest timed out after ${MYOS_HOOK_STEP_TIMEOUT}s, skipping. A test is hanging: investigate before push."
+        warn "vitest timed out after ${YOUROS_HOOK_STEP_TIMEOUT}s, skipping. A test is hanging: investigate before push."
       else
         fail "vitest found failures."
         FAILED=1

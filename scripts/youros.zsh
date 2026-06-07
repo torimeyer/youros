@@ -22,9 +22,9 @@ youros() {
 
   # --- Updates (parallel) ---
   if [[ "$_agent" == "claude" ]]; then
-    nohup sh -c 'command claude update' > /tmp/myos-update.log 2>&1 < /dev/null & disown
+    nohup sh -c 'command claude update' > /tmp/youros-update.log 2>&1 < /dev/null & disown
   elif [[ "$_agent" == "gemini" ]]; then
-    nohup sh -c 'npm update -g @google/gemini-cli' > /tmp/myos-update.log 2>&1 < /dev/null & disown
+    nohup sh -c 'npm update -g @google/gemini-cli' > /tmp/youros-update.log 2>&1 < /dev/null & disown
   fi
 
   # --- yourOS Launch sequence ---
@@ -42,6 +42,6 @@ youros() {
   elif [[ "$_agent" == "gemini" ]]; then
     command gemini
   else
-    echo "myOS is starting. Point your browser to http://localhost:8000"
+    echo "yourOS is starting. Point your browser to http://localhost:8000"
   fi
 }

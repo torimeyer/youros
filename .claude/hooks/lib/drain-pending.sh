@@ -13,28 +13,28 @@
 #
 # Usage:
 #   source "$HOOKS_DIR/lib/drain-pending.sh"
-#   myos_drain_pending          # drain register queue (honors throttle)
-#   myos_drain_pending_complete # drain complete queue (honors throttle)
+#   youros_drain_pending          # drain register queue (honors throttle)
+#   youros_drain_pending_complete # drain complete queue (honors throttle)
 #
 # Env overrides (for tests and manual runs):
-#   MYOS_DRAIN_FORCE=1         bypass the throttle stamp
-#   MYOS_DRAIN_INTERVAL=<sec>  minimum seconds between drains (default 60, floor 30)
-#   MYOS_REGISTER_URL=<url>    register endpoint
-#   MYOS_COMPLETE_URL_BASE=<url> base for /agents/{name}/complete (default https://127.0.0.1:8000/api/agents)
-#   MYOS_DRAIN_QUEUE=<path>    register queue file
-#   MYOS_DRAIN_COMPLETE_QUEUE=<path> complete queue file
-#   MYOS_DRAIN_STAMP=<path>    last-run stamp file (register)
-#   MYOS_DRAIN_COMPLETE_STAMP=<path> last-run stamp file (complete)
-#   MYOS_DRAIN_BUDGET=<sec>    wall-clock budget per drain (default 2)
+#   YOUROS_DRAIN_FORCE=1         bypass the throttle stamp
+#   YOUROS_DRAIN_INTERVAL=<sec>  minimum seconds between drains (default 60, floor 30)
+#   YOUROS_REGISTER_URL=<url>    register endpoint
+#   YOUROS_COMPLETE_URL_BASE=<url> base for /agents/{name}/complete (default https://127.0.0.1:8000/api/agents)
+#   YOUROS_DRAIN_QUEUE=<path>    register queue file
+#   YOUROS_DRAIN_COMPLETE_QUEUE=<path> complete queue file
+#   YOUROS_DRAIN_STAMP=<path>    last-run stamp file (register)
+#   YOUROS_DRAIN_COMPLETE_STAMP=<path> last-run stamp file (complete)
+#   YOUROS_DRAIN_BUDGET=<sec>    wall-clock budget per drain (default 2)
 
-myos_drain_pending() {
+youros_drain_pending() {
     local queue stamp url interval force budget now last_run elapsed
-    queue="${MYOS_DRAIN_QUEUE:-$HOME/.youros/subagents/pending-register.jsonl}"
-    stamp="${MYOS_DRAIN_STAMP:-$HOME/.youros/subagents/last-drain.stamp}"
-    url="${MYOS_REGISTER_URL:-https://127.0.0.1:8000/api/agents/register}"
-    interval="${MYOS_DRAIN_INTERVAL:-60}"
-    force="${MYOS_DRAIN_FORCE:-0}"
-    budget="${MYOS_DRAIN_BUDGET:-2}"
+    queue="${YOUROS_DRAIN_QUEUE:-$HOME/.youros/subagents/pending-register.jsonl}"
+    stamp="${YOUROS_DRAIN_STAMP:-$HOME/.youros/subagents/last-drain.stamp}"
+    url="${YOUROS_REGISTER_URL:-https://127.0.0.1:8000/api/agents/register}"
+    interval="${YOUROS_DRAIN_INTERVAL:-60}"
+    force="${YOUROS_DRAIN_FORCE:-0}"
+    budget="${YOUROS_DRAIN_BUDGET:-2}"
 
     # Floor interval at 30s, reject non-numeric.
     case "$interval" in
@@ -125,14 +125,14 @@ myos_drain_pending() {
 # receive any HTTP response are dropped (the server is idempotent so
 # "already completed" is a success); lines that fail at the transport
 # layer stay in the queue for the next drain.
-myos_drain_pending_complete() {
+youros_drain_pending_complete() {
     local queue stamp base interval force budget now last_run elapsed
-    queue="${MYOS_DRAIN_COMPLETE_QUEUE:-$HOME/.youros/subagents/pending-complete.jsonl}"
-    stamp="${MYOS_DRAIN_COMPLETE_STAMP:-$HOME/.youros/subagents/last-drain-complete.stamp}"
-    base="${MYOS_COMPLETE_URL_BASE:-https://127.0.0.1:8000/api/agents}"
-    interval="${MYOS_DRAIN_INTERVAL:-60}"
-    force="${MYOS_DRAIN_FORCE:-0}"
-    budget="${MYOS_DRAIN_BUDGET:-2}"
+    queue="${YOUROS_DRAIN_COMPLETE_QUEUE:-$HOME/.youros/subagents/pending-complete.jsonl}"
+    stamp="${YOUROS_DRAIN_COMPLETE_STAMP:-$HOME/.youros/subagents/last-drain-complete.stamp}"
+    base="${YOUROS_COMPLETE_URL_BASE:-https://127.0.0.1:8000/api/agents}"
+    interval="${YOUROS_DRAIN_INTERVAL:-60}"
+    force="${YOUROS_DRAIN_FORCE:-0}"
+    budget="${YOUROS_DRAIN_BUDGET:-2}"
 
     case "$interval" in
         ''|*[!0-9]*) interval=60 ;;

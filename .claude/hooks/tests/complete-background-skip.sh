@@ -41,7 +41,7 @@ printf 'bg-test-agent' > "$TMP_HOME/.youros/subagents/last.name"
 PAYLOAD_BG='{"tool_name":"Task","tool_use_id":"'"$TUID"'","tool_input":{"description":"bg-test","prompt":"x","run_in_background":true},"tool_response":{"output":"ok"}}'
 START=$(date +%s%N 2>/dev/null || date +%s)
 printf '%s' "$PAYLOAD_BG" | HOME="$TMP_HOME" \
-    MYOS_COMPLETE_URL_BASE="https://127.0.0.1:1/api/agents" \
+    YOUROS_COMPLETE_URL_BASE="https://127.0.0.1:1/api/agents" \
     bash "$COMPLETE" >/dev/null 2>&1
 END=$(date +%s%N 2>/dev/null || date +%s)
 # Accept either ns or s resolution; convert to seconds-ish
@@ -57,7 +57,7 @@ ok "run_in_background=true skipped curl (${ELAPSED_MS}ms)"
 PAYLOAD_FG='{"tool_name":"Task","tool_use_id":"'"$TUID"'","tool_input":{"description":"fg-test","prompt":"x","run_in_background":false},"tool_response":{"output":"ok"}}'
 START=$(date +%s%N 2>/dev/null || date +%s)
 printf '%s' "$PAYLOAD_FG" | HOME="$TMP_HOME" \
-    MYOS_COMPLETE_URL_BASE="https://127.0.0.1:1/api/agents" \
+    YOUROS_COMPLETE_URL_BASE="https://127.0.0.1:1/api/agents" \
     bash "$COMPLETE" >/dev/null 2>&1
 END=$(date +%s%N 2>/dev/null || date +%s)
 ELAPSED_MS=$(( (END - START) / 1000000 ))
@@ -76,7 +76,7 @@ PAYLOAD_MISSING='{"tool_name":"Task","tool_use_id":"'"$TUID"'","tool_input":{"de
 printf 'bg-test-agent' > "$TMP_HOME/.youros/subagents/last.name"
 START=$(date +%s%N 2>/dev/null || date +%s)
 printf '%s' "$PAYLOAD_MISSING" | HOME="$TMP_HOME" \
-    MYOS_COMPLETE_URL_BASE="https://127.0.0.1:1/api/agents" \
+    YOUROS_COMPLETE_URL_BASE="https://127.0.0.1:1/api/agents" \
     bash "$COMPLETE" >/dev/null 2>&1
 END=$(date +%s%N 2>/dev/null || date +%s)
 ELAPSED_MS=$(( (END - START) / 1000000 ))

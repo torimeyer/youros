@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# myOS worktree pre-merge gate.
+# yourOS worktree pre-merge gate.
 #
 # Runs the relevant test suite(s) against a subagent's worktree diff
 # BEFORE the branch is rolled up to main. Writes a status file at
@@ -83,7 +83,7 @@ print(infer_suite(sys.stdin.read().splitlines()))
 )"
 say "suite=${SUITE}"
 
-FAILED_TESTS_FILE="$(mktemp -t myos-gate-fail.XXXXXX)"
+FAILED_TESTS_FILE="$(mktemp -t youros-gate-fail.XXXXXX)"
 trap 'rm -f "${FAILED_TESTS_FILE}"' EXIT
 : > "${FAILED_TESTS_FILE}"
 
@@ -99,10 +99,10 @@ run_backend() {
     return 0
   fi
   say "pytest in ${WT} ..."
-  if ( cd "${WT}" && "${venv}" -m pytest -x -q --no-header --timeout=120 api/tests ) 2>&1 | tee /tmp/myos-gate-pytest.log; then
+  if ( cd "${WT}" && "${venv}" -m pytest -x -q --no-header --timeout=120 api/tests ) 2>&1 | tee /tmp/youros-gate-pytest.log; then
     return 0
   fi
-  grep -E '^FAILED ' /tmp/myos-gate-pytest.log | awk '{print $2}' >> "${FAILED_TESTS_FILE}" || true
+  grep -E '^FAILED ' /tmp/youros-gate-pytest.log | awk '{print $2}' >> "${FAILED_TESTS_FILE}" || true
   return 1
 }
 
@@ -112,10 +112,10 @@ run_frontend() {
     return 0
   fi
   say "vitest in ${WT} ..."
-  if ( cd "${WT}/app" && npx --no-install vitest run --reporter=default ) 2>&1 | tee /tmp/myos-gate-vitest.log; then
+  if ( cd "${WT}/app" && npx --no-install vitest run --reporter=default ) 2>&1 | tee /tmp/youros-gate-vitest.log; then
     return 0
   fi
-  grep -E '(FAIL|×)' /tmp/myos-gate-vitest.log | head -20 >> "${FAILED_TESTS_FILE}" || true
+  grep -E '(FAIL|×)' /tmp/youros-gate-vitest.log | head -20 >> "${FAILED_TESTS_FILE}" || true
   return 1
 }
 

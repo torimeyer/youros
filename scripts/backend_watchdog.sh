@@ -11,15 +11,15 @@
 #
 # Stop manually with: kill $(cat /tmp/youros-backend-watchdog.pid)
 #
-# Disable via: MYOS_NO_WATCHDOG=1 scripts/dev-backend.sh
+# Disable via: YOUROS_NO_WATCHDOG=1 scripts/dev-backend.sh
 #
 # Tunables (env vars):
-#   MYOS_WATCHDOG_INTERVAL   seconds between probes (default 30)
-#   MYOS_WATCHDOG_HEALTH_URL full URL to probe (default https://127.0.0.1:8000/api/health)
-#   MYOS_WATCHDOG_MAX_RESTARTS hard cap on restarts in one process lifetime
+#   YOUROS_WATCHDOG_INTERVAL   seconds between probes (default 30)
+#   YOUROS_WATCHDOG_HEALTH_URL full URL to probe (default https://127.0.0.1:8000/api/health)
+#   YOUROS_WATCHDOG_MAX_RESTARTS hard cap on restarts in one process lifetime
 #                              (default 50, prevents infinite loops if the
 #                              backend can never come up)
-#   MYOS_WATCHDOG_DEADLOCK_THRESHOLD consecutive failed health probes while
+#   YOUROS_WATCHDOG_DEADLOCK_THRESHOLD consecutive failed health probes while
 #                              the backend PID is still alive before the
 #                              watchdog treats it as a deadlocked event loop
 #                              and sends SIGKILL (default 10)
@@ -30,22 +30,22 @@
 #                              probes unless the loop is truly stuck, so false
 #                              positives (killing a healthy-but-busy backend)
 #                              drop to near-zero at threshold 10.
-#   MYOS_WATCHDOG_RESTART_WAIT seconds to wait for the new backend to become
+#   YOUROS_WATCHDOG_RESTART_WAIT seconds to wait for the new backend to become
 #                              healthy after a restart before releasing the
 #                              restart lock (default 15; tests use 1)
-#   MYOS_WATCHDOG_PYSPY_TIMEOUT seconds to wait for py-spy to capture a stack
+#   YOUROS_WATCHDOG_PYSPY_TIMEOUT seconds to wait for py-spy to capture a stack
 #                              dump before proceeding to SIGKILL (default 5;
 #                              tests use a smaller value)
-#   MYOS_WATCHDOG_KILL_ONLY    set to 1 to disable the self-restart capability
+#   YOUROS_WATCHDOG_KILL_ONLY    set to 1 to disable the self-restart capability
 #                              and rely on launchd KeepAlive for respawn. In
 #                              kill-only mode, a wedged backend is still
 #                              SIGKILLed but dev-backend.sh is never spawned
 #                              by the watchdog; launchd owns the restart.
-#   MYOS_WATCHDOG_PIDFILE      path to the watchdog pidfile (default
+#   YOUROS_WATCHDOG_PIDFILE      path to the watchdog pidfile (default
 #                              /tmp/youros-backend-watchdog.pid; tests use a
 #                              temp path to avoid dedup-guard conflicts with
 #                              a live dev watchdog)
-#   MYOS_WATCHDOG_LOGFILE      path to the watchdog logfile (default
+#   YOUROS_WATCHDOG_LOGFILE      path to the watchdog logfile (default
 #                              /tmp/youros-backend-watchdog.log)
 
 set -u
@@ -53,35 +53,35 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # DEV_BACKEND is overridable so tests (and future supervisors) can point the
 # watchdog at a stub instead of the real launcher that binds port 8000.
-DEV_BACKEND="${MYOS_WATCHDOG_DEV_BACKEND:-$SCRIPT_DIR/dev-backend.sh}"
-PIDFILE="${MYOS_WATCHDOG_PIDFILE:-/tmp/youros-backend-watchdog.pid}"
-LOGFILE="${MYOS_WATCHDOG_LOGFILE:-/tmp/youros-backend-watchdog.log}"
-INTERVAL="${MYOS_WATCHDOG_INTERVAL:-30}"
+DEV_BACKEND="${YOUROS_WATCHDOG_DEV_BACKEND:-$SCRIPT_DIR/dev-backend.sh}"
+PIDFILE="${YOUROS_WATCHDOG_PIDFILE:-/tmp/youros-backend-watchdog.pid}"
+LOGFILE="${YOUROS_WATCHDOG_LOGFILE:-/tmp/youros-backend-watchdog.log}"
+INTERVAL="${YOUROS_WATCHDOG_INTERVAL:-30}"
 # Auto-detect scheme: use https only when the localhost cert files exist.
 # This matches the logic in scripts/dev-backend.sh (lines 300-305) so the
 # watchdog never probes https when uvicorn is serving http (which would always
 # return curl error 000 and trigger spurious restarts). The launchd plist sets
-# MYOS_WATCHDOG_HEALTH_URL explicitly so this auto-detect only affects dev mode.
-if [ -z "${MYOS_WATCHDOG_HEALTH_URL:-}" ]; then
+# YOUROS_WATCHDOG_HEALTH_URL explicitly so this auto-detect only affects dev mode.
+if [ -z "${YOUROS_WATCHDOG_HEALTH_URL:-}" ]; then
     if [ -f "${HOME:-}/.youros/localhost.key" ] && [ -f "${HOME:-}/.youros/localhost.crt" ]; then
         HEALTH_URL="https://127.0.0.1:8000/api/health"
     else
         HEALTH_URL="http://127.0.0.1:8000/api/health"
     fi
 else
-    HEALTH_URL="$MYOS_WATCHDOG_HEALTH_URL"
+    HEALTH_URL="$YOUROS_WATCHDOG_HEALTH_URL"
 fi
-MAX_RESTARTS="${MYOS_WATCHDOG_MAX_RESTARTS:-50}"
+MAX_RESTARTS="${YOUROS_WATCHDOG_MAX_RESTARTS:-50}"
 # Seconds to sleep between retries inside probe_once (default 5; tests set to 0
 # so the inner retry loop completes in milliseconds instead of 10 seconds).
-PROBE_RETRY_SLEEP="${MYOS_WATCHDOG_PROBE_RETRY_SLEEP:-5}"
+PROBE_RETRY_SLEEP="${YOUROS_WATCHDOG_PROBE_RETRY_SLEEP:-5}"
 
 # Port the backend listens on. The watchdog reads the matching pidfile
 # (/tmp/youros-backend-<port>.pid) to verify whether a backend process is
 # actually running before attempting a restart. Default 8000; tests pass
 # a different port via env var so they don't collide with a live dev
 # backend on :8000.
-BACKEND_PORT="${MYOS_WATCHDOG_BACKEND_PORT:-8000}"
+BACKEND_PORT="${YOUROS_WATCHDOG_BACKEND_PORT:-8000}"
 BACKEND_PIDFILE="/tmp/youros-backend-${BACKEND_PORT}.pid"
 LAUNCHER_LOCK="/tmp/youros-backend-launcher-${BACKEND_PORT}.lock"
 # Serialises concurrent restart_backend calls across watchdog instances.
@@ -243,7 +243,7 @@ restart_backend() {
     # one that is just slow to respond.
     if backend_pid_alive; then
         consecutive_pid_alive_failures=$((consecutive_pid_alive_failures + 1))
-        _threshold="${MYOS_WATCHDOG_DEADLOCK_THRESHOLD:-10}"
+        _threshold="${YOUROS_WATCHDOG_DEADLOCK_THRESHOLD:-10}"
         if [ "$consecutive_pid_alive_failures" -lt "$_threshold" ]; then
             log "INFO health probe failed but backend pid alive (deadlock check ${consecutive_pid_alive_failures}/${_threshold}); skipping restart"
             return 0
@@ -252,8 +252,8 @@ restart_backend() {
         log "WARNING backend pid $_locked_pid alive but health probe failed ${consecutive_pid_alive_failures}x -- event loop likely deadlocked; sending SIGKILL"
         # Capture a py-spy thread dump before killing so we can diagnose what
         # was blocking the asyncio event loop.
-        _pyspy_out="/tmp/myos-deadlock-$(date +%s)-pid${_locked_pid}.txt"
-        _pyspy_timeout="${MYOS_WATCHDOG_PYSPY_TIMEOUT:-5}"
+        _pyspy_out="/tmp/youros-deadlock-$(date +%s)-pid${_locked_pid}.txt"
+        _pyspy_timeout="${YOUROS_WATCHDOG_PYSPY_TIMEOUT:-5}"
         if command -v py-spy >/dev/null 2>&1; then
             _pyspy_exit=0
             if command -v timeout >/dev/null 2>&1; then
@@ -310,7 +310,7 @@ restart_backend() {
         # the wedged uvicorn above; do NOT launch dev-backend.sh, or we would race
         # launchd for port 8000 -- the exact double-bind the locking below guards
         # against. launchd sees the process exit and respawns it in ~1s.
-        if [ "${MYOS_WATCHDOG_KILL_ONLY:-0}" = "1" ]; then
+        if [ "${YOUROS_WATCHDOG_KILL_ONLY:-0}" = "1" ]; then
             log "INFO kill-only mode: wedged backend SIGKILLed, leaving respawn to launchd"
             return 0
         fi
@@ -319,7 +319,7 @@ restart_backend() {
     # Kill-only mode, crash path: the pid is dead (process already exited). launchd
     # respawns on exit, so the watchdog must do nothing here -- launching
     # dev-backend.sh would create a second uvicorn racing launchd's respawn.
-    if [ "${MYOS_WATCHDOG_KILL_ONLY:-0}" = "1" ]; then
+    if [ "${YOUROS_WATCHDOG_KILL_ONLY:-0}" = "1" ]; then
         log "INFO kill-only mode: backend down and pid dead, leaving respawn to launchd"
         return 0
     fi
@@ -355,7 +355,7 @@ restart_backend() {
         log "INFO dev-backend.sh launcher lock held by pid $(cat "$LAUNCHER_LOCK" 2>/dev/null); skipping restart"
         return 0
     fi
-    if [ "${MYOS_WATCHDOG_KILL_ONLY:-0}" = "1" ]; then
+    if [ "${YOUROS_WATCHDOG_KILL_ONLY:-0}" = "1" ]; then
         log "INFO kill-only mode: backend down; launchd owns respawn, not launching dev-backend.sh"
         rm -f "$RESTART_LOCK" 2>/dev/null || true
         return 0
@@ -371,12 +371,12 @@ restart_backend() {
     # second crash inside the same dev session also gets caught. The
     # launcher lock in dev-backend.sh serializes this invocation against
     # any concurrent manual run.
-    MYOS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" >> /tmp/dev-backend.log 2>&1 &
+    YOUROS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" >> /tmp/dev-backend.log 2>&1 &
     log "INFO restart launched, dev-backend.sh pid=$!"
     # Hold the restart lock until uvicorn has had time to bind (up to
-    # MYOS_WATCHDOG_RESTART_WAIT seconds, default 15). Tests set this to a
+    # YOUROS_WATCHDOG_RESTART_WAIT seconds, default 15). Tests set this to a
     # small value so they don't have to wait the full startup window.
-    _restart_wait="${MYOS_WATCHDOG_RESTART_WAIT:-15}"
+    _restart_wait="${YOUROS_WATCHDOG_RESTART_WAIT:-15}"
     _rw=0
     while [ "$_rw" -lt "$_restart_wait" ] && ! probe_once; do
         sleep 1
@@ -409,9 +409,9 @@ while :; do
     # for up to 10 seconds). Only after three consecutive misses
     # spaced 5 seconds apart do we consider the backend actually down.
     # This removes most of the restart thrash caused by MCP flapping.
-    sleep "${MYOS_WATCHDOG_TRANSIENT_RETRY_SLEEP:-5}" && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
-    sleep "${MYOS_WATCHDOG_TRANSIENT_RETRY_SLEEP:-5}" && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
-    sleep "${MYOS_WATCHDOG_TRANSIENT_RETRY_SLEEP:-5}" && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
+    sleep "${YOUROS_WATCHDOG_TRANSIENT_RETRY_SLEEP:-5}" && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
+    sleep "${YOUROS_WATCHDOG_TRANSIENT_RETRY_SLEEP:-5}" && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
+    sleep "${YOUROS_WATCHDOG_TRANSIENT_RETRY_SLEEP:-5}" && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
     restarts=$((restarts + 1))
     if [ "$restarts" -gt "$MAX_RESTARTS" ]; then
         log "ERROR exceeded max restarts ($MAX_RESTARTS), exiting"

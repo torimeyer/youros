@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# test_myos_status.sh
+# test_youros_status.sh
 #
 # Seeded smoke test for status.sh.
 #
-# Uses MYOS_STATUS_FIXTURE to avoid hitting the live backend, and
-# MYOS_STATUS_NOW to pin wall-clock for deterministic elapsed math.
+# Uses YOUROS_STATUS_FIXTURE to avoid hitting the live backend, and
+# YOUROS_STATUS_NOW to pin wall-clock for deterministic elapsed math.
 #
 # Cases:
 #   1. Running agent with 0 lines, spawned 48s ago, must show elapsed
@@ -23,7 +23,7 @@ if [[ ! -x "${PROBE}" ]]; then
   exit 3
 fi
 
-TMP="$(mktemp -d /tmp/myos_status_test.XXXXXX)"
+TMP="$(mktemp -d /tmp/youros_status_test.XXXXXX)"
 trap 'rm -rf "${TMP}"' EXIT
 
 FAIL=0
@@ -64,7 +64,7 @@ JSON
 PINNED_NOW="2026-04-16T04:01:00+00:00"
 
 set +e
-out="$(MYOS_STATUS_FIXTURE="${FIXTURE}" MYOS_STATUS_NOW="${PINNED_NOW}" "${PROBE}" 2>&1)"
+out="$(YOUROS_STATUS_FIXTURE="${FIXTURE}" YOUROS_STATUS_NOW="${PINNED_NOW}" "${PROBE}" 2>&1)"
 ec=$?
 set -e
 
@@ -121,7 +121,7 @@ else
 fi
 
 # --- CASE 4: --count agrees ---
-count_out="$(MYOS_STATUS_FIXTURE="${FIXTURE}" MYOS_STATUS_NOW="${PINNED_NOW}" "${PROBE}" --count)"
+count_out="$(YOUROS_STATUS_FIXTURE="${FIXTURE}" YOUROS_STATUS_NOW="${PINNED_NOW}" "${PROBE}" --count)"
 if [[ "${count_out}" == "2" ]]; then
   pass "case4: --count returns 2"
 else
@@ -140,9 +140,9 @@ fi
 
 echo ""
 if [[ "${FAIL}" -eq 0 ]]; then
-  echo "all myos_status cases passed"
+  echo "all youros_status cases passed"
   exit 0
 else
-  echo "one or more myos_status cases failed"
+  echo "one or more youros_status cases failed"
   exit 1
 fi

@@ -129,8 +129,8 @@ OUT=$(
     . "$LIB/log-fire.sh"      2>/dev/null || true
     . "$LIB/load-rule.sh"     2>/dev/null || true
     . "$LIB/rules/keep_going_pending_tasks.sh" 2>/dev/null || true
-    export MYOS_TASKS_FIXTURE="$TASKS_FIXTURE"
-    export MYOS_AGENTS_FIXTURE="$AGENTS_FIXTURE"
+    export YOUROS_TASKS_FIXTURE="$TASKS_FIXTURE"
+    export YOUROS_AGENTS_FIXTURE="$AGENTS_FIXTURE"
     _keep_going_pending_tasks_check "hey, what is 2+2?"
   ) 2>&1
 )
@@ -147,8 +147,8 @@ for phrase in "keep going" "continue please" "what next?"; do
       . "$LIB/log-fire.sh"      2>/dev/null || true
       . "$LIB/load-rule.sh"     2>/dev/null || true
       . "$LIB/rules/keep_going_pending_tasks.sh" 2>/dev/null || true
-      export MYOS_TASKS_FIXTURE="$TASKS_FIXTURE"
-      export MYOS_AGENTS_FIXTURE="$AGENTS_FIXTURE"
+      export YOUROS_TASKS_FIXTURE="$TASKS_FIXTURE"
+      export YOUROS_AGENTS_FIXTURE="$AGENTS_FIXTURE"
       _keep_going_pending_tasks_check "$phrase"
     ) 2>&1
   )

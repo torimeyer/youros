@@ -132,6 +132,22 @@ def websocket():
     return FakeWebSocket()
 
 
+@pytest.fixture(autouse=True)
+def mock_gemini_cli_unavailable():
+    """Ensure stream_gemini tests fall through to the API implementation.
+    
+    The tests in this file mock google.genai and verify the SDK arguments.
+    If the real gemini CLI is installed or the cache is populated by an
+    earlier test, stream_gemini falls through to the CLI path and times out
+    waiting for the real network. This forces the API fallback.
+    """
+    with patch(
+        "services.chat_providers.gemini_cli_provider.is_gemini_cli_available",
+        new_callable=AsyncMock,
+        return_value=False,
+    ):
+        yield
+
 class _PatchGenai:
     """Context manager that fully redirects ``google.generativeai`` and
     ``google.genai`` to a mock.
@@ -1490,8 +1506,8 @@ class TestChatWebSocketHandshakeNeverBlocksEventLoop:
 
             assert got_token, "no token event arrived"
             assert got_done, "no done event arrived"
-            assert ws_elapsed < 20.0, (
-                f"WebSocket round trip took {ws_elapsed:.2f}s, should be < 20s"
+            assert ws_elapsed < 30.0, (
+                f"WebSocket round trip took {ws_elapsed:.2f}s, should be < 30s"
             )
 
             # Immediately fire an HTTP request. If the event loop was

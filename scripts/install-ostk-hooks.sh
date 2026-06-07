@@ -42,7 +42,7 @@
 #      and agent-completion-drain.sh from .claude/hooks/.
 #   2. Remove the PreToolUse[Agent] register-agent.sh entry from ~/.claude/settings.json.
 #   3. Keep: standing-rules.sh, bash-guards.sh, adhd-mode-monitor-enforcer.sh,
-#      consult-memory.sh, and all other rule-enforcement hooks — those are myOS
+#      consult-memory.sh, and all other rule-enforcement hooks — those are yourOS
 #      judgment and have no ostk equivalent.
 #
 # USAGE:

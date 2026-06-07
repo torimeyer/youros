@@ -3,7 +3,7 @@
 #
 # Proves three bugs are fixed:
 #   1. SPAWNED_AT no longer falls back to date +%s at PostToolUse fire time.
-#      When MYOS_SPAWNED_AT is not set, watcher fetches actual spawned_at from
+#      When YOUROS_SPAWNED_AT is not set, watcher fetches actual spawned_at from
 #      the API -- so git log --after finds commits made during the agent's run.
 #   2. WORKTREE_PATH is built from the API's worktree_branch (short name), not
 #      the raw agent_name (which may be the full untruncated bridge name).
@@ -149,8 +149,8 @@ PARENT_NAME=""  # no parent, so nudge is skipped
     TORIOS_API_BASE="http://127.0.0.1:${PORT}"
     CLAUDE_PROJECT_DIR="$FAKE_PROJECT"
     export TORIOS_API_BASE CLAUDE_PROJECT_DIR
-    # Do NOT set MYOS_SPAWNED_AT — tests that the API fallback works
-    unset MYOS_SPAWNED_AT 2>/dev/null || true
+    # Do NOT set YOUROS_SPAWNED_AT — tests that the API fallback works
+    unset YOUROS_SPAWNED_AT 2>/dev/null || true
     HOME_ORIG="$HOME"
     # Override HOME so WARN_FILE resolves to our scratch path
     HOME="$SCRATCH/home1"
@@ -230,7 +230,7 @@ done
     TORIOS_API_BASE="http://127.0.0.1:${PORT2}"
     CLAUDE_PROJECT_DIR="$FAKE_PROJECT2"
     export TORIOS_API_BASE CLAUDE_PROJECT_DIR
-    unset MYOS_SPAWNED_AT 2>/dev/null || true
+    unset YOUROS_SPAWNED_AT 2>/dev/null || true
     HOME="$SCRATCH/home2"
     mkdir -p "$HOME/.youros/subagents"
     export HOME
@@ -315,7 +315,7 @@ STDERR_CAPTURED=$(
     TORIOS_API_BASE="http://127.0.0.1:${PORT3}"
     CLAUDE_PROJECT_DIR="$FAKE_PROJECT3"
     export TORIOS_API_BASE CLAUDE_PROJECT_DIR
-    unset MYOS_SPAWNED_AT 2>/dev/null || true
+    unset YOUROS_SPAWNED_AT 2>/dev/null || true
     HOME="$SCRATCH/home3"; mkdir -p "$HOME/.youros/subagents"; export HOME
     rule_enabled() { return 0; }; log_rule_fire() { return 0; }
     . "$WATCHER_LIB"

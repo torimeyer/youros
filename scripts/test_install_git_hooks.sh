@@ -102,7 +102,7 @@ assert_file_exists "T1: .githooks/post-commit exists" "${T1}/.githooks/post-comm
 assert_executable  "T1: .githooks/post-commit executable" "${T1}/.githooks/post-commit"
 
 # pre-commit must contain our marker
-marker_check="$(grep -c 'myos-pre-commit-test-check v2' "${T1}/.githooks/pre-commit" || true)"
+marker_check="$(grep -c 'youros-pre-commit-test-check v2' "${T1}/.githooks/pre-commit" || true)"
 assert_eq "T1: pre-commit has v2 marker" "${marker_check}" "1"
 
 # ---- test 2: --status reports INSTALLED after install -----------------------

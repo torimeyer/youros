@@ -7,7 +7,7 @@ Coverage:
 4. Env flag off (default)          → bespoke path unchanged (regression).
 5. Explicit use_ostk_run=True, env flag off → routes to ostk run (existing opt-in regression).
 6. Explicit use_ostk_run=True, ostk run errors → raises HTTP 500 (no silent fallback).
-7. Env passthrough includes ANTHROPIC_API_KEY and MYOS_AGENT_NAME when flag is on.
+7. Env passthrough includes ANTHROPIC_API_KEY and YOUROS_AGENT_NAME when flag is on.
 
 Pre-flight verification (→1305):
 - Worktree isolation: NOT preserved in ostk run path (bespoke worktree dance skipped;
@@ -398,13 +398,13 @@ async def test_explicit_use_ostk_run_errors_raises_500():
 
 
 # ---------------------------------------------------------------------------
-# Test 7: env_passthrough includes ANTHROPIC_API_KEY and MYOS_AGENT_NAME
+# Test 7: env_passthrough includes ANTHROPIC_API_KEY and YOUROS_AGENT_NAME
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_env_flag_passes_through_required_env_vars():
-    """run_agentfile must be called with ANTHROPIC_API_KEY and MYOS_AGENT_NAME in env_passthrough."""
+    """run_agentfile must be called with ANTHROPIC_API_KEY and YOUROS_AGENT_NAME in env_passthrough."""
     from main import app
     from httpx import ASGITransport, AsyncClient
 
@@ -460,7 +460,7 @@ async def test_env_flag_passes_through_required_env_vars():
     kw = captured_kwargs[0]
     env_pt = kw.get("env_passthrough", [])
     assert "ANTHROPIC_API_KEY" in env_pt, f"ANTHROPIC_API_KEY missing from env_passthrough: {env_pt}"
-    assert "MYOS_AGENT_NAME" in env_pt, f"MYOS_AGENT_NAME missing from env_passthrough: {env_pt}"
+    assert "YOUROS_AGENT_NAME" in env_pt, f"YOUROS_AGENT_NAME missing from env_passthrough: {env_pt}"
 
 
 # ---------------------------------------------------------------------------

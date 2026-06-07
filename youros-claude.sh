@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # One-shot tracked Claude Code session for the current repo.
 #
-# Writes .claude/settings.local.json with the myOS register-agent
+# Writes .claude/settings.local.json with the yourOS register-agent
 # hook, runs `claude`, and on exit restores whatever was there before.
-# Unlike `myos-track`, this does NOT leave tracking enabled between
+# Unlike `youros-track`, this does NOT leave tracking enabled between
 # sessions — next `claude` in this dir runs untracked again.
 #
 # Usage:
-#   myos-claude [args...]     starts Claude Code with myOS tracking
+#   youros-claude [args...]     starts Claude Code with yourOS tracking
 #                             for this session only
-#   myos-claude --help
+#   youros-claude --help
 
 set -u
 
@@ -22,7 +22,7 @@ HOOK_FILE="$HOME/.youros/hooks/register-agent.sh"
 SETTINGS=".claude/settings.local.json"
 
 if [ ! -f "$HOOK_FILE" ]; then
-    echo "Missing $HOOK_FILE — run ./install.sh in the myOS repo first." >&2
+    echo "Missing $HOOK_FILE — run ./install.sh in the yourOS repo first." >&2
     exit 1
 fi
 
@@ -32,7 +32,7 @@ if ! command -v claude >/dev/null 2>&1; then
 fi
 
 # Snapshot the pre-existing state so we can restore exactly on exit.
-BACKUP_DIR=$(mktemp -d -t myos-claude.XXXXXX)
+BACKUP_DIR=$(mktemp -d -t youros-claude.XXXXXX)
 SETTINGS_BACKUP="$BACKUP_DIR/settings.local.json"
 HAD_SETTINGS=0
 if [ -f "$SETTINGS" ]; then
@@ -84,6 +84,6 @@ with open(path, "w") as f:
     json.dump(d, f, indent=2); f.write("\n")
 PYEOF
 
-echo "myos-claude: tracking active for this session only"
+echo "youros-claude: tracking active for this session only"
 echo ""
 exec claude "$@"

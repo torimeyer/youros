@@ -59,7 +59,7 @@ run_monitor() {
 
   (
     export PATH="${fake_curl_dir}:${PATH}"
-    export MYOS_API_BASE="http://unused"
+    export YOUROS_API_BASE="http://unused"
     cd "${git_dir}"
     bash "${MONITOR}" "${agent}" "${sentinel}" "${interval}"
   ) > "${outfile}" 2>&1 &
