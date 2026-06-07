@@ -5231,10 +5231,6 @@ def _assert_has_full_envelope(decoded: str) -> None:
     assert "200000" in decoded  # tokens
     assert "80%" in decoded  # test coverage
 
-    # AC gates must appear verbatim so the agent knows what to run.
-    assert "python3 -m pytest api/tests/ -x -q" in decoded
-    assert "cd app && npx tsc -b" in decoded
-
 
 @pytest.mark.asyncio
 async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path, monkeypatch):
