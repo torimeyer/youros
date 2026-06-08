@@ -22,6 +22,7 @@ from services.chat_providers import (
 )
 from services.memory_trigger import handle as _handle_memory_trigger
 from config import PROJECT_ROOT
+from services.chat_context_provider import context_provider
 from services.ostk import ostk
 from services.settings_store import settings_store
 
@@ -201,9 +202,6 @@ def _latest_roadmap_path() -> Optional[Path]:
 
 GIPHY_API_KEY = os.environ.get("GIPHY_API_KEY", "uac5bYV974kGSu3Pe0B92ChNrIQypZ0Y")
 
-CONTEXT_KEYWORDS = {"tasks", "needles", "task", "needle", "focus", "agents", "status"}
-
-CALENDAR_KEYWORDS = {"calendar", "meeting", "meetings", "schedule", "today", "tomorrow", "event", "field trip"}
 
 
 # Map @mention names to provider keys
@@ -562,16 +560,6 @@ def transform_image_messages(messages: list[dict]) -> list[dict]:
     return result
 
 
-async def build_context() -> str:
-    try:
-        tasks = await ostk.list_tasks(status="open")
-        lines = ["Open tasks:"]
-        for t in tasks[:20]:
-            lines.append(f"  {t.get('id')} [{t.get('priority')}] {t.get('title')}")
-        return "\n".join(lines)
-    except Exception:
-        return ""
-
 
 def _build_workspace_doc_index() -> str:
     """Return a compact list of draft and spec docs (filenames only, no content).
@@ -635,58 +623,7 @@ async def build_baseline_context() -> str:
     return "\n".join(lines)
 
 
-def should_inject_context(text: str) -> bool:
-    words = set(text.lower().split())
-    return bool(words & CONTEXT_KEYWORDS)
 
-
-def should_inject_calendar(text: str) -> bool:
-    """Return True if the message likely relates to calendar or schedule."""
-    words = set(re.split(r"\W+", text.lower()))
-    return bool(words & CALENDAR_KEYWORDS)
-
-
-async def build_calendar_context() -> str:
-    """Return a short summary of today's calendar events.
-
-    Returns an empty string if the user is not authenticated or an error occurs.
-    """
-    try:
-        from services.google_auth import is_authenticated
-        if not is_authenticated():
-            return ""
-        from services import calendar as cal_service
-        events = await cal_service.get_today_events()
-        if not events:
-            return ""
-        parts = []
-        for ev in events:
-            title = ev.get("summary", "Untitled")
-            start = ev.get("start", {})
-            end = ev.get("end", {})
-            start_val = start.get("dateTime") or start.get("date") or ""
-            end_val = end.get("dateTime") or end.get("date") or ""
-            # Format times as HHam/pm if possible
-            def _fmt(dt_str: str) -> str:
-                if not dt_str:
-                    return ""
-                try:
-                    from datetime import datetime
-                    dt = datetime.fromisoformat(dt_str)
-                    return dt.strftime("%-I:%M%p").lower()
-                except Exception:
-                    return dt_str[:5]
-            start_fmt = _fmt(start_val)
-            end_fmt = _fmt(end_val)
-            if start_fmt and end_fmt:
-                parts.append(f"{start_fmt}-{end_fmt}: {title}")
-            elif start_fmt:
-                parts.append(f"{start_fmt}: {title}")
-            else:
-                parts.append(title)
-        return "Today's calendar: " + "; ".join(parts)
-    except Exception:
-        return ""
 
 
 async def call_model(provider: str, messages: list[dict], websocket: WebSocket, label: str = "", use_tools: bool = False, tab_id: str = "", claude_tier: str = "", plan_mode: bool = False):
@@ -1593,31 +1530,12 @@ async def chat_websocket(websocket: WebSocket):
             if baseline:
                 messages = [{"role": "user", "content": baseline}] + messages
 
-            # Inject ostk context if relevant (only when not using tool mode,
-            # since the agent can look up context itself via tools)
-            if not use_tools and (should_inject_context(last_text) or should_inject_calendar(last_text)):
-                context_parts = []
-                needs_ctx = should_inject_context(last_text)
-                needs_cal = should_inject_calendar(last_text)
-                gather_coros = []
-                if needs_ctx:
-                    gather_coros.append(build_context())
-                if needs_cal:
-                    gather_coros.append(build_calendar_context())
-                gather_results = await asyncio.gather(*gather_coros)
-                result_idx = 0
-                if needs_ctx:
-                    ctx = gather_results[result_idx]; result_idx += 1
-                    if ctx:
-                        context_parts.append(ctx)
-                if needs_cal:
-                    cal_ctx = gather_results[result_idx]
-                    if cal_ctx:
-                        context_parts.append(cal_ctx)
-                if context_parts:
-                    combined = "\n\n".join(context_parts)
-                    system_msg = f"You are the AI assistant for yourOS. Here is the current workspace context:\n\n{combined}\n\nAnswer the user's question using this context."
-                    messages = [{"role": "user", "content": system_msg}] + messages
+            # Inject context from connected services (Gmail, Calendar, Slack, etc.)
+            # when the message intent matches. Uses ostk for work-domain routing.
+            if not use_tools:
+                injected_ctx = await context_provider.build(last_text)
+                if injected_ctx:
+                    messages = [{"role": "user", "content": injected_ctx}] + messages
 
             # Inject prior conversation memory so the AI can reference
             # what the user talked about in their last chat tab.
