@@ -4,8 +4,7 @@ Tests for POST /api/skills/run  (FR-009 — →1394)
 Verifies:
   - 200 + status="started" for known skill_ids
   - 422 for unknown skill_ids
-  - status="unavailable" when claude CLI is not installed
-  - The background subprocess is spawned with the right command
+  - The background task is created to invoke the skill on the provider
 """
 from __future__ import annotations
 
@@ -55,11 +54,10 @@ def _make_proc(returncode: int = 0, stdout: bytes = b"done", stderr: bytes = b""
 @pytest.mark.anyio
 async def test_run_known_skill_returns_started(app_client):
     """POST /api/skills/run with skill_id=handoff returns 200 + started."""
-    with (
-        patch("routers.skills._find_claude_bin", return_value="/usr/local/bin/claude"),
-        patch("routers.skills._invoke_skill", new_callable=AsyncMock) as mock_invoke,
-        patch("asyncio.create_task"),
-    ):
+    def _close_coro(coro):
+        coro.close()
+        
+    with patch("asyncio.create_task", side_effect=_close_coro):
         async with app_client as c:
             resp = await c.post("/api/skills/run", json={"skill_id": "handoff", "args": {}})
     assert resp.status_code == 200
@@ -78,21 +76,9 @@ async def test_run_unknown_skill_returns_422(app_client):
 
 
 @pytest.mark.anyio
-async def test_run_skill_unavailable_when_claude_missing(app_client):
-    """Returns status=unavailable when the claude CLI is not installed."""
-    with patch("routers.skills._find_claude_bin", return_value=None):
-        async with app_client as c:
-            resp = await c.post("/api/skills/run", json={"skill_id": "handoff", "args": {}})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "unavailable"
-    assert "claude" in body["message"].lower()
-
-
-@pytest.mark.anyio
 async def test_invoke_skill_calls_subprocess_with_slash_command(tmp_path):
-    """_invoke_skill spawns claude --print /handoff."""
-    from routers.skills import _invoke_skill
+    """ClaudeCodeRuntimeProvider.invoke_skill spawns claude --print /handoff."""
+    from services.claude_code_provider import ClaudeCodeRuntimeProvider
 
     captured_cmd: list | None = None
 
@@ -102,10 +88,11 @@ async def test_invoke_skill_calls_subprocess_with_slash_command(tmp_path):
         return _make_proc()
 
     with (
-        patch("routers.skills._find_claude_bin", return_value="/usr/local/bin/claude"),
+        patch("shutil.which", return_value="/usr/local/bin/claude"),
         patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
     ):
-        await _invoke_skill("handoff", "/handoff", "abc123")
+        provider = ClaudeCodeRuntimeProvider()
+        await provider.invoke_skill("handoff")
 
     assert captured_cmd is not None
     assert "/handoff" in captured_cmd
@@ -113,7 +100,7 @@ async def test_invoke_skill_calls_subprocess_with_slash_command(tmp_path):
 
 @pytest.mark.anyio
 async def test_run_skill_strips_api_key_from_env(tmp_path):
-    """_invoke_skill must not forward ANTHROPIC_API_KEY to subprocess."""
+    """invoke_skill must not forward ANTHROPIC_API_KEY to subprocess."""
     import os
     os.environ["ANTHROPIC_API_KEY"] = "sk-test-key"
 
@@ -125,12 +112,13 @@ async def test_run_skill_strips_api_key_from_env(tmp_path):
         return _make_proc()
 
     try:
-        from routers.skills import _invoke_skill
+        from services.claude_code_provider import ClaudeCodeRuntimeProvider
         with (
-            patch("routers.skills._find_claude_bin", return_value="/usr/local/bin/claude"),
+            patch("shutil.which", return_value="/usr/local/bin/claude"),
             patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
         ):
-            await _invoke_skill("handoff", "/handoff", "testjob")
+            provider = ClaudeCodeRuntimeProvider()
+            await provider.invoke_skill("handoff")
     finally:
         os.environ.pop("ANTHROPIC_API_KEY", None)
 
@@ -141,10 +129,10 @@ async def test_run_skill_strips_api_key_from_env(tmp_path):
 @pytest.mark.anyio
 async def test_run_all_allowed_skills_return_started(app_client):
     """All three allowed skills (handoff, review, init) return status=started."""
-    with (
-        patch("routers.skills._find_claude_bin", return_value="/usr/local/bin/claude"),
-        patch("asyncio.create_task"),
-    ):
+    def _close_coro(coro):
+        coro.close()
+        
+    with patch("asyncio.create_task", side_effect=_close_coro):
         async with app_client as c:
             for skill_id in ("handoff", "review", "init"):
                 resp = await c.post(

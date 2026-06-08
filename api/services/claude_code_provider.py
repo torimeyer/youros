@@ -571,6 +571,61 @@ class ClaudeCodeRuntimeProvider(DefaultRuntimeProvider):
 
     _features = ALL_FEATURES
 
+    async def invoke_skill(self, skill_id: str, **args: Any) -> None:
+        import os
+        import uuid
+        import shutil
+        import asyncio
+        import logging
+        from pathlib import Path
+
+        logger = logging.getLogger(__name__)
+
+        ALLOWED_SKILLS = {
+            "handoff": "/handoff",
+            "review": "/review",
+            "init": "/init",
+        }
+        claude_arg = ALLOWED_SKILLS.get(skill_id)
+        if not claude_arg:
+            raise ValueError(f"Unknown skill '{skill_id}' for ClaudeCodeRuntimeProvider")
+
+        claude_bin = shutil.which("claude")
+        job_id = str(uuid.uuid4())[:8]
+
+        if not claude_bin:
+            logger.warning("skills.run: claude CLI not found for job=%s skill=%s", job_id, skill_id)
+            return
+
+        env = {**os.environ}
+        for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_API_KEY"):
+            env.pop(key, None)
+
+        _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+        cmd = [claude_bin, "--print", claude_arg]
+        logger.info("skills.run: spawning job=%s skill=%s cmd=%s", job_id, skill_id, " ".join(cmd))
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+                cwd=str(_REPO_ROOT),
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            if proc.returncode != 0:
+                logger.warning(
+                    "skills.run: job=%s skill=%s exit=%s stderr=%s",
+                    job_id, skill_id, proc.returncode,
+                    stderr.decode(errors="replace")[:500],
+                )
+            else:
+                logger.info("skills.run: job=%s skill=%s completed", job_id, skill_id)
+        except asyncio.TimeoutError:
+            logger.warning("skills.run: job=%s skill=%s timed out after 120s", job_id, skill_id)
+        except Exception as exc:
+            logger.error("skills.run: job=%s skill=%s error=%s", job_id, skill_id, exc)
+
 
 # ---------------------------------------------------------------------------
 

@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Callable, Optional, Protocol, Set, runtime_checkable, Awaitable
+from typing import Callable, Optional, Protocol, Set, runtime_checkable, Awaitable, Any
 
 # ---------------------------------------------------------------------------
 # Feature enum (→1892)
@@ -142,6 +142,10 @@ class RuntimeProvider(Protocol):
     ) -> SpawnResult:
         ...
 
+    async def invoke_skill(self, skill_id: str, **args: Any) -> None:
+        """Invoke a predefined skill (e.g. handoff, review) via the runtime."""
+        ...
+
     def features(self) -> Set[Feature]:
         ...
 
@@ -195,6 +199,10 @@ class _BaseRuntimeProvider:
                 "agents.py spawn path is a separate, deferred pass)."
             )
         return await self._spawn_fn(req)
+
+    async def invoke_skill(self, skill_id: str, **args: Any) -> None:
+        """Invoke a predefined skill. Concrete providers must override this."""
+        raise NotImplementedError(f"{type(self).__name__} does not implement invoke_skill")
 
 
 # ---------------------------------------------------------------------------
