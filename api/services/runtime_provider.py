@@ -43,8 +43,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Callable, Optional, Protocol, Set, runtime_checkable
-
+from typing import Callable, Optional, Protocol, Set, runtime_checkable, Awaitable
 
 # ---------------------------------------------------------------------------
 # Feature enum (→1892)
@@ -114,7 +113,7 @@ class SpawnResult:
 # Signature of the injected real-spawn callable. Takes a fully-formed
 # SpawnRequest and returns a SpawnResult. The default provider owns the
 # request-construction ergonomics; the callable just performs the spawn.
-SpawnFn = Callable[[SpawnRequest], SpawnResult]
+SpawnFn = Callable[[SpawnRequest], Awaitable[SpawnResult]]
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +137,7 @@ class RuntimeProvider(Protocol):
     is the standard Protocol limitation.)
     """
 
-    def spawn_subagent(
+    async def spawn_subagent(
         self, request: Optional[SpawnRequest] = None, /, **fields
     ) -> SpawnResult:
         ...
@@ -185,7 +184,7 @@ class _BaseRuntimeProvider:
             return request
         return SpawnRequest(**fields)
 
-    def spawn_subagent(
+    async def spawn_subagent(
         self, request: Optional[SpawnRequest] = None, /, **fields
     ) -> SpawnResult:
         req = self._coerce_request(request, fields)
@@ -195,7 +194,7 @@ class _BaseRuntimeProvider:
                 "real spawn callable (see needle →1895 — wiring the live "
                 "agents.py spawn path is a separate, deferred pass)."
             )
-        return self._spawn_fn(req)
+        return await self._spawn_fn(req)
 
 
 # ---------------------------------------------------------------------------
@@ -229,12 +228,19 @@ class ReducedRuntimeProvider(_BaseRuntimeProvider):
 # Factory
 # ---------------------------------------------------------------------------
 def default_provider(spawn_fn: Optional[SpawnFn] = None) -> RuntimeProvider:
-    """Return the provider myOS uses by default (claude-code behaviour).
+    """Return the provider yourOS uses by default.
 
-    A future selector (e.g. reading ``MYOS_RUNTIME``) can live here without
-    changing call sites; for now there is exactly one default.
+    Reads the YOUROS_RUNTIME environment variable (default: "claude").
     """
-    return DefaultRuntimeProvider(spawn_fn=spawn_fn)
+    import os
+    runtime = os.environ.get("YOUROS_RUNTIME", "claude").lower()
+
+    if runtime == "gemini":
+        from services.gemini_cli_provider import GeminiCliRuntimeProvider
+        return GeminiCliRuntimeProvider(spawn_fn=spawn_fn)
+
+    from services.claude_code_provider import ClaudeCodeRuntimeProvider
+    return ClaudeCodeRuntimeProvider(spawn_fn=spawn_fn)
 
 
 __all__ = [

@@ -21,8 +21,8 @@ import pytest
 
 
 def _get_spawn_agent_source() -> str:
-    from routers.agents import spawn_agent
-    return inspect.getsource(spawn_agent)
+    from routers.agents import _legacy_bespoke_spawn
+    return inspect.getsource(_legacy_bespoke_spawn)
 
 
 def test_create_subprocess_exec_uses_start_new_session():

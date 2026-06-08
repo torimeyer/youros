@@ -5215,8 +5215,75 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                 "brief_warning": _brief_warning.message if _brief_warning else None,
             }
         # _ostk_ran is False: no agentfile found or ostk errored with fallback allowed.
-        # Fall through to the bespoke claude-code subprocess path below.
+        # Fall through to the RuntimeProvider spawn path below.
 
+    # -----------------------------------------------------------------------
+    # Fallback / Native Subprocess Path via RuntimeProvider
+    # -----------------------------------------------------------------------
+    from services.runtime_provider import default_provider, SpawnRequest, SpawnResult
+
+    async def _provider_spawn_fn(req: SpawnRequest) -> SpawnResult:
+        # Re-map SpawnRequest to the AgentSpawn body the legacy path expects
+        body.name = req.name
+        body.prompt = req.prompt
+        body.model = req.model
+        body.budget = req.budget
+        body.template = req.template
+        body.task = req.task
+        body.isolation = req.isolation
+        body.token_limit = req.token_limit
+        
+        # Extract from extra dict
+        body.description = req.extra.get("description")
+        body.task_id = req.extra.get("task_id")
+        body.needle_id = req.extra.get("needle_id")
+        body.locks = req.extra.get("locks")
+        
+        legacy_result = await _legacy_bespoke_spawn(body, request, response, _brief_warning)
+        
+        from services.runtime_provider import SpawnResult
+        return SpawnResult(
+            name=legacy_result.get("name", req.name),
+            pid=legacy_result.get("pid"),
+            status=legacy_result.get("status", "running"),
+            transcript_path=legacy_result.get("transcript"),
+            detail=legacy_result
+        )
+
+    req = SpawnRequest(
+        name=body.name,
+        prompt=body.prompt,
+        model=body.model,
+        budget=body.budget,
+        template=body.template,
+        task=body.task,
+        isolation=body.isolation,
+        token_limit=body.token_limit,
+        extra={
+            "description": body.description,
+            "task_id": body.task_id,
+            "needle_id": body.needle_id,
+            "locks": body.locks,
+        }
+    )
+    provider = default_provider(spawn_fn=_provider_spawn_fn)
+    result = await provider.spawn_subagent(req)
+    
+    # Return the dictionary from _legacy_bespoke_spawn if it was executed.
+    if "result" in result.detail:
+        return result.detail
+
+    return {
+        "result": f"Agent '{result.name}' spawned",
+        "name": result.name,
+        "pid": result.pid,
+        "status": result.status,
+        "transcript": result.transcript_path,
+        "brief_warning": result.detail.get("brief_warning"),
+    }
+
+
+async def _legacy_bespoke_spawn(body: AgentSpawn, request: Request, response: Response, _brief_warning):
     # Decide isolation BEFORE any I/O so a later worktree fork can honor
     # the result. decide_isolation respects an explicit caller value and
     # otherwise picks "worktree" for code-edit verbs, "none" for

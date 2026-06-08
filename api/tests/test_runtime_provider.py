@@ -151,18 +151,19 @@ def test_spawn_request_carries_the_core_spawn_fields():
     assert req.isolation is None
 
 
-def test_default_provider_spawn_delegates_to_injected_spawn_fn():
+@pytest.mark.asyncio
+async def test_default_provider_spawn_delegates_to_injected_spawn_fn():
     """The default provider wraps current behaviour through an injected
     spawn callable so we can model the seam without launching a process."""
     calls = []
 
-    def fake_spawn(req: SpawnRequest) -> SpawnResult:
+    async def fake_spawn(req: SpawnRequest) -> SpawnResult:
         calls.append(req)
         return SpawnResult(name=req.name, pid=4242, status="running")
 
     provider = DefaultRuntimeProvider(spawn_fn=fake_spawn)
     req = SpawnRequest(name="agent-y", prompt="research X", model="opus")
-    result = provider.spawn_subagent(req)
+    result = await provider.spawn_subagent(req)
 
     assert len(calls) == 1
     assert calls[0] is req
@@ -172,28 +173,30 @@ def test_default_provider_spawn_delegates_to_injected_spawn_fn():
     assert result.status == "running"
 
 
-def test_default_provider_spawn_accepts_kwargs_form():
+@pytest.mark.asyncio
+async def test_default_provider_spawn_accepts_kwargs_form():
     """Callers may pass fields directly instead of building a SpawnRequest."""
     seen = {}
 
-    def fake_spawn(req: SpawnRequest) -> SpawnResult:
+    async def fake_spawn(req: SpawnRequest) -> SpawnResult:
         seen["name"] = req.name
         seen["isolation"] = req.isolation
         return SpawnResult(name=req.name, status="running")
 
     provider = DefaultRuntimeProvider(spawn_fn=fake_spawn)
-    result = provider.spawn_subagent(name="agent-z", prompt="p", isolation="worktree")
+    result = await provider.spawn_subagent(name="agent-z", prompt="p", isolation="worktree")
     assert seen == {"name": "agent-z", "isolation": "worktree"}
     assert result.name == "agent-z"
 
 
-def test_default_provider_spawn_without_injected_fn_raises_not_implemented():
+@pytest.mark.asyncio
+async def test_default_provider_spawn_without_injected_fn_raises_not_implemented():
     """With no spawn_fn wired, the default provider must fail loudly rather
     than silently no-op. Wiring the real spawn path is a later (deferred)
     pass (→1895); until then an unwired provider raises."""
     provider = DefaultRuntimeProvider()
     with pytest.raises(NotImplementedError):
-        provider.spawn_subagent(name="agent-q", prompt="p")
+        await provider.spawn_subagent(name="agent-q", prompt="p")
 
 
 def test_spawn_subagent_signature_is_stable():
