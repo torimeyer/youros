@@ -11,7 +11,6 @@ from routers.chat import (
     build_memory_context,
     infer_second_model,
     parse_mentions,
-    should_inject_context,
     strip_mentions,
     transform_image_messages,
 )
@@ -70,37 +69,6 @@ class TestStripMentions:
     def test_strip_leaves_clean_text(self):
         result = strip_mentions("@claude summarize this")
         assert result == "summarize this"
-
-
-# --- should_inject_context ---
-
-class TestShouldInjectContext:
-    def test_tasks_keyword(self):
-        assert should_inject_context("show my tasks") is True
-
-    def test_task_singular(self):
-        assert should_inject_context("what is my next task") is True
-
-    def test_focus_keyword(self):
-        assert should_inject_context("what should I focus on") is True
-
-    def test_hay_keyword(self):
-        assert should_inject_context("show me the hay") is False
-
-    def test_agents_keyword(self):
-        assert should_inject_context("how are my agents doing") is True
-
-    def test_status_keyword(self):
-        assert should_inject_context("what is the status") is True
-
-    def test_no_context_keywords(self):
-        assert should_inject_context("hello world") is False
-
-    def test_general_greeting(self):
-        assert should_inject_context("how are you") is False
-
-    def test_needles_keyword(self):
-        assert should_inject_context("show my needles") is True
 
 
 # --- Gemini credential error handling ---

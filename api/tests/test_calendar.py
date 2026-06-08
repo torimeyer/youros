@@ -407,32 +407,46 @@ async def test_calendar_sync_success(client, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_chat_calendar_keyword_triggers_context(tmp_path):
-    """A message with a calendar keyword should trigger calendar context injection."""
-    from routers.chat import should_inject_calendar, build_calendar_context
-
-    assert should_inject_calendar("what's on my calendar today?") is True
-    assert should_inject_calendar("do I have any meetings tomorrow?") is True
-    assert should_inject_calendar("update my tasks") is False
-
-
-@pytest.mark.asyncio
-async def test_build_calendar_context_not_authenticated(tmp_path):
-    """build_calendar_context should return empty string when not authenticated."""
-    from routers.chat import build_calendar_context
+async def test_chat_calendar_keyword_routes_to_calendar(tmp_path):
+    """A calendar-keyword message routes to the calendar source when authenticated."""
+    from services.chat_context_provider import ChatContextProvider
 
     token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
-    with patch("services.google_auth.TOKEN_PATH", token_path):
-        result = await build_calendar_context()
+    provider = ChatContextProvider()
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.chat_context_provider.ostk") as mock_ostk,
+    ):
+        mock_ostk.search_near = AsyncMock(return_value={"tasks": [], "query": ""})
+        sources = await provider.route_intent("what's on my calendar today?")
 
-    assert result == ""
+    assert "calendar" in sources
 
 
 @pytest.mark.asyncio
-async def test_build_calendar_context_returns_formatted_events(tmp_path):
-    """build_calendar_context should return a formatted calendar summary."""
-    from routers.chat import build_calendar_context
+async def test_calendar_not_injected_when_not_authenticated(tmp_path):
+    """No calendar context is injected when the user is not authenticated."""
+    from services.chat_context_provider import ChatContextProvider
+
+    token_path = tmp_path / "google_token.json"  # absent -> not authenticated
+
+    provider = ChatContextProvider()
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.chat_context_provider.ostk") as mock_ostk,
+    ):
+        mock_ostk.search_near = AsyncMock(return_value={"tasks": [], "query": ""})
+        result = await provider.build("what's on my calendar today?")
+
+    assert "## Calendar" not in result
+
+
+@pytest.mark.asyncio
+async def test_calendar_context_returns_formatted_events(tmp_path):
+    """The calendar fetch returns a formatted summary with event titles."""
+    from services.chat_context_provider import ChatContextProvider
 
     token_path = tmp_path / "google_token.json"
     token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
@@ -446,14 +460,17 @@ async def test_build_calendar_context_returns_formatted_events(tmp_path):
         }
     ]
 
+    provider = ChatContextProvider()
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
         patch("services.calendar.get_today_events", new=AsyncMock(return_value=fake_today)),
+        patch("services.chat_context_provider.ostk") as mock_ostk,
     ):
-        result = await build_calendar_context()
+        mock_ostk.search_near = AsyncMock(return_value={"tasks": [], "query": ""})
+        result = await provider.build("what's on my calendar today?")
 
     assert "Team Standup" in result
-    assert "Today's calendar" in result
+    assert "## Calendar" in result
 
 
 # ---------------------------------------------------------------------------
