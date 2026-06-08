@@ -77,6 +77,13 @@ class TestToolDefinitions:
             "chat_schedule_wakeup",
             "chat_monitor",
             "semantic_search",
+            "search_gmail",
+            "search_slack",
+            "search_jira",
+            "search_github",
+            "search_imessage",
+            "search_contacts",
+            "search_drive",
         }
         assert expected == names
 

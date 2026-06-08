@@ -628,6 +628,88 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["query"],
         },
     },
+    {
+        "name": "search_gmail",
+        "description": "Search Gmail messages using Gmail query syntax (e.g. 'from:airline flight confirmation'). Returns sender, subject, and snippet for each match.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Gmail search query."},
+                "max_results": {"type": "integer", "description": "Max messages to return (default 10)."},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "search_slack",
+        "description": "Search Slack messages across connected workspaces. Returns channel, user, and message text.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Slack search query."},
+                "count": {"type": "integer", "description": "Max messages to return (default 10)."},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "search_jira",
+        "description": "Search Jira tickets and Confluence pages. Returns key and summary for each result.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search terms."},
+                "limit": {"type": "integer", "description": "Max results (default 8)."},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "search_github",
+        "description": "List open GitHub issues from the connected repository.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "state": {"type": "string", "description": "Issue state: open (default) or closed.", "enum": ["open", "closed"]},
+                "per_page": {"type": "integer", "description": "Max issues to return (default 10)."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "search_imessage",
+        "description": "Search iMessage conversation history by text content. Only available on macOS with access granted.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Text to search for in messages."},
+                "limit": {"type": "integer", "description": "Max messages to return (default 10)."},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "search_contacts",
+        "description": "Search macOS Contacts by name prefix. Returns name, phone, and email.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Name prefix to search for."},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "search_drive",
+        "description": "Search Google Drive files. (Stub -- returns a placeholder until Drive API is wired up.)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search terms."},
+            },
+            "required": ["query"],
+        },
+    },
 ]
 
 
@@ -729,6 +811,55 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
                 scope=input_data.get("scope", "code"),
                 limit=int(input_data.get("limit", 20)),
             )
+        elif name == "search_gmail":
+            from services.google_auth import is_authenticated
+            from services import gmail as _gmail
+            if not is_authenticated():
+                return "Gmail is not connected."
+            messages = await _gmail.search_messages(
+                input_data.get("query", ""), max_results=int(input_data.get("max_results", 10))
+            )
+            return json.dumps(messages, default=str)
+        elif name == "search_slack":
+            from services import slack as _slack
+            if not _slack.is_connected():
+                return "Slack is not connected."
+            messages = await _slack.search_messages(
+                input_data.get("query", ""), count=int(input_data.get("count", 10))
+            )
+            return json.dumps(messages, default=str)
+        elif name == "search_jira":
+            from services import atlassian as _atlassian
+            if not _atlassian.is_connected():
+                return "Jira / Confluence is not connected."
+            results = await _atlassian.search(
+                input_data.get("query", ""), limit=int(input_data.get("limit", 8))
+            )
+            return json.dumps([str(r) for r in results], default=str)
+        elif name == "search_github":
+            from services import github as _github
+            if not _github.is_connected():
+                return "GitHub is not connected."
+            issues = await _github.list_issues(
+                state=input_data.get("state", "open"), per_page=int(input_data.get("per_page", 10))
+            )
+            return json.dumps(issues, default=str)
+        elif name == "search_imessage":
+            from services import imessage as _imessage
+            if not _imessage.is_available().get("available", False):
+                return "iMessage is not available on this machine."
+            messages = await _imessage.search_messages(
+                input_data.get("query", ""), limit=int(input_data.get("limit", 10))
+            )
+            return json.dumps(messages, default=str)
+        elif name == "search_contacts":
+            from services import imessage_contacts as _contacts
+            contacts = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _contacts.search_by_prefix(input_data.get("query", ""), limit=8)
+            )
+            return json.dumps(contacts, default=str)
+        elif name == "search_drive":
+            return "Drive search not yet implemented."
         else:
             return f"Unknown tool: {name}"
     except Exception as e:
