@@ -187,3 +187,33 @@ describe('SpecReview', () => {
     })
   })
 })
+
+// ─── Task 4: PR badge + link input ────────────────────────────────────────────
+
+const reviewBase = {
+  spec_path: 'docs/spec/demo.md',
+  readiness: { ready: true, file_path: null, checks: [] },
+  drift: { drift: false, acked: false, items: [], summary: '' },
+  constitution: { principles: [], violations: [] },
+}
+
+describe('SpecReview github_pr badge', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('shows a merged badge when the linked PR is merged', async () => {
+    mockedGet.mockImplementation((path: string) => {
+      if (path.includes('/review')) return Promise.resolve({ ...reviewBase, github_pr: 'acme/web#123' })
+      if (path.includes('/github/pr/')) return Promise.resolve({ number: 123, title: 'x', state: 'merged', merged_at: '2026-06-02T10:00:00Z', created_at: '2026-06-01T00:00:00Z', html_url: '' })
+      return Promise.resolve({})
+    })
+    render(<SpecReview specPath="docs/spec/demo.md" />)
+    await waitFor(() => expect(screen.getByTestId('spec-pr-badge')).toHaveTextContent(/Merged on/i))
+  })
+
+  it('shows the link input and no badge when no PR is linked', async () => {
+    mockedGet.mockResolvedValue({ ...reviewBase, github_pr: '' })
+    render(<SpecReview specPath="docs/spec/demo.md" />)
+    await waitFor(() => expect(screen.getByTestId('spec-pr-input')).toBeInTheDocument())
+    expect(screen.queryByTestId('spec-pr-badge')).not.toBeInTheDocument()
+  })
+})
