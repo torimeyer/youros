@@ -990,3 +990,18 @@ def pytest_runtest_call(item):
             else:
                 _warnings.warn(msg, stacklevel=2)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_github_response_cache():
+    """Clear the github service in-process response cache before and after each test.
+
+    get_pr (and list_issues) cache results keyed by a tuple. Tests that
+    patch _github_get with the same owner/repo/number but different payloads
+    would otherwise get the first test's cached result instead of calling
+    the mock again.
+    """
+    from services.github import _cache_clear
+    _cache_clear()
+    yield
+    _cache_clear()

@@ -239,6 +239,43 @@ async def list_issues(state: str = "open", per_page: int = 50, use_cache: bool =
     return result
 
 
+async def get_pr(owner: str, repo: str, number: int) -> dict:
+    """Fetch one pull request and return its state in plain words.
+
+    state is one of: "open", "in_review" (draft), "merged", "closed".
+    Cached in-process for 60 seconds keyed by (owner, repo, number).
+    """
+    cache_key = ("get_pr", owner, repo, number)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
+    data = await _github_get(f"/repos/{owner}/{repo}/pulls/{number}")
+    if not isinstance(data, dict):
+        raise RuntimeError("Unexpected response from GitHub.")
+
+    merged_at = data.get("merged_at")
+    if merged_at:
+        state = "merged"
+    elif data.get("draft"):
+        state = "in_review"
+    elif data.get("state") == "closed":
+        state = "closed"
+    else:
+        state = "open"
+
+    result = {
+        "number": data.get("number", number),
+        "title": data.get("title", ""),
+        "state": state,
+        "merged_at": merged_at,
+        "created_at": data.get("created_at", ""),
+        "html_url": data.get("html_url", ""),
+    }
+    _cache_set(cache_key, result)
+    return result
+
+
 async def create_issue(title: str, body: str = "", labels: Optional[list[str]] = None) -> dict:
     """Create a new issue in the connected repo."""
     repo = _repo()
