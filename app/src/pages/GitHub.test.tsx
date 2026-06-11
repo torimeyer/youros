@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import GitHub from './GitHub'
+import { formatDate } from '../lib/time'
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
@@ -355,6 +356,9 @@ describe('GitHub import-as-needles flow', () => {
       if (path.includes('/github/issues')) {
         return Promise.resolve({ issues: [] })
       }
+      if (path.includes('/github/activity/merged')) {
+        return Promise.resolve({ merged: [] })
+      }
       return Promise.resolve({})
     })
     mockedApiPost.mockResolvedValue({ ok: true, created: 0, skipped: 0, total_issues: 0, errors: [] })
@@ -376,5 +380,79 @@ describe('GitHub import-as-needles flow', () => {
       )
       expect(matched).toBeTruthy()
     })
+  })
+})
+
+// Recently shipped card
+describe('GitHub recently shipped card', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.githubIssues.v1')
+  })
+
+  it('shows recently-shipped card grouped by day when merged PRs are present', async () => {
+    // Two PRs merged on the same day
+    const mergedAt = '2026-06-07T15:00:00Z'
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/github/status')) {
+        return Promise.resolve({ connected: true, repo: 'owner/repo' })
+      }
+      if (path.includes('/github/issues')) {
+        return Promise.resolve({ issues: [] })
+      }
+      if (path.includes('/github/activity/merged')) {
+        return Promise.resolve({
+          merged: [
+            { number: 101, title: 'Add dark mode', merged_at: mergedAt },
+            { number: 102, title: 'Fix login bug', merged_at: mergedAt },
+          ],
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    renderGitHub()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('recently-shipped')).toBeInTheDocument()
+    })
+
+    const card = screen.getByTestId('recently-shipped')
+
+    // Compute the expected day label the same way the component does:
+    // derive the local date string from merged_at to get the grouping key,
+    // then pass that key through formatDate.
+    const dayKey = new Date(mergedAt).toLocaleDateString()
+    const dayLabel = formatDate(new Date(dayKey))
+    expect(card.textContent).toMatch(new RegExp(`2 things shipped on ${dayLabel}`))
+
+    // Both PR titles appear
+    expect(card.textContent).toContain('Add dark mode')
+    expect(card.textContent).toContain('Fix login bug')
+  })
+
+  it('hides the recently-shipped card when no PRs have merged', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/github/status')) {
+        return Promise.resolve({ connected: true, repo: 'owner/repo' })
+      }
+      if (path.includes('/github/issues')) {
+        return Promise.resolve({ issues: [] })
+      }
+      if (path.includes('/github/activity/merged')) {
+        return Promise.resolve({ merged: [] })
+      }
+      return Promise.resolve({})
+    })
+
+    renderGitHub()
+
+    // Wait for the page to finish loading (issues card appears)
+    await waitFor(() => {
+      expect(screen.getByText('Open Issues')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId('recently-shipped')).toBeNull()
   })
 })

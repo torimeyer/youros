@@ -85,6 +85,7 @@ export default function GitHub() {
   const [pushing, setPushing] = useState<Set<number>>(new Set())
   const [needlePreview, setNeedlePreview] = useState<Record<number, NeedlePreview>>({})
   const [needleSuccess, setNeedleSuccess] = useState<Set<number>>(new Set())
+  const [merged, setMerged] = useState<{ number: number; title: string; merged_at: string }[]>([])
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -118,6 +119,12 @@ export default function GitHub() {
         setStatus(s)
         if (s.connected) {
           await fetchIssues()
+          try {
+            const activity = await api.get<{ merged: { number: number; title: string; merged_at: string }[] }>('/github/activity/merged?days=7')
+            setMerged(activity.merged ?? [])
+          } catch {
+            setMerged([])
+          }
         }
       } catch {
         setStatus({ connected: false, repo: '' })
@@ -457,6 +464,42 @@ export default function GitHub() {
             {syncResult.skipped > 0 && <span>Skipped {syncResult.skipped} (already in yourOS). </span>}
           </div>
         )}
+
+        {/* Recently shipped */}
+        {merged.length > 0 && (() => {
+          // Group by local date string (e.g. "6/7/2026")
+          const byDay = new Map<string, typeof merged>()
+          for (const pr of merged) {
+            const key = new Date(pr.merged_at).toLocaleDateString()
+            const group = byDay.get(key) ?? []
+            group.push(pr)
+            byDay.set(key, group)
+          }
+          return (
+            <div data-testid="recently-shipped" className={`${cardClass} mb-4`}>
+              <div className="flex items-center gap-2 mb-4">
+                <Icon name="check_circle" className="text-green-600 dark:text-green-400" size={18} />
+                <h2 className="text-base font-semibold">Recently shipped</h2>
+              </div>
+              <div className="space-y-4">
+                {Array.from(byDay.entries()).map(([key, prs]) => (
+                  <div key={key}>
+                    <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                      {prs.length} {prs.length === 1 ? 'thing' : 'things'} shipped on {formatDate(new Date(key))}
+                    </p>
+                    <ul className="space-y-1">
+                      {prs.map((pr) => (
+                        <li key={pr.number} className="text-sm text-slate-700 dark:text-slate-300 py-1 px-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/30">
+                          {pr.title}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Issues list */}
         <div className={cardClass}>
