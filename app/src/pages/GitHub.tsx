@@ -17,6 +17,21 @@ interface GitHubIssue {
   html_url: string
 }
 
+interface NeedlePreview {
+  title: string
+  description: string
+  acceptance_criteria: string[]
+  priority: string
+}
+
+function parseAcceptanceCriteria(body: string): string[] {
+  return body
+    .split('\n')
+    .filter((line) => /^-\s+\[[ x]\]\s/.test(line))
+    .map((line) => line.replace(/^-\s+\[[ x]\]\s+/, '').trim())
+    .filter(Boolean)
+}
+
 interface GitHubStatus {
   connected: boolean
   repo: string
@@ -68,6 +83,8 @@ export default function GitHub() {
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
   const [pushing, setPushing] = useState<Set<number>>(new Set())
+  const [needlePreview, setNeedlePreview] = useState<Record<number, NeedlePreview>>({})
+  const [needleSuccess, setNeedleSuccess] = useState<Set<number>>(new Set())
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -171,6 +188,69 @@ export default function GitHub() {
         next.delete(issue.number)
         return next
       })
+    }
+  }
+
+  const handleOpenNeedlePreview = (issue: GitHubIssue) => {
+    setNeedlePreview((prev) => {
+      if (prev[issue.number]) {
+        // Toggle off if already open
+        const next = { ...prev }
+        delete next[issue.number]
+        return next
+      }
+      return {
+        ...prev,
+        [issue.number]: {
+          title: issue.title,
+          description: issue.body,
+          acceptance_criteria: parseAcceptanceCriteria(issue.body),
+          priority: 'P2',
+        },
+      }
+    })
+  }
+
+  const handleConfirmNeedle = async (issueNumber: number) => {
+    const preview = needlePreview[issueNumber]
+    if (!preview) return
+    try {
+      await api.post(`/github/issue-to-needle/${issueNumber}`, {
+        title: preview.title,
+        description: preview.description,
+        acceptance_criteria: preview.acceptance_criteria,
+        priority: preview.priority,
+      })
+      setNeedleSuccess((prev) => new Set(prev).add(issueNumber))
+      setNeedlePreview((prev) => {
+        const next = { ...prev }
+        delete next[issueNumber]
+        return next
+      })
+      setTimeout(() => {
+        setNeedleSuccess((prev) => {
+          const next = new Set(prev)
+          next.delete(issueNumber)
+          return next
+        })
+      }, 2000)
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleSyncAsNeedles = async () => {
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const res = await api.post<SyncResult>('/github/sync?mode=needle', {})
+      setSyncResult(res)
+      await fetchIssues()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Sync failed'
+      setSyncResult({ ok: false, created: 0, skipped: 0, total_issues: 0, errors: [message] })
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -341,7 +421,16 @@ export default function GitHub() {
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm transition-colors disabled:opacity-50"
             >
               <Icon name="sync" size={16} className={syncing ? 'animate-spin' : ''} />
-              Import to yourOS
+              Import as tasks
+            </button>
+            <button
+              data-testid="import-as-needles"
+              onClick={handleSyncAsNeedles}
+              disabled={syncing}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm transition-colors disabled:opacity-50"
+            >
+              <Icon name="push_pin" size={16} className={syncing ? 'animate-spin' : ''} />
+              Import as needles
             </button>
             <button
               onClick={handleDisconnect}
@@ -415,15 +504,129 @@ export default function GitHub() {
                         <span>Updated {formatDate(issue.updated_at)}</span>
                       </div>
                     </div>
-                    <button
-                      onClick={() => handlePushToGithub(issue)}
-                      disabled={pushing.has(issue.number)}
-                      title="Push to GitHub as issue"
-                      className="shrink-0 p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
-                    >
-                      <Icon name="open_in_new" size={16} className="text-slate-600 dark:text-slate-400" />
-                    </button>
+                    <div className="shrink-0 flex items-center gap-1">
+                      {needleSuccess.has(issue.number) ? (
+                        <span className="text-xs text-green-600 dark:text-green-400 px-2">Added to needles</span>
+                      ) : (
+                        <button
+                          data-testid={`make-needle-${issue.number}`}
+                          onClick={() => handleOpenNeedlePreview(issue)}
+                          title="Turn into a needle"
+                          className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                        >
+                          <Icon name="push_pin" size={16} className="text-slate-600 dark:text-slate-400" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handlePushToGithub(issue)}
+                        disabled={pushing.has(issue.number)}
+                        title="Push to GitHub as issue"
+                        className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+                      >
+                        <Icon name="open_in_new" size={16} className="text-slate-600 dark:text-slate-400" />
+                      </button>
+                    </div>
                   </div>
+                  {needlePreview[issue.number] && (
+                    <div
+                      data-testid={`needle-preview-${issue.number}`}
+                      className="mt-3 p-3 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2"
+                    >
+                      <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Turn into a needle</p>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-0.5">Title</label>
+                        <input
+                          type="text"
+                          value={needlePreview[issue.number].title}
+                          onChange={(e) =>
+                            setNeedlePreview((prev) => ({
+                              ...prev,
+                              [issue.number]: { ...prev[issue.number], title: e.target.value },
+                            }))
+                          }
+                          className="w-full text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5 outline-none focus:border-blue-500/50"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-0.5">Description</label>
+                        <textarea
+                          value={needlePreview[issue.number].description}
+                          rows={3}
+                          onChange={(e) =>
+                            setNeedlePreview((prev) => ({
+                              ...prev,
+                              [issue.number]: { ...prev[issue.number], description: e.target.value },
+                            }))
+                          }
+                          className="w-full text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5 outline-none focus:border-blue-500/50 resize-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-0.5">Priority</label>
+                        <select
+                          value={needlePreview[issue.number].priority}
+                          onChange={(e) =>
+                            setNeedlePreview((prev) => ({
+                              ...prev,
+                              [issue.number]: { ...prev[issue.number], priority: e.target.value },
+                            }))
+                          }
+                          className="text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5 outline-none focus:border-blue-500/50"
+                        >
+                          <option value="P0">P0</option>
+                          <option value="P1">P1</option>
+                          <option value="P2">P2</option>
+                        </select>
+                      </div>
+                      {needlePreview[issue.number].acceptance_criteria.length > 0 && (
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-0.5">Acceptance criteria</label>
+                          <ul className="space-y-1">
+                            {needlePreview[issue.number].acceptance_criteria.map((criterion, idx) => (
+                              <li key={idx} className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  value={criterion}
+                                  onChange={(e) =>
+                                    setNeedlePreview((prev) => {
+                                      const updated = [...prev[issue.number].acceptance_criteria]
+                                      updated[idx] = e.target.value
+                                      return {
+                                        ...prev,
+                                        [issue.number]: { ...prev[issue.number], acceptance_criteria: updated },
+                                      }
+                                    })
+                                  }
+                                  className="flex-1 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1 outline-none focus:border-blue-500/50"
+                                />
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          data-testid={`needle-confirm-${issue.number}`}
+                          onClick={() => handleConfirmNeedle(issue.number)}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          onClick={() =>
+                            setNeedlePreview((prev) => {
+                              const next = { ...prev }
+                              delete next[issue.number]
+                              return next
+                            })
+                          }
+                          className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-sm rounded-lg transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

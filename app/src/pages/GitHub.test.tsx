@@ -268,3 +268,113 @@ describe('GitHub OAuth pick-repo flow', () => {
     })
   })
 })
+
+// Test A: Make needle button + preview card
+describe('GitHub make-needle flow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.githubIssues.v1')
+  })
+
+  it('shows make-needle button on a connected issue row, opens preview card, and confirm calls api.post with issue-to-needle path', async () => {
+    const { fireEvent } = await import('@testing-library/react')
+    const mockedApiPost = vi.mocked(api.post)
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/github/status')) {
+        return Promise.resolve({ connected: true, repo: 'owner/repo' })
+      }
+      if (path.includes('/github/issues')) {
+        return Promise.resolve({
+          issues: [
+            {
+              number: 7,
+              title: 'Test issue title',
+              state: 'open',
+              body: 'Some description\n- [ ] First criteria\n- [ ] Second criteria',
+              labels: [],
+              assignee: '',
+              created_at: '2026-04-14T00:00:00Z',
+              updated_at: '2026-04-14T00:00:00Z',
+              html_url: 'https://example.com/7',
+            },
+          ],
+        })
+      }
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ ok: true })
+
+    renderGitHub()
+
+    // Wait for the make-needle button to appear on the issue row
+    const makeNeedleBtn = await screen.findByTestId('make-needle-7')
+    expect(makeNeedleBtn).toBeInTheDocument()
+
+    // Preview card is not visible yet
+    expect(screen.queryByTestId('needle-preview-7')).not.toBeInTheDocument()
+
+    // Click it — preview card should appear
+    fireEvent.click(makeNeedleBtn)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('needle-preview-7')).toBeInTheDocument()
+    })
+
+    // The preview card contains editable title, description, and priority
+    const previewCard = screen.getByTestId('needle-preview-7')
+    expect(previewCard.querySelector('input[type="text"], input:not([type])') ?? previewCard.querySelector('[data-field="title"]')).toBeTruthy()
+    expect(previewCard.querySelector('textarea') ?? previewCard.querySelector('[data-field="description"]')).toBeTruthy()
+    expect(previewCard.querySelector('select') ?? previewCard.querySelector('[data-field="priority"]')).toBeTruthy()
+
+    // Confirm button calls api.post with the correct path
+    const confirmBtn = screen.getByTestId('needle-confirm-7')
+    fireEvent.click(confirmBtn)
+
+    await waitFor(() => {
+      const calls = mockedApiPost.mock.calls
+      const matched = calls.find((c) => String(c[0]).includes('/github/issue-to-needle/7'))
+      expect(matched).toBeTruthy()
+    })
+  })
+})
+
+// Test B: Import as needles option
+describe('GitHub import-as-needles flow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.githubIssues.v1')
+  })
+
+  it('exposes import-as-needles control that calls api.post with /github/sync and mode=needle', async () => {
+    const { fireEvent } = await import('@testing-library/react')
+    const mockedApiPost = vi.mocked(api.post)
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/github/status')) {
+        return Promise.resolve({ connected: true, repo: 'owner/repo' })
+      }
+      if (path.includes('/github/issues')) {
+        return Promise.resolve({ issues: [] })
+      }
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ ok: true, created: 0, skipped: 0, total_issues: 0, errors: [] })
+
+    renderGitHub()
+
+    // The import-as-needles control must be present in the connected view
+    const importAsNeedles = await screen.findByTestId('import-as-needles')
+    expect(importAsNeedles).toBeInTheDocument()
+
+    fireEvent.click(importAsNeedles)
+
+    await waitFor(() => {
+      const calls = mockedApiPost.mock.calls
+      const matched = calls.find(
+        (c) =>
+          String(c[0]).includes('/github/sync') &&
+          (String(c[0]).includes('mode=needle') || (c[1] as Record<string, unknown>)?.mode === 'needle'),
+      )
+      expect(matched).toBeTruthy()
+    })
+  })
+})
