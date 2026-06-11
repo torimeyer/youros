@@ -178,62 +178,58 @@ async def github_issue_to_needle(issue_number: int, req: IssueToNeedleRequest):
 
 
 @router.post("/github/sync")
-async def github_sync():
-    """Import GitHub issues as myOS tasks.
+async def github_sync(mode: str = "tasks"):
+    """Import GitHub issues as myOS tasks (default) or needles (mode=needle).
 
-    Creates a task for each open issue that does not already exist.
-    Matches by title to avoid duplicates.
+    In needle mode, issues with a body longer than 50 chars are created as
+    needles (using _parse_issue_to_needle); short-body issues fall back to
+    the standard task path. Default mode always creates tasks.
     """
     if not github_service.is_connected():
         raise HTTPException(status_code=401, detail="Not connected to GitHub.")
-
     try:
         issues = await github_service.list_issues(state="open")
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    # Get existing tasks to avoid duplicates
     try:
         existing_tasks = await ostk.list_tasks(status="open")
         existing_titles = {t.get("title", "").lower() for t in existing_tasks}
     except Exception:
         existing_titles = set()
 
-    created = 0
-    skipped = 0
+    created = skipped = 0
     errors: list[str] = []
-
     for issue in issues:
         title = issue.get("title", "")
         if not title:
             continue
-
-        if title.lower() in existing_titles:
+        body = (issue.get("body") or "").strip()
+        as_needle = mode == "needle" and len(body) > 50
+        # Dedup: needle path matches by raw title; task path matches by raw title
+        # (preserves existing behaviour — existing tasks are stored without the
+        # [GH#n] prefix, so we match on the plain title in both cases).
+        dedupe_title = title.lower()
+        if dedupe_title in existing_titles:
             skipped += 1
             continue
-
         try:
-            description = issue.get("body", "")
-            source_link = issue.get("html_url", "")
-            if source_link:
-                description = f"{description}\n\nSource: {source_link}".strip()
-
-            await ostk.add_task(
-                title=f"[GH#{issue['number']}] {title}",
-                priority="P2",
-                description=description,
-            )
+            if as_needle:
+                parsed = _parse_issue_to_needle(issue)
+                ac_text = "\n".join(c for c in parsed["acceptance_criteria"] if c.strip()) or "Needle is complete and verified."
+                await ostk.add_task(title=parsed["title"], priority="P2",
+                                    description=parsed["description"], ac=ac_text)
+            else:
+                description = body
+                link = issue.get("html_url", "")
+                if link:
+                    description = f"{description}\n\nSource: {link}".strip()
+                await ostk.add_task(title=f"[GH#{issue['number']}] {title}",
+                                    priority="P2", description=description)
             created += 1
         except Exception as exc:
-            errors.append(f"Failed to create task for #{issue.get('number', '?')}: {exc}")
-
-    return {
-        "ok": True,
-        "created": created,
-        "skipped": skipped,
-        "total_issues": len(issues),
-        "errors": errors,
-    }
+            errors.append(f"Failed to import #{issue.get('number', '?')}: {exc}")
+    return {"ok": True, "created": created, "skipped": skipped,
+            "total_issues": len(issues), "errors": errors}
 
 
 class GitHubPushRequest(BaseModel):
