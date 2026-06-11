@@ -38,3 +38,23 @@ async def test_list_merged_prs_calls_closed_sorted():
     assert path == "/repos/acme/web/pulls"
     assert params["state"] == "closed"
     assert params["sort"] == "updated"
+
+
+@pytest.mark.asyncio
+async def test_activity_merged_not_connected(client):
+    with patch("routers.github.github_service") as mock_svc:
+        mock_svc.is_connected.return_value = False
+        resp = await client.get("/api/github/activity/merged?days=7")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_activity_merged_returns_list(client):
+    with patch("routers.github.github_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.list_merged_prs = AsyncMock(return_value=[
+            {"number": 1, "title": "Fixed the login bug", "merged_at": "2026-06-02T10:00:00Z"},
+        ])
+        resp = await client.get("/api/github/activity/merged?days=7")
+    assert resp.status_code == 200
+    assert resp.json()["merged"][0]["title"] == "Fixed the login bug"

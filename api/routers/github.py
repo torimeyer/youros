@@ -398,3 +398,15 @@ async def github_callback(request: Request, code: str = "", state: str = "", err
 def github_defaults():
     """Return whether GitHub OAuth is configured on this server."""
     return {"oauth_available": bool(os.environ.get("GITHUB_CLIENT_ID", ""))}
+
+
+@router.get("/github/activity/merged")
+async def github_activity_merged(days: int = 7):
+    """List pull requests merged in the last `days` days."""
+    if not github_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to GitHub.")
+    try:
+        merged = await github_service.list_merged_prs(days=days)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"merged": merged}
