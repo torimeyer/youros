@@ -692,7 +692,12 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
             else:
                 full_text = await chat_service.stream_anthropic(messages, websocket, tab_id=tab_id, claude_tier=claude_tier)
         elif provider == "gemini":
-            full_text = await chat_service.stream_gemini(messages, websocket)
+            if use_tools:
+                # Gemini has no tool loop and an explicit no-action system prompt.
+                # Redirect to Claude so spawn_agent and other tools are reachable.
+                full_text = await chat_service.agent_anthropic(messages, websocket, tab_id=tab_id, plan_mode=plan_mode)
+            else:
+                full_text = await chat_service.stream_gemini(messages, websocket)
         else:
             await websocket.send_json({"type": "error", "data": f"Unknown model: {provider}"})
             status = "failed"
@@ -1449,6 +1454,13 @@ async def chat_websocket(websocket: WebSocket):
                 pass
 
             use_tools = data.get("tools", False)
+            # SAA/diagnose/fix commands require spawn_agent, which only exists
+            # in agent_anthropic (the use_tools=True path). Auto-upgrade so the
+            # model can actually call spawn_agent instead of just talking about it.
+            if not use_tools and isinstance(last_text, str):
+                _ltext = last_text.strip().lower()
+                if any(_ltext.startswith(v + " ") or _ltext == v for v in ("saa", "diagnose", "fix")):
+                    use_tools = True
             plan_mode = bool(data.get("plan_mode", False))
             mentioned_models = parse_mentions(last_text)
             had_explicit_mention = bool(mentioned_models)
