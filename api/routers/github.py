@@ -107,6 +107,17 @@ async def github_issues(state: str = "open"):
     return {"issues": issues}
 
 
+@router.get("/github/pr/{owner}/{repo}/{pr_number}")
+async def github_pr(owner: str, repo: str, pr_number: int):
+    """Return the plain-English state of a pull request."""
+    if not github_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to GitHub.")
+    try:
+        return await github_service.get_pr(owner, repo, pr_number)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.post("/github/sync")
 async def github_sync():
     """Import GitHub issues as myOS tasks.

@@ -60,3 +60,25 @@ async def test_get_pr_calls_correct_path():
     with patch.object(github_service, "_github_get", spy):
         await github_service.get_pr("acme", "web", 123)
     spy.assert_awaited_once_with("/repos/acme/web/pulls/123")
+
+
+@pytest.mark.asyncio
+async def test_pr_endpoint_not_connected(client):
+    with patch("routers.github.github_service") as mock_svc:
+        mock_svc.is_connected.return_value = False
+        resp = await client.get("/api/github/pr/acme/web/123")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_pr_endpoint_returns_state(client):
+    with patch("routers.github.github_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.get_pr = AsyncMock(return_value={
+            "number": 123, "title": "Add dark mode", "state": "merged",
+            "merged_at": "2026-06-02T10:00:00Z", "created_at": "2026-06-01T00:00:00Z",
+            "html_url": "https://github.com/acme/web/pull/123",
+        })
+        resp = await client.get("/api/github/pr/acme/web/123")
+    assert resp.status_code == 200
+    assert resp.json()["state"] == "merged"
