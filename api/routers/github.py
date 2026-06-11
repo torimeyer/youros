@@ -118,6 +118,65 @@ async def github_pr(owner: str, repo: str, pr_number: int):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+class IssueToNeedleRequest(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    acceptance_criteria: list[str] | None = None
+    priority: str | None = None
+
+
+def _parse_issue_to_needle(issue: dict) -> dict:
+    """Turn a GitHub issue dict into needle fields.
+
+    Full body -> description. `- [ ]` / `- [x]` lines -> acceptance criteria.
+    Title -> needle title. Priority defaults to P2.
+    """
+    body = (issue.get("body") or "").strip()
+    criteria: list[str] = []
+    for line in body.split("\n"):
+        s = line.strip()
+        if s.startswith("- [ ]"):
+            criteria.append(s[5:].strip())
+        elif s.startswith("- [x]") or s.startswith("- [X]"):
+            criteria.append(s[5:].strip())
+    return {
+        "title": issue.get("title", ""),
+        "description": body,
+        "acceptance_criteria": criteria,
+        "priority": "P2",
+    }
+
+
+@router.post("/github/issue-to-needle/{issue_number}")
+async def github_issue_to_needle(issue_number: int, req: IssueToNeedleRequest):
+    """Create a yourOS needle from a GitHub issue, with optional field edits."""
+    if not github_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to GitHub.")
+    try:
+        issues = await github_service.list_issues(state="open")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    match = next((i for i in issues if i.get("number") == issue_number), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail=f"Issue #{issue_number} not found.")
+
+    parsed = _parse_issue_to_needle(match)
+    title = (req.title if req.title is not None else parsed["title"]).strip()
+    description = req.description if req.description is not None else parsed["description"]
+    criteria = req.acceptance_criteria if req.acceptance_criteria is not None else parsed["acceptance_criteria"]
+    priority = req.priority or parsed["priority"]
+    ac_text = "\n".join(c for c in criteria if c.strip()) or "Needle is complete and verified."
+
+    try:
+        result = await ostk.add_task(
+            title=title, priority=priority, description=description, ac=ac_text,
+        )
+    except Exception as exc:  # OstkError or transport
+        raise HTTPException(status_code=500, detail=f"Could not create needle: {exc}") from exc
+    return {"ok": True, "result": result}
+
+
 @router.post("/github/sync")
 async def github_sync():
     """Import GitHub issues as myOS tasks.
