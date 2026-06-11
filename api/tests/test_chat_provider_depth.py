@@ -103,7 +103,9 @@ class TestGeminiSystemPrompt:
         assert "switch to Claude" in GEMINI_SYSTEM_INSTRUCTION
 
     def test_gemini_prompt_identifies_itself_correctly(self):
-        assert "You are Gemini" in GEMINI_SYSTEM_INSTRUCTION
+        # Identity must be the OS name (yourOS), not "Gemini, Google's AI model".
+        # The model is Gemini under the hood but the product persona is the instance name.
+        assert "You are yourOS" in GEMINI_SYSTEM_INSTRUCTION
 
 
 # ---------------------------------------------------------------------------
