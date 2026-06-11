@@ -346,3 +346,39 @@ def map_github_labels(github_labels: list[str]) -> list[str]:
         else:
             mapped.append(label)
     return mapped
+
+
+async def list_merged_prs(days: int = 7) -> list[dict]:
+    """Return pull requests merged within the last `days` days.
+
+    Each item is {number, title, merged_at}. Cached for 10 minutes.
+    """
+    repo = _repo()
+    cache_key = ("list_merged_prs", repo, days)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
+    data = await _github_get(f"/repos/{repo}/pulls", {
+        "state": "closed", "sort": "updated", "direction": "desc", "per_page": "50",
+    })
+    import datetime as _dt
+    cutoff = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days)
+    result: list[dict] = []
+    if isinstance(data, list):
+        for pr in data:
+            merged_at = pr.get("merged_at")
+            if not merged_at:
+                continue
+            try:
+                when = _dt.datetime.fromisoformat(merged_at.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if when >= cutoff:
+                result.append({
+                    "number": pr.get("number"),
+                    "title": pr.get("title", ""),
+                    "merged_at": merged_at,
+                })
+    _cache_set(cache_key, result, ttl=600.0)  # 10 minutes
+    return result
