@@ -2656,6 +2656,7 @@ async def review_spec(spec_path: str):
     from services.spec_constitution import load_constitution, check_spec_text
     text = full.read_text()
     acked = _read_frontmatter_value(text, "drift_acked").lower() in ("true", "yes", "1")
+    github_pr = _read_frontmatter_value(text, "github_pr").strip()
     return {
         "spec_path": spec_path,
         "readiness": compute_spec_readiness(str(full)).as_dict(),
@@ -2664,6 +2665,7 @@ async def review_spec(spec_path: str):
             "principles": load_constitution(),
             "violations": check_spec_text(text),
         },
+        "github_pr": github_pr,
     }
 
 
@@ -2682,6 +2684,47 @@ def _frontmatter_set_key(text: str, key: str, value: str) -> str:
     inner = [l for l in lines[1:close_idx] if not l.startswith(f"{key}:")]
     inner.append(f"{key}: {value}")
     return "\n".join(["---"] + inner + lines[close_idx:])
+
+
+class SpecGithubPrUpdate(BaseModel):
+    github_pr: str
+
+
+@router.patch("/specs/{spec_path:path}/github-pr")
+async def patch_spec_github_pr(spec_path: str, body: SpecGithubPrUpdate):
+    """Set or clear the optional github_pr link on a spec.
+
+    Informational only. Accepts owner/repo#123 shorthand or a full pull
+    request URL; storage is verbatim. An empty string clears the link.
+    """
+    _validate_doc_path(spec_path)
+    abs_path = (
+        spec_path
+        if spec_path.startswith("/") or spec_path.startswith("~")
+        else str(Path(config.PROJECT_ROOT) / spec_path)
+    )
+    abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
+    if not Path(abs_path).exists():
+        raise HTTPException(status_code=404, detail="Spec file not found")
+
+    value = body.github_pr.strip()
+    text = Path(abs_path).read_text(encoding="utf-8")
+    if value:
+        updated = _frontmatter_set_key(text, "github_pr", value)
+    else:
+        # Clear: drop any existing github_pr line from the frontmatter.
+        lines = text.split("\n")
+        if lines and lines[0].strip() == "---":
+            close = next((i for i, l in enumerate(lines[1:], 1) if l.strip() == "---"), None)
+            if close:
+                kept = [l for i, l in enumerate(lines) if not (0 < i < close and l.strip().startswith("github_pr:"))]
+                updated = "\n".join(kept)
+            else:
+                updated = text
+        else:
+            updated = text
+    Path(abs_path).write_text(updated, encoding="utf-8")
+    return {"ok": True, "github_pr": value}
 
 
 @router.post("/specs/{spec_path:path}/drift/reconcile")
