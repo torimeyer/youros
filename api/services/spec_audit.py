@@ -199,7 +199,10 @@ def compute_shipped(
     # Parse file references
     file_refs = _FILE_REF_RE.findall(body)
     # Filter to plausible relative paths (skip bare extensions like ".py")
-    file_refs = [r for r in file_refs if "/" in r or "." in r.split("/")[-1] and len(r) > 4]
+    # Require at least one "/" so bare filenames like `SpecReview.tsx` are
+    # excluded. Bare names can't be reliably resolved to a repo location and
+    # always produce false-positive missing_files entries (→2163).
+    file_refs = [r for r in file_refs if "/" in r and len(r) > 4]
     # Deduplicate
     seen: set[str] = set()
     unique_refs = []
