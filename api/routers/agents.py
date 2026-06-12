@@ -1588,6 +1588,13 @@ MAX_RECOVERY_ATTEMPTS = 3
 # _reconcile_loop (async) to schedule Haiku retries without blocking the sweep.
 _pending_ghost_retries: list = []
 
+# Queue populated by _autocomplete_exited_subagents (sync) and drained by
+# the async callers (_reconcile_loop, _compute_agents_snapshot_async) to
+# close the task/needle associated with each auto-completed agent (→2207).
+# close_task is async so it cannot be called directly from the thread-pool
+# worker; mirroring the ghost-retry pattern keeps the fix minimal.
+_pending_needle_closes: list[str] = []
+
 # Tier name for ghost retries — resolved via MODEL_MAP so it always matches
 # whatever the canonical Haiku ID is in services/model_routing.py.
 _GHOST_RETRY_HAIKU_MODEL = "haiku"
@@ -2275,6 +2282,15 @@ def _autocomplete_exited_subagents() -> bool:
                     _attach_near_noop_signal(name, meta)
                     _set_agent_status(name, "completed", completed_at=now.isoformat(), summary=_stale_sweep_summary_for(name))
                     _emit_audit_event("agent.completed", {"name": name})
+                    # Queue needle closes for the async drain (→2207).
+                    _nid = meta.get("needle_id")
+                    _extra_nids = list(meta.get("needle_ids") or [])
+                    if _nid:
+                        _pending_needle_closes.append(str(_nid))
+                    for _extra in _extra_nids:
+                        _s = str(_extra)
+                        if _s not in _pending_needle_closes:
+                            _pending_needle_closes.append(_s)
                 changed = True
             # Either idle (just completed/failed above) or still active.
             # Either way, skip Path B -- transcript is the authority.
@@ -2322,6 +2338,15 @@ def _autocomplete_exited_subagents() -> bool:
             _attach_near_noop_signal(name, meta)
             _set_agent_status(name, "completed", completed_at=now.isoformat(), summary=_stale_sweep_summary_for(name))
             _emit_audit_event("agent.completed", {"name": name})
+            # Queue needle closes for the async drain (→2207).
+            _nid = meta.get("needle_id")
+            _extra_nids = list(meta.get("needle_ids") or [])
+            if _nid:
+                _pending_needle_closes.append(str(_nid))
+            for _extra in _extra_nids:
+                _s = str(_extra)
+                if _s not in _pending_needle_closes:
+                    _pending_needle_closes.append(_s)
         changed = True
     return changed
 
@@ -4370,6 +4395,12 @@ async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
                 if agents_map[name].get("status") == "running":
                     agents_map[name]["status"] = "completed"
                     agents_map[name]["completed_at"] = meta.get("completed_at", "")
+    # Drain needle-close queue (→2207) — runs unconditionally so items queued
+    # by _autocomplete_exited_subagents are never stranded here.
+    _snap_needle_closes = _pending_needle_closes[:]
+    _pending_needle_closes.clear()
+    for _nid in _snap_needle_closes:
+        asyncio.create_task(_close_task_for_autocomplete(_nid))
 
     rc_changed = _recover_bulk_cancelled_agents()
     if rc_changed:
@@ -4966,6 +4997,15 @@ def _fire_set_task_in_progress(needle_id: str) -> None:
 async def _set_task_in_progress_async(needle_id: str) -> None:
     try:
         await ostk.set_task_in_progress(needle_id)
+    except Exception:
+        pass
+
+
+async def _close_task_for_autocomplete(needle_id: str) -> None:
+    """Close the task/needle for an agent completed by the idle sweep (→2207)."""
+    try:
+        _arrow_n = f"→{needle_id.lstrip('→')}"
+        await ostk.close_task(_arrow_n, closed_reason="completed")
     except Exception:
         pass
 
@@ -8812,6 +8852,11 @@ async def _reconcile_loop():
             _pending_ghost_retries.clear()
             for _ghost_name in retries:
                 asyncio.create_task(_schedule_ghost_retry(_ghost_name))
+            # Drain needle-close queue (→2207).
+            needle_closes = _pending_needle_closes[:]
+            _pending_needle_closes.clear()
+            for _nid in needle_closes:
+                asyncio.create_task(_close_task_for_autocomplete(_nid))
         except Exception:
             pass
         try:
