@@ -43,6 +43,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from pathlib import Path
 from typing import Callable, Optional, Protocol, Set, runtime_checkable, Awaitable, Any
 
 # ---------------------------------------------------------------------------
@@ -201,8 +202,19 @@ class _BaseRuntimeProvider:
         return await self._spawn_fn(req)
 
     async def invoke_skill(self, skill_id: str, **args: Any) -> None:
-        """Invoke a predefined skill. Concrete providers must override this."""
-        raise NotImplementedError(f"{type(self).__name__} does not implement invoke_skill")
+        """Invoke a predefined skill via the runtime.
+
+        Concrete providers override this to run the skill through their own
+        runtime: the Claude provider runs the native slash-command
+        (``claude --print /skill``); the Gemini provider runs the skill's
+        agentfile recipe (``agents/<skill>.agent``) through the gemini CLI.
+        The base provider has no runtime of its own, so it fails loudly rather
+        than silently doing nothing.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement invoke_skill for "
+            f"skill '{skill_id.lstrip('/')}'"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +245,37 @@ class ReducedRuntimeProvider(_BaseRuntimeProvider):
 
 
 # ---------------------------------------------------------------------------
+# Skill recipe resolution (shared by providers that run skills as agentfiles)
+# ---------------------------------------------------------------------------
+def resolve_skill_agentfile(skill_id: str) -> Optional[Path]:
+    """Resolve a skill id to its agentfile recipe path, or None if not found.
+
+    A skill's model-neutral recipe lives in an agentfile. Providers without a
+    native skill mechanism (e.g. the Gemini CLI) run that recipe through their
+    own runtime. We look first in the repo's ``agents/`` directory (built-in
+    skills shipped with yourOS), then in the user's ``~/.youros/skills/``
+    directory (user-defined skills). The id may carry a leading slash
+    (``/review``) which is stripped.
+    """
+    sid = skill_id.lstrip("/").strip()
+    if not sid:
+        return None
+
+    candidates: list[Path] = []
+    try:
+        from config import PROJECT_ROOT
+        candidates.append(Path(PROJECT_ROOT) / "agents" / f"{sid}.agent")
+    except Exception:
+        pass
+    candidates.append(Path.home() / ".youros" / "skills" / f"{sid}.agent")
+
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 def default_provider(spawn_fn: Optional[SpawnFn] = None) -> RuntimeProvider:
@@ -260,5 +303,6 @@ __all__ = [
     "RuntimeProvider",
     "DefaultRuntimeProvider",
     "ReducedRuntimeProvider",
+    "resolve_skill_agentfile",
     "default_provider",
 ]

@@ -1,0 +1,24 @@
+# Generates or refreshes a CLAUDE.md that documents the codebase for future sessions.
+# Surveys the project structure, build/test commands, and conventions.
+
+FROM auto
+PROMPT "You are a yourOS init agent. Produce or refresh a CLAUDE.md at the repository root that documents this codebase so a future session can be productive immediately.
+
+Survey the real project first, using the shell and file reads:
+- the directory layout and the main entry points
+- how to build, run, and test (look for package.json scripts, Makefile, scripts helpers, and any test runner config)
+- the languages, frameworks, and key dependencies actually in use
+- existing conventions (naming, structure, lint and format config)
+
+Then write CLAUDE.md with these sections, in plain language, no jargon:
+- Overview: what this project is, in two or three sentences.
+- Layout: the important directories and what lives in each.
+- Build, run, test: the exact commands, verified against the files you read.
+- Conventions: patterns a contributor must follow.
+
+Rules: only document what you verified by reading the repository, never guess. If a CLAUDE.md already exists, preserve any project-specific instructions it already contains and update the rest. Never use em-dashes. Report the path you wrote."
+TOOL shell
+TOOL file:read
+TOOL file:write
+LIMIT tokens 100000
+PIN default

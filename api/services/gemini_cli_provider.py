@@ -206,6 +206,61 @@ class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
 
     _features = _GEMINI_CLI_FEATURES
 
+    async def invoke_skill(self, skill_id: str, **args: Any) -> None:
+        """Run a skill on the gemini runtime via its agentfile recipe.
+
+        Claude runs skills as native slash-commands; the gemini CLI has none,
+        so it runs the skill's model-neutral recipe (the PROMPT in
+        ``agents/<skill>.agent``) as a one-shot ``gemini -p`` prompt. This keeps
+        skills working when the active runtime is Gemini instead of Claude.
+        """
+        import asyncio
+        import logging
+        from pathlib import Path
+
+        from services.runtime_provider import resolve_skill_agentfile
+        from services.agentfile_parser import parse_agentfile
+
+        logger = logging.getLogger(__name__)
+        sid = skill_id.lstrip("/").strip()
+
+        recipe_path = resolve_skill_agentfile(sid)
+        if recipe_path is None:
+            raise ValueError(
+                f"Unknown skill '{sid}' for GeminiCliRuntimeProvider: "
+                f"no agents/{sid}.agent recipe found"
+            )
+
+        config = parse_agentfile(recipe_path)
+        prompt = config.prompt or ""
+
+        gemini_bin = _find_gemini_binary()
+        if not gemini_bin:
+            logger.warning("skills.run: gemini CLI not found for skill=%s", sid)
+            return
+
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        cmd = [gemini_bin, "-p", prompt, "--skip-trust"]
+        logger.info("skills.run: gemini skill=%s recipe=%s", sid, recipe_path.name)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=_build_subprocess_env(),
+                cwd=str(repo_root),
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            if proc.returncode not in (0, None):
+                logger.warning(
+                    "skills.run: gemini skill=%s exit=%s stderr=%s",
+                    sid, proc.returncode, stderr.decode(errors="replace")[:500],
+                )
+        except asyncio.TimeoutError:
+            logger.warning("skills.run: gemini skill=%s timed out after 300s", sid)
+        except Exception as exc:
+            logger.error("skills.run: gemini skill=%s error=%s", sid, exc)
+
 
 # ---------------------------------------------------------------------------
 
