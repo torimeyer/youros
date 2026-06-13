@@ -1,4 +1,4 @@
-"""Tests for MYOS_SPAWN_USE_OSTK_RUN=1 — ostk run canonical spawn path (→1305).
+"""Tests for YOUROS_SPAWN_USE_OSTK_RUN=1 — ostk run canonical spawn path (→1305).
 
 Coverage:
 1. Env flag on + template=research → routes to ostk run (pilot agentfile).
@@ -164,11 +164,11 @@ def _clean_agent_metadata():
 
 @pytest.mark.asyncio
 async def test_env_flag_routes_research_template_to_ostk_run():
-    """MYOS_SPAWN_USE_OSTK_RUN=1 + template=research must call ostk run agents/research.agent."""
+    """YOUROS_SPAWN_USE_OSTK_RUN=1 + template=research must call ostk run agents/research.agent."""
     from main import app
     from httpx import ASGITransport, AsyncClient
 
-    with patch.dict("os.environ", {"MYOS_SPAWN_USE_OSTK_RUN": "1"}):
+    with patch.dict("os.environ", {"YOUROS_SPAWN_USE_OSTK_RUN": "1"}):
         with patch("services.ostk.OstkService.run_agentfile", new=AsyncMock(return_value=_OSTK_RUN_OK)) as _mock:
             with patch(
                 "services.agentfile_parser._find_any_agentfile",
@@ -204,13 +204,13 @@ async def test_env_flag_routes_research_template_to_ostk_run():
 
 @pytest.mark.asyncio
 async def test_env_flag_no_agentfile_falls_back_to_bespoke(monkeypatch):
-    """MYOS_SPAWN_USE_OSTK_RUN=1 but no agentfile found must silently use the bespoke path."""
+    """YOUROS_SPAWN_USE_OSTK_RUN=1 but no agentfile found must silently use the bespoke path."""
     from main import app
     from httpx import ASGITransport, AsyncClient
 
     _install_bespoke_doubles(monkeypatch)
 
-    with patch.dict("os.environ", {"MYOS_SPAWN_USE_OSTK_RUN": "1"}):
+    with patch.dict("os.environ", {"YOUROS_SPAWN_USE_OSTK_RUN": "1"}):
         with patch(
             "services.agentfile_parser._find_any_agentfile",
             return_value=None,
@@ -243,13 +243,13 @@ async def test_env_flag_no_agentfile_falls_back_to_bespoke(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_env_flag_ostk_error_falls_back_to_bespoke(monkeypatch):
-    """MYOS_SPAWN_USE_OSTK_RUN=1 + ostk run throws → silent fallback to bespoke path."""
+    """YOUROS_SPAWN_USE_OSTK_RUN=1 + ostk run throws → silent fallback to bespoke path."""
     from main import app
     from httpx import ASGITransport, AsyncClient
 
     _install_bespoke_doubles(monkeypatch)
 
-    with patch.dict("os.environ", {"MYOS_SPAWN_USE_OSTK_RUN": "1"}):
+    with patch.dict("os.environ", {"YOUROS_SPAWN_USE_OSTK_RUN": "1"}):
         with patch(
             "services.ostk.OstkService.run_agentfile",
             new=AsyncMock(side_effect=RuntimeError("ostk binary not found")),
@@ -285,7 +285,7 @@ async def test_env_flag_ostk_error_falls_back_to_bespoke(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_env_flag_off_uses_bespoke_path(monkeypatch):
-    """With MYOS_SPAWN_USE_OSTK_RUN unset, spawn must use the bespoke claude-code path."""
+    """With YOUROS_SPAWN_USE_OSTK_RUN unset, spawn must use the bespoke claude-code path."""
     from main import app
     from httpx import ASGITransport, AsyncClient
 
@@ -294,7 +294,7 @@ async def test_env_flag_off_uses_bespoke_path(monkeypatch):
     with patch.dict("os.environ", {}, clear=False):
         # Ensure flag is absent (pop if present)
         import os as _os
-        _os.environ.pop("MYOS_SPAWN_USE_OSTK_RUN", None)
+        _os.environ.pop("YOUROS_SPAWN_USE_OSTK_RUN", None)
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -327,7 +327,7 @@ async def test_explicit_use_ostk_run_routes_without_env_flag():
     from httpx import ASGITransport, AsyncClient
 
     import os as _os
-    _os.environ.pop("MYOS_SPAWN_USE_OSTK_RUN", None)
+    _os.environ.pop("YOUROS_SPAWN_USE_OSTK_RUN", None)
 
     with patch("services.ostk.OstkService.run_agentfile", new=AsyncMock(return_value=_OSTK_DRY_RUN_OK)):
         with patch(
@@ -368,7 +368,7 @@ async def test_explicit_use_ostk_run_errors_raises_500():
     from httpx import ASGITransport, AsyncClient
 
     import os as _os
-    _os.environ.pop("MYOS_SPAWN_USE_OSTK_RUN", None)
+    _os.environ.pop("YOUROS_SPAWN_USE_OSTK_RUN", None)
 
     with patch(
         "services.ostk.OstkService.run_agentfile",
@@ -414,7 +414,7 @@ async def test_env_flag_passes_through_required_env_vars():
         captured_kwargs.append(kwargs)
         return _OSTK_RUN_OK
 
-    with patch.dict("os.environ", {"MYOS_SPAWN_USE_OSTK_RUN": "1"}):
+    with patch.dict("os.environ", {"YOUROS_SPAWN_USE_OSTK_RUN": "1"}):
         with patch(
             "services.ostk.OstkService.run_agentfile",
             new=AsyncMock(return_value=_OSTK_RUN_OK, side_effect=None),
@@ -471,11 +471,11 @@ async def test_env_flag_passes_through_required_env_vars():
 @pytest.mark.parametrize("flag_value", ["1", "true", "yes"])
 @pytest.mark.asyncio
 async def test_env_flag_truthy_values_route_to_ostk_run(flag_value):
-    """MYOS_SPAWN_USE_OSTK_RUN accepts '1', 'true', and 'yes' as truthy."""
+    """YOUROS_SPAWN_USE_OSTK_RUN accepts '1', 'true', and 'yes' as truthy."""
     from main import app
     from httpx import ASGITransport, AsyncClient
 
-    with patch.dict("os.environ", {"MYOS_SPAWN_USE_OSTK_RUN": flag_value}):
+    with patch.dict("os.environ", {"YOUROS_SPAWN_USE_OSTK_RUN": flag_value}):
         with patch(
             "services.ostk.OstkService.run_agentfile",
             new=AsyncMock(return_value=_OSTK_RUN_OK),
