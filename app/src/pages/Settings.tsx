@@ -2337,7 +2337,7 @@ export default function Settings() {
                     <ul data-testid="memory-bullet-list" className="mb-4 space-y-2">
                       {bullets.map((bullet, i) => {
                         const label = bullet.added
-                          ? `added ${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(bullet.added)}`
+                          ? `added ${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(bullet.added)}`
                           : 'edited manually';
                         return (
                           <li key={i} className="flex items-baseline gap-3">
