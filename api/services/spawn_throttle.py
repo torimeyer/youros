@@ -22,6 +22,19 @@ from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
+# Measured fan-out (→2208/→2209, 2026-06-14): with limit=3/30s a burst of N
+# agents queues in groups of 3. Agents 1-3 are immediate; 4-6 wait ~30s;
+# 7-9 wait ~60s; 10+ exceed max_wait and get HTTP 429. The production log
+# (spawn_throttle.log) has NEVER been created — zero throttle events ever.
+#
+# DECISION: keep limit=3. This throttle IS needle →1544 (shipped 2026-05-20,
+# commit 1dc57124), added after a 6-agent simultaneous burst overloaded the
+# event loop and all six agents abandoned with <600 bytes. limit=3 forces a
+# large fan-out to spread as 3-per-30s, and that spreading is the protection.
+# Raising to 5 allows 5 simultaneous spawns — one short of the 6-agent burst
+# that caused the meltdown — for zero measured benefit. The manual 2-3 burst
+# rule is now redundant with this throttle and can be relaxed; the throttle
+# itself stays at 3.
 _BURST_LIMIT = int(os.environ.get("MYOS_SPAWN_BURST_LIMIT", "3"))
 _WINDOW_S = 30.0
 _MAX_WAIT_S = float(os.environ.get("MYOS_SPAWN_MAX_WAIT_S", "90"))
