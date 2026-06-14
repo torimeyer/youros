@@ -21,10 +21,56 @@ Exclusions (must stay in sync with isUserSpawnedAgent in agentUtils.ts):
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 
 _INFERRED_NAME_RE = re.compile(r"^(claude-code-|gemini-cli-mcp-client-)(p?[0-9a-f0-9]+)")
+
+_GHOST_HEARTBEAT_THRESHOLD_S = 120.0
+
+
+def is_ws_ghost(meta: Mapping[str, Any], now: datetime | None = None) -> bool:
+    """Return True when an agent should be excluded from the WS running_count.
+
+    Mirrors computeAgentGhostState from app/src/lib/agentUtils.ts so that
+    the badge count and the Active Sessions list use the same 'is this agent
+    alive?' definition. When these diverge, the badge can show N while the
+    Active Sessions list shows an empty state — confusing to the user.
+
+    Ghost conditions (matching the frontend):
+    - No PID (HTTP-registered): ghost unless last_heartbeat_at is within 120s.
+    - Has PID (subprocess): alive unless last_heartbeat_at is explicitly stale
+      (> 120s). A subprocess with no heartbeat record is assumed alive.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    pid = meta.get("pid")
+    last_hb_str = meta.get("last_heartbeat_at")
+
+    def _age_s() -> float | None:
+        if not last_hb_str:
+            return None
+        try:
+            ts = str(last_hb_str)
+            last_hb = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            if last_hb.tzinfo is None:
+                last_hb = last_hb.replace(tzinfo=timezone.utc)
+            return (now - last_hb).total_seconds()
+        except (ValueError, TypeError):
+            return None
+
+    if pid is None:
+        age = _age_s()
+        if age is not None and age <= _GHOST_HEARTBEAT_THRESHOLD_S:
+            return False
+        return True
+
+    age = _age_s()
+    if age is not None and age > _GHOST_HEARTBEAT_THRESHOLD_S:
+        return True
+    return False
 
 
 def is_main_session(agent: Mapping[str, Any]) -> bool:

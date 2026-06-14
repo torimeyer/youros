@@ -10556,8 +10556,16 @@ _WS_ACTIVE_STATUSES = frozenset({"running", "spawned", "starting"})
 
 
 def _compute_running_snapshot() -> dict:
-    """Return running_count and agents list filtered to user-spawned active rows."""
-    from services.agent_filters import is_user_spawned_agent
+    """Return running_count and agents list filtered to user-spawned active rows.
+
+    Ghost agents (stale heartbeat) are excluded so that running_count matches
+    what the Active Sessions list shows. Without this, the sidebar badge could
+    read '1' while the Active Sessions panel showed 'No agents running' —
+    the badge counted status=running agents but the list hid those whose
+    last_heartbeat_at was >120s old (mirroring computeAgentGhostState in
+    app/src/lib/agentUtils.ts).
+    """
+    from services.agent_filters import is_user_spawned_agent, is_ws_ghost
     deleted_names = _load_deleted_agents()
     running = []
     for _name, _meta in agent_metadata.items():
@@ -10565,6 +10573,8 @@ def _compute_running_snapshot() -> dict:
             continue
         row = {"name": _name, **_meta}
         if is_user_spawned_agent(row) and _meta.get("status") in _WS_ACTIVE_STATUSES:
+            if is_ws_ghost(_meta):
+                continue
             running.append({
                 "name": _name,
                 "status": _meta.get("status", "running"),
