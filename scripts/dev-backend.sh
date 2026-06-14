@@ -148,6 +148,25 @@ fi
 # A zombie from a previous SIGKILL usually has a defunct command line
 # or has already exited; a live dev server has the full uvicorn invocation.
 existing_pids=$(lsof -tiTCP:$UVICORN_PORT -sTCP:LISTEN 2>/dev/null || true)
+# Belt-and-braces: supplement lsof results with pgrep-matched uvicorn
+# reloader parents. In --reload mode the reloader (the exec'd shell process,
+# e.g. pid 23345) holds the socket FD AND keeps "uvicorn main:app" as its
+# command. Its worker child is spawned via multiprocessing.get_context("spawn")
+# and shows up in ps as "python3 -c from multiprocessing.spawn import ...".
+# That spawn-bootstrap command does NOT match "uvicorn main:app", so the
+# worker is invisible to the grep filter below. If lsof happens to return
+# only the worker (brief window during a worker-restart cycle, or a macOS
+# kernel version that yields LISTEN ownership to the child fd), the reloader
+# escapes detection: we kill only the worker, the reloader restarts a new one,
+# and the new worker co-binds PORT via SO_REUSEPORT alongside the incoming
+# uvicorn — the split-brain this script was designed to prevent.
+# pgrep catches the reloader regardless of its LISTEN-state visibility.
+_pgrep_uvicorn=$(pgrep -f "uvicorn main:app.*--port ${UVICORN_PORT}" 2>/dev/null || true)
+if [ -n "$_pgrep_uvicorn" ]; then
+    existing_pids=$(printf '%s\n%s' "$existing_pids" "$_pgrep_uvicorn" \
+        | grep -v '^[[:space:]]*$' | sort -u | tr '\n' ' ')
+    existing_pids="${existing_pids%% }"
+fi
 if [ -n "$existing_pids" ]; then
     live_uvicorn_pids=""
     for _pid in $existing_pids; do
@@ -377,6 +396,27 @@ fi
 # Exclude globs use fnmatch-style patterns relative to the watched
 # dir. Belt-and-braces: cover swap files, DS_Store, backup files,
 # and .git noise explicitly so watchfiles never sees them.
+# Final pgrep sweep: belt-and-braces kill of any uvicorn reloader parents
+# that survived the lsof-based detection above. This handles the window
+# where the reloader held the lock (acquire_launcher_lock path) while its
+# worker child was being replaced, so lsof briefly showed only the worker
+# (which doesn't match "uvicorn main:app"). free_port_or_die killed the
+# worker; the reloader was left alive; without this sweep it would respawn
+# a new worker co-binding PORT via SO_REUSEPORT alongside the incoming exec.
+_surviving_reloaders=$(pgrep -f "uvicorn main:app.*--port ${UVICORN_PORT}" 2>/dev/null \
+    | grep -v "^$$" || true)
+if [ -n "$_surviving_reloaders" ]; then
+    echo "Pre-exec sweep: killing surviving uvicorn reloader(s) (pid(s): $_surviving_reloaders)"
+    kill $_surviving_reloaders 2>/dev/null || true
+    sleep 0.5
+    # SIGKILL any that ignored SIGTERM
+    _still_alive=$(pgrep -f "uvicorn main:app.*--port ${UVICORN_PORT}" 2>/dev/null \
+        | grep -v "^$$" || true)
+    if [ -n "$_still_alive" ]; then
+        kill -9 $_still_alive 2>/dev/null || true
+    fi
+fi
+
 # Write PID to pidfile right before exec. `exec` replaces this shell with
 # uvicorn, so the pid in PIDFILE is the live uvicorn reloader parent.
 # backend_watchdog.sh reads this file and uses `kill -0` to verify the
