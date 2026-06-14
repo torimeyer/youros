@@ -576,6 +576,18 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                         Path(raw_path) if raw_path.startswith("/") or raw_path.startswith("~")
                         else _ostk_module.USER_SPECS_DIR / raw_path
                     )
+                    # Only auto-archive files that live in USER_SPECS_DIR.
+                    # Drafts in USER_DRAFTS_DIR are works-in-progress and must
+                    # never be moved by this loop — they haven't been promoted yet.
+                    try:
+                        if not str(abs_path.resolve()).startswith(
+                            str(_ostk_module.USER_SPECS_DIR.resolve())
+                        ):
+                            surviving.append(d)
+                            continue
+                    except Exception:
+                        surviving.append(d)
+                        continue
                     shipped = compute_shipped(abs_path, _SPEC_REPO_ROOT, needle_statuses)
                     if shipped.is_shipped and abs_path.exists():
                         # Move to archive

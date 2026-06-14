@@ -3366,6 +3366,65 @@ async def test_auto_archived_specs_not_surfaced(client, tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_draft_in_user_drafts_dir_not_auto_archived(client, tmp_path, monkeypatch):
+    """GET /specs must NOT auto-archive files in USER_DRAFTS_DIR.
+
+    A newly created draft lands in USER_DRAFTS_DIR with no file refs and no
+    needle refs. compute_shipped() returns is_shipped=True vacuously (nothing
+    missing, nothing open). Before this fix the auto-archive loop in list_specs
+    saw this as a 'done' spec and renamed it to specs/archive/, causing all
+    subsequent PATCH /body and POST /promote requests to 404.
+
+    The fix: the auto-archive loop must skip any path outside USER_SPECS_DIR.
+    Drafts are works-in-progress; only explicitly promoted specs qualify.
+    """
+    from services import ostk as ostk_module
+
+    drafts_dir = tmp_path / "myos_drafts"
+    specs_dir = tmp_path / "myos_specs"
+    drafts_dir.mkdir(parents=True, exist_ok=True)
+    specs_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
+    monkeypatch.setattr(ostk_module, "USER_DRAFTS_DIR", drafts_dir)
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
+
+    draft_file = drafts_dir / "my-new-plan.md"
+    draft_file.write_text(
+        "---\ntitle: My new plan\nstatus: draft\n---\n\n"
+        "## Acceptance Criteria\n\n- [ ] First step\n"
+    )
+
+    async def fake_list_docs():
+        return [
+            {
+                "path": str(draft_file),
+                "title": "My new plan",
+                "status": "draft",
+                "task_ids": [],
+                "acceptance_criteria": ["[ ] First step"],
+                "task_summary": {"total": 0, "open": 0, "closed": 0},
+            }
+        ]
+
+    monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
+
+    resp = await client.get("/api/specs")
+    assert resp.status_code == 200
+
+    assert draft_file.exists(), (
+        "draft file was removed from USER_DRAFTS_DIR by auto-archive — "
+        "list_specs must not auto-archive files outside USER_SPECS_DIR"
+    )
+    archive_dir = specs_dir / "archive"
+    if archive_dir.exists():
+        archived = list(archive_dir.glob("*my-new-plan*"))
+        assert archived == [], (
+            f"draft was incorrectly moved to specs/archive/: {archived}"
+        )
+
+
+@pytest.mark.asyncio
 async def test_clarity_patch_appends_and_reruns_readiness(client, tmp_path, monkeypatch):
     """PATCH /specs/{path}/clarity appends fix text and returns updated checks.
 
