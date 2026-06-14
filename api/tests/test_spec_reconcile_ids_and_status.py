@@ -132,6 +132,28 @@ def test_status_patch_rejects_invalid_status(tmp_path, monkeypatch):
     assert _read_frontmatter_value(f.read_text(), "status") == "ready"
 
 
+def test_status_patch_resolves_tilde_path(tmp_path, monkeypatch):
+    """A ``~/.youros/specs/...`` path must resolve (regression: _set_spec_status
+    joined the raw ~-path onto PROJECT_ROOT without expanduser, so the file was
+    never found and the flip 404'd even though the spec existed)."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    specs_dir = tmp_path / ".youros" / "specs"
+    specs_dir.mkdir(parents=True)
+    monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", specs_dir)
+    (specs_dir / "tilde.md").write_text(_spec(status="done"))
+
+    result = asyncio.run(
+        patch_spec_status(
+            "~/.youros/specs/tilde.md", SpecStatusUpdate(status="building")
+        )
+    )
+
+    assert result.get("ok") is True
+    assert _read_frontmatter_value(
+        (specs_dir / "tilde.md").read_text(), "status"
+    ) == "building"
+
+
 def test_status_patch_404_when_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(ostk_module, "USER_SPECS_DIR", tmp_path)
     missing = tmp_path / "nope.md"

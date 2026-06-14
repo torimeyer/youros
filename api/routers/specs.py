@@ -2482,8 +2482,13 @@ def _set_spec_status(spec_path: str, new_status: str) -> Optional[str]:
     right after a successful spawn) never break the response because a
     status flip failed. The sibling _advance_spec_status_if_all_builder_
     tasks_closed_async helper uses the same pattern for ``done``.
+
+    ``spec_path`` may be repo-relative (``api/x.md``), absolute, or
+    ``~``-prefixed (``~/.youros/specs/x.md``). expanduser handles the last
+    case; joining an absolute path onto PROJECT_ROOT yields the absolute path,
+    so all three forms resolve correctly.
     """
-    full = Path(config.PROJECT_ROOT) / spec_path
+    full = Path(config.PROJECT_ROOT) / os.path.expanduser(spec_path)
     if not full.exists():
         return None
     try:
