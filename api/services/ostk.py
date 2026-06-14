@@ -171,6 +171,24 @@ def read_audit_entries(audit_path: Optional[Path] = None) -> list[dict]:
     return entries
 
 
+def _normalize_id(tid: Optional[str]) -> str:
+    """Strip the ``→`` / ``->`` arrow prefix from a task ID.
+
+    ostk 7.6.0 stores IDs in issues.jsonl without the arrow prefix
+    (e.g. ``"001"`` instead of ``"→001"``) while ``ostk work list --json``
+    still emits the arrow form.  Normalizing before any set lookup or
+    equality check makes both formats interoperable.
+    """
+    if not tid:
+        return ""
+    s = str(tid).strip()
+    if s.startswith("→"):
+        return s[1:]
+    if s.startswith("->"):
+        return s[2:]
+    return s
+
+
 def _read_active_store_ids(root: Path) -> Optional[set]:
     """Return the set of task IDs present in issues.jsonl (the active store).
 
@@ -178,6 +196,10 @@ def _read_active_store_ids(root: Path) -> Optional[set]:
     "no filter" to preserve backward compatibility in test environments
     where the file is absent).  Used by list_tasks to exclude rotated-
     archive entries served by the ostk daemon (→1694).
+
+    IDs are normalized (arrow prefix stripped) so that issues.jsonl entries
+    written by ostk 7.6.0 (bare numeric IDs) match daemon output that still
+    emits the arrow-prefixed form.
     """
     issues_path = root / ".ostk" / "needles" / "issues.jsonl"
     if not issues_path.exists():
@@ -192,7 +214,7 @@ def _read_active_store_ids(root: Path) -> Optional[set]:
                 entry = json.loads(stripped)
                 nid = entry.get("id")
                 if nid:
-                    ids.add(nid)
+                    ids.add(_normalize_id(str(nid)))
             except json.JSONDecodeError:
                 pass
     except OSError:
@@ -229,7 +251,9 @@ def _reconcile_active(seen: dict, active_ids: Optional[set]) -> list:
         return list(seen.values())
     out: list = []
     for k, v in seen.items():
-        if k in active_ids:
+        # Normalize before lookup: ostk 7.6.0 stores bare IDs in issues.jsonl
+        # while the daemon still emits arrow-prefixed IDs in list output.
+        if _normalize_id(k) in active_ids:
             out.append(v)
             continue
         status = (v.get("status") or "").lower()
@@ -1125,9 +1149,10 @@ class OstkService:
         lines = issues_path.read_text().strip().splitlines()
         found = False
         updated = []
+        norm_task_id = self._normalize_task_id(task_id)
         for line in lines:
             entry = json.loads(line)
-            if entry.get("id") == task_id:
+            if self._normalize_task_id(entry.get("id", "")) == norm_task_id:
                 if entry.get("status") == "closed":
                     raise OstkError(f"task '{task_id}' is closed; reopen it first")
                 entry["status"] = "shelved"
@@ -1155,9 +1180,10 @@ class OstkService:
         lines = issues_path.read_text().strip().splitlines()
         found = False
         updated = []
+        norm_task_id = self._normalize_task_id(task_id)
         for line in lines:
             entry = json.loads(line)
-            if entry.get("id") == task_id:
+            if self._normalize_task_id(entry.get("id", "")) == norm_task_id:
                 if entry.get("status") != "shelved":
                     raise OstkError(
                         f"task '{task_id}' is not shelved (status: {entry.get('status')})"
