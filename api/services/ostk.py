@@ -258,11 +258,14 @@ def _reconcile_active(seen: dict, active_ids: Optional[set]) -> list:
     """
     if active_ids is None:
         return list(seen.values())
+    # Normalize BOTH sides: ostk 7.6.0 stores bare IDs in issues.jsonl while the
+    # daemon (and legacy callers/tests) still emit arrow-prefixed IDs. Normalizing
+    # only the key dropped active entries whose active_ids still carried the arrow
+    # prefix (regression caught at the →2216 merge gate).
+    _active_norm = {_normalize_id(a) for a in active_ids}
     out: list = []
     for k, v in seen.items():
-        # Normalize before lookup: ostk 7.6.0 stores bare IDs in issues.jsonl
-        # while the daemon still emits arrow-prefixed IDs in list output.
-        if _normalize_id(k) in active_ids:
+        if _normalize_id(k) in _active_norm:
             out.append(v)
             continue
         status = (v.get("status") or "").lower()
