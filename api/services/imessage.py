@@ -1041,9 +1041,11 @@ def get_all_recent_messages_sync(limit: int = 50) -> list[dict]:
                 m.is_from_me,
                 m.service,
                 cmj.chat_id,
+                c.chat_identifier,
                 h.id as sender_identifier
             FROM message m
             JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+            JOIN chat c ON cmj.chat_id = c.ROWID
             LEFT JOIN handle h ON m.handle_id = h.ROWID
             ORDER BY m.date DESC
             LIMIT ?
@@ -1062,6 +1064,7 @@ def get_all_recent_messages_sync(limit: int = 50) -> list[dict]:
                 "sender": sender,
                 "service": row["service"],
                 "chat_id": row["chat_id"],
+                "chat_identifier": row["chat_identifier"] or "",
             })
         return messages
     finally:

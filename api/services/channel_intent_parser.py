@@ -11,8 +11,12 @@ Supported patterns:
 
 from __future__ import annotations
 
+import logging
 import re
+import time
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def parse_intent(text: str) -> dict[str, Any]:
@@ -57,10 +61,43 @@ class InboundPoller:
 
     POLL_INTERVAL_S = 12
 
-    def __init__(self, handler):
+    def __init__(self, handler, *, self_handle: str = "") -> None:
         self._handler = handler
         self._cursor = None  # None = not yet baselined
         self._task: "asyncio.Task | None" = None
+        self._self_handle = self_handle
+        self._sent_bodies: dict[str, float] = {}
+
+    def mark_sent(self, text: str, ttl_seconds: float = 120.0) -> None:
+        """Record a reply the bridge sent so the poller can skip it (loop guard)."""
+        if text:
+            now = time.time()
+            self._sent_bodies[text] = now + ttl_seconds
+            self._sent_bodies = {k: v for k, v in self._sent_bodies.items() if v > now}
+
+    def _is_bridge_reply(self, msg: dict) -> bool:
+        """Return True if this message matches a reply the bridge recently sent."""
+        text = msg.get("text", "")
+        if not text:
+            return False
+        expire = self._sent_bodies.get(text)
+        if expire is None:
+            return False
+        if time.time() > expire:
+            del self._sent_bodies[text]
+            return False
+        return True
+
+    def _should_dispatch(self, msg: dict) -> bool:
+        """Return True if this message should be dispatched to the handler."""
+        if (msg.get("date") or 0) <= (self._cursor or 0):
+            return False
+        if msg.get("is_from_me"):
+            if not self._self_handle or msg.get("chat_identifier") != self._self_handle:
+                return False
+            if self._is_bridge_reply(msg):
+                return False
+        return True
 
     def start(self) -> None:
         import asyncio
@@ -77,10 +114,7 @@ class InboundPoller:
                         # First pass: baseline to latest, never dispatch backlog
                         self._cursor = max((m["date"] for m in msgs), default=0)
                     else:
-                        new = [
-                            m for m in msgs
-                            if m["date"] > self._cursor and not m.get("is_from_me")
-                        ]
+                        new = [m for m in msgs if self._should_dispatch(m)]
                         # Process oldest first
                         new.sort(key=lambda x: x["date"])
                         for msg in new:

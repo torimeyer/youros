@@ -110,7 +110,7 @@ async def classify_and_dispatch(text: str, sender_id: str) -> str:
         return "Sorry, no AI backend available to process this request."
 
     backend = await resolve_ai_backend()
-    model = settings_store.get("model", "claude-3-5-sonnet-latest")
+    model = settings_store.get("model", "claude-sonnet-4-5")
 
     from services.tool_executor import TOOL_DEFINITIONS
     allowed_tools = ["create_task", "run_command", "spawn_agent", "list_tasks"]
@@ -136,7 +136,7 @@ async def classify_and_dispatch(text: str, sender_id: str) -> str:
             system=system_prompt,
             messages=[{"role": "user", "content": text}],
             tools=tools,
-            tool_choice="auto",
+            tool_choice={"type": "auto"},
         )
         
         # Extract preamble text if any
@@ -196,13 +196,18 @@ class TextBridge:
             logger.debug("TextBridge: disabled in settings")
             return
 
+        # Determine the user's self-handle so the poller can accept note-to-self texts.
+        trusted = config.get("trusted_contacts", [])
+        self_handle = trusted[0] if trusted else ""
+
         # Start iMessage Poller
         from services.channel_intent_parser import InboundPoller
-        self._imessage_poller = InboundPoller(self.handle_inbound_message)
+        self._imessage_poller = InboundPoller(self.handle_inbound_message, self_handle=self_handle)
         if self._state.get("cursor"):
             self._imessage_poller._cursor = self._state["cursor"]
         self._imessage_poller.start()
-        logger.info("TextBridge: iMessage poller started at cursor %s", self._imessage_poller._cursor)
+        logger.info("TextBridge: iMessage poller started at cursor %s (self_handle=%s)",
+                    self._imessage_poller._cursor, self_handle or "none")
 
         # Start Telegram Poller if configured
         telegram_config = settings_store.get("telegram", {})
@@ -222,9 +227,19 @@ class TextBridge:
         service = msg.get("service", "iMessage")
         sender = msg.get("sender", "")
         text = msg.get("text", "")
-        
-        if not is_trusted_sender(sender, service):
-            logger.debug("TextBridge: ignoring untrusted sender from %s: %s", service, sender)
+
+        # For is_from_me messages in the self-chat, the DB sets sender="me" which
+        # won't match trusted_contacts. Use the configured self_handle instead.
+        is_self_text = (
+            msg.get("is_from_me")
+            and self._imessage_poller is not None
+            and bool(self._imessage_poller._self_handle)
+            and msg.get("chat_identifier") == self._imessage_poller._self_handle
+        )
+        effective_sender = self._imessage_poller._self_handle if is_self_text else sender
+
+        if not is_trusted_sender(effective_sender, service):
+            logger.debug("TextBridge: ignoring untrusted sender from %s: %s", service, effective_sender)
             return
 
         logger.info("TextBridge: processing %s message from %s: %s", service, sender, text[:50])
@@ -257,6 +272,9 @@ class TextBridge:
                 await asyncio.to_thread(reply_to_chat, chat_id, reply_text)
             except Exception as exc:
                 logger.error("TextBridge: could not send iMessage reply: %s", exc)
+            # Loop guard: record this reply so the self-chat poller skips it.
+            if is_self_text and self._imessage_poller is not None:
+                self._imessage_poller.mark_sent(reply_text)
         elif service == "Telegram" and self._telegram_poller:
             await self._telegram_poller.send_message(chat_id, reply_text)
 
