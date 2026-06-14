@@ -289,6 +289,13 @@ def compute_stage(
     if status == "draft":
         return "draft"
 
+    # Complete / done → explicit complete stage so the frontend doesn't
+    # show a finished spec as open. Without this check status="complete"
+    # fell through to "ready", making every complete spec appear as open
+    # on the spec board (→2207).
+    if status in ("complete", "done"):
+        return "complete"
+
     # In progress — only when frontmatter signals active building
     if status in ("in-progress", "building"):
         return "in_progress"

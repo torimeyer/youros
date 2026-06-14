@@ -585,6 +585,44 @@ def test_compute_stage_building_from_frontmatter_status():
     assert compute_stage(spec, husk=husk, shipped=shipped) == "in_progress"
 
 
+def test_compute_stage_complete_status_returns_complete():
+    """Bug →2207: status='complete' must return 'complete', not fall through to 'ready'.
+
+    A spec with frontmatter status=complete and all ACs checked was
+    getting stage='ready' because compute_stage had no handler for
+    'complete', making it appear as an open/unfinished spec on the board.
+    """
+    from services.spec_audit import ShippedResult, HuskResult
+    spec = {"path": "~/.youros/specs/text-bridge.md", "status": "complete"}
+    shipped = ShippedResult(is_shipped=False, missing_files=["api/services/old.py"], open_needles=[])
+    husk = HuskResult(is_husk=False, reason="")
+    assert compute_stage(spec, husk=husk, shipped=shipped) == "complete"
+
+
+def test_compute_stage_done_status_returns_complete():
+    """status='done' is an alias for complete and must also return 'complete' stage."""
+    from services.spec_audit import ShippedResult, HuskResult
+    spec = {"path": "~/.youros/specs/foo.md", "status": "done"}
+    shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=[])
+    husk = HuskResult(is_husk=False, reason="")
+    assert compute_stage(spec, husk=husk, shipped=shipped) == "complete"
+
+
+def test_compute_stage_complete_with_open_needles_still_complete():
+    """A complete spec with open body needle refs still gets stage=complete.
+
+    The auto-archive won't fire (is_shipped=False due to open needles), so
+    the spec stays in the list. Its stage must still reflect 'complete',
+    not regress to 'ready', just because some referenced needle in the body
+    text is still open.
+    """
+    from services.spec_audit import ShippedResult, HuskResult
+    spec = {"path": "~/.youros/specs/text-bridge.md", "status": "complete"}
+    shipped = ShippedResult(is_shipped=False, missing_files=[], open_needles=["2018"])
+    husk = HuskResult(is_husk=False, reason="")
+    assert compute_stage(spec, husk=husk, shipped=shipped) == "complete"
+
+
 def test_silent_auto_archive_on_completion(tmp_path):
     """Specs meeting the shipped condition have is_shipped=True — auto-archive
     logic in list_specs moves them off the board. Verify compute_shipped
