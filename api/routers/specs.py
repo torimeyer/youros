@@ -977,7 +977,7 @@ async def create_from_template(body: SpecFromTemplate):
             pass
 
     return {
-        "result": str(full_path),
+        "result": promoted_path or str(full_path),
         "status": status,
         "promoted_path": promoted_path,
         "template_id": body.template_id,
