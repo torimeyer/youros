@@ -171,22 +171,31 @@ def read_audit_entries(audit_path: Optional[Path] = None) -> list[dict]:
     return entries
 
 
-def _normalize_id(tid: Optional[str]) -> str:
-    """Strip the ``→`` / ``->`` arrow prefix from a task ID.
+def _normalize_id(tid) -> str:
+    """Canonicalize a task ID so all storage formats compare equal.
 
-    ostk 7.6.0 stores IDs in issues.jsonl without the arrow prefix
-    (e.g. ``"001"`` instead of ``"→001"``) while ``ostk work list --json``
-    still emits the arrow form.  Normalizing before any set lookup or
-    equality check makes both formats interoperable.
+    ostk 7.6.0 changed issues.jsonl to store IDs as bare integers (e.g.
+    ``1``) while ``ostk work list --json`` still emits the arrow-prefixed
+    zero-padded string form (e.g. ``"→001"``).  Two normalizations are
+    required to make them match:
+
+    1. Strip the ``→`` / ``->`` arrow prefix.
+    2. Strip leading zeros by converting through int (so ``"001"`` → ``"1"``
+       and integer ``1`` → ``"1"``).
+
+    Non-numeric IDs (e.g. slug-style) fall through to string comparison.
     """
-    if not tid:
+    if tid is None or tid == "" or tid == 0:
         return ""
     s = str(tid).strip()
     if s.startswith("→"):
-        return s[1:]
-    if s.startswith("->"):
-        return s[2:]
-    return s
+        s = s[1:]
+    elif s.startswith("->"):
+        s = s[2:]
+    try:
+        return str(int(s))
+    except (ValueError, OverflowError):
+        return s
 
 
 def _read_active_store_ids(root: Path) -> Optional[set]:
@@ -1149,10 +1158,10 @@ class OstkService:
         lines = issues_path.read_text().strip().splitlines()
         found = False
         updated = []
-        norm_task_id = self._normalize_task_id(task_id)
+        norm_task_id = _normalize_id(task_id)
         for line in lines:
             entry = json.loads(line)
-            if self._normalize_task_id(entry.get("id", "")) == norm_task_id:
+            if _normalize_id(entry.get("id", "")) == norm_task_id:
                 if entry.get("status") == "closed":
                     raise OstkError(f"task '{task_id}' is closed; reopen it first")
                 entry["status"] = "shelved"
@@ -1180,10 +1189,10 @@ class OstkService:
         lines = issues_path.read_text().strip().splitlines()
         found = False
         updated = []
-        norm_task_id = self._normalize_task_id(task_id)
+        norm_task_id = _normalize_id(task_id)
         for line in lines:
             entry = json.loads(line)
-            if self._normalize_task_id(entry.get("id", "")) == norm_task_id:
+            if _normalize_id(entry.get("id", "")) == norm_task_id:
                 if entry.get("status") != "shelved":
                     raise OstkError(
                         f"task '{task_id}' is not shelved (status: {entry.get('status')})"
