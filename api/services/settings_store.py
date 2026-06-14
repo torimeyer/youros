@@ -120,6 +120,23 @@ def _migrate_briefing_keys(data: dict) -> tuple[dict, bool]:
     return data, changed
 
 
+def _deep_update(base: dict, incoming: dict) -> dict:
+    """Merge incoming into base in place, recursively for nested dicts.
+
+    Unlike dict.update() (which replaces nested dicts entirely), this
+    preserves existing keys in any nested dict that appears in both
+    base and incoming. This is the right semantic for settings patches:
+    updating {"text_bridge": {"enabled": True}} must not wipe
+    {"text_bridge": {"trusted_contacts": [...]}} that was already there.
+    """
+    for key, value in incoming.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            _deep_update(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
 class SettingsStore:
     def __init__(self):
         self._ensure_exists()
@@ -170,7 +187,7 @@ class SettingsStore:
         current = self.load()
         if "features" in partial and isinstance(partial["features"], dict):
             partial["features"] = _normalize_features(partial["features"])
-        current.update(partial)
+        _deep_update(current, partial)
         self.save(current)
 
 
