@@ -26,8 +26,9 @@ import httpx
 
 from services.atomic_io import atomic_write_json
 from services.ostk import ostk
+from services.youros_paths import youros_home
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 CONFIG_PATH = MYOS_DIR / "atlassian.json"
 ATLASSIAN_TOKEN_KEY = "ATLASSIAN_API_TOKEN"
 ATLASSIAN_ACCESS_TOKEN_KEY = "ATLASSIAN_ACCESS_TOKEN"

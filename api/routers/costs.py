@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Query
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["costs"])
 
@@ -756,7 +757,7 @@ _SAVINGS_TTL_SECS = 300.0
 # tests can monkeypatch it at a tmp location without clobbering the real
 # user snapshot under ~/.youros/.
 def _savings_snapshot_path() -> Path:
-    return Path.home() / ".youros" / "savings_snapshot.json"
+    return youros_home() / "savings_snapshot.json"
 
 
 # Guard so we only ever have one background refresh in flight per period.
@@ -1057,7 +1058,7 @@ def _compute_savings_for_period(period: Optional[str]) -> dict:
     try:
         from datetime import date as _date
 
-        history_path = Path.home() / ".youros" / "savings_history.jsonl"
+        history_path = youros_home() / "savings_history.jsonl"
         history_path.parent.mkdir(parents=True, exist_ok=True)
         today = _date.today().isoformat()
         session_period = period or "all"

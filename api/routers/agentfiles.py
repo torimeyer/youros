@@ -20,11 +20,12 @@ from pydantic import BaseModel
 
 from config import AGENTS_DIR
 from services.agentfile_parser import agentfile_to_form, form_to_agentfile
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["agentfiles"])
 
 # User-created Agentfiles live outside the repo so git pull never clobbers them.
-USER_AGENTFILES_DIR = Path.home() / ".youros" / "agentfiles"
+USER_AGENTFILES_DIR = youros_home() / "agentfiles"
 
 
 class AgentfileCreate(BaseModel):

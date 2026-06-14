@@ -28,8 +28,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 from config import PROJECT_ROOT
+from services.youros_paths import youros_home
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 CHAT_HISTORY_PATH = MYOS_DIR / "chat_history.json"
 # Claude Code stores per-project memory under ~/.claude/projects/<slug>/memory
 # where <slug> is the absolute repo path with "/" replaced by "-" (so it

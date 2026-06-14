@@ -13,8 +13,9 @@ from pathlib import Path
 from typing import Optional
 
 from services.atomic_io import atomic_write_json
+from services.youros_paths import youros_home
 
-_ORGS_DIR = Path.home() / ".youros" / "orgs"
+_ORGS_DIR = youros_home() / "orgs"
 
 _COMMUNITY_PACK: dict = {
     "agentfiles": [

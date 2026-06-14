@@ -30,6 +30,7 @@ from services.notifications_events import bus as _notifications_events_bus
 from services import recent_deletes
 from services.task_visibility import is_session_task, is_ac_child_task
 from services.tracing import trace_event
+from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
@@ -588,8 +589,8 @@ _WAVE_TOKEN_RE = re.compile(r"\b[a-z][a-z0-9_]{3,}\b")
 
 _WAVE_PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 _WAVE_MAX = 4  # max tasks per wave (matches feedback_saa_split_when_scope_is_big.md)
-_WAVES_PATH = Path.home() / ".youros" / "waves.json"
-_SPECS_DIR = Path.home() / ".youros" / "specs"
+_WAVES_PATH = youros_home() / "waves.json"
+_SPECS_DIR = youros_home() / "specs"
 
 
 def _load_open_specs(specs_dir: Path) -> list[dict]:

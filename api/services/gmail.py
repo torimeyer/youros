@@ -15,8 +15,9 @@ from pathlib import Path
 
 from services.atomic_io import atomic_write_text
 from services.google_auth import get_credentials, is_authenticated
+from services.youros_paths import youros_home
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 GMAIL_CACHE_DIR = MYOS_DIR / "gmail_cache"
 INBOX_CACHE_PATH = GMAIL_CACHE_DIR / "inbox.json"
 FULL_INBOX_CACHE_PATH = GMAIL_CACHE_DIR / "inbox_full.json"

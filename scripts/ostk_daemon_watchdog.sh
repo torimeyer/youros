@@ -36,7 +36,7 @@ PTY_CRITICAL="${OSTK_DAEMON_PTY_CRITICAL_THRESHOLD:-60}"
 LSOF="${LSOF_CMD:-lsof}"
 
 # Tick: record each run start so launchd scheduling can be verified
-echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] watchdog tick pid=$$" >> ~/.youros/logs/watchdog.log
+echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] watchdog tick pid=$$" >> "${YOUROS_HOME:-$HOME/.youros}/logs/watchdog.log"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

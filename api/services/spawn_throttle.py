@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Deque
 
 from fastapi import HTTPException
+from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ _MAX_WAIT_S = float(os.environ.get("MYOS_SPAWN_MAX_WAIT_S", "90"))
 
 def _append_throttle_log(msg: str) -> None:
     try:
-        log_dir = Path.home() / ".youros" / "logs"
+        log_dir = youros_home() / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(timezone.utc).isoformat()
         with open(log_dir / "spawn_throttle.log", "a") as f:

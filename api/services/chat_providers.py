@@ -2333,6 +2333,33 @@ _anthropic_log = logging.getLogger("myos.chat.anthropic")
 
 
 class ChatService:
+    async def stream_mock(self, messages: list[dict], websocket: WebSocket, tab_id: str = "") -> str:
+        """Deterministic mock provider for CI smoke tests and clean-profile runs.
+
+        Enabled via the YOUROS_MOCK_LLM environment variable (routed in
+        call_model). Streams the reply in multiple ``token`` frames followed by a
+        ``done`` frame, exactly like stream_anthropic, so a smoke test exercises
+        the real streaming contract (catching "response never starts streaming")
+        without needing Anthropic or Gemini credentials.
+        """
+        last_user = _extract_last_user_text(messages).strip()[:60]
+        reply = f"yourOS mock reply: {last_user}" if last_user else "yourOS mock reply ready"
+        full = ""
+        for i, word in enumerate(reply.split(" ")):
+            chunk = word if i == 0 else " " + word
+            full += chunk
+            await websocket.send_json({"type": "token", "data": chunk})
+        await websocket.send_json({
+            "type": "done",
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            },
+        })
+        return full
+
     async def stream_anthropic(self, messages: list[dict], websocket: WebSocket, tab_id: str = "", disable_tools: bool = False, force_api: bool = False, _fallback_model: Optional[str] = None, claude_tier: str = "") -> str:
         # Run template matching up front so both backends pick up any
         # matched helper. The matcher itself uses the API key when one is

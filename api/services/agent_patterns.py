@@ -25,13 +25,14 @@ from pathlib import Path
 from typing import Any, Optional
 
 from config import OSTK_DIR
+from services.youros_paths import youros_home
 
 # Paths the analyzer reads from. Kept as module-level constants so tests can
 # patch them cleanly.
 AGENT_STATE_PATH = OSTK_DIR / "agent_state.json"
 AGENT_DURATIONS_PATH = OSTK_DIR / "agent_durations.json"
-AGENT_TEMPLATES_PATH = Path.home() / ".youros" / "agent_templates.json"
-PROVEN_TEMPLATES_PATH = Path.home() / ".youros" / "proven_templates.json"
+AGENT_TEMPLATES_PATH = youros_home() / "agent_templates.json"
+PROVEN_TEMPLATES_PATH = youros_home() / "proven_templates.json"
 DELETED_AGENTS_PATH = OSTK_DIR / "deleted_agents.json"
 
 

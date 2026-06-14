@@ -17,10 +17,11 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from services import recent_deletes
 from services.agent_templates_store import agent_templates_store
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["agents"])
 
-AGENT_UPLOADS_DIR = Path.home() / ".youros" / "agent_uploads"
+AGENT_UPLOADS_DIR = youros_home() / "agent_uploads"
 
 # Max file size: 5 MB
 MAX_FILE_BYTES = 5 * 1024 * 1024

@@ -21,10 +21,11 @@ from pathlib import Path
 
 from services.atomic_io import atomic_write_text
 from services.imessage_contacts import list_contacts
+from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 IMESSAGE_CACHE_DIR = MYOS_DIR / "imessage_cache"
 CONVERSATIONS_CACHE_PATH = IMESSAGE_CACHE_DIR / "conversations.json"
 CONTACTS_CACHE_PATH = IMESSAGE_CACHE_DIR / "contacts.json"

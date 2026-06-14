@@ -13,8 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from services.atomic_io import atomic_write_json
+from services.youros_paths import youros_home
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 FOLLOWUPS_PATH = MYOS_DIR / "slack_followups.json"
 
 

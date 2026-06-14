@@ -12,8 +12,9 @@ from pathlib import Path
 from typing import Optional
 
 from services.excerpts import Excerpt, format_excerpts
+from services.youros_paths import youros_home
 
-SOURCES_BASE = Path.home() / ".youros" / "sources"
+SOURCES_BASE = youros_home() / "sources"
 _DEFAULT_WORKSPACE = "default"
 _EXCERPT_WINDOW = 400   # chars around each match
 _MAX_EXCERPTS = 3

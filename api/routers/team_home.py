@@ -12,6 +12,7 @@ from fastapi import APIRouter
 
 from services import enterprise_store
 from services import team_catalog as catalog_svc
+from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ def _enterprise_org_id() -> str:
 
 
 def _load_announcements(org_id: str) -> list[dict]:
-    path = Path.home() / ".youros" / "orgs" / org_id / "announcements.json"
+    path = youros_home() / "orgs" / org_id / "announcements.json"
     if not path.exists():
         return []
     try:

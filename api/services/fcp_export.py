@@ -30,11 +30,12 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Any, Optional
+from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
 # Default output directory for one-shot exports.
-EXPORTS_DIR = Path(os.path.expanduser("~/.youros/exports"))
+EXPORTS_DIR = Path(str(youros_home() / "exports"))
 
 # Map of FCP server name to {"transport": ..., "cmd": [...]} entries.
 # Transport "uvx" means Python package, "npx" means Node package.

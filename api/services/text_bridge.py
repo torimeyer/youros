@@ -23,10 +23,11 @@ from services.ai_backend import get_ai_client, resolve_ai_backend
 from services.atomic_io import atomic_write_json
 from services.settings_store import settings_store
 from services.chat_interactions import append_chat_interaction
+from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
-YOUROS_HOME = Path.home() / ".youros"
+YOUROS_HOME = youros_home()
 STATE_PATH = YOUROS_HOME / "text_bridge_state.json"
 
 

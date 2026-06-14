@@ -25,12 +25,13 @@ from __future__ import annotations
 import sqlite3
 import threading
 from pathlib import Path
+from services.youros_paths import youros_home
 
 # ---------------------------------------------------------------------------
 # Database location (tests monkeypatch this before the first get_db() call)
 # ---------------------------------------------------------------------------
 
-PRIMITIVES_DB_PATH: Path = Path.home() / ".youros" / "primitives.db"
+PRIMITIVES_DB_PATH: Path = youros_home() / "primitives.db"
 
 # ---------------------------------------------------------------------------
 # Migration catalogue

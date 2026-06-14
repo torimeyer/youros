@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Resolve spec path.
     specs_dir_env = os.environ.get("MYCHAT_SPECS_DIR")
-    specs_dir = Path(specs_dir_env) if specs_dir_env else Path.home() / ".youros" / "specs"
+    specs_dir = Path(specs_dir_env) if specs_dir_env else (Path(os.environ["YOUROS_HOME"]).expanduser() if os.environ.get("YOUROS_HOME") else Path.home() / ".youros") / "specs"
     project_root = Path(__file__).resolve().parent.parent
 
     spec_path = _resolve_spec(slug, specs_dir, project_root)

@@ -1,7 +1,7 @@
 """Resolve the user-facing files directory.
 
 A single source of truth so callers do not hard-code
-``Path.home() / ".youros" / "files"``. If the user has set
+``youros_home() / "files"``. If the user has set
 ``settings.files_dir`` via the Settings page, that wins; otherwise we
 fall back to the default under the user's home directory.
 """
@@ -9,9 +9,10 @@ fall back to the default under the user's home directory.
 from pathlib import Path
 
 from services.settings_store import settings_store
+from services.youros_paths import youros_home
 
 
-DEFAULT_FILES_DIR = Path.home() / ".youros" / "files"
+DEFAULT_FILES_DIR = youros_home() / "files"
 
 
 def get_files_dir() -> Path:

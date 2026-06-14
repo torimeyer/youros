@@ -29,8 +29,9 @@ from pathlib import Path
 from typing import Any
 
 from services.atomic_io import atomic_write_json
+from services.youros_paths import youros_home
 
-CHAT_HISTORY_PATH = Path.home() / ".youros" / "chat_history.json"
+CHAT_HISTORY_PATH = youros_home() / "chat_history.json"
 
 
 def _default_state() -> dict[str, Any]:

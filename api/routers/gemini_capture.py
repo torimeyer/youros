@@ -10,10 +10,11 @@ from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 
 from services.gemini_captures_store import gemini_captures_store
+from services.youros_paths import youros_home
 
 router = APIRouter()
 
-_TOKEN_PATH = Path.home() / ".youros" / "extension_token"
+_TOKEN_PATH = youros_home() / "extension_token"
 
 
 def _get_token() -> str:

@@ -18,8 +18,9 @@ from pathlib import Path
 from typing import Any
 
 from services.atomic_io import atomic_write_json
+from services.youros_paths import youros_home
 
-GEM_CHAT_HISTORY_DIR = Path.home() / ".youros" / "gem_chat"
+GEM_CHAT_HISTORY_DIR = youros_home() / "gem_chat"
 
 
 def _now_iso() -> str:

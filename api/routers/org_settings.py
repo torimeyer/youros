@@ -20,10 +20,11 @@ from pydantic import BaseModel
 from services.auth import get_current_user
 from services import enterprise_store
 from services.atomic_io import atomic_write_json
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["org_settings"])
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 
 
 def _settings_path(org_id: str) -> Path:

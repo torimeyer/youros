@@ -13,6 +13,7 @@ from typing import Optional, Union
 
 from config import PROJECT_ROOT, OSTK_DIR as _OSTK_DIR
 from services.atomic_io import atomic_write_text
+from services.youros_paths import youros_home
 
 _logger = logging.getLogger(__name__)
 
@@ -20,10 +21,10 @@ PROJECT_DIR = os.environ.get("OSTK_PROJECT_ROOT", str(PROJECT_ROOT))
 OSTK_DIR = _OSTK_DIR
 NUDGES_DIR = OSTK_DIR / "nudges"
 USER_SPECS_DIR = Path(
-    os.environ.get("MYOS_USER_SPECS_DIR", os.path.expanduser("~/.youros/specs"))
+    os.environ.get("MYOS_USER_SPECS_DIR", str(youros_home() / "specs"))
 )
 USER_DRAFTS_DIR = Path(
-    os.environ.get("MYOS_USER_DRAFTS_DIR", os.path.expanduser("~/.youros/drafts"))
+    os.environ.get("MYOS_USER_DRAFTS_DIR", str(youros_home() / "drafts"))
 )
 
 

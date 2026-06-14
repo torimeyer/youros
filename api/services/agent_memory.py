@@ -9,9 +9,10 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 from services.atomic_io import atomic_write_json
+from services.youros_paths import youros_home
 
 # Storage root -- outside the repo, safe from git pull
-AGENT_MEMORY_DIR = Path.home() / ".youros" / "agent_memory"
+AGENT_MEMORY_DIR = youros_home() / "agent_memory"
 
 # Maximum number of session summaries to keep per agent
 MAX_SUMMARIES = 10

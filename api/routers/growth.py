@@ -14,10 +14,11 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["growth"])
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 GROWTH_PATH = MYOS_DIR / "growth.json"
 
 

@@ -27,12 +27,13 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
 BUILD_CONCURRENCY: int = int(os.environ.get("BUILD_CONCURRENCY", "3"))
 
-_QUEUE_PATH = Path.home() / ".youros" / "build_queue.json"
+_QUEUE_PATH = youros_home() / "build_queue.json"
 
 
 @dataclass

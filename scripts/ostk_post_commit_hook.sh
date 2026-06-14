@@ -14,7 +14,7 @@ set -euo pipefail
 
 LOG=/tmp/ostk-post-commit.log
 BACKEND="https://127.0.0.1:8000"
-SPECS_DIR="${YOUROS_USER_SPECS_DIR:-${HOME}/.youros/specs}"
+SPECS_DIR="${YOUROS_USER_SPECS_DIR:-${YOUROS_HOME:-${HOME}/.youros}/specs}"
 
 # Only run when the backend is reachable (non-blocking probe).
 if ! curl --connect-timeout 2 -m 3 -skI "${BACKEND}/api/agents" >/dev/null 2>&1; then

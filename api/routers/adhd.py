@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import APIRouter
 
 from services.settings_store import settings_store
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["adhd"])
 
@@ -134,7 +135,7 @@ def _get_in_progress_tasks() -> list[dict]:
     from pathlib import Path
     import json
 
-    tasks_path = Path.home() / ".youros" / "tasks.json"
+    tasks_path = youros_home() / "tasks.json"
     if not tasks_path.exists():
         return []
     try:
@@ -161,7 +162,7 @@ def _get_last_chat_summary() -> Optional[dict]:
     from pathlib import Path
     import json
 
-    history_path = Path.home() / ".youros" / "chat_history.json"
+    history_path = youros_home() / "chat_history.json"
     if not history_path.exists():
         return None
     try:

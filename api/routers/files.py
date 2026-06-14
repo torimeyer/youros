@@ -25,6 +25,7 @@ from fastapi.responses import Response
 
 from routers.projects import _resolve_readable_path
 from services import recent_deletes
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["files"])
 
@@ -354,7 +355,7 @@ async def file_provenance(path: str = Query(..., description="Relative or absolu
 
 
 def _get_files_dir() -> Path:
-    return Path.home() / ".youros" / "files"
+    return youros_home() / "files"
 
 
 @router.get("/files/timeline")
@@ -613,7 +614,7 @@ async def import_file_from_drive(body: DriveImportBody):
     if mime in native_types and not safe_stem.lower().endswith(".pdf"):
         safe_stem = safe_stem + ".pdf"
 
-    imports_dir = Path.home() / ".youros" / "files" / "imports"
+    imports_dir = youros_home() / "files" / "imports"
     imports_dir.mkdir(parents=True, exist_ok=True)
 
     dest = imports_dir / safe_stem

@@ -11,8 +11,9 @@ import json
 from pathlib import Path
 
 from services.atomic_io import atomic_write_json
+from services.youros_paths import youros_home
 
-TASK_ORDER_PATH = Path.home() / ".youros" / "task_order.json"
+TASK_ORDER_PATH = youros_home() / "task_order.json"
 
 
 class TaskOrderStore:

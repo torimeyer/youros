@@ -12,10 +12,11 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
+from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
-CATALOG_BASE = Path.home() / ".youros" / "team_catalog"
+CATALOG_BASE = youros_home() / "team_catalog"
 
 EntryStatus = Literal["draft", "published", "rolled_back"]
 EntryKind = Literal["agentfile"]
@@ -183,7 +184,7 @@ def install_agentfile(org_id: str, entry_id: str) -> Optional[dict]:
     if not entry or entry["status"] != "published":
         return None
 
-    dest_dir = Path.home() / ".youros" / "agentfiles"
+    dest_dir = youros_home() / "agentfiles"
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{entry['name']}.agent"
     dest.write_text(entry["content"])

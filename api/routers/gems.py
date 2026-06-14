@@ -16,8 +16,9 @@ from services.agent_templates_store import agent_templates_store
 from services.gem_knowledge import retrieve as _rag_retrieve, index_file as _rag_index_file, _extract_pdf_text
 from services.gem_chat_history_store import gem_chat_history_store
 from services import recent_deletes
+from services.youros_paths import youros_home
 
-_UPLOAD_DIR = Path.home() / ".youros" / "gem_knowledge" / "uploads"
+_UPLOAD_DIR = youros_home() / "gem_knowledge" / "uploads"
 _ALLOWED_SUFFIXES = {".txt", ".md", ".pdf", ".docx"}
 
 router = APIRouter(tags=["gems"])

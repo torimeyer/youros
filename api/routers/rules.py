@@ -24,6 +24,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
+from services.youros_paths import youros_home
 
 router = APIRouter()
 
@@ -38,7 +39,7 @@ router = APIRouter()
 # Repo root: api/routers/rules.py → api/routers → api → repo
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_RULES_PATH = _REPO_ROOT / ".claude" / "hooks" / "lib" / "default-rules.json"
-USER_RULES_PATH = Path.home() / ".youros" / "rules.json"
+USER_RULES_PATH = youros_home() / "rules.json"
 RULE_FIRES_LOG = Path.home() / ".claude" / "logs" / "rule-fires.jsonl"
 
 

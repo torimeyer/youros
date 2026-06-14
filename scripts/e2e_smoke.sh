@@ -243,7 +243,7 @@ except Exception:
     python3 -c "
 import os, re
 from pathlib import Path
-root = Path(os.path.expanduser('~/.youros/files'))
+root = Path(os.environ.get('YOUROS_HOME', os.path.expanduser('~/.youros'))) / 'files'
 if not root.is_dir():
     raise SystemExit(0)
 patterns = [
@@ -431,7 +431,7 @@ except Exception:
     python3 -c "
 import os, re
 from pathlib import Path
-root = Path(os.path.expanduser('~/.youros/agent_memory'))
+root = Path(os.environ.get('YOUROS_HOME', os.path.expanduser('~/.youros'))) / 'agent_memory'
 if not root.is_dir():
     raise SystemExit(0)
 pat = re.compile(r'^e2e[-_]', re.IGNORECASE)

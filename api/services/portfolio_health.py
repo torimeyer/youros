@@ -24,10 +24,11 @@ import logging
 import re
 from pathlib import Path
 from typing import Optional
+from services.youros_paths import youros_home
 
 _log = logging.getLogger(__name__)
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 PORTFOLIO_CONFIG_PATH = MYOS_DIR / "portfolio.json"
 
 HEALTH_ON_TRACK = "on_track"

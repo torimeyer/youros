@@ -12,6 +12,7 @@ import jwt
 import time
 import os
 from pathlib import Path
+from services.youros_paths import youros_home
 
 SESSION_COOKIE_NAME = "myos_session"
 SESSION_EXPIRY_HOURS = 24
@@ -19,7 +20,7 @@ SESSION_EXPIRY_HOURS = 24
 
 def _get_secret() -> str:
     """Get or create a signing secret. Stored in ~/.youros/session_secret."""
-    secret_path = Path.home() / ".youros" / "session_secret"
+    secret_path = youros_home() / "session_secret"
     if secret_path.exists():
         return secret_path.read_text().strip()
     import secrets

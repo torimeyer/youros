@@ -15,6 +15,7 @@ from services import ostk as ostk_module
 from services.ostk import ostk, OstkError
 from services.spec_audit import audit_all_specs, compute_shipped, compute_husk_status
 from services.tracing import trace_event
+from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ _spec_task_origin: dict[str, str] = {}
 # Persisted to SPEC_ASSIGNMENTS_PATH on write; loaded at startup.  See →22.
 _spec_claims: dict[str, list[dict]] = {}
 
-SPEC_ASSIGNMENTS_PATH = Path.home() / ".youros" / "spec_assignments.json"
+SPEC_ASSIGNMENTS_PATH = youros_home() / "spec_assignments.json"
 
 
 def _save_assignments() -> None:
@@ -1971,8 +1972,8 @@ async def _fresh_verify_spec(spec_path: str) -> dict:
     """
     candidate_roots = [
         Path(config.PROJECT_ROOT) / spec_path,
-        Path.home() / ".youros" / "specs" / spec_path,
-        Path.home() / ".youros" / "drafts" / spec_path,
+        youros_home() / "specs" / spec_path,
+        youros_home() / "drafts" / spec_path,
     ]
     full_path: Optional[Path] = None
     for p in candidate_roots:

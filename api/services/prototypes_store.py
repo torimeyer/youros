@@ -11,8 +11,9 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict
+from services.youros_paths import youros_home
 
-PROTOTYPES_PATH = Path(os.path.expanduser("~/.youros/prototypes.json"))
+PROTOTYPES_PATH = Path(str(youros_home() / "prototypes.json"))
 
 # In-memory store: {prototype_id: prototype_dict}
 _store: Dict[str, Any] = {}

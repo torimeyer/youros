@@ -21,6 +21,7 @@ from services.tracing import trace_event
 from services.agent_events import bus as _agent_events_bus
 from services.grants_events import GrantsEventBus
 import services.locks_events as _locks_events_mod
+from services.youros_paths import youros_home
 
 try:
     from services import time_primitive as _time_primitive
@@ -797,7 +798,7 @@ def _demo_mode_active() -> bool:
     if os.environ.get("MYOS_DEMO_MODE") == "1":
         return True
     try:
-        return os.path.exists(os.path.expanduser("~/.youros/.demo_mode"))
+        return os.path.exists(str(youros_home() / ".demo_mode"))
     except Exception:
         return False
 
@@ -6760,7 +6761,7 @@ async def prewarm_fleet(fleet_id: str):
     # Touch the shared agent workspace dir so the first member does not
     # pay for the mkdir. Harmless if the dir already exists.
     try:
-        workspace_dir = Path.home() / ".youros" / "agent_workspace"
+        workspace_dir = youros_home() / "agent_workspace"
         workspace_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
         # Never let a fs hiccup fail the prewarm. The spawn path will
@@ -8006,7 +8007,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
         )
         if _sc_premature:
             import json as _json_sc
-            _warn_path = Path(os.path.expanduser("~/.youros/subagents/scaffold-warnings.jsonl"))
+            _warn_path = Path(str(youros_home() / "subagents" / "scaffold-warnings.jsonl"))
             _warn_path.parent.mkdir(parents=True, exist_ok=True)
             _warn_entry = _json_sc.dumps({
                 "agent": name,
@@ -8926,7 +8927,7 @@ async def kill_agent(name: str):
     )
 
 
-_NUDGE_SIGNAL_DIR = Path.home() / ".youros" / "nudges"
+_NUDGE_SIGNAL_DIR = youros_home() / "nudges"
 
 
 def _touch_nudge_signal(name: str) -> None:

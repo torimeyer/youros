@@ -20,8 +20,9 @@ from typing import Optional
 
 from services.atomic_io import atomic_write_json
 from services.settings_store import settings_store
+from services.youros_paths import youros_home
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 BRIEFING_STATE_PATH = MYOS_DIR / "briefing_state.json"
 
 

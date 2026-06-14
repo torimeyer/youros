@@ -63,7 +63,7 @@ INTERVAL="${YOUROS_WATCHDOG_INTERVAL:-30}"
 # return curl error 000 and trigger spurious restarts). The launchd plist sets
 # YOUROS_WATCHDOG_HEALTH_URL explicitly so this auto-detect only affects dev mode.
 if [ -z "${YOUROS_WATCHDOG_HEALTH_URL:-}" ]; then
-    if [ -f "${HOME:-}/.youros/localhost.key" ] && [ -f "${HOME:-}/.youros/localhost.crt" ]; then
+    if [ -f "${YOUROS_HOME:-${HOME:-}/.youros}/localhost.key" ] && [ -f "${YOUROS_HOME:-${HOME:-}/.youros}/localhost.crt" ]; then
         HEALTH_URL="https://127.0.0.1:8000/api/health"
     else
         HEALTH_URL="http://127.0.0.1:8000/api/health"

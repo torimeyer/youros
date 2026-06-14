@@ -14,8 +14,9 @@ from typing import Optional
 import httpx
 
 from services.atomic_io import atomic_write_json
+from services.youros_paths import youros_home
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 TOKEN_PATH = MYOS_DIR / "github_token.json"
 
 GITHUB_API_BASE = "https://api.github.com"

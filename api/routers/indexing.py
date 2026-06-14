@@ -12,10 +12,11 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Query
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["indexing"])
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 INDEX_PATH = MYOS_DIR / "file_index.json"
 
 # Extensions we consider indexable text files

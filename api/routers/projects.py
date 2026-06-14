@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from services import platform_helpers, recent_deletes
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["projects"])
 
@@ -29,8 +30,8 @@ def _projects_root() -> Path:
     """
     for candidate in [
         Path.home() / "myos",
-        Path.home() / ".youros" / "projects",
-        Path.home() / ".youros" / "projects",
+        youros_home() / "projects",
+        youros_home() / "projects",
     ]:
         if candidate.is_dir():
             return candidate
@@ -75,8 +76,8 @@ def _resolve_readable_path(path_str: str) -> Path:
         raise HTTPException(status_code=400, detail="Path is required.")
 
     workspace_root = TORIOS_DIR.resolve()
-    myos_files_root = (Path.home() / ".youros" / "files").resolve()
-    myos_projects_root = (Path.home() / ".youros" / "projects").resolve()
+    myos_files_root = (youros_home() / "files").resolve()
+    myos_projects_root = (youros_home() / "projects").resolve()
     myos_root = (Path.home() / "myos").resolve()
 
     incoming = Path(path_str)
@@ -500,11 +501,11 @@ async def recent_docs(limit: int = Query(10, ge=1, le=50, description="Max files
     _projects_secondary = (
         Path(str(_projects_dir_cfg)).expanduser().resolve()
         if _projects_dir_cfg
-        else (Path.home() / ".youros" / "projects").resolve()
+        else (youros_home() / "projects").resolve()
     )
     seen_secondary: set = set()
     for secondary in (
-        (Path.home() / ".youros" / "files").resolve(),
+        (youros_home() / "files").resolve(),
         _projects_secondary,
     ):
         if secondary in seen_secondary:
@@ -536,8 +537,8 @@ async def delete_recent_doc(path: str = Query(..., description="Path of the .md 
         raise HTTPException(status_code=400, detail="Path is required.")
 
     workspace_root = TORIOS_DIR.resolve()
-    myos_files_root = (Path.home() / ".youros" / "files").resolve()
-    myos_projects_root = (Path.home() / ".youros" / "projects").resolve()
+    myos_files_root = (youros_home() / "files").resolve()
+    myos_projects_root = (youros_home() / "projects").resolve()
     myos_root = (Path.home() / "myos").resolve()
 
     incoming = Path(path)

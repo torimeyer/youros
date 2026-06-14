@@ -23,11 +23,12 @@ import logging
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from services.youros_paths import youros_home
 
 _log = logging.getLogger(__name__)
 
-_MEMORY_PATH = Path.home() / ".youros" / "users" / "default" / "MEMORY.md"
-_TOPIC_DIR = Path.home() / ".youros" / "users" / "default" / "memory"
+_MEMORY_PATH = youros_home() / "users" / "default" / "MEMORY.md"
+_TOPIC_DIR = youros_home() / "users" / "default" / "memory"
 _WARN_SIZE_BYTES = 50 * 1024   # 50 KB
 _OVERFLOW_KB = 30              # F5: soft threshold (kilobytes)
 _OVERFLOW_LINES = 150          # F5: soft threshold (line count)

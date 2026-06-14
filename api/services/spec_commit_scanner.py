@@ -19,6 +19,7 @@ import subprocess
 from datetime import datetime, timezone as _tz
 from pathlib import Path
 from typing import Optional
+from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ _TASK_ID_RE = re.compile(r"(?:→|->)(\d+)")
 # Commit hashes already processed this process lifetime (survives across ticks).
 _seen_commits: set[str] = set()
 
-_SPECS_DIR_ENV = os.environ.get("MYOS_USER_SPECS_DIR", os.path.expanduser("~/.youros/specs"))
+_SPECS_DIR_ENV = os.environ.get("MYOS_USER_SPECS_DIR", str(youros_home() / "specs"))
 SPECS_DIR = Path(_SPECS_DIR_ENV)
 
 

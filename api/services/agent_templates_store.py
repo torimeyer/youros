@@ -30,14 +30,15 @@ from pathlib import Path
 from typing import Optional
 
 from services.atomic_io import atomic_write_json, atomic_write_text
+from services.youros_paths import youros_home
 
-AGENT_TEMPLATES_PATH = Path.home() / ".youros" / "agent_templates.json"
-TEMPLATE_ALIASES_PATH = Path.home() / ".youros" / "template_aliases.json"
+AGENT_TEMPLATES_PATH = youros_home() / "agent_templates.json"
+TEMPLATE_ALIASES_PATH = youros_home() / "template_aliases.json"
 # User-edited descriptions for built-in or marketplace templates. This lets a
 # user rewrite the short blurb without touching the shipped prompt. Custom
 # templates already persist their description via the overrides file, so the
 # descriptions file is only consulted for builtin / marketplace entries.
-TEMPLATE_DESCRIPTIONS_PATH = Path.home() / ".youros" / "template_descriptions.json"
+TEMPLATE_DESCRIPTIONS_PATH = youros_home() / "template_descriptions.json"
 
 # Agentfile directories for marketplace and custom templates.
 # These are populated at runtime; the directories are created lazily.
@@ -50,7 +51,7 @@ try:
 except Exception:
     MARKETPLACE_AGENTS_DIR = Path(__file__).resolve().parent.parent.parent / "agents" / "marketplace"
 
-CUSTOM_AGENTS_DIR = Path.home() / ".youros" / "agents" / "custom"
+CUSTOM_AGENTS_DIR = youros_home() / "agents" / "custom"
 
 # Sandbox defaults per source type, applied when seeding new agentfiles.
 _SANDBOX_DEFAULTS: dict[str, str] = {

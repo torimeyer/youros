@@ -21,10 +21,11 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from services.youros_paths import youros_home
 
 # Where a future provider's credentials would live, kept out of the repo
 # like every other secret. Presence of this file is what flips SMS on.
-SMS_CONFIG_PATH = Path.home() / ".youros" / "sms_provider.json"
+SMS_CONFIG_PATH = youros_home() / "sms_provider.json"
 
 
 def is_configured() -> bool:

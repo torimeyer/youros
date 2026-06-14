@@ -16,10 +16,11 @@ from pathlib import Path
 from services.atomic_io import atomic_write_json
 from services import atlassian
 from services.notifications import notifications_service
+from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 STATE_PATH = MYOS_DIR / "atlassian_sync_state.json"
 DEDUP_WINDOW_MINUTES = 30
 

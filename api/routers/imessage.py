@@ -17,9 +17,10 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from services.youros_paths import youros_home
 
 _HEIC_EXTS = frozenset({".heic", ".heif"})
-_THUMB_CACHE_DIR = Path.home() / ".youros" / "cache" / "messages-thumbs"
+_THUMB_CACHE_DIR = youros_home() / "cache" / "messages-thumbs"
 
 
 def _jpeg_cache_path(source: Path) -> Path:

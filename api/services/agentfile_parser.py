@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Optional
 
 from config import PROJECT_ROOT
+from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ AGENTS_DIR = PROJECT_ROOT / "agents"
 # ``test_roadmap_template_uses_quick_mode``.
 MARKETPLACE_DIR = PROJECT_ROOT / "agents" / "marketplace"
 try:
-    CUSTOM_DIR = Path.home() / ".youros" / "agents" / "custom"
+    CUSTOM_DIR = youros_home() / "agents" / "custom"
 except Exception:
     CUSTOM_DIR = None  # type: ignore[assignment]
 

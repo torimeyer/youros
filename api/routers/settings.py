@@ -7,6 +7,7 @@ from services import gemini_cli_provider
 from services.ostk import ostk
 from services.settings_store import settings_store
 from services.standing_instructions_generator import suggest_standing_instructions
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["settings"])
 
@@ -186,7 +187,7 @@ async def wipe_user_data():
     import shutil
     from pathlib import Path
 
-    data_dir = Path.home() / ".youros"
+    data_dir = youros_home()
     if data_dir.exists():
         for item in data_dir.iterdir():
             if item.name == "settings.json":

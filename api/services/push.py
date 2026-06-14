@@ -13,8 +13,9 @@ import json
 import logging
 from pathlib import Path
 from typing import Optional
+from services.youros_paths import youros_home
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 VAPID_KEYS_FILE = MYOS_DIR / "vapid_keys.json"
 SUBSCRIPTIONS_FILE = MYOS_DIR / "push_subscriptions.json"
 

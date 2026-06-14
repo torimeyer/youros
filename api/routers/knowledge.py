@@ -20,10 +20,11 @@ from pydantic import BaseModel
 
 from services import recent_deletes
 from services.source_library import SOURCES_BASE
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["knowledge"])
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 KNOWLEDGE_PATH = MYOS_DIR / "knowledge.json"
 
 _ALLOWED_TYPES = {"pdf", "md", "docx", "txt"}

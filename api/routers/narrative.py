@@ -29,6 +29,7 @@ from pydantic import BaseModel
 
 import services.atlassian as atlassian_service
 from services.ai_backend import get_ai_client
+from services.youros_paths import youros_home
 
 # Personal calendar event patterns to exclude from work updates
 _PERSONAL_EVENT_RE = re.compile(
@@ -43,7 +44,7 @@ _PERSONAL_EVENT_RE = re.compile(
 # ---------------------------------------------------------------------------
 
 def _myos_dir() -> Path:
-    return Path(os.environ.get("MYOS_DIR", os.path.expanduser("~/.youros")))
+    return Path(os.environ.get("MYOS_DIR", str(youros_home())))
 
 def _narratives_dir() -> Path:
     return _myos_dir() / "narratives"
@@ -52,7 +53,7 @@ def _specs_dir() -> Path:
     return _myos_dir() / "specs"
 
 # Module-level alias for backward-compat with tests that patch NARRATIVES_DIR directly
-NARRATIVES_DIR: Path = Path(os.path.expanduser("~/.youros/narratives"))
+NARRATIVES_DIR: Path = Path(str(youros_home() / "narratives"))
 
 router = APIRouter(tags=["narrative"])
 

@@ -88,7 +88,7 @@ def main() -> int:
                         help="actually close the needles (default: dry run)")
     parser.add_argument("--branch", default="HEAD",
                         help="git ref to scan for commit subjects (default: HEAD)")
-    parser.add_argument("--store", default=os.path.expanduser("~/.youros/needles"),
+    parser.add_argument("--store", default=os.path.join(os.environ.get("YOUROS_HOME", os.path.expanduser("~/.youros")), "needles"),
                         help="needle store dir (default: ~/.youros/needles)")
     parser.add_argument("--repo", default=os.getcwd(),
                         help="git repo to scan (default: cwd)")

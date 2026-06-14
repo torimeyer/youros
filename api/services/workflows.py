@@ -17,8 +17,9 @@ from typing import Any, Optional
 
 from services.atomic_io import atomic_write_json
 from services.workflow_events import bus as _wf_bus
+from services.youros_paths import youros_home
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 WORKFLOWS_FILE = MYOS_DIR / "workflows.json"
 
 # Valid step statuses

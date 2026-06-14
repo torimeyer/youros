@@ -30,8 +30,9 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from services.youros_paths import youros_home
 
-_DEFAULT_DATA_DIR = Path.home() / ".youros"
+_DEFAULT_DATA_DIR = youros_home()
 DATA_DIR = _DEFAULT_DATA_DIR
 
 # Patterns for writers that indicate a model wrote the file during a chat turn.

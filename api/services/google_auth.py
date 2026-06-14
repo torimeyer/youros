@@ -13,8 +13,9 @@ import time
 from pathlib import Path
 
 from services.atomic_io import atomic_write_text
+from services.youros_paths import youros_home
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 TOKEN_PATH = MYOS_DIR / "google_token.json"
 CREDENTIALS_PATH = MYOS_DIR / "google_credentials.json"
 DRIVE_CACHE_DIR = MYOS_DIR / "drive_cache"

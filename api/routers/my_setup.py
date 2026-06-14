@@ -20,6 +20,7 @@ from fastapi.responses import Response
 from config import AGENTS_DIR
 from services.ostk import ostk, OstkError, read_audit_entries
 from services.settings_store import settings_store
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["my-setup"])
 
@@ -27,7 +28,7 @@ router = APIRouter(tags=["my-setup"])
 # Helpers
 # ---------------------------------------------------------------------------
 
-USER_AGENTFILES_DIR = Path.home() / ".youros" / "agentfiles"
+USER_AGENTFILES_DIR = youros_home() / "agentfiles"
 
 _TEMPLATE_NAMES: dict[str, str] = {
     "builtin-builder":              "Writing assistant",

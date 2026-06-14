@@ -19,8 +19,9 @@ import json
 from pathlib import Path
 
 from services.atomic_io import atomic_write_json
+from services.youros_paths import youros_home
 
-TASK_LABELS_PATH = Path.home() / ".youros" / "task_labels.json"
+TASK_LABELS_PATH = youros_home() / "task_labels.json"
 
 
 class TaskLabelsStore:

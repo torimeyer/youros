@@ -11,8 +11,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from services.youros_paths import youros_home
 
-_MYOS_DIR = Path.home() / ".youros"
+_MYOS_DIR = youros_home()
 
 
 def _org_key_dir(org_id: str) -> Path:

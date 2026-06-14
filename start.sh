@@ -7,6 +7,11 @@ set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 
+# Data dir honors YOUROS_HOME so `YOUROS_HOME=/tmp/... ./start.sh` runs a
+# fully throwaway profile. Defaults to ~/.youros. (The .myos->.youros
+# migration block below is owned by the nr-enterprise overlay.)
+YDATA="${YOUROS_HOME:-$HOME/.youros}"
+
 # Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -105,9 +110,9 @@ if command -v ostk &> /dev/null; then
     # If needles is a real directory (not already a symlink), move it
     # outside the repo and replace with a symlink.
     NEEDLES_DIR="$DIR/.ostk/needles"
-    SAFE_NEEDLES="$HOME/.youros/needles"
+    SAFE_NEEDLES="$YDATA/needles"
     if [ -d "$NEEDLES_DIR" ] && [ ! -L "$NEEDLES_DIR" ]; then
-        mkdir -p "$HOME/.youros"
+        mkdir -p "$YDATA"
         if [ -d "$SAFE_NEEDLES" ]; then
             # Merge: copy any files not already in the safe location
             cp -n "$NEEDLES_DIR"/* "$SAFE_NEEDLES/" 2>/dev/null || true
@@ -163,7 +168,7 @@ fi
 source .venv/bin/activate
 
 # Auto-detect scheme (same logic as scripts/api-probe.sh →1338)
-if [ -f "$HOME/.youros/localhost.key" ] && [ -f "$HOME/.youros/localhost.crt" ]; then
+if [ -f "$YDATA/localhost.key" ] && [ -f "$YDATA/localhost.crt" ]; then
     LAUNCH_URL="https://localhost:8000"
 else
     LAUNCH_URL="http://localhost:8000"
@@ -203,9 +208,9 @@ else
 fi
 
 # Load local env overrides (e.g. GOOGLE_CLIENT_ID for OAuth) if present.
-if [ -f "$HOME/.youros/.env" ]; then
+if [ -f "$YDATA/.env" ]; then
     set -a
-    source "$HOME/.youros/.env"
+    source "$YDATA/.env"
     set +a
 fi
 
@@ -219,8 +224,8 @@ fi
 # Pass SSL args to uvicorn when self-signed certs are present, so the
 # https://localhost:8000 launch URL above actually serves TLS. Mirrors
 # scripts/dev-backend.sh so the two launchers do not drift again.
-SSL_KEY="$HOME/.youros/localhost.key"
-SSL_CERT="$HOME/.youros/localhost.crt"
+SSL_KEY="$YDATA/localhost.key"
+SSL_CERT="$YDATA/localhost.crt"
 SSL_ARGS=""
 if [ -f "$SSL_KEY" ] && [ -f "$SSL_CERT" ]; then
     SSL_ARGS="--ssl-keyfile $SSL_KEY --ssl-certfile $SSL_CERT"

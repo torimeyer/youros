@@ -10,8 +10,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Optional
+from services.youros_paths import youros_home
 
-STORE_ROOT = Path.home() / ".youros" / "gem_knowledge"
+STORE_ROOT = youros_home() / "gem_knowledge"
 
 
 # ---------------------------------------------------------------------------

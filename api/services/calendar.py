@@ -16,8 +16,9 @@ from pathlib import Path
 
 from services.atomic_io import atomic_write_text
 from services.google_auth import get_credentials, is_authenticated
+from services.youros_paths import youros_home
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 CALENDAR_CACHE_DIR = MYOS_DIR / "calendar_cache"
 EVENTS_CACHE_PATH = CALENDAR_CACHE_DIR / "events.json"
 

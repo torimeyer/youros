@@ -13,8 +13,9 @@ from pathlib import Path
 from typing import Optional
 
 from models.team_schemas import TeamConfig
+from services.youros_paths import youros_home
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 TEAM_CONFIG_PATH = MYOS_DIR / "team.json"
 TEAM_CACHE_PATH = MYOS_DIR / "team_cache.json"
 

@@ -45,6 +45,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Callable, Optional, Protocol, Set, runtime_checkable, Awaitable, Any
+from services.youros_paths import youros_home
 
 # ---------------------------------------------------------------------------
 # Feature enum (→1892)
@@ -267,7 +268,7 @@ def resolve_skill_agentfile(skill_id: str) -> Optional[Path]:
         candidates.append(Path(PROJECT_ROOT) / "agents" / f"{sid}.agent")
     except Exception:
         pass
-    candidates.append(Path.home() / ".youros" / "skills" / f"{sid}.agent")
+    candidates.append(youros_home() / "skills" / f"{sid}.agent")
 
     for path in candidates:
         if path.exists():

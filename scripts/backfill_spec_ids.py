@@ -12,12 +12,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-USER_SPECS_DIR = Path.home() / ".youros" / "specs"
+USER_SPECS_DIR = (Path(os.environ["YOUROS_HOME"]).expanduser() if os.environ.get("YOUROS_HOME") else Path.home() / ".youros") / "specs"
 
 _ID_RE = re.compile(r"^spec_id:\s*S(\d+)", re.MULTILINE)
 _FM_RE = re.compile(r"^---\n(.*?\n)---\n", re.DOTALL)

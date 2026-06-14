@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from services.atomic_io import atomic_write_json
 from services import session_task_map
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["transcripts"])
 
@@ -30,7 +31,7 @@ _MAILBOX_BOILERPLATE_RE = re.compile(
     r"post\s*/api/agents)"
 )
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 TITLE_CACHE_PATH = MYOS_DIR / "transcript_titles.json"
 
 

@@ -7,11 +7,12 @@ from pydantic import BaseModel
 import services.agent_memory as mem
 import services.user_memory_store as _user_mem
 from services import recent_deletes
+from services.youros_paths import youros_home
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
 
 # Path to the per-user memory file — patchable in tests.
-_USER_MEMORY_PATH = Path.home() / ".youros" / "users" / "default" / "MEMORY.md"
+_USER_MEMORY_PATH = youros_home() / "users" / "default" / "MEMORY.md"
 
 
 class SaveFactRequest(BaseModel):

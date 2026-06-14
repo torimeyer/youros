@@ -31,10 +31,11 @@ from typing import Optional
 from config import OSTK_DIR
 from services.atomic_io import atomic_write_json
 from services.ostk import ostk, OstkError
+from services.youros_paths import youros_home
 
 # --- Paths and constants -------------------------------------------------
 
-DISMISSED_PATH = Path.home() / ".youros" / "dismissed_suggestions.json"
+DISMISSED_PATH = youros_home() / "dismissed_suggestions.json"
 
 # How long to keep the analysis result in memory before recomputing.
 CACHE_TTL_SECONDS = 5 * 60

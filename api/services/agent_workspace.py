@@ -13,8 +13,9 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from services.youros_paths import youros_home
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 WORKSPACE_FILE = MYOS_DIR / "agent_workspace.json"
 
 VALID_TYPES = {"finding", "question", "result", "context"}

@@ -10,12 +10,13 @@ already present.
 """
 
 import json
+import os
 import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-MYOS = Path.home() / ".youros"
+MYOS = Path(os.environ.get("YOUROS_HOME") or (Path.home() / ".youros"))
 THREADS_PATH = MYOS / "threads.json"
 LABELS_PATH = MYOS / "labels.json"
 TASK_LABELS_PATH = MYOS / "task_labels.json"

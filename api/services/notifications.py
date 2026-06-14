@@ -11,8 +11,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from services.youros_paths import youros_home
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 NOTIFICATIONS_FILE = MYOS_DIR / "notifications.json"
 
 # Hard cap on the persistent notification store. When we hit the cap we

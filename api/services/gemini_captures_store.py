@@ -14,8 +14,9 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from services.youros_paths import youros_home
 
-GEMINI_CAPTURES_PATH = Path.home() / ".youros" / "gemini_captures.json"
+GEMINI_CAPTURES_PATH = youros_home() / "gemini_captures.json"
 
 
 class GeminiCapturesStore:

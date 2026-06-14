@@ -15,10 +15,11 @@ from pathlib import Path
 from typing import Optional
 
 from services.atomic_io import atomic_write_json
+from services.youros_paths import youros_home
 
 logger = logging.getLogger(__name__)
 
-MYOS_DIR = Path.home() / ".youros"
+MYOS_DIR = youros_home()
 SYNC_CONFIG_PATH = MYOS_DIR / "sync_config.json"
 SYNC_REPO_PATH = MYOS_DIR / "sync_repo"
 CONFLICT_LOG_PATH = MYOS_DIR / "sync_conflicts.log"

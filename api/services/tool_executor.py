@@ -17,6 +17,7 @@ import httpx
 from services.ostk import ostk
 
 from config import PROJECT_ROOT
+from services.youros_paths import youros_home
 
 WORKSPACE = PROJECT_ROOT
 COMMAND_TIMEOUT = 120  # seconds
@@ -1128,7 +1129,7 @@ async def _create_tasks_from_spec(spec_path: str) -> str:
 # Used by build_from_recent_tasks to find the right set of tasks to
 # hand to Builder agents. Kept in ~/.youros so a repo checkout wipe does
 # not lose pending batches mid-demo.
-_LAST_BATCH_PATH = Path.home() / ".youros" / "last_task_batch.json"
+_LAST_BATCH_PATH = youros_home() / "last_task_batch.json"
 
 
 def _save_last_task_batch(file_path: str, task_ids: list[str]) -> None:
@@ -1188,7 +1189,7 @@ def _resolve_tasks_file(raw: str) -> Optional[Path]:
 
     # Bare filename in ~/.youros/files (e.g. "roadmap.md" or "the roadmap.md").
     filename_only = stripped.split("/")[-1]
-    myos_candidate = (Path.home() / ".youros" / "files" / filename_only).resolve()
+    myos_candidate = (youros_home() / "files" / filename_only).resolve()
     if myos_candidate.exists() and myos_candidate.is_file():
         return myos_candidate
 

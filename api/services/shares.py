@@ -14,8 +14,9 @@ from pathlib import Path
 from typing import Optional
 
 from services.atomic_io import atomic_write_json, atomic_write_text
+from services.youros_paths import youros_home
 
-SHARES_PATH = Path.home() / ".youros" / "shares.json"
+SHARES_PATH = youros_home() / "shares.json"
 
 SHARE_TYPES = {"task_list", "agent_output", "label_view", "file"}
 

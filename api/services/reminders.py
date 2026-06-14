@@ -16,8 +16,9 @@ from zoneinfo import ZoneInfo
 
 import services.notifications as notif
 import services.imessage as imessage
+from services.youros_paths import youros_home
 
-_MYOS_DIR = Path.home() / ".youros"
+_MYOS_DIR = youros_home()
 REMINDERS_PATH = _MYOS_DIR / "reminders.json"
 
 # ---------------------------------------------------------------------------
@@ -271,7 +272,7 @@ async def send_imessage_reminder(to: str, text: str) -> dict:
 
 
 def _sms_configured(settings: dict) -> bool:
-    return (Path.home() / ".youros" / "sms_provider.json").exists() and bool(settings.get("phone_number"))
+    return (youros_home() / "sms_provider.json").exists() and bool(settings.get("phone_number"))
 
 
 def _imessage_configured(settings: dict) -> bool:
@@ -388,7 +389,7 @@ async def fire_due_reminders(*, now: Optional[datetime] = None) -> list[dict]:
 
     settings: dict = {}
     try:
-        settings_path = Path.home() / ".youros" / "settings.json"
+        settings_path = youros_home() / "settings.json"
         if settings_path.exists():
             settings = json.loads(settings_path.read_text())
     except Exception:

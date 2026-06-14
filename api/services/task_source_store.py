@@ -14,8 +14,9 @@ from pathlib import Path
 from typing import Optional
 
 from services.atomic_io import atomic_write_json
+from services.youros_paths import youros_home
 
-TASK_SOURCE_PATH = Path.home() / ".youros" / "task_source.json"
+TASK_SOURCE_PATH = youros_home() / "task_source.json"
 
 _MAX_SOURCE_REF_LEN = 500
 

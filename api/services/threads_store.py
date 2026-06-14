@@ -14,8 +14,9 @@ from pathlib import Path
 from typing import Optional
 
 from services.atomic_io import atomic_write_json, atomic_write_text
+from services.youros_paths import youros_home
 
-THREADS_PATH = Path.home() / ".youros" / "threads.json"
+THREADS_PATH = youros_home() / "threads.json"
 
 
 class ThreadsStore:

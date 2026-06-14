@@ -13,8 +13,9 @@ from pathlib import Path
 from typing import Optional
 
 from config import PROJECT_ROOT
+from services.youros_paths import youros_home
 
-_LINKS_PATH = Path.home() / ".youros" / "spec_drive_links.json"
+_LINKS_PATH = youros_home() / "spec_drive_links.json"
 _SPECS_FOLDER_NAME = "myOS Specs"
 
 

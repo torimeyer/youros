@@ -15,8 +15,9 @@ import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
+from services.youros_paths import youros_home
 
-_PARKED_FILE = Path.home() / ".youros" / "parked_tasks.json"
+_PARKED_FILE = youros_home() / "parked_tasks.json"
 PARKED_TASKS_PATH = _PARKED_FILE
 
 # Context vars set by agent_anthropic before each tool-execution batch.

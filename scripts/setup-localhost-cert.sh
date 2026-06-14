@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-CERT_DIR="$HOME/.youros"
+CERT_DIR="${YOUROS_HOME:-$HOME/.youros}"
 CERT="$CERT_DIR/localhost.crt"
 KEY="$CERT_DIR/localhost.key"
 FORCE_KEYCHAIN="${1:-}"

@@ -25,6 +25,7 @@ from config import PROJECT_ROOT
 from services.chat_context_provider import context_provider
 from services.ostk import ostk
 from services.settings_store import settings_store
+from services.youros_paths import youros_home
 
 router = APIRouter(tags=["chat"])
 
@@ -686,7 +687,10 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
     full_text = ""
     status = "completed"
     try:
-        if provider == "claude":
+        if os.environ.get("YOUROS_MOCK_LLM"):
+            # Deterministic mock for CI smoke / clean-profile runs (no creds).
+            full_text = await chat_service.stream_mock(messages, websocket, tab_id=tab_id)
+        elif provider == "claude":
             if use_tools:
                 full_text = await chat_service.agent_anthropic(messages, websocket, tab_id=tab_id, plan_mode=plan_mode)
             else:
@@ -1069,7 +1073,7 @@ async def _handle_slash_command(text: str, websocket: WebSocket, tab_id: str = "
                 from pathlib import Path as _Path
                 from routers.specs import _ClaimBody, claim_spec
 
-                _user_specs = _Path(_os.environ.get("MYOS_USER_SPECS_DIR", _os.path.expanduser("~/.youros/specs")))
+                _user_specs = _Path(_os.environ.get("MYOS_USER_SPECS_DIR", str(youros_home() / "specs")))
                 _project_root = _Path(__file__).resolve().parent.parent
                 _resolved: Optional[str] = None
 

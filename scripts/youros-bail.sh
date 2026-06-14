@@ -27,7 +27,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Resolve whoami-based default only when not overridden
 _whoami="$(whoami)"
-YOUROS_DIR="${YOUROS_DIR:-$HOME/.youros}"
+YOUROS_DIR="${YOUROS_DIR:-${YOUROS_HOME:-$HOME/.youros}}"
 MEMORY_DIR="${MEMORY_DIR:-$HOME/.claude/projects/-Users-${_whoami}-claude-torios/memory}"
 HANDOFFS_DIR="${HANDOFFS_DIR:-$HOME/.claude/handoffs}"
 DECISIONS_DIR="${DECISIONS_DIR:-$REPO_DIR/.ostk/decisions}"

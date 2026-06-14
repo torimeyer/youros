@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 from dotenv import load_dotenv
+from services.youros_paths import youros_home
 
 # Load .env before any router imports so that environment variables (like
 # GOOGLE_CLIENT_ID) are available when modules read them at import time.
@@ -1164,7 +1165,7 @@ async def notify_chat_clients_on_shutdown():
 @app.get("/api/health")
 async def health():
     import shutil
-    data_dir = Path.home() / ".youros"
+    data_dir = youros_home()
     return {
         "status": "ok",
         "service": "myos-api",
