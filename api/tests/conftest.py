@@ -51,19 +51,13 @@ _config_mod.PROJECT_ROOT = _fake_root
 for agent_file in REAL_PROJECT_ROOT.glob("agents/*.agent"):
     dest = _fake_root / "agents" / agent_file.name
     if not dest.exists():
-        try:
-            os.symlink(agent_file, dest)
-        except OSError:
-            shutil.copy2(agent_file, dest)
+        shutil.copy2(agent_file, dest)
 
 # Also seed the manifest
 manifest_src = REAL_PROJECT_ROOT / "agents" / "manifest.json"
 manifest_dest = _fake_root / "agents" / "manifest.json"
 if manifest_src.exists() and not manifest_dest.exists():
-    try:
-        os.symlink(manifest_src, manifest_dest)
-    except OSError:
-        shutil.copy2(manifest_src, manifest_dest)
+    shutil.copy2(manifest_src, manifest_dest)
 
 (_fake_root / ".ostk" / "needles").mkdir(parents=True, exist_ok=True)
 (_fake_root / ".ostk" / "needles" / "issues.jsonl").write_text("")

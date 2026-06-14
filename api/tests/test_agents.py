@@ -5232,6 +5232,40 @@ def _assert_has_full_envelope(decoded: str) -> None:
     assert "80%" in decoded  # test coverage
 
 
+def test_patch_build_templates_does_not_dirty_real_builder_agent(tmp_path, monkeypatch):
+    """_patch_build_templates must NOT write through to the real repo's agents/builder.agent.
+
+    Root cause (→2210): conftest seeds _fake_root/agents/*.agent as symlinks to the
+    real repo files. _isolate_tasks_ostk then symlinks tmp_path/agents → _fake_root/agents.
+    write_text() follows both symlink hops and clobbers the real file. The fix in conftest
+    uses shutil.copy2 instead of os.symlink so the chain is broken at the source.
+
+    This test locates the real file via __file__ (independent of the monkeypatched
+    config.PROJECT_ROOT) so it cannot be fooled by the sandbox.
+    """
+    # Locate the real repo's builder.agent independently of monkeypatching.
+    # api/tests/test_agents.py → parents[2] = repo root
+    real_builder = Path(__file__).resolve().parents[2] / "agents" / "builder.agent"
+    assert real_builder.exists(), f"Real builder.agent not found at {real_builder}"
+
+    before_content = real_builder.read_text()
+    before_mtime = real_builder.stat().st_mtime
+
+    # Run the helper that previously clobbered the real file.
+    _patch_build_templates(monkeypatch, tmp_path / "agents")
+
+    after_content = real_builder.read_text()
+    after_mtime = real_builder.stat().st_mtime
+
+    assert after_content == before_content, (
+        "agents/builder.agent was modified by _patch_build_templates — "
+        "symlink chain not broken. Check conftest agent-file seeding."
+    )
+    assert after_mtime == before_mtime, (
+        "agents/builder.agent mtime changed — file was written through symlink."
+    )
+
+
 @pytest.mark.asyncio
 async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path, monkeypatch):
     """POST /agents/spawn with template='builder' (was 'comprehensive') prepends the
