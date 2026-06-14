@@ -3649,6 +3649,88 @@ async def archive_spec(slug: str):
     return {"path": str(dest)}
 
 
+# --- Spec board reconciliation (spec-board cleanup, 2026-06-14) ---
+# Two manual-correction surfaces for the cases the auto-advance / auto-archive
+# rules in list_specs do not cover: assigning IDs to specs promoted before
+# _next_spec_id existed, and overriding a status that drifted out of sync.
+
+# Statuses a spec frontmatter may carry. "spec" is the legacy promoted value
+# (list_specs maps it to "ready" for display); kept so a PATCH can round-trip it.
+_VALID_SPEC_STATUSES = {
+    "draft", "ready", "spec", "building", "complete", "done", "deferred", "archived",
+}
+
+
+class SpecStatusUpdate(BaseModel):
+    status: str
+
+
+@router.post("/specs/reconcile-ids")
+async def reconcile_spec_ids():
+    """Assign a sequential spec_id to every ~/.youros/specs/ spec that lacks one.
+
+    Uses the same _next_spec_id scan used at promote time, so IDs continue the
+    existing S### sequence and are never reused or renumbered. Idempotent:
+    specs that already carry a spec_id are skipped, and the archive/ subdir is
+    never touched (glob is non-recursive). Returns the assignments made plus the
+    count skipped.
+    """
+    specs_dir = ostk_module.USER_SPECS_DIR
+    if not specs_dir.is_dir():
+        return {"assigned": [], "skipped": 0}
+
+    assigned: list[dict] = []
+    skipped = 0
+    # Deterministic order so a re-run after a partial failure is stable.
+    for md in sorted(specs_dir.glob("*.md")):
+        try:
+            text = md.read_text()
+        except OSError:
+            continue
+        if not text.lstrip().startswith("---"):
+            continue  # no frontmatter -> nothing to inject into
+        if _read_frontmatter_value(text, "spec_id"):
+            skipped += 1
+            continue
+        new_id = ostk_module.OstkService._next_spec_id([specs_dir])
+        new_text = _inject_frontmatter_key(text, "spec_id", new_id)
+        if new_text == text:
+            continue  # inject failed (malformed frontmatter)
+        try:
+            md.write_text(new_text)
+        except OSError:
+            continue
+        assigned.append({"file": md.name, "spec_id": new_id})
+
+    trace_event("spec_reconcile_ids", assigned=[a["spec_id"] for a in assigned])
+    return {"assigned": assigned, "skipped": skipped}
+
+
+@router.patch("/specs/{spec_path:path}/status")
+async def patch_spec_status(spec_path: str, body: SpecStatusUpdate):
+    """Set a spec's frontmatter ``status:`` line (manual override).
+
+    For the cases auto-advance does not reach: a shipped spec whose tasks were
+    never closed, or a status flag that drifted. Validates against the known
+    status set and rejects unknown values with 422. 404 if the spec does not
+    exist or has no status line to flip.
+    """
+    new_status = body.status.strip().lower()
+    if new_status not in _VALID_SPEC_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid status '{body.status}'. Allowed: {sorted(_VALID_SPEC_STATUSES)}",
+        )
+    _validate_doc_path(spec_path)
+    # _set_spec_status joins spec_path onto PROJECT_ROOT; an absolute user-local
+    # path wins that join (Path('/root') / '/abs' == '/abs'), so both repo-relative
+    # and ~/.youros absolute paths resolve correctly.
+    result = _set_spec_status(spec_path, new_status)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Spec not found or has no status line")
+    return {"ok": True, "status": new_status}
+
+
 # --- Backward-compatible aliases for /api/docs/* ---
 # These mirror every /api/specs/* route so existing bookmarks, external
 # callers, and in-flight frontend builds keep working during migration.
