@@ -984,6 +984,7 @@ describe('OnboardingWizard — Google Workspace OAuth button on Connect step', (
   it('shows connect-google-workspace button when google_oauth_available is true', async () => {
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/drive/auth/status') return Promise.resolve({ authenticated: false, credentials_file_present: true, email: null })
       return Promise.resolve({ google_oauth_available: true })
     })
     render(<OnboardingWizard />)
@@ -1009,6 +1010,7 @@ describe('OnboardingWizard — Google Workspace OAuth button on Connect step', (
   it('connect-google-workspace button is visible regardless of which AI provider is selected', async () => {
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/drive/auth/status') return Promise.resolve({ authenticated: false, credentials_file_present: true, email: null })
       return Promise.resolve({ google_oauth_available: true })
     })
     render(<OnboardingWizard />)
@@ -1034,9 +1036,10 @@ describe('OnboardingWizard — Google Workspace OAuth button on Connect step', (
     expect(screen.getByTestId('step-connect')).toHaveTextContent(/This connects Drive, Calendar, and Gmail/i)
   })
 
-  it('does not show "Connect your Google apps" section when google_oauth_available is false', async () => {
+  it('shows upload area (not connect button) when google_oauth_available is false (S015: section always shown)', async () => {
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/drive/auth/status') return Promise.resolve({ authenticated: false, credentials_file_present: false, email: null })
       return Promise.resolve({ google_oauth_available: false })
     })
     render(<OnboardingWizard />)
@@ -1044,7 +1047,10 @@ describe('OnboardingWizard — Google Workspace OAuth button on Connect step', (
     await waitFor(() => {
       expect(screen.getByTestId('step-connect')).toBeInTheDocument()
     })
-    expect(screen.queryByText(/Connect your Google apps/i)).not.toBeInTheDocument()
+    // S015: section always shows so user can upload credentials in-app
+    expect(screen.getByText(/Connect your Google apps/i)).toBeInTheDocument()
+    expect(screen.getByTestId('google-credentials-upload')).toBeInTheDocument()
+    expect(screen.queryByTestId('connect-google-workspace')).not.toBeInTheDocument()
   })
 
   it('shows "Google account" label when connected email is @gmail.com', async () => {

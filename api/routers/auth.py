@@ -55,7 +55,7 @@ async def google_auth(request: Request):
     """Redirect the user to Google's OAuth consent screen."""
     client_id = _google_client_id()
     if not client_id:
-        return RedirectResponse(f"{_frontend_url(request)}/?auth_error=google_not_configured")
+        return RedirectResponse(f"{_frontend_url(request)}/?setup_google=1")
 
     state = secrets.token_urlsafe(32)
     _oauth_states[state] = True

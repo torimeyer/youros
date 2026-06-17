@@ -74,16 +74,32 @@ export default function GoogleSetupGuideModal({ onClose }: { onClose: () => void
           </li>
 
           <li>
-            <div className="font-semibold text-slate-800 dark:text-slate-200 mb-1">3. Create OAuth credentials</div>
+            <div className="font-semibold text-slate-800 dark:text-slate-200 mb-1">3. Set up the OAuth consent screen</div>
+            <p className="text-slate-600 dark:text-slate-400 mb-2">
+              Go to "APIs and Services" then "OAuth consent screen". Choose <strong>External</strong> and click Create. Fill in your app name and email, then click Save and Continue through each section.
+            </p>
+            <p className="text-slate-600 dark:text-slate-400 mb-2">
+              On the "Test users" step, click "Add users" and add your own Google email address. This lets you sign in while the app is in testing mode.
+            </p>
+            <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-lg">
+              <p className="text-xs text-amber-700 dark:text-amber-300 font-medium mb-1">Important: Publish to Production so it does not expire</p>
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                While in testing mode, Google disconnects your account every 7 days. To fix this, go back to the OAuth consent screen, click "Publish App", and confirm. You do not need Google's review for a personal app.
+              </p>
+            </div>
+          </li>
+
+          <li>
+            <div className="font-semibold text-slate-800 dark:text-slate-200 mb-1">4. Create OAuth credentials</div>
             <p className="text-slate-600 dark:text-slate-400">
-              Go to "APIs and Services" then "Credentials". Click "Create Credentials" and pick "OAuth client ID". Choose "Desktop app" as the type, give it any name, and click Create.
+              Go to "APIs and Services" then "Credentials". Click "Create Credentials" and pick "OAuth client ID". Choose <strong>Desktop app</strong> as the type, give it any name, and click Create.
             </p>
           </li>
 
           <li>
-            <div className="font-semibold text-slate-800 dark:text-slate-200 mb-1">4. Download the JSON file</div>
+            <div className="font-semibold text-slate-800 dark:text-slate-200 mb-1">5. Download and upload the JSON file</div>
             <p className="text-slate-600 dark:text-slate-400">
-              After creating the client, click the download button next to it. You will get a small .json file. Upload it from the Drive tab to finish connecting.
+              After creating the client, click the download button next to it. You will get a small .json file. Upload it here using the area below to finish connecting.
             </p>
           </li>
         </ol>

@@ -163,6 +163,64 @@ async def test_drive_auth_url_no_credentials_file(client, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_drive_auth_url_error_mentions_upload_not_env(client, tmp_path):
+    """S015: error when credentials missing must point to in-app upload, not .env file."""
+    creds_path = tmp_path / "google_credentials.json"  # does not exist
+
+    with (
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+        patch.dict("os.environ", {"GOOGLE_CLIENT_ID": "", "GOOGLE_CLIENT_SECRET": ""}, clear=False),
+    ):
+        for endpoint in ["/api/drive/auth/url", "/api/drive/auth/url/calendar", "/api/drive/auth/url/gmail"]:
+            resp = await client.get(endpoint)
+            assert resp.status_code == 400
+            detail = resp.json()["detail"]
+            assert ".env" not in detail, f"{endpoint}: error still mentions .env file"
+            assert "upload" in detail.lower() or "credentials file" in detail.lower(), \
+                f"{endpoint}: error does not mention upload or credentials file"
+
+
+@pytest.mark.asyncio
+async def test_drive_upload_then_status_shows_credentials_present(client, tmp_path):
+    """S015: uploading credentials flips credentials_file_present to True in status."""
+    from services import connections_cache
+
+    creds_path = tmp_path / "google_credentials.json"
+    token_path = tmp_path / "google_token.json"
+
+    # Status starts with no credentials.
+    with (
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+        patch("services.google_auth.TOKEN_PATH", token_path),
+    ):
+        status_before = await client.get("/api/drive/auth/status")
+    assert status_before.json()["credentials_file_present"] is False
+
+    # Upload a valid Desktop-app credentials file.
+    valid = json.dumps({
+        "installed": {
+            "client_id": "xyz.apps.googleusercontent.com",
+            "client_secret": "shh",
+            "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob", "http://localhost"],
+        }
+    }).encode()
+    with (
+        patch("routers.drive.CREDENTIALS_PATH", creds_path),
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+        patch("services.google_auth.TOKEN_PATH", token_path),
+    ):
+        upload = await client.post(
+            "/api/drive/credentials",
+            files={"file": ("creds.json", valid, "application/json")},
+        )
+        assert upload.json()["ok"] is True
+
+        status_after = await client.get("/api/drive/auth/status")
+    assert status_after.json()["credentials_file_present"] is True
+    assert status_after.json()["authenticated"] is False
+
+
+@pytest.mark.asyncio
 async def test_drive_auth_url_returns_google_url(client, tmp_path):
     """With credentials present, returns a Google OAuth URL."""
     creds_path = tmp_path / "google_credentials.json"

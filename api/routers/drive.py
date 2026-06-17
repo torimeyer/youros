@@ -174,7 +174,7 @@ async def drive_auth_url(request: Request, return_to: str = ""):
             status_code=400,
             detail=(
                 "Google credentials are not configured. "
-                "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file."
+                "Upload your credentials file in the Google setup to get started."
             ),
         )
     frontend = _frontend_url(request)
@@ -198,7 +198,7 @@ async def drive_auth_url_for_calendar(request: Request, return_to: str = ""):
             status_code=400,
             detail=(
                 "Google credentials are not configured. "
-                "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file."
+                "Upload your credentials file in the Google setup to get started."
             ),
         )
     frontend = _frontend_url(request)
@@ -222,7 +222,7 @@ async def drive_auth_url_for_gmail(request: Request, return_to: str = ""):
             status_code=400,
             detail=(
                 "Google credentials are not configured. "
-                "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file."
+                "Upload your credentials file in the Google setup to get started."
             ),
         )
     frontend = _frontend_url(request)

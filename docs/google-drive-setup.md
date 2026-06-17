@@ -1,12 +1,12 @@
-# Connect Google Drive to yourOS
+# Connect Google to yourOS
 
-This guide walks you through getting a credentials file from Google and saving it so yourOS can connect to your Drive.
+This guide walks you through getting a credentials file from Google and connecting it in yourOS. You do not need a terminal.
 
 ---
 
 ## What you need
 
-A "credentials file" from Google Cloud Console. This file lets yourOS sign in to Google on your behalf. It is stored only on your computer and never sent anywhere.
+A "credentials file" from Google Cloud Console. This file lets yourOS sign in to Google on your behalf. It stays on your computer and is never sent anywhere.
 
 ---
 
@@ -14,76 +14,52 @@ A "credentials file" from Google Cloud Console. This file lets yourOS sign in to
 
 1. Go to [https://console.cloud.google.com](https://console.cloud.google.com).
 2. Click the project dropdown at the top and choose **New Project**.
-3. Give it any name (e.g. "yourOS Drive") and click **Create**.
+3. Give it any name (e.g. "yourOS") and click **Create**.
 
----
-
-## Step 2: Enable the Google Drive API
+## Step 2: Turn on the APIs you want
 
 1. In your new project, go to **APIs and Services > Library**.
-2. Search for "Google Drive API" and click it.
-3. Click **Enable**.
-
----
+2. Search for and enable each of these (click the API, then click **Enable**):
+   - Google Drive API
+   - Google Calendar API
+   - Gmail API
 
 ## Step 3: Set up the OAuth consent screen
 
 1. Go to **APIs and Services > OAuth consent screen**.
 2. Choose **External** and click **Create**.
-3. Fill in the required fields (App name, support email). You can leave the rest blank.
-4. Click **Save and Continue** through the remaining steps.
-5. On the **Test users** step, add your own Google email address. This lets you sign in while the app is in testing mode.
+3. Fill in an app name (e.g. "yourOS") and your email. Leave the rest blank.
+4. Click **Save and Continue** through each section until you reach **Test users**.
+5. On the **Test users** step, click **Add users** and add your own Google email address.
+6. Finish and save.
 
----
+**Important: Publish your app so it does not expire every 7 days.**
+
+While your app is in testing mode, Google disconnects it every 7 days. To fix this permanently:
+
+1. Go back to **OAuth consent screen**.
+2. Click **Publish App** and confirm.
+
+You do not need Google's review. For a personal app used only by you, publishing skips review automatically.
 
 ## Step 4: Create OAuth credentials
 
 1. Go to **APIs and Services > Credentials**.
 2. Click **Create Credentials > OAuth client ID**.
-3. Choose **Web application** as the application type (not "Desktop app").
-4. Give it a name (e.g. "yourOS Drive").
-5. Under **Authorized redirect URIs**, click **Add URI** and enter exactly:
-   ```
-   http://localhost:37373/api/drive/auth/callback
-   ```
-   This must match exactly (no trailing slash, port 37373). If it does not match, Google will reject the sign-in with a "redirect_uri_mismatch" error.
-6. Click **Create**.
-7. A dialog will appear. Click **Download JSON**.
+3. Choose **Desktop app** as the application type.
+4. Give it a name (e.g. "yourOS Drive") and click **Create**.
+5. Click **Download JSON** in the dialog that appears.
 
----
+## Step 5: Upload the file in yourOS
 
-## Step 5: Save the file
+Open yourOS and go to the Google connect screen (in onboarding, or the Drive, Calendar, or Gmail tab). Drag and drop the JSON file you downloaded, or click the upload area to browse for it.
 
-Move the downloaded file to:
-
-```
-~/.youros/google_credentials.json
-```
-
-On a Mac, open Terminal and run:
-
-```bash
-mv ~/Downloads/client_secret_*.json ~/.youros/google_credentials.json
-```
-
-If the `~/.youros` folder does not exist yet, create it first:
-
-```bash
-mkdir -p ~/.youros
-```
-
----
-
-## Step 6: Connect in yourOS
-
-Go to the **Drive** tab in yourOS and click **Connect your Google account**. A Google sign-in page will open in your browser. Sign in and grant the requested permission (read-only access to your Drive files).
-
-Once you sign in, yourOS will sync your file list and you can start browsing.
+Once uploaded, yourOS will take you straight to Google sign-in.
 
 ---
 
 ## Notes
 
-- yourOS only requests **read-only** access. It cannot add, edit, or delete any files.
-- Your token is saved locally at `~/.youros/google_token.json`. To disconnect, click **Disconnect** in the Drive tab.
-- File previews are cached for 1 hour at `~/.youros/drive_cache/`. You can delete this folder at any time to clear the cache.
+- Your credentials file and sign-in token are saved locally at `~/.youros/`. yourOS never sends them anywhere.
+- To disconnect, click **Disconnect** in the Drive tab.
+- File previews are cached for 1 hour at `~/.youros/drive_cache/`. Delete this folder at any time to clear the cache.

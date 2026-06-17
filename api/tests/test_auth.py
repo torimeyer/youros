@@ -73,12 +73,12 @@ async def test_google_auth_includes_callback_redirect_uri(client):
 
 @pytest.mark.asyncio
 async def test_google_auth_error_when_not_configured(client):
-    """When GOOGLE_CLIENT_ID is not set, redirect to home with an error."""
+    """When GOOGLE_CLIENT_ID is not set, redirect to home with setup_google=1 (S015: points at in-app upload)."""
     with patch("routers.auth._google_client_id", return_value=""):
         resp = await client.get("/api/auth/google", follow_redirects=False)
 
     assert resp.status_code == 307
-    assert "auth_error=google_not_configured" in resp.headers["location"]
+    assert "setup_google=1" in resp.headers["location"]
 
 
 # --- /api/auth/google/callback (handle OAuth callback) ---

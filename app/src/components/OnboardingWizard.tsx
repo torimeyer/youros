@@ -107,6 +107,15 @@ export default function OnboardingWizard() {
       return
     }
 
+    // setup_google=1 means credentials aren't configured yet; navigate to the
+    // connect step so the user sees the upload area right away.
+    if (params.get('setup_google') === '1') {
+      window.history.replaceState({}, '', '/')
+      const connectIdx = (STEPS as readonly string[]).indexOf('Connect')
+      if (connectIdx >= 0) setStepIndex(connectIdx)
+      return
+    }
+
     const oauthReturnKeys = ['connected', 'auth_success', 'atlassian_connected', 'oauth_connected']
     const isOAuthReturn = oauthReturnKeys.some(k => params.has(k))
     if (isOAuthReturn) {
@@ -1436,27 +1445,25 @@ function ConnectStep({
       </div>
 
       {/* ── Connect your Google apps (optional) ─────────────── */}
-      {(googleOAuthAvailable || googleConnected) && (
-        <div className="mb-5">
-          <p className={sectionDivider}>Connect your Google apps (optional)</p>
-          {googleConnected ? (
-            <div
-              data-testid="google-already-connected"
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm"
-            >
-              <Icon name="check_circle" size={16} />
-              <span>Already connected</span>
-            </div>
-          ) : (
-            <>
-              <p className={`text-xs mt-1 mb-3 ${subtextCls}`}>
-                This connects Drive, Calendar, and Gmail. It does not change which AI runs your chat.
-              </p>
-              <GoogleAccountSetupCard darkMode={darkMode} subtextCls={subtextCls} stepIndex={stepIndex} />
-            </>
-          )}
-        </div>
-      )}
+      <div className="mb-5">
+        <p className={sectionDivider}>Connect your Google apps (optional)</p>
+        {googleConnected ? (
+          <div
+            data-testid="google-already-connected"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm"
+          >
+            <Icon name="check_circle" size={16} />
+            <span>Already connected</span>
+          </div>
+        ) : (
+          <>
+            <p className={`text-xs mt-1 mb-3 ${subtextCls}`}>
+              This connects Drive, Calendar, and Gmail. It does not change which AI runs your chat.
+            </p>
+            <GoogleAccountSetupCard darkMode={darkMode} subtextCls={subtextCls} stepIndex={stepIndex} />
+          </>
+        )}
+      </div>
 
       {/* ── Confluence ────────────────────────────────────── */}
       <div className="mb-2">
