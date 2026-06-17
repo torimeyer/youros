@@ -44,6 +44,10 @@ interface NavGroup {
   label: string
   icon: string
   items: NavItem[]
+  // When true, this group starts collapsed for a brand-new user (no saved
+  // sidebar state) so the first screen isn't overwhelming (G4). Once the user
+  // has any saved state, their own choices take over.
+  defaultCollapsed?: boolean
 }
 
 // ------------- constants -------------
@@ -59,6 +63,7 @@ const NAV_GROUPS: NavGroup[] = [
     id: 'integrations',
     label: 'Integrations',
     icon: 'hub',
+    defaultCollapsed: true,
     items: [
       { to: '/gems', icon: 'auto_awesome', label: 'Gems', featureLabel: 'Gems', iconColor: 'text-yellow-600 dark:text-yellow-400' },
       { to: '/files', icon: 'folder', label: 'Projects', featureLabel: 'Projects', iconColor: 'text-blue-600 dark:text-blue-400' },
@@ -352,6 +357,13 @@ export function Sidebar() {
   // is forced open if it would otherwise be collapsed.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     const saved = loadCollapsedState()
+    // First run (no saved state at all): start groups marked defaultCollapsed
+    // tidied away so a brand-new user isn't overwhelmed (G4).
+    let hadSaved = false
+    try { hadSaved = localStorage.getItem(COLLAPSED_KEY) != null } catch { hadSaved = false }
+    if (!hadSaved) {
+      for (const g of NAV_GROUPS) if (g.defaultCollapsed) saved[g.id] = true
+    }
     const activeGroup = groupForPath(location.pathname)
     if (activeGroup && saved[activeGroup]) {
       // Ensure active group starts expanded
@@ -359,6 +371,15 @@ export function Sidebar() {
     }
     return saved
   })
+
+  // Persist the first-run collapsed default once so it survives reloads and
+  // the user's own toggles take over from here (G4).
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(COLLAPSED_KEY) == null) saveCollapsedState(collapsed)
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // When the route changes, auto-expand the group that owns the new route
   useEffect(() => {

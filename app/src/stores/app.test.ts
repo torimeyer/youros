@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useAppStore, TEAM_MODE_VISIBLE, DEFAULT_DASHBOARD_WIDGETS, DASHBOARD_WIDGET_LABELS, HYDRATION_SETTINGS_TIMEOUT_MS, HYDRATION_ENTERPRISE_TIMEOUT_MS } from './app'
+import { useAppStore, TEAM_MODE_VISIBLE, DEFAULT_DASHBOARD_WIDGETS, FIRST_RUN_DASHBOARD_WIDGETS, readInitialDashboardWidgets, DASHBOARD_WIDGET_LABELS, HYDRATION_SETTINGS_TIMEOUT_MS, HYDRATION_ENTERPRISE_TIMEOUT_MS } from './app'
 import { api } from '../lib/api'
 
 // Mock the api module so no real network calls fire and we can assert
@@ -574,6 +574,24 @@ describe('widget list invariants', () => {
     const labelKeys = Object.keys(DASHBOARD_WIDGET_LABELS).sort()
     const defaultKeys = [...DEFAULT_DASHBOARD_WIDGETS].sort()
     expect(defaultKeys).toEqual(labelKeys)
+  })
+
+  it('FIRST_RUN_DASHBOARD_WIDGETS is a calmer subset of the full default (G4)', () => {
+    expect(FIRST_RUN_DASHBOARD_WIDGETS.length).toBeLessThan(DEFAULT_DASHBOARD_WIDGETS.length)
+    expect(FIRST_RUN_DASHBOARD_WIDGETS.length).toBeGreaterThan(0)
+    for (const id of FIRST_RUN_DASHBOARD_WIDGETS) {
+      expect(DEFAULT_DASHBOARD_WIDGETS).toContain(id)
+    }
+  })
+
+  it('a brand-new user (no saved widgets) starts with the calm first-run set (G4)', () => {
+    localStorage.removeItem('myos-dashboard-widgets')
+    expect(readInitialDashboardWidgets()).toEqual(FIRST_RUN_DASHBOARD_WIDGETS)
+  })
+
+  it('a returning user with saved widgets keeps their own set', () => {
+    localStorage.setItem('myos-dashboard-widgets', JSON.stringify(['briefing', 'jira']))
+    expect(readInitialDashboardWidgets()).toEqual(['briefing', 'jira'])
   })
 
   it('ostk_files in saved server state is stripped during hydration', async () => {

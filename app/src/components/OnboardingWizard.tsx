@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import { useAppStore, TEAM_MODE_VISIBLE } from '../stores/app'
 import Icon from './Icon'
 import { api, ApiError } from '../lib/api'
@@ -76,16 +76,18 @@ export default function OnboardingWizard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useEffect(() => {
+  const runProviderDetect = useCallback(() => {
     setDetectLoading(true)
     setDetectError(false)
-    api.get<{ claude_code?: boolean; anthropic_key?: boolean; gemini_key?: boolean; vertex_ai?: boolean; bedrock?: boolean; vertex_ai_signed_in?: boolean }>('/providers/detect')
+    api.get<{ claude_code?: boolean; anthropic_key?: boolean; gemini_key?: boolean; gemini_cli?: boolean; vertex_ai?: boolean; bedrock?: boolean; vertex_ai_signed_in?: boolean }>('/providers/detect')
       .then((data) => {
         if (data.claude_code) setDetectedProvider('Claude Code')
         else if (data.anthropic_key) setDetectedProvider('Anthropic')
         else if (data.gemini_key) setDetectedProvider('Gemini')
+        else if (data.gemini_cli) setDetectedProvider('Gemini')
         else if (data.vertex_ai) setDetectedProvider('Vertex AI')
         else if (data.bedrock) setDetectedProvider('AWS Bedrock')
+        else setDetectedProvider(null)
         setVertexAiSignedIn(data.vertex_ai_signed_in ?? false)
       })
       .catch((e) => {
@@ -94,6 +96,10 @@ export default function OnboardingWizard() {
       })
       .finally(() => setDetectLoading(false))
   }, [])
+
+  useEffect(() => {
+    runProviderDetect()
+  }, [runProviderDetect])
 
   // Restore step after any OAuth redirect
   useEffect(() => {
@@ -581,6 +587,7 @@ export default function OnboardingWizard() {
               detectLoading={detectLoading}
               detectError={detectError}
               vertexAiSignedIn={vertexAiSignedIn}
+              onRecheck={runProviderDetect}
             />
           )}
           {step === 'Ready' && (
@@ -1157,6 +1164,7 @@ function ConnectStep({
   detectLoading,
   detectError,
   vertexAiSignedIn,
+  onRecheck,
 }: {
   selectedProvider: string
   onSelectProvider: (name: string) => void
@@ -1173,6 +1181,7 @@ function ConnectStep({
   detectLoading?: boolean
   detectError?: boolean
   vertexAiSignedIn?: boolean
+  onRecheck?: () => void
 }) {
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
   const [googleConnected, setGoogleConnected] = useState(false)
@@ -1211,9 +1220,15 @@ function ConnectStep({
           <span>Already connected: {detectedProvider}</span>
         </div>
       )}
-      <p className={`${subtextCls} mb-6`}>
-        Pick a provider and sign in or paste an API key. You can change this
-        anytime in Settings.
+      <p className={`${subtextCls} mb-3`}>
+        Pick how you want to talk to your AI. You can change this anytime in Settings.
+      </p>
+      <p
+        className={`text-xs mb-6 px-3 py-2 rounded-lg ${darkMode ? 'bg-slate-800/60 text-slate-300' : 'bg-blue-50 text-slate-600'}`}
+        data-testid="connect-reassurance"
+      >
+        yourOS runs on your computer and uses your existing AI logins. It does not
+        change, replace, or sign into anything you already use.
       </p>
 
       {/* ── Which AI runs your chat ───────────────────────── */}
@@ -1273,39 +1288,77 @@ function ConnectStep({
         )}
         {selectedProvider === 'Anthropic' && !detectLoading && !detectedProvider && (
           <>
-            <button
-              onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}
-              className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
-                darkMode
-                  ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
-                  : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
-              }`}
-              data-testid="connect-anthropic"
+            {/* Primary: the Claude plan they already pay for, no key */}
+            <div
+              className={`p-3 mb-3 rounded-lg border ${darkMode ? 'border-slate-700 bg-slate-800/40' : 'border-gray-200 bg-gray-50'}`}
+              data-testid="use-claude-subscription"
             >
-              <Icon name="open_in_new" size={18} />
-              Sign in to Anthropic to get a key
-            </button>
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => onApiKeyChange(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { onSaveKey(); onNext(); } }}
-                placeholder="Paste API key (sk-ant-xxxx...)"
-                className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
-                data-testid="api-key-input"
-              />
+              <p className="text-sm font-semibold mb-1">Use your Claude subscription</p>
+              <p className={`text-xs mb-3 ${subtextCls}`}>
+                This is the same Claude plan you already pay for. yourOS uses it through
+                Claude Code, the official Claude app you sign in to yourself. It's free on
+                your plan, with no key to paste.
+              </p>
               <button
-                onClick={onSaveKey}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors whitespace-nowrap"
-                data-testid="save-key-button"
+                onClick={() => window.open('https://www.anthropic.com/claude-code', '_blank')}
+                className={`w-full mb-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                  darkMode
+                    ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
+                    : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
+                }`}
+                data-testid="install-claude-code"
               >
-                {keySaved ? 'Saved!' : 'Save'}
+                <Icon name="open_in_new" size={18} />
+                Don't have Claude Code yet? Install it and sign in
+              </button>
+              <button
+                onClick={() => onRecheck?.()}
+                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
+                data-testid="recheck-subscription"
+              >
+                I've signed in — check again
               </button>
             </div>
-            <p className={`text-xs mt-2 ${subtextCls}`}>
-              You can skip this step and connect later in Settings.
-            </p>
+
+            {/* Secondary, advanced: pay-as-you-go API key */}
+            <div data-testid="pay-as-you-go-key">
+              <p className={`text-xs font-semibold uppercase tracking-wider mb-2 ${subtextCls}`}>
+                Or pay as you go with an API key (advanced)
+              </p>
+              <button
+                onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}
+                className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                  darkMode
+                    ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
+                    : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
+                }`}
+                data-testid="connect-anthropic"
+              >
+                <Icon name="open_in_new" size={18} />
+                Get a pay-as-you-go API key
+              </button>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => onApiKeyChange(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { onSaveKey(); onNext(); } }}
+                  placeholder="Paste API key (sk-ant-xxxx...)"
+                  className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+                  data-testid="api-key-input"
+                />
+                <button
+                  onClick={onSaveKey}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors whitespace-nowrap"
+                  data-testid="save-key-button"
+                >
+                  {keySaved ? 'Saved!' : 'Save'}
+                </button>
+              </div>
+              <p className={`text-xs mt-2 ${subtextCls}`}>
+                You can skip this step and connect later in Settings.
+              </p>
+            </div>
           </>
         )}
 

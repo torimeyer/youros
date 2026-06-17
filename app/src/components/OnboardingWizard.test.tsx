@@ -301,6 +301,27 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('connect-anthropic')).not.toBeInTheDocument()
   })
 
+  it('offers the Claude subscription (not just a key) when nothing is detected', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(7)
+    // Subscription is the primary, plainly-labeled option
+    await waitFor(() => expect(screen.getByTestId('use-claude-subscription')).toBeInTheDocument())
+    expect(screen.getByTestId('use-claude-subscription')).toHaveTextContent(/no key/i)
+    expect(screen.getByTestId('use-claude-subscription')).toHaveTextContent(/subscription|plan you already/i)
+    // The pay-as-you-go key path stays available for power users, clearly secondary
+    expect(screen.getByTestId('pay-as-you-go-key')).toBeInTheDocument()
+    expect(screen.getByTestId('api-key-input')).toBeInTheDocument()
+  })
+
+  it('reassures the user it will not change their existing AI logins', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(7)
+    await waitFor(() => expect(screen.getByTestId('connect-reassurance')).toBeInTheDocument())
+    expect(screen.getByTestId('connect-reassurance')).toHaveTextContent(/does not change|will not change|won't change/i)
+  })
+
   it('shows two separate cards when Gemini is selected', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
@@ -963,6 +984,22 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     expect(screen.getByTestId('already-connected-badge')).toHaveTextContent('AWS Bedrock')
     fireEvent.click(screen.getByTestId('skip-button')) // Connect → Ready
     expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('AWS Bedrock')
+  })
+
+  it('shows badge "Gemini" when no-key Gemini (gemini_cli) is detected', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect')
+        return Promise.resolve({ claude_code: false, anthropic_key: false, gemini_key: false, gemini_cli: true })
+      return Promise.resolve({ google_oauth_available: false })
+    })
+    render(<OnboardingWizard />)
+    await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
+    navigateToAfterTheme()
+    expect(screen.queryByTestId('step-connect')).toBeInTheDocument()
+    expect(screen.queryByTestId('api-key-input')).not.toBeInTheDocument()
+    expect(screen.getByTestId('already-connected-badge')).toHaveTextContent('Gemini')
+    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Ready
+    expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('Gemini')
   })
 })
 

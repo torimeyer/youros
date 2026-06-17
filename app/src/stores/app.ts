@@ -43,6 +43,17 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   dependency_map_widget: 'Dependency Map',
 }
 
+// Calm starter set shown to a brand-new user who has no saved dashboard yet
+// (G4). Chat is always available via the Open Chat button, so the home screen
+// starts as chat plus a couple of welcoming cards rather than all 13 at once.
+// Every id must also exist in DEFAULT_DASHBOARD_WIDGETS; the rest stay one tap
+// away in Customize. The invariant test in app.test.ts enforces the subset.
+export const FIRST_RUN_DASHBOARD_WIDGETS: string[] = [
+  'briefing',
+  'adventure',
+  'quick_launch',
+]
+
 export interface FeatureToggle {
   label: string
   enabled: boolean
@@ -375,9 +386,11 @@ function migrateBriefingWidgetId(ids: string[]): string[] {
   return out
 }
 
-function readInitialDashboardWidgets(): string[] {
+export function readInitialDashboardWidgets(): string[] {
   const raw = lsGet(LS_KEYS.dashboardWidgets)
-  if (!raw) return [...DEFAULT_DASHBOARD_WIDGETS]
+  // Brand-new user, nothing saved yet: start calm (G4). Once they save any
+  // dashboard (including via Customize), their own set is honored below.
+  if (!raw) return [...FIRST_RUN_DASHBOARD_WIDGETS]
   try {
     const parsed = JSON.parse(raw)
     if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {

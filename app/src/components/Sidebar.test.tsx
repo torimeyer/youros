@@ -739,6 +739,23 @@ describe('Sidebar grouped nav', () => {
     expect(screen.queryByText('Gmail')).not.toBeInTheDocument()
   })
 
+  it('collapses the Integrations group by default on a brand-new first run (no saved state)', () => {
+    // Brand-new user: no saved collapsed state. The busy integrations group
+    // should start tidied away so the first screen is calm (G4).
+    localStorage.removeItem('sidebar-group-collapsed')
+    renderSidebar('/')
+    expect(screen.getByTestId('group-header-integrations')).toBeInTheDocument()
+    expect(screen.queryByTestId('group-items-integrations')).not.toBeInTheDocument()
+    expect(screen.queryByText('Gmail')).not.toBeInTheDocument()
+  })
+
+  it('persists the first-run collapsed default so later toggles stick', () => {
+    localStorage.removeItem('sidebar-group-collapsed')
+    renderSidebar('/')
+    const saved = JSON.parse(localStorage.getItem('sidebar-group-collapsed') ?? '{}')
+    expect(saved.integrations).toBe(true)
+  })
+
   it('expanded Integrations group shows all sub-items including Jira and Confluence', () => {
     renderSidebar()
     // Ensure integrations is expanded (click header to expand if collapsed)
@@ -930,6 +947,10 @@ describe('Sidebar grouped nav', () => {
   it('ostk entry is shown when power user mode is on', () => {
     useAppStore.setState({ powerUserMode: true })
     renderSidebar()
+    // Integrations starts collapsed for new users (G4); expand to reach ostk
+    if (!screen.queryByTestId('group-items-integrations')) {
+      fireEvent.click(screen.getByTestId('group-header-integrations'))
+    }
     expect(screen.getByText(/^ostk$/)).toBeInTheDocument()
   })
 

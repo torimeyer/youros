@@ -105,7 +105,7 @@ describe('Dashboard Day Summary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockNavigate.mockClear()
-    useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false })
+    useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false, dashboardWidgets: [...DEFAULT_DASHBOARD_WIDGETS] })
     localStorage.setItem('myos-tour-complete', 'true')
 
     mockedApiGet.mockImplementation((path: string) => {
@@ -222,7 +222,7 @@ describe("Today's Focus deep-link", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockNavigate.mockClear()
-    useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false })
+    useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false, dashboardWidgets: [...DEFAULT_DASHBOARD_WIDGETS] })
     localStorage.setItem('myos-tour-complete', 'true')
 
     mockedApiGet.mockImplementation((path: string) => {
@@ -279,7 +279,7 @@ describe("Today's Focus line-clamp", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockNavigate.mockClear()
-    useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false })
+    useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false, dashboardWidgets: [...DEFAULT_DASHBOARD_WIDGETS] })
     localStorage.setItem('myos-tour-complete', 'true')
 
     mockedApiGet.mockImplementation((path: string) => {
@@ -330,7 +330,7 @@ describe('Quick Launch inline modals', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockNavigate.mockClear()
-    useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false })
+    useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false, dashboardWidgets: [...DEFAULT_DASHBOARD_WIDGETS] })
     localStorage.setItem('myos-tour-complete', 'true')
 
     mockedApiGet.mockImplementation((path: string) => {
