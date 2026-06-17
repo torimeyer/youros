@@ -312,7 +312,7 @@ fi
 # the installer always preserves existing user files.
 
 # settings.json must be preserved if it already exists.
-if grep -qE '\[ ! -f "\$MYOS_CONFIG_DIR/settings.json" \]|\[\[ ! -f "\$MYOS_CONFIG_DIR/settings.json" \]\]' "$DIR/install.sh"; then
+if grep -qE '\[ ! -f "\$YOUROS_CONFIG_DIR/settings.json" \]|\[\[ ! -f "\$YOUROS_CONFIG_DIR/settings.json" \]\]' "$DIR/install.sh"; then
     assert "install.sh preserves existing ~/.youros/settings.json" 0
 else
     assert "install.sh preserves existing ~/.youros/settings.json" 1
@@ -338,11 +338,11 @@ else
     assert "install.sh does not redirect output into ~/.youros/" 0
 fi
 
-# The myos alias must only be added if not already present.
-if grep -q 'grep -q "alias myos=' "$DIR/install.sh"; then
-    assert "install.sh adds myos alias only if missing" 0
+# The youros alias must only be added if not already present.
+if grep -q 'grep -q "alias youros=' "$DIR/install.sh"; then
+    assert "install.sh adds youros alias only if missing" 0
 else
-    assert "install.sh adds myos alias only if missing" 1
+    assert "install.sh adds youros alias only if missing" 1
 fi
 
 # The PATH export to ~/.local/bin must only be added if not already present.
