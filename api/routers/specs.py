@@ -94,7 +94,85 @@ def _load_assignments() -> None:
         logger.warning("spec_assignments load failed: %s", exc)
 
 
+def _extract_task_ids_from_spec_frontmatter(text: str) -> list[str]:
+    """Return bare numeric task IDs from a spec's YAML frontmatter ``tasks:`` list.
+
+    Handles quoted (``- "123"``), unquoted (``- 123``), and arrow-prefixed
+    (``- "→123"``) entries. Returns an empty list when no frontmatter or no
+    ``tasks:`` key is found.
+    """
+    lines = text.split("\n")
+    if not (lines and lines[0].strip() == "---"):
+        return []
+    fm_end: Optional[int] = None
+    for i, line in enumerate(lines[1:], 1):
+        if line.strip() == "---":
+            fm_end = i
+            break
+    if fm_end is None:
+        return []
+    task_ids: list[str] = []
+    in_tasks = False
+    for line in lines[1:fm_end]:
+        stripped = line.strip()
+        if stripped.startswith("tasks:"):
+            in_tasks = True
+            continue
+        if in_tasks:
+            m = re.match(r'^\s+-\s+"?→?(\d+)"?\s*$', line)
+            if m:
+                task_ids.append(m.group(1))
+            elif stripped and not stripped.startswith("-"):
+                in_tasks = False
+    return task_ids
+
+
+def _register_spec_tasks_in_origin(spec_path: str, task_ids: list[str]) -> None:
+    """Populate ``_spec_task_origin`` for tasks not already registered there.
+
+    Called from ``claim_spec`` and ``_rebuild_origin_from_spec_dirs`` so that
+    specs implemented via the claim+direct-agent path (not the Build-it button)
+    are visible to the auto-advance hook when their tasks later close. Existing
+    entries (from ``build_spec``) are never overwritten.
+    """
+    for tid in task_ids:
+        norm = str(tid).strip().lstrip("→")
+        if norm and norm not in _spec_task_origin:
+            _spec_task_origin[norm] = spec_path
+
+
+def _rebuild_origin_from_spec_dirs() -> None:
+    """Augment ``_spec_task_origin`` from spec and draft frontmatter at startup.
+
+    Scans ``~/.youros/specs/`` and ``~/.youros/drafts/`` for spec files that
+    carry a ``tasks:`` frontmatter field and registers any task IDs not already
+    in the map. This closes the S015 gap: specs implemented via claim+direct-
+    agent (not the Build-it button) never called ``build_spec``, so their
+    tasks were not in ``_spec_task_origin``, and the auto-advance hook returned
+    None immediately on every task close.
+
+    Best-effort: IO errors per file are logged and skipped so a malformed spec
+    never breaks startup. Does not call ``_save_assignments``; the disk copy is
+    intentionally build_spec-only so frontmatter entries are re-derived on every
+    restart (they are cheap to scan and always up to date).
+    """
+    from services.youros_paths import specs_dir as _specs_dir, drafts_dir as _drafts_dir
+    for search_dir in (_specs_dir(), _drafts_dir()):
+        if not search_dir.exists():
+            continue
+        for md_file in search_dir.glob("*.md"):
+            try:
+                text = md_file.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                logger.debug("_rebuild_origin_from_spec_dirs: skipping %s: %s", md_file, exc)
+                continue
+            task_ids = _extract_task_ids_from_spec_frontmatter(text)
+            if task_ids:
+                _register_spec_tasks_in_origin(str(md_file), task_ids)
+
+
 _load_assignments()
+_rebuild_origin_from_spec_dirs()
 
 
 async def _ensure_decomposed(spec_path: str) -> list[dict]:
@@ -1909,6 +1987,20 @@ async def claim_spec(spec_path: str, body: _ClaimBody):
     if spec_path not in _spec_claims:
         _spec_claims[spec_path] = []
     _spec_claims[spec_path].append(claim)
+
+    # Register task → spec_path in _spec_task_origin so the auto-advance
+    # hook fires when these tasks later close. build_spec does this too
+    # (line ~3025), but claim_spec is the only entry point for the
+    # claim+direct-agent flow where build_spec is never called. Without
+    # this registration, _advance_spec_status_if_all_builder_tasks_closed_async
+    # returns None immediately for every task close (S015 root cause).
+    if task_ids:
+        abs_spec = Path(os.path.expanduser(spec_path))
+        _register_spec_tasks_in_origin(
+            str(abs_spec) if abs_spec.is_absolute() else spec_path,
+            task_ids,
+        )
+
     _save_assignments()
 
     return {"task_ids": task_ids, "claim": claim}
@@ -2393,21 +2485,24 @@ async def _advance_spec_status_if_all_builder_tasks_closed_async(
         if norm:
             status_by_id[norm] = t.get("status", "open")
 
-    # Treat "registered spec-builder task that is no longer in the task
-    # list" as effectively closed. The builder prompt tells the agent to
-    # DELETE the task row when it finishes so the Tasks page stays clean
-    # after a spec build. Without this check the advancer would read the
-    # default "open" status for the missing task, decide the spec still
-    # has open work, and never flip the spec to ``complete``. sibling_ids
-    # only contains tasks we registered in build_spec, so missing-from-
-    # list unambiguously means the builder finished and cleaned up.
+    # Treat "task that is no longer in ostk's list" as effectively closed.
+    # Build-it agents DELETE their task row on completion to keep the Tasks
+    # page clean. Claim-path agents may also delete or simply never close
+    # their tasks. In either case, missing-from-list means the work is done
+    # (the task was either deleted or the spec was completed externally).
+    # _spec_task_origin is now populated from both build_spec AND from spec
+    # frontmatter via _rebuild_origin_from_spec_dirs / claim_spec, so sibling_ids
+    # covers all registered paths.
     for tid in sibling_ids:
         effective = status_by_id.get(tid, "deleted")
         if effective not in ("closed", "deleted"):
             return None
 
     # Every sibling closed. Rewrite the spec frontmatter.
-    full = Path(config.PROJECT_ROOT) / spec_path
+    # Use expanduser so tilde-prefixed user-local paths (e.g. ~/.youros/specs/foo.md)
+    # resolve correctly. Joining an absolute path onto PROJECT_ROOT yields the
+    # absolute path unchanged, so repo-relative paths still work.
+    full = Path(config.PROJECT_ROOT) / os.path.expanduser(spec_path)
     if not full.exists():
         return None
     try:
