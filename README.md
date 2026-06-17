@@ -73,7 +73,7 @@ source ~/.bashrc
 nvm install 20
 ```
 
-If you have SSH keys set up, you can also use `git clone git@github.com:torimeyer/youros.git ~/myos`.
+For contributors who already have a GitHub SSH key set up: `git clone git@github.com:torimeyer/youros.git ~/myos`
 
 ## Updating
 

@@ -136,20 +136,35 @@ else
 fi
 
 # --- Clone URL ---
-# Must use SSH for private repo access
+# The repo is public, so HTTPS is the primary path — no account or SSH key needed.
+# install.sh keeps SSH as a silent fallback (HTTPS runs first; publickey error never surfaces).
+# README documents SSH only as a "contributors" path, not as an equal alternative to HTTPS.
 
 if grep -q 'git@github.com:' "$DIR/install.sh"; then
-    assert "install.sh uses SSH clone URL" 0
+    assert "install.sh includes SSH clone URL as fallback" 0
 else
-    assert "install.sh uses SSH clone URL" 1
+    assert "install.sh includes SSH clone URL as fallback" 1
 fi
 
-# --- README matches install.sh clone URL ---
+# --- README primary clone URL is HTTPS ---
+
+if grep -q 'https://github.com/torimeyer/youros.git' "$DIR/README.md"; then
+    assert "README primary clone URL uses HTTPS" 0
+else
+    assert "README primary clone URL uses HTTPS" 1
+fi
+
+# --- README SSH clone is gated, not presented as an equal alternative ---
+# If an SSH clone line exists, it must appear on the same line as "contributors" or "advanced".
 
 if grep -q 'git@github.com:' "$DIR/README.md"; then
-    assert "README uses SSH clone URL" 0
+    if grep 'git@github.com:' "$DIR/README.md" | grep -qiE 'contributors?|advanced'; then
+        assert "README SSH clone is gated as contributors-only" 0
+    else
+        assert "README SSH clone is gated as contributors-only" 1
+    fi
 else
-    assert "README uses SSH clone URL" 1
+    assert "README SSH clone is absent (safe)" 0
 fi
 
 # --- npm errors not hidden ---
