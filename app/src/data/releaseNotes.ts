@@ -10,6 +10,25 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.10.0
+  {
+    date: '2026-06-17',
+    label: 'June 17, 2026',
+    entries: [
+      {
+        title: 'Easier first-time install',
+        description: 'The setup guide now leads with the install command everyone can use and marks the sign-in-key method as a contributors-only option, so newcomers no longer hit a confusing permission error.',
+      },
+      {
+        title: 'Text yourOS from your own phone notes',
+        description: 'Messages you send to yourself now reach yourOS, with a safeguard that prevents back-and-forth reply loops.',
+      },
+      {
+        title: 'Your trusted contacts stay put',
+        description: 'Changing your settings no longer erases your saved trusted contacts.',
+      },
+    ],
+  },
   // v5.7.0
   {
     date: '2026-06-06',
