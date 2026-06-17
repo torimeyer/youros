@@ -52,6 +52,7 @@ def test_data_path_joins_under_home(monkeypatch, tmp_path):
 def test_specs_dir_honors_override(monkeypatch, tmp_path):
     monkeypatch.setenv("YOUROS_HOME", str(tmp_path))
     monkeypatch.delenv("MYOS_USER_SPECS_DIR", raising=False)
+    monkeypatch.delenv("YOUROS_USER_SPECS_DIR", raising=False)
     assert yp.specs_dir() == tmp_path / "specs"
     monkeypatch.setenv("MYOS_USER_SPECS_DIR", str(tmp_path / "custom-specs"))
     assert yp.specs_dir() == tmp_path / "custom-specs"

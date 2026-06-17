@@ -813,12 +813,13 @@ class OstkService:
         if not issues_path.exists():
             raise OstkError("issues.jsonl not found")
 
+        norm_target = self._normalize_task_id(task_id)
         lines = issues_path.read_text().strip().splitlines()
         found = False
         updated = []
         for line in lines:
             entry = json.loads(line)
-            if entry.get("id") == task_id:
+            if self._normalize_task_id(entry.get("id", "")) == norm_target:
                 entry["status"] = "open"
                 entry.pop("close_reason", None)
                 entry.pop("closed_at", None)
@@ -1041,12 +1042,13 @@ class OstkService:
         if not issues_path.exists():
             raise OstkError("issues.jsonl not found")
 
+        norm_target = self._normalize_task_id(task_id)
         lines = issues_path.read_text().strip().splitlines()
         found = False
         updated = []
         for line in lines:
             entry = json.loads(line)
-            if entry.get("id") == task_id:
+            if self._normalize_task_id(entry.get("id", "")) == norm_target:
                 entry["priority"] = priority
                 found = True
             updated.append(json.dumps(entry, ensure_ascii=False))
