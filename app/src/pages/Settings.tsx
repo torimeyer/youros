@@ -1547,10 +1547,14 @@ export default function Settings() {
             </div>
             {claudeCodeReady === false && (
               <div className="mt-3 p-3 rounded-lg bg-slate-50/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-sm text-slate-700 dark:text-slate-300" data-testid="claude-login-instructions">
-                <p className="font-medium text-slate-900 dark:text-white mb-1">To sign in with Claude Pro or Max</p>
-                <p>Open your Terminal app and run:</p>
-                <code className="block mt-1.5 px-2 py-1 bg-white dark:bg-slate-900 rounded text-green-600 dark:text-green-400 font-mono text-xs select-all">claude login</code>
-                <p className="mt-2 text-slate-600 dark:text-slate-400 text-xs">Then click Re-check above to confirm it worked.</p>
+                <p className="font-medium text-slate-900 dark:text-white mb-1.5">To sign in with Claude Pro or Max</p>
+                <ol className="list-decimal list-inside space-y-1 text-sm">
+                  <li>Open the Terminal app on your computer.</li>
+                  <li>Type <code className="px-1 py-0.5 bg-white dark:bg-slate-900 rounded text-green-600 dark:text-green-400 font-mono text-xs">claude</code> and press Enter.</li>
+                  <li>A browser window opens. Sign in with the same Claude account you use for your Pro or Max plan.</li>
+                  <li>Come back here and click Re-check.</li>
+                </ol>
+                <p className="mt-2 text-slate-600 dark:text-slate-400 text-xs">Already inside a Claude session? Type <code className="font-mono">/login</code> instead.</p>
               </div>
             )}
           </div>

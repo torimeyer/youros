@@ -831,7 +831,7 @@ describe('Settings', () => {
       expect(chatBackendSection.querySelector('[data-testid="claude-code-ready-indicator"]')).toBeInTheDocument()
     })
 
-    it('shows claude login instructions when Claude is not signed in', async () => {
+    it('shows sign-in instructions when Claude is not signed in', async () => {
       vi.mocked(api.get).mockImplementation((path: string) => {
         if (path === '/settings/chat-backend-status') return Promise.resolve({ claude_code_available: false })
         return Promise.resolve({})
@@ -840,10 +840,10 @@ describe('Settings', () => {
       await waitFor(() => {
         expect(screen.getByTestId('claude-login-instructions')).toBeInTheDocument()
       })
-      expect(screen.getByText(/claude login/i)).toBeInTheDocument()
+      expect(screen.getByText(/open the terminal app/i)).toBeInTheDocument()
     })
 
-    it('does not show claude login instructions when Claude is signed in', async () => {
+    it('does not show sign-in instructions when Claude is signed in', async () => {
       vi.mocked(api.get).mockImplementation((path: string) => {
         if (path === '/settings/chat-backend-status') return Promise.resolve({ claude_code_available: true })
         return Promise.resolve({})
