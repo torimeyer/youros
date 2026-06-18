@@ -1246,6 +1246,158 @@ def test_refresh_if_needed_invalid_grant_marks_revoked_and_raises(tmp_path):
     assert saved.get("revoked") is True
 
 
+# reconnect clears revoked flag tests (infinite-reconnect-loop regression)
+# ---------------------------------------------------------------------------
+
+
+def test_exchange_code_clears_revoked_flag_from_previous_invalid_grant(tmp_path):
+    """exchange_code must write a token without revoked:True even when the
+    previous token had revoked:True from an earlier invalid_grant failure.
+
+    Before this fix, exchange_code wrote Google's raw response which doesn't
+    include revoked at all, but _refresh_if_needed (called immediately by the
+    post-auth prewarm) saw expires_at=0 and tried to refresh. If that refresh
+    failed it wrote revoked:True again, making the Reconnect loop infinite.
+    """
+    import io
+    import time
+    import urllib.error
+    from services.google_auth import exchange_code
+
+    token_path = tmp_path / "google_token.json"
+    # Simulate the state the user is in: token with revoked:True
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.old",
+        "refresh_token": "1//old",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly",
+        "revoked": True,
+    }))
+
+    # Simulate a successful Google token exchange response (no revoked field)
+    google_response = json.dumps({
+        "access_token": "ya29.fresh",
+        "refresh_token": "1//new",
+        "expires_in": 3600,
+        "scope": "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.modify",
+        "token_type": "Bearer",
+    }).encode()
+
+    class _FakeResp:
+        def read(self):
+            return google_response
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            pass
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth._load_client_config", return_value={"client_id": "cid", "client_secret": "csec"}),
+        patch("services.google_auth._invalidate_google_status_cache"),
+        patch("urllib.request.urlopen", return_value=_FakeResp()),
+    ):
+        exchange_code("auth-code", "https://example.com/callback")
+
+    saved = json.loads(token_path.read_text())
+    # (a) revoked flag must be gone after reconnect
+    assert "revoked" not in saved or saved.get("revoked") is not True, (
+        "exchange_code must not write revoked:True — reconnect loop would persist"
+    )
+    # (b) expires_at must be set so _refresh_if_needed doesn't immediately
+    # try to refresh the brand-new access token and potentially re-set revoked
+    assert "expires_at" in saved, "exchange_code must set expires_at from expires_in"
+    assert saved["expires_at"] > time.time(), "expires_at must be in the future"
+
+
+def test_save_token_clears_revoked_flag(tmp_path):
+    """save_token must never persist revoked:True from the caller's dict.
+
+    The Gemini-AI callback path uses save_token with a fresh token from
+    Google. Even if a caller accidentally passes a dict with revoked:True
+    (e.g. by spreading an old token), save_token must not write it.
+    """
+    from services.google_auth import save_token
+
+    token_path = tmp_path / "google_token.json"
+    token_with_revoked = {
+        "access_token": "ya29.fresh",
+        "refresh_token": "1//new",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly",
+        "revoked": True,  # defensive: caller should not pass this, but we clear it anyway
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.MYOS_DIR", tmp_path),
+        patch("services.google_auth._invalidate_google_status_cache"),
+    ):
+        save_token(token_with_revoked)
+
+    saved = json.loads(token_path.read_text())
+    assert "revoked" not in saved or saved.get("revoked") is not True, (
+        "save_token must strip revoked:True before writing"
+    )
+    # original dict must not be mutated
+    assert token_with_revoked.get("revoked") is True, "save_token must not mutate caller's dict"
+
+
+@pytest.mark.asyncio
+async def test_gmail_status_no_reauth_after_reconnect_from_revoked_state(client, tmp_path):
+    """After a successful reconnect, needs_reauth must flip to False.
+
+    Regression for the infinite-reconnect loop: previously the token file kept
+    revoked:True after reconnect because exchange_code didn't set expires_at,
+    causing _refresh_if_needed (called by the prewarm) to attempt a refresh
+    immediately. If that refresh failed it wrote revoked:True right back.
+    """
+    from services import connections_cache
+
+    token_path = tmp_path / "google_token.json"
+
+    # Step 1: start in the revoked state — status is needs_reauth=True
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.expired",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly",
+        "revoked": True,
+    }))
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        connections_cache.invalidate("gmail_auth_status")
+        resp = await client.get("/api/gmail/auth/status")
+
+    assert resp.json()["needs_reauth"] is True, "pre-condition: revoked token must report needs_reauth"
+
+    # Step 2: simulate a successful reconnect — save_token writes fresh credentials
+    from services.google_auth import save_token
+
+    fresh_token = {
+        "access_token": "ya29.fresh",
+        "refresh_token": "1//new_refresh",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.modify",
+        "expires_in": 3600,
+    }
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.MYOS_DIR", tmp_path),
+    ):
+        save_token(fresh_token)  # this also calls _invalidate_google_status_cache
+
+    # Step 3: after reconnect, status must return needs_reauth=False
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        connections_cache.invalidate("gmail_auth_status")
+        resp = await client.get("/api/gmail/auth/status")
+
+    data = resp.json()
+    # (a) stored token no longer has revoked
+    saved = json.loads(token_path.read_text())
+    assert saved.get("revoked") is not True, "token must not carry revoked:True after reconnect"
+    # (b) status endpoint sees needs_reauth=False
+    assert data["needs_reauth"] is False, (
+        f"needs_reauth must be False after reconnect, got: {data}"
+    )
+    assert data["authenticated"] is True
+
+
 def test_permanent_delete_calls_gmail_delete():
     """The permanent path must call messages().delete(), which is irreversible."""
     import asyncio as _asyncio

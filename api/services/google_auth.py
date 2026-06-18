@@ -170,6 +170,16 @@ def exchange_code(code: str, redirect_uri: str) -> None:
     with urllib.request.urlopen(req) as resp:
         tokens = json.loads(resp.read())
 
+    # Clear any stale revoked flag from a previous invalid_grant failure.
+    # Without this, _refresh_if_needed can re-introduce revoked:True during
+    # the post-auth prewarm if the refresh attempt fails (the prewarm is called
+    # immediately after exchange_code and sees expires_at=0 → tries to refresh).
+    tokens.pop("revoked", None)
+    # Set expires_at from expires_in so _refresh_if_needed recognises the brand-
+    # new access token as fresh and skips the unnecessary refresh attempt.
+    # Google returns expires_in (seconds) but not expires_at (absolute timestamp).
+    if "expires_in" in tokens:
+        tokens["expires_at"] = time.time() + int(tokens["expires_in"])
     # Store raw tokens (includes refresh_token on first auth).
     # Atomic write so a crash mid-save never leaves a half-written
     # token file that forces Tori to re-auth.
@@ -280,6 +290,8 @@ def get_credentials() -> dict:
 def save_token(tokens: dict) -> None:
     """Persist a token dict to TOKEN_PATH and invalidate connection caches."""
     _ensure_dirs()
+    tokens = {**tokens}  # don't mutate caller's dict
+    tokens.pop("revoked", None)  # clear any stale revoked flag on every save
     atomic_write_text(TOKEN_PATH, json.dumps(tokens))
     _invalidate_google_status_cache()
 
