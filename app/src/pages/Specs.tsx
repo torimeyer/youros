@@ -162,27 +162,6 @@ function StageChip({ stage, title }: { stage: string; title?: string }) {
 }
 
 
-// --- Task progress bar component ---
-
-function TaskProgressBar({ summary }: { summary: TaskSummary }) {
-  const { total, closed } = summary;
-  if (total === 0) return null;
-  const pct = Math.round((closed / total) * 100);
-  return (
-    <div className="flex items-center gap-2" data-testid="task-progress">
-      <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden max-w-[120px]">
-        <div
-          className="h-full bg-blue-500 rounded-full transition-all"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <span className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
-        {closed}/{total} built
-      </span>
-    </div>
-  );
-}
-
 // --- Simple markdown body renderer ---
 
 export function SpecBody({ body }: { body: string }) {
