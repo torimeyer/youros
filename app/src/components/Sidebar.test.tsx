@@ -756,6 +756,15 @@ describe('Sidebar grouped nav', () => {
     expect(saved.integrations).toBe(true)
   })
 
+  it('does NOT collapse Integrations when a returning user already has a saved expanded state', () => {
+    // Returning user explicitly expanded Integrations — their choice must win.
+    // The first-run default must NOT override saved state.
+    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: false }))
+    renderSidebar('/')
+    expect(screen.getByTestId('group-items-integrations')).toBeInTheDocument()
+    expect(screen.getByText('Gmail')).toBeInTheDocument()
+  })
+
   it('expanded Integrations group shows all sub-items including Jira and Confluence', () => {
     renderSidebar()
     // Ensure integrations is expanded (click header to expand if collapsed)
