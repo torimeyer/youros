@@ -177,7 +177,7 @@ function TaskProgressBar({ summary }: { summary: TaskSummary }) {
         />
       </div>
       <span className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
-        {closed}/{total} tasks
+        {closed}/{total} built
       </span>
     </div>
   );
@@ -1431,33 +1431,37 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                       </div>
                       <div className="flex items-center gap-4 flex-shrink-0">
                         {doc.no_ac_needed ? (
-                          <span className="text-slate-500 text-[10px] font-medium uppercase tracking-wider hidden md:block">
+                          <span className="text-slate-500 text-[11px] font-medium hidden md:block">
                             No AC
                           </span>
-                        ) : criteria.length > 0 ? (
-                          <div className="hidden md:flex items-center gap-2">
-                            <span
-                              className="text-slate-500 text-[10px] font-medium uppercase tracking-wider"
-                              title={`${criteria.filter((c) => c.checked).length} of ${criteria.length} acceptance criteria complete`}
-                            >
-                              {criteria.filter((c) => c.checked).length} of {criteria.length} done
-                            </span>
-                            {criteria.every((c) => c.checked) && (
-                              <span
-                                className="text-[10px] font-bold text-emerald-500 uppercase tracking-tight bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20"
-                                data-testid="ready-to-build-label"
-                              >
-                                Ready to build
-                              </span>
+                        ) : (criteria.length > 0 || hasTaskSummary) ? (
+                          <div
+                            className="hidden md:flex items-center gap-1.5 text-[11px] font-medium text-slate-500"
+                            data-testid="spec-progress-strip"
+                          >
+                            {criteria.length > 0 && criteria.every((c) => c.checked) && (
+                              <>
+                                <span
+                                  className="text-emerald-500"
+                                  data-testid="ready-to-build-label"
+                                >
+                                  Ready
+                                </span>
+                                <span>·</span>
+                              </>
+                            )}
+                            {criteria.length > 0 && (
+                              <span>✓ {criteria.filter((c) => c.checked).length}/{criteria.length} verified</span>
+                            )}
+                            {criteria.length > 0 && hasTaskSummary && <span>·</span>}
+                            {hasTaskSummary && (
+                              <span>🔨 {doc.task_summary!.closed}/{doc.task_summary!.total} built</span>
                             )}
                           </div>
                         ) : (
-                          <span className="text-slate-500 text-[10px] font-medium uppercase tracking-wider hidden md:block">
+                          <span className="text-slate-500 text-[11px] font-medium hidden md:block">
                             No criteria yet
                           </span>
-                        )}
-                        {hasTaskSummary && (
-                          <TaskProgressBar summary={doc.task_summary!} />
                         )}
                         {doc.created_at && (
                           <span className="text-slate-600 text-xs hidden sm:block">
