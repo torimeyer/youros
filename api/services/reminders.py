@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -17,6 +18,8 @@ from zoneinfo import ZoneInfo
 import services.notifications as notif
 import services.imessage as imessage
 from services.youros_paths import youros_home
+
+logger = logging.getLogger(__name__)
 
 _MYOS_DIR = youros_home()
 REMINDERS_PATH = _MYOS_DIR / "reminders.json"
@@ -57,7 +60,11 @@ _CHANNEL_RE = re.compile(
     r"\b(text\s+me|via\s+sms|in\s+slack|via\s+slack|email\s+me|via\s+email)\b",
     re.IGNORECASE,
 )
+# "text me at 3pm to call the vet" — leading "text me" phrasing (AC3)
+_TEXT_ME_PREFIX_RE = re.compile(r"^text\s+me\b", re.IGNORECASE)
 _REMIND_ME_RE = re.compile(r"remind\s+me\s+to\s+(.+)", re.IGNORECASE)
+# "text me at TIME to X" body extraction
+_TEXT_ME_BODY_RE = re.compile(r"^text\s+me\b.*?\bto\s+(.+)", re.IGNORECASE)
 
 
 def _parse_hm(text: str) -> Optional[tuple[int, int]]:
@@ -95,7 +102,11 @@ def parse_reminder(
     tz: str = "UTC",
     now: Optional[datetime] = None,
 ) -> dict:
-    """Parse a natural-language reminder phrase into {text, fire_at_utc, channel}."""
+    """Parse a natural-language reminder phrase into {text, fire_at_utc, channel, has_time}.
+
+    has_time is True when a specific time was found in the input; False means
+    the caller should ask the user for a time rather than silently defaulting.
+    """
     zone = ZoneInfo(tz)
     if now is None:
         now = datetime.now(zone)
@@ -104,21 +115,30 @@ def parse_reminder(
     local_now = now.astimezone(zone)
 
     channel = "default"
-    cm = _CHANNEL_RE.search(text)
-    if cm:
-        kw = cm.group(1).lower().replace(" ", "")
-        if "text" in kw or "sms" in kw:
-            channel = "sms"
-        elif "slack" in kw:
-            channel = "slack"
-        elif "email" in kw:
-            channel = "email"
+    # "text me at TIME to X" prefix sets sms channel (AC3)
+    if _TEXT_ME_PREFIX_RE.match(text):
+        channel = "sms"
+    else:
+        cm = _CHANNEL_RE.search(text)
+        if cm:
+            kw = cm.group(1).lower().replace(" ", "")
+            if "text" in kw or "sms" in kw:
+                channel = "sms"
+            elif "slack" in kw:
+                channel = "slack"
+            elif "email" in kw:
+                channel = "email"
 
     is_tomorrow = bool(_TOMORROW_RE.search(text))
     rel_m = _RELATIVE_RE.search(text)
 
-    body_m = _REMIND_ME_RE.search(text)
-    raw_body = body_m.group(1) if body_m else text
+    # Extract reminder body text
+    if _TEXT_ME_PREFIX_RE.match(text):
+        body_m = _TEXT_ME_BODY_RE.match(text)
+        raw_body = body_m.group(1) if body_m else text
+    else:
+        body_m = _REMIND_ME_RE.search(text)
+        raw_body = body_m.group(1) if body_m else text
     clean = _strip_meta(raw_body)
 
     if rel_m:
@@ -133,9 +153,11 @@ def parse_reminder(
             "text": clean,
             "fire_at_utc": fire_utc,
             "channel": channel,
+            "has_time": True,
         }
 
     hm = _parse_hm(text)
+    has_time = hm is not None
     h, mn = hm if hm else (9, 0)
 
     target_date = local_now.date()
@@ -151,6 +173,7 @@ def parse_reminder(
         "text": clean,
         "fire_at_utc": fire_local.astimezone(timezone.utc),
         "channel": channel,
+        "has_time": has_time,
     }
 
 
@@ -200,6 +223,21 @@ def cancel_reminder(reminder_id: str) -> bool:
             break
     _save(rows)
     return found
+
+
+def snooze_reminder(reminder_id: str, *, now: Optional[datetime] = None) -> Optional[dict]:
+    """Re-queue a reminder 15 minutes from now. Returns the updated row or None if not found."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    rows = _load()
+    for r in rows:
+        if r["id"] == reminder_id:
+            r["fire_at_utc"] = (now + timedelta(minutes=15)).isoformat()
+            r["status"] = "scheduled"
+            r.pop("delivered_at", None)
+            _save(rows)
+            return r
+    return None
 
 
 def due_reminders(*, now: Optional[datetime] = None) -> list[dict]:
@@ -295,6 +333,21 @@ def choose_default_channel(settings: dict) -> str:
 
 
 def _select_default_channel(settings: dict) -> str:
+    # AC20: honor explicit override from settings.json
+    preferred = settings.get("default_reminder_channel")
+    if preferred:
+        _CONFIGURED = {
+            "sms": _sms_configured,
+            "imessage": _imessage_configured,
+            "slack": _slack_configured,
+            "email": _email_configured,
+            "in_app": lambda s: True,
+        }
+        checker = _CONFIGURED.get(preferred)
+        if checker and checker(settings):
+            return preferred
+        # preferred channel is not configured; fall through to priority order
+
     if _sms_configured(settings):
         return "sms"
     if _imessage_configured(settings):
@@ -349,7 +402,14 @@ async def dispatch_reminder(reminder: dict, *, settings: dict) -> dict:
                 outside_error = str(exc)
     elif channel == "sms":
         phone = settings.get("phone_number", "")
-        if phone:
+        if not phone or not _sms_configured(settings):
+            # AC11: sms requested but not configured — fall back to in_app
+            logger.warning(
+                "Reminder %s: channel=sms but SMS is not configured (no phone_number or sms_provider.json); falling back to in_app",
+                reminder.get("id"),
+            )
+            outside_error = "SMS not configured: no phone number set"
+        elif phone:
             try:
                 res = await send_sms_reminder(phone, text)
                 outside_ok = res.get("ok", False)

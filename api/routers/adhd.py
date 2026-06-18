@@ -44,12 +44,32 @@ async def patch_adhd_config(body: dict):
     return current
 
 
+def _get_focus_reminders() -> list[dict]:
+    """Return reminders due within the next 60 minutes (for Focus view, AC19)."""
+    from datetime import datetime, timedelta, timezone
+    import services.reminders as rem_svc
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(minutes=60)
+    result = []
+    for r in rem_svc.list_upcoming():
+        try:
+            fire = datetime.fromisoformat(r["fire_at_utc"])
+            if fire.tzinfo is None:
+                fire = fire.replace(tzinfo=timezone.utc)
+            if now <= fire <= cutoff:
+                result.append(r)
+        except (KeyError, ValueError):
+            continue
+    return result
+
+
 @router.get("/adhd/context-rebuild")
 async def context_rebuild():
     """Synthesize a 'where you left off' summary.
 
     Pulls the most recent in-progress tasks, running/recently-finished
     agents, and last chat message to give a quick orientation on return.
+    When focus_mode is on, includes reminders due within the next 60 min.
     """
     from routers.agents import agent_metadata
     from services.agent_filters import is_user_spawned_agent
@@ -98,13 +118,20 @@ async def context_rebuild():
 
     next_step = _suggest_next_step(active_agents, recent_agents, in_progress_tasks)
 
-    return {
+    # AC19: include reminders due in the next 60 min when focus_mode is on
+    adhd_config = _get_adhd_config()
+    focus_reminders = _get_focus_reminders() if adhd_config.get("focus_mode") else []
+
+    result: dict = {
         "active_agents": active_agents,
         "recent_agents": recent_agents,
         "in_progress_tasks": in_progress_tasks,
         "last_chat": last_chat,
         "next_step": next_step,
     }
+    if focus_reminders:
+        result["focus_reminders"] = focus_reminders
+    return result
 
 
 @router.get("/adhd/check-in")
