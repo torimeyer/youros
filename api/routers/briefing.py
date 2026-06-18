@@ -16,6 +16,8 @@ import time
 
 from fastapi import APIRouter
 
+from datetime import datetime, timedelta, timezone
+
 from services.briefing import (
     _task_count_changed,
     dismiss_briefing,
@@ -25,6 +27,24 @@ from services.briefing import (
     get_cached_briefing,
     should_show_briefing,
 )
+import services.reminders as _reminders_svc
+
+
+def _get_reminders_today() -> list[dict]:
+    """Return scheduled reminders due in the next 24 hours (AC17/18)."""
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(hours=24)
+    result = []
+    for r in _reminders_svc.list_upcoming():
+        try:
+            fire = datetime.fromisoformat(r["fire_at_utc"])
+            if fire.tzinfo is None:
+                fire = fire.replace(tzinfo=timezone.utc)
+            if now <= fire <= cutoff:
+                result.append(r)
+        except (KeyError, ValueError):
+            continue
+    return result
 
 logger = logging.getLogger(__name__)
 
@@ -106,13 +126,18 @@ async def get_briefing():
 
     cached = get_cached_briefing()
     action_items = get_cached_action_items() or []
+    # AC17/18: include upcoming reminders (omit key when list is empty)
+    reminders_today = _get_reminders_today()
 
     if cached:
         # Return the cached briefing right now. Check for staleness and
         # potentially regenerate in the background so this handler stays
         # under a few milliseconds on the happy path.
         asyncio.create_task(_maybe_regenerate_if_changed())
-        return {"show": True, "briefing": cached, "action_items": action_items}
+        resp = {"show": True, "briefing": cached, "action_items": action_items}
+        if reminders_today:
+            resp["reminders_today"] = reminders_today
+        return resp
 
     # Cooldown: if we just fired a generation within the last 2 min,
     # do not spawn another one. Return null briefing so the frontend
@@ -122,11 +147,17 @@ async def get_briefing():
         _last_generated_at
         and (time.monotonic() - _last_generated_at) < _REGENERATE_COOLDOWN_SECONDS
     ):
-        return {"show": True, "briefing": None, "action_items": action_items}
+        resp = {"show": True, "briefing": None, "action_items": action_items}
+        if reminders_today:
+            resp["reminders_today"] = reminders_today
+        return resp
 
     # Return immediately, generate in background
     asyncio.create_task(_generate_in_background())
-    return {"show": True, "briefing": None, "action_items": []}
+    resp = {"show": True, "briefing": None, "action_items": []}
+    if reminders_today:
+        resp["reminders_today"] = reminders_today
+    return resp
 
 
 @router.post("/briefing/dismiss")

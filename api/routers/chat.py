@@ -1299,15 +1299,34 @@ async def _handle_list_tasks(text: str, websocket: WebSocket) -> bool:
 
 
 async def _handle_remind_me(text: str, websocket: WebSocket, tab_id: str = "", data: dict = None) -> bool:
-    """Detect 'remind me to X at TIME' and create a reminder without hitting the AI."""
+    """Detect reminder intent and create a reminder without hitting the AI.
+
+    Handles both 'remind me to X at TIME' and 'text me at TIME to X' (AC3).
+    Uses UTC as default timezone when none is configured (AC21).
+    Asks for clarification when no time can be parsed (AC6/AC13).
+    Includes the delivery channel in the confirmation message (AC12).
+    """
     import re as _re
-    if not _re.search(r"\bremind\s+me\s+to\b", text, _re.IGNORECASE):
+    _REMIND_PATTERN = _re.compile(
+        r"\bremind\s+me\s+to\b|\btext\s+me\b",
+        _re.IGNORECASE,
+    )
+    if not _REMIND_PATTERN.search(text):
         return False
     try:
         from services import reminders as _rem
         from services.settings_store import settings_store as _ss
-        tz = _ss.get("time_zone") or _ss.get("timezone") or "America/Chicago"
+        # AC21: default to UTC, not America/Chicago
+        tz = _ss.get("time_zone") or _ss.get("timezone") or "UTC"
         parsed = _rem.parse_reminder(text, tz=tz)
+
+        # AC6/AC13: if no time was found, ask rather than guess
+        if not parsed.get("has_time", True):
+            clarification = f"What time should I remind you to {parsed['text'].lower()}?"
+            await websocket.send_json({"type": "token", "data": clarification})
+            await websocket.send_json({"type": "done"})
+            return True
+
         r = _rem.create_reminder(
             text=parsed["text"],
             fire_at_utc=parsed["fire_at_utc"],
@@ -1316,7 +1335,25 @@ async def _handle_remind_me(text: str, websocket: WebSocket, tab_id: str = "", d
         )
         fire_local = parsed["fire_at_utc"].astimezone(__import__("zoneinfo").ZoneInfo(tz))
         time_str = fire_local.strftime("%-I:%M %p on %a, %b %-d")
-        msg = f"Got it. I'll remind you to {r['text'].lower()} at {time_str}."
+
+        # AC12: include channel in confirmation
+        channel = r.get("channel", "default")
+        _CHANNEL_LABELS = {
+            "sms": "text message",
+            "email": "email",
+            "slack": "Slack",
+            "imessage": "iMessage",
+            "in_app": "in-app notification",
+            "default": "notification",
+        }
+        channel_label = _CHANNEL_LABELS.get(channel, channel)
+
+        # AC21: note UTC when timezone is not set
+        tz_note = ""
+        if not (_ss.get("time_zone") or _ss.get("timezone")):
+            tz_note = " (times are in UTC since no timezone is set)"
+
+        msg = f"Got it. I'll remind you to {r['text'].lower()} at {time_str} via {channel_label}{tz_note}."
         await websocket.send_json({"type": "token", "data": msg})
         await websocket.send_json({"type": "done"})
         return True
