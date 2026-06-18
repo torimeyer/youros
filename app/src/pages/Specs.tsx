@@ -404,7 +404,7 @@ function LinkedTasksList({
             className="text-xs text-blue-700 dark:text-blue-300 font-medium"
             data-testid="build-progress-count"
           >
-            {closedCount} of {tasks.length} tasks built
+            🔨 {closedCount}/{tasks.length} built
           </span>
         )}
       </div>

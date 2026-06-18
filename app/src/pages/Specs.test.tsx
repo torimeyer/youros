@@ -1123,7 +1123,7 @@ describe('Specs page', () => {
     expect(screen.getAllByTestId('task-building-label').length).toBe(2)
     const agentLinks = screen.getAllByTestId('task-agent-link')
     expect(agentLinks.map((a) => a.textContent)).toEqual(['spec-auth-001', 'spec-auth-002'])
-    expect(screen.getByTestId('build-progress-count').textContent).toContain('0 of 2 tasks built')
+    expect(screen.getByTestId('build-progress-count').textContent).toContain('0/2 built')
   })
 
   it('Build polls task status every 2 seconds and flips to checkmark on close', async () => {
