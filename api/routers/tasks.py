@@ -1189,7 +1189,6 @@ def _clean_task_title(title: str) -> str:
         "claude": "Claude",
         "gemini": "Gemini",
         "anthropic": "Anthropic",
-        "new relic": "New Relic",
     }
 
     for wrong, right in proper_nouns.items():

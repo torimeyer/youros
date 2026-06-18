@@ -9,7 +9,7 @@ cd "$DIR"
 
 # Data dir honors YOUROS_HOME so `YOUROS_HOME=/tmp/... ./start.sh` runs a
 # fully throwaway profile. Defaults to ~/.youros. (The .myos->.youros
-# migration block below is owned by the nr-enterprise overlay.)
+# migration block below is owned by a private downstream overlay.)
 YDATA="${YOUROS_HOME:-$HOME/.youros}"
 
 # Colors

@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-05 (triage run 2026-05-06)
 **Worktrees inspected**: 52 (all `agent-*` except the triage worktree itself)
-**Dead branches inspected**: 3 (`nr-enterprise-rebase-*`)
+**Dead branches inspected**: 3 (`private-overlay-rebase-*`)
 **Total rows**: 55
 **Counts**: KEEP=0 DROP=42 INVESTIGATE=10 (worktrees) + DROP=3 (branches)
 
@@ -78,13 +78,13 @@
 
 ---
 
-## Per-Branch Table (3 leftover `nr-enterprise-rebase-*` branches)
+## Per-Branch Table (3 leftover `private-overlay-rebase-*` branches)
 
 | branch name | state | latest commit msg | rec | evidence |
 |---|---|---|---|---|
-| nr-enterprise-rebase-try | unmerged-1 | feat: NR enterprise overlay rebased on current main | DROP | Name ("rebase-try") signals an experimental attempt. Commit is a full-overlay rebase snapshot. Superseded by v3 and v3-inline attempts, none of which are the canonical `nr-enterprise` branch. |
-| nr-enterprise-rebase-v3 | unmerged-1 | feat: NR enterprise overlay rebased on current main (includes v3.10.0) | DROP | One of three redundant rebase-attempt branches. Not the live `nr-enterprise` branch. No unique content vs. v3-inline — both include v3.10.0 overlay on the same base message. |
-| nr-enterprise-rebase-v3-inline | unmerged-1 | feat: NR enterprise overlay rebased on current main (includes v3.10.0) | DROP | Identical commit message to v3. Likely a second rebase attempt inlining the overlay differently. No unique content recoverable from either v3 branch beyond what `nr-enterprise` already carries. |
+| private-overlay-rebase-try | unmerged-1 | feat: private overlay rebased on current main | DROP | Name ("rebase-try") signals an experimental attempt. Commit is a full-overlay rebase snapshot. Superseded by v3 and v3-inline attempts, none of which are the canonical private overlay branch. |
+| private-overlay-rebase-v3 | unmerged-1 | feat: private overlay rebased on current main (includes v3.10.0) | DROP | One of three redundant rebase-attempt branches. Not the live private overlay branch. No unique content vs. v3-inline — both include v3.10.0 overlay on the same base message. |
+| private-overlay-rebase-v3-inline | unmerged-1 | feat: private overlay rebased on current main (includes v3.10.0) | DROP | Identical commit message to v3. Likely a second rebase attempt inlining the overlay differently. No unique content recoverable from either v3 branch beyond what the private overlay already carries. |
 
 ---
 
@@ -154,9 +154,9 @@ These all have their work on main (Task match, subject match, or confirmed cherr
 
 #### Branches to delete (`git branch -D <name>`)
 
-43. nr-enterprise-rebase-try
-44. nr-enterprise-rebase-v3
-45. nr-enterprise-rebase-v3-inline
+43. private-overlay-rebase-try
+44. private-overlay-rebase-v3
+45. private-overlay-rebase-v3-inline
 
 ---
 
@@ -192,7 +192,7 @@ For each: owner should run `git -C .claude/worktrees/<name> diff` and `git -C .c
 | Worktree count before | 54 |
 | Worktree count after | 12 (10 INVESTIGATE + triage agent + main) |
 | INVESTIGATE worktrees touched | 0 (none) |
-| `nr-enterprise` branch (the real one) | intact |
+| private overlay branch (the real one) | intact |
 
 ### Worktrees removed (42 / 42)
 
@@ -245,7 +245,7 @@ For each: owner should run `git -C .claude/worktrees/<name> diff` and `git -C .c
 
 | # | status | branch | notes |
 |---|---|---|---|
-| 43 | ✓ | nr-enterprise-rebase-try | — |
-| 44 | ✓ | nr-enterprise-rebase-v3 | — |
-| 45 | ✓ | nr-enterprise-rebase-v3-inline | — |
+| 43 | ✓ | private-overlay-rebase-try | — |
+| 44 | ✓ | private-overlay-rebase-v3 | — |
+| 45 | ✓ | private-overlay-rebase-v3-inline | — |
 
