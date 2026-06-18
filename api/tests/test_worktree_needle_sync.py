@@ -148,6 +148,72 @@ async def test_needle_filed_directly_matches_worktree_filed(
     assert "worktree needle" in titles
 
 
+# Repo root is two levels above api/tests/; guaranteed to have .ostk/ so
+# ostk kernel ps can actually reach the daemon instead of erroring out with
+# "no .ostk/ directory found in any parent" when pytest is invoked from an
+# unrelated directory.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _ostk_daemon_running() -> bool:
+    """Return True if the ostk daemon is running in this project's context.
+
+    Two bugs existed in the previous inline check:
+      1. No cwd was passed, so the subprocess inherited pytest's cwd.
+         When that cwd has no .ostk/ ancestor (e.g. CI temp dir) ostk
+         exits 1 with empty stdout — daemon goes undetected.
+      2. "daemon running" is a substring of "no daemon running", so the
+         old `in` check produced false-positive skips when no daemon ran.
+    Fix: pin cwd to _REPO_ROOT (always has .ostk/) and use startswith()
+    instead of `in` to distinguish the two output lines.
+    """
+    probe = subprocess.run(
+        ["ostk", "kernel", "ps"],
+        capture_output=True, text=True, timeout=5,
+        cwd=str(_REPO_ROOT),
+    )
+    return probe.returncode == 0 and probe.stdout.strip().startswith("daemon running")
+
+
+def test_daemon_detection_no_false_positive_on_no_daemon_output():
+    """'no daemon running' must NOT be detected as daemon running (substring bug)."""
+    from unittest.mock import MagicMock, patch
+
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = "no daemon running\n"
+    mock_result.stderr = ""
+    with patch("subprocess.run", return_value=mock_result):
+        assert not _ostk_daemon_running(), (
+            "'no daemon running' must return False — 'daemon running' is a substring "
+            "of 'no daemon running' and the old `in` check silently matched it"
+        )
+
+
+def test_daemon_detection_true_when_running():
+    """'daemon running (pid X ...)' must be detected as daemon running."""
+    from unittest.mock import MagicMock, patch
+
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = "daemon running (pid 1234, socket /path/.ostk/ostk.sock)\n"
+    mock_result.stderr = ""
+    with patch("subprocess.run", return_value=mock_result):
+        assert _ostk_daemon_running()
+
+
+def test_daemon_detection_false_on_ostk_error():
+    """Non-zero returncode (e.g. no .ostk/ ancestor) must return False."""
+    from unittest.mock import MagicMock, patch
+
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stdout = ""
+    mock_result.stderr = "error: no .ostk/ directory found in any parent\n"
+    with patch("subprocess.run", return_value=mock_result):
+        assert not _ostk_daemon_running()
+
+
 def test_worktree_without_needles_symlink_fails_ostk_add(ostk_main_repo: Path, tmp_path: Path):
     """Without the symlink fix, ostk work add fails with a lock error.
 
@@ -158,13 +224,7 @@ def test_worktree_without_needles_symlink_fails_ostk_add(ostk_main_repo: Path, t
     missing directory, which is correct behaviour but means the daemon-down
     path cannot be exercised in this environment.
     """
-    # Detect if the ostk daemon is running — the daemon routes around the
-    # missing needles/ dir, making this test impossible to exercise.
-    probe = subprocess.run(
-        ["ostk", "kernel", "ps"],
-        capture_output=True, text=True, timeout=5,
-    )
-    if "daemon running" in probe.stdout or "daemon running" in probe.stderr:
+    if _ostk_daemon_running():
         pytest.skip("ostk daemon is running — routes around missing needles/, daemon-down path not exercisable")
 
     wt_path = tmp_path / "broken_worktree"
