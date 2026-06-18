@@ -222,17 +222,51 @@ describe('Specs page', () => {
     expect(screen.queryAllByTestId('status-badge')).toHaveLength(0)
   })
 
-  it('shows task progress bar for specs with task summary', async () => {
+  it('shows spec-progress-strip with verified and built counts on the spec card', async () => {
     renderSpecs()
 
     await waitFor(() => {
       expect(screen.getByText('dashboard redesign')).toBeInTheDocument()
     })
 
-    const progressBars = screen.getAllByTestId('task-progress')
-    expect(progressBars.length).toBeGreaterThanOrEqual(1)
-    // dashboard redesign has 2/4 tasks
-    expect(screen.getByText('2/4 tasks')).toBeInTheDocument()
+    // dashboard redesign: 1/2 criteria checked, task_summary 2/4 closed
+    const strips = screen.getAllByTestId('spec-progress-strip')
+    expect(strips.length).toBeGreaterThanOrEqual(1)
+    // uses "built" not bare "tasks"
+    expect(screen.getByText(/2\/4 built/)).toBeInTheDocument()
+    // old "N of N done" format must not appear
+    expect(screen.queryByText(/\d+ of \d+ done/)).not.toBeInTheDocument()
+  })
+
+  it('strip shows Ready label when all criteria are verified', async () => {
+    renderSpecs()
+
+    // settings page has all criteria checked
+    await waitFor(() => expect(screen.getByText('settings page')).toBeInTheDocument())
+    const cards = screen.getAllByTestId('spec-card')
+    const settingsCard = cards.find(c => c.textContent?.includes('settings page'))!
+    expect(settingsCard).toBeDefined()
+
+    const strip = settingsCard.querySelector('[data-testid="spec-progress-strip"]')
+    expect(strip).not.toBeNull()
+    const readyLabel = strip!.querySelector('[data-testid="ready-to-build-label"]')
+    expect(readyLabel).not.toBeNull()
+    expect(readyLabel!.textContent).toBe('Ready')
+    expect(strip!.textContent).toContain('verified')
+  })
+
+  it('strip does not show Ready label when some criteria are not verified', async () => {
+    renderSpecs()
+
+    // dashboard redesign: 1 of 2 criteria checked, not all done
+    await waitFor(() => expect(screen.getByText('dashboard redesign')).toBeInTheDocument())
+    const cards = screen.getAllByTestId('spec-card')
+    const dashCard = cards.find(c => c.textContent?.includes('dashboard redesign'))!
+    expect(dashCard).toBeDefined()
+
+    const strip = dashCard.querySelector('[data-testid="spec-progress-strip"]')
+    expect(strip).not.toBeNull()
+    expect(strip!.querySelector('[data-testid="ready-to-build-label"]')).toBeNull()
   })
 
   it('expands detail view on card click', async () => {
