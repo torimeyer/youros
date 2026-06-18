@@ -84,8 +84,7 @@ async def test_dispatch_sms_no_phone_falls_back_to_in_app(reminders, monkeypatch
     # No phone_number in settings, no sms_provider.json
     monkeypatch.setattr(reminders, "_sms_configured", lambda s: False)
 
-    with pytest.warns(None) if hasattr(pytest, "warns") else __import__("contextlib").nullcontext():
-        result = await reminders.dispatch_reminder(r, settings={})
+    result = await reminders.dispatch_reminder(r, settings={})
 
     assert added, "in-app notification must be created"
     assert result.get("fell_back") is True
