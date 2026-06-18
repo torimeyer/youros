@@ -134,6 +134,11 @@ describe('Settings integration: Accent color', () => {
 
 describe('Settings integration: Feature toggles in Sidebar', () => {
   beforeEach(() => {
+    // Expand sidebar groups so items inside collapsible groups are rendered.
+    // The 'integrations' group defaults to collapsed for new users (calm-sidebar,
+    // commit 006a57da). Seed localStorage to start expanded so assertions
+    // on items like Gems work correctly.
+    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: false }))
     useAppStore.setState({
       osName: 'yourOS',
       features: [
@@ -151,6 +156,10 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
         { label: 'Cost Tracking', enabled: true },
       ],
     })
+  })
+
+  afterEach(() => {
+    localStorage.removeItem('sidebar-group-collapsed')
   })
 
   it('hides Agents nav item when Agents feature is disabled', () => {
