@@ -664,11 +664,12 @@ describe('Drive page', () => {
     renderDrive()
 
     await waitFor(() => {
-      expect(screen.getByText(/Google refused the connection because this URL is not registered/i)).toBeInTheDocument()
+      expect(screen.getByText(/Google refused the connection because these URLs are not registered/i)).toBeInTheDocument()
     })
 
-    // The exact URI the app sends must be shown in the banner.
-    expect(screen.getByText('https://localhost:8000/api/drive/auth/callback')).toBeInTheDocument()
+    // Both URIs (localhost and 127.0.0.1) must be shown — users must register both.
+    expect(screen.getByText('https://localhost:8000/api/auth/google/callback')).toBeInTheDocument()
+    expect(screen.getByText('https://127.0.0.1:8000/api/auth/google/callback')).toBeInTheDocument()
 
     // "Add it to Authorized redirect URIs" instruction must appear.
     expect(screen.getByText(/Authorized redirect URIs/i)).toBeInTheDocument()
