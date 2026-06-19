@@ -1,65 +1,68 @@
 # Connect Google to yourOS
 
-This guide walks you through getting a credentials file from Google and connecting it in yourOS. You do not need a terminal.
-
----
+This guide walks you through linking your Google account so Drive, Gmail, Calendar, and Gemini AI all work inside yourOS.
 
 ## What you need
 
-A "credentials file" from Google Cloud Console. This file lets yourOS sign in to Google on your behalf. It stays on your computer and is never sent anywhere.
+A Google account and a Google Cloud project with credentials. If you already have a `google_credentials.json` file, skip to step 3.
 
 ---
 
 ## Step 1: Create a Google Cloud project
 
-1. Go to [https://console.cloud.google.com](https://console.cloud.google.com).
-2. Click the project dropdown at the top and choose **New Project**.
-3. Give it any name (e.g. "yourOS") and click **Create**.
-
-## Step 2: Turn on the APIs you want
-
-1. In your new project, go to **APIs and Services > Library**.
-2. Search for and enable each of these (click the API, then click **Enable**):
-   - Google Drive API
-   - Google Calendar API
-   - Gmail API
-
-## Step 3: Set up the OAuth consent screen
-
-1. Go to **APIs and Services > OAuth consent screen**.
-2. Choose **External** and click **Create**.
-3. Fill in an app name (e.g. "yourOS") and your email. Leave the rest blank.
-4. Click **Save and Continue** through each section until you reach **Test users**.
-5. On the **Test users** step, click **Add users** and add your own Google email address.
-6. Finish and save.
-
-**Important: Publish your app so it does not expire every 7 days.**
-
-While your app is in testing mode, Google disconnects it every 7 days. To fix this permanently:
-
-1. Go back to **OAuth consent screen**.
-2. Click **Publish App** and confirm.
-
-You do not need Google's review. For a personal app used only by you, publishing skips review automatically.
-
-## Step 4: Create OAuth credentials
-
-1. Go to **APIs and Services > Credentials**.
-2. Click **Create Credentials > OAuth client ID**.
-3. Choose **Desktop app** as the application type.
-4. Give it a name (e.g. "yourOS Drive") and click **Create**.
-5. Click **Download JSON** in the dialog that appears.
-
-## Step 5: Upload the file in yourOS
-
-Open yourOS and go to the Google connect screen (in onboarding, or the Drive, Calendar, or Gmail tab). Drag and drop the JSON file you downloaded, or click the upload area to browse for it.
-
-Once uploaded, yourOS will take you straight to Google sign-in.
+1. Go to [Google Cloud Console](https://console.cloud.google.com/).
+2. Click **Select a project** at the top, then **New Project**.
+3. Give it a name (for example, "yourOS") and click **Create**.
 
 ---
 
-## Notes
+## Step 2: Enable the APIs
 
-- Your credentials file and sign-in token are saved locally at `~/.youros/`. yourOS never sends them anywhere.
-- To disconnect, click **Disconnect** in the Drive tab.
-- File previews are cached for 1 hour at `~/.youros/drive_cache/`. Delete this folder at any time to clear the cache.
+Inside your project, go to **APIs and Services > Library** and enable each of these:
+
+- Google Drive API
+- Google Calendar API
+- Gmail API
+- Google Slides API (if you use Slides)
+- Cloud AI Platform API (for Gemini)
+
+---
+
+## Step 3: Create OAuth credentials
+
+1. Go to **APIs and Services > Credentials**.
+2. Click **Create Credentials > OAuth client ID**.
+3. Choose **Web application** as the type.
+4. Under **Authorized redirect URIs**, add **both** of these:
+
+   ```
+   https://localhost:8000/api/auth/google/callback
+   https://127.0.0.1:8000/api/auth/google/callback
+   ```
+
+   > Both are required. Google treats `localhost` and `127.0.0.1` as different addresses, and your browser may use either one depending on how you opened yourOS.
+
+5. Click **Create**.
+6. Download the JSON file and save it to `~/.youros/google_credentials.json`.
+
+---
+
+## Step 4: Connect inside yourOS
+
+Go to **Settings > Connections** (or the Drive, Gmail, or Calendar page) and click **Connect Google**. You will be taken to Google's sign-in screen. After you approve, yourOS stores your token and all Google surfaces become active.
+
+---
+
+## Troubleshooting
+
+**"This URL is not registered" error on the Drive page**
+
+Google rejected the connection because the redirect URI was not added in step 3. Add both URIs listed above to your credentials, then click Connect again.
+
+**"Needs reconnect" showing on Gmail or Calendar after connecting Drive**
+
+This usually means an older token is in place. Click Reconnect on the affected card. One sign-in covers Drive, Gmail, Calendar, and Gemini together.
+
+**Using a reverse proxy or custom domain**
+
+Set the `GOOGLE_REDIRECT_URI` environment variable to the exact URI you registered in Google Cloud Console. yourOS will use that value instead of the auto-detected one.

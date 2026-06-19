@@ -629,6 +629,58 @@ class TestSlackWorkspaceFields:
         assert info["team_name"] == "Old Workspace"
 
 
+# --- Unified Google OAuth callback path ---
+
+
+@pytest.mark.asyncio
+async def test_all_google_auth_flows_use_same_callback_path(client, tmp_path):
+    """All Google auth flows must embed the same /api/auth/google/callback path.
+
+    If any flow uses a different callback path (e.g. the old /api/drive/auth/callback),
+    Google rejects the request with redirect_uri_mismatch because only one path can
+    be registered in Google Cloud Console. This test pins the unified path across
+    every entry point: the Gemini/main flow and the three Drive/Calendar/Gmail flows.
+    """
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text(
+        '{"web": {"client_id": "test-id", "client_secret": "test-secret", '
+        '"redirect_uris": ["http://localhost"]}}'
+    )
+
+    UNIFIED_PATH = "/api/auth/google/callback"
+
+    # 1. /api/auth/google (Gemini/main flow)
+    with patch("routers.auth._google_client_id", return_value="test-client-id"):
+        resp = await client.get("/api/auth/google", follow_redirects=False)
+    assert UNIFIED_PATH in resp.headers["location"], (
+        f"Main Google auth URL must use {UNIFIED_PATH}, got: {resp.headers['location']}"
+    )
+
+    # 2. /api/drive/auth/url (Drive flow)
+    with patch("services.google_auth.CREDENTIALS_PATH", creds_path):
+        resp = await client.get("/api/drive/auth/url")
+    assert resp.status_code == 200
+    assert UNIFIED_PATH in resp.json()["url"], (
+        f"Drive auth URL must use {UNIFIED_PATH}, got: {resp.json()['url']}"
+    )
+
+    # 3. /api/drive/auth/url/calendar (Calendar flow)
+    with patch("services.google_auth.CREDENTIALS_PATH", creds_path):
+        resp = await client.get("/api/drive/auth/url/calendar")
+    assert resp.status_code == 200
+    assert UNIFIED_PATH in resp.json()["url"], (
+        f"Calendar auth URL must use {UNIFIED_PATH}, got: {resp.json()['url']}"
+    )
+
+    # 4. /api/drive/auth/url/gmail (Gmail flow)
+    with patch("services.google_auth.CREDENTIALS_PATH", creds_path):
+        resp = await client.get("/api/drive/auth/url/gmail")
+    assert resp.status_code == 200
+    assert UNIFIED_PATH in resp.json()["url"], (
+        f"Gmail auth URL must use {UNIFIED_PATH}, got: {resp.json()['url']}"
+    )
+
+
 # --- FRONTEND_URL default scheme ---
 
 

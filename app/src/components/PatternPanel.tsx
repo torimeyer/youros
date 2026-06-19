@@ -82,7 +82,7 @@ export default function PatternPanel() {
         data-testid="pattern-panel-empty"
         className="py-12 text-center text-slate-500 dark:text-slate-400 text-sm px-4"
       >
-        Nothing learned yet. Keep using myOS and patterns will appear here over time.
+        Nothing learned yet. Keep using yourOS and patterns will appear here over time.
       </div>
     );
   }

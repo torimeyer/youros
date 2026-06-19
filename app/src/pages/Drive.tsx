@@ -466,7 +466,7 @@ export default function Drive() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [connectBanner, setConnectBanner] = useState<
     | { type: 'success' | 'error'; message: string }
-    | { type: 'redirect_uri_mismatch'; redirectUri: string }
+    | { type: 'redirect_uri_mismatch'; redirectUris: string[] }
     | null
   >(null);
 
@@ -595,7 +595,10 @@ export default function Drive() {
       // Clean the URL so a refresh doesn't re-show the banner.
       window.history.replaceState({}, '', window.location.pathname);
     } else if (oauthError === 'redirect_uri_mismatch') {
-      setConnectBanner({ type: 'redirect_uri_mismatch', redirectUri: 'https://localhost:8000/api/drive/auth/callback' });
+      setConnectBanner({ type: 'redirect_uri_mismatch', redirectUris: [
+        'https://localhost:8000/api/auth/google/callback',
+        'https://127.0.0.1:8000/api/auth/google/callback',
+      ] });
       window.history.replaceState({}, '', window.location.pathname);
     } else if (oauthError) {
       setConnectBanner({ type: 'error', message: 'Could not connect Google Drive. Please try again.' });
@@ -766,12 +769,14 @@ export default function Drive() {
             <div className="flex items-start gap-2">
               <Icon name="error" size={18} className="flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-medium mb-1">Google refused the connection because this URL is not registered:</p>
-                <code className="block bg-white/60 dark:bg-slate-900/60 px-2 py-1 rounded text-xs font-mono text-red-200 mb-2">
-                  {connectBanner.redirectUri}
-                </code>
-                <p className="mb-2">
-                  Add it to <strong>Authorized redirect URIs</strong> in Google Cloud Console, then click Connect again.
+                <p className="font-medium mb-1">Google refused the connection because these URLs are not registered:</p>
+                {connectBanner.redirectUris.map((uri) => (
+                  <code key={uri} className="block bg-white/60 dark:bg-slate-900/60 px-2 py-1 rounded text-xs font-mono text-red-200 mb-1">
+                    {uri}
+                  </code>
+                ))}
+                <p className="mb-2 mt-1">
+                  Add both to <strong>Authorized redirect URIs</strong> in Google Cloud Console, then click Connect again.
                 </p>
                 <a
                   href="https://console.cloud.google.com/apis/credentials"

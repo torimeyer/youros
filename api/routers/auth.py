@@ -1,8 +1,11 @@
 """OAuth routes for Google Gemini and Slack sign-in."""
 
+import logging
 import os
 import secrets
 import urllib.parse
+
+logger = logging.getLogger(__name__)
 
 import httpx
 from fastapi import APIRouter, Request
@@ -100,7 +103,8 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
         try:
             redirect_uri = _google_redirect_uri(request)
             _drive_exchange_code(code, redirect_uri)
-        except Exception:
+        except Exception as exc:
+            logger.exception("Google OAuth token exchange failed for Drive/Calendar/Gmail: %s", exc)
             sep = "&" if "?" in return_to else "?"
             return RedirectResponse(f"{return_to}{sep}error=token_exchange_failed", status_code=302)
         try:
