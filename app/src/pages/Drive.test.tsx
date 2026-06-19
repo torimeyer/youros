@@ -664,7 +664,7 @@ describe('Drive page', () => {
     renderDrive()
 
     await waitFor(() => {
-      expect(screen.getByText(/Google refused the connection because this URL is not registered/i)).toBeInTheDocument()
+      expect(screen.getByText(/Google refused the connection because these URLs are not registered/i)).toBeInTheDocument()
     })
 
     // Both URIs (localhost and 127.0.0.1) must be shown — users must register both.
