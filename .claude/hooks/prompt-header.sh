@@ -160,6 +160,16 @@ if rule_enabled adhd_monitor_pairing; then
     echo "- worktree git status changes since prior probe"
     echo "- /api/agents row delta (status, current_step)"
     echo '"no change" Monitor ticks are not proof of life. If 2+ flatline for 70s, surface "agent stalled" and ask whether to cancel.'
+    echo ''
+    echo 'RELAY FAILURE: forwarding a bare Monitor tick as a depth probe is the exact mistake this rule prevents.'
+    echo 'Arm Monitor with a command that produces 2+ real signals each cycle. Minimal template (substitute PID, WORKTREE, AGENT_NAME):'
+    printf '%s\n' '  while true; do'
+    printf '%s\n' '    echo "=== probe $(date +%H:%M:%S) ==="'
+    printf '%s\n' '    ps -p PID -o pid,%cpu,etime= 2>/dev/null || echo "pid=PID dead"'
+    printf '%s\n' '    git -C WORKTREE log --oneline -2 2>/dev/null'
+    printf '%s\n' '    sleep CADENCE'
+    printf '%s\n' '  done'
+    printf '%s\n' '(Full template with all 4 signals: .claude/hooks/README-rule-hooks.md)'
 fi
 
 # ---- LIVE AGENT SNAPSHOT + RETRY QUEUE + DENY LOG (single python3) ----

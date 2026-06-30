@@ -10,3 +10,38 @@ Three hooks installed from `docs/rule-following-diagnosis.md`:
 Existing hooks and permissions preserved. To pick up the settings changes, restart Claude Code.
 
 after this edit, restart Claude Code once to re-register the hook matcher on the running process
+
+## ADHD depth-probe Monitor template
+
+When ADHD mode is active and a background agent is in flight, the
+`[ADHD DEPTH-PROBE RULE]` (injected by `prompt-header.sh`) requires each
+60-second check-in to include at least 2 ground-truth signals.
+
+**The failure mode**: the orchestrator arms Monitor with a coarse transcript
+poll and then *relays the tick* ("transcript 2901, holding") as its depth
+probe. That satisfies zero signals. This template bakes both signals directly
+into the Monitor command so every tick is inherently valid.
+
+Arm Monitor with this command (substitute `PID`, `WORKTREE`, `CADENCE`):
+
+```bash
+while true; do
+  echo "=== probe $(date +%H:%M:%S) ==="
+  ps -p PID -o pid,%cpu,etime= 2>/dev/null || echo "pid=PID dead"
+  git -C WORKTREE log --oneline -2 2>/dev/null
+  sleep CADENCE
+done
+```
+
+- `ps -p PID` → signal 1 (pid alive + CPU/elapsed advancing)
+- `git log --oneline -2` → signal 3 (worktree commits advancing)
+
+For all 4 signals, also add:
+```bash
+  curl --connect-timeout 2 -m 4 -sSk https://127.0.0.1:8000/api/agents/AGENT_NAME \
+    2>/dev/null | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print('step='+str(d.get('current_step','?')), 'bytes='+str(d.get('transcript_bytes',0)))" 2>/dev/null
+```
+
+Two consecutive cycles where `ps` shows dead/flat CPU AND `git log` repeats
+the same commit = surface "agent may be stalled" and ask whether to cancel.
