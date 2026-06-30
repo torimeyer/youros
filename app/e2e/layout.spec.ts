@@ -18,6 +18,7 @@ test.beforeEach(async ({ request }) => {
 
 test('footer is visible on the dashboard', async ({ page }) => {
   await page.goto('/')
+  await page.waitForLoadState('networkidle')
   await expect(page.getByTestId('footer')).toBeVisible()
   await expect(page.getByTestId('footer-link-about')).toBeVisible()
   await expect(page.getByTestId('footer-link-privacy')).toBeVisible()
@@ -25,12 +26,14 @@ test('footer is visible on the dashboard', async ({ page }) => {
 
 test('footer About link points to /about', async ({ page }) => {
   await page.goto('/')
+  await page.waitForLoadState('networkidle')
   const aboutLink = page.getByTestId('footer-link-about')
   await expect(aboutLink).toHaveAttribute('href', '/about')
 })
 
 test('footer Privacy link points to /privacy', async ({ page }) => {
   await page.goto('/')
+  await page.waitForLoadState('networkidle')
   const privacyLink = page.getByTestId('footer-link-privacy')
   await expect(privacyLink).toHaveAttribute('href', '/privacy')
 })
