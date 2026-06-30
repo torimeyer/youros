@@ -191,14 +191,14 @@ else
 fi
 ab screenshot "$SCREENSHOT_DIR/agents.png" > /dev/null 2>&1
 
-# --- Navigate to Ideas ---
-ab open "${FRONTEND_URL}/ideas" > /dev/null 2>&1
+# --- Navigate to Gems (was /ideas — route renamed) ---
+ab open "${FRONTEND_URL}/gems" > /dev/null 2>&1
 ab wait 2000 > /dev/null 2>&1
 ideas_snap=$(ab snapshot 2>&1)
-if echo "$ideas_snap" | grep -qiE "idea|capture|hay|thought"; then
-    phase_pass "Ideas page renders content"
+if echo "$ideas_snap" | grep -qiE "gem|persona|chat|My Gems"; then
+    phase_pass "Gems page renders content"
 else
-    phase_fail "Ideas page appears blank"
+    phase_fail "Gems page appears blank"
 fi
 ab screenshot "$SCREENSHOT_DIR/ideas.png" > /dev/null 2>&1
 
@@ -206,7 +206,7 @@ ab screenshot "$SCREENSHOT_DIR/ideas.png" > /dev/null 2>&1
 ab open "${FRONTEND_URL}/settings" > /dev/null 2>&1
 ab wait 2000 > /dev/null 2>&1
 settings_snap=$(ab snapshot 2>&1)
-if echo "$settings_snap" | grep -qiE "settings|OS Identifier|appearance|terminology"; then
+if echo "$settings_snap" | grep -qiE "connect|Google|Slack|AI Provider|Connections|Preferences"; then
     phase_pass "Settings page renders content"
 else
     phase_fail "Settings page appears blank"
@@ -226,12 +226,23 @@ ab wait 2000 > /dev/null 2>&1
 # and a round blue add button next to it.
 TASK_TITLE="e2e-browser-test-$(date +%s)"
 
-# Fill the input field using the placeholder text as a locator
-ab find placeholder "What needs to be done?" fill "$TASK_TITLE" > /dev/null 2>&1
-
-# Press Enter to submit (the input has an onKeyDown handler)
-ab press Enter > /dev/null 2>&1
-ab wait 2000 > /dev/null 2>&1
+# Set the input value via native setter (triggers React onChange) then click the add button.
+# ab find+fill does not reliably fire React's synthetic onChange in headless Chrome,
+# so we use the nativeInputValueSetter pattern and click the submit button directly.
+ab eval "
+  const inp = document.querySelector('input[placeholder=\"What needs to be done?\"]');
+  if (inp) {
+    const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    s.call(inp, '${TASK_TITLE}');
+    inp.dispatchEvent(new Event('input', {bubbles: true}));
+  }
+" > /dev/null 2>&1
+ab wait 400 > /dev/null 2>&1
+ab eval "
+  const btn = document.querySelector('button.bg-blue-500.rounded-full');
+  if (btn) btn.click();
+" > /dev/null 2>&1
+ab wait 2500 > /dev/null 2>&1
 
 # Verify the task appears in the list
 task_check_snap=$(ab snapshot 2>&1)
@@ -268,24 +279,15 @@ header "Journey 4: Chat panel"
 ab open "${FRONTEND_URL}" > /dev/null 2>&1
 ab wait 2000 > /dev/null 2>&1
 
-# The chat panel is toggled via a button in the TopBar or by Cmd+L.
-# Keyboard shortcuts through agent-browser can be unreliable, so we
-# click the chat icon button in the TopBar instead. It has an
-# aria-label or title we can find. Fallback: use JS to call toggleChat.
-# Get snapshot refs, find the TopBar chat button (title="Toggle Chat"),
-# and click it using the ref. agent-browser refs handle React events
-# better than raw .click() via eval.
-# Verify the chat toggle button exists in the snapshot
-chat_refs=$(ab snapshot -i 2>&1)
-chat_btn_ref=$(echo "$chat_refs" | grep -i 'button.*"chat"' | grep -v "Open Chat\|New Chat" | head -1 | grep -oE '\[ref=e[0-9]+\]' | head -1 | tr -d '[]' | sed 's/ref=//')
-if [ -n "$chat_btn_ref" ]; then
-    phase_pass "chat toggle button found in TopBar (ref @${chat_btn_ref})"
+# The chat toggle button in the TopBar has title="Toggle Chat (⌘L)" / "Toggle Chat (Ctrl+L)".
+# Query it directly via DOM rather than parsing the snapshot, because agent-browser's
+# snapshot -i format does not wrap button text in double-quotes, so the old
+# grep -i 'button.*"chat"' never matched.
+chat_btn_check=$(ab eval "!!document.querySelector('button[title*=\"Toggle Chat\"]')" 2>&1)
+if echo "$chat_btn_check" | grep -q "true"; then
+    phase_pass "chat toggle button found in TopBar"
 
-    # Click the button and verify via JS that React state toggled.
-    # The snapshot goes blank after the click (headless Chrome rendering
-    # quirk with the chat panel overlay), so we verify through the DOM
-    # instead of the accessibility tree.
-    ab click "@${chat_btn_ref}" > /dev/null 2>&1
+    ab eval "document.querySelector('button[title*=\"Toggle Chat\"]').click()" > /dev/null 2>&1
     ab wait 2000 > /dev/null 2>&1
 
     chat_dom=$(ab eval "
@@ -297,15 +299,13 @@ if [ -n "$chat_btn_ref" ]; then
     if echo "$chat_dom" | grep -q "found"; then
         phase_pass "chat panel DOM elements present after toggle"
     else
-        # The chat panel was verified working in API tests (Phase 5).
-        # Headless Chrome rendering can drop the panel in some configs.
         phase_pass "chat button clicked (DOM check inconclusive in headless)"
     fi
 
     ab screenshot "$SCREENSHOT_DIR/chat-open.png" > /dev/null 2>&1
 
     # Close the chat panel
-    ab click "@${chat_btn_ref}" > /dev/null 2>&1
+    ab eval "document.querySelector('button[title*=\"Toggle Chat\"]').click()" > /dev/null 2>&1
     ab wait 500 > /dev/null 2>&1
 else
     phase_fail "chat toggle button not found in snapshot"
@@ -324,34 +324,40 @@ ab open "${FRONTEND_URL}/settings" > /dev/null 2>&1
 ab wait 2000 > /dev/null 2>&1
 
 # Find the OS Identifier input and change it.
-# The input currently holds the OS name. We will clear it and type a new name.
+# OS Identifier is in the Preferences tab (hidden by default — must click the tab first).
 TEST_OS_NAME="e2e-browser-os"
 
-# Use find to locate the textbox near "OS Identifier" label
-# The input is the one with the current osName value
-ab find placeholder "" fill "" > /dev/null 2>&1 || true
-
-# More reliable: use the API to verify the field, then triple-click to select
-# all text in the OS Identifier input and type the new name.
-# The Settings page has one text input for OS Identifier.
-# Let's use eval to find and fill it.
+# Step 1: Click the Preferences tab to make the OS Identifier input visible.
 ab eval "
-  const inputs = document.querySelectorAll('input[type=text]');
-  for (const inp of inputs) {
-    // The OS Identifier input is inside a div with that label
-    const label = inp.closest('div.mb-5')?.querySelector('label');
-    if (label && label.textContent.includes('OS Identifier')) {
-      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-      nativeInputValueSetter.call(inp, '${TEST_OS_NAME}');
-      inp.dispatchEvent(new Event('input', { bubbles: true }));
-      inp.dispatchEvent(new Event('change', { bubbles: true }));
-      inp.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
-      break;
-    }
+  const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Preferences');
+  if (btn) btn.click();
+" > /dev/null 2>&1
+ab wait 1000 > /dev/null 2>&1
+
+# Step 2: Set the input value via native setter and fire 'input' event.
+# This triggers React's onChange (setOsName) in the same React batch.
+# We do NOT fire blur here — React 18 batches setState calls inside a synthetic
+# event, so osName state is not committed until after the event handler returns.
+# Firing blur in the same eval means handleOsNameBlur reads the OLD osName.
+ab eval "
+  const inp = Array.from(document.querySelectorAll('input[type=text]')).find(i => {
+    const label = i.closest('div.mb-5')?.querySelector('label');
+    return label && label.textContent.includes('OS Identifier');
+  });
+  if (inp) {
+    inp.focus();
+    const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    s.call(inp, '${TEST_OS_NAME}');
+    inp.dispatchEvent(new Event('input', {bubbles: true}));
   }
 " > /dev/null 2>&1
 
-ab wait 1500 > /dev/null 2>&1
+# Step 3: Wait for React to commit the state update, then trigger save via Enter.
+# onKeyDown → handleOsNameBlur → api.patch('/settings', { os_name: osName })
+# At this point osName state holds TEST_OS_NAME so the PATCH sends the right value.
+ab wait 600 > /dev/null 2>&1
+ab press Enter > /dev/null 2>&1
+ab wait 1000 > /dev/null 2>&1
 
 # Verify the change persisted by reading from the API
 settings_after=$(curl -sS ${CURL_OPTS} "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
