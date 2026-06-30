@@ -29,9 +29,20 @@ NC='\033[0m'
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 API_PORT="${API_PORT:-8000}"
-API_BASE="http://localhost:${API_PORT}"
+# Auto-detect HTTPS: use https if self-signed certs are present (matches e2e_smoke.sh).
+SSL_KEY="$HOME/.youros/localhost.key"
+SSL_CERT="$HOME/.youros/localhost.crt"
+if [ -f "$SSL_KEY" ] && [ -f "$SSL_CERT" ]; then
+    SCHEME="https"
+    CURL_OPTS="-k"
+    export AGENT_BROWSER_IGNORE_HTTPS_ERRORS=1
+else
+    SCHEME="http"
+    CURL_OPTS=""
+fi
+API_BASE="${SCHEME}://localhost:${API_PORT}"
 FRONTEND_PORT="${FRONTEND_PORT:-3010}"
-FRONTEND_URL="http://localhost:${FRONTEND_PORT}"
+FRONTEND_URL="${SCHEME}://localhost:${FRONTEND_PORT}"
 SKIP_BROWSER="${SKIP_BROWSER:-0}"
 SCREENSHOT_DIR="${REPO_DIR}/e2e-screenshots"
 
@@ -76,12 +87,12 @@ if ! command -v agent-browser > /dev/null 2>&1; then
     exit 0
 fi
 
-if ! curl -sS -o /dev/null -w "%{http_code}" "${FRONTEND_URL}" 2>/dev/null | grep -q "^200$"; then
+if ! curl -sS ${CURL_OPTS} --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "${FRONTEND_URL}" 2>/dev/null | grep -q "^200$"; then
     echo -e "${YELLOW}SKIP${NC}  Frontend not reachable on ${FRONTEND_URL}. Start it first."
     exit 0
 fi
 
-if ! curl -sS -o /dev/null -w "%{http_code}" "${API_BASE}/api/settings" 2>/dev/null | grep -q "^200$"; then
+if ! curl -sS ${CURL_OPTS} --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "${API_BASE}/api/settings" 2>/dev/null | grep -q "^200$"; then
     echo -e "${YELLOW}SKIP${NC}  Backend not reachable on ${API_BASE}. Start it first."
     exit 0
 fi
@@ -233,7 +244,7 @@ fi
 ab screenshot "$SCREENSHOT_DIR/task-created.png" > /dev/null 2>&1
 
 # Clean up: find the task via API and delete it
-cleanup_task_id=$(curl -sS "${API_BASE}/api/tasks" 2>/dev/null | python3 -c "
+cleanup_task_id=$(curl -sS ${CURL_OPTS} "${API_BASE}/api/tasks" 2>/dev/null | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for t in data.get('tasks', []):
@@ -242,7 +253,7 @@ for t in data.get('tasks', []):
         break
 " 2>/dev/null || true)
 if [ -n "$cleanup_task_id" ]; then
-    curl -sS -X DELETE "${API_BASE}/api/tasks/${cleanup_task_id}" > /dev/null 2>&1
+    curl -sS ${CURL_OPTS} -X DELETE "${API_BASE}/api/tasks/${cleanup_task_id}" > /dev/null 2>&1
     phase_pass "cleaned up test task via API"
 else
     phase_skip "task cleanup: task not found via API (may not have been created)"
@@ -307,7 +318,7 @@ fi
 header "Journey 5: Settings round trip"
 
 # Save the original OS name via API
-ORIGINAL_OS_NAME=$(curl -sS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
+ORIGINAL_OS_NAME=$(curl -sS ${CURL_OPTS} "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
 
 ab open "${FRONTEND_URL}/settings" > /dev/null 2>&1
 ab wait 2000 > /dev/null 2>&1
@@ -343,7 +354,7 @@ ab eval "
 ab wait 1500 > /dev/null 2>&1
 
 # Verify the change persisted by reading from the API
-settings_after=$(curl -sS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
+settings_after=$(curl -sS ${CURL_OPTS} "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
 if [ "$settings_after" = "$TEST_OS_NAME" ]; then
     phase_pass "OS name changed via browser UI"
 else
@@ -351,12 +362,12 @@ else
 fi
 
 # Restore the original name via API
-curl -sS -X PATCH "${API_BASE}/api/settings" \
+curl -sS ${CURL_OPTS} -X PATCH "${API_BASE}/api/settings" \
     -H 'content-type: application/json' \
     -d "{\"os_name\":\"$ORIGINAL_OS_NAME\"}" > /dev/null 2>&1
 
 # Verify restoration
-settings_restored=$(curl -sS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
+settings_restored=$(curl -sS ${CURL_OPTS} "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
 if [ "$settings_restored" = "$ORIGINAL_OS_NAME" ]; then
     phase_pass "OS name restored to original"
 else

@@ -1779,7 +1779,7 @@ if [ "$SKIP_BROWSER" != "1" ] && [ "$SKIP_LIVE" != "1" ]; then
     header "Browser e2e tests"
     if ! command -v agent-browser > /dev/null 2>&1; then
         phase_skip "agent-browser not installed (install: brew install agent-browser)"
-    elif ! curl -ksS --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "https://localhost:${FRONTEND_PORT:-3010}" 2>/dev/null | grep -q "^200$"; then
+    elif ! curl -sS ${CURL_OPTS} --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "${API_BASE%%:*}://localhost:${FRONTEND_PORT:-3010}" 2>/dev/null | grep -q "^200$"; then
         phase_skip "frontend not reachable on port ${FRONTEND_PORT:-3010}"
     elif [ ! -f "$REPO_DIR/scripts/e2e_browser.sh" ]; then
         # Helper script has been retired or moved. Skip cleanly; the
