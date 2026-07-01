@@ -101,7 +101,10 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
             return RedirectResponse(f"{frontend_url}/?auth_error=no_code", status_code=302)
         return_to = state_data.get("return_to", f"{frontend_url}/drive")
         try:
-            redirect_uri = _google_redirect_uri(request)
+            # Use the redirect_uri that was stored when the auth URL was generated.
+            # Recomputing from request.base_url risks a mismatch if the proxy or
+            # host header differs between the auth-URL request and this callback.
+            redirect_uri = state_data.get("redirect_uri") or _google_redirect_uri(request)
             _drive_exchange_code(code, redirect_uri)
         except Exception as exc:
             logger.exception("Google OAuth token exchange failed for Drive/Calendar/Gmail: %s", exc)

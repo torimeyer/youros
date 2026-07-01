@@ -147,6 +147,7 @@ def get_auth_url(state: str, redirect_uri: str) -> str:
 
 def exchange_code(code: str, redirect_uri: str) -> None:
     """Exchange an authorization code for tokens and persist them."""
+    import urllib.error
     import urllib.request
     import urllib.parse
 
@@ -167,8 +168,19 @@ def exchange_code(code: str, redirect_uri: str) -> None:
         data=payload,
         method="POST",
     )
-    with urllib.request.urlopen(req) as resp:
-        tokens = json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req) as resp:
+            tokens = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        # Read the error body to surface Google's error name (e.g.
+        # redirect_uri_mismatch, invalid_grant, invalid_client).
+        # Without this the caller's logger only sees "HTTP Error 400: Bad Request".
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+            detail = json.loads(body).get("error", body)
+        except Exception:
+            detail = str(exc)
+        raise RuntimeError(f"Google token exchange failed: {detail}") from exc
 
     # Clear any stale revoked flag from a previous invalid_grant failure.
     # Without this, _refresh_if_needed can re-introduce revoked:True during

@@ -180,12 +180,13 @@ async def drive_auth_url(request: Request, return_to: str = ""):
     frontend = _frontend_url(request)
     effective_return_to = _validate_return_to(return_to, f"{frontend}/drive", request)
     state = secrets.token_urlsafe(32)
+    redirect_uri = build_redirect_uri(request)
     _drive_oauth_states[state] = {
         "return_to": effective_return_to,
+        "redirect_uri": redirect_uri,
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
-    redirect_uri = build_redirect_uri(request)
     url = get_auth_url(state, redirect_uri)
     return {"url": url}
 
@@ -204,12 +205,13 @@ async def drive_auth_url_for_calendar(request: Request, return_to: str = ""):
     frontend = _frontend_url(request)
     effective_return_to = _validate_return_to(return_to, f"{frontend}/calendar", request)
     state = secrets.token_urlsafe(32)
+    redirect_uri = build_redirect_uri(request)
     _drive_oauth_states[state] = {
         "return_to": effective_return_to,
+        "redirect_uri": redirect_uri,
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
-    redirect_uri = build_redirect_uri(request)
     url = get_auth_url(state, redirect_uri)
     return {"url": url}
 
@@ -228,12 +230,13 @@ async def drive_auth_url_for_gmail(request: Request, return_to: str = ""):
     frontend = _frontend_url(request)
     effective_return_to = _validate_return_to(return_to, f"{frontend}/gmail", request)
     state = secrets.token_urlsafe(32)
+    redirect_uri = build_redirect_uri(request)
     _drive_oauth_states[state] = {
         "return_to": effective_return_to,
+        "redirect_uri": redirect_uri,
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
-    redirect_uri = build_redirect_uri(request)
     url = get_auth_url(state, redirect_uri)
     return {"url": url}
 

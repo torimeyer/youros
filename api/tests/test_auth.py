@@ -1092,3 +1092,126 @@ async def test_calendar_auth_url_endpoint_includes_gmail_scope(client, tmp_path)
     assert "gmail.readonly" in url, (
         f"calendar auth URL must include gmail.readonly scope; got: {url}"
     )
+
+
+# --- redirect_uri pinning in state (→token_exchange_failed regression) ---
+
+@pytest.mark.asyncio
+async def test_drive_auth_url_stores_redirect_uri_in_state(client, tmp_path):
+    """drive_auth_url must store the redirect_uri in drive_oauth_states.
+
+    The callback uses this stored URI for the token exchange. Without it,
+    the callback recomputes redirect_uri from request.base_url, which can
+    differ from the auth-URL request when proxies change the Host header.
+    That mismatch makes Google return redirect_uri_mismatch / token_exchange_failed.
+    Covers /drive/auth/url, /drive/auth/url/calendar, and /drive/auth/url/gmail.
+    """
+    import urllib.parse
+    from services.oauth_state import drive_oauth_states as _drive_oauth_states
+
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text(
+        '{"web": {"client_id": "test-id", "client_secret": "test-secret", '
+        '"redirect_uris": ["http://localhost"]}}'
+    )
+    for endpoint in ("/api/drive/auth/url", "/api/drive/auth/url/calendar", "/api/drive/auth/url/gmail"):
+        _drive_oauth_states.clear()
+        with patch("services.google_auth.CREDENTIALS_PATH", creds_path):
+            resp = await client.get(endpoint)
+        assert resp.status_code == 200
+        google_url = resp.json()["url"]
+        # Extract the redirect_uri that was embedded in the auth URL.
+        parsed = urllib.parse.urlparse(google_url)
+        qs = urllib.parse.parse_qs(parsed.query)
+        embedded_redirect_uri = qs.get("redirect_uri", [None])[0]
+        assert embedded_redirect_uri is not None, f"No redirect_uri in Google auth URL for {endpoint}"
+        # Find the state that was stored.
+        stored_redirect_uri = None
+        for state_data in _drive_oauth_states.values():
+            stored_redirect_uri = state_data.get("redirect_uri")
+            break
+        assert stored_redirect_uri is not None, (
+            f"{endpoint}: redirect_uri must be stored in drive_oauth_states so the "
+            "callback can replay it without recomputing from request.base_url"
+        )
+        assert stored_redirect_uri == embedded_redirect_uri, (
+            f"{endpoint}: stored redirect_uri '{stored_redirect_uri}' must match "
+            f"the one embedded in the Google auth URL '{embedded_redirect_uri}'"
+        )
+
+
+@pytest.mark.asyncio
+async def test_drive_callback_uses_state_redirect_uri(client):
+    """The callback must replay the redirect_uri stored in state, not recompute it.
+
+    When the Host header differs between the /drive/auth/url request (proxied,
+    Host=localhost:3010) and the Google callback request (direct to backend,
+    Host=127.0.0.1:8000), recomputing redirect_uri in the callback produces a
+    different value from the one sent to Google. Google then returns
+    redirect_uri_mismatch → token_exchange_failed. Storing the URI in state
+    and replaying it eliminates the mismatch.
+    """
+    import time
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from services.oauth_state import drive_oauth_states as _drive_oauth_states
+
+    state = "test-redirect-uri-pin-state"
+    pinned_uri = "https://localhost:3010/api/auth/google/callback"
+    _drive_oauth_states[state] = {
+        "return_to": "https://localhost:3010/gmail",
+        "redirect_uri": pinned_uri,
+        "expires": time.time() + 300,
+    }
+
+    captured = {}
+
+    def _mock_exchange(code, redirect_uri):
+        captured["redirect_uri"] = redirect_uri
+
+    with (
+        patch("routers.auth._drive_exchange_code", side_effect=_mock_exchange),
+        patch("routers.auth._prewarm_all_google_caches", new_callable=AsyncMock),
+    ):
+        resp = await client.get(
+            f"/api/auth/google/callback?code=test-code&state={state}",
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 302
+    assert captured.get("redirect_uri") == pinned_uri, (
+        f"Drive callback must use redirect_uri from state ('{pinned_uri}'), "
+        f"not the recomputed value from request.base_url; got: {captured.get('redirect_uri')}"
+    )
+
+
+def test_exchange_code_raises_with_google_error_name(tmp_path):
+    """exchange_code must surface Google's error name in the RuntimeError message.
+
+    urllib.error.HTTPError.args[0] is just 'HTTP Error 400: Bad Request'; the
+    actionable detail (e.g. redirect_uri_mismatch, invalid_grant) lives in the
+    JSON response body. Without reading the body the caller's logger only sees
+    the opaque HTTP status, making the failure impossible to diagnose from logs.
+    """
+    import io
+    import urllib.error
+    from unittest.mock import patch
+    from services.google_auth import exchange_code
+
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text(
+        '{"web": {"client_id": "test-id", "client_secret": "test-secret"}}'
+    )
+    error_body = b'{"error": "redirect_uri_mismatch", "error_description": "Redirect URI mismatch."}'
+    http_err = urllib.error.HTTPError(
+        url="https://oauth2.googleapis.com/token",
+        code=400,
+        msg="Bad Request",
+        hdrs={},
+        fp=io.BytesIO(error_body),
+    )
+    with (
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+        patch("urllib.request.urlopen", side_effect=http_err),
+    ):
+        with pytest.raises(RuntimeError, match="redirect_uri_mismatch"):
+            exchange_code("test-code", "https://127.0.0.1:8000/api/auth/google/callback")
