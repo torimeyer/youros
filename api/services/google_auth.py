@@ -121,7 +121,15 @@ def build_redirect_uri(request) -> str:
     override = os.environ.get("GOOGLE_REDIRECT_URI", "")
     if override:
         return override
-    return str(request.base_url).rstrip("/") + "/api/auth/google/callback"
+    uri = str(request.base_url).rstrip("/") + "/api/auth/google/callback"
+    # Vite's proxy sets changeOrigin:true, which rewrites the Host header to
+    # the proxy target address (127.0.0.1:PORT). Starlette reads that header
+    # to build request.base_url, so without this normalisation the redirect_uri
+    # sent to Google contains 127.0.0.1 while Cloud Console has localhost
+    # registered. Google's token endpoint does an exact-match check and returns
+    # redirect_uri_mismatch for this difference even though both resolve to the
+    # loopback adapter.
+    return uri.replace("://127.0.0.1:", "://localhost:")
 
 
 def get_auth_url(state: str, redirect_uri: str) -> str:

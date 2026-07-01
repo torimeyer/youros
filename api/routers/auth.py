@@ -108,6 +108,16 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
             _drive_exchange_code(code, redirect_uri)
         except Exception as exc:
             logger.exception("Google OAuth token exchange failed for Drive/Calendar/Gmail: %s", exc)
+            # Write the real Google error and the redirect_uri used to a temp
+            # file so it can be inspected on the next Reconnect attempt.
+            # Remove once the root cause is confirmed resolved.
+            try:
+                import pathlib as _pathlib
+                _pathlib.Path("/tmp/gmail-oauth-debug.log").write_text(
+                    f"redirect_uri={redirect_uri!r}\nerror={exc}\n"
+                )
+            except Exception:
+                pass
             sep = "&" if "?" in return_to else "?"
             return RedirectResponse(f"{return_to}{sep}error=token_exchange_failed", status_code=302)
         try:
