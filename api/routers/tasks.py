@@ -36,6 +36,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["tasks"])
 
+# Module-level soft imports of agents helpers so tests can patch
+# routers.tasks.get_running_task_ids / get_running_needle_ids directly.
+# Falls back to no-op stubs when the agents router is not loaded.
+try:
+    from routers.agents import get_running_task_ids, get_running_needle_ids
+except Exception:
+    def get_running_task_ids() -> set:  # type: ignore[misc]
+        return set()
+
+    def get_running_needle_ids() -> set:  # type: ignore[misc]
+        return set()
+
 # Phase tags are milestones, not labels. Everything else is a label/area tag.
 _PHASE_RE = re.compile(r"^phase-\d+$")
 
@@ -427,12 +439,54 @@ async def task_health_check():
 
     Uses ostk work refine to analyze task quality and find
     duplicates, missing descriptions, and isolated tasks.
+
+    Also surfaces orphaned in_progress tasks: tasks whose stored status is
+    in_progress but that no live agent is currently carrying. These arise
+    when an agent claims a task via /tasks/pull and then dies without calling
+    /tasks/close. Result is always a warning, never a block.
     """
     try:
         result = await ostk.refine_tasks()
-        return result
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    # Orphaned in_progress check. Best-effort: any failure here is swallowed
+    # so the health endpoint always returns a valid response.
+    try:
+        ip_tasks = await ostk.list_tasks(status="in_progress")
+        live_task_ids = get_running_task_ids()
+        live_needle_ids = get_running_needle_ids()
+
+        orphan_issues = []
+        for t in ip_tasks:
+            tid = str(t.get("id") or "")
+            if not tid:
+                continue
+            bare_id = tid.lstrip("→")
+            if (
+                tid in live_task_ids
+                or bare_id in live_task_ids
+                or tid in live_needle_ids
+                or bare_id in live_needle_ids
+            ):
+                continue
+            orphan_issues.append({
+                "type": "orphaned_in_progress",
+                "severity": "warning",
+                "message": (
+                    f"Task {tid} is marked in_progress but no live agent is carrying it"
+                ),
+                "task_ids": [tid],
+            })
+
+        if orphan_issues:
+            result.setdefault("issues", []).extend(orphan_issues)
+            summary = result.setdefault("summary", {})
+            summary["issues"] = summary.get("issues", 0) + len(orphan_issues)
+    except Exception:
+        pass
+
+    return result
 
 
 @router.get("/tasks/duplicates")
