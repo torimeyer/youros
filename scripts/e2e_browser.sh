@@ -54,6 +54,11 @@ PASS=0
 FAIL=0
 SKIP=0
 
+# Holds the real OS name captured before Journey 5 overwrites it.
+# Initialized here so the _browser_cleanup trap can safely reference it
+# even if the script is interrupted before Journey 5 runs (set -u safety).
+ORIGINAL_OS_NAME=""
+
 phase_pass() {
     echo -e "  ${GREEN}PASS${NC}  $1"
     PASS=$((PASS + 1))
@@ -100,8 +105,16 @@ fi
 mkdir -p "$SCREENSHOT_DIR"
 
 # Clean up browser session on exit so we do not leave a headless Chrome running.
+# Also restores the OS name if Journey 5 captured one — this runs even on
+# SIGINT/SIGTERM, preventing the test value from leaking into real user settings.
 _browser_cleanup() {
     agent-browser close --all 2>/dev/null || true
+    if [ -n "${ORIGINAL_OS_NAME:-}" ]; then
+        curl -sS ${CURL_OPTS} --connect-timeout 3 -m 5 \
+            -X PATCH "${API_BASE}/api/settings" \
+            -H 'content-type: application/json' \
+            -d "{\"os_name\":\"${ORIGINAL_OS_NAME}\"}" > /dev/null 2>&1 || true
+    fi
 }
 trap _browser_cleanup EXIT INT TERM HUP
 
