@@ -593,43 +593,37 @@ async def drive_sync():
 # Write endpoints (requires drive.file scope)
 # ---------------------------------------------------------------------------
 
-# Legacy folder name kept for backwards-compatible lookup on existing user Drives.
-_MYOS_FOLDER_NAME = "myOS"
-# New folder name used for fresh installs and new folder creation.
+# Folder name used for all yourOS Drive lookups and new folder creation.
 _YOUROS_FOLDER_NAME = "yourOS"
 
 
 async def _get_or_create_myos_folder() -> str:
-    """Return the Drive ID of the yourOS (or legacy myOS) folder.
+    """Return the Drive ID of the yourOS folder, creating it if absent.
 
     Lookup order:
-    1. yourOS folder (new brand, created from v4.0.0 onwards).
-    2. myOS folder (legacy; existing users keep their folder without disruption).
-    3. Neither found: create a new yourOS folder.
-
-    Existing users' myOS folders are never renamed automatically.
+    1. yourOS folder.
+    2. Not found: create a new yourOS folder.
     """
     import asyncio
 
     def _call():
         service = _get_cached_drive_service()
-        for folder_name in (_YOUROS_FOLDER_NAME, _MYOS_FOLDER_NAME):
-            results = (
-                service.files()
-                .list(
-                    q=(
-                        f"name = '{folder_name}' "
-                        "and mimeType = 'application/vnd.google-apps.folder' "
-                        "and trashed = false"
-                    ),
-                    fields="files(id,name)",
-                    pageSize=1,
-                )
-                .execute()
+        results = (
+            service.files()
+            .list(
+                q=(
+                    f"name = '{_YOUROS_FOLDER_NAME}' "
+                    "and mimeType = 'application/vnd.google-apps.folder' "
+                    "and trashed = false"
+                ),
+                fields="files(id,name)",
+                pageSize=1,
             )
-            existing = results.get("files", [])
-            if existing:
-                return existing[0]["id"]
+            .execute()
+        )
+        existing = results.get("files", [])
+        if existing:
+            return existing[0]["id"]
 
         meta = {
             "name": _YOUROS_FOLDER_NAME,
@@ -647,7 +641,7 @@ async def _get_or_create_myos_folder() -> str:
 
 @router.post("/drive/files/upload")
 async def drive_upload_file(file: UploadFile = File(...)):
-    """Upload a file to the yourOS (or legacy myOS) folder in Google Drive.
+    """Upload a file to the yourOS folder in Google Drive.
 
     Creates the yourOS folder if it doesn't already exist.
     Returns the new file's id, name, and a link to open it in Drive.

@@ -2054,21 +2054,29 @@ async def test_get_or_create_myos_folder_youros_found(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_get_or_create_myos_folder_legacy_myos_found(tmp_path):
-    """Falls back to the legacy myOS folder when yourOS folder is absent."""
-    from routers.drive import _get_or_create_myos_folder
+async def test_get_or_create_myos_folder_legacy_myos_ignored(tmp_path):
+    """Legacy myOS folders are no longer used; a fresh yourOS folder is created.
+
+    The fallback lookup was dropped, so the code searches for yourOS only. A
+    Drive that has only an old myOS folder returns nothing and a new yourOS
+    folder is created instead.
+    """
+    from routers.drive import _get_or_create_myos_folder, _YOUROS_FOLDER_NAME
 
     token_path = tmp_path / "google_token.json"
     token_path.write_text('{"access_token": "ya29.test"}')
 
-    def _list_side_effect(**kwargs):
-        q = kwargs.get("q", "")
-        if "yourOS" in q:
-            return MagicMock(**{"execute.return_value": {"files": []}})
-        return MagicMock(**{"execute.return_value": {"files": [{"id": "folder-myos-id", "name": "myOS"}]}})
-
+    # yourOS-only search finds nothing (the only existing folder is legacy myOS).
     fake_service = MagicMock()
-    fake_service.files().list.side_effect = _list_side_effect
+    fake_service.files().list().execute.return_value = {"files": []}
+
+    created_name = []
+
+    def _create_side_effect(body, fields):
+        created_name.append(body.get("name"))
+        return MagicMock(**{"execute.return_value": {"id": "new-youros-folder-id"}})
+
+    fake_service.files().create.side_effect = _create_side_effect
 
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
@@ -2076,7 +2084,8 @@ async def test_get_or_create_myos_folder_legacy_myos_found(tmp_path):
     ):
         result = await _get_or_create_myos_folder()
 
-    assert result == "folder-myos-id"
+    assert result == "new-youros-folder-id"
+    assert _YOUROS_FOLDER_NAME in created_name
 
 
 @pytest.mark.asyncio
