@@ -2562,6 +2562,14 @@ export default function Agents() {
   const setLocks = useLocksStore((s) => s.setLocks);
   const [releasingLock, setReleasingLock] = useState<Record<string, boolean>>({});
 
+  // Session enrichment: label, activity, recent_files, stuck from /sessions/coordination
+  const [sessionEnrichmentMap, setSessionEnrichmentMap] = useState<Record<string, {
+    label?: string;
+    activity?: string;
+    recent_files?: string[];
+    stuck?: boolean;
+  }>>({});
+
   // Context pressure per agent (needle 337)
   const [contextPressure, setContextPressure] = useState<Record<string, { available: boolean; pressure_pct?: number }>>({});
 
@@ -3372,6 +3380,20 @@ export default function Agents() {
     }
   };
 
+  // Fetch session enrichment from coordination endpoint
+  const fetchSessionEnrichment = useCallback(async () => {
+    try {
+      const data = await api.get<{ sessions: Array<{ name: string; label?: string; activity?: string; recent_files?: string[]; stuck?: boolean }> }>("/sessions/coordination");
+      const map: Record<string, { label?: string; activity?: string; recent_files?: string[]; stuck?: boolean }> = {};
+      for (const s of data.sessions || []) {
+        map[s.name] = { label: s.label, activity: s.activity, recent_files: s.recent_files, stuck: s.stuck };
+      }
+      setSessionEnrichmentMap(map);
+    } catch {
+      // Optional enrichment; ignore errors
+    }
+  }, []);
+
   // Fetch coordination locks (needle 338)
   const fetchLocks = useCallback(async () => {
     try {
@@ -3538,6 +3560,15 @@ export default function Agents() {
       setGrants(wsGrants);
     }
   }, [wsGrants, wsGrantsConnected, grantFilter]);
+
+  // Poll session enrichment every 5s on Active tab
+  useEffect(() => {
+    if (activeTab === "Active") {
+      fetchSessionEnrichment();
+      const interval = setInterval(fetchSessionEnrichment, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, fetchSessionEnrichment]);
 
   // HTTP poll fallback when WS is down (needle 338 → 1130)
   useEffect(() => {
@@ -4253,6 +4284,52 @@ export default function Agents() {
                               : agent.current_step}
                           </span>
                         )}
+                        {/* Session enrichment: label, activity, recent files, stuck */}
+                        {(() => {
+                          const enrich = sessionEnrichmentMap[agent.name];
+                          if (!enrich) return null;
+                          return (
+                            <>
+                              {enrich.label && (
+                                <span
+                                  className="w-full text-xs text-slate-500 dark:text-slate-500 mt-0.5"
+                                  data-testid="session-label"
+                                >
+                                  {enrich.label}
+                                </span>
+                              )}
+                              {enrich.activity && (
+                                <span
+                                  className="w-full text-xs text-slate-600 dark:text-slate-400 mt-0.5 truncate"
+                                  data-testid="session-activity"
+                                >
+                                  {enrich.activity}
+                                </span>
+                              )}
+                              {enrich.recent_files && enrich.recent_files.length > 0 && (
+                                <div className="w-full flex flex-wrap gap-1 mt-0.5" data-testid="session-recent-files">
+                                  {enrich.recent_files.slice(0, 3).map((f) => (
+                                    <span
+                                      key={f}
+                                      className="text-[10px] font-mono px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 truncate max-w-[120px]"
+                                      title={f}
+                                    >
+                                      {f.split("/").pop()}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {enrich.stuck && (
+                                <span
+                                  data-testid="session-stuck-badge"
+                                  className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-500"
+                                >
+                                  quiet
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                       <button
                         onClick={() => toggleActiveExpanded(agent.name)}

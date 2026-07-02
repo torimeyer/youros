@@ -7077,3 +7077,115 @@ describe('Agents page - Teams tab', () => {
     expect(await screen.findByTestId('teams-empty')).toBeInTheDocument()
   })
 })
+
+describe('Agents page - Session enrichment in Active Sessions', () => {
+  const MOCK_HB = new Date(Date.now() - 30_000).toISOString()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
+  })
+
+  it('renders activity, friendly label, stuck badge, and recent files for a matched session', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return {
+        daemon_running: true,
+        status: 'ok',
+        active: ['test-agent'],
+        agents: [{
+          name: 'test-agent',
+          status: 'running',
+          source: 'claude-code',
+          model: 'sonnet',
+          budget: '2.00',
+          spawned_at: new Date(Date.now() - 83000).toISOString(),
+          last_heartbeat_at: MOCK_HB,
+        }],
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/sessions/coordination') return {
+        sessions: [{
+          id: 'sess-1',
+          name: 'test-agent',
+          label: 'My friendly label',
+          type: 'agent',
+          started_at: new Date().toISOString(),
+          last_active_at: new Date().toISOString(),
+          status: 'active',
+          activity: 'Running integration tests',
+          recent_files: ['src/api/tests.py', 'src/utils.py'],
+          stuck: true,
+        }],
+        locks: [],
+        events: [],
+      }
+      if (path.includes('/nudges')) return { agent: 'test-agent', nudges: [], session_nudges: [] }
+      return {}
+    })
+
+    render(<MemoryRouter><Agents /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-activity')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('session-activity')).toHaveTextContent('Running integration tests')
+    expect(screen.getByTestId('session-label')).toHaveTextContent('My friendly label')
+    expect(screen.getByTestId('session-stuck-badge')).toBeInTheDocument()
+    expect(screen.getByTestId('session-recent-files')).toBeInTheDocument()
+    expect(screen.getByText('tests.py')).toBeInTheDocument()
+    expect(screen.getByText('utils.py')).toBeInTheDocument()
+  })
+
+  it('does not render enrichment elements when session has no enrichment fields', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return {
+        daemon_running: true,
+        status: 'ok',
+        active: ['test-agent'],
+        agents: [{
+          name: 'test-agent',
+          status: 'running',
+          source: 'claude-code',
+          model: 'sonnet',
+          budget: '2.00',
+          spawned_at: new Date(Date.now() - 83000).toISOString(),
+          last_heartbeat_at: MOCK_HB,
+        }],
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/sessions/coordination') return {
+        sessions: [{
+          id: 'sess-1',
+          name: 'test-agent',
+          type: 'agent',
+          started_at: new Date().toISOString(),
+          last_active_at: new Date().toISOString(),
+          status: 'active' as const,
+        }],
+        locks: [],
+        events: [],
+      }
+      if (path.includes('/nudges')) return { agent: 'test-agent', nudges: [], session_nudges: [] }
+      return {}
+    })
+
+    render(<MemoryRouter><Agents /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
+    })
+
+    // Give sessions/coordination time to resolve
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
+
+    expect(screen.queryByTestId('session-activity')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('session-stuck-badge')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('session-recent-files')).not.toBeInTheDocument()
+  })
+})
