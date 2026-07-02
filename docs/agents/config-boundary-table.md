@@ -37,7 +37,7 @@ The spec calls for `prism init --from claude --dry-run` and `prism compile` to a
 
 ```
 which prism   # -> (no output -- not installed)
-which gemini  # -> /Users/torimeyer/.nvm/versions/node/v24.14.0/bin/gemini
+which gemini  # -> /Users/you/.nvm/versions/node/v24.14.0/bin/gemini
 ```
 
 `gemini` CLI is installed. `prism` CLI is **not installed**. The prism repo is at https://github.com/os-tack/prism.

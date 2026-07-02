@@ -56,7 +56,7 @@ No commit, no current_step updates.
 ## Tier-1 fix (this commit)
 
 Memory rule update at
-`~/.claude/projects/-Users-torimeyer-claude-torios/memory/feedback_subagent_prompt_template.md`
+`~/.claude/projects/-Users-you-claude-torios/memory/feedback_subagent_prompt_template.md`
 adds three lines pclaude must include in every saa brief:
 
 1. Heartbeat current_step before every major tool call.

@@ -748,8 +748,8 @@ def agent_mailbox_instruction_short(agent_name: str, model: str = "sonnet") -> s
     base = "https://127.0.0.1:8000/api/agents"
     # Terse mailbox protocol. Every curl target the tests lock in is
     # preserved. Prose is stripped to the bare contract so the model
-    # reads it in one glance. Tori is named so the "human on the other
-    # end" cue survives.
+    # reads it in one glance. The user is referenced so the "human on the
+    # other end" cue survives.
     ct = "-H 'Content-Type: application/json'"
     register_body = (
         '{"name":"' + agent_name + '","model":"' + model + '","status":"running",'
@@ -759,7 +759,7 @@ def agent_mailbox_instruction_short(agent_name: str, model: str = "sonnet") -> s
     reply_body = '{"message":"<reply>"}'
     complete_body = '{"summary":"<one line>"}'
     return (
-        "## Mailbox (mandatory, Tori)\n"
+        "## Mailbox (mandatory). Reply fast, the user is on the other end.\n"
         f"Register: curl -sSk -X POST {base}/register {ct} "
         f"-d '{register_body}'\n"
         f"Heartbeat every {slow} seconds: "
@@ -917,7 +917,7 @@ def agent_mailbox_instruction(
         f"seconds. On each cycle with no new nudge, double the interval "
         f"(20s, 40s, ...) up to a cap of {slow} seconds. When you receive "
         f"any nudge, reset the interval back to {fast} seconds. This keeps "
-        "delivery fast when Tori is replying and saves your turn budget "
+        "delivery fast when the user is replying and saves your turn budget "
         "during long quiet stretches.\n\n"
         f"**Signal file shortcut**: each time the user sends a nudge the "
         f"backend also touches `~/.youros/nudges/{agent_name}.signal`. On "
@@ -928,7 +928,7 @@ def agent_mailbox_instruction(
         f"**Long-poll (fastest delivery)**: the /nudges endpoint supports "
         f"a `?wait=<seconds>&since=<iso_timestamp>` parameter. When you "
         f"pass a `since` marker and `wait` up to {NUDGE_LONG_POLL_MAX_SECONDS}, "
-        f"the server holds the request open and returns the instant Tori "
+        f"the server holds the request open and returns the instant the user "
         f"sends a new message, not on the next poll. Recommended pattern: "
         f"`?wait={NUDGE_LONG_POLL_MAX_SECONDS}&since=<latest_ts_you_saw>`. "
         f"Use a curl timeout of {NUDGE_LONG_POLL_MAX_SECONDS + 5} seconds "
@@ -959,9 +959,9 @@ def agent_mailbox_instruction(
         f"https://127.0.0.1:8000/api/agents/{agent_name}/reply"
         " -H 'Content-Type: application/json' -d '{\"message\": \"<your answer>\"}'`\n"
         "   Post another /reply when the work the nudge asked about is done.\n"
-        "   Never wait for a response from Tori after posting. Resume "
-        "your task immediately. She wants the answer now, not after "
-        "she replies.\n"
+        "   Never wait for a response from the user after posting. Resume "
+        "your task immediately. They want the answer now, not after "
+        "they reply.\n"
         "   Between every tool call, poll /nudges once. If a message is "
         "waiting, pause, gather context if needed, answer fully, THEN "
         "keep working. If you are about to start a long-running tool "
@@ -979,7 +979,7 @@ def agent_mailbox_instruction(
         "honour the correction, and POST /reply within 2 seconds "
         "confirming what you will do differently.\n\n"
         "This loop lives alongside your heartbeats. Do not skip it. "
-        "Tori is waiting on the other end.\n\n"
+        "The user is waiting on the other end.\n\n"
         "### Coordination primitives\n\n"
         "Use these primitives to share state, signal progress, and leave a trail.\n\n"
         "**Handoff summary** (write before /complete so a recovery agent can pick up):\n"
@@ -8976,8 +8976,8 @@ def _build_stdin_envelope(name: str, message: str, kind: str) -> str:
     )
     if kind == "correction":
         return (
-            "\n=== URGENT CORRECTION FROM TORI (act immediately) ===\n"
-            "She just sent a course-correction. Do NOT defer this to "
+            "\n=== URGENT CORRECTION FROM THE USER (act immediately) ===\n"
+            "The user just sent a course-correction. Do NOT defer this to "
             "the end of your task. Stop your current step at the next "
             "safe boundary, change your approach to honour the "
             "correction, and POST a /reply within 2 seconds confirming "
@@ -8987,8 +8987,8 @@ def _build_stdin_envelope(name: str, message: str, kind: str) -> str:
             "=== end correction ===\n"
         )
     return (
-        "\n=== URGENT MAILBOX MESSAGE FROM TORI (act now) ===\n"
-        "She just sent you a message through the inline chat. Do NOT "
+        "\n=== URGENT MAILBOX MESSAGE FROM THE USER (act now) ===\n"
+        "The user just sent you a message through the inline chat. Do NOT "
         "wait until your current step finishes. POST a /reply within "
         "2 seconds with a warm 1-2 sentence acknowledgement, then "
         "fold the message into the work in flight.\n"

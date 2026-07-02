@@ -75,12 +75,12 @@ Only files > 512 bytes are worth adding to the cache.
 
 ## Current proxy state
 
-- Proxy running: pid 80283, cwd `/Users/torimeyer/claude/torios`  
+- Proxy running: pid 80283, cwd `/Users/you/claude/torios`  
 - Cache file: `.ostk/file_cache.jsonl` — **does not exist**  
 - Rewrite-events log: 202 events, all with `rewrites_applied: 0`, `hits: 0`, `misses: 11`  
   The proxy IS attempting the binding step ("Binding file_id / firmware materialization"
-  appears in `/Users/torimeyer/.youros/ostk-cache.log`) but finds nothing.  
-- The proxy reads `.ostk/` relative to its cwd: `/Users/torimeyer/claude/torios/.ostk/`
+  appears in `/Users/you/.youros/ostk-cache.log`) but finds nothing.  
+- The proxy reads `.ostk/` relative to its cwd: `/Users/you/claude/torios/.ostk/`
 
 ---
 
@@ -139,9 +139,9 @@ From the savings projection (5-session baseline):
 
 | File | Approx size | Appears in sessions |
 |------|-------------|---------------------|
-| `/Users/torimeyer/.claude/projects/-Users-torimeyer-claude-torios/memory/MEMORY.md` | ~30 KB | Most |
-| `/Users/torimeyer/claude/CLAUDE.md` | ~10 KB | Most |
-| `/Users/torimeyer/claude/torios/CLAUDE.md` | ~10 KB | Most |
+| `/Users/you/.claude/projects/-Users-you-claude-torios/memory/MEMORY.md` | ~30 KB | Most |
+| `/Users/you/claude/CLAUDE.md` | ~10 KB | Most |
+| `/Users/you/claude/torios/CLAUDE.md` | ~10 KB | Most |
 | Recent plan files in `~/.claude/plans/` | 3–20 KB | Per-session |
 
 ---

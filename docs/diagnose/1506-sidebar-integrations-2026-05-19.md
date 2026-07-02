@@ -50,7 +50,7 @@ Groups:
 ### Vitest (2026-05-19)
 
 ```
- RUN  v4.1.3 /Users/torimeyer/claude/torios/app
+ RUN  v4.1.3 /Users/you/claude/torios/app
 
  Test Files  2 passed (2)
       Tests  121 passed (121)

@@ -4114,8 +4114,8 @@ def test_agent_mailbox_instruction_contains_required_steps():
     assert "curl" in block
     assert "/nudges" in block
     assert "/reply" in block
-    # And a plain language reminder that Tori is the human on the other end.
-    assert "Tori" in block
+    # And a plain language reminder that the user is the human on the other end.
+    assert "the user" in block
     # No em dashes anywhere per the project style rule.
     assert "\u2014" not in block
 
@@ -4173,7 +4173,7 @@ def test_mailbox_instruction_under_size_budget():
     assert "/reply" in block
     assert "/complete" in block
     assert f"{MAILBOX_CHECK_INTERVAL_SECONDS} seconds" in block
-    assert "Tori" in block
+    assert "the user" in block
     # Style rule: no em dashes anywhere in user-visible copy.
     assert "\u2014" not in block
 

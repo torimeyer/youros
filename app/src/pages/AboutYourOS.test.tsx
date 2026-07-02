@@ -92,7 +92,7 @@ describe('AboutYourOS page', () => {
   it('points the repo link to the real github URL', () => {
     renderPage()
     const repoLink = screen.getByText(/Project repository/i).closest('a')
-    expect(repoLink?.getAttribute('href')).toBe('https://github.com/torimeyer/myos')
+    expect(repoLink?.getAttribute('href')).toBe('https://github.com/torimeyer/youros')
   })
 
   it('does not show the stale "Updated: April 2026" text', () => {

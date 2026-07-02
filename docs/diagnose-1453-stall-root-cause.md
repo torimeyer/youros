@@ -45,7 +45,7 @@ PID 3131 had been reparented to init. The previous backend (which spawned it) wa
 ### 3. Current backend PID 35094 started 15:42 after the agent was spawned
 
 ```
-35094   15:42   /Users/torimeyer/claude/torios/api/.venv/bin/python3.11 ... uvicorn main:app
+35094   15:42   /Users/you/claude/torios/api/.venv/bin/python3.11 ... uvicorn main:app
 ```
 
 Agent was spawned at 02:52:55 UTC. Backend PID 35094 started at ~03:07 UTC. The spawning backend was killed at ~02:56–03:07 UTC (during one of the 6 logged reloader stops).

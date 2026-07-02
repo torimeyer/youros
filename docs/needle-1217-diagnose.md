@@ -33,7 +33,7 @@ deliberate escalation of repro attempts:
 [heartbeat 22:08:32] (blank)
 ```
 
-Evidence: `/Users/torimeyer/claude/torios/transcripts/1217-mcp-transport-repro-02a0e3.md`
+Evidence: `/Users/you/claude/torios/transcripts/1217-mcp-transport-repro-02a0e3.md`
 
 The blank heartbeats confirm the agent was still alive (HTTP worked) but
 could no longer issue tool calls. The MCP transport dropped after the 7MB
@@ -42,10 +42,10 @@ on itself.
 
 ### 2. Commit targeted main, not worktree branch
 
-The commit `9ea72e2` landed on main via git author `torimeyer@Mac.attlocal.net`.
+The commit `9ea72e2` landed on main via the local git author identity.
 The worktree branch has zero commits. This matches the pattern in
 `feedback_subagent_cwd_must_be_worktree.md`: if `mcp__ostk__bash` defaults
-cwd to the kernel root (`/Users/torimeyer/claude/torios`) rather than the
+cwd to the kernel root (`/Users/you/claude/torios`) rather than the
 worktree path, all `git commit` operations land on whatever branch the main
 repo HEAD points to (main).
 
@@ -136,8 +136,8 @@ doc is on main). Then file a separate P1 or sub-Task for the two
 
 | Item | Location |
 |------|----------|
-| Transcript (heartbeats) | `/Users/torimeyer/claude/torios/transcripts/1217-mcp-transport-repro-02a0e3.md` |
-| Claude Code session jsonl | `/Users/torimeyer/.claude/projects/-Users-torimeyer-claude-torios/815d55b1-7dab-4eed-a318-57b1217b8c3e.jsonl` |
+| Transcript (heartbeats) | `/Users/you/claude/torios/transcripts/1217-mcp-transport-repro-02a0e3.md` |
+| Claude Code session jsonl | `/Users/you/.claude/projects/-Users-you-claude-torios/815d55b1-7dab-4eed-a318-57b1217b8c3e.jsonl` |
 | Repro doc (landed) | `docs/Task-1217-repro.md` @ `9ea72e2` |
 | Hook denies | `~/.claude/logs/hook-denies.log` lines `22:04:50`, `22:05:41`, `22:06:50`, `22:07:13` |
 | agents.jsonl API row | `GET /api/agents` → `1217-mcp-transport-repro-02a0e3` |

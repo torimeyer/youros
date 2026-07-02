@@ -62,3 +62,7 @@ docs/draft/
 # Verified gaps 2026-06-03: these were NOT covered before.
 .ostk/needles/
 docs/superpowers/
+
+# Local-only personal files (never commit)
+tori.zsh
+HUMANFILE

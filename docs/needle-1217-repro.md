@@ -13,14 +13,14 @@ timeout at any layer. Two real failure modes were found and documented below.
 
 ### Command 1 (from Task spec)
 ```
-grep -rln 'fn\|struct\|impl' /Users/torimeyer/claude/torios/haystack-main \
+grep -rln 'fn\|struct\|impl' /Users/you/claude/torios/haystack-main \
   --include='*.rs' 2>/dev/null | head -50
 ```
 **Result:** Clean exit in 359ms. `head -50` caps output. No drop.
 
 ### Command 2 — full haystack-main, no cap
 ```
-grep -rln 'fn\|struct\|impl' /Users/torimeyer/claude/torios/haystack-main \
+grep -rln 'fn\|struct\|impl' /Users/you/claude/torios/haystack-main \
   --include='*.rs' 2>/dev/null | wc -l
 ```
 **Result:** 215 files, 326ms. No drop.
@@ -28,7 +28,7 @@ grep -rln 'fn\|struct\|impl' /Users/torimeyer/claude/torios/haystack-main \
 ### Command 3 — 30s full-tree grep (no timeout param)
 ```
 grep -rln 'import|export|class|function|const|type' \
-  /Users/torimeyer/claude/torios --include='*.rs' --include='*.py' \
+  /Users/you/claude/torios --include='*.rs' --include='*.py' \
   --include='*.ts' --include='*.tsx' 2>/dev/null | wc -l
 ```
 **Result:** 89,282 files, 7.4s. No drop.
@@ -42,7 +42,7 @@ sleep 35
 ### Command 5 — 76s content grep (with timeout=90)
 ```
 grep -rn 'fn |struct |impl |class |interface |type |const |let |import ' \
-  /Users/torimeyer/claude/torios --include='*.rs' --include='*.py' \
+  /Users/you/claude/torios --include='*.rs' --include='*.py' \
   --include='*.ts' --include='*.tsx' --include='*.js' | wc -l
 ```
 **Result:** 2,368,851 matching lines, 76s, clean exit. No drop.

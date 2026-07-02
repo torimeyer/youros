@@ -94,7 +94,7 @@ do_pack() {
 
     # Archive extras relative to HOME so they restore cleanly on unpack.
     # We cd to HOME and use relative paths so tar stores ".youros/config.json"
-    # not "/Users/torimeyer/.youros/config.json".
+    # not "/Users/you/.youros/config.json".
     relpath() { python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$1" "$HOME"; }
 
     local dirs_to_pack=()

@@ -68,7 +68,7 @@ ever run or if `metrics.jsonl` inode changes).
 
 ## Disk cache pre-seeded
 
-`/Users/torimeyer/claude/torios/.ostk/metrics_totals_cache.json` was written
+`/Users/you/claude/torios/.ostk/metrics_totals_cache.json` was written
 during this investigation. The next restart will use it immediately.
 
 ## Branch / commit

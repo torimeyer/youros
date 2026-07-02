@@ -127,7 +127,7 @@ export default function AboutYourOS() {
           </li>
           <li>
             <a
-              href="https://github.com/torimeyer/myos"
+              href="https://github.com/torimeyer/youros"
               className="underline hover:text-slate-200"
               target="_blank"
               rel="noopener noreferrer"

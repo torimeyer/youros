@@ -2,11 +2,17 @@
 # Verifies feedback_false_alarm_meta_pattern.md contains required lesson keywords.
 # exit 0 = all keywords present; exit 1 = one or more missing.
 
-MEMORY_FILE="/Users/torimeyer/.claude/projects/-Users-torimeyer-claude-torios/memory/feedback_false_alarm_meta_pattern.md"
+# Discover the memory file under the current user's Claude project dir.
+# Override with FALSE_ALARM_MEMORY_FILE. Skips cleanly when absent so the
+# check is portable across machines (it validates local memory content only).
+MEMORY_FILE="${FALSE_ALARM_MEMORY_FILE:-}"
+if [ -z "$MEMORY_FILE" ]; then
+  MEMORY_FILE=$(ls "$HOME"/.claude/projects/*/memory/feedback_false_alarm_meta_pattern.md 2>/dev/null | head -1)
+fi
 
-if [ ! -f "$MEMORY_FILE" ]; then
-  echo "FAIL: memory file not found at $MEMORY_FILE"
-  exit 1
+if [ -z "$MEMORY_FILE" ] || [ ! -f "$MEMORY_FILE" ]; then
+  echo "SKIP: feedback_false_alarm_meta_pattern.md not present on this machine"
+  exit 0
 fi
 
 keywords=(

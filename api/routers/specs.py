@@ -1314,7 +1314,7 @@ async def promote_draft(body: SpecPromote):
         "Non-goals": "<!-- What are we explicitly NOT doing? -->",
         "Solution": "<!-- How will we solve it? -->",
         "Acceptance criteria": "- [ ] ",
-        "USER FEEDBACK": "*(Reserved for tori's overrides and decisions.)*",
+        "USER FEEDBACK": "*(Reserved for your overrides and decisions.)*",
         "DECISION": "*(Final calls on open questions will be recorded here.)*",
         "References": "<!-- Related specs, needles (→NNN), or files -->",
     }
