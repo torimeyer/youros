@@ -153,8 +153,8 @@ else
     phase_fail "dashboard appears blank or stuck on loading"
 fi
 
-# Verify it does NOT show just "Loading..."
-if echo "$snap" | grep -q "^Loading\.\.\.$"; then
+# Verify it does NOT show just the boot screen ("Loading..." or "Loading yourOS...")
+if echo "$snap" | grep -qE "^Loading( yourOS)?\.\.\.$"; then
     phase_fail "dashboard stuck on Loading..."
 else
     phase_pass "dashboard is not stuck on Loading"
