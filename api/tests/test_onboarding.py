@@ -623,11 +623,78 @@ async def test_first_runs_writing_returns_three_hints(client):
 
 @pytest.mark.asyncio
 async def test_first_runs_all_intents_return_three_hints(client):
-    for intent in ["writing", "personal", "coding", "research", "work_role", "sales", "general"]:
+    for intent in [
+        "writing", "personal", "coding", "research", "work_role", "sales", "general",
+        "marketing", "founder", "support", "designer",
+    ]:
         resp = await client.get(f"/api/onboarding/first-runs?intent={intent}")
         assert resp.status_code == 200
         hints = resp.json()["hints"]
-        assert len(hints) == 3, f"{intent} returned {len(hints)} hints"
+        assert len(hints) == 3, f"{intent} returned {len(hints)} hints (missing from _FIRST_RUNS_HINTS?)"
+
+
+@pytest.mark.asyncio
+async def test_first_runs_marketing_not_writing_fallback(client):
+    """marketing intent must return marketing-specific hints, not writing hints."""
+    writing_resp = await client.get("/api/onboarding/first-runs?intent=writing")
+    writing_labels = [h["label"] for h in writing_resp.json()["hints"]]
+
+    resp = await client.get("/api/onboarding/first-runs?intent=marketing")
+    assert resp.status_code == 200
+    hints = resp.json()["hints"]
+    assert len(hints) == 3
+    labels = [h["label"] for h in hints]
+    assert labels != writing_labels, f"marketing returned writing fallback: {labels}"
+    assert any("campaign" in lbl.lower() or "market" in lbl.lower() for lbl in labels), \
+        f"marketing hints not marketing-specific: {labels}"
+
+
+@pytest.mark.asyncio
+async def test_first_runs_founder_not_writing_fallback(client):
+    """founder intent must return founder-specific hints, not writing hints."""
+    writing_resp = await client.get("/api/onboarding/first-runs?intent=writing")
+    writing_labels = [h["label"] for h in writing_resp.json()["hints"]]
+
+    resp = await client.get("/api/onboarding/first-runs?intent=founder")
+    assert resp.status_code == 200
+    hints = resp.json()["hints"]
+    assert len(hints) == 3
+    labels = [h["label"] for h in hints]
+    assert labels != writing_labels, f"founder returned writing fallback: {labels}"
+    assert any("investor" in lbl.lower() or "brief" in lbl.lower() or "pitch" in lbl.lower() or "market" in lbl.lower() for lbl in labels), \
+        f"founder hints not founder-specific: {labels}"
+
+
+@pytest.mark.asyncio
+async def test_first_runs_support_not_writing_fallback(client):
+    """support intent must return support-specific hints, not writing hints."""
+    writing_resp = await client.get("/api/onboarding/first-runs?intent=writing")
+    writing_labels = [h["label"] for h in writing_resp.json()["hints"]]
+
+    resp = await client.get("/api/onboarding/first-runs?intent=support")
+    assert resp.status_code == 200
+    hints = resp.json()["hints"]
+    assert len(hints) == 3
+    labels = [h["label"] for h in hints]
+    assert labels != writing_labels, f"support returned writing fallback: {labels}"
+    assert any("customer" in lbl.lower() or "reply" in lbl.lower() or "support" in lbl.lower() or "issue" in lbl.lower() for lbl in labels), \
+        f"support hints not support-specific: {labels}"
+
+
+@pytest.mark.asyncio
+async def test_first_runs_designer_not_writing_fallback(client):
+    """designer intent must return designer-specific hints, not writing hints."""
+    writing_resp = await client.get("/api/onboarding/first-runs?intent=writing")
+    writing_labels = [h["label"] for h in writing_resp.json()["hints"]]
+
+    resp = await client.get("/api/onboarding/first-runs?intent=designer")
+    assert resp.status_code == 200
+    hints = resp.json()["hints"]
+    assert len(hints) == 3
+    labels = [h["label"] for h in hints]
+    assert labels != writing_labels, f"designer returned writing fallback: {labels}"
+    assert any("design" in lbl.lower() or "visual" in lbl.lower() or "critiqu" in lbl.lower() for lbl in labels), \
+        f"designer hints not designer-specific: {labels}"
 
 
 @pytest.mark.asyncio

@@ -152,6 +152,26 @@ _FIRST_RUNS_HINTS: dict[str, list[dict]] = {
         {"label": "Research a topic", "seed": "Research this for me: ", "kind": "chat"},
         {"label": "Brainstorm ideas", "seed": "Give me ideas for ", "kind": "chat"},
     ],
+    "marketing": [
+        {"label": "Draft a campaign brief", "seed": "Help me draft a campaign brief for ", "kind": "chat"},
+        {"label": "Brainstorm campaign ideas", "seed": "Give me ideas for a marketing campaign about ", "kind": "chat"},
+        {"label": "Write social copy", "seed": "Write a social media post about ", "kind": "chat"},
+    ],
+    "founder": [
+        {"label": "Draft an investor update", "seed": "Help me write an investor update about ", "kind": "chat"},
+        {"label": "Research a market", "seed": "Research this market for me: ", "kind": "chat"},
+        {"label": "Write a product brief", "seed": "Write a product brief for ", "kind": "chat"},
+    ],
+    "support": [
+        {"label": "Draft a customer reply", "seed": "Help me reply to this customer message: ", "kind": "chat"},
+        {"label": "Explain something simply", "seed": "Explain this in plain language: ", "kind": "chat"},
+        {"label": "Summarize a support issue", "seed": "Summarize this support issue for me: ", "kind": "chat"},
+    ],
+    "designer": [
+        {"label": "Critique a design", "seed": "Give me feedback on this design: ", "kind": "chat"},
+        {"label": "Brainstorm visual ideas", "seed": "Give me visual ideas for ", "kind": "chat"},
+        {"label": "Explain a design choice", "seed": "Help me explain this design decision: ", "kind": "chat"},
+    ],
 }
 
 
