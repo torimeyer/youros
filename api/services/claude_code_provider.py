@@ -240,7 +240,13 @@ async def prewarm_cli() -> None:
     This is best-effort. If the program is not installed, not signed in,
     or the subprocess errors out, we silently give up. The regular chat
     path still works on cold start, just a few seconds slower.
+
+    The subprocess work runs via asyncio.to_thread so the fork+exec of the
+    heavy Node.js CLI happens off the event-loop thread. Forking on-loop
+    stalled TLS handshakes and wedged the backend during startup (→1806).
     """
+    import subprocess
+
     try:
         if not await is_claude_code_available():
             return
@@ -248,36 +254,28 @@ async def prewarm_cli() -> None:
         if not claude_path:
             return
         env = _build_subprocess_env()
-        proc = await asyncio.create_subprocess_exec(
-            claude_path,
-            "-p",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--dangerously-skip-permissions",
-            "ping",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-            cwd=str(_REPO_ROOT),
-            limit=1024 * 1024,
-        )
-        # Drain stdout so the pipe does not fill up while we wait.
-        async def _drain() -> None:
-            assert proc.stdout is not None
-            while True:
-                line = await proc.stdout.readline()
-                if not line:
-                    break
 
-        try:
-            await asyncio.wait_for(_drain(), timeout=30.0)
-            await proc.wait()
-        except asyncio.TimeoutError:
+        def _warm() -> None:
             try:
-                proc.kill()
-            except ProcessLookupError:
+                subprocess.run(
+                    [
+                        claude_path,
+                        "-p",
+                        "--output-format",
+                        "stream-json",
+                        "--verbose",
+                        "--dangerously-skip-permissions",
+                        "ping",
+                    ],
+                    capture_output=True,
+                    timeout=30.0,
+                    env=env,
+                    cwd=str(_REPO_ROOT),
+                )
+            except Exception:
                 pass
+
+        await asyncio.to_thread(_warm)
         _claude_log.info("claude_cli_prewarm_complete")
     except Exception:
         # Startup warming must never break the backend. Swallow everything.

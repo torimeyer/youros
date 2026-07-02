@@ -84,16 +84,10 @@ async def lifespan(app: FastAPI):
     await schedule_settings_sync_pull()
     await schedule_gmail_unread_notification()
     await schedule_overdue_task_check()
-    # →1806 follow-up: prewarm DISABLED. prewarm_claude_cli's _warm task
-    # called claude_code_provider.prewarm_cli(), which forks the heavy
-    # backend via asyncio.create_subprocess_exec ON the event-loop thread
-    # ~2s after boot. That fork stalls TLS handshakes and wedges the whole
-    # worker (binds the port, never serves). The gemini probe was already
-    # moved off-loop; the claude prewarm was not. A first-chat latency
-    # optimization is not worth freezing the backend, so both are off until
-    # prewarm_cli is rewritten to fork off-thread (subprocess.run + to_thread).
-    # await prewarm_claude_cli()
-    # await prewarm_gemini_cli()
+    # →1806: prewarm_cli now forks off-thread via subprocess.run + asyncio.to_thread
+    # so the event loop stays responsive during startup. Both prewarmed.
+    await prewarm_claude_cli()
+    await prewarm_gemini_cli()
     await pregenerate_briefing()
     await prewarm_savings()
     await schedule_session_task_reaper()

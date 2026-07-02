@@ -1710,3 +1710,44 @@ class TestParagraphJoin:
         assert assembled == "Just one block.", (
             f"Single text block should not gain extra separators. Got: {assembled!r}"
         )
+
+
+@pytest.mark.asyncio
+async def test_prewarm_cli_uses_to_thread_not_create_subprocess_exec():
+    """prewarm_cli must use asyncio.to_thread, not asyncio.create_subprocess_exec.
+
+    Forking the heavy Node.js CLI on the event-loop thread stalls TLS
+    handshakes and wedges the backend during startup (→1806). The fix:
+    move subprocess work into a sync body and run it via asyncio.to_thread
+    so the fork happens off-loop.
+    """
+    from services.claude_code_provider import prewarm_cli
+
+    to_thread_calls: list = []
+
+    async def fake_to_thread(fn, *args, **kwargs):
+        to_thread_calls.append(fn)
+        return None
+
+    with (
+        patch(
+            "services.claude_code_provider.is_claude_code_available",
+            new=AsyncMock(return_value=True),
+        ),
+        patch(
+            "services.claude_code_provider._find_claude_binary",
+            return_value="/usr/local/bin/claude",
+        ),
+        patch("asyncio.create_subprocess_exec") as mock_exec,
+        patch("asyncio.to_thread", side_effect=fake_to_thread),
+    ):
+        await prewarm_cli()
+
+    assert mock_exec.call_count == 0, (
+        "prewarm_cli must not call asyncio.create_subprocess_exec; "
+        "the fork must happen off the event-loop thread via asyncio.to_thread (→1806)"
+    )
+    assert len(to_thread_calls) == 1, (
+        "prewarm_cli must delegate subprocess work to asyncio.to_thread so "
+        "the event loop stays responsive during startup"
+    )
