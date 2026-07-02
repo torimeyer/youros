@@ -28,6 +28,14 @@ SESSIONS_DIR = OSTK_DIR / "sessions"
 ACTIVE_CUTOFF_MINUTES = 5
 IDLE_CUTOFF_MINUTES = 30
 
+# Stuck detection: a session that went quiet between these two windows
+# is "stuck" — quiet longer than finishing naturally, not yet idle long.
+STUCK_MIN_SECONDS = 90
+STUCK_MAX_SECONDS = 600  # 10 min
+
+# File-writing tools whose input carries a "path" key
+_FILE_WRITE_TOOLS = frozenset({"fs_ops", "edit", "write", "fs_write", "Write", "Edit"})
+
 # How many bytes to read from the end of each events.jsonl to find recent events.
 TAIL_BYTES = 8192
 
@@ -90,6 +98,92 @@ def _parse_event(line: str) -> Optional[dict]:
     }
 
 
+def _extract_activity_and_files(events: list[dict]) -> tuple[str, list[str]]:
+    """Derive a human-readable activity line and recent file paths from session events.
+
+    Scans the event list in reverse so the most-recent tool call wins.
+    Returns (activity_line, file_paths_up_to_3).
+    """
+    activity = ""
+    seen_paths: list[str] = []
+    seen_set: set[str] = set()
+
+    _TOOL_LABELS = {
+        "bash": "Running command",
+        "shell": "Running command",
+        "search": "Searching",
+        "fs_ops": "Writing files",
+        "edit": "Editing file",
+        "write": "Writing file",
+        "fs_write": "Writing file",
+        "Write": "Writing file",
+        "Edit": "Editing file",
+        "read": "Reading file",
+        "fs_read": "Reading file",
+        "Read": "Reading file",
+        "needle": "Managing tasks",
+        "tack": "Running tack",
+        "recall": "Searching memory",
+        "spawn": "Spawning process",
+        "interact": "Interacting with process",
+    }
+
+    for ev in reversed(events):
+        data = ev.get("data", {})
+        if not isinstance(data, dict):
+            continue
+        tool = data.get("tool", "")
+        raw_input = data.get("input", "")
+
+        # Build activity line from most recent event
+        if not activity and tool:
+            label = _TOOL_LABELS.get(tool, tool)
+            # Append a short snippet from input
+            if isinstance(raw_input, str) and raw_input:
+                snippet = raw_input[:60].strip()
+                if snippet:
+                    activity = f"{label}: {snippet}"
+                else:
+                    activity = label
+            elif isinstance(raw_input, dict):
+                snippet = str(raw_input.get("cmd") or raw_input.get("path") or "")[:60]
+                activity = f"{label}: {snippet}" if snippet else label
+            else:
+                activity = label
+
+        # Collect file paths from write-tool calls
+        if tool in _FILE_WRITE_TOOLS and len(seen_paths) < 3:
+            path_str = ""
+            if isinstance(raw_input, str):
+                try:
+                    parsed = json.loads(raw_input)
+                    path_str = parsed.get("path", "")
+                except (json.JSONDecodeError, ValueError, AttributeError):
+                    pass
+            elif isinstance(raw_input, dict):
+                path_str = raw_input.get("path", "")
+            if path_str and path_str not in seen_set:
+                seen_paths.append(path_str)
+                seen_set.add(path_str)
+
+        if activity and len(seen_paths) >= 3:
+            break
+
+    return activity, seen_paths
+
+
+def _is_stuck(last_active: datetime, now: datetime) -> bool:
+    """True when a session went quiet recently enough to be suspicious.
+
+    A session that finished naturally goes idle gradually; one that stalled
+    mid-work tends to go quiet abruptly after being active. We flag the
+    window between STUCK_MIN_SECONDS (90s) and STUCK_MAX_SECONDS (10 min).
+    Beyond 10 min it is just idle, not stuck. Informational only.
+    """
+    age_seconds = (now - last_active).total_seconds()
+    return STUCK_MIN_SECONDS < age_seconds < STUCK_MAX_SECONDS
+
+
 def _get_sessions() -> list[dict]:
     if not SESSIONS_DIR.is_dir():
         return []
@@ -137,11 +231,25 @@ def _get_sessions() -> list[dict]:
             for e in parsed[-5:]
         ]
 
+        # Parse raw events for enrichment (activity, recent_files)
+        raw_parsed = []
+        for ln in lines[-30:]:
+            try:
+                raw_parsed.append(json.loads(ln))
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+        activity, recent_files = _extract_activity_and_files(raw_parsed)
+        stuck = _is_stuck(last_active, now)
+
         results.append({
             "session_id": entry.name,
             "last_active": last_ts_str,
             "status": status,
             "recent_events": recent_events,
+            "activity": activity,
+            "recent_files": recent_files,
+            "stuck": stuck,
         })
 
     # Sort: active first, then by most recent
@@ -315,6 +423,7 @@ def _gather_sessions_and_events_sync(
     Operates only on immutable snapshots of the agent/nudge maps so it is
     safe to call from a worker thread.
     """
+    now_utc = datetime.now(timezone.utc)
     # --- sessions ---
     raw_sessions = _get_sessions()
     seen: set[str] = {s["session_id"] for s in raw_sessions}
@@ -333,13 +442,31 @@ def _gather_sessions_and_events_sync(
     for s in raw_sessions:
         sid = s["session_id"]
         meta = meta_snapshot.get(sid, {})
+        task = meta.get("task") or ""
+        label = task or sid
+        # Enrichment fields: compute stuck from last_active if not already set
+        # by _get_sessions(). Agent/transcript sessions don't carry it.
+        activity = s.get("activity", "")
+        recent_files = s.get("recent_files", [])
+        if "stuck" in s:
+            stuck = s["stuck"]
+        else:
+            try:
+                la = datetime.fromisoformat(s["last_active"].replace("Z", "+00:00"))
+                stuck = _is_stuck(la, now_utc)
+            except (ValueError, TypeError, KeyError):
+                stuck = False
         sessions.append({
             "id": sid,
-            "name": meta.get("task") or sid,
+            "name": task or sid,
+            "label": label,
             "type": _session_type(sid),
             "started_at": meta.get("spawned_at"),
             "last_active_at": s["last_active"],
             "status": s["status"],
+            "activity": activity,
+            "recent_files": recent_files,
+            "stuck": stuck,
         })
 
     # --- recent coordination events (nudges across all agents, last 20) ---
