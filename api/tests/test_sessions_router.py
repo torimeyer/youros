@@ -160,6 +160,167 @@ async def test_coordination_events_capped_at_20(client, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_coordination_session_has_enriched_fields(client, tmp_path):
+    """Each session row must carry label, activity, recent_files, and stuck."""
+    sessions_dir = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _write_session(sessions_dir, "claude-code-xyz", recent)
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.agents.nudge_history", {}):
+        resp = await client.get("/api/sessions/coordination")
+
+    data = resp.json()
+    assert len(data["sessions"]) >= 1
+    s = next((x for x in data["sessions"] if x["id"] == "claude-code-xyz"), None)
+    assert s is not None
+    assert "label" in s
+    assert "activity" in s
+    assert "recent_files" in s
+    assert "stuck" in s
+    assert isinstance(s["recent_files"], list)
+    assert isinstance(s["stuck"], bool)
+
+
+@pytest.mark.asyncio
+async def test_coordination_stuck_flag_set_for_recently_quiet_session(client, tmp_path):
+    """A session quiet for 2-9 min (between thresholds) gets stuck=True."""
+    sessions_dir = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    quiet_ts = (now - timedelta(minutes=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _write_session(sessions_dir, "agent-quiet-abc", quiet_ts)
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.agents.nudge_history", {}):
+        resp = await client.get("/api/sessions/coordination")
+
+    data = resp.json()
+    s = next((x for x in data["sessions"] if x["id"] == "agent-quiet-abc"), None)
+    assert s is not None
+    assert s["stuck"] is True
+
+
+@pytest.mark.asyncio
+async def test_coordination_stuck_flag_not_set_for_active_session(client, tmp_path):
+    """A session active in the last 90 seconds is NOT stuck."""
+    sessions_dir = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(seconds=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _write_session(sessions_dir, "agent-active-xyz", recent)
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.agents.nudge_history", {}):
+        resp = await client.get("/api/sessions/coordination")
+
+    data = resp.json()
+    s = next((x for x in data["sessions"] if x["id"] == "agent-active-xyz"), None)
+    assert s is not None
+    assert s["stuck"] is False
+
+
+@pytest.mark.asyncio
+async def test_coordination_stuck_flag_not_set_for_old_idle_session(client, tmp_path):
+    """A session idle for >10 min is not stuck (just idle, not mid-work)."""
+    sessions_dir = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    old_ts = (now - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _write_session(sessions_dir, "agent-old-xyz", old_ts)
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.agents.nudge_history", {}):
+        resp = await client.get("/api/sessions/coordination")
+
+    data = resp.json()
+    s = next((x for x in data["sessions"] if x["id"] == "agent-old-xyz"), None)
+    assert s is not None
+    assert s["stuck"] is False
+
+
+@pytest.mark.asyncio
+async def test_coordination_activity_from_session_events(client, tmp_path):
+    """Activity field reflects the most recent tool call in the session events."""
+    sessions_dir = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(seconds=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    d = sessions_dir / "agent-worker-1"
+    d.mkdir(parents=True)
+    import json as _json
+    events = [
+        {"seq": 1, "ts": recent, "type": "event", "kind": "tool_call",
+         "data": {"tool": "bash", "input": "pytest api/tests/ -x", "summary": "exit:0", "success": True}},
+    ]
+    (d / "events.jsonl").write_text("\n".join(_json.dumps(e) for e in events) + "\n")
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.agents.nudge_history", {}):
+        resp = await client.get("/api/sessions/coordination")
+
+    data = resp.json()
+    s = next((x for x in data["sessions"] if x["id"] == "agent-worker-1"), None)
+    assert s is not None
+    assert s["activity"] != ""
+
+
+@pytest.mark.asyncio
+async def test_coordination_recent_files_from_write_events(client, tmp_path):
+    """recent_files lists paths from fs_ops/write tool calls in session events."""
+    sessions_dir = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(seconds=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    d = sessions_dir / "agent-writer-1"
+    d.mkdir(parents=True)
+    import json as _json
+    events = [
+        {"seq": 1, "ts": recent, "type": "event", "kind": "tool_call",
+         "data": {"tool": "fs_ops", "input": '{"path": "app/src/pages/Sessions.tsx", "new_str": "..."}',
+                  "summary": "ok", "success": True}},
+        {"seq": 2, "ts": recent, "type": "event", "kind": "tool_call",
+         "data": {"tool": "fs_ops", "input": '{"path": "api/routers/sessions.py", "old_str": "x", "new_str": "y"}',
+                  "summary": "ok", "success": True}},
+    ]
+    (d / "events.jsonl").write_text("\n".join(_json.dumps(e) for e in events) + "\n")
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.agents.nudge_history", {}):
+        resp = await client.get("/api/sessions/coordination")
+
+    data = resp.json()
+    s = next((x for x in data["sessions"] if x["id"] == "agent-writer-1"), None)
+    assert s is not None
+    assert len(s["recent_files"]) >= 1
+    assert any("Sessions.tsx" in f or "sessions.py" in f for f in s["recent_files"])
+
+
+@pytest.mark.asyncio
+async def test_coordination_label_uses_agent_task(client, tmp_path):
+    """label uses agent task description when registered."""
+    sessions_dir = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(seconds=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _write_session(sessions_dir, "agent-foo-bar123", recent)
+
+    fake_meta = {
+        "agent-foo-bar123": {
+            "status": "running",
+            "task": "build the phase B feature",
+            "spawned_at": recent,
+            "last_heartbeat_at": recent,
+        }
+    }
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.agents.nudge_history", {}), \
+         patch("routers.agents.agent_metadata", fake_meta):
+        resp = await client.get("/api/sessions/coordination")
+
+    data = resp.json()
+    s = next((x for x in data["sessions"] if x["id"] == "agent-foo-bar123"), None)
+    assert s is not None
+    assert s["label"] == "build the phase B feature"
+
+
+@pytest.mark.asyncio
 async def test_coordination_locks_from_ostk(client, tmp_path):
     """Lock data from ostk.list_locks is passed through."""
     sessions_dir = tmp_path / "sessions"

@@ -6,10 +6,14 @@ import { LoadingState, EmptyState } from "../components/ui";
 interface SessionRow {
   id: string;
   name: string;
+  label?: string;
   type: string;
   started_at: string | null;
   last_active_at: string;
   status: "active" | "idle";
+  activity?: string;
+  recent_files?: string[];
+  stuck?: boolean;
 }
 
 interface LockRow {
@@ -82,10 +86,40 @@ function SessionsColumn({ sessions }: { sessions: SessionRow[] }) {
           >
             <StatusDot status={s.status} />
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-slate-800 dark:text-slate-200 truncate">{s.name}</p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p className="text-sm text-slate-800 dark:text-slate-200 truncate">
+                  {s.label || s.name}
+                </p>
+                {s.stuck && (
+                  <span
+                    data-testid="stuck-badge"
+                    className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-500"
+                  >
+                    quiet
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-500">
                 {typeLabel(s.type)} · last active {relativeTime(s.last_active_at)}
               </p>
+              {s.activity && (
+                <p className="text-xs text-slate-600 dark:text-slate-400 truncate mt-0.5">
+                  {s.activity}
+                </p>
+              )}
+              {s.recent_files && s.recent_files.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {s.recent_files.slice(0, 3).map((f) => (
+                    <span
+                      key={f}
+                      className="text-[10px] font-mono px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 truncate max-w-[120px]"
+                      title={f}
+                    >
+                      {f.split("/").pop()}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))
