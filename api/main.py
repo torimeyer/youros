@@ -21,6 +21,14 @@ import faulthandler as _faulthandler
 import signal as _signal
 _faulthandler.register(_signal.SIGUSR1, all_threads=True)
 
+# Outbound HTTPS (Google's token endpoint, etc.) must be able to verify TLS
+# certificates. The macOS framework Python ships with no system CA bundle, so
+# bare-urllib calls in services.google_auth fail CERTIFICATE_VERIFY_FAILED,
+# which surfaced as the endless Gmail/Calendar reconnect loop. Wire certifi in
+# before any router imports create SSL contexts. See services/ssl_bootstrap.py.
+from services.ssl_bootstrap import install_certifi_default as _install_certifi_default
+_install_certifi_default()
+
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI

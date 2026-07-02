@@ -13,7 +13,14 @@ import time
 from pathlib import Path
 
 from services.atomic_io import atomic_write_text
+from services.ssl_bootstrap import install_certifi_default as _install_certifi_default
 from services.youros_paths import youros_home
+
+# Google token exchange/refresh/revoke below use bare urllib.request.urlopen.
+# The framework Python has no default CA bundle, so those calls fail TLS
+# verification unless certifi is wired in. Do it at import so this works even
+# when google_auth is imported outside the full app (e.g. unit tests).
+_install_certifi_default()
 
 MYOS_DIR = youros_home()
 TOKEN_PATH = MYOS_DIR / "google_token.json"
