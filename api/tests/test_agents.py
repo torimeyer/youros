@@ -5189,7 +5189,21 @@ def _patch_build_templates(monkeypatch, agents_dir: Path) -> None:
     list_available_templates, and find_agentfile so every lookup path
     sees the fixture.
     """
-    agents_dir.mkdir(exist_ok=True)
+    # _isolate_tasks_ostk (autouse) creates tmp_path/agents as a symlink to
+    # the shared process-level _fake_root/agents. write_text() follows the
+    # symlink chain, so without this guard every call permanently contaminates
+    # _fake_root/agents/builder.agent and later tests that read
+    # config.PROJECT_ROOT/agents/builder.agent see spurious AC lines.
+    if agents_dir.is_symlink():
+        import shutil as _shutil
+        link_target = agents_dir.resolve()
+        agents_dir.unlink()
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        for src in link_target.iterdir():
+            if src.is_file():
+                _shutil.copy2(src, agents_dir / src.name)
+    else:
+        agents_dir.mkdir(exist_ok=True)
     (agents_dir / "builder.agent").write_text(
         'FROM auto\n'
         'PROMPT "You are a myOS comprehensive build agent. Follow this pattern strictly: '
