@@ -1713,6 +1713,63 @@ class TestParagraphJoin:
 
 
 @pytest.mark.asyncio
+async def test_prewarm_cli_uses_version_flag_not_prompt_call():
+    """prewarm_cli must run ``claude --version``, not a full ``-p`` API call.
+
+    Root cause of →2467: a full ``claude -p "ping"`` call at startup:
+    - Spawns 3 MCP servers that die after the call; their 405 ms init cost
+      recurs on every chat turn because each ``claude -p`` spawns new ones.
+    - Makes a real Anthropic API call with ostk context dump (~$3, ~60 s).
+    - Net TTFT savings: ~50 ms out of 7.9 s = negligible.
+
+    ``claude --version`` puts the binary in OS page cache (44 ms, $0).
+    """
+    from services.claude_code_provider import prewarm_cli
+
+    subprocess_run_calls: list = []
+
+    def fake_subprocess_run(args, **kwargs):
+        subprocess_run_calls.append(list(args))
+
+        class _Result:
+            returncode = 0
+
+        return _Result()
+
+    async def fake_to_thread(fn, *args, **kwargs):
+        fn(*args, **kwargs)
+        return None
+
+    with (
+        patch(
+            "services.claude_code_provider.is_claude_code_available",
+            new=AsyncMock(return_value=True),
+        ),
+        patch(
+            "services.claude_code_provider._find_claude_binary",
+            return_value="/usr/local/bin/claude",
+        ),
+        patch("asyncio.to_thread", side_effect=fake_to_thread),
+        patch("subprocess.run", side_effect=fake_subprocess_run),
+    ):
+        await prewarm_cli()
+
+    assert len(subprocess_run_calls) == 1, (
+        f"prewarm_cli should make exactly one subprocess call; got {subprocess_run_calls}"
+    )
+    cmd = subprocess_run_calls[0]
+    assert "--version" in cmd, (
+        "prewarm_cli must use '--version' to warm the binary cache at $0 API cost; "
+        f"got: {cmd}"
+    )
+    assert "-p" not in cmd and "--print" not in cmd, (
+        "prewarm_cli must not use '-p'/'--print' which triggers MCP server init "
+        "(405 ms per call, recurs every chat turn) and API calls (~$3 per restart); "
+        f"got: {cmd}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_prewarm_cli_uses_to_thread_not_create_subprocess_exec():
     """prewarm_cli must use asyncio.to_thread, not asyncio.create_subprocess_exec.
 

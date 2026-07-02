@@ -226,24 +226,29 @@ async def _run_auth_status(claude_path: str) -> Optional[dict]:
 
 
 async def prewarm_cli() -> None:
-    """Fire up the local ``claude`` program once at backend boot so the first
-    user chat does not pay the cold-start penalty.
+    """Put the ``claude`` binary into the OS page cache at backend boot.
 
-    On a cold shell the first ``claude -p`` invocation takes 7 to 9 seconds
-    before the first token arrives. Subsequent invocations in the same
-    process tree are faster (measured 3.4 to 5.1 seconds) because the
-    Node.js runtime, CLI plugin loader, and network stack are already warm
-    in the OS file cache and DNS/TLS resolver cache. Running a tiny prompt
-    here at startup pays that cost while the backend boots, so the user
-    never sees it.
+    Running ``claude --version`` (44 ms, $0) loads the binary and its shared
+    libraries into the page cache so the first ``claude -p`` chat call skips
+    the cold-read penalty on a freshly booted machine.
 
-    This is best-effort. If the program is not installed, not signed in,
-    or the subprocess errors out, we silently give up. The regular chat
-    path still works on cold start, just a few seconds slower.
+    Why NOT a full ``claude -p "ping"`` call (the previous approach, →2467):
+    - Each ``claude -p`` invocation spawns three fresh MCP server processes
+      (ostk, stitch, fcp-gdocs) that die when the subprocess exits. Their
+      ~405 ms init cost recurs on every chat turn regardless of prewarm.
+    - The ostk MCP server injects ~120 K tokens of context, which triggers
+      multi-turn agentic behaviour even on "ping": ~$3 per backend restart,
+      ~60 s of wall time, and no benefit to the next call.
+    - The Anthropic API latency floor (4–8 s) is per-connection and ends
+      when the subprocess exits; prewarm cannot carry it forward.
+    - Net measured TTFT savings from the old approach: ~50 ms out of 7.9 s.
 
-    The subprocess work runs via asyncio.to_thread so the fork+exec of the
-    heavy Node.js CLI happens off the event-loop thread. Forking on-loop
-    stalled TLS handshakes and wedged the backend during startup (→1806).
+    For sub-4 s first-chat TTFT a persistent warm ``claude --resume``
+    subprocess is needed (design-level change; out of scope here).
+
+    This is best-effort. If the binary is missing or errors out we silently
+    give up. The subprocess work runs via asyncio.to_thread so the fork
+    happens off the event-loop thread (→1806).
     """
     import subprocess
 
@@ -258,25 +263,16 @@ async def prewarm_cli() -> None:
         def _warm() -> None:
             try:
                 subprocess.run(
-                    [
-                        claude_path,
-                        "-p",
-                        "--output-format",
-                        "stream-json",
-                        "--verbose",
-                        "--dangerously-skip-permissions",
-                        "ping",
-                    ],
+                    [claude_path, "--version"],
                     capture_output=True,
-                    timeout=30.0,
+                    timeout=10.0,
                     env=env,
-                    cwd=str(_REPO_ROOT),
                 )
             except Exception:
                 pass
 
         await asyncio.to_thread(_warm)
-        _claude_log.info("claude_cli_prewarm_complete")
+        _claude_log.warning("claude_cli_prewarm_complete")
     except Exception:
         # Startup warming must never break the backend. Swallow everything.
         return
