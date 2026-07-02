@@ -31,10 +31,17 @@ interface EventRow {
   kind: string;
 }
 
+interface ConflictRow {
+  path: string;
+  session_ids: string[];
+  last_write_times: Record<string, string>;
+}
+
 interface CoordinationData {
   sessions: SessionRow[];
   locks: LockRow[];
   events: EventRow[];
+  conflicts?: ConflictRow[];
 }
 
 function relativeTime(iso: string | null): string {
@@ -66,6 +73,39 @@ function StatusDot({ status }: { status: "active" | "idle" }) {
       }`}
       aria-label={status}
     />
+  );
+}
+
+function ConflictsStrip({ conflicts }: { conflicts: ConflictRow[] }) {
+  if (!conflicts || conflicts.length === 0) return null;
+  return (
+    <div
+      data-testid="conflicts-strip"
+      className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3"
+    >
+      <p className="text-xs font-semibold text-amber-500 uppercase tracking-wider mb-2">
+        File conflicts (informational)
+      </p>
+      {conflicts.map((c, i) => (
+        <div
+          key={`${c.path}-${i}`}
+          data-testid="conflict-row"
+          className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300 mb-1 last:mb-0"
+        >
+          <span
+            data-testid="conflict-path"
+            className="font-mono text-amber-400 truncate max-w-[200px]"
+            title={c.path}
+          >
+            {c.path.split("/").pop() || c.path}
+          </span>
+          <span className="text-slate-500">written by</span>
+          <span data-testid="conflict-sessions">
+            {c.session_ids.join(" and ")}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -216,11 +256,14 @@ export default function Sessions() {
         ) : error ? (
           <EmptyState icon="warning" title="Could not load" description={error} />
         ) : data ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <SessionsColumn sessions={data.sessions} />
-            <LocksColumn locks={data.locks} />
-            <EventsColumn events={data.events} />
-          </div>
+          <>
+            <ConflictsStrip conflicts={data.conflicts || []} />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <SessionsColumn sessions={data.sessions} />
+              <LocksColumn locks={data.locks} />
+              <EventsColumn events={data.events} />
+            </div>
+          </>
         ) : null}
       </div>
     </PageShell>

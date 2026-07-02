@@ -7078,6 +7078,101 @@ describe('Agents page - Teams tab', () => {
   })
 })
 
+describe('Agents page - Conflict strip in Active Sessions', () => {
+  const MOCK_HB = new Date(Date.now() - 30_000).toISOString()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
+  })
+
+  it('renders conflict strip with file name and session ids when coordination returns conflicts', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return {
+        daemon_running: true,
+        status: 'ok',
+        active: ['agent-one'],
+        agents: [{
+          name: 'agent-one',
+          status: 'running',
+          source: 'claude-code',
+          model: 'sonnet',
+          budget: '2.00',
+          spawned_at: new Date(Date.now() - 83000).toISOString(),
+          last_heartbeat_at: MOCK_HB,
+        }],
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/sessions/coordination') return {
+        sessions: [],
+        locks: [],
+        events: [],
+        conflicts: [{
+          path: 'app/src/pages/Sessions.tsx',
+          session_ids: ['agent-one', 'agent-two'],
+          last_write_times: {
+            'agent-one': new Date().toISOString(),
+            'agent-two': new Date().toISOString(),
+          },
+        }],
+      }
+      if (path.includes('/nudges')) return { agent: 'agent-one', nudges: [], session_nudges: [] }
+      return {}
+    })
+
+    render(<MemoryRouter><Agents /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('conflicts-strip')).toBeInTheDocument()
+    })
+
+    expect(screen.getByTestId('conflict-row')).toBeInTheDocument()
+    expect(screen.getByTestId('conflict-path')).toHaveTextContent('Sessions.tsx')
+    expect(screen.getByTestId('conflict-sessions')).toHaveTextContent('agent-one')
+    expect(screen.getByTestId('conflict-sessions')).toHaveTextContent('agent-two')
+  })
+
+  it('does not render conflict strip when conflicts list is empty', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return {
+        daemon_running: true,
+        status: 'ok',
+        active: ['agent-one'],
+        agents: [{
+          name: 'agent-one',
+          status: 'running',
+          source: 'claude-code',
+          model: 'sonnet',
+          budget: '2.00',
+          spawned_at: new Date(Date.now() - 83000).toISOString(),
+          last_heartbeat_at: MOCK_HB,
+        }],
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/sessions/coordination') return {
+        sessions: [],
+        locks: [],
+        events: [],
+        conflicts: [],
+      }
+      if (path.includes('/nudges')) return { agent: 'agent-one', nudges: [], session_nudges: [] }
+      return {}
+    })
+
+    render(<MemoryRouter><Agents /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTitle(/^agent-one(\s|$)/)).toBeInTheDocument()
+    })
+
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
+
+    expect(screen.queryByTestId('conflicts-strip')).not.toBeInTheDocument()
+  })
+})
+
 describe('Agents page - Session enrichment in Active Sessions', () => {
   const MOCK_HB = new Date(Date.now() - 30_000).toISOString()
 

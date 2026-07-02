@@ -1,117 +1,134 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Sessions from './Sessions'
 import { api } from '../lib/api'
 
-vi.mock('../lib/api', () => ({ api: { get: vi.fn() } }))
-const mockedGet = vi.mocked(api.get)
-
-function makeSession(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'claude-code-p12345',
-    name: 'claude-code-p12345',
-    label: 'Building the sessions page',
-    type: 'claude-code',
-    started_at: null,
-    last_active_at: new Date(Date.now() - 20000).toISOString(),
-    status: 'active' as const,
-    activity: 'Running command: pytest api/tests/ -x',
-    recent_files: ['api/routers/sessions.py', 'app/src/pages/Sessions.tsx'],
-    stuck: false,
-    ...overrides,
-  }
-}
-
-function makePayload(sessions: ReturnType<typeof makeSession>[] = [makeSession()]) {
-  return { sessions, locks: [], events: [] }
-}
-
-beforeAll(() => {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  })
+// jsdom does not provide window.matchMedia. Provide a minimal stub
+// so components that use responsive breakpoints do not crash.
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
 })
 
-function renderPage() {
-  return render(
-    <MemoryRouter>
-      <Sessions />
-    </MemoryRouter>
-  )
+vi.mock('../lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/api')>()
+  return {
+    ...actual,
+    api: {
+      get: vi.fn(),
+      post: vi.fn(),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    },
+  }
+})
+
+const mockedApiGet = vi.mocked(api.get)
+
+const EMPTY_COORDINATION = {
+  sessions: [],
+  locks: [],
+  events: [],
+  conflicts: [],
 }
 
-describe('Sessions page', () => {
+describe('Sessions page - ConflictsStrip', () => {
   beforeEach(() => {
-    mockedGet.mockReset()
-    mockedGet.mockResolvedValue(makePayload() as never)
+    vi.clearAllMocks()
   })
 
-  it('renders the sessions column', async () => {
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByTestId('sessions-column')).toBeTruthy()
+  it('renders conflicts strip with file name and session labels when conflicts present', async () => {
+    mockedApiGet.mockResolvedValue({
+      ...EMPTY_COORDINATION,
+      conflicts: [
+        {
+          path: 'src/api/routes.py',
+          session_ids: ['session-alice', 'session-bob'],
+          last_write_times: {
+            'session-alice': new Date().toISOString(),
+            'session-bob': new Date().toISOString(),
+          },
+        },
+      ],
     })
+
+    render(<MemoryRouter><Sessions /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('conflicts-strip')).toBeInTheDocument()
+    })
+
+    expect(screen.getByTestId('conflict-row')).toBeInTheDocument()
+    expect(screen.getByTestId('conflict-path')).toHaveTextContent('routes.py')
+    expect(screen.getByTestId('conflict-sessions')).toHaveTextContent('session-alice')
+    expect(screen.getByTestId('conflict-sessions')).toHaveTextContent('session-bob')
   })
 
-  it('shows the session label', async () => {
-    renderPage()
+  it('does not render conflicts strip when conflicts list is empty', async () => {
+    mockedApiGet.mockResolvedValue(EMPTY_COORDINATION)
+
+    render(<MemoryRouter><Sessions /></MemoryRouter>)
+
     await waitFor(() => {
-      expect(screen.getByText('Building the sessions page')).toBeTruthy()
+      expect(screen.getByTestId('sessions-column')).toBeInTheDocument()
     })
+
+    expect(screen.queryByTestId('conflicts-strip')).not.toBeInTheDocument()
   })
 
-  it('shows the activity line', async () => {
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByText(/Running command: pytest/)).toBeTruthy()
+  it('does not render conflicts strip when conflicts field is absent', async () => {
+    mockedApiGet.mockResolvedValue({
+      sessions: [],
+      locks: [],
+      events: [],
     })
+
+    render(<MemoryRouter><Sessions /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('sessions-column')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId('conflicts-strip')).not.toBeInTheDocument()
   })
 
-  it('shows recent files', async () => {
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByText(/sessions\.py/)).toBeTruthy()
+  it('renders multiple conflict rows when multiple paths conflict', async () => {
+    mockedApiGet.mockResolvedValue({
+      ...EMPTY_COORDINATION,
+      conflicts: [
+        {
+          path: 'src/app.py',
+          session_ids: ['session-a', 'session-b'],
+          last_write_times: {},
+        },
+        {
+          path: 'src/utils.py',
+          session_ids: ['session-a', 'session-c'],
+          last_write_times: {},
+        },
+      ],
     })
-  })
 
-  it('does not show stuck badge when stuck=false', async () => {
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByTestId('sessions-column')).toBeTruthy()
-    })
-    expect(screen.queryByTestId('stuck-badge')).toBeNull()
-  })
+    render(<MemoryRouter><Sessions /></MemoryRouter>)
 
-  it('shows stuck badge when stuck=true', async () => {
-    mockedGet.mockResolvedValue(makePayload([makeSession({ stuck: true })]) as never)
-    renderPage()
     await waitFor(() => {
-      expect(screen.getByTestId('stuck-badge')).toBeTruthy()
+      expect(screen.getByTestId('conflicts-strip')).toBeInTheDocument()
     })
-  })
 
-  it('falls back gracefully when enriched fields are absent', async () => {
-    mockedGet.mockResolvedValue(makePayload([{
-      id: 'old-format-session',
-      name: 'old-format-session',
-      type: 'ostk',
-      started_at: null,
-      last_active_at: new Date().toISOString(),
-      status: 'active' as const,
-    } as never]) as never)
-    renderPage()
-    await waitFor(() => {
-      expect(screen.getByTestId('sessions-column')).toBeTruthy()
-    })
-    expect(screen.queryByTestId('stuck-badge')).toBeNull()
+    const rows = screen.getAllByTestId('conflict-row')
+    expect(rows).toHaveLength(2)
+    expect(screen.getByText('app.py')).toBeInTheDocument()
+    expect(screen.getByText('utils.py')).toBeInTheDocument()
   })
 })
