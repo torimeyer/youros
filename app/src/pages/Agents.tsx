@@ -2257,6 +2257,45 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
   { name: 'Airtable', description: 'Read and write Airtable bases, tables, and records', icon: 'table_chart', npmPackage: 'airtable-mcp-server', setupCommand: 'npx -y airtable-mcp-server', requiresAuth: true, authHint: 'Needs an Airtable personal access token from airtable.com/create/tokens.' },
 ];
 
+interface ConflictEntry {
+  path: string;
+  session_ids: string[];
+  last_write_times: Record<string, string>;
+}
+
+function ConflictsStrip({ conflicts }: { conflicts: ConflictEntry[] }) {
+  if (conflicts.length === 0) return null;
+  return (
+    <div
+      data-testid="conflicts-strip"
+      className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3"
+    >
+      <p className="text-xs font-semibold text-amber-500 uppercase tracking-wider mb-2">
+        File conflicts (informational)
+      </p>
+      {conflicts.map((c, i) => (
+        <div
+          key={`${c.path}-${i}`}
+          data-testid="conflict-row"
+          className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300 mb-1 last:mb-0"
+        >
+          <span
+            data-testid="conflict-path"
+            className="font-mono text-amber-400 truncate max-w-[200px]"
+            title={c.path}
+          >
+            {c.path.split("/").pop() || c.path}
+          </span>
+          <span className="text-slate-500">written by</span>
+          <span data-testid="conflict-sessions">
+            {c.session_ids.join(" and ")}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Agents() {
   const [activeTab, setActiveTab] = useState("Active");
   const [searchParams, setSearchParams] = useSearchParams();
@@ -2563,6 +2602,7 @@ export default function Agents() {
   const [releasingLock, setReleasingLock] = useState<Record<string, boolean>>({});
 
   // Session enrichment: label, activity, recent_files, stuck from /sessions/coordination
+  const [coordinationConflicts, setCoordinationConflicts] = useState<ConflictEntry[]>([]);
   const [sessionEnrichmentMap, setSessionEnrichmentMap] = useState<Record<string, {
     label?: string;
     activity?: string;
@@ -3380,15 +3420,19 @@ export default function Agents() {
     }
   };
 
-  // Fetch session enrichment from coordination endpoint
+  // Fetch session enrichment and conflict alerts from coordination endpoint
   const fetchSessionEnrichment = useCallback(async () => {
     try {
-      const data = await api.get<{ sessions: Array<{ name: string; label?: string; activity?: string; recent_files?: string[]; stuck?: boolean }> }>("/sessions/coordination");
+      const data = await api.get<{
+        sessions: Array<{ name: string; label?: string; activity?: string; recent_files?: string[]; stuck?: boolean }>;
+        conflicts?: ConflictEntry[];
+      }>("/sessions/coordination");
       const map: Record<string, { label?: string; activity?: string; recent_files?: string[]; stuck?: boolean }> = {};
       for (const s of data.sessions || []) {
         map[s.name] = { label: s.label, activity: s.activity, recent_files: s.recent_files, stuck: s.stuck };
       }
       setSessionEnrichmentMap(map);
+      setCoordinationConflicts(data.conflicts || []);
     } catch {
       // Optional enrichment; ignore errors
     }
@@ -4130,6 +4174,7 @@ export default function Agents() {
                 );
               })()}
             </div>
+            <ConflictsStrip conflicts={coordinationConflicts} />
             {!agentsLoaded ? (
               <div
                 data-testid="active-agents-loading"

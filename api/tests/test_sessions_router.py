@@ -321,6 +321,57 @@ async def test_coordination_label_uses_agent_task(client, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_coordination_has_conflicts_field(client, tmp_path):
+    """Coordination snapshot always includes a 'conflicts' key (even when empty)."""
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.agents.nudge_history", {}):
+        resp = await client.get("/api/sessions/coordination")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "conflicts" in data
+    assert isinstance(data["conflicts"], list)
+
+
+@pytest.mark.asyncio
+async def test_coordination_detects_cross_session_conflict(client, tmp_path):
+    """When two sessions write the same file, conflicts list is non-empty."""
+    import json as _json
+    sessions_dir = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    ts = (now - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    for sid in ("session-a", "session-b"):
+        d = sessions_dir / sid
+        d.mkdir(parents=True, exist_ok=True)
+        event = {
+            "seq": 1, "ts": ts, "type": "event", "kind": "tool_call",
+            "data": {
+                "tool": "fs_ops",
+                "input": _json.dumps({"path": "src/app.py", "new_str": "x"}),
+                "success": True,
+                "summary": "ok",
+            },
+        }
+        (d / "events.jsonl").write_text(_json.dumps(event) + "\n")
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.agents.nudge_history", {}):
+        resp = await client.get("/api/sessions/coordination")
+
+    data = resp.json()
+    assert len(data["conflicts"]) == 1
+    c = data["conflicts"][0]
+    assert c["path"] == "src/app.py"
+    assert set(c["session_ids"]) == {"session-a", "session-b"}
+    assert "session-a" in c["last_write_times"]
+    assert "session-b" in c["last_write_times"]
+
+
+@pytest.mark.asyncio
 async def test_coordination_locks_from_ostk(client, tmp_path):
     """Lock data from ostk.list_locks is passed through."""
     sessions_dir = tmp_path / "sessions"
