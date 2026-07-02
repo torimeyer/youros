@@ -10,6 +10,29 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.11.0
+  {
+    date: '2026-06-18',
+    label: 'June 18, 2026',
+    entries: [
+      {
+        title: 'Connecting your AI is simpler',
+        description: 'Setup now leads with the Claude or Gemini plan you already have, so if you already pay for one it just works with no key to paste. The pay-as-you-go key option is still there, marked as advanced for people who want it.',
+      },
+      {
+        title: 'Clear that yourOS will not touch your existing AI',
+        description: 'The connect step now says plainly that yourOS runs on your computer and uses your existing AI logins. It does not change, replace, or sign into anything you already use.',
+      },
+      {
+        title: 'A calmer first screen',
+        description: 'When you first open yourOS, the home view and side menu start simple, with extra sections tucked away until you want them, so there is less on screen at once.',
+      },
+      {
+        title: 'Easier free path with Google Gemini',
+        description: 'If you just want to talk to an AI for free, setup now points clearly to a free Google AI Studio key for personal chat.',
+      },
+    ],
+  },
   // v5.10.0
   {
     date: '2026-06-17',
