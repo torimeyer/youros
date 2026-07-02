@@ -126,6 +126,30 @@ snapshot_contains() {
     fi
 }
 
+# Helper: wait until page content matches pattern, retrying up to timeout_secs.
+# Skips snapshots showing the app boot screen ("Loading yourOS...").
+# Usage: wait_for_content "pattern" [timeout_secs] [grep_flags]
+# Returns 0 if matched; 1 if timed out. Sets WAIT_CONTENT_SNAP.
+wait_for_content() {
+    local pattern="$1"
+    local timeout="${2:-15}"
+    local grep_flags="${3:--qiE}"
+    local deadline=$(($(date +%s) + timeout))
+    WAIT_CONTENT_SNAP=""
+    while true; do
+        WAIT_CONTENT_SNAP=$(ab snapshot 2>&1)
+        # Treat the boot screen as not-ready; keep retrying
+        if ! echo "$WAIT_CONTENT_SNAP" | grep -qE "^Loading( yourOS)?\.\.\.$"; then
+            # shellcheck disable=SC2086
+            if echo "$WAIT_CONTENT_SNAP" | grep $grep_flags "$pattern"; then
+                return 0
+            fi
+        fi
+        [ "$(date +%s)" -ge "$deadline" ] && return 1
+        ab wait 1000 > /dev/null 2>&1
+    done
+}
+
 # =============================================================================
 # Journey 1: Dashboard loads with real data
 # =============================================================================
@@ -133,8 +157,13 @@ snapshot_contains() {
 header "Journey 1: Dashboard loads with real data"
 
 ab open "$FRONTEND_URL" > /dev/null 2>&1
-# Wait for the page to settle (network requests, React render)
-ab wait 3000 > /dev/null 2>&1
+# Retry until real content is visible (skips boot screen, up to 15s)
+if wait_for_content "open|tasks|focus|agents|Home"; then
+    phase_pass "dashboard shows real content (not blank)"
+else
+    phase_fail "dashboard appears blank or stuck on loading"
+fi
+snap="$WAIT_CONTENT_SNAP"
 
 # Take an annotated screenshot
 ab screenshot "$SCREENSHOT_DIR/dashboard.png" --annotate > /dev/null 2>&1
@@ -142,15 +171,6 @@ if [ -f "$SCREENSHOT_DIR/dashboard.png" ]; then
     phase_pass "dashboard screenshot saved"
 else
     phase_fail "dashboard screenshot not created"
-fi
-
-# Verify the dashboard has real content, not just a loading spinner.
-# The dashboard shows task counts, focus items, or the OS name.
-snap=$(ab snapshot 2>&1)
-if echo "$snap" | grep -qiE "open|tasks|focus|agents|Home"; then
-    phase_pass "dashboard shows real content (not blank)"
-else
-    phase_fail "dashboard appears blank or stuck on loading"
 fi
 
 # Verify it does NOT show just the boot screen ("Loading..." or "Loading yourOS...")
@@ -171,9 +191,7 @@ header "Journey 2: Sidebar navigation"
 
 # --- Navigate to Tasks ---
 ab open "${FRONTEND_URL}/tasks" > /dev/null 2>&1
-ab wait 2000 > /dev/null 2>&1
-tasks_snap=$(ab snapshot 2>&1)
-if echo "$tasks_snap" | grep -qiE "What needs to be done|Open|Closed|tasks"; then
+if wait_for_content "What needs to be done|Open|Closed|tasks"; then
     phase_pass "Tasks page renders content"
 else
     phase_fail "Tasks page appears blank"
@@ -182,9 +200,7 @@ ab screenshot "$SCREENSHOT_DIR/tasks.png" > /dev/null 2>&1
 
 # --- Navigate to Agents ---
 ab open "${FRONTEND_URL}/agents" > /dev/null 2>&1
-ab wait 2000 > /dev/null 2>&1
-agents_snap=$(ab snapshot 2>&1)
-if echo "$agents_snap" | grep -qiE "agent|spawn|fleet|template"; then
+if wait_for_content "agent|spawn|fleet|template"; then
     phase_pass "Agents page renders content"
 else
     phase_fail "Agents page appears blank"
@@ -193,9 +209,7 @@ ab screenshot "$SCREENSHOT_DIR/agents.png" > /dev/null 2>&1
 
 # --- Navigate to Gems (was /ideas — route renamed) ---
 ab open "${FRONTEND_URL}/gems" > /dev/null 2>&1
-ab wait 2000 > /dev/null 2>&1
-ideas_snap=$(ab snapshot 2>&1)
-if echo "$ideas_snap" | grep -qiE "gem|persona|chat|My Gems"; then
+if wait_for_content "gem|persona|chat|My Gems"; then
     phase_pass "Gems page renders content"
 else
     phase_fail "Gems page appears blank"
@@ -204,9 +218,7 @@ ab screenshot "$SCREENSHOT_DIR/ideas.png" > /dev/null 2>&1
 
 # --- Navigate to Settings ---
 ab open "${FRONTEND_URL}/settings" > /dev/null 2>&1
-ab wait 2000 > /dev/null 2>&1
-settings_snap=$(ab snapshot 2>&1)
-if echo "$settings_snap" | grep -qiE "connect|Google|Slack|AI Provider|Connections|Preferences"; then
+if wait_for_content "connect|Google|Slack|AI Provider|Connections|Preferences"; then
     phase_pass "Settings page renders content"
 else
     phase_fail "Settings page appears blank"
@@ -220,7 +232,8 @@ ab screenshot "$SCREENSHOT_DIR/settings.png" > /dev/null 2>&1
 header "Journey 3: Create task via UI"
 
 ab open "${FRONTEND_URL}/tasks" > /dev/null 2>&1
-ab wait 2000 > /dev/null 2>&1
+# Wait until the Tasks page input is present before interacting
+wait_for_content "What needs to be done|Open|Closed|tasks" > /dev/null 2>&1 || ab wait 2000 > /dev/null 2>&1
 
 # The Tasks page has an input with placeholder "What needs to be done?"
 # and a round blue add button next to it.
@@ -242,11 +255,8 @@ ab eval "
   const btn = document.querySelector('button.bg-blue-500.rounded-full');
   if (btn) btn.click();
 " > /dev/null 2>&1
-ab wait 2500 > /dev/null 2>&1
-
-# Verify the task appears in the list
-task_check_snap=$(ab snapshot 2>&1)
-if echo "$task_check_snap" | grep -q "$TASK_TITLE"; then
+# Verify the task appears in the list (retry up to 15s)
+if wait_for_content "$TASK_TITLE" 15 "-q"; then
     phase_pass "created task appears in task list"
 else
     phase_fail "created task not found in task list"
@@ -277,7 +287,8 @@ fi
 header "Journey 4: Chat panel"
 
 ab open "${FRONTEND_URL}" > /dev/null 2>&1
-ab wait 2000 > /dev/null 2>&1
+# Wait until the home page renders real content before checking DOM
+wait_for_content "open|tasks|focus|agents|Home" > /dev/null 2>&1 || ab wait 2000 > /dev/null 2>&1
 
 # The chat toggle button in the TopBar has title="Toggle Chat (⌘L)" / "Toggle Chat (Ctrl+L)".
 # Query it directly via DOM rather than parsing the snapshot, because agent-browser's
