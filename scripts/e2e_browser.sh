@@ -232,7 +232,8 @@ ab screenshot "$SCREENSHOT_DIR/settings.png" > /dev/null 2>&1
 header "Journey 3: Create task via UI"
 
 ab open "${FRONTEND_URL}/tasks" > /dev/null 2>&1
-ab wait 2000 > /dev/null 2>&1
+# Wait until the Tasks page input is present before interacting
+wait_for_content "What needs to be done|Open|Closed|tasks" > /dev/null 2>&1 || ab wait 2000 > /dev/null 2>&1
 
 # The Tasks page has an input with placeholder "What needs to be done?"
 # and a round blue add button next to it.
@@ -286,7 +287,8 @@ fi
 header "Journey 4: Chat panel"
 
 ab open "${FRONTEND_URL}" > /dev/null 2>&1
-ab wait 2000 > /dev/null 2>&1
+# Wait until the home page renders real content before checking DOM
+wait_for_content "open|tasks|focus|agents|Home" > /dev/null 2>&1 || ab wait 2000 > /dev/null 2>&1
 
 # The chat toggle button in the TopBar has title="Toggle Chat (⌘L)" / "Toggle Chat (Ctrl+L)".
 # Query it directly via DOM rather than parsing the snapshot, because agent-browser's
