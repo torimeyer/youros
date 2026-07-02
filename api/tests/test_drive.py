@@ -274,6 +274,42 @@ async def test_drive_auth_url_contains_correct_redirect_uri(client, tmp_path):
     assert "%2Fapi%2Fauth%2Fgoogle%2Fcallback" in url
 
 
+@pytest.mark.asyncio
+async def test_drive_auth_url_return_to_uses_frontend_url(client, tmp_path):
+    """GET /drive/auth/url must store a return_to rooted at the frontend URL (→2423).
+
+    When FRONTEND_URL is not set, return_to must default to FRONTEND_URL_DEFAULT/drive,
+    not a raw backend API path.
+    """
+    import os
+
+    from services.oauth_state import drive_oauth_states as _drive_oauth_states
+
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text(
+        json.dumps({"installed": {"client_id": "test-id", "client_secret": "test-secret"}})
+    )
+
+    env_without_frontend_url = {k: v for k, v in os.environ.items() if k != "FRONTEND_URL"}
+    state_keys_before = set(_drive_oauth_states.keys())
+
+    with (
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+        patch.dict("os.environ", env_without_frontend_url, clear=True),
+    ):
+        resp = await client.get("/api/drive/auth/url")
+
+    assert resp.status_code == 200
+    assert "url" in resp.json()
+
+    new_states = {k: v for k, v in _drive_oauth_states.items() if k not in state_keys_before}
+    assert len(new_states) == 1, f"Expected exactly one new OAuth state, got {len(new_states)}"
+    found_return_to = list(new_states.values())[0].get("return_to", "")
+    assert found_return_to.startswith(FRONTEND_URL_DEFAULT), (
+        f"return_to must be rooted at {FRONTEND_URL_DEFAULT!r}, got: {found_return_to!r}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Auth callback
 # ---------------------------------------------------------------------------
