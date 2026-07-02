@@ -33,6 +33,10 @@ IDLE_CUTOFF_MINUTES = 30
 STUCK_MIN_SECONDS = 90
 STUCK_MAX_SECONDS = 600  # 10 min
 
+# Conflict detection: two distinct sessions writing the same file within this
+# window triggers a conflict alert. Informational only, never blocks anything.
+CONFLICT_WINDOW_MINUTES = 15
+
 # File-writing tools whose input carries a "path" key
 _FILE_WRITE_TOOLS = frozenset({"fs_ops", "edit", "write", "fs_write", "Write", "Edit"})
 
@@ -182,6 +186,94 @@ def _is_stuck(last_active: datetime, now: datetime) -> bool:
     """
     age_seconds = (now - last_active).total_seconds()
     return STUCK_MIN_SECONDS < age_seconds < STUCK_MAX_SECONDS
+
+
+def _detect_file_conflicts(
+    sessions_dir: Path,
+    now: Optional[datetime] = None,
+) -> list[dict]:
+    """Find files written by two or more distinct sessions within CONFLICT_WINDOW_MINUTES.
+
+    Reads per-session event files (same source as _get_sessions). Two writes to
+    the same path by different session IDs within the window = conflict. Self-
+    conflicts (same session twice) and non-file-write tools are excluded.
+
+    Runs synchronously — must be called inside asyncio.to_thread.
+
+    Returns a list of dicts:
+        {"path": str, "session_ids": [str, ...], "last_write_times": {id: iso_str}}
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=CONFLICT_WINDOW_MINUTES)
+
+    if not sessions_dir.is_dir():
+        return []
+
+    # path -> {session_id: latest_write_datetime_within_window}
+    path_writes: dict[str, dict[str, datetime]] = {}
+
+    for entry in sessions_dir.iterdir():
+        if not entry.is_dir():
+            continue
+        sid = entry.name
+        if _is_backend_self_session(sid):
+            continue
+        events_file = entry / "events.jsonl"
+        if not events_file.exists():
+            continue
+
+        lines = _tail_lines(events_file, nbytes=16384)
+        for ln in lines:
+            try:
+                ev = json.loads(ln)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            ts_str = ev.get("ts")
+            if not ts_str:
+                continue
+            try:
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                continue
+            if ts < cutoff:
+                continue
+            data = ev.get("data", {})
+            if not isinstance(data, dict):
+                continue
+            tool = data.get("tool", "")
+            if tool not in _FILE_WRITE_TOOLS:
+                continue
+            raw_input = data.get("input", "")
+            path_str = ""
+            if isinstance(raw_input, str):
+                try:
+                    parsed = json.loads(raw_input)
+                    path_str = parsed.get("path", "")
+                except (json.JSONDecodeError, ValueError, AttributeError):
+                    pass
+            elif isinstance(raw_input, dict):
+                path_str = raw_input.get("path", "")
+            if not path_str:
+                continue
+            session_writes = path_writes.setdefault(path_str, {})
+            existing = session_writes.get(sid)
+            if existing is None or ts > existing:
+                session_writes[sid] = ts
+
+    conflicts = []
+    for path_str, session_writes in path_writes.items():
+        if len(session_writes) < 2:
+            continue
+        conflicts.append({
+            "path": path_str,
+            "session_ids": list(session_writes.keys()),
+            "last_write_times": {
+                sid: ts.isoformat()
+                for sid, ts in session_writes.items()
+            },
+        })
+    return conflicts
 
 
 def _get_sessions() -> list[dict]:
@@ -417,7 +509,7 @@ _coord_refresh_lock = asyncio.Lock()
 
 def _gather_sessions_and_events_sync(
     meta_snapshot: dict, nudge_snapshot: dict
-) -> tuple[list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict]]:
     """Synchronous, filesystem-heavy gather. MUST run off the event loop.
 
     Operates only on immutable snapshots of the agent/nudge maps so it is
@@ -482,7 +574,9 @@ def _gather_sessions_and_events_sync(
             })
     all_events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
     events = all_events[:20]
-    return sessions, events
+
+    conflicts = _detect_file_conflicts(SESSIONS_DIR, now=now_utc)
+    return sessions, events, conflicts
 
 
 async def _build_coordination_data() -> dict:
@@ -499,7 +593,7 @@ async def _build_coordination_data() -> dict:
     meta_snapshot = dict(agent_metadata)
     nudge_snapshot = {k: list(v) for k, v in nudge_history.items()}
 
-    sessions, events = await asyncio.to_thread(
+    sessions, events, conflicts = await asyncio.to_thread(
         _gather_sessions_and_events_sync, meta_snapshot, nudge_snapshot
     )
 
@@ -522,6 +616,7 @@ async def _build_coordination_data() -> dict:
         "sessions": sessions,
         "locks": locks,
         "events": events,
+        "conflicts": conflicts,
     }
 
 
