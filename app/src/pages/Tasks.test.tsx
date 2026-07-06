@@ -1833,6 +1833,87 @@ describe('Tasks page', () => {
 
   // Suggestions UI removed (→249). Tests will be restored when the feature is polished.
 
+  describe('Select all / Clear all (→2490)', () => {
+    it('shows "Select all" affordance above the list when nothing is selected', async () => {
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      const btn = screen.getByTestId('select-all-tasks')
+      expect(btn).toBeInTheDocument()
+      expect(btn.textContent).toMatch(/select all/i)
+    })
+
+    it('clicking the above-list "Select all" selects every visible task and shows the bulk bar', async () => {
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByTestId('select-all-tasks'))
+
+      await waitFor(() => {
+        // Bulk bar should appear with the total count of visible tasks (4 in default "all" view)
+        expect(screen.getByText(/4 selected/i)).toBeInTheDocument()
+      })
+    })
+
+    it('select-all with "open" filter active only selects open tasks', async () => {
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+
+      // Switch to open-only filter — 3 open tasks, 1 closed
+      selectOnlyStatus('open')
+
+      await waitFor(() => {
+        expect(screen.queryByText('Old completed task')).not.toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByTestId('select-all-tasks'))
+
+      await waitFor(() => {
+        expect(screen.getByText(/3 selected/i)).toBeInTheDocument()
+      })
+    })
+
+    it('when all visible tasks are selected the bar button reads "Clear all"', async () => {
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+
+      // Select all first
+      fireEvent.click(screen.getByTestId('select-all-tasks'))
+
+      await waitFor(() => {
+        const btn = screen.getByTestId('select-all-tasks')
+        expect(btn.textContent).toMatch(/clear all/i)
+      })
+    })
+
+    it('clicking "Clear all" empties the selection and hides the bulk bar', async () => {
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+
+      // Select all, then clear
+      fireEvent.click(screen.getByTestId('select-all-tasks'))
+      await waitFor(() => {
+        expect(screen.getByText(/selected/i)).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByTestId('select-all-tasks'))
+
+      await waitFor(() => {
+        // Bulk bar should be gone
+        expect(screen.queryByText(/selected/i)).not.toBeInTheDocument()
+      })
+    })
+  })
+
   describe('Tasks audit feature', () => {
     const nowIso = new Date().toISOString()
     const auditClosedTasks = [
