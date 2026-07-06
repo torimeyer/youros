@@ -97,6 +97,9 @@ export interface AgentInfo {
   /** Derived badge for terminal agents. One of: clean, salvaged, failed,
    *  abandoned-no-work. Absent for running agents. Computed by the backend. */
   badge?: string;
+  /** Absolute paths of files this agent wrote to ~/.youros/files/ (→2485).
+   *  Populated after /complete when the agent produced a summary doc. */
+  artifacts?: string[];
 }
 
 /**
