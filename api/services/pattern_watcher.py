@@ -291,19 +291,19 @@ def store_tier(
 
     Dismiss (tier=0) removes the entry so it stops surfacing as a hint.
     Confirm (tier=2) and Approve (tier=3) store label+kind for hint text.
+
+    Raises on file-write failure so the caller can surface the error to the UI
+    (per spec edge-case: tier-promotion write failure must never silently corrupt).
     """
-    try:
-        tiers: dict = {}
-        if tiers_path.exists():
-            tiers = _json.loads(tiers_path.read_text())
-        tiers_path.parent.mkdir(parents=True, exist_ok=True)
-        if tier == 0:
-            tiers.pop(cluster_id, None)
-        else:
-            tiers[cluster_id] = {"tier": tier, "label": label, "kind": kind}
-        tiers_path.write_text(_json.dumps(tiers))
-    except Exception:
-        _log.exception("pattern_watcher: store_tier failed for cluster=%s", cluster_id)
+    tiers: dict = {}
+    if tiers_path.exists():
+        tiers = _json.loads(tiers_path.read_text())
+    tiers_path.parent.mkdir(parents=True, exist_ok=True)
+    if tier == 0:
+        tiers.pop(cluster_id, None)
+    else:
+        tiers[cluster_id] = {"tier": tier, "label": label, "kind": kind}
+    tiers_path.write_text(_json.dumps(tiers))
 
 
 def load_tiers(tiers_path: Path = _TIER_FILE) -> dict[str, dict]:
@@ -318,15 +318,16 @@ def load_tiers(tiers_path: Path = _TIER_FILE) -> dict[str, dict]:
 
 
 def get_confirmed_hint(tiers_path: Path = _TIER_FILE) -> Optional[str]:
-    """Return a hint context block for confirmed (tier >= 2) clusters.
+    """Return a hint context block for confirmed (tier == 2) clusters.
 
+    Tier-3 clusters act silently and must NOT appear in chat hints.
     Used as a fallback in read_context_for_turn when recall_fault is unavailable.
     Returns None if no confirmed clusters exist.
     """
     tiers = load_tiers(tiers_path)
     confirmed = [
         v for v in tiers.values()
-        if isinstance(v, dict) and v.get("tier", 0) >= 2 and v.get("label")
+        if isinstance(v, dict) and v.get("tier", 0) == 2 and v.get("label")
     ]
     if not confirmed:
         return None
@@ -336,3 +337,49 @@ def get_confirmed_hint(tiers_path: Path = _TIER_FILE) -> Optional[str]:
         f"{lines}\n"
         "(If relevant to the user's request, start your reply with a one-line note.)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Tier-3 silent apply (→2486) — applies approved patterns without chat hints
+# ---------------------------------------------------------------------------
+
+
+def apply_silent_patterns(
+    task_id: str,
+    title: str,
+    priority: str,
+    tiers_path: Path = _TIER_FILE,
+    tasks_path: Path = _DEFAULT_TASKS,
+) -> list[str]:
+    """Apply any tier-3 silent-action patterns to a newly created task.
+
+    For each tier-3 task:defer cluster, if the task is at P3 (the pattern's
+    match condition per spec), writes a task:silent_applied audit note to
+    tasks_path and returns the list of applied pattern labels.
+
+    Never raises — all errors are logged and swallowed so task creation
+    is never blocked by pattern matching.
+    """
+    applied: list[str] = []
+    try:
+        tiers = load_tiers(tiers_path=tiers_path)
+        for cluster_id, entry in tiers.items():
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("tier") != 3:
+                continue
+            kind = entry.get("kind", "")
+            label = entry.get("label", "")
+            if kind == "task:defer" and priority == "P3":
+                ts = _now_iso()
+                bullet = (
+                    f'- {ts} task:silent_applied cluster_id="{cluster_id}" '
+                    f'label="{label}" task_id="{task_id}" priority={priority}'
+                )
+                _append_bullet(tasks_path, bullet)
+                applied.append(label)
+    except Exception:
+        _log.exception(
+            "pattern_watcher: apply_silent_patterns failed for task=%s", task_id
+        )
+    return applied

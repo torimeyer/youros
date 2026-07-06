@@ -136,7 +136,7 @@ export default function PatternPanel() {
               {tier === 2 && (
                 <>
                   <button
-                    data-testid={`approve-silent-${c.id}`}
+                    data-testid="pattern-approve-silent"
                     disabled={busy}
                     onClick={() => setTier(c.id, 3)}
                     className="text-xs px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 transition-colors"

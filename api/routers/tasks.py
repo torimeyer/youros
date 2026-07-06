@@ -1327,6 +1327,16 @@ async def create_task(body: TaskCreate, include_test_data: bool = False):
         task_source_store.set_source(new_id, body.source, body.source_ref)
 
     trace_event("task_created", task_id=new_id, title=clean_title, priority=body.priority)
+
+    # Silently apply any tier-3 approved patterns (never blocks task creation).
+    try:
+        from services.pattern_watcher import apply_silent_patterns as _pw_apply
+        applied = _pw_apply(new_id or "", clean_title, body.priority or "P2")
+        if applied:
+            trace_event("pattern_applied", task_id=new_id, patterns=applied)
+    except Exception:
+        pass
+
     return {"result": result, "task_id": new_id}
 
 
