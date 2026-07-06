@@ -801,7 +801,12 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
                 content=input_data["content"],
             )
         elif name == "spawn_agent":
-            return await _spawn_agent(input_data["name"], input_data["prompt"], input_data.get("model", "sonnet"))
+            return await _spawn_agent(
+                input_data["name"],
+                input_data["prompt"],
+                input_data.get("model", "sonnet"),
+                notify=input_data.get("notify"),
+            )
         elif name == "chat_schedule_wakeup":
             return await _chat_schedule_wakeup(input_data)
         elif name == "chat_monitor":
@@ -2006,7 +2011,7 @@ def _chat_close_prelude(agent_name: str) -> str:
     )
 
 
-async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:
+async def _spawn_agent(name: str, prompt: str, model: str = "sonnet", notify: dict | None = None) -> str:
     """Spawn a Claude Code subprocess as a background agent.
 
     Bug 3 fix: validates that name is non-empty (hyphens are allowed and
@@ -2049,10 +2054,13 @@ async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:
     try:
         # Use the API endpoint so it's tracked consistently
         import httpx
+        spawn_payload: dict = {"name": clean_name, "prompt": final_prompt, "model": model, "budget": 2.0}
+        if notify:
+            spawn_payload["notify"] = notify
         async with httpx.AsyncClient(verify=False) as client:
             resp = await client.post(
                 "https://127.0.0.1:8000/api/agents/spawn",
-                json={"name": clean_name, "prompt": final_prompt, "model": model, "budget": 2.0},
+                json=spawn_payload,
                 timeout=10,
             )
             if resp.status_code == 200:

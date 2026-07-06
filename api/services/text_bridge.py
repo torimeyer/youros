@@ -74,7 +74,7 @@ def is_trusted_sender(sender_id: str, service: str = "iMessage") -> bool:
     return False
 
 
-async def classify_and_dispatch(text: str, sender_id: str) -> str:
+async def classify_and_dispatch(text: str, sender_id: str, chat_id: Optional[int] = None) -> str:
     """Use AI to classify the text and execute the corresponding action."""
     state = _load_state()
     
@@ -85,7 +85,12 @@ async def classify_and_dispatch(text: str, sender_id: str) -> str:
         if normalized in ("YES", "Y", "OK", "PROCEED"):
             # Execute the held action
             tool_name = pending["tool_name"]
-            tool_input = pending["tool_input"]
+            tool_input = dict(pending["tool_input"])
+            
+            # For spawn_agent: inject notify so the agent texts back on completion.
+            _pending_chat_id = pending.get("chat_id")
+            if tool_name == "spawn_agent" and _pending_chat_id is not None:
+                tool_input["notify"] = {"kind": "imessage", "chat_id": _pending_chat_id}
             
             # Clear pending first
             del state["pending_confirmations"][sender_id]
@@ -160,7 +165,8 @@ async def classify_and_dispatch(text: str, sender_id: str) -> str:
             state["pending_confirmations"][sender_id] = {
                 "tool_name": tool_use.name,
                 "tool_input": tool_use.input,
-                "expires_at": time.time() + 600 # 10 min
+                "expires_at": time.time() + 600,  # 10 min
+                "chat_id": chat_id,  # persisted so YES handler can inject notify
             }
             _save_state(state)
             
@@ -247,7 +253,7 @@ class TextBridge:
         # Mirror user message to chat history
         append_chat_interaction("user", f"[{service}] {text}")
         
-        reply_text = await classify_and_dispatch(text, sender)
+        reply_text = await classify_and_dispatch(text, sender, chat_id=chat_id)
         
         # Mirror reply to chat history
         append_chat_interaction("assistant", reply_text)

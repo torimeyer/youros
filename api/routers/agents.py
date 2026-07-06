@@ -6566,6 +6566,8 @@ async def _legacy_bespoke_spawn(body: AgentSpawn, request: Request, response: Re
             if body.user_authored is not None
             else bool(body.originating_session_id and body.originating_user_message_id)
         )
+        if body.notify:
+            spawn_meta["notify"] = body.notify
         agent_metadata[body.name] = spawn_meta
         await _save_agent_state_async()
         _set_agent_status(body.name, "running")
@@ -8225,6 +8227,20 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             )
         except Exception:
             pass
+
+        # iMessage completion text-back for agents started via text (→1875).
+        # Only fires when the spawn included a notify target; in-app spawns never have one.
+        # Summary is already persisted in agent_metadata above (line ~7984) so we read it
+        # from there — the function-parameter `body` is shadowed by a local var above.
+        _notify = agent_metadata.get(name, {}).get("notify")
+        if _notify and _notify.get("kind") == "imessage" and _notify.get("chat_id") is not None:
+            try:
+                from services.imessage import reply_to_chat_sync
+                _agent_summary = agent_metadata.get(name, {}).get("summary") or f"Agent '{name}' finished."
+                _msg = f"{name}: {_agent_summary}"
+                await asyncio.to_thread(reply_to_chat_sync, _notify["chat_id"], _msg)
+            except Exception as _notify_exc:
+                logger.warning("mark_agent_complete: iMessage notify failed: %s", _notify_exc)
 
     # Drop the stdin writer on completion so future /nudge calls don't try
     # to write to a dead pipe.
