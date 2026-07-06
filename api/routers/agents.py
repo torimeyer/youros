@@ -2380,6 +2380,9 @@ def _recover_stale_agents():
         # reparented to init, so their drain and heartbeat tasks are gone.
         # Per →1453 diagnostic.
         if pid and _is_pid_alive(pid) and _is_pid_my_child(pid):
+            # →2488: refresh so _autocomplete_exited_subagents doesn't fire right after restart
+            meta["last_heartbeat_at"] = now.isoformat()
+            changed = True
             continue
         # Case 2: external Claude Code session with recent heartbeat. Keep.
         # We trust the heartbeat ONLY when the agent's source says it has
@@ -2391,6 +2394,9 @@ def _recover_stale_agents():
             if heartbeat is not None:
                 age_seconds = (now - heartbeat).total_seconds()
                 if age_seconds <= STALE_AGENT_TIMEOUT_SECONDS:
+                    # →2488: refresh so _autocomplete_exited_subagents doesn't fire right after restart
+                    meta["last_heartbeat_at"] = now.isoformat()
+                    changed = True
                     continue
 
         # Case 2b: multi-signal liveness check for worktree agents (→1505).
@@ -2427,6 +2433,7 @@ def _recover_stale_agents():
                     pass
             if _keep_alive:
                 meta["stale_heartbeat"] = True
+                meta["last_heartbeat_at"] = now.isoformat()  # →2488: refresh so autocomplete sweep doesn't fire
                 changed = True
                 continue
 
@@ -2444,6 +2451,7 @@ def _recover_stale_agents():
         _is_api_autonomous = source in ("api", "chat")
         if pid and _is_pid_alive(pid) and (_is_pid_my_child(pid) or _is_api_autonomous):
             meta["stale_heartbeat"] = True
+            meta["last_heartbeat_at"] = now.isoformat()  # →2488: refresh so autocomplete sweep doesn't fire
             changed = True
             continue
 
