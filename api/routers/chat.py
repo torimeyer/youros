@@ -723,14 +723,14 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
             full_text = await chat_service.stream_mock(messages, websocket, tab_id=tab_id)
         elif provider == "claude":
             if use_tools:
-                full_text = await chat_service.agent_anthropic(messages, websocket, tab_id=tab_id, plan_mode=plan_mode)
+                full_text = await chat_service.agent_anthropic(messages, websocket, tab_id=tab_id, plan_mode=plan_mode, claude_tier=claude_tier)
             else:
                 full_text = await chat_service.stream_anthropic(messages, websocket, tab_id=tab_id, claude_tier=claude_tier)
         elif provider == "gemini":
             if use_tools:
                 # Gemini has no tool loop and an explicit no-action system prompt.
                 # Redirect to Claude so spawn_agent and other tools are reachable.
-                full_text = await chat_service.agent_anthropic(messages, websocket, tab_id=tab_id, plan_mode=plan_mode)
+                full_text = await chat_service.agent_anthropic(messages, websocket, tab_id=tab_id, plan_mode=plan_mode, claude_tier=claude_tier)
             else:
                 full_text = await chat_service.stream_gemini(messages, websocket)
         else:

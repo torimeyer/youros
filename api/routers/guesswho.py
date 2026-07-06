@@ -103,7 +103,7 @@ async def _llm_answer(req: AnswerRequest) -> Answer:
     system = _SYSTEM.format(name=req.item_name, attrs=", ".join(true_attrs))
     try:
         response = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=20,
             system=system,
             messages=[{"role": "user", "content": req.question}],

@@ -25,7 +25,7 @@ from services.task_labeling import apply_auto_labels
 
 logger = logging.getLogger(__name__)
 
-_DESCRIPTION_MODEL = "claude-sonnet-4-20250514"
+_DESCRIPTION_MODEL = "claude-sonnet-4-6"
 
 
 async def _generate_description(title: str) -> Optional[str]:

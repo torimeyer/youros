@@ -37,6 +37,15 @@ TIER_MODEL_MAP: dict[str, str] = {
     "haiku":  "claude-haiku-4-5-20251001",
 }
 
+# Retired model IDs that must be silently remapped to their current equivalent.
+# Used by resolve_model() so stale hardcodes or saved settings are healed at
+# call time rather than reaching the Anthropic API as a 404.
+RETIRED_MODELS: dict[str, str] = {
+    "claude-sonnet-4-20250514": "claude-sonnet-4-6",
+    "claude-sonnet-4-5":        "claude-sonnet-4-6",
+    "claude-haiku-4-5":         "claude-haiku-4-5-20251001",
+}
+
 DEFAULT_TIER: str = "sonnet"
 DEFAULT_MODEL: str = TIER_MODEL_MAP[DEFAULT_TIER]
 
@@ -80,6 +89,11 @@ def resolve_model(tier: Optional[str] = None) -> str:
         return DEFAULT_MODEL
     if tier in TIER_MODEL_MAP:
         return TIER_MODEL_MAP[tier]
+    # Retired model IDs are silently healed to their current equivalent.
+    if tier in RETIRED_MODELS:
+        current = RETIRED_MODELS[tier]
+        logger.info("model_routing: retired model %r remapped to %s", tier, current)
+        return current
     # Looks like a full model id already — pass through.
     if "-4-" in tier or tier.startswith("claude-"):
         return tier

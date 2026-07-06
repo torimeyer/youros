@@ -262,7 +262,7 @@ async def _call_llm(dreading: str, done_looks_like: Optional[str]) -> DreamRespo
 
     try:
         response = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=1024,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_msg}],

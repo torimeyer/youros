@@ -26,7 +26,7 @@ from services.ai_backend import get_ai_client
 from services.labels_store import labels_store, LABEL_COLORS
 
 # claude-sonnet-4-20250514 is the same model used by chat_providers.
-_CLASSIFIER_MODEL = "claude-sonnet-4-20250514"
+_CLASSIFIER_MODEL = "claude-sonnet-4-6"
 
 # Hard cap so a single task never gets more than this many auto-applied labels.
 _MAX_LABELS_PER_TASK = 3

@@ -4832,3 +4832,131 @@ class TestFriendlyGeminiErrorServiceDisabled:
         with patch.dict(os.environ, {"GEMINI_VERTEX_ERROR_SUFFIX": "Until then, Claude is your default."}):
             friendly = _friendly_gemini_error(err)
         assert "Until then, Claude is your default." in friendly
+
+
+# ---------------------------------------------------------------------------
+# TestAgentAnthropicCurrentModel (→2478)
+# ---------------------------------------------------------------------------
+
+class TestAgentAnthropicCurrentModel:
+    """agent_anthropic must never send a retired model ID to the Anthropic API."""
+
+    @pytest.fixture
+    def websocket(self):
+        ws = AsyncMock()
+        ws.send_json = AsyncMock()
+        return ws
+
+    @pytest.mark.asyncio
+    async def test_tool_loop_uses_current_model_not_retired(self, websocket):
+        """When agent_anthropic makes its initial API call, model must not be retired."""
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+
+        # Mock a simple text-only response (no tool_use) so we only exercise
+        # the first create() call in the tool loop.
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "Hello!"
+        fake_response = MagicMock()
+        fake_response.content = [text_block]
+        fake_response.stop_reason = "end_turn"
+        fake_response.usage = MagicMock(
+            input_tokens=10, output_tokens=5,
+            cache_creation_input_tokens=0, cache_read_input_tokens=0,
+        )
+
+        fake_create = AsyncMock(return_value=fake_response)
+        fake_client = MagicMock()
+        fake_client.messages.create = fake_create
+        fake_client.beta = MagicMock()
+        fake_client.beta.messages = MagicMock()
+        fake_client.beta.messages.create = AsyncMock(return_value=fake_response)
+
+        messages = [{"role": "user", "content": "hello"}]
+
+        with patch(
+            "services.chat_providers._resolve_chat_backend",
+            new=AsyncMock(return_value="anthropic_api"),
+        ), patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value="test-key"),
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            new=AsyncMock(return_value=None),
+        ), patch(
+            "services.chat_providers.anthropic.AsyncAnthropic",
+            new=MagicMock(return_value=fake_client),
+        ), patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: (
+                [] if key == "mcp_servers" else default
+            )
+            await service.agent_anthropic(messages, websocket)
+
+        # Collect all model= kwargs passed to any messages.create call
+        all_calls = fake_create.call_args_list + fake_client.beta.messages.create.call_args_list
+        assert all_calls, "No messages.create call was made"
+        for call in all_calls:
+            model_used = call.kwargs.get("model") or (call.args[0] if call.args else None)
+            assert model_used != "claude-sonnet-4-20250514", (
+                f"Retired model sent to Anthropic API: {model_used}"
+            )
+            assert model_used is not None and "20250514" not in model_used, (
+                f"Stale model date sent to Anthropic API: {model_used}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_plan_mode_uses_current_model_not_retired(self, websocket):
+        """Plan-mode intercept must not send the retired model to client.messages.create."""
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+
+        plan_text_block = MagicMock()
+        plan_text_block.type = "text"
+        plan_text_block.text = "<plan>Step 1: do the thing</plan>"
+        plan_response = MagicMock()
+        plan_response.content = [plan_text_block]
+        plan_response.stop_reason = "end_turn"
+        plan_response.usage = MagicMock(
+            input_tokens=10, output_tokens=5,
+            cache_creation_input_tokens=0, cache_read_input_tokens=0,
+        )
+
+        fake_create = AsyncMock(return_value=plan_response)
+        fake_client = MagicMock()
+        fake_client.messages.create = fake_create
+
+        messages = [{"role": "user", "content": "refactor all the things"}]
+
+        with patch(
+            "services.chat_providers._resolve_chat_backend",
+            new=AsyncMock(return_value="anthropic_api"),
+        ), patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value="test-key"),
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            new=AsyncMock(return_value=None),
+        ), patch(
+            "services.chat_providers.anthropic.AsyncAnthropic",
+            new=MagicMock(return_value=fake_client),
+        ), patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: (
+                [] if key == "mcp_servers" else default
+            )
+            await service.agent_anthropic(messages, websocket, plan_mode=True)
+
+        for call in fake_create.call_args_list:
+            model_used = call.kwargs.get("model")
+            assert model_used != "claude-sonnet-4-20250514", (
+                f"Retired model sent to Anthropic API in plan mode: {model_used}"
+            )
+            assert model_used is not None and "20250514" not in model_used, (
+                f"Stale model date in plan mode: {model_used}"
+            )
