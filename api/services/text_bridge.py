@@ -178,6 +178,10 @@ async def classify_and_dispatch(text: str, sender_id: str, chat_id: Optional[int
         return f"Error processing your request: {exc}"
 
 
+SELF_REPLY_WINDOW_S = 60
+SELF_REPLY_MAX = 5
+
+
 class TextBridge:
     """Background service that polls for inbound messages."""
     
@@ -185,6 +189,7 @@ class TextBridge:
         self._imessage_poller: Optional[Any] = None
         self._telegram_poller: Optional[Any] = None
         self._state = _load_state()
+        self._self_reply_times: list[float] = []
 
     def start(self) -> None:
         config = settings_store.get("text_bridge", {})
@@ -226,11 +231,18 @@ class TextBridge:
         sender = msg.get("sender", "")
         text = msg.get("text", "")
 
-        # For is_from_me messages in the self-chat, the DB sets sender="me" which
-        # won't match trusted_contacts. Use the configured self_handle instead.
+        # is_self_text: the DB sends sender="me" for is_from_me rows in the self-chat.
+        # Use the configured self_handle as effective_sender so the trust check passes.
         is_self_text = (
             msg.get("is_from_me")
             and self._imessage_poller is not None
+            and bool(self._imessage_poller._self_handle)
+            and msg.get("chat_identifier") == self._imessage_poller._self_handle
+        )
+        # is_self_chat: any message in the self-conversation — includes the is_from_me=False
+        # received echo that iMessage creates alongside every is_from_me=True sent row.
+        is_self_chat = (
+            self._imessage_poller is not None
             and bool(self._imessage_poller._self_handle)
             and msg.get("chat_identifier") == self._imessage_poller._self_handle
         )
@@ -256,26 +268,49 @@ class TextBridge:
         if service == "iMessage" and msg.get("date"):
             self._state["cursor"] = msg["date"]
             _save_state(self._state)
-        elif service == "Telegram":
-            # Offset is handled by the poller itself, but we could persist it here if needed
-            # For now, the poller manages it in memory.
-            pass
 
         # Send reply back via the originating service
         if not chat_id:
             return
 
         if service == "iMessage":
+            # Circuit breaker: more than SELF_REPLY_MAX replies to the self-chat within
+            # SELF_REPLY_WINDOW_S seconds means the loop guard missed something. Drop the
+            # reply and log once so future guard failures degrade to silence, not a loop.
+            if is_self_chat:
+                now = time.time()
+                self._self_reply_times = [
+                    t for t in self._self_reply_times if t > now - SELF_REPLY_WINDOW_S
+                ]
+                if len(self._self_reply_times) >= SELF_REPLY_MAX:
+                    logger.warning(
+                        "TextBridge: circuit breaker open — %d self-chat replies in %ds, "
+                        "dropping reply to prevent loop",
+                        len(self._self_reply_times),
+                        SELF_REPLY_WINDOW_S,
+                    )
+                    return
+                self._self_reply_times.append(now)
+                # Pre-register BEFORE sending so the guard is armed before the message
+                # lands in chat.db and covers both the is_from_me=True and the received echo.
+                if self._imessage_poller is not None:
+                    self._imessage_poller.mark_sent(reply_text)
+
             try:
                 from services.imessage import reply_to_chat_sync
                 await asyncio.to_thread(reply_to_chat_sync, chat_id, reply_text)
             except Exception as exc:
                 logger.error("TextBridge: could not send iMessage reply: %s", exc)
-            # Loop guard: record this reply so the self-chat poller skips it.
-            if is_self_text and self._imessage_poller is not None:
-                self._imessage_poller.mark_sent(reply_text)
         elif service == "Telegram" and self._telegram_poller:
             await self._telegram_poller.send_message(chat_id, reply_text)
+
+    def stop(self) -> None:
+        """Stop all live pollers immediately (e.g. when enabled toggled off in Settings)."""
+        if self._imessage_poller is not None:
+            self._imessage_poller.stop()
+            self._imessage_poller = None
+        if self._telegram_poller is not None:
+            self._telegram_poller = None
 
 
 

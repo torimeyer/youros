@@ -95,9 +95,20 @@ class InboundPoller:
         if msg.get("is_from_me"):
             if not self._self_handle or msg.get("chat_identifier") != self._self_handle:
                 return False
+        # In iMessage self-chat every sent message creates both an is_from_me=True row
+        # (sent copy) and an is_from_me=False row (received echo). Apply the bridge-reply
+        # guard to ANY message from the self-chat conversation, not just is_from_me=True,
+        # so the received echo of a bridge reply is blocked before it re-triggers dispatch.
+        if self._self_handle and msg.get("chat_identifier") == self._self_handle:
             if self._is_bridge_reply(msg):
                 return False
         return True
+
+    def stop(self) -> None:
+        """Cancel the background polling task."""
+        if self._task is not None:
+            self._task.cancel()
+            self._task = None
 
     def start(self) -> None:
         import asyncio

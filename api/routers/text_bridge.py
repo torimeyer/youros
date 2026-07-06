@@ -40,7 +40,14 @@ async def get_status():
 
 @router.patch("/text-bridge/config")
 async def update_config(body: TextBridgeConfig):
-    """Update bridge configuration in SettingsStore."""
+    """Update bridge configuration and apply the change to the live instance.
+
+    Setting enabled=false immediately stops the running poller — no restart needed.
+    Setting enabled=true starts the poller if it is not already running.
+    The legacy inbound_imessage_routing_enabled flag is the other arm that can start
+    the poller at boot; toggling enabled here is the single off switch that overrides
+    both flags for the running session.
+    """
     config = settings_store.get("text_bridge", {})
     
     if body.enabled is not None:
@@ -53,6 +60,17 @@ async def update_config(body: TextBridgeConfig):
         config["confirm_commands"] = body.confirm_commands
         
     settings_store.update({"text_bridge": config})
+
+    # Apply the enabled toggle to the live TextBridge instance immediately so a
+    # running poller stops without requiring a backend restart.
+    if body.enabled is not None:
+        from services.text_bridge import text_bridge as _bridge
+        if body.enabled:
+            if _bridge._imessage_poller is None:
+                _bridge.start()
+        else:
+            _bridge.stop()
+
     return {"ok": True, "config": config}
 
 
