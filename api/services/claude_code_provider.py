@@ -90,6 +90,110 @@ import uuid as _uuid_mod
 
 _known_sessions: set[str] = set()
 
+# ---------------------------------------------------------------------------
+# Warm process registry (Phase E, →2468)
+#
+# One long-lived `claude -p --input-format stream-json` process per active
+# chat tab. Reusing it across turns eliminates MCP server restart cost
+# (~405 ms), the TLS handshake (~200 ms), and re-sending the full ostk boot
+# context (~3.8 s of API time on the first turn).
+#
+# Keyed by tab_id. Process starts on the first stream_chat() call for a tab
+# and stays alive until:
+#   - The 30-minute idle reap timer fires (_WARM_PROC_IDLE_REAP_SECONDS)
+#   - evict_warm_proc(tab_id) is called (model change, disable_tools change)
+#   - The process crashes (detected via .returncode on the next call)
+# ---------------------------------------------------------------------------
+
+_warm_procs: dict[str, Any] = {}
+_warm_proc_locks: dict[str, asyncio.Lock] = {}
+_warm_proc_reap_handles: dict[str, Any] = {}
+
+_WARM_PROC_IDLE_REAP_SECONDS: float = 1800.0
+
+
+async def _get_or_start_warm_proc(
+    tab_id: str,
+    warm_args: list[str],
+) -> Optional[Any]:
+    """Return the live warm process for tab_id, starting one if needed.
+
+    warm_args is the full argv for ``claude -p --input-format stream-json ...``
+    without a prompt positional arg (each turn's message goes to stdin as JSON).
+
+    Returns None only when create_subprocess_exec raises.
+    """
+    if tab_id not in _warm_proc_locks:
+        _warm_proc_locks[tab_id] = asyncio.Lock()
+
+    async with _warm_proc_locks[tab_id]:
+        existing = _warm_procs.get(tab_id)
+        if existing is not None and existing.returncode is None:
+            return existing
+        # Dead or missing — start fresh.
+        _warm_procs.pop(tab_id, None)
+        proc = await asyncio.create_subprocess_exec(
+            *warm_args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_build_subprocess_env(),
+            cwd=str(_REPO_ROOT),
+            limit=32 * 1024 * 1024,
+        )
+        _warm_procs[tab_id] = proc
+        return proc
+
+
+def _reap_warm_proc(tab_id: str) -> None:
+    """Terminate and remove the warm process for tab_id (idle reaper callback)."""
+    proc = _warm_procs.pop(tab_id, None)
+    _warm_proc_reap_handles.pop(tab_id, None)
+    if proc is not None:
+        try:
+            if proc.returncode is None:
+                proc.kill()
+        except (AttributeError, ProcessLookupError, OSError):
+            pass
+
+
+def _reset_warm_proc_reap_timer(tab_id: str) -> None:
+    """Reset the 30-minute idle reap timer for tab_id."""
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        return
+    old = _warm_proc_reap_handles.pop(tab_id, None)
+    if old is not None:
+        try:
+            old.cancel()
+        except Exception:
+            pass
+    handle = loop.call_later(_WARM_PROC_IDLE_REAP_SECONDS, _reap_warm_proc, tab_id)
+    _warm_proc_reap_handles[tab_id] = handle
+
+
+def evict_warm_proc(tab_id: str) -> None:
+    """Evict the warm process for tab_id.
+
+    Called by the settings router when the model changes and by any code
+    that changes flags baked into the startup args (disable_tools, etc.).
+    """
+    proc = _warm_procs.pop(tab_id, None)
+    handle = _warm_proc_reap_handles.pop(tab_id, None)
+    if handle is not None:
+        try:
+            handle.cancel()
+        except Exception:
+            pass
+    if proc is not None:
+        try:
+            if proc.returncode is None:
+                proc.kill()
+        except (AttributeError, ProcessLookupError, OSError):
+            pass
+
+
 # Per-tab response cache — keyed by tab_id, value is the last full response
 # text produced by stream_chat for that tab.  Populated on every successful
 # (or partial) stream so the frontend can retrieve the response via
@@ -792,51 +896,94 @@ async def stream_chat(
         # block the chat turn.
         pass
 
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-            # Run from the repo root so the Claude Code CLI picks up
-            # .claude/settings.json (PreToolUse hooks including
-            # ostk-first.sh) and .mcp.json (ostk MCP server) from
-            # the project root. Without this the CWD is the api/
-            # directory inherited from uvicorn and neither file is
-            # found directly, so hooks never fire and ostk MCP tools
-            # are unavailable, causing the model to fall back to
-            # native Grep/Read.
-            cwd=str(_REPO_ROOT),
-            # A single Claude Code stream event (e.g. a tool_result
-            # containing a large Read or Grep output) can be much
-            # larger than asyncio's default 64 KiB StreamReader limit.
-            # When that happens, proc.stdout.readline() raises
-            # LimitOverrunError("Separator is found, but chunk is
-            # longer than limit") and the whole chat turn dies with
-            # that message surfaced to the UI. 32 MiB comfortably
-            # absorbs anything the CLI emits on one line.
-            limit=32 * 1024 * 1024,
-        )
-        _t_spawn = time.perf_counter()
-        _claude_log.info(
-            "claude_phase=spawned ms=%.0f resume=%s",
-            (_t_spawn - _t_entry) * 1000,
-            bool(session_uuid and is_resume),
-        )
-    except (OSError, FileNotFoundError):
-        await _send_safe(
-            websocket,
-            {
-                "type": "error",
-                "data": "Your Claude subscription is not responding right now.",
-            },
-        )
+    # --- Warm process path (tab_id only) ---
+    # Reuse a persistent process to eliminate per-turn startup costs:
+    # MCP server restart (~405 ms), TLS handshake (~200 ms), and the ostk
+    # boot context upload (~3.8 s of API time on the first turn).
+    # Falls through to the cold spawn below on any failure.
+    _is_warm_turn = False
+    proc = None
+    if tab_id:
+        # warm_args: same as args but --input-format stream-json inserted
+        # and the trailing prompt positional arg removed (prompt goes to
+        # the process's stdin as a JSON event instead).
+        _warm_args = args[:2] + ["--input-format", "stream-json"] + args[2:-1]
         try:
-            from routers.agents import complete_chat_session
-            await complete_chat_session(chat_agent_name, status="failed")
-        except Exception:
-            pass
-        return ""
+            _wproc = await _get_or_start_warm_proc(tab_id, _warm_args)
+            _msg_json = (
+                json.dumps({
+                    "type": "user",
+                    "message": {
+                        "role": "user",
+                        "content": [{"type": "text", "text": prompt}],
+                    },
+                }) + "\n"
+            )
+            _wproc.stdin.write(_msg_json.encode())
+            await _wproc.stdin.drain()
+            proc = _wproc
+            _is_warm_turn = True
+            _t_spawn = time.perf_counter()
+            _claude_log.info(
+                "claude_phase=warm_turn_start ms=%.0f tab=%s",
+                (_t_spawn - _t_entry) * 1000,
+                tab_id,
+            )
+            _reset_warm_proc_reap_timer(tab_id)
+        except Exception as _warm_e:
+            _claude_log.warning(
+                "warm_proc: start/write failed tab=%s: %s; falling back to cold spawn",
+                tab_id,
+                _warm_e,
+            )
+            evict_warm_proc(tab_id)
+
+    if not _is_warm_turn:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+                # Run from the repo root so the Claude Code CLI picks up
+                # .claude/settings.json (PreToolUse hooks including
+                # ostk-first.sh) and .mcp.json (ostk MCP server) from
+                # the project root. Without this the CWD is the api/
+                # directory inherited from uvicorn and neither file is
+                # found directly, so hooks never fire and ostk MCP tools
+                # are unavailable, causing the model to fall back to
+                # native Grep/Read.
+                cwd=str(_REPO_ROOT),
+                # A single Claude Code stream event (e.g. a tool_result
+                # containing a large Read or Grep output) can be much
+                # larger than asyncio's default 64 KiB StreamReader limit.
+                # When that happens, proc.stdout.readline() raises
+                # LimitOverrunError("Separator is found, but chunk is
+                # longer than limit") and the whole chat turn dies with
+                # that message surfaced to the UI. 32 MiB comfortably
+                # absorbs anything the CLI emits on one line.
+                limit=32 * 1024 * 1024,
+            )
+            _t_spawn = time.perf_counter()
+            _claude_log.info(
+                "claude_phase=spawned ms=%.0f resume=%s",
+                (_t_spawn - _t_entry) * 1000,
+                bool(session_uuid and is_resume),
+            )
+        except (OSError, FileNotFoundError):
+            await _send_safe(
+                websocket,
+                {
+                    "type": "error",
+                    "data": "Your Claude subscription is not responding right now.",
+                },
+            )
+            try:
+                from routers.agents import complete_chat_session
+                await complete_chat_session(chat_agent_name, status="failed")
+            except Exception:
+                pass
+            return ""
 
     full_text = ""
     final_usage: Optional[dict] = None
@@ -930,6 +1077,8 @@ async def stream_chat(
             if done:
                 if usage:
                     final_usage = usage
+                if _is_warm_turn:
+                    break
 
     # Run a heartbeat loop alongside _read_stdout() so the WebSocket stays
     # warm during silent phases (thinking, tool-use planning). Without this,
@@ -966,6 +1115,67 @@ async def stream_chat(
             await _heartbeat_task
         except (asyncio.CancelledError, Exception):
             pass
+
+    # Warm turns: the process stays alive for the next turn.
+    # Send done, record metrics, and return without waiting for process exit.
+    if _is_warm_turn:
+        await _send_safe(
+            websocket,
+            {
+                "type": "done",
+                "usage": final_usage or {"input_tokens": 0, "output_tokens": 0},
+            },
+        )
+        _claude_log.info(
+            "claude_phase=warm_turn_complete ms=%.0f chars=%d",
+            (time.perf_counter() - _t_entry) * 1000,
+            len(full_text),
+        )
+        try:
+            from routers.agents import complete_chat_session
+            _wu = final_usage or {}
+            await complete_chat_session(
+                chat_agent_name,
+                tokens_in=int(_wu.get("input_tokens", 0) or 0),
+                tokens_out=int(_wu.get("output_tokens", 0) or 0),
+                status="completed",
+            )
+        except Exception:
+            pass
+        try:
+            from services.token_metrics import safe_record_chat_turn
+            from services.chat_providers import _get_boot_context, _log_chat_completion, _extract_chat_topic
+            _wu = final_usage or {}
+            boot_ctx = _get_boot_context()
+            _cc = int(_wu.get("cache_creation_input_tokens", 0) or 0)
+            _cr = int(_wu.get("cache_read_input_tokens", 0) or 0)
+            safe_record_chat_turn(
+                model="claude-code-subscription",
+                input_tokens=int(_wu.get("input_tokens", 0) or 0),
+                output_tokens=int(_wu.get("output_tokens", 0) or 0),
+                has_ostk_boot=bool(boot_ctx),
+                boot_context_bytes=len(boot_ctx.encode("utf-8")) if boot_ctx else 0,
+                backend="claude_code",
+                cache_creation_input_tokens=_cc,
+                cache_read_input_tokens=_cr,
+            )
+            _log_chat_completion(
+                model="claude-code-subscription",
+                input_tokens=int(_wu.get("input_tokens", 0) or 0),
+                output_tokens=int(_wu.get("output_tokens", 0) or 0),
+                provider="claude_code",
+                cache_creation_input_tokens=_cc,
+                cache_read_input_tokens=_cr,
+                topic=_extract_chat_topic(messages),
+            )
+        except Exception:
+            pass
+        if tab_id and full_text:
+            _last_response_cache[tab_id] = full_text
+            if len(_last_response_cache) > 100:
+                oldest = next(iter(_last_response_cache))
+                del _last_response_cache[oldest]
+        return full_text
 
     return_code = await proc.wait()
 
