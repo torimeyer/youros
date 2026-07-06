@@ -92,6 +92,7 @@ export default function Gmail() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [trashing, setTrashing] = useState<Set<string>>(new Set())
   const [bulkTrashing, setBulkTrashing] = useState(false)
+  const [bulkMarkingRead, setBulkMarkingRead] = useState(false)
   const [trashError, setTrashError] = useState<string | null>(null)
 
   const { gmailUnreadAtTop, setGmailUnreadAtTop } = useAppStore()
@@ -349,6 +350,41 @@ export default function Gmail() {
     }
   }
 
+  const handleBulkMarkRead = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setTrashError(null)
+    setBulkMarkingRead(true)
+    try {
+      const res = await api.post<{ succeeded: string[]; failed: { id: string; error: string }[]; count: number }>(
+        '/gmail/messages/batch-mark-read',
+        { ids }
+      )
+      const succeeded = res.succeeded || []
+      setMessages((prev) => {
+        const next = prev.map((m) =>
+          succeeded.includes(m.id) ? { ...m, is_unread: false } : m
+        )
+        writeGmailCache(next)
+        return next
+      })
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        for (const id of succeeded) next.delete(id)
+        return next
+      })
+      if (res.failed && res.failed.length > 0) {
+        setTrashError(
+          `Marked ${succeeded.length} as read. ${res.failed.length} failed.`
+        )
+      }
+    } catch {
+      setTrashError('Could not mark the selected messages as read. Try again.')
+    } finally {
+      setBulkMarkingRead(false)
+    }
+  }
+
   const handleOpenInGmail = (e: React.MouseEvent, messageId: string) => {
     e.stopPropagation()
     window.open(gmailUrl(messageId), '_blank', 'noopener,noreferrer')
@@ -519,10 +555,20 @@ export default function Gmail() {
                 </span>
                 <button
                   type="button"
+                  onClick={handleBulkMarkRead}
+                  disabled={bulkMarkingRead || bulkTrashing}
+                  aria-label="Mark as read"
+                  className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  <Icon name="mark_email_read" size={16} />
+                  {bulkMarkingRead ? 'Marking as read...' : 'Mark as read'}
+                </button>
+                <button
+                  type="button"
                   onClick={handleBulkTrash}
-                  disabled={bulkTrashing}
+                  disabled={bulkTrashing || bulkMarkingRead}
                   aria-label="Trash selected messages"
-                  className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   <Icon name="delete" size={16} />
                   {bulkTrashing ? 'Moving to Trash...' : 'Trash selected'}

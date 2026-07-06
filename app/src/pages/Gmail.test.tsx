@@ -865,6 +865,193 @@ describe('Gmail — localStorage cache reflects read state (→1688)', () => {
   })
 })
 
+describe('Gmail bulk mark as read (→2473)', () => {
+  const mockedApiPost = vi.mocked(api.post)
+
+  const MESSAGES = [
+    {
+      id: 'm1',
+      thread_id: 't1',
+      subject: 'Unread email from Alice',
+      from_name: 'Alice',
+      from_email: 'alice@example.com',
+      snippet: 'First unread snippet',
+      date: '2026-07-06T10:00:00+00:00',
+      is_unread: true,
+    },
+    {
+      id: 'm2',
+      thread_id: 't2',
+      subject: 'Another unread from Alice',
+      from_name: 'Alice',
+      from_email: 'alice@example.com',
+      snippet: 'Second unread snippet',
+      date: '2026-07-06T09:00:00+00:00',
+      is_unread: true,
+    },
+  ]
+
+  function mockAuthenticated() {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/gmail/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/gmail/messages')) return Promise.resolve({ messages: MESSAGES })
+      if (path.includes('/gmail/send_capability')) {
+        return Promise.resolve({ has_send_scope: true, reauth_url: null })
+      }
+      return Promise.resolve({})
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.gmailCache.v1')
+  })
+
+  it('"Mark as read" button appears in the bulk bar when messages are selected', async () => {
+    mockAuthenticated()
+    renderGmail()
+
+    const checkboxes = await screen.findAllByRole('checkbox', {
+      name: /Select message from Alice/i,
+    })
+    fireEvent.click(checkboxes[0])
+
+    const markReadBtn = await screen.findByRole('button', { name: /Mark as read/i })
+    expect(markReadBtn).toBeInTheDocument()
+  })
+
+  it('"Mark as read" button is not visible when no messages are selected', async () => {
+    mockAuthenticated()
+    renderGmail()
+
+    await screen.findByText('Unread email from Alice')
+    expect(screen.queryByRole('button', { name: /Mark as read/i })).not.toBeInTheDocument()
+  })
+
+  it('clicking "Mark as read" calls batch-mark-read with all selected ids', async () => {
+    mockAuthenticated()
+    mockedApiPost.mockImplementation((path: string, body?: unknown) => {
+      if (path.includes('/gmail/messages/batch-mark-read')) {
+        const ids = (body as { ids: string[] }).ids
+        return Promise.resolve({ succeeded: ids, failed: [], count: ids.length })
+      }
+      return Promise.resolve({})
+    })
+
+    renderGmail()
+
+    const checkboxes = await screen.findAllByRole('checkbox', {
+      name: /Select message from Alice/i,
+    })
+    fireEvent.click(checkboxes[0])
+    fireEvent.click(checkboxes[1])
+
+    const markReadBtn = await screen.findByRole('button', { name: /Mark as read/i })
+    fireEvent.click(markReadBtn)
+
+    await waitFor(() => {
+      const call = mockedApiPost.mock.calls.find((c) =>
+        String(c[0]).includes('/gmail/messages/batch-mark-read')
+      )
+      expect(call).toBeTruthy()
+      expect((call![1] as { ids: string[] }).ids.sort()).toEqual(['m1', 'm2'])
+    })
+  })
+
+  it('marked messages lose their unread blue dot after success', async () => {
+    mockAuthenticated()
+    mockedApiPost.mockImplementation((path: string, body?: unknown) => {
+      if (path.includes('/gmail/messages/batch-mark-read')) {
+        const ids = (body as { ids: string[] }).ids
+        return Promise.resolve({ succeeded: ids, failed: [], count: ids.length })
+      }
+      return Promise.resolve({})
+    })
+
+    renderGmail()
+
+    // Both messages start unread — two blue dots.
+    await waitFor(() => {
+      expect(document.querySelectorAll('span.bg-blue-400').length).toBe(2)
+    })
+
+    const checkboxes = await screen.findAllByRole('checkbox', {
+      name: /Select message from Alice/i,
+    })
+    fireEvent.click(checkboxes[0])
+    fireEvent.click(checkboxes[1])
+
+    const markReadBtn = await screen.findByRole('button', { name: /Mark as read/i })
+    fireEvent.click(markReadBtn)
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('span.bg-blue-400').length).toBe(0)
+    })
+  })
+
+  it('selection clears after all messages are marked as read', async () => {
+    mockAuthenticated()
+    mockedApiPost.mockImplementation((path: string, body?: unknown) => {
+      if (path.includes('/gmail/messages/batch-mark-read')) {
+        const ids = (body as { ids: string[] }).ids
+        return Promise.resolve({ succeeded: ids, failed: [], count: ids.length })
+      }
+      return Promise.resolve({})
+    })
+
+    renderGmail()
+
+    const checkboxes = await screen.findAllByRole('checkbox', {
+      name: /Select message from Alice/i,
+    })
+    fireEvent.click(checkboxes[0])
+
+    await screen.findByText(/1 selected/i)
+
+    const markReadBtn = await screen.findByRole('button', { name: /Mark as read/i })
+    fireEvent.click(markReadBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByText(/selected/i)).not.toBeInTheDocument()
+    })
+  })
+
+  it('shows a partial failure error; succeeded ids still lose unread styling', async () => {
+    mockAuthenticated()
+    mockedApiPost.mockImplementation((path: string) => {
+      if (path.includes('/gmail/messages/batch-mark-read')) {
+        return Promise.resolve({
+          succeeded: ['m1'],
+          failed: [{ id: 'm2', error: 'Server error' }],
+          count: 1,
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    renderGmail()
+
+    const checkboxes = await screen.findAllByRole('checkbox', {
+      name: /Select message from Alice/i,
+    })
+    fireEvent.click(checkboxes[0])
+    fireEvent.click(checkboxes[1])
+
+    const markReadBtn = await screen.findByRole('button', { name: /Mark as read/i })
+    fireEvent.click(markReadBtn)
+
+    // Partial failure message should appear.
+    await waitFor(() => {
+      expect(screen.getByText(/1 failed/i)).toBeInTheDocument()
+    })
+
+    // The one that succeeded loses its blue dot; the failed one keeps it.
+    await waitFor(() => {
+      expect(document.querySelectorAll('span.bg-blue-400').length).toBe(1)
+    })
+  })
+})
+
 describe('Gmail — Google OAuth connect button', () => {
   beforeEach(() => {
     vi.clearAllMocks()

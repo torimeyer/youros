@@ -28,6 +28,10 @@ class BatchDeleteRequest(BaseModel):
     permanent: bool = False
 
 
+class BatchMarkReadRequest(BaseModel):
+    ids: list[str]
+
+
 def _compute_gmail_status() -> dict:
     """Pure function that resolves the Gmail status payload from disk."""
     authed = is_authenticated()
@@ -287,6 +291,37 @@ async def gmail_delete_message(message_id: str, permanent: bool = False):
         ) from exc
 
     return {"ok": True, "permanent": permanent, "id": message_id}
+
+
+@router.post("/gmail/messages/batch-mark-read")
+async def gmail_batch_mark_read(body: BatchMarkReadRequest):
+    """Mark a list of Gmail messages as read.
+
+    Each id is processed independently. A failure on one id does not stop
+    the others.
+    """
+    if not is_authenticated():
+        raise HTTPException(status_code=401, detail="Not connected to Gmail.")
+
+    if not body.ids:
+        raise HTTPException(status_code=400, detail="No message ids provided.")
+
+    succeeded: list[str] = []
+    failed: list[dict] = []
+
+    for message_id in body.ids:
+        try:
+            await gmail_service.mark_read(message_id)
+            succeeded.append(message_id)
+        except Exception as exc:
+            failed.append({"id": message_id, "error": str(exc)})
+
+    return {
+        "ok": True,
+        "succeeded": succeeded,
+        "failed": failed,
+        "count": len(succeeded),
+    }
 
 
 @router.post("/gmail/messages/batch-delete")
