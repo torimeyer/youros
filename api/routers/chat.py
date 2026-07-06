@@ -437,29 +437,60 @@ def infer_second_model(text: str, already_mentioned: list[str]) -> Optional[str]
 CHAT_MEMORY_MSG_LIMIT = 10
 
 
-def build_memory_context(current_tab_id: str = "") -> list[dict]:
+async def build_memory_context(current_tab_id: str = "") -> list[dict]:
     """Build a prior-conversation context block if chat memory is enabled.
 
-    Returns a list with a single user-role message summarizing the prior
-    conversation, or an empty list when memory is disabled or there are
-    no prior messages.
+    Also injects today's cross-session digest (→2455) so the AI can answer
+    "what did my other sessions do today?" without the user having to explain.
+
+    Returns a list of user-role messages, or an empty list when memory is
+    disabled and the digest is empty.
     """
-    if not settings_store.get("chat_memory_enabled", True):
-        return []
+    messages: list[dict] = []
 
-    prior = chat_history_store.get_prior_messages(
-        current_tab_id=current_tab_id,
-        limit=CHAT_MEMORY_MSG_LIMIT,
-    )
-    if not prior:
-        return []
+    # Prior conversation memory
+    if settings_store.get("chat_memory_enabled", True):
+        prior = chat_history_store.get_prior_messages(
+            current_tab_id=current_tab_id,
+            limit=CHAT_MEMORY_MSG_LIMIT,
+        )
+        if prior:
+            lines = ["[Prior conversation for context]"]
+            for msg in prior:
+                role_label = "User" if msg["role"] == "user" else "Assistant"
+                lines.append(f"{role_label}: {msg['content']}")
+            lines.append("[End of prior conversation]")
+            messages.append({"role": "user", "content": "\n".join(lines)})
 
-    lines = ["[Prior conversation for context]"]
-    for msg in prior:
-        role_label = "User" if msg["role"] == "user" else "Assistant"
-        lines.append(f"{role_label}: {msg['content']}")
-    lines.append("[End of prior conversation]")
-    return [{"role": "user", "content": "\n".join(lines)}]
+    # Cross-session digest (→2455): inject today's activity summary
+    try:
+        from routers.sessions import get_session_digest
+        digest = await get_session_digest()
+        sessions = digest.get("sessions", [])
+        closed_tasks = digest.get("closed_tasks_today", [])
+        if sessions or closed_tasks:
+            lines = ["[Today across sessions]"]
+            for s in sessions:
+                label = s.get("label") or s.get("session_id", "")
+                count = s.get("activity_count", 0)
+                files = s.get("files_touched", [])
+                activity = s.get("recent_activity", "")
+                line = f"- {label}: {count} actions"
+                if activity:
+                    line += f", last: {activity}"
+                if files:
+                    line += f", files: {', '.join(files[:3])}"
+                lines.append(line)
+            if closed_tasks:
+                lines.append("Completed today:")
+                for t in closed_tasks:
+                    lines.append(f"  - {t.get('title', '')} ({t.get('id', '')})")
+            lines.append("[End of today across sessions]")
+            messages.append({"role": "user", "content": "\n".join(lines)})
+    except Exception:
+        pass
+
+    return messages
 
 
 GIF_RE = re.compile(r"\[gif:(https?://[^\]]+)\]")
@@ -1593,7 +1624,7 @@ async def chat_websocket(websocket: WebSocket):
             # Inject prior conversation memory so the AI can reference
             # what the user talked about in their last chat tab.
             claude_tier = data.get("claude_tier", "")
-            memory_msgs = build_memory_context(current_tab_id=tab_id)
+            memory_msgs = await build_memory_context(current_tab_id=tab_id)
             if memory_msgs:
                 messages = memory_msgs + messages
 

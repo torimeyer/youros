@@ -397,3 +397,76 @@ async def test_coordination_locks_from_ostk(client, tmp_path):
     assert lk["lock_name"] == "agent-builder"
     assert lk["held_by_session"] == "agent-builder-abc"
     assert lk["paths"] == ["app/src/pages/Sessions.tsx"]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/sessions/digest endpoint tests (phase D)
+# ---------------------------------------------------------------------------
+
+def _make_today_ts():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _write_digest_session(sessions_dir, session_name, n_events=3):
+    """Write a session with n_events from today."""
+    ts = _make_today_ts()
+    events = [
+        json.dumps({"seq": i, "ts": ts, "kind": "tool_call", "data": {"tool": "shell"}})
+        for i in range(n_events)
+    ]
+    d = sessions_dir / session_name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "events.jsonl").write_text("\n".join(events) + "\n")
+
+
+@pytest.mark.asyncio
+async def test_digest_endpoint_shape(client, tmp_path):
+    """GET /api/sessions/digest returns the expected top-level keys."""
+    import routers.sessions as _sm
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    _write_digest_session(sessions_dir, "agent-d-test")
+
+    _sm._digest_cache = None
+    _sm._digest_cache_ts = 0.0
+    _sm._digest_refresh_lock = asyncio.Lock()
+
+    from unittest.mock import AsyncMock, patch
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.sessions._get_closed_tasks_today", new_callable=AsyncMock, return_value=[]):
+        resp = await client.get("/api/sessions/digest")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "sessions" in data
+    assert "closed_tasks_today" in data
+    assert "generated_at" in data
+
+
+@pytest.mark.asyncio
+async def test_digest_endpoint_session_fields(client, tmp_path):
+    """Each session in digest has activity_count, files_touched, label, recent_activity."""
+    import routers.sessions as _sm
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    _write_digest_session(sessions_dir, "agent-fields-test", n_events=4)
+
+    _sm._digest_cache = None
+    _sm._digest_cache_ts = 0.0
+    _sm._digest_refresh_lock = asyncio.Lock()
+
+    from unittest.mock import AsyncMock, patch
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.sessions._get_closed_tasks_today", new_callable=AsyncMock, return_value=[]):
+        resp = await client.get("/api/sessions/digest")
+
+    data = resp.json()
+    assert len(data["sessions"]) == 1
+    s = data["sessions"][0]
+    assert s["session_id"] == "agent-fields-test"
+    assert "activity_count" in s
+    assert "files_touched" in s
+    assert "label" in s
+    assert "recent_activity" in s
+    assert s["activity_count"] == 4

@@ -726,6 +726,237 @@ def _build_active_sessions() -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Phase D: Cross-session digest (→2455)
+# ---------------------------------------------------------------------------
+
+_DIGEST_TTL_SECONDS = 10.0
+_digest_cache: Optional[dict] = None
+_digest_cache_ts: float = 0.0
+_digest_refresh_lock = asyncio.Lock()
+
+
+def _build_digest_sync(sessions_dir: Path) -> list[dict]:
+    """Build a per-session summary of TODAY's activity from event files.
+
+    Synchronous filesystem read — must be called inside asyncio.to_thread.
+
+    Returns a list of dicts:
+        {
+            "session_id": str,
+            "label": str,
+            "activity_count": int,        # events with today's UTC timestamp
+            "files_touched": list[str],   # unique file paths written today
+            "recent_activity": str,       # description of the most recent tool call
+        }
+    Only sessions that have at least one event today (UTC midnight) are included.
+    """
+    if not sessions_dir.is_dir():
+        return []
+
+    today_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    results: list[dict] = []
+
+    for entry in sessions_dir.iterdir():
+        if not entry.is_dir():
+            continue
+        sid = entry.name
+        if _is_backend_self_session(sid):
+            continue
+        events_file = entry / "events.jsonl"
+        if not events_file.exists():
+            continue
+
+        # Read ALL lines (not just tail) for a full-day picture
+        try:
+            raw_lines = events_file.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+
+        activity_count = 0
+        files_touched: list[str] = []
+        seen_files: set[str] = set()
+        recent_activity = ""
+
+        for ln in raw_lines:
+            if not ln.strip():
+                continue
+            try:
+                ev = json.loads(ln)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            ts_str = ev.get("ts")
+            if not ts_str:
+                continue
+            try:
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                continue
+            if ts < today_utc:
+                continue
+
+            activity_count += 1
+
+            data = ev.get("data", {})
+            if not isinstance(data, dict):
+                continue
+            tool = data.get("tool", "")
+            raw_input = data.get("input", "")
+
+            # Collect file paths from write tools
+            if tool in _FILE_WRITE_TOOLS:
+                path_str = ""
+                if isinstance(raw_input, str):
+                    try:
+                        parsed = json.loads(raw_input)
+                        path_str = parsed.get("path", "")
+                    except (json.JSONDecodeError, ValueError, AttributeError):
+                        pass
+                elif isinstance(raw_input, dict):
+                    path_str = raw_input.get("path", "")
+                if path_str and path_str not in seen_files:
+                    files_touched.append(path_str)
+                    seen_files.add(path_str)
+
+        if activity_count == 0:
+            continue
+
+        # Derive recent_activity from the last event in today's window
+        for ln in reversed(raw_lines):
+            if not ln.strip():
+                continue
+            try:
+                ev = json.loads(ln)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            ts_str = ev.get("ts")
+            if not ts_str:
+                continue
+            try:
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                continue
+            if ts < today_utc:
+                continue
+            data = ev.get("data", {})
+            if not isinstance(data, dict):
+                break
+            tool = data.get("tool", "")
+            if tool:
+                _TOOL_LABELS = {
+                    "bash": "Running command",
+                    "shell": "Running command",
+                    "search": "Searching",
+                    "fs_ops": "Writing files",
+                    "edit": "Editing file",
+                    "write": "Writing file",
+                    "fs_write": "Writing file",
+                    "Write": "Writing file",
+                    "Edit": "Editing file",
+                    "read": "Reading file",
+                    "fs_read": "Reading file",
+                    "Read": "Reading file",
+                    "needle": "Managing tasks",
+                }
+                label = _TOOL_LABELS.get(tool, tool)
+                raw_input = data.get("input", "")
+                snippet = ""
+                if isinstance(raw_input, str) and raw_input:
+                    snippet = raw_input[:60].strip()
+                elif isinstance(raw_input, dict):
+                    snippet = str(raw_input.get("cmd") or raw_input.get("path") or "")[:60]
+                recent_activity = f"{label}: {snippet}" if snippet else label
+            break
+
+        results.append({
+            "session_id": sid,
+            "label": sid,  # caller may enrich with agent task name
+            "activity_count": activity_count,
+            "files_touched": files_touched[:10],
+            "recent_activity": recent_activity,
+        })
+
+    results.sort(key=lambda s: s["activity_count"], reverse=True)
+    return results
+
+
+async def _get_closed_tasks_today() -> list[dict]:
+    """Return tasks closed today (UTC). Async — calls ostk."""
+    from services.ostk import ostk
+
+    today_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        tasks = await ostk.list_tasks(status="closed")
+    except Exception:
+        return []
+
+    result = []
+    for t in tasks:
+        closed_at_str = t.get("closed_at") or ""
+        if not closed_at_str:
+            continue
+        try:
+            closed_at = datetime.fromisoformat(closed_at_str.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        if closed_at >= today_utc:
+            result.append({
+                "id": t.get("id", ""),
+                "title": t.get("title", ""),
+                "closed_at": closed_at_str,
+            })
+    return result
+
+
+async def get_session_digest() -> dict:
+    """Return the full cross-session digest with TTL caching (→2455).
+
+    Offloads filesystem work to a thread (→2018 pattern).
+    """
+    global _digest_cache, _digest_cache_ts
+    now = time.monotonic()
+    if _digest_cache is not None and (now - _digest_cache_ts) < _DIGEST_TTL_SECONDS:
+        return _digest_cache
+
+    async with _digest_refresh_lock:
+        now = time.monotonic()
+        if _digest_cache is not None and (now - _digest_cache_ts) < _DIGEST_TTL_SECONDS:
+            return _digest_cache
+
+        # Enrich session list with agent labels from in-memory metadata
+        from routers.agents import agent_metadata
+
+        raw_sessions = await asyncio.to_thread(_build_digest_sync, SESSIONS_DIR)
+
+        # Enrich label with agent task name where available
+        meta_snap = dict(agent_metadata)
+        for s in raw_sessions:
+            sid = s["session_id"]
+            meta = meta_snap.get(sid, {})
+            task = meta.get("task") or ""
+            if task:
+                s["label"] = task
+
+        closed_tasks = await _get_closed_tasks_today()
+
+        result = {
+            "sessions": raw_sessions,
+            "closed_tasks_today": closed_tasks,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        _digest_cache = result
+        _digest_cache_ts = time.monotonic()
+        return result
+
+
+@router.get("/sessions/digest")
+async def get_digest():
+    """Cross-session digest for today: what each seat worked on, files touched,
+    and tasks closed. Answers 'what did my other sessions do today?'
+    """
+    return await get_session_digest()
+
+
 @router.get("/sessions/active")
 async def get_active_sessions():
     """Return all sessions that have written events in the last 30 minutes,
