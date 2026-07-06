@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { TodayDigestPanel, type DigestData } from "./TodayDigestPanel";
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
@@ -2603,6 +2604,7 @@ export default function Agents() {
 
   // Session enrichment: label, activity, recent_files, stuck from /sessions/coordination
   const [coordinationConflicts, setCoordinationConflicts] = useState<ConflictEntry[]>([]);
+  const [todayDigest, setTodayDigest] = useState<DigestData | null>(null);
   const [sessionEnrichmentMap, setSessionEnrichmentMap] = useState<Record<string, {
     label?: string;
     activity?: string;
@@ -3438,6 +3440,16 @@ export default function Agents() {
     }
   }, []);
 
+  // Fetch today's cross-session digest (→2455)
+  const fetchTodayDigest = useCallback(async () => {
+    try {
+      const data = await api.get<DigestData>("/sessions/digest");
+      setTodayDigest(data);
+    } catch {
+      // Optional; ignore errors
+    }
+  }, []);
+
   // Fetch coordination locks (needle 338)
   const fetchLocks = useCallback(async () => {
     try {
@@ -3613,6 +3625,15 @@ export default function Agents() {
       return () => clearInterval(interval);
     }
   }, [activeTab, fetchSessionEnrichment]);
+
+  // Poll today's digest every 30s on Active tab (less frequent; TTL-cached on backend)
+  useEffect(() => {
+    if (activeTab === "Active") {
+      fetchTodayDigest();
+      const interval = setInterval(fetchTodayDigest, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, fetchTodayDigest]);
 
   // HTTP poll fallback when WS is down (needle 338 → 1130)
   useEffect(() => {
@@ -4175,6 +4196,7 @@ export default function Agents() {
               })()}
             </div>
             <ConflictsStrip conflicts={coordinationConflicts} />
+            <TodayDigestPanel digest={todayDigest} />
             {!agentsLoaded ? (
               <div
                 data-testid="active-agents-loading"

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import PageShell from "../components/PageShell";
 import { api } from "../lib/api";
 import { LoadingState, EmptyState } from "../components/ui";
+import { TodayDigestPanel, type DigestData } from "./TodayDigestPanel";
 
 interface SessionRow {
   id: string;
@@ -229,6 +230,7 @@ export default function Sessions() {
   const [data, setData] = useState<CoordinationData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [digest, setDigest] = useState<DigestData | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -242,11 +244,26 @@ export default function Sessions() {
     }
   }, []);
 
+  const loadDigest = useCallback(async () => {
+    try {
+      const resp = await api.get<DigestData>("/sessions/digest");
+      setDigest(resp);
+    } catch {
+      // Optional; ignore errors
+    }
+  }, []);
+
   useEffect(() => {
     load();
     const id = setInterval(load, 5000);
     return () => clearInterval(id);
   }, [load]);
+
+  useEffect(() => {
+    loadDigest();
+    const id = setInterval(loadDigest, 30000);
+    return () => clearInterval(id);
+  }, [loadDigest]);
 
   return (
     <PageShell title="Sessions" fullHeight>
@@ -257,6 +274,7 @@ export default function Sessions() {
           <EmptyState icon="warning" title="Could not load" description={error} />
         ) : data ? (
           <>
+            <TodayDigestPanel digest={digest} />
             <ConflictsStrip conflicts={data.conflicts || []} />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <SessionsColumn sessions={data.sessions} />
