@@ -28,6 +28,7 @@ _log = logging.getLogger(__name__)
 _OBS_DIR = Path.home() / "myos" / "observations"
 _DEFAULT_TASKS = _OBS_DIR / "tasks.md"
 _DEFAULT_VOCAB = _OBS_DIR / "vocab.md"
+_TIER_FILE = _OBS_DIR / ".tiers.json"
 
 # ---------------------------------------------------------------------------
 # Task-defer detection
@@ -277,8 +278,6 @@ def promote_tier(cluster_id: str, tier: int) -> bool:
 # ---------------------------------------------------------------------------
 # Tier file store (v2) — local persistence for inline hint generation (→2484)
 # ---------------------------------------------------------------------------
-
-_TIER_FILE = _OBS_DIR / ".tiers.json"
 
 
 def store_tier(
