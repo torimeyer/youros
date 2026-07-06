@@ -95,7 +95,11 @@ fi
 #   git rev-parse --git-common-dir → absolute path to main .git
 # No side-channel files or description-slug matching required.
 #
-# Guards (same policy as complete-agent.sh, never destructive):
+# Guards (→2466 — two mandatory guards, never destructive):
+#   - AGENT_AUTO_MERGE_ENABLED must be "1" (opt-in; merging is the
+#     orchestrator's decision after verification; default off)
+#   - worktree must have no uncommitted changes (tracked or untracked);
+#     an agent writing files it hasn't staged yet must not lose them
 #   - branch must start with worktree-agent-
 #   - must exist as a ref in the main repo
 #   - merge must be --ff-only; diverged branches stay parked
@@ -113,6 +117,34 @@ if [ -n "$_SA_BRANCH" ] && [ -n "$_SA_GIT_COMMON" ]; then
             _SA_MAIN_REPO=$(dirname "$_SA_GIT_COMMON")
             if [ -n "$_SA_MAIN_REPO" ] && [ "$_SA_MAIN_REPO" != "." ]; then
                 if git -C "$_SA_MAIN_REPO" rev-parse --verify "refs/heads/$_SA_BRANCH" >/dev/null 2>&1; then
+                    # Guard 1 (→2466 opt-in): auto-merge is off by default.
+                    # Set AGENT_AUTO_MERGE_ENABLED=1 to allow the hook to merge.
+                    # Merging is the orchestrator's decision after verification —
+                    # unconditional auto-merge fast-forwarded main before the
+                    # orchestrator could inspect the work (2026-07-06 incident).
+                    if [ "${AGENT_AUTO_MERGE_ENABLED:-0}" != "1" ]; then
+                        printf '%s\tSKIP-OPT-IN\t%s\t%s\n' \
+                            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_SA_BRANCH" "${AGENT_NAME:-unknown}" \
+                            >> "$_SA_DEBT_LOG" 2>/dev/null || true
+                        echo "ostk-agent-stop: SKIP auto-merge of $_SA_BRANCH (AGENT_AUTO_MERGE_ENABLED not set; merge manually after verification)" >&2
+                    else
+                    # Guard 2 (→2466 dirty check): refuse merge when worktree has
+                    # uncommitted tracked changes OR untracked new files — an agent
+                    # that writes a report but exits before committing must not lose
+                    # that work because the merge path fires on the same SubagentStop.
+                    _SA_DIRTY=0
+                    git diff --quiet 2>/dev/null || _SA_DIRTY=1
+                    git diff --cached --quiet 2>/dev/null || _SA_DIRTY=1
+                    if [ "$_SA_DIRTY" -eq 0 ]; then
+                        _SA_UNTRACKED=$(git ls-files --others --exclude-standard 2>/dev/null | head -1)
+                        [ -n "$_SA_UNTRACKED" ] && _SA_DIRTY=1
+                    fi
+                    if [ "$_SA_DIRTY" -eq 1 ]; then
+                        printf '%s\tATTN-DIRTY-SKIP\t%s\t%s\n' \
+                            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_SA_BRANCH" "${AGENT_NAME:-unknown}" \
+                            >> "$_SA_DEBT_LOG" 2>/dev/null || true
+                        echo "ostk-agent-stop: SKIP auto-merge of $_SA_BRANCH — worktree is dirty (uncommitted changes; commit before merging)" >&2
+                    else
                     _SA_OUT=$(git -C "$_SA_MAIN_REPO" merge --ff-only "$_SA_BRANCH" 2>&1) && _SA_RC=0 || _SA_RC=$?
                     if [ "$_SA_RC" -eq 0 ]; then
                         if echo "$_SA_OUT" | grep -qi "already up.to.date"; then
@@ -141,6 +173,8 @@ if [ -n "$_SA_BRANCH" ] && [ -n "$_SA_GIT_COMMON" ]; then
                             >> "$_SA_DEBT_LOG" 2>/dev/null || true
                         echo "ostk-agent-stop: ATTN: ${AGENT_NAME:-unknown} finished on $_SA_BRANCH — not fast-forward, parked (needs manual merge)" >&2
                     fi
+                    fi  # end dirty check else
+                    fi  # end opt-in else
                 else
                     printf '%s\tATTN-BRANCH-NOT-FOUND\t%s\t%s\n' \
                         "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_SA_BRANCH" "${AGENT_NAME:-unknown}" \

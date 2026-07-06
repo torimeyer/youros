@@ -147,6 +147,13 @@ while IFS= read -r line; do
                        ! git -C "$wt_path" diff --cached --quiet 2>/dev/null; then
                       wt_dirty=1
                     fi
+                    # Also check for untracked new files (→2466): mirrors spawn_isolation.py:remove_worktree.
+                    # git diff only sees tracked changes; an agent report written but never staged
+                    # is invisible to it and would be silently lost on deletion.
+                    if [ "$wt_dirty" -eq 0 ]; then
+                      _wt_untracked=$(git -C "$wt_path" ls-files --others --exclude-standard 2>/dev/null | head -1)
+                      [ -n "$_wt_untracked" ] && wt_dirty=1
+                    fi
                   fi
                   if [ "$wt_dirty" -eq 1 ]; then
                     printf '%-48s %-10s %s\n' "$wt_branch" "unique" "dirty (empty-diff commit)"
@@ -175,6 +182,13 @@ while IFS= read -r line; do
                   if ! git -C "$wt_path" diff --quiet 2>/dev/null || \
                      ! git -C "$wt_path" diff --cached --quiet 2>/dev/null; then
                     wt_dirty=1
+                  fi
+                  # Also check for untracked new files (→2466): mirrors spawn_isolation.py:remove_worktree.
+                  # git diff only sees tracked changes; an agent report written but never staged
+                  # is invisible to it and would be silently lost on deletion.
+                  if [ "$wt_dirty" -eq 0 ]; then
+                    _wt_untracked=$(git -C "$wt_path" ls-files --others --exclude-standard 2>/dev/null | head -1)
+                    [ -n "$_wt_untracked" ] && wt_dirty=1
                   fi
                 fi
                 if [ "$wt_dirty" -eq 1 ]; then
