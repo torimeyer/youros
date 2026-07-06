@@ -363,6 +363,16 @@
           }
         }
       }
+    },
+
+    "home_scan_guard": {
+      "enabled": true,
+      "_meta": {
+        "title": "Block broad home-directory scans from agent sessions",
+        "description": "Blocks find, grep -r, and ls -R commands rooted at the home directory, ~/Documents, ~/Desktop, ~/Downloads, or ~/Library/Mobile Documents (iCloud). Those sweeps trigger macOS privacy permission popups for every file touched. Agents only need the project folder, /tmp, and ~/.youros.",
+        "category": "tool_guards",
+        "params": {}
+      }
     }
   }
 }
