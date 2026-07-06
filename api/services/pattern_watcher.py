@@ -228,11 +228,12 @@ def _call_recall_fault(
     return None
 
 
-def read_context_for_turn(user_message: str) -> Optional[str]:
+def read_context_for_turn(user_message: str, tiers_path: Path = _TIER_FILE) -> Optional[str]:
     """Return labeled recall context for the current turn, or None if unavailable.
 
     Calls _call_recall_fault with intent='narrative', limit=5. Returns None
     (without raising) on any failure or timeout so the turn always proceeds.
+    Falls back to confirmed-cluster hints (→2484 AC5) when recall is unavailable.
     """
     try:
         content = _call_recall_fault(user_message[:200], intent="narrative", limit=5)
@@ -240,7 +241,7 @@ def read_context_for_turn(user_message: str) -> Optional[str]:
             return f"WHAT MYOS HAS LEARNED ABOUT YOU THAT MIGHT BE RELEVANT\n{content}"
     except Exception:
         _log.debug("pattern_watcher: reader skipped (recall unavailable)")
-    return None
+    return get_confirmed_hint(tiers_path=tiers_path)
 
 
 # ---------------------------------------------------------------------------
@@ -271,3 +272,68 @@ def promote_tier(cluster_id: str, tier: int) -> bool:
     except Exception:
         _log.exception("pattern_watcher: tier promotion failed for cluster=%s tier=%d", cluster_id, tier)
         return False
+
+
+# ---------------------------------------------------------------------------
+# Tier file store (v2) — local persistence for inline hint generation (→2484)
+# ---------------------------------------------------------------------------
+
+_TIER_FILE = _OBS_DIR / ".tiers.json"
+
+
+def store_tier(
+    cluster_id: str,
+    tier: int,
+    label: str = "",
+    kind: str = "",
+    tiers_path: Path = _TIER_FILE,
+) -> None:
+    """Persist a tier decision to the local tier file.
+
+    Dismiss (tier=0) removes the entry so it stops surfacing as a hint.
+    Confirm (tier=2) and Approve (tier=3) store label+kind for hint text.
+    """
+    try:
+        tiers: dict = {}
+        if tiers_path.exists():
+            tiers = _json.loads(tiers_path.read_text())
+        tiers_path.parent.mkdir(parents=True, exist_ok=True)
+        if tier == 0:
+            tiers.pop(cluster_id, None)
+        else:
+            tiers[cluster_id] = {"tier": tier, "label": label, "kind": kind}
+        tiers_path.write_text(_json.dumps(tiers))
+    except Exception:
+        _log.exception("pattern_watcher: store_tier failed for cluster=%s", cluster_id)
+
+
+def load_tiers(tiers_path: Path = _TIER_FILE) -> dict[str, dict]:
+    """Load tier decisions from the local tier file. Returns {} on any error."""
+    try:
+        if tiers_path.exists():
+            raw = _json.loads(tiers_path.read_text())
+            return {str(k): v for k, v in raw.items() if isinstance(v, dict)}
+    except Exception:
+        pass
+    return {}
+
+
+def get_confirmed_hint(tiers_path: Path = _TIER_FILE) -> Optional[str]:
+    """Return a hint context block for confirmed (tier >= 2) clusters.
+
+    Used as a fallback in read_context_for_turn when recall_fault is unavailable.
+    Returns None if no confirmed clusters exist.
+    """
+    tiers = load_tiers(tiers_path)
+    confirmed = [
+        v for v in tiers.values()
+        if isinstance(v, dict) and v.get("tier", 0) >= 2 and v.get("label")
+    ]
+    if not confirmed:
+        return None
+    lines = "\n".join(f"- {entry['label']}" for entry in confirmed)
+    return (
+        "WHAT MYOS HAS LEARNED ABOUT YOU THAT MIGHT BE RELEVANT\n"
+        f"{lines}\n"
+        "(If relevant to the user's request, start your reply with a one-line note.)"
+    )

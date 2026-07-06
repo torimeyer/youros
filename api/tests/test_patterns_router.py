@@ -153,6 +153,7 @@ async def test_tier_ok_even_when_promote_fails(obs_dir, monkeypatch):
     """If the underlying ostk decide fails, the endpoint still returns ok=True
     (torios informs, never blocks the user action)."""
     monkeypatch.setattr(patterns_mod, "promote_tier", lambda cid, tier: False)
+    monkeypatch.setattr(patterns_mod, "store_tier", lambda cid, t, **kw: None)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
@@ -160,3 +161,49 @@ async def test_tier_ok_even_when_promote_fails(obs_dir, monkeypatch):
         )
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_set_tier_calls_store_tier(obs_dir, monkeypatch):
+    """set_cluster_tier calls store_tier so tier decisions persist locally (→2484 AC5)."""
+    stored: dict = {}
+
+    def _capture_store(cid, t, **kw):
+        stored[cid] = t
+
+    monkeypatch.setattr(patterns_mod, "promote_tier", lambda cid, tier: True)
+    monkeypatch.setattr(patterns_mod, "store_tier", _capture_store)
+
+    _seed_tasks(obs_dir, n=3)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/patterns/clusters")
+        cid = resp.json()["clusters"][0]["id"]
+        await client.post(f"/api/patterns/clusters/{cid}/tier", json={"tier": 2})
+
+    assert stored.get(cid) == 2, f"store_tier not called with tier=2; stored={stored}"
+
+
+@pytest.mark.asyncio
+async def test_clusters_returns_stored_tier(obs_dir, monkeypatch, tmp_path):
+    """get_clusters merges stored tier decisions so confirmed clusters show tier=2 (→2484 AC5)."""
+    tiers_file = tmp_path / ".tiers.json"
+    import services.pattern_watcher as pw_mod
+
+    monkeypatch.setattr(patterns_mod, "load_tiers", lambda: pw_mod.load_tiers(tiers_path=tiers_file))
+    monkeypatch.setattr(patterns_mod, "store_tier", lambda cid, t, **kw: pw_mod.store_tier(cid, t, tiers_path=tiers_file, **kw))
+    monkeypatch.setattr(patterns_mod, "promote_tier", lambda cid, tier: True)
+
+    _seed_tasks(obs_dir, n=3)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/patterns/clusters")
+        clusters = resp.json()["clusters"]
+        cid = clusters[0]["id"]
+        assert clusters[0]["tier"] == 1, "freshly loaded cluster should default to tier=1"
+
+        await client.post(f"/api/patterns/clusters/{cid}/tier", json={"tier": 2})
+
+        resp2 = await client.get("/api/patterns/clusters")
+        updated = next(c for c in resp2.json()["clusters"] if c["id"] == cid)
+        assert updated["tier"] == 2, f"expected tier=2 after confirm, got {updated['tier']}"
