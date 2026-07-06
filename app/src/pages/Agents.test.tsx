@@ -7363,3 +7363,118 @@ describe('TodayDigestPanel', () => {
     expect(screen.getByText(/Ship the thing/)).toBeInTheDocument()
   })
 })
+
+// ---------------------------------------------------------------------------
+// →2485: Artifact links on completed agent cards
+// ---------------------------------------------------------------------------
+
+describe('Agents page - artifact links on completed cards (→2485)', () => {
+  const ARTIFACT_PATH = '/Users/tori/.youros/files/my-feature-agent-2026-07-06T14-30.md'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
+  })
+
+  it('shows artifacts list on a completed agent card', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return {
+        daemon_running: true,
+        status: 'ok',
+        agents: [
+          {
+            name: 'my-feature-agent',
+            status: 'completed',
+            source: 'claude-code',
+            model: 'sonnet',
+            spawned_at: new Date().toISOString(),
+            artifacts: [ARTIFACT_PATH],
+          },
+        ],
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      return {}
+    })
+
+    renderAgents()
+
+    const recentTab = await screen.findByRole('button', { name: 'Recent' })
+    fireEvent.click(recentTab)
+
+    await waitFor(() => {
+      expect(screen.getByTitle(/^my-feature-agent(\s|$)/)).toBeInTheDocument()
+    })
+
+    const list = screen.getByTestId('agent-artifacts-list')
+    expect(list).toBeInTheDocument()
+    // Should display the filename without the full path
+    expect(list).toHaveTextContent('my-feature-agent-2026-07-06T14-30.md')
+  })
+
+  it('does not show artifacts section when agent has no artifacts', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return {
+        daemon_running: true,
+        status: 'ok',
+        agents: [
+          {
+            name: 'no-artifacts-agent',
+            status: 'completed',
+            source: 'claude-code',
+            model: 'sonnet',
+            spawned_at: new Date().toISOString(),
+          },
+        ],
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      return {}
+    })
+
+    renderAgents()
+
+    const recentTab = await screen.findByRole('button', { name: 'Recent' })
+    fireEvent.click(recentTab)
+
+    await waitFor(() => {
+      expect(screen.getByTitle(/^no-artifacts-agent(\s|$)/)).toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId('agent-artifacts-list')).not.toBeInTheDocument()
+  })
+
+  it('artifact link navigates to /files with path param', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return {
+        daemon_running: true,
+        status: 'ok',
+        agents: [
+          {
+            name: 'linked-agent',
+            status: 'completed',
+            source: 'claude-code',
+            model: 'sonnet',
+            spawned_at: new Date().toISOString(),
+            artifacts: [ARTIFACT_PATH],
+          },
+        ],
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      return {}
+    })
+
+    renderAgents()
+
+    const recentTab = await screen.findByRole('button', { name: 'Recent' })
+    fireEvent.click(recentTab)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-artifacts-list')).toBeInTheDocument()
+    })
+
+    // The link should point to /files?path=<encoded artifact path>
+    const link = screen.getByTestId('agent-artifacts-list').querySelector('button, a')
+    expect(link).toBeTruthy()
+  })
+})

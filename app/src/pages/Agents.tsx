@@ -4996,6 +4996,26 @@ export default function Agents() {
                             {agent.actionable_doc}
                           </p>
                         )}
+                        {agent.status === 'completed' && agent.artifacts && agent.artifacts.length > 0 && (
+                          <div className="mt-2" data-testid="agent-artifacts-list">
+                            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Files produced</p>
+                            <div className="flex flex-col gap-1">
+                              {agent.artifacts.map((artifactPath) => {
+                                const fileName = artifactPath.split('/').pop() || artifactPath;
+                                return (
+                                  <button
+                                    key={artifactPath}
+                                    onClick={() => navigate('/files?path=' + encodeURIComponent(artifactPath))}
+                                    className="self-start text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline transition-colors text-left"
+                                    title={artifactPath}
+                                  >
+                                    {fileName}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                         {agent.status === 'completed' && (
                           <RecentAgentActions
                             agent={agent}

@@ -7345,7 +7345,10 @@ def _should_persist_agent_doc(
 
     if _is_test_artifact_agent_name(agent_name) and not fleet_id:
         return False
-    return bool(fleet_id or is_roadmap or template_produces_doc)
+    # Default opt-out: every completed non-infra run produces a summary doc.
+    # Fleet members, Roadmap, and template_produces_doc were the prior opt-in
+    # signals; they remain sufficient but are no longer required (→2485).
+    return True
 
 
 def _save_agent_output_to_files(
@@ -7913,9 +7916,15 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
         # / PRD / custom-build output alongside the roadmap on the Files
         # tab. Roadmap-template runs also keep their stable roadmap.md
         # copy so chat's "read the roadmap.md" shortcut still works.
+        # Persist the returned paths so /api/agents can expose them as
+        # clickable links on the finished card (→2485).
         # Best-effort; a write failure must never block completion.
         try:
-            _save_agent_output_to_files(name, body.summary)
+            _artifact_paths = _save_agent_output_to_files(name, body.summary)
+            if _artifact_paths and name in agent_metadata:
+                agent_metadata[name]["artifacts"] = [
+                    str(p) for p in _artifact_paths
+                ]
         except Exception:
             pass
 
