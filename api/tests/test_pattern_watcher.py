@@ -1,9 +1,10 @@
-"""Tests for pattern_watcher v1 observation write layer (→1539).
+"""Tests for pattern_watcher v1+v2 observation write layer (→1539 →2484).
 
-Three RED tests covering the three v1 acceptance criteria:
+AC coverage:
   AC1 — task:defer bullet written to ~/myos/observations/tasks.md
   AC2 — vocab:new bullet written to ~/myos/observations/vocab.md
   AC3 — recall_stats source registration (config file has observations source)
+  AC5 — confirmed cluster (tier >= 2) generates inline chat hint via read_context_for_turn
 
 Daemon-stopped edge case: observations still write even when recall is unavailable.
 """
@@ -13,6 +14,7 @@ from __future__ import annotations
 import re
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -169,3 +171,103 @@ def test_observations_source_in_recall_config() -> None:
     assert 'project = "observations"' in content, (
         "No [[sources]] block with project = \"observations\" found"
     )
+
+
+# ---------------------------------------------------------------------------
+# AC5 — tier store + confirmed-cluster inline hint (→2484)
+# ---------------------------------------------------------------------------
+
+def test_store_tier_persists_confirm_with_label(tmp_path: Path) -> None:
+    """store_tier writes tier + label to the tiers file on confirm."""
+    from services.pattern_watcher import store_tier, load_tiers
+
+    tiers_file = tmp_path / ".tiers.json"
+    store_tier("abc", 2, label="You frequently defer tasks", kind="task:defer", tiers_path=tiers_file)
+    tiers = load_tiers(tiers_path=tiers_file)
+
+    assert "abc" in tiers
+    assert tiers["abc"]["tier"] == 2
+    assert tiers["abc"]["label"] == "You frequently defer tasks"
+    assert tiers["abc"]["kind"] == "task:defer"
+
+
+def test_store_tier_dismiss_removes_entry(tmp_path: Path) -> None:
+    """store_tier with tier=0 (dismiss) removes the cluster entry from the file."""
+    from services.pattern_watcher import store_tier, load_tiers
+
+    tiers_file = tmp_path / ".tiers.json"
+    store_tier("abc", 2, label="You frequently defer tasks", tiers_path=tiers_file)
+    store_tier("abc", 0, tiers_path=tiers_file)
+    tiers = load_tiers(tiers_path=tiers_file)
+
+    assert "abc" not in tiers
+
+
+def test_load_tiers_returns_empty_when_file_missing(tmp_path: Path) -> None:
+    """load_tiers returns {} when the tiers file does not exist."""
+    from services.pattern_watcher import load_tiers
+
+    result = load_tiers(tiers_path=tmp_path / "nonexistent.json")
+    assert result == {}
+
+
+def test_get_confirmed_hint_returns_hint_for_tier2_cluster(tmp_path: Path) -> None:
+    """get_confirmed_hint returns a hint string containing the cluster label."""
+    from services.pattern_watcher import store_tier, get_confirmed_hint
+
+    tiers_file = tmp_path / ".tiers.json"
+    store_tier("abc", 2, label="You frequently defer tasks", kind="task:defer", tiers_path=tiers_file)
+    hint = get_confirmed_hint(tiers_path=tiers_file)
+
+    assert hint is not None
+    assert "You frequently defer tasks" in hint
+    assert "WHAT MYOS HAS LEARNED" in hint
+
+
+def test_get_confirmed_hint_returns_none_when_no_confirmed_clusters(tmp_path: Path) -> None:
+    """get_confirmed_hint returns None when no clusters are tier >= 2."""
+    from services.pattern_watcher import get_confirmed_hint
+
+    hint = get_confirmed_hint(tiers_path=tmp_path / "empty.json")
+    assert hint is None
+
+
+def test_get_confirmed_hint_ignores_dismissed_clusters(tmp_path: Path) -> None:
+    """get_confirmed_hint skips clusters that were dismissed (tier=0 removes them)."""
+    from services.pattern_watcher import store_tier, get_confirmed_hint
+
+    tiers_file = tmp_path / ".tiers.json"
+    store_tier("abc", 2, label="You defer tasks", tiers_path=tiers_file)
+    store_tier("abc", 0, tiers_path=tiers_file)
+    hint = get_confirmed_hint(tiers_path=tiers_file)
+
+    assert hint is None
+
+
+def test_read_context_falls_back_to_confirmed_hint_when_recall_empty(tmp_path: Path) -> None:
+    """read_context_for_turn returns confirmed-cluster hint when recall returns nothing."""
+    from services.pattern_watcher import store_tier, read_context_for_turn
+
+    tiers_file = tmp_path / ".tiers.json"
+    store_tier("abc", 2, label="You frequently defer tasks", tiers_path=tiers_file)
+
+    with patch("services.pattern_watcher._call_recall_fault", return_value=None):
+        result = read_context_for_turn("hey", tiers_path=tiers_file)
+
+    assert result is not None
+    assert "You frequently defer tasks" in result
+
+
+def test_read_context_prefers_recall_result_over_hint(tmp_path: Path) -> None:
+    """read_context_for_turn returns recall content when recall succeeds, not the hint."""
+    from services.pattern_watcher import store_tier, read_context_for_turn
+
+    tiers_file = tmp_path / ".tiers.json"
+    store_tier("abc", 2, label="You defer tasks", tiers_path=tiers_file)
+
+    with patch("services.pattern_watcher._call_recall_fault", return_value="- recall content here"):
+        result = read_context_for_turn("hey", tiers_path=tiers_file)
+
+    assert result is not None
+    assert "recall content here" in result
+    assert "You defer tasks" not in result

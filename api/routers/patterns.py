@@ -22,7 +22,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.pattern_watcher import promote_tier
+from services.pattern_watcher import promote_tier, store_tier, load_tiers
 
 _log = logging.getLogger(__name__)
 router = APIRouter(tags=["patterns"])
@@ -117,6 +117,13 @@ async def get_clusters():
             "tier": 1,
         })
 
+    # Merge stored tier decisions so confirmed clusters show the correct tier
+    tiers_on_disk = load_tiers()
+    for c in clusters:
+        cid = c["id"]
+        if cid in tiers_on_disk:
+            c["tier"] = tiers_on_disk[cid].get("tier", 1)
+
     clusters.sort(key=lambda c: -c["count"])
     return {"clusters": clusters}
 
@@ -133,6 +140,24 @@ async def set_cluster_tier(cluster_id: str, body: TierRequest):
     if tier not in (0, 2, 3):
         raise HTTPException(status_code=400, detail="tier must be 0 (dismiss), 2 (confirm), or 3 (approve silent)")
 
+    # Resolve label + kind from the current cluster list (for hint generation)
+    label = ""
+    kind = ""
+    if tier != 0:
+        try:
+            cluster_data = await get_clusters()
+            for c in cluster_data.get("clusters", []):
+                if c["id"] == cluster_id:
+                    label = c.get("label", "")
+                    kind = c.get("kind", "")
+                    break
+        except Exception:
+            pass
+
+    # Persist tier locally so get_clusters and read_context_for_turn reflect it
+    store_tier(cluster_id, tier, label=label, kind=kind)
+
+    # Also write to ostk decide (best-effort)
     if tier == 0:
         success = promote_tier(cluster_id, 0)
     else:
