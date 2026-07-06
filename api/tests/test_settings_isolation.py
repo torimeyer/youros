@@ -162,3 +162,44 @@ def test_default_path_after_teardown(tmp_path, monkeypatch):
     assert ss_mod.SETTINGS_PATH == expected, (
         f"After removing YOUROS_HOME, expected {expected}, got {ss_mod.SETTINGS_PATH}"
     )
+
+
+# ---------------------------------------------------------------------------
+# →2492: conftest autouse fixture must isolate the singleton
+# ---------------------------------------------------------------------------
+
+def test_conftest_autouse_fixture_isolates_settings_singleton():
+    """The autouse _isolate_settings_store fixture must redirect the module-level
+    settings_store singleton away from ~/.youros/settings.json (→2492).
+
+    This is the regression gate for →2492. Currently FAILS because conftest.py
+    does not set YOUROS_HOME before `from main import app`, so the module-level
+    SETTINGS_PATH resolves to the real ~/.youros/settings.json.
+
+    After the fix (YOUROS_HOME set before app import + autouse monkeypatch per
+    test), this passes: SETTINGS_PATH points to a tmp path and writes never
+    reach the real file.
+    """
+    import services.settings_store as ss_mod
+    from services.settings_store import settings_store as _singleton
+
+    real_settings = Path.home() / ".youros" / "settings.json"
+
+    # Gate: before the fix, SETTINGS_PATH == real_settings. The test fails
+    # here without writing anything to disk.
+    assert ss_mod.SETTINGS_PATH != real_settings, (
+        "SETTINGS_PATH is still ~/.youros/settings.json — the conftest autouse "
+        "_isolate_settings_store fixture is missing or YOUROS_HOME was not set "
+        "before settings_store was first imported. (→2492)"
+    )
+
+    # With path redirected, exercise the write path and confirm real file untouched.
+    before = _sha256(real_settings)
+    _singleton.update({"os_name": "isolation-regression-2492"})
+    after = _sha256(real_settings)
+
+    assert before == after, (
+        "settings_store.update() modified ~/.youros/settings.json even though "
+        "SETTINGS_PATH was redirected — the redirect does not reach the real file. "
+        f"before={before[:16]}, after={after[:16]}"
+    )
