@@ -224,7 +224,12 @@ def compute_shipped(
         if needle_statuses.get(nid, "open") != "closed"
     ]
 
-    is_shipped = (not missing) and (not open_needles)
+    # A spec is "shipped" only when it has at least one needle (task) reference
+    # AND all those tasks are closed AND no referenced files are missing.
+    # File existence alone is not a reliable "shipped" signal: fix-existing-code
+    # specs reference files that pre-existed the spec, so their presence proves
+    # nothing about whether the fix was actually applied (→2487).
+    is_shipped = bool(needle_ids) and (not open_needles) and (not missing)
     return ShippedResult(is_shipped=is_shipped, missing_files=missing, open_needles=open_needles)
 
 
