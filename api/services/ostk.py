@@ -657,19 +657,22 @@ class OstkService:
     # --- Tasks / Needles ---
 
     async def list_tasks(self, status: Optional[str] = None, priority: Optional[str] = None) -> list[dict]:
+        # →2477: do NOT forward --status to the daemon. The socket transport's
+        # needle tool with a status filter reads only issues.jsonl (active file),
+        # silently dropping archive tasks whose status is "open". Fetch all tasks
+        # from the daemon without a status filter and apply it in Python after
+        # _reconcile_active so archive-open tasks are never silently omitted.
         args = ["work", "list", "--json"]
-        if status:
-            args += ["--status", status]
         if priority:
             args += ["--priority", priority]
 
         # Coalesce concurrent identical reads so a single page load that
         # hits /api/tasks + /api/dashboard/summary + /api/briefing all
         # at the same instant shares ONE ostk subprocess spawn instead
-        # of racing three of them. Keyed on the full argv so filtered
-        # variants do not collide with unfiltered calls. Returns a
-        # defensive copy so the shared list is not accidentally
-        # mutated by one caller in a way that leaks to the others.
+        # of racing three of them. All status variants share one cache key
+        # now that status filtering happens in Python. Returns a defensive
+        # copy so the shared list is not accidentally mutated by one caller
+        # in a way that leaks to the others.
         key = ("list_tasks", self.cwd, tuple(args))
 
         async def _do_call() -> list[dict]:
@@ -696,7 +699,10 @@ class OstkService:
         # immediately (even direct-file writers like shelve/update_status).
         issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
         shared = await _ttl_cached_call(key, _do_call, ttl=2.0, mtime_of=issues_path)
-        return list(shared)
+        tasks = list(shared)
+        if status is not None:
+            tasks = [t for t in tasks if (t.get("status") or "").lower() == status.lower()]
+        return tasks
 
     async def add_task(
         self,
@@ -762,6 +768,37 @@ class OstkService:
                         seen_order.append(eid)
                     if eid:
                         entries[eid] = entry  # last occurrence wins
+                # →2477: anchor archive-only closes in the active file.
+                # If the task lives only in issues.jsonl.1 (archive), the
+                # dedup above produces no entry to stamp or write. A daemon
+                # rotation that later rewrites .1 would undo the archive flip
+                # below, silently re-opening the task. Writing a closed record
+                # to issues.jsonl makes the close durable regardless of what
+                # the daemon does to .1, because last-occurrence-wins always
+                # reads issues.jsonl after .1.
+                _found_in_active = any(
+                    self._normalize_task_id(str(eid)) == norm_target
+                    for eid in seen_order
+                )
+                if not _found_in_active:
+                    _rot = issues_path.with_suffix(".jsonl.1")
+                    _anchor: dict = {"id": norm_target, "status": "closed"}
+                    if _rot.exists():
+                        for _line in _rot.read_text().splitlines():
+                            if not _line.strip():
+                                continue
+                            try:
+                                _e = json.loads(_line)
+                            except json.JSONDecodeError:
+                                continue
+                            if self._normalize_task_id(str(_e.get("id", ""))) == norm_target:
+                                _anchor = {**_e, "status": "closed"}
+                    if closed_reason is not None:
+                        _anchor["closed_reason"] = closed_reason
+                    _anchor_key = _anchor.get("id", norm_target)
+                    seen_order.append(_anchor_key)
+                    entries[_anchor_key] = _anchor
+
                 if closed_reason is not None:
                     for eid in seen_order:
                         if self._normalize_task_id(eid) == norm_target:
