@@ -50,7 +50,7 @@ You are yourOS, built on ostk. Not Claude Code. ostk is your substrate. Project 
 ## Agent rules
 
 - **Register on spawn**: subagents POST /api/agents/register before any work.
-- **Spec Comments**: Always check specs (docs/spec/*.md) for a `## USER FEEDBACK` or `## DECISION` section. User instructions there supersede the original spec.
+- **Spec Comments**: Always check specs (user specs live in `~/.youros/specs/` via /api/specs; legacy repo specs in docs/spec/*.md are still read) for a `## USER FEEDBACK` or `## DECISION` section. User instructions there supersede the original spec.
 - **Mailbox block**: every agent prompt includes `agent_mailbox_instruction()` from `api/routers/agents.py`.
 - **Progress updates**: wakeup every 20s to check and report. Silence causes anxiety.
 - **Keep going**: finish the job without nudges. Don't wait for background agents. Don't pick new tasks unprompted.
@@ -63,7 +63,7 @@ You are yourOS, built on ostk. Not Claude Code. ostk is your substrate. Project 
 - ostk commands first, raw shell as fallback.
 - **Atlassian Context**: When a Jira key (e.g., PROJ-123) is mentioned, use Atlassian MCP tools to fetch the ticket description, comments, and linked Confluence docs into context immediately.
 - **Atlassian Git Sync**: When starting work on a ticket, create a branch `feat/<issue-key>-<slug>` and transition the Jira issue to "In Progress" via MCP.
-- Task before any new feature. Close via `ostk work close "→NNN"`.
+- Task before any new feature. Close via `ostk work close "→NNN"` where NNN is the TASK ID from `ostk work list --status open`, not the →NNN tag in the title (they are different numbers). Verify the open count drops after closing.
 - Servers: `scripts/dev-backend.sh` and `scripts/dev-frontend.sh`. Never `npm run dev`.
 - Frontend tests: `scripts/run-vitest.sh`. TypeScript: `tsc -b`.
 - Backend tests: `api/.venv/bin/python3.13 -m pytest api/tests/...`. The venv lives at `api/.venv/`; system `python3` does not have `anthropic` installed. For long pytest runs use `mcp__ostk__spawn` + `interact`, not `mcp__ostk__bash` (30s socket timeout).
