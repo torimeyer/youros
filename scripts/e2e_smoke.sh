@@ -461,6 +461,41 @@ for name in os.listdir(root):
         except OSError:
             pass
 " "${REPO_DIR}" 2>/dev/null || true
+
+    # Disk sweep: ~/.youros/specs/ and ~/.myos/specs/ for e2e-prefixed .md
+    # files. The backend starts before YOUROS_USER_SPECS_DIR is exported by
+    # the smoke, so spec writes from test_specs_user_journey.sh land in the
+    # REAL user specs dir rather than the isolated tmpdir. The API sweep
+    # (DELETE /api/specs/<path>) removes them when the backend is reachable,
+    # but files survive if the DELETE races an interrupt or the backend is
+    # restarting. This disk sweep is the safety net. Conservative: only
+    # removes files whose basename starts with "e2e-"; never touches
+    # non-test-tagged specs. Covers both dirs so prior-run leftovers are
+    # also purged when called at startup.
+    python3 -c "
+import os, re
+from pathlib import Path
+pat = re.compile(r'^e2e[-_]', re.IGNORECASE)
+youros_home = os.environ.get('YOUROS_HOME', os.path.expanduser('~/.youros'))
+myos_home = os.path.expanduser('~/.myos')
+dirs = [
+    Path(youros_home) / 'specs',
+    Path(myos_home) / 'specs',
+]
+total = 0
+for d in dirs:
+    if not d.is_dir():
+        continue
+    for f in d.iterdir():
+        if f.is_file() and f.suffix == '.md' and pat.match(f.name):
+            try:
+                f.unlink()
+                total += 1
+            except OSError:
+                pass
+if total:
+    print(f'[e2e sweep] removed {total} e2e- spec file(s) from user specs dirs')
+" 2>/dev/null || true
 }
 
 _e2e_cleanup() {
