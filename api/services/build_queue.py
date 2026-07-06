@@ -236,6 +236,47 @@ def running_count() -> int:
         return len(_running)
 
 
+def drain_startup_queue() -> List[BuildEntry]:
+    """Promote queued entries into available slots after a backend restart.
+
+    On restart _running resets to 0 while persisted queue entries survive.
+    Nothing triggers finish_build() for dead processes, so queued builds
+    would stay stuck until another build completes. This function fills
+    empty slots immediately. Caller must call spawn_agent() for each
+    returned entry.
+    """
+    with _lock:
+        to_start: List[BuildEntry] = []
+        while _queue and len(_running) < BUILD_CONCURRENCY:
+            entry = _queue.pop(0)
+            entry.state = "running"
+            _running[entry.spawn_id] = entry
+            to_start.append(entry)
+        if to_start:
+            _persist()
+            logger.info(
+                "build_queue.startup_drain promoted=%d remaining_queued=%d",
+                len(to_start),
+                len(_queue),
+            )
+        return to_start
+
+
+def return_to_queue(entry: BuildEntry) -> None:
+    """Return a failed-to-promote entry to the front of the queue.
+
+    Called when spawn_agent() raises during a promotion attempt. Frees
+    the phantom running slot and re-queues so the entry retries on the
+    next finish_build() call.
+    """
+    with _lock:
+        _running.pop(entry.spawn_id, None)
+        entry.state = "queued"
+        _queue.insert(0, entry)
+        _persist()
+        logger.info("build_queue.returned_to_queue spawn_id=%s", entry.spawn_id)
+
+
 def _reset_for_tests() -> None:
     """Test-only helper: wipe all in-process state without touching disk."""
     with _lock:

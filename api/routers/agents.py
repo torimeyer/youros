@@ -2698,6 +2698,42 @@ async def schedule_spawn_lock_sweep() -> None:
     asyncio.create_task(_spawn_lock_sweep_loop())
 
 
+async def schedule_build_queue_startup_drain() -> None:
+    """Drain any comprehensive builds queued before the last backend restart.
+
+    On restart _running resets to 0 while persisted queue entries survive.
+    Without this, queued builds sit forever unless another build completes.
+    Runs once, 5s after startup so other init tasks settle first (→2497).
+    """
+    async def _drain() -> None:
+        await asyncio.sleep(5)
+        try:
+            from services.build_queue import drain_startup_queue as _drain_startup_queue
+            from models.schemas import AgentSpawn as _AgentSpawnCls
+            entries = _drain_startup_queue()
+            for _entry in entries:
+                try:
+                    _nb = _AgentSpawnCls(**_entry.spawn_kwargs)
+                    await spawn_agent(_nb, request=None)
+                    logger.info(
+                        "build_queue.startup_spawned spawn_id=%s", _entry.spawn_id
+                    )
+                except Exception as _exc:
+                    logger.error(
+                        "build_queue.startup_spawn_failed spawn_id=%s err=%s",
+                        _entry.spawn_id, _exc,
+                    )
+                    try:
+                        from services.build_queue import return_to_queue as _return_to_queue
+                        _return_to_queue(_entry)
+                    except Exception:
+                        pass
+        except Exception as _exc:
+            logger.warning("build_queue.startup_drain_failed err=%s", _exc)
+
+    asyncio.create_task(_drain())
+
+
 # Persistent file for learned agent durations
 DURATION_STATS_PATH = OSTK_DIR / "agent_durations.json"
 
@@ -6180,6 +6216,16 @@ async def _legacy_bespoke_spawn(body: AgentSpawn, request: Request, response: Re
                                     "spawn.build_queue.promote_failed spawn_id=%s err=%s",
                                     _entry.spawn_id, _sq_exc,
                                 )
+                                # Return the entry to the front of the queue so
+                                # the phantom running slot is freed and the build
+                                # retries when the next slot opens. Without this
+                                # the entry stays in _running forever, permanently
+                                # blocking one concurrency slot (→2497).
+                                try:
+                                    from services.build_queue import return_to_queue as _return_to_queue
+                                    _return_to_queue(_entry)
+                                except Exception:
+                                    pass
                         asyncio.create_task(_spawn_queued_next())
             except Exception as _bq_finish_exc:
                 logger.warning(
