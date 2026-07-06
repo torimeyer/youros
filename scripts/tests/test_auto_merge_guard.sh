@@ -38,14 +38,15 @@ chmod +x "$BIN/curl"
 
 FAIL=0
 
+# home_for TEST_NUM — fixed home dir per test so log paths are stable
+home_for() { echo "$WORK/home-$1"; }
+
 run_hook_in_worktree() {
-    local wt_dir="$1" env_extra="$2"
-    local homed="$WORK/home-$$"
+    local wt_dir="$1" env_extra="$2" homed="$3"
     mkdir -p "$homed/.youros/subagents"
     local payload='{"session_id":"test-session"}'
     PATH="$BIN:$PATH" HOME="$homed" \
-        bash -c "cd '$wt_dir' && $env_extra bash '$HOOK'" <<< "$payload" 2>&1 >/dev/null || true
-    echo "$homed"
+        bash -c "cd '$wt_dir' && $env_extra bash '$HOOK'" <<< "$payload" >/dev/null 2>&1 || true
 }
 
 # ── Test 1: opt-in not set → merge is skipped ────────────────────────────
@@ -61,8 +62,9 @@ WT1_DIR="$WORK/wt1"
 git -C "$REPO1" worktree add -q -b "$WT1_BRANCH" "$WT1_DIR"
 git -C "$WT1_DIR" commit --allow-empty -m "agent work" -q
 
+HOMED1=$(home_for 1)
 MAIN_BEFORE1=$(git -C "$REPO1" rev-parse main 2>/dev/null)
-HOMED1=$(run_hook_in_worktree "$WT1_DIR" "")
+run_hook_in_worktree "$WT1_DIR" "" "$HOMED1"
 MAIN_AFTER1=$(git -C "$REPO1" rev-parse main 2>/dev/null)
 
 if [ "$MAIN_AFTER1" = "$MAIN_BEFORE1" ]; then
@@ -95,7 +97,8 @@ git -C "$REPO2" worktree add -q -b "$WT2_BRANCH" "$WT2_DIR"
 git -C "$WT2_DIR" commit --allow-empty -m "agent work" -q
 
 WANT_TIP2=$(git -C "$WT2_DIR" rev-parse "$WT2_BRANCH")
-HOMED2=$(run_hook_in_worktree "$WT2_DIR" "AGENT_AUTO_MERGE_ENABLED=1")
+HOMED2=$(home_for 2)
+run_hook_in_worktree "$WT2_DIR" "AGENT_AUTO_MERGE_ENABLED=1" "$HOMED2"
 MAIN_AFTER2=$(git -C "$REPO2" rev-parse main 2>/dev/null)
 
 if [ "$MAIN_AFTER2" = "$WANT_TIP2" ]; then
@@ -105,12 +108,11 @@ else
     FAIL=1
 fi
 
-DEBT_LOG2="$HOMED2/.youros/logs/merge-debt.log"
-if grep -q "MERGED" "$DEBT_LOG2" 2>/dev/null; then
+if grep -q "MERGED" "$HOMED2/.youros/logs/merge-debt.log" 2>/dev/null; then
     echo "PASS: MERGED logged to merge-debt.log"
 else
     echo "FAIL: expected MERGED in merge-debt.log"
-    cat "$DEBT_LOG2" 2>/dev/null || echo "(log missing)"
+    cat "$HOMED2/.youros/logs/merge-debt.log" 2>/dev/null || echo "(log missing)"
     FAIL=1
 fi
 
@@ -131,7 +133,8 @@ git -C "$WT3_DIR" commit --allow-empty -m "scaffold" -q
 echo "IMPORTANT REPORT" > "$WT3_DIR/agent-report.md"
 
 MAIN_BEFORE3=$(git -C "$REPO3" rev-parse main 2>/dev/null)
-HOMED3=$(run_hook_in_worktree "$WT3_DIR" "AGENT_AUTO_MERGE_ENABLED=1")
+HOMED3=$(home_for 3)
+run_hook_in_worktree "$WT3_DIR" "AGENT_AUTO_MERGE_ENABLED=1" "$HOMED3"
 MAIN_AFTER3=$(git -C "$REPO3" rev-parse main 2>/dev/null)
 
 if [ "$MAIN_AFTER3" = "$MAIN_BEFORE3" ]; then
@@ -141,12 +144,11 @@ else
     FAIL=1
 fi
 
-DEBT_LOG3="$HOMED3/.youros/logs/merge-debt.log"
-if grep -q "ATTN-DIRTY-SKIP" "$DEBT_LOG3" 2>/dev/null; then
+if grep -q "ATTN-DIRTY-SKIP" "$HOMED3/.youros/logs/merge-debt.log" 2>/dev/null; then
     echo "PASS: ATTN-DIRTY-SKIP logged to merge-debt.log"
 else
     echo "FAIL: expected ATTN-DIRTY-SKIP in merge-debt.log"
-    cat "$DEBT_LOG3" 2>/dev/null || echo "(log missing)"
+    cat "$HOMED3/.youros/logs/merge-debt.log" 2>/dev/null || echo "(log missing)"
     FAIL=1
 fi
 
@@ -176,7 +178,8 @@ echo "staged content" > "$WT4_DIR/staged-file.txt"
 git -C "$WT4_DIR" add staged-file.txt
 
 MAIN_BEFORE4=$(git -C "$REPO4" rev-parse main 2>/dev/null)
-HOMED4=$(run_hook_in_worktree "$WT4_DIR" "AGENT_AUTO_MERGE_ENABLED=1")
+HOMED4=$(home_for 4)
+run_hook_in_worktree "$WT4_DIR" "AGENT_AUTO_MERGE_ENABLED=1" "$HOMED4"
 MAIN_AFTER4=$(git -C "$REPO4" rev-parse main 2>/dev/null)
 
 if [ "$MAIN_AFTER4" = "$MAIN_BEFORE4" ]; then
