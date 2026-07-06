@@ -10,6 +10,7 @@ import { api } from '../lib/api';
 import { reportError } from '../lib/reportError';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 import SlackConnect from '../components/SlackConnect';
+import TextYourOS from '../components/TextYourOS';
 import { GithubSetupCard } from '../components/OnboardingWizard';
 import AtlassianConnect from '../components/AtlassianConnect';
 import CustomVerbs from '../components/CustomVerbs';
@@ -1754,6 +1755,29 @@ export default function Settings() {
                   <h2 className="text-base font-semibold text-slate-900 dark:text-white">Slack</h2>
                 </div>
                 <SlackConnect />
+              </div>
+            )}
+
+            {/* Text yourOS pill */}
+            <button
+              onClick={() => setExpandedConnection(expandedConnection === 'text-youros' ? null : 'text-youros')}
+              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
+              data-testid="pill-text-youros"
+            >
+              <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${connectionStatus.iMessage?.connected ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Text yourOS</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400">Send a text to start agents or create tasks</p>
+              </div>
+              <Icon name={expandedConnection === 'text-youros' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
+            </button>
+            {expandedConnection === 'text-youros' && (
+              <div className={cardClass} data-testid="text-youros-section">
+                <div className="flex items-center gap-2 mb-4">
+                  <Icon name="sms" size={18} className="text-green-600 dark:text-green-400" />
+                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">Text yourOS</h2>
+                </div>
+                <TextYourOS />
               </div>
             )}
 

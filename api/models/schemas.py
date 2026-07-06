@@ -291,6 +291,11 @@ class AgentSpawn(BaseModel):
     # `ostk run` so no process is actually spawned. Safe for integration
     # tests and smoke checks.
     dry_run: bool = False
+    # Optional back-channel for completion notifications. Set by the text
+    # bridge when a user starts an agent via iMessage so the agent can text
+    # back when it finishes. Format: {"kind": "imessage", "chat_id": <int>}.
+    # Only "imessage" kind is supported; ignored/skipped for any other value.
+    notify: Optional[dict] = None
 
 
 class AgentNudge(BaseModel):

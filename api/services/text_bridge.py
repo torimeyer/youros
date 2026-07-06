@@ -47,20 +47,12 @@ def _save_state(state: dict) -> None:
 def is_trusted_sender(sender_id: str, service: str = "iMessage") -> bool:
     """Return True if the sender is authorized to command yourOS.
     
-    Trusts:
-    1. Any identifier containing 'vmeyer' (case-insensitive) - for iMessage.
-    2. A specific identifier configured in Settings -> Text yourOS.
+    Trusts only identifiers configured in Settings -> Text yourOS (trusted_contacts).
     """
     if not sender_id:
         return False
     
-    sender_lower = sender_id.lower()
-    
-    # 1. Broad identity match for iMessage
-    if service == "iMessage" and "vmeyer" in sender_lower:
-        return True
-    
-    # 2. Settings match (works for both iMessage and Telegram)
+    # Settings match (works for both iMessage and Telegram)
     config = settings_store.get("text_bridge", {})
     trusted = config.get("trusted_contacts", [])
     if sender_id in trusted:
@@ -74,7 +66,7 @@ def is_trusted_sender(sender_id: str, service: str = "iMessage") -> bool:
     return False
 
 
-async def classify_and_dispatch(text: str, sender_id: str) -> str:
+async def classify_and_dispatch(text: str, sender_id: str, chat_id: Optional[int] = None) -> str:
     """Use AI to classify the text and execute the corresponding action."""
     state = _load_state()
     
@@ -85,7 +77,12 @@ async def classify_and_dispatch(text: str, sender_id: str) -> str:
         if normalized in ("YES", "Y", "OK", "PROCEED"):
             # Execute the held action
             tool_name = pending["tool_name"]
-            tool_input = pending["tool_input"]
+            tool_input = dict(pending["tool_input"])
+            
+            # For spawn_agent: inject notify so the agent texts back on completion.
+            _pending_chat_id = pending.get("chat_id")
+            if tool_name == "spawn_agent" and _pending_chat_id is not None:
+                tool_input["notify"] = {"kind": "imessage", "chat_id": _pending_chat_id}
             
             # Clear pending first
             del state["pending_confirmations"][sender_id]
@@ -160,7 +157,8 @@ async def classify_and_dispatch(text: str, sender_id: str) -> str:
             state["pending_confirmations"][sender_id] = {
                 "tool_name": tool_use.name,
                 "tool_input": tool_use.input,
-                "expires_at": time.time() + 600 # 10 min
+                "expires_at": time.time() + 600,  # 10 min
+                "chat_id": chat_id,  # persisted so YES handler can inject notify
             }
             _save_state(state)
             
@@ -242,12 +240,14 @@ class TextBridge:
             logger.debug("TextBridge: ignoring untrusted sender from %s: %s", service, effective_sender)
             return
 
+        chat_id = msg.get("chat_id")
+
         logger.info("TextBridge: processing %s message from %s: %s", service, sender, text[:50])
         
         # Mirror user message to chat history
         append_chat_interaction("user", f"[{service}] {text}")
         
-        reply_text = await classify_and_dispatch(text, sender)
+        reply_text = await classify_and_dispatch(text, sender, chat_id=chat_id)
         
         # Mirror reply to chat history
         append_chat_interaction("assistant", reply_text)
@@ -262,14 +262,13 @@ class TextBridge:
             pass
 
         # Send reply back via the originating service
-        chat_id = msg.get("chat_id")
         if not chat_id:
             return
 
         if service == "iMessage":
             try:
-                from services.imessage import reply_to_chat
-                await asyncio.to_thread(reply_to_chat, chat_id, reply_text)
+                from services.imessage import reply_to_chat_sync
+                await asyncio.to_thread(reply_to_chat_sync, chat_id, reply_text)
             except Exception as exc:
                 logger.error("TextBridge: could not send iMessage reply: %s", exc)
             # Loop guard: record this reply so the self-chat poller skips it.

@@ -111,9 +111,33 @@ async def test_handle_inbound_telegram_message():
         text_bridge._telegram_poller = AsyncMock()
         await text_bridge.handle_inbound_message(msg)
         
-        mock_classify.assert_called_once_with("hello", "tori_user")
+        mock_classify.assert_called_once_with("hello", "tori_user", chat_id="12345")
         assert mock_append.call_count == 2
         text_bridge._telegram_poller.send_message.assert_called_once_with("12345", "Hi Tori!")
+
+@pytest.mark.asyncio
+async def test_imessage_reply_uses_sync_sender():
+    """Reply bug: asyncio.to_thread(reply_to_chat, ...) wraps an async fn and
+    the coroutine is never awaited. The fix calls reply_to_chat_sync instead."""
+    msg = {
+        "service": "iMessage",
+        "chat_id": 42,
+        "sender": "+15551234567",
+        "text": "add a task to buy milk",
+        "date": 111.0,
+        "is_from_me": False,
+    }
+
+    with patch("services.text_bridge.is_trusted_sender", return_value=True), \
+         patch("services.text_bridge.classify_and_dispatch", AsyncMock(return_value="Task created: buy milk")), \
+         patch("services.text_bridge.append_chat_interaction"), \
+         patch("services.imessage.reply_to_chat_sync") as mock_sync:
+
+        await text_bridge.handle_inbound_message(msg)
+
+        # The sync sender must be called (via asyncio.to_thread) — not the async reply_to_chat
+        mock_sync.assert_called_once_with(42, "Task created: buy milk")
+
 
 @pytest.mark.asyncio
 async def test_classify_and_dispatch_list_tasks():
