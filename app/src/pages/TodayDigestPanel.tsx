@@ -32,7 +32,7 @@ interface Props {
 export function TodayDigestPanel({ digest }: Props) {
   const [expanded, setExpanded] = useState(false);
 
-  if (!digest) return null;
+  if (!digest || !Array.isArray(digest.sessions) || !Array.isArray(digest.closed_tasks_today)) return null;
   const { sessions, closed_tasks_today } = digest;
   if (sessions.length === 0 && closed_tasks_today.length === 0) return null;
 
