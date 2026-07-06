@@ -66,7 +66,7 @@ AUDIT_REVIEW_ONLY_INVARIANT = (
 # Same default model used by the label classifier so we do not pin a
 # separate version here. When Anthropic bumps the model, the rest of the
 # codebase moves with us.
-_CLASSIFIER_MODEL = "claude-sonnet-4-20250514"
+_CLASSIFIER_MODEL = "claude-sonnet-4-6"
 
 # How recently a task must have been touched to auto route it to the
 # review list without asking the classifier. 24 hours per the feature

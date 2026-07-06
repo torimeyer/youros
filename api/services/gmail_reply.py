@@ -28,7 +28,7 @@ from services.settings_store import settings_store
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 
 # Same Claude model the chat and idea breakdown pathways use.
-_DRAFT_MODEL = "claude-sonnet-4-20250514"
+_DRAFT_MODEL = "claude-sonnet-4-6"
 
 # Cap the drafting prompt so a giant original email cannot blow the context.
 _MAX_ORIGINAL_CHARS = 6000

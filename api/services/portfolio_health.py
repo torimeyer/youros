@@ -170,7 +170,7 @@ def compute_health(issue: dict, signals: dict) -> dict:
 # LLM draft (DRAFT ONLY: never auto-written to the source)
 # ---------------------------------------------------------------------------
 
-_DRAFT_MODEL = "claude-sonnet-4-20250514"
+_DRAFT_MODEL = "claude-sonnet-4-6"
 
 _DRAFT_PROMPT = (
     "You are a PM writing a one-line confidence update for a leadership rollup. "

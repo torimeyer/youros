@@ -490,7 +490,7 @@ def _handle_stream_event(
 async def complete(
     messages: list[dict],
     system: Optional[str] = None,
-    model: str = "claude-sonnet-4-20250514",
+    model: str = "claude-sonnet-4-6",
     max_tokens: int = 1024,
 ) -> Optional[str]:
     """One-shot non-streaming call through the local Claude CLI.

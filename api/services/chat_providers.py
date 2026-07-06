@@ -2770,7 +2770,7 @@ class ChatService:
             })
             _boot_ctx = _get_boot_context()
             safe_record_chat_turn(
-                model="claude-sonnet-4-20250514",
+                model=_model_id,
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
                 has_ostk_boot=bool(_boot_ctx),
@@ -2780,7 +2780,7 @@ class ChatService:
                 cache_read_input_tokens=_cache_read,
             )
             _log_chat_completion(
-                model="claude-sonnet-4-20250514",
+                model=_model_id,
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
                 provider="anthropic",
@@ -2832,7 +2832,7 @@ class ChatService:
             return []
         return [s for s in servers if isinstance(s, dict) and s.get("enabled", True) and s.get("url")]
 
-    async def agent_anthropic(self, messages: list[dict], websocket: WebSocket, tab_id: str = "", plan_mode: bool = False) -> str:
+    async def agent_anthropic(self, messages: list[dict], websocket: WebSocket, tab_id: str = "", plan_mode: bool = False, claude_tier: str = "") -> str:
         """Run the Anthropic agent loop with tool use.
 
         Sends messages with tool definitions, executes any tool calls Claude
@@ -2844,6 +2844,15 @@ class ChatService:
         MCP tool calls server-side, returning results inline in the response.
         """
         api_key = await _resolve_api_key("anthropic_api_key")
+
+        # Resolve the concrete model ID once, so all sub-calls within this
+        # function use the same current model instead of a hardcoded value.
+        _AGENT_TIER_MODELS = {
+            "haiku": "claude-haiku-4-5-20251001",
+            "sonnet": "claude-sonnet-4-6",
+            "opus": "claude-opus-4-7",
+        }
+        _model_id = _AGENT_TIER_MODELS.get(claude_tier, "claude-sonnet-4-6")
 
         # Resolve backend and send backend_active BEFORE template matching.
         # Same fix as stream_anthropic: the classifier can stall 30+ seconds
@@ -2922,7 +2931,7 @@ class ChatService:
                     websocket,
                     lambda: _anthropic_retry_call(
                         lambda: client.messages.create(
-                            model="claude-sonnet-4-20250514",
+                            model=_model_id,
                             max_tokens=2048,
                             system=plan_system,
                             messages=conversation,
@@ -3006,7 +3015,7 @@ class ChatService:
                     })
                     _boot_ctx = _get_boot_context()
                     safe_record_chat_turn(
-                        model="claude-sonnet-4-20250514",
+                        model=_model_id,
                         input_tokens=total_input_tokens,
                         output_tokens=total_output_tokens,
                         has_ostk_boot=bool(_boot_ctx),
@@ -3016,7 +3025,7 @@ class ChatService:
                         cache_read_input_tokens=total_cache_read_tokens,
                     )
                     _log_chat_completion(
-                        model="claude-sonnet-4-20250514",
+                        model=_model_id,
                         input_tokens=total_input_tokens,
                         output_tokens=total_output_tokens,
                         provider="anthropic",
@@ -3053,7 +3062,7 @@ class ChatService:
 
                     async def _mcp_create() -> Any:
                         return await client.beta.messages.create(
-                            model="claude-sonnet-4-20250514",
+                            model=_model_id,
                             max_tokens=4096,
                             system=cached_system_prompt,
                             messages=cached_conversation,
@@ -3072,7 +3081,7 @@ class ChatService:
                 else:
                     async def _create() -> Any:
                         return await client.messages.create(
-                            model="claude-sonnet-4-20250514",
+                            model=_model_id,
                             max_tokens=4096,
                             system=cached_system_prompt,
                             messages=cached_conversation,
@@ -3181,7 +3190,7 @@ class ChatService:
                     })
                     _boot_ctx = _get_boot_context()
                     safe_record_chat_turn(
-                        model="claude-sonnet-4-20250514",
+                        model=_model_id,
                         input_tokens=total_input_tokens,
                         output_tokens=total_output_tokens,
                         has_ostk_boot=bool(_boot_ctx),
@@ -3191,7 +3200,7 @@ class ChatService:
                         cache_read_input_tokens=total_cache_read_tokens,
                     )
                     _log_chat_completion(
-                        model="claude-sonnet-4-20250514",
+                        model=_model_id,
                         input_tokens=total_input_tokens,
                         output_tokens=total_output_tokens,
                         provider="anthropic",
@@ -3265,7 +3274,7 @@ class ChatService:
                 if turn >= MAX_TOOL_ROUNDS and not files_modified:
                     async def _forced_text_create() -> Any:
                         return await client.messages.create(
-                            model="claude-sonnet-4-20250514",
+                            model=_model_id,
                             max_tokens=4096,
                             system=cached_system_prompt,
                             messages=_add_conversation_prefix_cache(conversation),
@@ -3305,7 +3314,7 @@ class ChatService:
                     })
                     _boot_ctx = _get_boot_context()
                     safe_record_chat_turn(
-                        model="claude-sonnet-4-20250514",
+                        model=_model_id,
                         input_tokens=total_input_tokens,
                         output_tokens=total_output_tokens,
                         has_ostk_boot=bool(_boot_ctx),
@@ -3315,7 +3324,7 @@ class ChatService:
                         cache_read_input_tokens=total_cache_read_tokens,
                     )
                     _log_chat_completion(
-                        model="claude-sonnet-4-20250514",
+                        model=_model_id,
                         input_tokens=total_input_tokens,
                         output_tokens=total_output_tokens,
                         provider="anthropic",

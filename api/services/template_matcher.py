@@ -120,7 +120,7 @@ _CLASSIFIER_CACHE: dict[tuple[str, str], str] = {}
 
 # Model for the classifier. Same model the chat flow uses so we do not need
 # another API key or config entry.
-_CLASSIFIER_MODEL = "claude-sonnet-4-20250514"
+_CLASSIFIER_MODEL = "claude-sonnet-4-6"
 
 
 def _word_boundary_starts_with(text: str, phrase: str) -> bool:

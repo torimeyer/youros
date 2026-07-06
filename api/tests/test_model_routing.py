@@ -167,3 +167,34 @@ async def test_full_escalation_flow():
     opus_id = escalate_to_opus("my-complex-agent", "NEEDS_OPUS in output")
     assert opus_id == TIER_MODEL_MAP["opus"]
     assert opus_id == "claude-opus-4-7"
+
+
+# ---------------------------------------------------------------------------
+# Retired model normalization (→2478)
+# ---------------------------------------------------------------------------
+
+def test_resolve_retired_sonnet_maps_to_current():
+    """Retired claude-sonnet-4-20250514 must resolve to the current Sonnet."""
+    from services.model_routing import resolve_model
+    assert resolve_model("claude-sonnet-4-20250514") == "claude-sonnet-4-6"
+
+
+def test_resolve_retired_haiku_maps_to_current():
+    """Retired claude-haiku-4-5 (undated) must resolve to the dated haiku."""
+    from services.model_routing import resolve_model
+    assert resolve_model("claude-haiku-4-5") == "claude-haiku-4-5-20251001"
+
+
+def test_resolve_current_models_still_pass_through():
+    """Active model IDs must pass through unchanged."""
+    from services.model_routing import resolve_model
+    assert resolve_model("claude-sonnet-4-6") == "claude-sonnet-4-6"
+    assert resolve_model("claude-opus-4-7") == "claude-opus-4-7"
+    assert resolve_model("claude-haiku-4-5-20251001") == "claude-haiku-4-5-20251001"
+
+
+def test_retired_models_constant_exists():
+    """RETIRED_MODELS must be importable and contain the known-bad ID."""
+    from services.model_routing import RETIRED_MODELS
+    assert "claude-sonnet-4-20250514" in RETIRED_MODELS
+    assert RETIRED_MODELS["claude-sonnet-4-20250514"] == "claude-sonnet-4-6"

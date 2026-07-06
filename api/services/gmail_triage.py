@@ -26,7 +26,7 @@ GMAIL_CACHE_DIR = MYOS_DIR / "gmail_cache"
 TRIAGE_CACHE_PATH = GMAIL_CACHE_DIR / "triage_result.json"
 
 _TRIAGE_CACHE_TTL = 300  # 5 minutes
-_TRIAGE_MODEL = "claude-sonnet-4-20250514"
+_TRIAGE_MODEL = "claude-sonnet-4-6"
 
 CATEGORIES = ("action_needed", "task_worthy", "informational", "noise")
 
