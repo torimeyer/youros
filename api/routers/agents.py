@@ -8236,8 +8236,14 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
         if _notify and _notify.get("kind") == "imessage" and _notify.get("chat_id") is not None:
             try:
                 from services.imessage import reply_to_chat_sync
+                from services.text_bridge import text_bridge as _text_bridge
                 _agent_summary = agent_metadata.get(name, {}).get("summary") or f"Agent '{name}' finished."
                 _msg = f"{name}: {_agent_summary}"
+                # Pre-register before sending so the self-chat loop guard is armed.
+                # Without this, the received echo of the completion text would be picked
+                # up by the poller and re-dispatched as a new command (→2489).
+                if _text_bridge._imessage_poller is not None:
+                    _text_bridge._imessage_poller.mark_sent(_msg)
                 await asyncio.to_thread(reply_to_chat_sync, _notify["chat_id"], _msg)
             except Exception as _notify_exc:
                 logger.warning("mark_agent_complete: iMessage notify failed: %s", _notify_exc)
