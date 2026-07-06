@@ -99,6 +99,7 @@ async def lifespan(app: FastAPI):
     await schedule_agent_reconciliation()
     await schedule_agents_snapshotter()
     await agents.schedule_spawn_lock_sweep()
+    await agents.schedule_build_queue_startup_drain()
     await schedule_worktree_reaper()
     await schedule_recurring_task_spawner()
     await schedule_test_artifact_sweep()

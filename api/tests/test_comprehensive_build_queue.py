@@ -171,14 +171,12 @@ def test_cancel_queued_build():
 
 def test_restart_preserves_queued_entries():
     """Queue entries written to disk survive a simulated module reload."""
-    import importlib
     import sys
+    import tempfile
+    from unittest.mock import patch as _patch
 
     _reset()
 
-    # Write a queue file as if 2 builds are queued.
-    _q_path = Path.home() / ".youros" / "build_queue.json"
-    _q_path.parent.mkdir(parents=True, exist_ok=True)
     entries = [
         {
             "spawn_id": "implement-restarted-a",
@@ -195,29 +193,38 @@ def test_restart_preserves_queued_entries():
             "enqueued_at": 1001.0,
         },
     ]
-    _q_path.write_text(json.dumps({"queue": entries}))
 
-    # Reload the module (simulates backend restart).
-    if "services.build_queue" in sys.modules:
-        del sys.modules["services.build_queue"]
-    import services.build_queue as bq_fresh
+    # Use a temp directory to avoid racing with the live server's build_queue.json.
+    with tempfile.TemporaryDirectory() as _tmpdir:
+        _tmp_path = Path(_tmpdir)
+        _q_path = _tmp_path / "build_queue.json"
+        _q_path.write_text(json.dumps({"queue": entries}))
 
-    try:
-        assert bq_fresh.queue_depth() == 2, (
-            f"Expected 2 queued entries after restart, got {bq_fresh.queue_depth()}"
-        )
-        assert bq_fresh.get_build_state("implement-restarted-a") == "queued"
-        assert bq_fresh.get_build_state("implement-restarted-b") == "queued"
-    finally:
-        bq_fresh._reset_for_tests()
-        # Clean up the file so other tests are not affected.
-        try:
-            _q_path.unlink()
-        except Exception:
-            pass
-        # Restore the original module so subsequent imports are consistent.
+        # Patch youros_home BEFORE the import so _QUEUE_PATH resolves to tmpdir.
+        import services.youros_paths as _yp_mod
+        _orig_youros_home = _yp_mod.youros_home
+
+        def _patched_youros_home():
+            return _tmp_path
+
+        _yp_mod.youros_home = _patched_youros_home
+
         if "services.build_queue" in sys.modules:
             del sys.modules["services.build_queue"]
+        import services.build_queue as bq_fresh
+
+        try:
+            assert bq_fresh.queue_depth() == 2, (
+                f"Expected 2 queued entries after restart, got {bq_fresh.queue_depth()}"
+            )
+            assert bq_fresh.get_build_state("implement-restarted-a") == "queued"
+            assert bq_fresh.get_build_state("implement-restarted-b") == "queued"
+        finally:
+            bq_fresh._reset_for_tests()
+            _yp_mod.youros_home = _orig_youros_home
+            # Remove so subsequent imports reload cleanly with real youros_home.
+            if "services.build_queue" in sys.modules:
+                del sys.modules["services.build_queue"]
 
 
 # ---------------------------------------------------------------------------
@@ -399,3 +406,109 @@ async def test_same_task_still_returns_409(monkeypatch):
         active_agents.pop(second, None)
         _reset()
         _reset_spawn_lock_registry_for_tests()
+
+
+# ---------------------------------------------------------------------------
+# 7. Startup drain: queued entries auto-start when _running is empty (→2497)
+# ---------------------------------------------------------------------------
+
+
+def test_startup_drain_promotes_queued_when_slots_available():
+    """After a restart _running=0; drain_startup_queue() should fill available slots."""
+    from services.build_queue import (
+        BUILD_CONCURRENCY,
+        drain_startup_queue,
+        get_build_state,
+        queue_depth,
+        running_count,
+    )
+
+    _reset()
+
+    # Manually seed the queue (simulates entries restored from disk on restart).
+    from services import build_queue as bq_mod
+    from services.build_queue import BuildEntry
+    import time as _t
+
+    entries = [
+        BuildEntry(
+            spawn_id=f"implement-restart-{i}",
+            task_id=f"t{i}",
+            spawn_kwargs=_make_kwargs(f"t{i}", f"implement-restart-{i}"),
+            state="queued",
+            enqueued_at=_t.time() - (10 - i),
+        )
+        for i in range(4)
+    ]
+    with bq_mod._lock:
+        bq_mod._queue.extend(entries)
+
+    # _running is already empty after _reset(); simulates a fresh backend start.
+    assert running_count() == 0
+    assert queue_depth() == 4
+
+    to_start = drain_startup_queue()
+
+    # Should promote up to BUILD_CONCURRENCY (3) entries.
+    assert len(to_start) == min(BUILD_CONCURRENCY, 4), (
+        f"Expected {min(BUILD_CONCURRENCY, 4)} entries to promote, got {len(to_start)}"
+    )
+    assert running_count() == len(to_start)
+    assert queue_depth() == 4 - len(to_start)
+
+    for entry in to_start:
+        assert get_build_state(entry.spawn_id) == "running"
+
+    # The leftover entry must still be queued.
+    assert get_build_state("implement-restart-3") == "queued"
+
+    _reset()
+
+
+# ---------------------------------------------------------------------------
+# 8. Promotion failure: return_to_queue frees the slot and re-queues (→2497)
+# ---------------------------------------------------------------------------
+
+
+def test_promotion_failure_returns_entry_to_queue():
+    """If spawn fails during promotion, return_to_queue() frees the slot and re-queues."""
+    from services.build_queue import (
+        finish_build,
+        get_build_state,
+        queue_depth,
+        return_to_queue,
+        running_count,
+        try_start_build,
+    )
+
+    _reset()
+
+    # Fill concurrency limit + add one queued.
+    for i in range(4):
+        try_start_build(
+            spawn_id=f"bq-pr-{i}",
+            task_id=f"t{i}",
+            spawn_kwargs=_make_kwargs(f"t{i}", f"bq-pr-{i}"),
+        )
+
+    assert running_count() == 3
+    assert queue_depth() == 1
+    assert get_build_state("bq-pr-3") == "queued"
+
+    # Complete bq-pr-0: promotes bq-pr-3 (moves it to _running).
+    promoted = finish_build("bq-pr-0")
+    assert promoted is not None
+    assert promoted.spawn_id == "bq-pr-3"
+    assert get_build_state("bq-pr-3") == "running"
+    assert queue_depth() == 0
+
+    # Simulate a spawn failure during promotion: call return_to_queue.
+    return_to_queue(promoted)
+
+    # bq-pr-3 should be back in queue (front), slot freed.
+    assert get_build_state("bq-pr-3") == "queued"
+    assert queue_depth() == 1
+    # Running should be down to 2 (bq-pr-1 and bq-pr-2).
+    assert running_count() == 2
+
+    _reset()
