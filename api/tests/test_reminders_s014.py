@@ -166,7 +166,6 @@ def test_snooze_reminder_reschedules_15_min(reminders):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="S014 AC not yet implemented: future reminders appear in today's briefing (reminders_today field missing from /api/briefing response)", strict=False)
 @pytest.mark.asyncio
 async def test_briefing_reminders_today_included(tmp_path, monkeypatch):
     """GET /briefing includes reminders_today with reminders due in next 24h."""
@@ -229,6 +228,105 @@ async def test_briefing_reminders_today_absent_when_none(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # AC19: Focus view (adhd context-rebuild) includes upcoming reminders
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# AC12/AC13/AC21: _handle_remind_me chat protocol — confirmation and clarification
+#
+# Invariant: when a user says "remind me to X at TIME" in chat, yourOS replies
+# with plain-language confirmation (text, local time, channel) before the turn
+# ends — no AI round-trip required.
+# ---------------------------------------------------------------------------
+
+
+class _FakeWS:
+    """Minimal WebSocket stand-in that captures send_json calls."""
+
+    def __init__(self):
+        self.messages: list[dict] = []
+
+    async def send_json(self, data: dict):
+        self.messages.append(data)
+
+    def tokens(self) -> list[str]:
+        return [m["data"] for m in self.messages if m.get("type") == "token"]
+
+    def done_count(self) -> int:
+        return sum(1 for m in self.messages if m.get("type") == "done")
+
+
+@pytest.mark.asyncio
+async def test_chat_reminder_confirmation_includes_text_time_channel(tmp_path, monkeypatch):
+    """AC12: reminder created via chat -> reply contains reminder text, local time, and channel."""
+    import services.reminders as rem
+    store_path = tmp_path / "reminders.json"
+    monkeypatch.setattr(rem, "REMINDERS_PATH", store_path)
+
+    import services.settings_store as ss_mod
+    monkeypatch.setattr(ss_mod.settings_store, "get", lambda k, *a: "America/New_York" if k in ("time_zone", "timezone") else None)
+
+    from routers.chat import _handle_remind_me
+
+    ws = _FakeWS()
+    handled = await _handle_remind_me("remind me to call the vet at 3pm", ws)
+
+    assert handled is True, "_handle_remind_me should return True"
+    assert ws.done_count() == 1, "exactly one 'done' frame expected"
+    token_text = " ".join(ws.tokens())
+    assert "call the vet" in token_text.lower(), f"reminder text missing from reply: {token_text!r}"
+    assert "3" in token_text, f"time missing from reply: {token_text!r}"
+    assert any(
+        label in token_text.lower()
+        for label in ("text message", "email", "slack", "imessage", "notification")
+    ), f"channel label missing from reply: {token_text!r}"
+
+
+@pytest.mark.asyncio
+async def test_chat_reminder_no_time_sends_clarification(tmp_path, monkeypatch):
+    """AC13: when no time is in the input, yourOS asks for the time rather than creating a reminder."""
+    import services.reminders as rem
+    store_path = tmp_path / "reminders.json"
+    monkeypatch.setattr(rem, "REMINDERS_PATH", store_path)
+
+    import services.settings_store as ss_mod
+    monkeypatch.setattr(ss_mod.settings_store, "get", lambda k, *a: "UTC" if k in ("time_zone", "timezone") else None)
+
+    from routers.chat import _handle_remind_me
+
+    ws = _FakeWS()
+    handled = await _handle_remind_me("remind me to take my meds", ws)
+
+    assert handled is True, "_handle_remind_me should return True"
+    assert ws.done_count() == 1
+    token_text = " ".join(ws.tokens())
+    assert "time" in token_text.lower() or "when" in token_text.lower(), (
+        f"clarification should mention time/when, got: {token_text!r}"
+    )
+    # No reminder should be created
+    rows = rem._load()
+    assert rows == [], "no reminder should be persisted when no time is given"
+
+
+@pytest.mark.asyncio
+async def test_chat_reminder_no_timezone_notes_utc(tmp_path, monkeypatch):
+    """AC21: when time_zone is missing from settings, confirmation mentions UTC."""
+    import services.reminders as rem
+    store_path = tmp_path / "reminders.json"
+    monkeypatch.setattr(rem, "REMINDERS_PATH", store_path)
+
+    import services.settings_store as ss_mod
+    monkeypatch.setattr(ss_mod.settings_store, "get", lambda k, *a: None)
+
+    from routers.chat import _handle_remind_me
+
+    ws = _FakeWS()
+    handled = await _handle_remind_me("remind me to stretch at 2pm", ws)
+
+    assert handled is True
+    token_text = " ".join(ws.tokens())
+    assert "utc" in token_text.lower(), (
+        f"UTC note missing from confirmation when no timezone set, got: {token_text!r}"
+    )
 
 
 @pytest.mark.asyncio
