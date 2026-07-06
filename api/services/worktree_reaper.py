@@ -67,12 +67,12 @@ def _active_agent_names(repo_root: Path) -> Optional[Set[str]]:
     to accidentally remove a live worktree.
 
     Returns None (not an empty set) when the state file is missing or
-    cannot be parsed.  The caller must not set MYOS_ACTIVE_AGENTS in that
+    cannot be parsed.  The caller must not set YOUROS_ACTIVE_AGENTS in that
     case, so the shell script falls through to its own agent_state.json
     fallback and triggers its own fail-safe (exit 1) rather than silently
     treating every worktree as unprotected.
 
-    Background: returning set() on read failure caused MYOS_ACTIVE_AGENTS=""
+    Background: returning set() on read failure caused YOUROS_ACTIVE_AGENTS=""
     to be passed to the shell script.  The guard checks
     ``[ -n "$ACTIVE_AGENT_NAMES" ]`` which is false for an empty string, so
     no worktree was ever protected -- a silent bypass.  (→1665, →1678)
@@ -106,12 +106,13 @@ async def _call_reaper_script(
 ) -> subprocess.CompletedProcess:
     """Run worktree-reaper.sh --apply in a thread. Thin wrapper so tests can patch.
 
-    Passes MYOS_ACTIVE_AGENTS env var to the script so it can skip
+    Passes YOUROS_ACTIVE_AGENTS env var to the script so it can skip
     worktrees whose agent is still alive (→947).
+    (→2466: was MYOS_ACTIVE_AGENTS — mismatch with what the shell script reads)
     """
     env = os.environ.copy()
     if active_names is not None:
-        env["MYOS_ACTIVE_AGENTS"] = ",".join(sorted(active_names))
+        env["YOUROS_ACTIVE_AGENTS"] = ",".join(sorted(active_names))
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(
         None,
