@@ -47,20 +47,12 @@ def _save_state(state: dict) -> None:
 def is_trusted_sender(sender_id: str, service: str = "iMessage") -> bool:
     """Return True if the sender is authorized to command yourOS.
     
-    Trusts:
-    1. Any identifier containing 'vmeyer' (case-insensitive) - for iMessage.
-    2. A specific identifier configured in Settings -> Text yourOS.
+    Trusts only identifiers configured in Settings -> Text yourOS (trusted_contacts).
     """
     if not sender_id:
         return False
     
-    sender_lower = sender_id.lower()
-    
-    # 1. Broad identity match for iMessage
-    if service == "iMessage" and "vmeyer" in sender_lower:
-        return True
-    
-    # 2. Settings match (works for both iMessage and Telegram)
+    # Settings match (works for both iMessage and Telegram)
     config = settings_store.get("text_bridge", {})
     trusted = config.get("trusted_contacts", [])
     if sender_id in trusted:

@@ -5,15 +5,17 @@ import json
 from services.text_bridge import is_trusted_sender
 from services.settings_store import settings_store
 
-def test_vmeyer_trust():
-    # 1. Identifier containing 'vmeyer' (case-insensitive) should be trusted
-    assert is_trusted_sender("vmeyer") is True
-    assert is_trusted_sender("Tori.VMeyer@example.com") is True
-    assert is_trusted_sender("vmeyer_phone") is True
-    
-    # 2. Other identifiers should NOT be trusted by default
+
+def test_hardcoded_identifier_not_trusted():
+    # vmeyer is no longer hardcoded — trust comes only from configured contacts
+    assert is_trusted_sender("vmeyer") is False
+    assert is_trusted_sender("Tori.VMeyer@example.com") is False
+    assert is_trusted_sender("vmeyer_phone") is False
+
+    # Unknown identifiers are not trusted by default
     assert is_trusted_sender("someone_else") is False
     assert is_trusted_sender("+15551234567") is False
+
 
 def test_configured_contact_trust():
     # Simulate enabling and adding a trusted contact
