@@ -78,6 +78,8 @@ except Exception:
             rule_enabled worktree_cwd_guard && _worktree_cwd_guard_bash "$TOOL" "$INPUT"
             . "$LIB/rules/main_commit_guard.sh"
             rule_enabled main_commit_guard && _main_commit_guard_check "$TOOL" "$CMD" "$INPUT"
+            . "$LIB/rules/home_scan_guard.sh"
+            rule_enabled home_scan_guard && _home_scan_guard_check "$TOOL" "$CMD"
         fi
         ;;
 
