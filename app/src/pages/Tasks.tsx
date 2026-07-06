@@ -1513,6 +1513,11 @@ export default function Tasks() {
   // session hide). Use it as the source of truth for the displayed count.
   const visibleCount = filteredTasks.length;
 
+  // True when every task currently visible in the list is in the selection set.
+  const allVisibleSelected =
+    filteredTasks.length > 0 &&
+    filteredTasks.every((t) => selectedTaskIds.has(t.id));
+
   const filtersHidingAllTasks = false;
 
   const clearAllFilters = () => {
@@ -2022,7 +2027,19 @@ export default function Tasks() {
               onSortByChange={setSortBy}
 />
 
-
+            {/* Select all affordance — shown when nothing is selected and list is non-empty */}
+            {selectedTaskIds.size === 0 && filteredTasks.length > 0 && statusFilter !== "recurring" && (
+              <div className="flex justify-end mb-2">
+                <button
+                  data-testid="select-all-tasks"
+                  aria-label="Select all visible tasks"
+                  onClick={() => setSelectedTaskIds(new Set(filteredTasks.map((t) => t.id)))}
+                  className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 py-1 px-2 rounded"
+                >
+                  Select all
+                </button>
+              </div>
+            )}
 
             {/* Bulk action bar */}
             {selectedTaskIds.size > 0 && (
@@ -2031,6 +2048,18 @@ export default function Tasks() {
                   {selectedTaskIds.size} selected
                 </span>
                 <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    data-testid="select-all-tasks"
+                    aria-label={allVisibleSelected ? "Clear all selected tasks" : "Select all visible tasks"}
+                    onClick={() =>
+                      allVisibleSelected
+                        ? setSelectedTaskIds(new Set())
+                        : setSelectedTaskIds(new Set(filteredTasks.map((t) => t.id)))
+                    }
+                    className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 text-xs rounded-lg border border-blue-500/30"
+                  >
+                    {allVisibleSelected ? "Clear all" : "Select all"}
+                  </button>
                   <button
                     onClick={() => bulkAction("plan")}
                     disabled={actionLoading === "bulk"}
