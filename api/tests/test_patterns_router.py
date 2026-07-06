@@ -207,3 +207,64 @@ async def test_clusters_returns_stored_tier(obs_dir, monkeypatch, tmp_path):
         resp2 = await client.get("/api/patterns/clusters")
         updated = next(c for c in resp2.json()["clusters"] if c["id"] == cid)
         assert updated["tier"] == 2, f"expected tier=2 after confirm, got {updated['tier']}"
+
+
+# ---------------------------------------------------------------------------
+# →2486 — tier-3 silent action: error path + approve endpoint
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_store_tier_failure_returns_500(obs_dir, monkeypatch):
+    """If store_tier raises (local write error), the endpoint returns 500 so the UI
+    can show an error — never silently corrupt the tier state."""
+    def _raise_store(cid, t, **kw):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(patterns_mod, "store_tier", _raise_store)
+    monkeypatch.setattr(patterns_mod, "promote_tier", lambda cid, tier: True)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/patterns/clusters/abc123/tier", json={"tier": 3}
+        )
+    assert resp.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_tier3_approve_silent_succeeds(obs_dir, monkeypatch):
+    """Approve for silent action (tier=3) is accepted and persists tier=3."""
+    stored: dict = {}
+
+    def _capture_store(cid, t, **kw):
+        stored[cid] = t
+
+    monkeypatch.setattr(patterns_mod, "promote_tier", lambda cid, tier: True)
+    monkeypatch.setattr(patterns_mod, "store_tier", _capture_store)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/patterns/clusters/abc123/tier", json={"tier": 3}
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["tier"] == 3
+    assert stored.get("abc123") == 3
+
+
+@pytest.mark.asyncio
+async def test_promote_tier_failure_still_returns_ok(obs_dir, monkeypatch):
+    """If ostk decide (promote_tier) fails but store_tier succeeds, still return ok=True.
+    The ostk decide call is best-effort; the local tier file is authoritative."""
+    monkeypatch.setattr(patterns_mod, "promote_tier", lambda cid, tier: False)
+    monkeypatch.setattr(patterns_mod, "store_tier", lambda cid, t, **kw: None)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/patterns/clusters/abc123/tier", json={"tier": 3}
+        )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True

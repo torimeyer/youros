@@ -154,8 +154,15 @@ async def set_cluster_tier(cluster_id: str, body: TierRequest):
         except Exception:
             pass
 
-    # Persist tier locally so get_clusters and read_context_for_turn reflect it
-    store_tier(cluster_id, tier, label=label, kind=kind)
+    # Persist tier locally so get_clusters and read_context_for_turn reflect it.
+    # Raises → 500 on failure so the UI can show an error (spec edge-case: never silently corrupt).
+    try:
+        store_tier(cluster_id, tier, label=label, kind=kind)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save tier decision: {exc}",
+        )
 
     # Also write to ostk decide (best-effort)
     if tier == 0:

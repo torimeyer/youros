@@ -99,7 +99,53 @@ describe('PatternPanel', () => {
     mockGet.mockResolvedValue({ clusters: [{ ...CLUSTER_TASK, tier: 2 }] })
     render(<PatternPanel />)
     await waitFor(() => {
-      expect(screen.getByTestId('approve-silent-abc123')).toBeDefined()
+      expect(screen.getByTestId('pattern-approve-silent')).toBeDefined()
+    })
+  })
+
+  it('clicking Approve for silent action posts tier=3 to the clusters endpoint', async () => {
+    mockGet.mockResolvedValue({ clusters: [{ ...CLUSTER_TASK, tier: 2 }] })
+    render(<PatternPanel />)
+    await waitFor(() => screen.getByTestId('pattern-approve-silent'))
+
+    fireEvent.click(screen.getByTestId('pattern-approve-silent'))
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith(
+        '/api/patterns/clusters/abc123/tier',
+        { tier: 3 },
+      )
+    })
+  })
+
+  it('shows "Silent action enabled" badge and hides approve button after tier=3', async () => {
+    mockGet.mockResolvedValue({ clusters: [{ ...CLUSTER_TASK, tier: 2 }] })
+    render(<PatternPanel />)
+    await waitFor(() => screen.getByTestId('pattern-approve-silent'))
+
+    fireEvent.click(screen.getByTestId('pattern-approve-silent'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('pattern-approve-silent')).toBeNull()
+      expect(screen.getByText('Silent action enabled')).toBeDefined()
+    })
+  })
+
+  it('full flow: tier=1 → confirm → tier=2 → approve silent → tier=3 with audit badge', async () => {
+    mockGet.mockResolvedValue({ clusters: [CLUSTER_TASK] })
+    render(<PatternPanel />)
+    await waitFor(() => screen.getByTestId('confirm-abc123'))
+
+    // Step 1: Confirm (tier 1 → 2)
+    fireEvent.click(screen.getByTestId('confirm-abc123'))
+    await waitFor(() => screen.getByTestId('pattern-approve-silent'))
+
+    // Step 2: Approve for silent action (tier 2 → 3)
+    fireEvent.click(screen.getByTestId('pattern-approve-silent'))
+    await waitFor(() => {
+      expect(screen.getByText('Silent action enabled')).toBeDefined()
+      expect(mockPost).toHaveBeenLastCalledWith(
+        '/api/patterns/clusters/abc123/tier',
+        { tier: 3 },
+      )
     })
   })
 

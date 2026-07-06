@@ -271,3 +271,116 @@ def test_read_context_prefers_recall_result_over_hint(tmp_path: Path) -> None:
     assert result is not None
     assert "recall content here" in result
     assert "You defer tasks" not in result
+
+
+# ---------------------------------------------------------------------------
+# AC6 (→2486) — tier-3 silent action: hint suppression + apply + audit note
+# ---------------------------------------------------------------------------
+
+def test_get_confirmed_hint_excludes_tier3_cluster(tmp_path: Path) -> None:
+    """get_confirmed_hint must NOT include tier-3 clusters — those act silently, no chat hint."""
+    from services.pattern_watcher import store_tier, get_confirmed_hint
+
+    tiers_file = tmp_path / ".tiers.json"
+    store_tier("abc", 3, label="You frequently defer tasks", kind="task:defer", tiers_path=tiers_file)
+    hint = get_confirmed_hint(tiers_path=tiers_file)
+
+    assert hint is None, "tier-3 cluster must not appear in chat hints"
+
+
+def test_get_confirmed_hint_includes_tier2_excludes_tier3(tmp_path: Path) -> None:
+    """get_confirmed_hint returns hint for tier-2 but not tier-3 when both exist."""
+    from services.pattern_watcher import store_tier, get_confirmed_hint
+
+    tiers_file = tmp_path / ".tiers.json"
+    store_tier("t2", 2, label="You use the term elit", kind="vocab:new", tiers_path=tiers_file)
+    store_tier("t3", 3, label="You frequently defer tasks", kind="task:defer", tiers_path=tiers_file)
+    hint = get_confirmed_hint(tiers_path=tiers_file)
+
+    assert hint is not None
+    assert "You use the term elit" in hint
+    assert "You frequently defer tasks" not in hint
+
+
+def test_apply_silent_patterns_writes_audit_note_for_tier3_p3_task(tmp_path: Path) -> None:
+    """apply_silent_patterns writes a task:silent_applied bullet for a P3 task when tier-3
+    task:defer cluster exists."""
+    from services.pattern_watcher import store_tier, apply_silent_patterns
+
+    tiers_file = tmp_path / ".tiers.json"
+    tasks_file = tmp_path / "tasks.md"
+    store_tier("abc", 3, label="You frequently defer tasks", kind="task:defer", tiers_path=tiers_file)
+
+    applied = apply_silent_patterns(
+        "→123", "Fix formatting", "P3",
+        tiers_path=tiers_file, tasks_path=tasks_file,
+    )
+
+    assert len(applied) == 1
+    assert "You frequently defer tasks" in applied[0]
+    assert tasks_file.exists(), "audit note must be written"
+    content = tasks_file.read_text()
+    assert "task:silent_applied" in content
+    assert "→123" in content
+    assert "P3" in content
+
+
+def test_apply_silent_patterns_no_tier3_returns_empty(tmp_path: Path) -> None:
+    """apply_silent_patterns returns [] and writes nothing when no tier-3 clusters exist."""
+    from services.pattern_watcher import store_tier, apply_silent_patterns
+
+    tiers_file = tmp_path / ".tiers.json"
+    tasks_file = tmp_path / "tasks.md"
+    store_tier("abc", 2, label="You frequently defer tasks", kind="task:defer", tiers_path=tiers_file)
+
+    applied = apply_silent_patterns(
+        "→124", "Fix styling", "P3",
+        tiers_path=tiers_file, tasks_path=tasks_file,
+    )
+
+    assert applied == []
+    assert not tasks_file.exists(), "no audit note when no tier-3 cluster applies"
+
+
+def test_apply_silent_patterns_tier2_does_not_apply(tmp_path: Path) -> None:
+    """apply_silent_patterns does not apply tier-2 clusters."""
+    from services.pattern_watcher import store_tier, apply_silent_patterns
+
+    tiers_file = tmp_path / ".tiers.json"
+    tasks_file = tmp_path / "tasks.md"
+    store_tier("abc", 2, label="You use the term elit", kind="vocab:new", tiers_path=tiers_file)
+
+    applied = apply_silent_patterns(
+        "→125", "Some task", "P2",
+        tiers_path=tiers_file, tasks_path=tasks_file,
+    )
+    assert applied == []
+
+
+def test_apply_silent_patterns_non_p3_task_not_matched(tmp_path: Path) -> None:
+    """apply_silent_patterns does not fire for P0/P1/P2 tasks (only P3 matches task:defer)."""
+    from services.pattern_watcher import store_tier, apply_silent_patterns
+
+    tiers_file = tmp_path / ".tiers.json"
+    tasks_file = tmp_path / "tasks.md"
+    store_tier("abc", 3, label="You frequently defer tasks", kind="task:defer", tiers_path=tiers_file)
+
+    for priority in ("P0", "P1", "P2"):
+        applied = apply_silent_patterns(
+            "→126", "Urgent work", priority,
+            tiers_path=tiers_file, tasks_path=tasks_file,
+        )
+        assert applied == [], f"P{priority} task must not match task:defer tier-3 pattern"
+
+
+def test_apply_silent_patterns_never_raises(tmp_path: Path) -> None:
+    """apply_silent_patterns must not raise even if the tiers file is corrupt."""
+    from services.pattern_watcher import apply_silent_patterns
+
+    tiers_file = tmp_path / ".tiers.json"
+    tiers_file.write_text("not valid json{{")
+    tasks_file = tmp_path / "tasks.md"
+
+    # Must not raise
+    result = apply_silent_patterns("→127", "Anything", "P3", tiers_path=tiers_file, tasks_path=tasks_file)
+    assert isinstance(result, list)
