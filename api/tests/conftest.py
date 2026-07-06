@@ -110,7 +110,34 @@ os.environ.setdefault("MYOS_DISABLE_RATE_LIMIT", "1")
 # (or fail) event-loop latency assertions like test_websocket_round_trip.
 os.environ.setdefault("MYOS_REAPER_ENABLED", "0")
 
+# →2492: Redirect all settings I/O away from ~/.youros/ before any module that
+# imports settings_store is first loaded. SETTINGS_PATH is a module-level constant
+# in settings_store.py, computed from YOUROS_HOME at import time; it must be set
+# before "from main import app" so the constant resolves to a safe tmp path rather
+# than the real user home.
+_youros_session_tmp = Path(tempfile.mkdtemp(prefix="pytest_youros_"))
+os.environ.setdefault("YOUROS_HOME", str(_youros_session_tmp))
+
 from main import app
+
+
+@pytest.fixture(autouse=True)
+def _isolate_settings_store(tmp_path, monkeypatch):
+    """Redirect SETTINGS_PATH to a per-test tmp path so no test ever writes to the
+    real ~/.youros/settings.json (→2492).
+
+    settings_store.py binds SETTINGS_PATH at import time from YOUROS_HOME. The
+    session-level setdefault above points that at a tmp dir, but all tests would
+    still share that one file. This per-test fixture gives each test its own
+    isolated settings file so state cannot bleed between tests.
+    """
+    import json as _json
+    import services.settings_store as ss_mod
+    from models.schemas import Settings as _Settings
+    tmp_settings = tmp_path / "settings.json"
+    # Seed with schema defaults so load() never raises FileNotFoundError
+    tmp_settings.write_text(_json.dumps(_Settings().model_dump()))
+    monkeypatch.setattr(ss_mod, "SETTINGS_PATH", tmp_settings)
 
 
 @pytest.fixture(autouse=True)

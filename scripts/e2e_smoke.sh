@@ -83,6 +83,9 @@ fi
 # fires, the name sticks and Tori's browser shows "e2e-test-os" on the
 # next restart. Needle 315: use a trap so the restore always runs.
 _E2E_ORIGINAL_OS_NAME=""
+# →2492: Track original features dict so the journey feature-toggle test can
+# restore it even when interrupted. Set by the feature-toggle test block below.
+_E2E_ORIGINAL_FEATURES=""
 
 # Sweep all e2e test artifacts (tasks + labels) from the running backend.
 # Called at both script start (to clear leftovers from prior failed runs)
@@ -507,7 +510,13 @@ _e2e_cleanup() {
     if [ -n "$_E2E_ORIGINAL_OS_NAME" ]; then
         curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
             -H 'content-type: application/json' \
-            -d "{\"os_name\":\"$_E2E_ORIGINAL_OS_NAME\"}" > /dev/null 2>&1 || true
+            -d "{"os_name":"$_E2E_ORIGINAL_OS_NAME"}" > /dev/null 2>&1 || true
+    fi
+    # →2492: Restore features if the journey feature-toggle test left them dirty.
+    if [ -n "$_E2E_ORIGINAL_FEATURES" ]; then
+        curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
+            -H 'content-type: application/json' \
+            -d "{\"features\":$_E2E_ORIGINAL_FEATURES}" > /dev/null 2>&1 || true
     fi
 }
 trap _e2e_cleanup EXIT ERR INT TERM HUP
@@ -1149,12 +1158,19 @@ print(m.group(1) if m else '')
         fi
 
         # --- Journey: Settings feature toggle round trip ---
-        _orig_features=$(curl -sS $CURL_OPTS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "
+        # Capture original features into the trap variable so _e2e_cleanup
+        # can restore even if interrupted (→2492 pollution guard).
+        _E2E_ORIGINAL_FEATURES=$(curl -sS $CURL_OPTS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "
 import sys,json
 s=json.load(sys.stdin)
 f=s.get('features',{})
 print(json.dumps(f))
 " 2>/dev/null)
+        # Pollution guard: if already showing the test value, default to safe dict.
+        _specs_before=$(echo "$_E2E_ORIGINAL_FEATURES" | python3 -c "import sys,json; print(json.load(sys.stdin).get('Specs', True))" 2>/dev/null)
+        if [ "$_specs_before" = "False" ] || [ -z "$_E2E_ORIGINAL_FEATURES" ]; then
+            _E2E_ORIGINAL_FEATURES='{"Specs":true}'
+        fi
         curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
             -H 'content-type: application/json' \
             -d '{"features":{"Specs":false}}' > /dev/null 2>&1
@@ -1165,13 +1181,19 @@ print(s.get('features',{}).get('Specs', True))
 " 2>/dev/null)
         if [ "$toggle_check" = "False" ]; then
             phase_pass "journey: feature toggle persists (Specs disabled)"
+            # Restore immediately. Keep _E2E_ORIGINAL_FEATURES set until confirmed
+            # so the EXIT trap retries if this curl fails.
+            _restore_feat_http=$(curl -sS $CURL_OPTS -o /dev/null -w "%{http_code}" \
+                -X PATCH "${API_BASE}/api/settings" \
+                -H 'content-type: application/json' \
+                -d "{\"features\":$_E2E_ORIGINAL_FEATURES}" 2>/dev/null || echo "000")
+            if [ "$_restore_feat_http" = "200" ]; then
+                _E2E_ORIGINAL_FEATURES=""
+            fi
         else
             phase_fail "journey: feature toggle did not persist"
+            _E2E_ORIGINAL_FEATURES=""
         fi
-        # Restore
-        curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
-            -H 'content-type: application/json' \
-            -d '{"features":{"Specs":true}}' > /dev/null 2>&1
 
         # --- Journey: Cost tracking data loads ---
         check_http_json "journey: cost tracking returns data"       "/api/costs?period=all"      ""
