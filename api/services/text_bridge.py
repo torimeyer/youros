@@ -240,6 +240,8 @@ class TextBridge:
             logger.debug("TextBridge: ignoring untrusted sender from %s: %s", service, effective_sender)
             return
 
+        chat_id = msg.get("chat_id")
+
         logger.info("TextBridge: processing %s message from %s: %s", service, sender, text[:50])
         
         # Mirror user message to chat history
@@ -260,7 +262,6 @@ class TextBridge:
             pass
 
         # Send reply back via the originating service
-        chat_id = msg.get("chat_id")
         if not chat_id:
             return
 

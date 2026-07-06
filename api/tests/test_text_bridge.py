@@ -111,7 +111,7 @@ async def test_handle_inbound_telegram_message():
         text_bridge._telegram_poller = AsyncMock()
         await text_bridge.handle_inbound_message(msg)
         
-        mock_classify.assert_called_once_with("hello", "tori_user")
+        mock_classify.assert_called_once_with("hello", "tori_user", chat_id="12345")
         assert mock_append.call_count == 2
         text_bridge._telegram_poller.send_message.assert_called_once_with("12345", "Hi Tori!")
 
