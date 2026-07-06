@@ -268,8 +268,8 @@ class TextBridge:
 
         if service == "iMessage":
             try:
-                from services.imessage import reply_to_chat
-                await asyncio.to_thread(reply_to_chat, chat_id, reply_text)
+                from services.imessage import reply_to_chat_sync
+                await asyncio.to_thread(reply_to_chat_sync, chat_id, reply_text)
             except Exception as exc:
                 logger.error("TextBridge: could not send iMessage reply: %s", exc)
             # Loop guard: record this reply so the self-chat poller skips it.
