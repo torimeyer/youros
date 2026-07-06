@@ -104,6 +104,15 @@ fi
 # If perl is unavailable (extremely unlikely), fall back to plain background.
 # In the fallback case we still track the PID for best-effort cleanup,
 # but process group isolation is not guaranteed.
+# WHY >> not >(tee): using >(tee -a LOG) creates an inner tee coprocess whose
+# stdout is the outer pipe (when the caller uses | tee or | cat).  Vitest
+# worker processes that call setsid() to escape the process group inherit the
+# write end of the inner tee's pipe; they keep it open indefinitely after
+# vitest exits, so the inner tee never reads EOF, never exits, and the outer
+# pipeline hangs for minutes-to-hours (→2471).  Redirecting directly to the
+# log file avoids the anonymous pipe entirely: escaped workers only hold a
+# regular-file fd, which is harmless.  The captured output is streamed to
+# stdout below, after wait returns.
 if command -v perl >/dev/null 2>&1; then
   perl -MPOSIX=setsid -e 'setsid(); exec @ARGV' -- \
     bash -c 'cd "$1" && shift && exec npx vitest run \
@@ -111,20 +120,24 @@ if command -v perl >/dev/null 2>&1; then
       --hookTimeout '"${HOOK_TIMEOUT_MS}"' \
       "$@"' \
     -- "${APP_DIR}" "$@" \
-    > >(tee -a "${LOG_FILE}") 2>&1 &
+    >> "${LOG_FILE}" 2>&1 &
 else
   ( cd "${APP_DIR}" && exec npx vitest run \
       --testTimeout "${TEST_TIMEOUT_MS}" \
       --hookTimeout "${HOOK_TIMEOUT_MS}" \
       "$@" ) \
-    > >(tee -a "${LOG_FILE}") 2>&1 &
+    >> "${LOG_FILE}" 2>&1 &
 fi
 VITEST_PID=$!
 VITEST_PGID="${VITEST_PID}"
 
 # Watchdog: independent background process that kills vitest if the wall-clock
 # limit is hit. Uses the captured PGID so it kills the whole process group.
+# exec 1>/dev/null: this subshell must not hold the caller's stdout open — if
+# run through a pipe the subshell would keep the write end alive until cleanup
+# kills it, adding unnecessary latency to pipeline teardown.
 (
+  exec 1>/dev/null 2>/dev/null
   PGID="${VITEST_PGID}"
   MARKER="${TIMEOUT_MARKER}"
   LOG="${LOG_FILE}"
@@ -143,7 +156,10 @@ WATCHDOG_PID=$!
 # sending us a signal (e.g. the parent shell was SIGKILLed). When our ppid
 # becomes 1 (reparented to launchd), cleanup has not run — we do it here.
 # Guards against triggering if cleanup() already removed the lock dir.
+# exec 1>/dev/null: same rationale as the watchdog above — must not hold the
+# caller's stdout open.
 (
+  exec 1>/dev/null 2>/dev/null
   PGID="${VITEST_PGID}"
   LOCK="${LOCK_DIR}"
   while true; do
@@ -174,9 +190,16 @@ wait "${WATCHDOG_PID}" 2>/dev/null || true
 # (mirrors GNU timeout convention so callers can distinguish hang vs failure).
 if [ -f "${TIMEOUT_MARKER}" ]; then
   printf '\n=== VITEST KILLED BY WALL-CLOCK WATCHDOG AFTER %ss ===\n' "${WALL_SECS}" \
-    | tee -a "${LOG_FILE}"
+    >> "${LOG_FILE}"
   STATUS=124
 fi
+
+# Stream the captured log to stdout now that vitest has finished.
+# We redirect vitest directly to LOG_FILE (not via a process substitution tee)
+# to prevent escaped worker processes from holding an anonymous pipe open and
+# blocking callers that pipe our output (e.g. | tee or | cat).  The trade-off
+# is that output appears here in one batch rather than streamed in real-time.
+cat "${LOG_FILE}"
 
 printf '=== EXIT %s ===\n' "${STATUS}" | tee -a "${LOG_FILE}"
 exit "${STATUS}"
