@@ -468,11 +468,17 @@ def test_compute_shipped_open_needle(tmp_path):
     assert "5678" in result.open_needles
 
 
-def test_compute_shipped_no_refs_is_shipped(tmp_path):
+def test_compute_shipped_no_refs_is_not_shipped(tmp_path):
+    """A spec with no needle refs and no file refs is NOT shipped.
+
+    File existence alone is not proof that a fix was applied (→2487).
+    Without at least one needle ref that is closed, we have no reliable
+    evidence that any work was done.
+    """
     f = tmp_path / "spec.md"
     f.write_text(SPEC_NO_REFS)
     result = compute_shipped(f, repo_root=tmp_path, needle_statuses={})
-    assert result.is_shipped is True
+    assert result.is_shipped is False
 
 
 # ---------------------------------------------------------------------------
@@ -658,6 +664,121 @@ References: →9001
     husk = HuskResult(is_husk=False, reason="")
     stage = compute_stage({"status": "spec"}, husk=husk, shipped=result)
     assert stage == "ready"
+
+
+# ---------------------------------------------------------------------------
+# →2487: fix-existing-code specs wrongly treated as shipped
+# ---------------------------------------------------------------------------
+
+FIX_EXISTING_CODE_SPEC = """\
+---
+title: Fix the parsing bug
+status: spec
+---
+
+## Problem
+The parser in api/services/spec_audit.py crashes on malformed frontmatter.
+
+## Acceptance criteria
+- [ ] FR-001: malformed frontmatter is handled gracefully
+- [ ] FR-002: error is logged
+
+## Files touched
+- api/services/spec_audit.py
+"""
+
+FIX_EXISTING_WITH_NEEDLE_SPEC = """\
+---
+title: Fix the parsing bug
+status: spec
+---
+
+## Problem
+The parser in api/services/spec_audit.py crashes on malformed frontmatter.
+
+→2487 tracks this fix.
+
+## Files touched
+- api/services/spec_audit.py
+"""
+
+
+def test_fix_existing_code_spec_not_shipped_without_needles(tmp_path):
+    """A spec that references only pre-existing files and has no needle refs
+    must NOT be treated as shipped (→2487).
+
+    Before the fix, missing=[] (files exist) and open_needles=[] (none present)
+    made is_shipped=True, causing these specs to be silently auto-archived even
+    though no work had been done or verified.
+    """
+    # The referenced file EXISTS already (it's pre-existing code being fixed)
+    existing = tmp_path / "api" / "services" / "spec_audit.py"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_text("# pre-existing file")
+
+    spec_file = tmp_path / "fix-bug.md"
+    spec_file.write_text(FIX_EXISTING_CODE_SPEC)
+
+    result = compute_shipped(spec_file, repo_root=tmp_path, needle_statuses={})
+    assert result.is_shipped is False, (
+        "A fix-existing-code spec with no needle refs must not be shipped: "
+        "the referenced files pre-exist the spec so their presence proves nothing."
+    )
+    assert result.missing_files == []
+    assert result.open_needles == []
+
+
+def test_fix_existing_code_spec_shipped_when_needle_closed(tmp_path):
+    """A fix-existing-code spec IS shipped when its needle refs are all closed.
+
+    Needle (task) completion is the authoritative 'work was done' signal (→2487).
+    """
+    existing = tmp_path / "api" / "services" / "spec_audit.py"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_text("# fixed file")
+
+    spec_file = tmp_path / "fix-bug.md"
+    spec_file.write_text(FIX_EXISTING_WITH_NEEDLE_SPEC)
+
+    result = compute_shipped(spec_file, repo_root=tmp_path, needle_statuses={"2487": "closed"})
+    assert result.is_shipped is True
+    assert result.open_needles == []
+
+
+def test_fix_existing_code_spec_not_shipped_when_needle_open(tmp_path):
+    """A fix-existing-code spec is NOT shipped when its needle ref is still open."""
+    existing = tmp_path / "api" / "services" / "spec_audit.py"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_text("# file awaiting fix")
+
+    spec_file = tmp_path / "fix-bug.md"
+    spec_file.write_text(FIX_EXISTING_WITH_NEEDLE_SPEC)
+
+    result = compute_shipped(spec_file, repo_root=tmp_path, needle_statuses={"2487": "open"})
+    assert result.is_shipped is False
+    assert "2487" in result.open_needles
+
+
+def test_spec_with_needle_only_no_file_refs_is_shipped_when_closed(tmp_path):
+    """A spec with needle refs but no file refs is shipped when all needles are closed.
+
+    This covers the common pattern of a spec whose only deliverable signal is
+    task completion — no new files created, just behaviour changed (→2487).
+    """
+    spec_text = """\
+---
+title: Patch a behaviour
+status: spec
+---
+
+→9999 implements the change.
+"""
+    spec_file = tmp_path / "behaviour-fix.md"
+    spec_file.write_text(spec_text)
+
+    result = compute_shipped(spec_file, repo_root=tmp_path, needle_statuses={"9999": "closed"})
+    assert result.is_shipped is True
+    assert result.open_needles == []
 
 
 # ---------------------------------------------------------------------------
