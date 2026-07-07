@@ -1671,8 +1671,12 @@ def _is_scaffold_only_with_dirty_worktree(
         if r_count.returncode != 0:
             return False, ""
         total_commits = int(r_count.stdout.strip() or "0")
-        if total_commits == 0:
-            return False, ""  # no commits at all — not a scaffold pattern
+        # NOTE: do NOT early-return for total_commits==0 here.
+        # A worktree with 0 commits ahead of main but dirty files is premature
+        # (the agent wrote files and exited without committing). This was the
+        # →2503 incident: three agents completed with 0 commits + dirty files;
+        # the guard's early-return masked the bug. The 0-commit + dirty case is
+        # caught after the dirty-files check below.
 
         # 3. Count non-scaffold commits (subject must start "chore(" and contain ": scaffold")
         r_log = _sp.run(
@@ -1701,9 +1705,19 @@ def _is_scaffold_only_with_dirty_worktree(
         if not dirty_lines:
             return False, ""  # clean worktree — scaffolded and stopped intentionally
 
-        # Both conditions met: scaffold-only history + dirty working tree
-        last_scaffold = subjects[0] if subjects else "(unknown)"
         dirty_summary = ", ".join(l.strip() for l in dirty_lines[:3])
+
+        # →2503: 0-commits + dirty is premature too. total_commits==0 means the
+        # agent never committed ANY work; dirty files are uncommitted changes that
+        # will be lost when the worktree is cleaned up. This is more premature than
+        # the scaffold-only pattern (which at least has a chore commit as a marker).
+        if total_commits == 0:
+            reason = (
+                f"no-commit-ahead-of-main + {len(dirty_lines)} dirty file(s): {dirty_summary}"
+            )
+            return True, reason
+
+        # Both scaffold-only conditions met: scaffold-only history + dirty working tree
         reason = (
             f"scaffold-only-commits ({total_commits} scaffold, 0 real) "
             f"+ {len(dirty_lines)} dirty file(s): {dirty_summary}"
@@ -6032,7 +6046,15 @@ async def _legacy_bespoke_spawn(body: AgentSpawn, request: Request, response: Re
                 f"repo and commits land on main instead of your branch.\n"
                 f"REQUIRED — every mcp__ostk__fs_ops call MUST use absolute "
                 f"paths starting with {_worktree_path}/ (paths in this prompt "
-                f"are already remapped)."
+                f"are already remapped).\n"
+                f"[WORKTREE COMMIT →2503] Your work only counts once it is "
+                f"committed on your worktree branch. REQUIRED — run "
+                f'git add -A && git commit (with cwd="{_worktree_path}") '
+                f"BEFORE starting long verify steps (pytest, tsc, vitest), "
+                f"then add follow-up commits as needed. A failed quality gate "
+                f"still leaves a recoverable commit. NEVER end your session or "
+                f"POST /complete while the worktree has uncommitted changes — "
+                f"an exit with a dirty worktree is a failed run."
             )
             prompt_with_memory = (
                 _wt_cwd_header + "\n\n---\n\n" + (prompt_with_memory or "")

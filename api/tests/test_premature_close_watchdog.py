@@ -131,12 +131,30 @@ class TestIsScaffoldOnlyWithDirtyWorktree:
             f"Branch with real fix commit must NOT trigger premature-close: {reason!r}"
         )
 
-    def test_no_commits_at_all_is_safe(self, tmp_path):
-        """No commits ahead of main at all → not a scaffold-only pattern."""
+    def test_no_commits_and_clean_worktree_is_safe(self, tmp_path):
+        """0 commits + clean worktree → safe (agent did read-only investigation)."""
+        from routers.agents import _is_scaffold_only_with_dirty_worktree
+        wt = _make_fake_worktree(tmp_path, with_scaffold_commit=False, with_dirty_file=False)
+        detected, reason = _is_scaffold_only_with_dirty_worktree(str(wt), "main")
+        assert not detected, f"Zero commits + clean worktree should NOT trigger: {reason!r}"
+
+    def test_zero_commits_with_dirty_is_premature(self, tmp_path):
+        """0 commits ahead of main + dirty files → PREMATURE (regression for →2503).
+
+        Incident: implement-2491/2501/2460 completed at 14:53 CEST with dirty worktrees;
+        orchestrator had to commit their work at 14:54 (94s after completion).
+        Root cause: _is_scaffold_only_with_dirty_worktree returned (False, '') for
+        total_commits==0, treating 'no commits at all' as safe even with dirty files.
+        """
         from routers.agents import _is_scaffold_only_with_dirty_worktree
         wt = _make_fake_worktree(tmp_path, with_scaffold_commit=False, with_dirty_file=True)
         detected, reason = _is_scaffold_only_with_dirty_worktree(str(wt), "main")
-        assert not detected, f"Zero commits should NOT trigger: {reason!r}"
+        assert detected, (
+            f"0 commits + dirty files must trigger premature-close block: {reason!r}"
+        )
+        assert "no-commit" in reason.lower() or "dirty" in reason.lower() or "0" in reason, (
+            f"Reason should describe the 0-commit + dirty state: {reason!r}"
+        )
 
     def test_staged_file_also_detected(self, tmp_path):
         """Staged (but not yet committed) changes also count as dirty."""
@@ -256,7 +274,10 @@ async def test_mark_agent_complete_writes_scaffold_warning_jsonl(tmp_path):
             patch("routers.agents._save_agent_state_async", new_callable=AsyncMock),
             patch("routers.agents._close_orphan_plan_transcript"),
             patch("routers.agents.chat_ack_bot"),
-            patch.dict(os.environ, {"HOME": str(tmp_path)}),
+            # youros_home() honors YOUROS_HOME before HOME, and conftest.py
+            # sets a session-wide YOUROS_HOME — patching HOME alone sends the
+            # warning row to the session dir instead of tmp_path (→2503).
+            patch.dict(os.environ, {"HOME": str(tmp_path), "YOUROS_HOME": str(tmp_path / ".youros")}),
         ):
             result = await mark_agent_complete(agent_name, AgentComplete(summary="done"))
 
@@ -326,3 +347,146 @@ async def test_mark_agent_complete_normal_flow_unaffected(tmp_path):
 
     finally:
         agent_metadata.pop(agent_name, None)
+
+
+# ---------------------------------------------------------------------------
+# →2503: worktree spawn prompts must require a commit before the agent
+# finishes.
+#
+# Incident (2026-07-07): implement-2491 / implement-2501 / implement-2460 were
+# spawned through the chat/text spawn_agent path (POST /api/agents/spawn,
+# source=api, no template). Their assembled prompts contained the →1240
+# WORKTREE CWD header, the mailbox block, and quality-gate wording, but NO
+# instruction to commit. Each agent ran its quality gate, wrote a summary,
+# and exited with a dirty worktree; the PID-exit reconciliation then
+# correctly flipped the row to completed ("PID exited (list endpoint
+# reconciled on read)"). Hook-path spawns (isolation_bridge.sh) already
+# inject a COMPLETION REQUIREMENT commit clause, which is why earlier
+# agents from that path did commit.
+#
+# Fix under test: spawn_agent (routers/agents.py) appends a
+# "WORKTREE COMMIT →2503" clause to the →1240 worktree header so EVERY
+# worktree-isolated spawn, regardless of source, is told to commit on its
+# branch before running long verify steps or ending its session.
+# ---------------------------------------------------------------------------
+
+import shutil
+
+
+@pytest.mark.asyncio
+async def test_spawn_worktree_prompt_requires_commit_before_finish(tmp_path, monkeypatch):
+    """isolation=worktree spawn prompts must contain the →2503 commit clause."""
+    from tests.test_1240_cwd_leak_all_write_paths import _install_spawn_doubles
+    from services.spawn_isolation import _reset_spawn_lock_registry_for_tests
+    _reset_spawn_lock_registry_for_tests()
+
+    import config as config_module
+    from main import app
+    from routers.agents import active_agents, agent_metadata
+
+    monkeypatch.setattr(config_module, "PROJECT_ROOT", tmp_path)
+    (tmp_path / ".claude" / "worktrees").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
+
+    calls = _install_spawn_doubles(monkeypatch, fork_returncode=0, capture_prompt=True)
+
+    agent_name = "wt-commit-clause-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+    wt_path = tmp_path / ".claude" / "worktrees" / f"agent-{agent_name}"
+
+    try:
+        from httpx import ASGITransport, AsyncClient
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "implement the feature described in task 2503",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "isolation": "worktree",
+                    "locks": ["/tmp/wt-commit-clause-test.log"],
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        captured_bytes = b"".join(calls.get("_captured", []))
+        prompt_text = captured_bytes.decode(errors="replace")
+
+        assert "WORKTREE COMMIT" in prompt_text, (
+            "Commit clause (→2503) not found in spawned worktree agent prompt. "
+            "Agents finish their quality gate and exit with dirty worktrees; "
+            "the PID-exit reconciliation then marks them completed with zero "
+            "commits and the orchestrator has to commit for them."
+        )
+        assert "git add -A" in prompt_text and "git commit" in prompt_text, (
+            "Commit clause must spell out the exact commands (git add -A, git commit)."
+        )
+        assert "uncommitted" in prompt_text.lower(), (
+            "Commit clause must state that ending the session with uncommitted "
+            "changes is a failed run."
+        )
+        # Commit must be ordered BEFORE long verify steps so a failed gate
+        # still leaves recoverable work on the branch.
+        assert "BEFORE" in prompt_text and (
+            "pytest" in prompt_text or "verify" in prompt_text.lower()
+        ), (
+            "Commit clause must order the commit BEFORE long verify steps "
+            "(pytest/tsc), matching the isolation_bridge COMPLETION REQUIREMENT."
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+        _reset_spawn_lock_registry_for_tests()
+        shutil.rmtree(wt_path, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_isolation_none_prompt_has_no_commit_clause(tmp_path, monkeypatch):
+    """isolation=none spawns must NOT get the worktree commit clause."""
+    from tests.test_1240_cwd_leak_all_write_paths import _install_spawn_doubles
+    from services.spawn_isolation import _reset_spawn_lock_registry_for_tests
+    _reset_spawn_lock_registry_for_tests()
+
+    import config as config_module
+    from main import app
+    from routers.agents import active_agents, agent_metadata
+
+    monkeypatch.setattr(config_module, "PROJECT_ROOT", tmp_path)
+    (tmp_path / ".claude" / "worktrees").mkdir(parents=True, exist_ok=True)
+
+    calls = _install_spawn_doubles(monkeypatch, fork_returncode=0, capture_prompt=True)
+
+    agent_name = "no-wt-commit-clause-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        from httpx import ASGITransport, AsyncClient
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "read and summarize the docs",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "isolation": "none",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        captured_bytes = b"".join(calls.get("_captured", []))
+        prompt_text = captured_bytes.decode(errors="replace")
+
+        assert "WORKTREE COMMIT" not in prompt_text, (
+            "Commit clause should not appear in isolation=none agent prompts; "
+            "research agents have no worktree branch to commit to."
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+        _reset_spawn_lock_registry_for_tests()
