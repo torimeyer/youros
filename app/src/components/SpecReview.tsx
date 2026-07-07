@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../lib/api'
 import { formatDate } from '../lib/time'
+import { NeedsClarityChip } from './NeedsClarityChip'
 
 interface ReviewCheck {
   name: string
@@ -46,6 +47,7 @@ export function SpecReview({ specPath }: { specPath: string }) {
   const [prState, setPrState] = useState<PrState | null>(null)
   const [prLink, setPrLink] = useState('')
   const [savingPr, setSavingPr] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -66,7 +68,7 @@ export function SpecReview({ specPath }: { specPath: string }) {
       .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load review') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [specPath])
+  }, [specPath, refreshKey])
 
   // Parse owner/repo#number or full GitHub PR URL and fetch state.
   // Returns null on any parse or network failure.
@@ -237,6 +239,14 @@ export function SpecReview({ specPath }: { specPath: string }) {
             ? 'Ready to build'
             : `${failingRequired.length} required item${failingRequired.length === 1 ? '' : 's'} left`}
         </span>
+      </div>
+
+      <div data-testid="review-clarity">
+        <NeedsClarityChip
+          checks={checks}
+          specPath={specPath}
+          onResolved={() => setRefreshKey((k) => k + 1)}
+        />
       </div>
 
       <div data-testid="review-drift" className="space-y-2">
