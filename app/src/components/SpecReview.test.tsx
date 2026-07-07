@@ -188,6 +188,37 @@ describe('SpecReview', () => {
   })
 })
 
+// ─── E1: Clarity check line item ─────────────────────────────────────────────
+
+describe('SpecReview E1 clarity check', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('renders review-clarity section after loading (E1)', async () => {
+    mockedGet.mockResolvedValueOnce(readyResponse)
+    render(<SpecReview specPath="docs/spec/foo.md" />)
+    await waitFor(() => {
+      expect(screen.getByTestId('review-clarity')).toBeInTheDocument()
+    })
+  })
+
+  it('shows needs-clarity-chip when readiness checks fail (E1)', async () => {
+    mockedGet.mockResolvedValueOnce(notReadyResponse)
+    render(<SpecReview specPath="docs/spec/bar.md" />)
+    await waitFor(() => {
+      expect(screen.getByTestId('needs-clarity-chip')).toBeInTheDocument()
+    })
+  })
+
+  it('hides needs-clarity-chip when all checks pass (E1)', async () => {
+    mockedGet.mockResolvedValueOnce(readyResponse)
+    render(<SpecReview specPath="docs/spec/foo.md" />)
+    await waitFor(() => {
+      expect(screen.getByTestId('review-clarity')).toBeInTheDocument()
+      expect(screen.queryByTestId('needs-clarity-chip')).not.toBeInTheDocument()
+    })
+  })
+})
+
 // ─── Task 4: PR badge + link input ────────────────────────────────────────────
 
 const reviewBase = {
