@@ -77,8 +77,7 @@ if ! git diff-index --quiet HEAD -- 2>/dev/null; then
     echo -e "${YELLOW}You have unsaved code changes on this computer.${NC}"
     echo ""
     echo "The updater will tuck them into a safe pocket so the update can"
-    echo "run cleanly. You can bring them back any time with:"
-    echo "  git stash pop"
+    echo "run cleanly, then put them back automatically when the update is done."
     echo ""
     read -p "Is that OK? [y/N] " -n 1 -r
     echo ""
@@ -87,10 +86,12 @@ if ! git diff-index --quiet HEAD -- 2>/dev/null; then
         exit 0
     fi
     STASH_MSG="youros safe-update auto stash $(date +%Y-%m-%d_%H:%M:%S)"
-    git stash push -u -m "$STASH_MSG" >/dev/null
+    if ! git stash push -u -m "$STASH_MSG" 2>&1; then
+        echo -e "${RED}Could not tuck away your changes. Update cancelled.${NC}"
+        exit 1
+    fi
     STASHED=1
     echo -e "${GREEN}Your changes are safely tucked away.${NC}"
-    echo "To bring them back later, run: git stash pop"
     echo ""
 fi
 
@@ -103,7 +104,16 @@ if [ "$NEED_PULL" -eq 1 ]; then
         echo "Update cancelled. Your files are unchanged."
         if [ "$STASHED" -eq 1 ]; then
             echo "Restoring your tucked-away changes..."
-            git stash pop >/dev/null
+            if git stash pop 2>/dev/null; then
+                echo -e "${GREEN}Your changes have been restored.${NC}"
+            else
+                BACKUP="$HOME/youros-stash-backup-$(date +%Y-%m-%d_%H:%M:%S).patch"
+                git stash show -p > "$BACKUP" 2>/dev/null || true
+                git checkout HEAD -- . 2>/dev/null || true
+                git stash drop 2>/dev/null || true
+                echo -e "${YELLOW}Could not restore your changes cleanly. They were saved to:${NC}"
+                echo "  $BACKUP"
+            fi
         fi
         exit 0
     fi
@@ -281,13 +291,31 @@ fi
 
 echo -e "${GREEN}=== Update complete! ===${NC}"
 
-# --- Remind the user about the stash ---
+# --- Restore the stash, handling conflicts cleanly ---
 
 if [ "$STASHED" -eq 1 ]; then
     echo ""
-    echo -e "${YELLOW}Reminder: you had unsaved changes before the update.${NC}"
-    echo "They are safe. Bring them back with:"
-    echo "  git stash pop"
+    echo "Restoring your tucked-away changes..."
+    if git stash pop 2>/dev/null; then
+        echo -e "${GREEN}Your changes have been restored.${NC}"
+    else
+        # The pop conflicted (e.g. the update deleted files that were in the
+        # stash). Save the stash content first so the user can recover it,
+        # then clean up the conflict state so the repo is not left wedged.
+        BACKUP="$HOME/youros-stash-backup-$(date +%Y-%m-%d_%H:%M:%S).patch"
+        git stash show -p > "$BACKUP" 2>/dev/null || true
+        git checkout HEAD -- . 2>/dev/null || true
+        git stash drop 2>/dev/null || true
+
+        echo -e "${YELLOW}Your tucked-away changes could not be restored cleanly${NC}"
+        echo "because some of them overlap with files the update changed or removed."
+        echo ""
+        echo "The update is complete and the repo is back to a clean state."
+        echo ""
+        echo "Your original changes were saved to:"
+        echo "  $BACKUP"
+        echo "Inspect that file to recover any work you want to keep."
+    fi
 fi
 
 # --- Confirm the user's data is still there ---
