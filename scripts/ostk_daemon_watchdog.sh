@@ -36,6 +36,7 @@ PTY_CRITICAL="${OSTK_DAEMON_PTY_CRITICAL_THRESHOLD:-60}"
 LSOF="${LSOF_CMD:-lsof}"
 
 # Tick: record each run start so launchd scheduling can be verified
+mkdir -p "${YOUROS_HOME:-$HOME/.youros}/logs"
 echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] watchdog tick pid=$$" >> "${YOUROS_HOME:-$HOME/.youros}/logs/watchdog.log"
 
 while [[ $# -gt 0 ]]; do
@@ -78,9 +79,8 @@ pid_cwd() {
 }
 
 # All running ostk daemon PIDs.
-# pgrep on macOS uses BRE (not ERE) — '+' is literal. Use ps aux instead.
 find_daemon_pids() {
-  ps aux | awk '/\/daemon-[0-9]/ && !/awk/' | awk '{print $2}'
+  pgrep -f 'daemon-[0-9]' 2>/dev/null || true
 }
 
 # Inspect one PID. Returns 0 if a restart was triggered/would be triggered.
