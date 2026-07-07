@@ -61,7 +61,27 @@ def test_specs_dir_honors_override(monkeypatch, tmp_path):
 def test_drafts_dir_honors_override(monkeypatch, tmp_path):
     monkeypatch.setenv("YOUROS_HOME", str(tmp_path))
     monkeypatch.delenv("MYOS_USER_DRAFTS_DIR", raising=False)
+    monkeypatch.delenv("YOUROS_USER_DRAFTS_DIR", raising=False)
     assert yp.drafts_dir() == tmp_path / "drafts"
+    monkeypatch.setenv("MYOS_USER_DRAFTS_DIR", str(tmp_path / "legacy-drafts"))
+    assert yp.drafts_dir() == tmp_path / "legacy-drafts"
+
+
+def test_drafts_dir_honors_youros_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUROS_HOME", str(tmp_path))
+    monkeypatch.delenv("MYOS_USER_DRAFTS_DIR", raising=False)
+    monkeypatch.setenv("YOUROS_USER_DRAFTS_DIR", str(tmp_path / "youros-drafts"))
+    assert yp.drafts_dir() == tmp_path / "youros-drafts"
+
+
+def test_files_dir_resolves_under_home(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUROS_HOME", str(tmp_path))
+    assert yp.files_dir() == tmp_path / "files"
+
+
+def test_logs_dir_resolves_under_home(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUROS_HOME", str(tmp_path))
+    assert yp.logs_dir() == tmp_path / "logs"
 
 
 def test_migrated_service_redirects_under_youros_home(monkeypatch, tmp_path):

@@ -9178,15 +9178,17 @@ async def test_complete_skips_test_artifact_agent_names(tmp_path):
 # ---- Narrow opt-in gate for /complete -> .md ------------------------------
 #
 # Tori's rule: only fleets, workflows, Roadmap, and templates that opted
-# in via ``produces_doc`` drop a .md + auto-tasks on /complete. A plain
-# solo agent editing code should NOT. These tests lock that contract.
+# in via ``produces_doc`` drop a .md + auto-tasks on /complete.
+# →2485 changed this to opt-out: every non-infra solo agent now produces a doc.
+# The tests below lock the current contract.
 
 
 @pytest.mark.asyncio
 async def test_solo_agent_without_opt_in_does_not_produce_md(tmp_path):
-    """A plain solo agent (no fleet_id, no produces_doc, not Roadmap) must
-    NOT produce a .md artifact or any auto-created tasks on /complete,
-    even if its summary is long and contains next-step bullets.
+    """Under →2485 (opt-out model), a plain solo agent (no fleet_id, no
+    produces_doc, not Roadmap) DOES produce a .md on /complete. The contract
+    is that non-infra agents always land a doc; infra-noise names are the
+    only exemption. This test locks the current (opt-out) behaviour.
     """
     from routers import agents as agents_module
     from routers.agents import agent_metadata
@@ -9234,16 +9236,12 @@ async def test_solo_agent_without_opt_in_does_not_produce_md(tmp_path):
                     json={"summary": summary},
                 )
             assert resp.status_code == 200
-            # No artifact landed for a plain solo agent.
-            if files_dir.exists():
-                got = list(files_dir.glob("*.md"))
-                assert got == [], (
-                    f"Solo agent without produces_doc opt-in must not write "
-                    f"a .md, got {got}"
-                )
-            # And no auto-tasks were created.
-            assert mock_add.call_count == 0
-            assert mock_schedule.call_count == 0
+            # Under →2485 (opt-out), a non-infra solo agent DOES produce a .md.
+            assert files_dir.exists(), "files dir must be created on /complete"
+            got = list(files_dir.glob("*.md"))
+            assert len(got) == 1, (
+                f"solo non-infra agent must produce exactly one .md (→2485 opt-out), got {got}"
+            )
         finally:
             agent_metadata.pop(agent_name, None)
 
