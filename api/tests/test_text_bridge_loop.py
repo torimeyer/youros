@@ -118,6 +118,7 @@ async def test_circuit_breaker_suppresses_sixth_self_reply(caplog):
          patch("services.text_bridge.classify_and_dispatch", AsyncMock(return_value="reply")), \
          patch("services.text_bridge.append_chat_interaction"), \
          patch("services.text_bridge._save_state"), \
+         patch("services.text_bridge.settings_store"), \
          patch("asyncio.to_thread", side_effect=fake_to_thread):
 
         for i in range(6):
@@ -260,3 +261,180 @@ async def test_patch_config_enabled_starts_poller():
 
     assert resp.status_code == 200
     mock_bridge.start.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# →2505 — the loop came back. Root causes found in production on 2026-07-07:
+#
+# 1. TextBridge.start() keyed every guard to trusted_contacts[0] (an email),
+#    but chat.db files the self-chat under the phone number. The guard,
+#    mark_sent, and the circuit breaker never ran at all.
+# 2. _escape_applescript_text sends "\n" as AppleScript `return`, which is a
+#    carriage return; chat.db stores "\r" where the bridge passed "\n", so the
+#    exact-string _is_bridge_reply match missed every multi-line reply.
+# 3. The circuit breaker used a sliding 60s window and never latched, so a
+#    12s-poll loop could run at ~5 replies/min forever, just under the limit.
+# ---------------------------------------------------------------------------
+
+def test_guard_matches_any_trusted_contact_identifier():
+    """The self-chat may be keyed to ANY trusted contact, not just the first."""
+    from services.channel_intent_parser import InboundPoller
+
+    poller = InboundPoller(
+        handler=AsyncMock(),
+        self_handles=["someone@example.com", "+13015551234"],
+    )
+    poller._cursor = 1000.0
+
+    poller.mark_sent("Task created: Change dentist appointments")
+
+    echo = {
+        "id": 30,
+        "text": "Task created: Change dentist appointments",
+        "date": 2000.0,
+        "is_from_me": False,
+        "sender": "+13015551234",
+        "chat_identifier": "+13015551234",
+        "chat_id": 42,
+    }
+    assert not poller._should_dispatch(echo), (
+        "Echo in a self-chat keyed to the phone number must be guarded even "
+        "when the email is listed first in trusted_contacts"
+    )
+
+
+def test_guard_survives_carriage_return_mutation():
+    """chat.db stores \\r where the bridge sent \\n (AppleScript `return`)."""
+    from services.channel_intent_parser import InboundPoller
+
+    poller = InboundPoller(handler=AsyncMock(), self_handle="+15551111")
+    poller._cursor = 1000.0
+
+    poller.mark_sent("Hey!\n\nHere are your tasks:\n- one")
+
+    echo = {
+        "id": 31,
+        "text": "Hey!\r\rHere are your tasks:\r- one",
+        "date": 2000.0,
+        "is_from_me": False,
+        "sender": "+15551111",
+        "chat_identifier": "+15551111",
+        "chat_id": 42,
+    }
+    assert not poller._should_dispatch(echo), (
+        "Line-ending mutation between send and echo must not defeat the guard"
+    )
+
+
+def test_empty_text_sent_copy_not_dispatched():
+    """is_from_me=True sent copies carry an empty text column; never dispatch."""
+    from services.channel_intent_parser import InboundPoller
+
+    poller = InboundPoller(handler=AsyncMock(), self_handles=["+15551111"])
+    poller._cursor = 1000.0
+
+    msg = {
+        "id": 32,
+        "text": "",
+        "date": 2000.0,
+        "is_from_me": True,
+        "sender": "me",
+        "chat_identifier": "+15551111",
+        "chat_id": 42,
+    }
+    assert not poller._should_dispatch(msg)
+
+
+def test_text_bridge_start_passes_all_trusted_contacts():
+    """start() must key the poller to every trusted contact, not trusted[0]."""
+    from services.text_bridge import TextBridge
+
+    def fake_get(key, default=None):
+        if key == "text_bridge":
+            return {
+                "enabled": True,
+                "trusted_contacts": ["someone@example.com", "+13015551234"],
+            }
+        return default
+
+    bridge = TextBridge()
+
+    with patch("services.text_bridge.settings_store") as mock_settings, \
+         patch("services.channel_intent_parser.InboundPoller") as mock_poller_cls:
+        mock_settings.get.side_effect = fake_get
+        bridge.start()
+
+    _, kwargs = mock_poller_cls.call_args
+    handles = set(kwargs.get("self_handles") or [])
+    assert handles == {"someone@example.com", "+13015551234"}, (
+        f"start() must pass every trusted contact as a self handle, got {handles}"
+    )
+
+
+def test_text_bridge_start_is_idempotent():
+    """A second start() must stop the previous poller, never stack two."""
+    from services.text_bridge import TextBridge
+
+    def fake_get(key, default=None):
+        if key == "text_bridge":
+            return {"enabled": True, "trusted_contacts": ["+15551111"]}
+        return default
+
+    bridge = TextBridge()
+    old_poller = MagicMock()
+    bridge._imessage_poller = old_poller
+
+    with patch("services.text_bridge.settings_store") as mock_settings, \
+         patch("services.channel_intent_parser.InboundPoller") as mock_poller_cls:
+        mock_settings.get.side_effect = fake_get
+        bridge.start()
+
+    old_poller.stop.assert_called_once()
+    assert bridge._imessage_poller is mock_poller_cls.return_value
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_latches_and_disables(caplog):
+    """Tripping the breaker must latch: persist enabled=false, stop the poller,
+    and refuse every later send, so a slow loop cannot ride the sliding window."""
+    from services.text_bridge import TextBridge
+
+    bridge = TextBridge()
+    mock_poller = MagicMock()
+    mock_poller.is_self_chat.return_value = True
+    bridge._imessage_poller = mock_poller
+
+    send_calls: list = []
+
+    async def fake_to_thread(fn, *args, **kwargs):
+        send_calls.append(args)
+
+    with caplog.at_level(logging.WARNING, logger="services.text_bridge"), \
+         patch("services.text_bridge.is_trusted_sender", return_value=True), \
+         patch("services.text_bridge.classify_and_dispatch", AsyncMock(return_value="reply")), \
+         patch("services.text_bridge.append_chat_interaction"), \
+         patch("services.text_bridge._save_state"), \
+         patch("services.text_bridge.settings_store") as mock_settings, \
+         patch("asyncio.to_thread", side_effect=fake_to_thread):
+        mock_settings.get.return_value = {"enabled": True, "trusted_contacts": ["+15551111"]}
+
+        for i in range(10):
+            await bridge.handle_inbound_message({
+                "service": "iMessage",
+                "chat_id": 99,
+                "sender": "+15551111",
+                "text": "test",
+                "date": float(1000 + i),
+                "is_from_me": False,
+                "chat_identifier": "+15551111",
+            })
+
+    assert len(send_calls) == 5, (
+        f"Latched breaker must allow exactly 5 sends ever, got {len(send_calls)}"
+    )
+    assert bridge._breaker_latched, "Breaker must latch after tripping"
+    assert mock_settings.update.called, (
+        "Tripping the breaker must persist enabled=false so a restart stays off"
+    )
+    updated = mock_settings.update.call_args[0][0]
+    assert updated["text_bridge"]["enabled"] is False

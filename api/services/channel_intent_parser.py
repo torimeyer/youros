@@ -61,18 +61,42 @@ class InboundPoller:
 
     POLL_INTERVAL_S = 12
 
-    def __init__(self, handler, *, self_handle: str = "") -> None:
+    def __init__(self, handler, *, self_handle: str = "", self_handles=None) -> None:
         self._handler = handler
         self._cursor = None  # None = not yet baselined
         self._task: "asyncio.Task | None" = None
-        self._self_handle = self_handle
+        handles = {h for h in (self_handles or []) if h}
+        if self_handle:
+            handles.add(self_handle)
+        self._self_handles = handles
+        # Legacy single-handle attribute, kept for older callers and logging.
+        self._self_handle = self_handle or (sorted(handles)[0] if handles else "")
         self._sent_bodies: dict[str, float] = {}
+
+    def is_self_chat(self, chat_identifier) -> bool:
+        """True if this conversation is the user's own note-to-self chat.
+
+        Matches against EVERY trusted contact: chat.db keys the self-chat by
+        whichever identifier (phone or email) the conversation was started
+        with, and →2505 was caused by assuming it is always the first one.
+        """
+        return bool(chat_identifier) and chat_identifier in self._self_handles
+
+    @staticmethod
+    def _normalize_reply_text(text: str) -> str:
+        """Normalize line endings and edge whitespace before matching.
+
+        AppleScript's `return` constant sends a carriage return, so chat.db
+        stores "\r" where the bridge passed "\n"; matching must not depend on
+        which line ending survived the round trip (→2505).
+        """
+        return text.replace("\r\n", "\n").replace("\r", "\n").strip()
 
     def mark_sent(self, text: str, ttl_seconds: float = 120.0) -> None:
         """Record a reply the bridge sent so the poller can skip it (loop guard)."""
         if text:
             now = time.time()
-            self._sent_bodies[text] = now + ttl_seconds
+            self._sent_bodies[self._normalize_reply_text(text)] = now + ttl_seconds
             self._sent_bodies = {k: v for k, v in self._sent_bodies.items() if v > now}
 
     def _is_bridge_reply(self, msg: dict) -> bool:
@@ -80,6 +104,7 @@ class InboundPoller:
         text = msg.get("text", "")
         if not text:
             return False
+        text = self._normalize_reply_text(text)
         expire = self._sent_bodies.get(text)
         if expire is None:
             return False
@@ -92,16 +117,19 @@ class InboundPoller:
         """Return True if this message should be dispatched to the handler."""
         if (msg.get("date") or 0) <= (self._cursor or 0):
             return False
-        if msg.get("is_from_me"):
-            if not self._self_handle or msg.get("chat_identifier") != self._self_handle:
-                return False
+        # Sent copies in the self-chat carry an empty text column (the content
+        # lives in attributedBody); an empty command must never dispatch.
+        if not (msg.get("text") or "").strip():
+            return False
+        in_self_chat = self.is_self_chat(msg.get("chat_identifier"))
+        if msg.get("is_from_me") and not in_self_chat:
+            return False
         # In iMessage self-chat every sent message creates both an is_from_me=True row
         # (sent copy) and an is_from_me=False row (received echo). Apply the bridge-reply
         # guard to ANY message from the self-chat conversation, not just is_from_me=True,
         # so the received echo of a bridge reply is blocked before it re-triggers dispatch.
-        if self._self_handle and msg.get("chat_identifier") == self._self_handle:
-            if self._is_bridge_reply(msg):
-                return False
+        if in_self_chat and self._is_bridge_reply(msg):
+            return False
         return True
 
     def stop(self) -> None:

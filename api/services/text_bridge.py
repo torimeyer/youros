@@ -190,6 +190,7 @@ class TextBridge:
         self._telegram_poller: Optional[Any] = None
         self._state = _load_state()
         self._self_reply_times: list[float] = []
+        self._breaker_latched = False
 
     def start(self) -> None:
         config = settings_store.get("text_bridge", {})
@@ -199,18 +200,26 @@ class TextBridge:
             logger.debug("TextBridge: disabled in settings")
             return
 
-        # Determine the user's self-handle so the poller can accept note-to-self texts.
+        # Idempotent: never stack a second poller on top of a live one. Two
+        # pollers keep independent sent-reply guards and would reply to each
+        # other's messages.
+        if self._imessage_poller is not None or self._telegram_poller is not None:
+            self.stop()
+        self._breaker_latched = False
+
+        # The self-chat can be keyed to ANY trusted identifier (phone or
+        # email), so the poller gets the whole list (→2505 — keying to
+        # trusted[0] left every loop guard attached to the wrong conversation).
         trusted = config.get("trusted_contacts", [])
-        self_handle = trusted[0] if trusted else ""
 
         # Start iMessage Poller
         from services.channel_intent_parser import InboundPoller
-        self._imessage_poller = InboundPoller(self.handle_inbound_message, self_handle=self_handle)
+        self._imessage_poller = InboundPoller(self.handle_inbound_message, self_handles=trusted)
         if self._state.get("cursor"):
             self._imessage_poller._cursor = self._state["cursor"]
         self._imessage_poller.start()
-        logger.info("TextBridge: iMessage poller started at cursor %s (self_handle=%s)",
-                    self._imessage_poller._cursor, self_handle or "none")
+        logger.info("TextBridge: iMessage poller started at cursor %s (self_handles=%s)",
+                    self._imessage_poller._cursor, trusted or "none")
 
         # Start Telegram Poller if configured
         telegram_config = settings_store.get("telegram", {})
@@ -231,22 +240,15 @@ class TextBridge:
         sender = msg.get("sender", "")
         text = msg.get("text", "")
 
-        # is_self_text: the DB sends sender="me" for is_from_me rows in the self-chat.
-        # Use the configured self_handle as effective_sender so the trust check passes.
-        is_self_text = (
-            msg.get("is_from_me")
-            and self._imessage_poller is not None
-            and bool(self._imessage_poller._self_handle)
-            and msg.get("chat_identifier") == self._imessage_poller._self_handle
-        )
-        # is_self_chat: any message in the self-conversation — includes the is_from_me=False
+        # in_self_chat: any message in the self-conversation — includes the is_from_me=False
         # received echo that iMessage creates alongside every is_from_me=True sent row.
-        is_self_chat = (
-            self._imessage_poller is not None
-            and bool(self._imessage_poller._self_handle)
-            and msg.get("chat_identifier") == self._imessage_poller._self_handle
-        )
-        effective_sender = self._imessage_poller._self_handle if is_self_text else sender
+        # Matched against every trusted contact, not just the first (→2505).
+        poller = self._imessage_poller
+        in_self_chat = poller is not None and poller.is_self_chat(msg.get("chat_identifier"))
+        # is_self_text: the DB sends sender="me" for is_from_me rows in the self-chat.
+        # Use the chat identifier (a trusted contact) so the trust check passes.
+        is_self_text = bool(msg.get("is_from_me")) and in_self_chat
+        effective_sender = msg.get("chat_identifier") if is_self_text else sender
 
         if not is_trusted_sender(effective_sender, service):
             logger.debug("TextBridge: ignoring untrusted sender from %s: %s", service, effective_sender)
@@ -274,27 +276,38 @@ class TextBridge:
             return
 
         if service == "iMessage":
+            # Latched breaker: the bridge disabled itself after a runaway; never
+            # send again until it is explicitly re-enabled (start() resets this).
+            if self._breaker_latched:
+                logger.warning("TextBridge: breaker latched — dropping reply")
+                return
             # Circuit breaker: more than SELF_REPLY_MAX replies to the self-chat within
-            # SELF_REPLY_WINDOW_S seconds means the loop guard missed something. Drop the
-            # reply and log once so future guard failures degrade to silence, not a loop.
-            if is_self_chat:
+            # SELF_REPLY_WINDOW_S seconds means the loop guard missed something. A sliding
+            # window alone lets a poll-cadence loop run at ~5/min forever, so tripping
+            # LATCHES: persist enabled=false and stop the poller (→2505).
+            if in_self_chat:
                 now = time.time()
                 self._self_reply_times = [
                     t for t in self._self_reply_times if t > now - SELF_REPLY_WINDOW_S
                 ]
                 if len(self._self_reply_times) >= SELF_REPLY_MAX:
                     logger.warning(
-                        "TextBridge: circuit breaker open — %d self-chat replies in %ds, "
-                        "dropping reply to prevent loop",
+                        "TextBridge: circuit breaker tripped — %d self-chat replies in %ds; "
+                        "latching off and disabling the bridge",
                         len(self._self_reply_times),
                         SELF_REPLY_WINDOW_S,
                     )
+                    self._breaker_latched = True
+                    breaker_config = settings_store.get("text_bridge", {})
+                    breaker_config["enabled"] = False
+                    settings_store.update({"text_bridge": breaker_config})
+                    self.stop()
                     return
                 self._self_reply_times.append(now)
                 # Pre-register BEFORE sending so the guard is armed before the message
                 # lands in chat.db and covers both the is_from_me=True and the received echo.
-                if self._imessage_poller is not None:
-                    self._imessage_poller.mark_sent(reply_text)
+                if poller is not None:
+                    poller.mark_sent(reply_text)
 
             try:
                 from services.imessage import reply_to_chat_sync
