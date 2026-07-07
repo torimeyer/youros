@@ -2997,6 +2997,7 @@ class OstkService:
             "body": "",
             "task_ids": [],
             "acceptance_criteria": [],
+            "release_notes": [],
         }
 
         lines = text.split("\n")
@@ -3048,6 +3049,16 @@ class OstkService:
                             else:
                                 # Block format: subsequent lines are list items
                                 in_tasks_list = True
+                        elif key == "release_notes":
+                            # Inline JSON list: release_notes: ["bullet 1", "bullet 2"]
+                            if val.startswith("["):
+                                import ast
+                                try:
+                                    parsed = ast.literal_eval(val)
+                                    if isinstance(parsed, list):
+                                        doc["release_notes"] = [str(s) for s in parsed]
+                                except (ValueError, SyntaxError):
+                                    pass
                 # Body is everything after the front matter
                 doc["body"] = "\n".join(lines[end + 1:]).strip()
         else:
@@ -3143,6 +3154,42 @@ class OstkService:
                 break
         if not replaced:
             fm_lines.append(f"status: {status}")
+
+        new_lines = ["---"] + fm_lines + ["---"] + lines[end + 1:]
+        path.write_text("\n".join(new_lines))
+
+    def _write_release_notes_to_frontmatter(self, path: "Path", notes: list[str]) -> None:
+        """Persist a release_notes list into a spec's YAML frontmatter (inline JSON).
+
+        Rewrites the ``release_notes:`` line in place. If no such field exists,
+        appends one before the closing ``---``. No-ops when the file is missing
+        or has no frontmatter block.
+        """
+        if not path.exists():
+            return
+        text = path.read_text()
+        lines = text.split("\n")
+        if not lines or lines[0].strip() != "---":
+            return
+        end = None
+        for i, line in enumerate(lines[1:], 1):
+            if line.strip() == "---":
+                end = i
+                break
+        if end is None:
+            return
+
+        import json as _json
+        serialised = _json.dumps(notes, ensure_ascii=False)
+        fm_lines = lines[1:end]
+        replaced = False
+        for idx, line in enumerate(fm_lines):
+            if line.strip().startswith("release_notes:"):
+                fm_lines[idx] = f"release_notes: {serialised}"
+                replaced = True
+                break
+        if not replaced:
+            fm_lines.append(f"release_notes: {serialised}")
 
         new_lines = ["---"] + fm_lines + ["---"] + lines[end + 1:]
         path.write_text("\n".join(new_lines))

@@ -500,7 +500,11 @@ describe('ReleaseNotesWatcher', () => {
     expect(window.localStorage.getItem('myos-ephemeral-celebrated-spec-paths')).toBeNull()
   })
 
-  it('shows checked criteria with a green check icon and unchecked criteria with a hollow icon', async () => {
+  it('shows AC text as plain bullets when no release_notes present (→2519)', async () => {
+    // →2519: when the server sends no release_notes, the fallback filter runs.
+    // Clean ACs (no file paths / hashes / test names) appear as plain bullets
+    // with check icons. The checked/unchecked visual distinction is gone in
+    // favour of consistent plain-language rendering.
     vi.useFakeTimers({ shouldAdvanceTime: true })
     mockedApiGet.mockResolvedValueOnce(
       specsResponse([{ path: 'docs/spec/mixed.md', title: 'Mixed', status: 'in-progress' }])
@@ -511,8 +515,8 @@ describe('ReleaseNotesWatcher', () => {
         title: 'Mixed',
         status: 'complete',
         acceptance_criteria: [
-          { text: 'SC-001: The widget loads', checked: true },
-          { text: 'SC-002: Errors are handled', checked: false },
+          { text: 'The widget loads correctly', checked: true },
+          { text: 'Errors are handled gracefully', checked: false },
         ],
       }],
     })
@@ -522,10 +526,9 @@ describe('ReleaseNotesWatcher', () => {
     await waitFor(() =>
       expect(screen.getByTestId('release-notes-modal')).toBeInTheDocument()
     )
-    const checkedItem = screen.getByTestId('ac-item-checked')
-    expect(checkedItem).toBeInTheDocument()
-    const uncheckedItem = screen.getByTestId('ac-item-unchecked')
-    expect(uncheckedItem).toBeInTheDocument()
+    // Both clean ACs appear as plain bullets (filtered, no jargon)
+    expect(screen.getByText('The widget loads correctly')).toBeInTheDocument()
+    expect(screen.getByText('Errors are handled gracefully')).toBeInTheDocument()
   })
 
   // ─── →2519: plain-language release_notes rendering ──────────────────────
