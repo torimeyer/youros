@@ -2006,6 +2006,78 @@ async def claim_spec(spec_path: str, body: _ClaimBody):
     return {"task_ids": task_ids, "claim": claim}
 
 
+# ─── plain-language release notes generation (→2519) ─────────────────────────
+
+_JARGON_RE = re.compile(
+    r'\b\w+\.(py|tsx?|sh|md)\b'   # file extensions
+    r'|\b[0-9a-f]{7,40}\b'         # commit hashes
+    r'|\btest_\w+'                  # test function names
+    r'|\w+\.test\.\w+'              # test file names
+)
+
+
+def _fallback_release_notes(ac_texts: list[str]) -> list[str]:
+    """Deterministic plain-language bullets when LLM is unavailable.
+
+    Keeps ACs that contain no file paths, commit hashes, or test identifiers,
+    truncates each to its first sentence, and caps at five bullets.
+    """
+    bullets: list[str] = []
+    for text in ac_texts:
+        if _JARGON_RE.search(text):
+            continue
+        first = re.split(r"[.!?]", text, maxsplit=1)[0].strip()
+        if first:
+            bullets.append(first)
+        if len(bullets) >= 5:
+            break
+    return bullets or ["Your feature is built and ready to try."]
+
+
+def _make_anthropic_client():
+    """Return an Anthropic client. Raises if the SDK or key is unavailable."""
+    import anthropic as _anthropic
+    return _anthropic.Anthropic()
+
+
+def generate_release_notes(spec_title: str, ac_texts: list[str]) -> list[str]:
+    """Generate 3–5 plain-language bullets describing what the user can now do.
+
+    Calls Claude Haiku with a strict prompt. Falls back to deterministic
+    filtering if the API is unavailable. Generated once per spec at completion
+    time; callers must persist the result to avoid re-generating on every poll.
+    """
+    try:
+        client = _make_anthropic_client()
+        prompt = (
+            f"Spec: {spec_title}\n\n"
+            "Acceptance criteria:\n"
+            + "\n".join(f"- {t}" for t in ac_texts[:10])
+            + "\n\nWrite 3 to 5 short bullets describing what the user can NOW DO. "
+            "Rules: start each bullet with a verb such as 'You can', "
+            "plain English only, no file paths, no commit hashes, no test names, "
+            "no em-dashes, no technical jargon. Each bullet is one sentence. "
+            "Return ONLY the bullets, one per line, no numbering or bullet symbols."
+        )
+        response = client.messages.create(
+            model=AC_DRAFT_MODEL,
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = response.content[0].text.strip()
+        bullets = [
+            line.lstrip("••-* ").strip()
+            for line in raw.split("\n")
+            if line.strip()
+        ]
+        bullets = [b for b in bullets if b][:5]
+        if bullets:
+            return bullets
+    except Exception:
+        logger.info("generate_release_notes: LLM unavailable, using deterministic fallback")
+    return _fallback_release_notes(ac_texts)
+
+
 def _fire_spec_complete_notification(spec_path: str) -> None:
     """Emit the "Spec done" persistent notification for a completed spec.
 
@@ -2022,14 +2094,41 @@ def _fire_spec_complete_notification(spec_path: str) -> None:
     try:
         from services.notifications import notifications_service as _notif
         from pathlib import Path as _Path
+
         title_from_path = _Path(spec_path).stem.replace("-", " ").strip() or "Spec"
+
+        # Generate plain-language release notes once at completion time.
+        # Try to find and read the spec so we have AC text to summarise.
+        release_notes: list[str] = []
+        try:
+            candidate = (
+                _Path(spec_path) if _Path(spec_path).is_absolute()
+                else _Path(config.PROJECT_ROOT) / os.path.expanduser(spec_path)
+            )
+            if not candidate.exists():
+                # Also try user specs dir (tilde paths like ~/.youros/specs/...)
+                candidate = ostk_module.USER_SPECS_DIR / _Path(spec_path).name
+            if candidate.exists():
+                doc = ostk._parse_doc_frontmatter(candidate, "spec")
+                # Only generate if we don't already have notes persisted
+                existing = doc.get("release_notes") or []
+                if existing:
+                    release_notes = existing
+                else:
+                    ac_texts = [a["text"] for a in doc.get("acceptance_criteria", []) if a.get("text")]
+                    release_notes = generate_release_notes(title_from_path, ac_texts)
+                    ostk._write_release_notes_to_frontmatter(candidate, release_notes)
+        except Exception:
+            logger.info("spec_complete: could not generate release_notes for %s", spec_path)
+
+        first_bullet = release_notes[0] if release_notes else (
+            f"{title_from_path} is built and ready to try."
+        )
+
         _notif.add(
             type="spec_complete",
             title="Your feature is live",
-            body=(
-                f"{title_from_path} is built and ready to try. "
-                "Open the spec to review what changed."
-            ),
+            body=first_bullet,
             action_label="Open spec",
             action_url=f"/specs?expand={spec_path}",
             metadata={

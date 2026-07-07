@@ -500,7 +500,11 @@ describe('ReleaseNotesWatcher', () => {
     expect(window.localStorage.getItem('myos-ephemeral-celebrated-spec-paths')).toBeNull()
   })
 
-  it('shows checked criteria with a green check icon and unchecked criteria with a hollow icon', async () => {
+  it('shows AC text as plain bullets when no release_notes present (→2519)', async () => {
+    // →2519: when the server sends no release_notes, the fallback filter runs.
+    // Clean ACs (no file paths / hashes / test names) appear as plain bullets
+    // with check icons. The checked/unchecked visual distinction is gone in
+    // favour of consistent plain-language rendering.
     vi.useFakeTimers({ shouldAdvanceTime: true })
     mockedApiGet.mockResolvedValueOnce(
       specsResponse([{ path: 'docs/spec/mixed.md', title: 'Mixed', status: 'in-progress' }])
@@ -511,8 +515,8 @@ describe('ReleaseNotesWatcher', () => {
         title: 'Mixed',
         status: 'complete',
         acceptance_criteria: [
-          { text: 'SC-001: The widget loads', checked: true },
-          { text: 'SC-002: Errors are handled', checked: false },
+          { text: 'The widget loads correctly', checked: true },
+          { text: 'Errors are handled gracefully', checked: false },
         ],
       }],
     })
@@ -522,10 +526,116 @@ describe('ReleaseNotesWatcher', () => {
     await waitFor(() =>
       expect(screen.getByTestId('release-notes-modal')).toBeInTheDocument()
     )
-    const checkedItem = screen.getByTestId('ac-item-checked')
-    expect(checkedItem).toBeInTheDocument()
-    const uncheckedItem = screen.getByTestId('ac-item-unchecked')
-    expect(uncheckedItem).toBeInTheDocument()
+    // Both clean ACs appear as plain bullets (filtered, no jargon)
+    expect(screen.getByText('The widget loads correctly')).toBeInTheDocument()
+    expect(screen.getByText('Errors are handled gracefully')).toBeInTheDocument()
+  })
+
+  // ─── →2519: plain-language release_notes rendering ──────────────────────
+
+  it('renders release_notes bullets instead of raw ACs when release_notes present', async () => {
+    // When the server sends release_notes alongside acceptance_criteria, the
+    // modal must show ONLY the plain-language bullets — not the raw AC text.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    mockedApiGet.mockResolvedValueOnce(
+      specsResponse([{ path: 'docs/spec/fancy.md', title: 'Fancy feature', status: 'in-progress' }])
+    )
+    mockedApiGet.mockResolvedValueOnce({
+      docs: [{
+        path: 'docs/spec/fancy.md',
+        title: 'Fancy feature',
+        status: 'complete',
+        acceptance_criteria: [
+          { text: 'test_fancy_feature.py passes', checked: true },
+          { text: 'api/routers/specs.py updated', checked: true },
+        ],
+        release_notes: [
+          'You can now use the fancy feature from the main screen',
+          'The button appears after you open a spec',
+        ],
+      }],
+    })
+
+    render(<ReleaseNotesWatcher />)
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled())
+    await vi.advanceTimersByTimeAsync(5100)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('release-notes-modal')).toBeInTheDocument()
+    )
+
+    // Plain-language bullets must appear
+    expect(screen.getByText('You can now use the fancy feature from the main screen')).toBeInTheDocument()
+    expect(screen.getByText('The button appears after you open a spec')).toBeInTheDocument()
+
+    // Raw AC jargon must NOT appear
+    expect(screen.queryByText('test_fancy_feature.py passes')).not.toBeInTheDocument()
+    expect(screen.queryByText('api/routers/specs.py updated')).not.toBeInTheDocument()
+  })
+
+  it('falls back to filtered ACs (no file paths or test names) when release_notes absent', async () => {
+    // Without release_notes, show ACs but filter out jargon lines.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    mockedApiGet.mockResolvedValueOnce(
+      specsResponse([{ path: 'docs/spec/basic.md', title: 'Basic', status: 'in-progress' }])
+    )
+    mockedApiGet.mockResolvedValueOnce({
+      docs: [{
+        path: 'docs/spec/basic.md',
+        title: 'Basic',
+        status: 'complete',
+        acceptance_criteria: [
+          { text: 'test_basic.py passes', checked: true },
+          { text: 'api/routers/specs.py updated', checked: true },
+          { text: 'You can open the settings panel', checked: true },
+        ],
+        // no release_notes field
+      }],
+    })
+
+    render(<ReleaseNotesWatcher />)
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled())
+    await vi.advanceTimersByTimeAsync(5100)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('release-notes-modal')).toBeInTheDocument()
+    )
+
+    // Clean AC must appear
+    expect(screen.getByText('You can open the settings panel')).toBeInTheDocument()
+
+    // Jargon ACs must be hidden
+    expect(screen.queryByText('test_basic.py passes')).not.toBeInTheDocument()
+    expect(screen.queryByText('api/routers/specs.py updated')).not.toBeInTheDocument()
+  })
+
+  it('shows release_notes from the notification path (body as plain bullet)', async () => {
+    // When the modal fires via lastFeatureLive (notification path),
+    // the body text becomes the single plain-language bullet shown.
+    mockedApiGet.mockResolvedValue(specsResponse([]))
+
+    render(<ReleaseNotesWatcher />)
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled())
+
+    act(() => {
+      useNotificationStore.getState().addPersistentToast({
+        id: 'notif-plain-body',
+        type: 'spec_complete',
+        title: 'Your feature is live',
+        body: 'You can now compare model responses side by side.',
+        action_url: '/specs',
+      })
+    })
+
+    await waitFor(() =>
+      expect(screen.getByTestId('release-notes-modal')).toBeInTheDocument()
+    )
+
+    // The plain body text must appear as a bullet
+    expect(screen.getByText('You can now compare model responses side by side.')).toBeInTheDocument()
+
+    // No raw jargon from acceptance_criteria
+    expect(screen.queryByText(/test_|\.py|\.tsx/)).not.toBeInTheDocument()
   })
 
   it('closes the release-notes modal when Escape is pressed', async () => {

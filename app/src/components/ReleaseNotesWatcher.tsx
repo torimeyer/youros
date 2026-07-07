@@ -23,6 +23,23 @@ interface Spec {
    *  previous demo run that should stay silent. */
   updated_at_ms?: number
   acceptance_criteria?: Array<{ text: string; checked: boolean }>
+  /** Plain-language bullets generated at spec completion time (→2519).
+   *  When present, the modal renders these instead of raw ACs. */
+  release_notes?: string[]
+}
+
+// Patterns that identify engineering jargon in raw AC text (→2519 fallback filter).
+const _JARGON_RE = /\b\w+\.(py|tsx?|sh|md)\b|\b[0-9a-f]{7,40}\b|\btest_\w+|\w+\.test\.\w+/i
+
+function _filterACs(acs: Array<{ text: string; checked: boolean }>): string[] {
+  const out: string[] = []
+  for (const ac of acs) {
+    if (_JARGON_RE.test(ac.text)) continue
+    const first = ac.text.split(/[.!?]/)[0].trim()
+    if (first) out.push(first)
+    if (out.length >= 5) break
+  }
+  return out
 }
 
 /** Grace window for "recent" completions. If a spec is already
@@ -255,9 +272,8 @@ export default function ReleaseNotesWatcher() {
       path: dedupPath,
       title: lastFeatureLive.title,
       status: 'complete',
-      acceptance_criteria: lastFeatureLive.body
-        ? [{ text: lastFeatureLive.body, checked: true }]
-        : [],
+      release_notes: lastFeatureLive.body ? [lastFeatureLive.body] : [],
+      acceptance_criteria: [],
     })
   }, [lastFeatureLive])
 
@@ -274,9 +290,20 @@ export default function ReleaseNotesWatcher() {
   if (!current) return null
 
   const title = current.title || 'Your feature is live'
+
+  // Prefer server-generated plain-language bullets; fall back to filtered ACs.
+  const bullets: string[] = (
+    Array.isArray(current.release_notes) && current.release_notes.length > 0
+      ? current.release_notes
+      : _filterACs(Array.isArray(current.acceptance_criteria) ? current.acceptance_criteria : [])
+  )
+
+  // Keep the raw AC list available for the existing checked/unchecked icon
+  // display only when there are no release_notes (regression guard).
   const acs = Array.isArray(current.acceptance_criteria)
     ? current.acceptance_criteria
     : []
+  const showRawACs = bullets.length === 0 && acs.length > 0
 
   return (
     <div
@@ -307,7 +334,22 @@ export default function ReleaseNotesWatcher() {
           Your agents just shipped this. Here's what changed.
         </div>
 
-        {acs.length > 0 && (
+        {bullets.length > 0 && (
+          <ul className="space-y-2 mb-5">
+            {bullets.map((b, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm">
+                <Icon
+                  name="check_circle"
+                  className="mt-0.5 shrink-0 text-green-600 dark:text-green-400"
+                  size={16}
+                />
+                <span className="text-slate-700 dark:text-slate-300">{b}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {showRawACs && (
           <ul className="space-y-2 mb-5">
             {acs.map((ac, i) => (
               <li
