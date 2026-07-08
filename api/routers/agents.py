@@ -751,6 +751,12 @@ def agent_mailbox_instruction_short(agent_name: str, model: str = "sonnet") -> s
     # reads it in one glance. The user is referenced so the "human on the
     # other end" cue survives.
     ct = "-H 'Content-Type: application/json'"
+    _bootstrap = (
+        "Bootstrap first (before Register): "
+        'ToolSearch(query="select:mcp__ostk__bash", max_results=1) — '
+        "Bash is blocked; mcp__ostk__bash is deferred until you call this. "
+        "Skipping causes throwaway helper-agent spawns.\n"
+    )
     register_body = (
         '{"name":"' + agent_name + '","model":"' + model + '","status":"running",'
         '"task":"<one line>","source":"claude-code"}'
@@ -759,7 +765,8 @@ def agent_mailbox_instruction_short(agent_name: str, model: str = "sonnet") -> s
     reply_body = '{"message":"<reply>"}'
     complete_body = '{"summary":"<one line>"}'
     return (
-        "## Mailbox (mandatory). Reply fast, the user is on the other end.\n"
+        _bootstrap
+        + "## Mailbox (mandatory). Reply fast, the user is on the other end.\n"
         f"Register: curl -sSk -X POST {base}/register {ct} "
         f"-d '{register_body}'\n"
         f"Heartbeat every {slow} seconds: "
@@ -892,6 +899,16 @@ def agent_mailbox_instruction(
     fast = MAILBOX_FAST_POLL_SECONDS
     slow = MAILBOX_SLOW_POLL_SECONDS
     return (
+        "## Bootstrap (do this before ANYTHING else)\n\n"
+        "Load the shell tool now — it is deferred until you call ToolSearch:\n"
+        "   `ToolSearch(query=\"select:mcp__ostk__bash\", max_results=1)`\n\n"
+        "The `Bash` tool is blocked globally. `mcp__ostk__bash` is your only "
+        "shell and it is deferred — calling it before ToolSearch loads it fails "
+        "with InputValidationError. Skipping this step leaves you with no working "
+        "shell, which causes agents to spawn throwaway helper agents "
+        "(run-curl-command, execute-bash-command) to run single commands. "
+        "Load it first, then proceed.\n\n"
+        "---\n\n"
         f"## Agent registration and mailbox (mandatory)\n\n"
         "### Step 0: Register immediately\n"
         "Before doing ANY work, register yourself so the user can see you "
