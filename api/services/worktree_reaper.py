@@ -92,6 +92,36 @@ def _active_agent_names(repo_root: Path) -> Optional[Set[str]]:
         return None
 
 
+def _active_agent_names_from_memory() -> Optional[Set[str]]:
+    """Return non-terminal agent names from the in-memory registry.
+
+    The in-memory ``agent_metadata`` dict in ``routers.agents`` is the
+    authoritative source of truth for agent state.  The on-disk
+    ``agent_state.json`` is a durable copy that may lag behind by up to
+    one async-save cycle (coalesced, non-blocking).  During that window a
+    running agent can be absent from the file, causing the reaper to
+    treat it as unprotected and delete its worktree.
+
+    This function supplements ``_active_agent_names`` so ``run_once``
+    can take the union of both sources before calling the shell script.
+
+    Returns None when the router module is not importable (test contexts
+    that load the service without the full app, or import errors).  None
+    means "could not read" and is treated the same as a missing file by
+    the merge logic in ``run_once``.
+    """
+    try:
+        from routers.agents import agent_metadata  # lazy: avoids circular import at module level
+        return {
+            name
+            for name, info in agent_metadata.items()
+            if isinstance(info, dict)
+            and info.get("status") not in _TERMINAL_STATUSES
+        }
+    except Exception:
+        return None
+
+
 def _reaper_script(repo_root: Path) -> str:
     override = os.environ.get("MYOS_REAPER_SCRIPT")
     if override:
@@ -142,7 +172,28 @@ async def run_once(
     # Step 1: worktree sweep
     # ------------------------------------------------------------------
     script = _reaper_script(repo_root)
-    active_names = _active_agent_names(repo_root)
+
+    # Merge file-based and in-memory active agent names so agents that
+    # exist in either source are protected.  The file may lag the
+    # in-memory dict by up to one async-save cycle, creating a window
+    # where a running agent is absent from the file and its worktree
+    # would be deleted if the diff happened to be empty at that moment.
+    #
+    # Semantics:
+    #   None    = "could not read" from this source (fail-safe)
+    #   set()   = "read successfully, no active agents"
+    #   {names} = "read successfully, these agents are active"
+    #
+    # If both sources are None, pass None to the script so its own
+    # fail-safe (exit 1) fires rather than treating everything as
+    # unprotected.  If either source is readable, take the union.
+    file_names = _active_agent_names(repo_root)
+    mem_names = _active_agent_names_from_memory()
+    if file_names is None and mem_names is None:
+        active_names: Optional[Set[str]] = None
+    else:
+        active_names = (file_names or set()) | (mem_names or set())
+
     wt_ok = False
     wt_removed = 0
     try:
