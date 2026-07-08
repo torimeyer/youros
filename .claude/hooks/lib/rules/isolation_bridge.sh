@@ -149,6 +149,123 @@ ${PROMPT}"
       : ;;
   esac
 
+  # ── Gate c: Upstream guard (→2506) ────────────────────────────────────
+  # When description/prompt signals "report upstream / ostk / scott", write a
+  # draft file and block the native Task without POSTing to /api/agents/spawn.
+  local _UG_MATCH
+  _UG_MATCH=$(DESCRIPTION="$DESCRIPTION" PROMPT="$PROMPT" python3 -c "
+import os, re
+hay = os.environ.get('DESCRIPTION','') + ' ' + os.environ.get('PROMPT','')
+if re.search(r'\b(upstream|ostk|scott)\b', hay, re.IGNORECASE):
+    print('yes')
+" 2>/dev/null)
+  if [ "${_UG_MATCH:-}" = "yes" ]; then
+    local _DRAFT_DIR="$HOME/.youros/drafts"
+    mkdir -p "$_DRAFT_DIR" 2>/dev/null || true
+    local _DRAFT_SLUG _DRAFT_DATE _DRAFT_FILE
+    _DRAFT_SLUG=$(DESC="$DESCRIPTION" python3 -c "
+import os, re
+d = os.environ.get('DESC','')
+s = re.sub(r'[^a-z0-9]+', '-', d.lower())[:40].strip('-') or 'upstream'
+print(s)
+" 2>/dev/null || echo "upstream")
+    _DRAFT_DATE=$(date +%Y%m%d 2>/dev/null || echo "unknown")
+    _DRAFT_FILE="${_DRAFT_DIR}/upstream-${_DRAFT_DATE}-${_DRAFT_SLUG}.md"
+    {
+      printf '# Upstream draft: %s\n\n' "$DESCRIPTION"
+      printf '**Date:** %s\n\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo unknown)"
+      printf '## Prompt\n\n%s\n' "$PROMPT"
+    } > "$_DRAFT_FILE" 2>/dev/null || true
+    log_rule_fire "isolation_bridge" "$tool" "block" "upstream-guard: drafted to $_DRAFT_FILE"
+    echo "task-isolation-bridge: upstream-guard — upstream/ostk/scott spawn drafted to: $_DRAFT_FILE" >&2
+    exit 2
+  fi
+
+  # ── Gate a: Evidence gate (→2506) ──────────────────────────────────────
+  # Skip diagnose spawns when a recent fix commit already covers the same
+  # area. Prevents re-diagnosing bugs that were fixed in the last 24h.
+  local _EG_DIAGNOSE
+  _EG_DIAGNOSE=$(DESCRIPTION="$DESCRIPTION" PROMPT="$PROMPT" python3 -c "
+import os, re
+hay = os.environ.get('DESCRIPTION','') + ' ' + os.environ.get('PROMPT','')
+if re.search(r'\bdiagnose\b', hay, re.IGNORECASE):
+    print('yes')
+" 2>/dev/null)
+  if [ "${_EG_DIAGNOSE:-}" = "yes" ]; then
+    local _EG_KW
+    _EG_KW=$(DESC="$DESCRIPTION" python3 -c "
+import os, re
+stop = {'the','a','an','and','or','fix','diagnose','issue','bug','this',
+        'that','for','to','of','in','is','it','with','was','has','been',
+        'be','by','at','as','on','not'}
+desc = os.environ.get('DESC','')
+words = [w for w in re.findall(r'[a-z0-9]+', desc.lower())
+         if len(w) > 2 and w not in stop]
+print(words[0] if words else '')
+" 2>/dev/null)
+    if [ -n "${_EG_KW:-}" ]; then
+      local _EG_HIT
+      _EG_HIT=$(git -C "${CLAUDE_PROJECT_DIR:-.}" log --oneline --since="24 hours ago" --all 2>/dev/null \
+        | python3 -c "
+import sys, re
+fix_re = re.compile(r'\bfix\b|fixed|closes', re.IGNORECASE)
+kw = sys.argv[1].lower()
+for line in sys.stdin:
+    if fix_re.search(line) and kw in line.lower():
+        print(line.strip())
+        break
+" "$_EG_KW" 2>/dev/null || echo "")
+      if [ -n "${_EG_HIT:-}" ]; then
+        log_rule_fire "isolation_bridge" "$tool" "allow" "evidence-gate: recent fix for '${_EG_KW}': ${_EG_HIT}"
+        echo "task-isolation-bridge: evidence-gate skip — recent fix commit covers '${_EG_KW}': ${_EG_HIT}" >&2
+        return 0
+      fi
+    fi
+  fi
+
+  # ── Gate b: Dedup gate (→2506) ─────────────────────────────────────────
+  # Skip spawn when the task store already has an open or recently closed
+  # task covering the same fingerprint keywords.
+  local _DD_KW
+  _DD_KW=$(DESC="$DESCRIPTION" python3 -c "
+import os, re
+stop = {'the','a','an','and','or','fix','diagnose','issue','bug','this',
+        'that','for','to','of','in','is','it','with','was','has','been',
+        'be','by','at','as','on','not'}
+desc = os.environ.get('DESC','')
+words = [w for w in re.findall(r'[a-z0-9]+', desc.lower())
+         if len(w) > 2 and w not in stop]
+print('+'.join(words[:3]) if words else '')
+" 2>/dev/null)
+  if [ -n "${_DD_KW:-}" ]; then
+    local _DD_RESP
+    _DD_RESP=$(curl --silent --insecure --connect-timeout 2 -m 4 \
+      "${API_BASE}/api/tasks?q=${_DD_KW}" 2>/dev/null || echo "")
+    local _DD_HIT
+    _DD_HIT=$(RESP="$_DD_RESP" DESC="$DESCRIPTION" python3 -c "
+import os, json, re
+resp = os.environ.get('RESP','')
+desc = os.environ.get('DESC','').lower()
+stop = {'the','a','an','and','or','fix','diagnose','issue','bug','this'}
+kws = [w for w in re.findall(r'[a-z0-9]+', desc) if len(w)>2 and w not in stop]
+try:
+    data = json.loads(resp)
+    tasks = data.get('tasks') or []
+    for t in tasks:
+        title = (t.get('title') or '').lower()
+        if any(k in title for k in kws):
+            print(str(t.get('id','?')) + ':' + str(t.get('status','?')))
+            break
+except Exception:
+    pass
+" 2>/dev/null)
+    if [ -n "${_DD_HIT:-}" ]; then
+      log_rule_fire "isolation_bridge" "$tool" "allow" "dedup-gate: existing task ${_DD_HIT}"
+      echo "task-isolation-bridge: dedup-gate skip — existing task matches description: ${_DD_HIT}" >&2
+      return 0
+    fi
+  fi
+
   # Generate spawn name
   local SPAWN_NAME
   SPAWN_NAME=$(DESC="$DESCRIPTION" PROMPT="$PROMPT" python3 <<'PY' 2>/dev/null
