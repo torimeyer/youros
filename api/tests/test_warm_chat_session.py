@@ -581,3 +581,123 @@ class TestIdleReapTimer:
             f"Expected {ccp._WARM_PROC_IDLE_REAP_SECONDS}s reap delay, got {delay}s"
         )
         assert args[0] == tab_id
+
+
+# ---------------------------------------------------------------------------
+# 6. --strict-mcp-config in warm process args (→2555 latency fix)
+# ---------------------------------------------------------------------------
+
+class TestWarmProcStrictMcpConfig:
+    """Verify --strict-mcp-config is present in warm process args.
+
+    Without it the warm process starts all MCP servers (~18 s cold start)
+    and includes ~112 tool definitions (~22 K tokens) in every API call,
+    causing 4-6 s TTFT even with a live process. With it, only native
+    tools are loaded, bringing cold start to ~2 s and warm turns to ~1 s.
+    """
+
+    @pytest.mark.asyncio
+    async def test_warm_args_include_strict_mcp_config(self):
+        """Warm process args always include --strict-mcp-config."""
+        tab_id = "tab-strict-mcp"
+        fake = FakeWarmProcess([_turn_lines("hi")])
+        captured_args: list = []
+
+        async def _exec(*args, **kwargs):
+            captured_args.extend(args)
+            return fake
+
+        with patch(
+            "services.claude_code_provider.asyncio.create_subprocess_exec",
+            side_effect=_exec,
+        ):
+            patches = _patch_standard_deps()
+            for p in patches:
+                p.start()
+            try:
+                ws = FakeWebSocket()
+                await stream_chat(
+                    [{"role": "user", "content": "hello"}],
+                    ws,
+                    tab_id=tab_id,
+                )
+            finally:
+                for p in patches:
+                    p.stop()
+
+        assert "--strict-mcp-config" in captured_args, (
+            "--strict-mcp-config must be in warm process args to prevent "
+            "MCP tool loading (~112 tools, ~22K tokens per API call)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_warm_args_include_strict_mcp_config_with_disable_tools(self):
+        """--strict-mcp-config is present even when disable_tools=True."""
+        tab_id = "tab-strict-mcp-disable"
+        fake = FakeWarmProcess([_turn_lines("hi")])
+        captured_args: list = []
+
+        async def _exec(*args, **kwargs):
+            captured_args.extend(args)
+            return fake
+
+        with patch(
+            "services.claude_code_provider.asyncio.create_subprocess_exec",
+            side_effect=_exec,
+        ):
+            patches = _patch_standard_deps()
+            for p in patches:
+                p.start()
+            try:
+                ws = FakeWebSocket()
+                await stream_chat(
+                    [{"role": "user", "content": "hello"}],
+                    ws,
+                    tab_id=tab_id,
+                    disable_tools=True,
+                )
+            finally:
+                for p in patches:
+                    p.stop()
+
+        assert "--strict-mcp-config" in captured_args, (
+            "--strict-mcp-config must be in warm process args for disable_tools=True too"
+        )
+        # Confirm it appears exactly once (not duplicated when disable_tools already adds it)
+        assert captured_args.count("--strict-mcp-config") == 1, (
+            "--strict-mcp-config must appear exactly once in warm process args"
+        )
+
+    @pytest.mark.asyncio
+    async def test_warm_args_include_input_format_stream_json(self):
+        """Warm process args include --input-format stream-json alongside --strict-mcp-config."""
+        tab_id = "tab-input-format"
+        fake = FakeWarmProcess([_turn_lines("reply")])
+        captured_args: list = []
+
+        async def _exec(*args, **kwargs):
+            captured_args.extend(args)
+            return fake
+
+        with patch(
+            "services.claude_code_provider.asyncio.create_subprocess_exec",
+            side_effect=_exec,
+        ):
+            patches = _patch_standard_deps()
+            for p in patches:
+                p.start()
+            try:
+                ws = FakeWebSocket()
+                await stream_chat(
+                    [{"role": "user", "content": "test"}],
+                    ws,
+                    tab_id=tab_id,
+                )
+            finally:
+                for p in patches:
+                    p.stop()
+
+        assert "--input-format" in captured_args
+        idx = captured_args.index("--input-format")
+        assert captured_args[idx + 1] == "stream-json"
+        assert "--strict-mcp-config" in captured_args

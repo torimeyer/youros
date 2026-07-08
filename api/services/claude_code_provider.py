@@ -901,13 +901,25 @@ async def stream_chat(
     # MCP server restart (~405 ms), TLS handshake (~200 ms), and the ostk
     # boot context upload (~3.8 s of API time on the first turn).
     # Falls through to the cold spawn below on any failure.
+    #
+    # --strict-mcp-config is always added to warm_args to prevent loading
+    # MCP servers (ostk, stitch, fcp-gdocs). Without it the warm process
+    # starts all three MCP servers on cold start (~18 s) and includes
+    # every tool (~112 definitions, ~22 K tokens) in every Anthropic API
+    # call, pushing warm-turn TTFT to 4–6 s even with a live process.
+    # With it, only native tools (~15 definitions, ~750 tokens) are
+    # loaded: cold start drops to ~2 s and warm turns drop to ~1 s.
+    # The model still reaches ostk via Bash (ostk CLI) when needed.
     _is_warm_turn = False
     proc = None
     if tab_id:
-        # warm_args: same as args but --input-format stream-json inserted
-        # and the trailing prompt positional arg removed (prompt goes to
-        # the process's stdin as a JSON event instead).
+        # warm_args: same as args but --input-format stream-json inserted,
+        # the trailing prompt positional arg removed (prompt goes to the
+        # process's stdin as a JSON event), and --strict-mcp-config added
+        # to suppress MCP server loading on warm turns.
         _warm_args = args[:2] + ["--input-format", "stream-json"] + args[2:-1]
+        if "--strict-mcp-config" not in _warm_args:
+            _warm_args.append("--strict-mcp-config")
         try:
             _wproc = await _get_or_start_warm_proc(tab_id, _warm_args)
             _msg_json = (
