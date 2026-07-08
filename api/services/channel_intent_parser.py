@@ -122,7 +122,7 @@ class InboundPoller:
         if not (msg.get("text") or "").strip():
             return False
         in_self_chat = self.is_self_chat(msg.get("chat_identifier"))
-        if msg.get("is_from_me") and not in_self_chat:
+        if msg.get("is_from_me"):
             return False
         # In iMessage self-chat every sent message creates both an is_from_me=True row
         # (sent copy) and an is_from_me=False row (received echo). Apply the bridge-reply
