@@ -156,14 +156,15 @@ class TestRollback:
 
 class TestInstall:
     def test_install_writes_content_to_agentfiles_dir(self, catalog, tmp_path):
-        with patch("services.team_catalog.Path.home", return_value=tmp_path):
+        # Service uses youros_home() / "agentfiles", not Path.home().
+        with patch("services.team_catalog.youros_home", return_value=tmp_path / ".youros"):
             entry = svc.publish_agentfile("org1", "my-agent", "FROM auto\n", "admin")
             result = svc.install_agentfile("org1", entry["id"])
 
         assert result is not None
         assert result["name"] == "my-agent"
         assert result["version"] == 1
-        # Service writes to Path.home() / ".youros" / "agentfiles"
+        # Service writes to youros_home() / "agentfiles"
         installed_file = tmp_path / ".youros" / "agentfiles" / "my-agent.agent"
         assert installed_file.exists()
         assert installed_file.read_text() == "FROM auto\n"

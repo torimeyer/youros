@@ -767,10 +767,11 @@ async def test_roadmap_completion_md_appears_in_recent_docs(tmp_path):
         "| Q1 2026 | Ship onboarding | wizard, tour, email |\n"
     )
 
+    import os as _os
     transport = ASGITransport(app=app)
-    with patch.object(projects_module, "TORIOS_DIR", fake_ws), patch(
-        "routers.projects.Path.home", return_value=fake_home
-    ):
+    # /docs/recent uses youros_home() which reads YOUROS_HOME, not Path.home().
+    with patch.object(projects_module, "TORIOS_DIR", fake_ws), \
+         patch.dict(_os.environ, {"YOUROS_HOME": str(fake_home / ".youros")}):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/api/docs/recent")
 

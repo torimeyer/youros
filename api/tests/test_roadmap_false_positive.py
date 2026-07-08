@@ -76,17 +76,25 @@ def test_is_roadmap_agent_non_roadmap_template_returns_false():
 
 
 def test_should_persist_agent_doc_requires_opt_in_signal():
-    """With none of the three opt-in signals, the gate returns False."""
+    """→2485 changed _should_persist_agent_doc to opt-out: all non-infra-noise
+    solo agents now produce a .md. Fleet, Roadmap, and produces_doc remain the
+    signals that select the doc *kind*, but the gate itself no longer rejects
+    solo agents without those signals.  Infra-noise names (fix-*, diagnose-*,
+    etc.) are still blocked when no fleet_id is present."""
     from routers.agents import _should_persist_agent_doc
 
-    assert _should_persist_agent_doc("some-solo-agent", {}) is False
-    assert _should_persist_agent_doc("some-solo-agent", None) is False
+    # Opt-out default: solo non-infra agents produce docs (→2485).
+    assert _should_persist_agent_doc("some-solo-agent", {}) is True
+    assert _should_persist_agent_doc("some-solo-agent", None) is True
     assert (
         _should_persist_agent_doc(
             "some-solo-agent", {"template": "none", "status": "completed"}
         )
-        is False
+        is True
     )
+    # Infra-noise names without fleet_id are still blocked.
+    assert _should_persist_agent_doc("fix-something", {}) is False
+    assert _should_persist_agent_doc("diagnose-roadmap-issue", {"template": "none"}) is False
 
 
 def test_should_persist_agent_doc_allows_fleet_member():
@@ -184,12 +192,11 @@ def test_retroactive_sweep_skips_solo_agent_without_optin(tmp_path):
     ):
         written = agents_mod._retroactively_save_agent_summaries()
 
-    assert written == 0, "Sweep must not write for solo agent without opt-in"
-    # Directory may not exist (sweep never wrote) or exist but be empty.
-    if files_dir.exists():
-        assert list(files_dir.glob("*.md")) == [], (
-            f"Expected no .md files, got {list(files_dir.glob('*.md'))}"
-        )
+    # →2485 opt-out: "settings-cost-tracking-rename" is not in the infra-noise
+    # regex, so the sweep now produces a doc for it (one write expected).
+    assert written == 1, f"Solo non-infra agent must produce a doc under →2485 opt-out, got {written}"
+    assert files_dir.exists()
+    assert len(list(files_dir.glob("*.md"))) == 1
 
 
 def test_retroactive_sweep_skips_diagnose_named_agent(tmp_path):
@@ -302,8 +309,9 @@ def test_retroactive_sweep_writes_for_roadmap_template(tmp_path):
 
 
 def test_save_agent_output_skips_solo_agent_with_roadmap_in_name(tmp_path):
-    """End-to-end proof that a name-containing-roadmap diagnose agent
-    calling the live artifact writer does NOT create a .md.
+    """→2485 opt-out: a solo non-infra-noise agent DOES produce a doc even
+    when its name contains 'roadmap'.  The infra-noise gate keys on prefixes
+    (fix-, diagnose-, …), not on arbitrary substrings.
     """
     from routers import agents as agents_mod
 
@@ -315,7 +323,7 @@ def test_save_agent_output_skips_solo_agent_with_roadmap_in_name(tmp_path):
     }
     long_summary = (
         "Investigated the roadmap false-positive classifier and confirmed "
-        "the fix works end to end. No artifact should land here." * 2
+        "the fix works end to end. An artifact should land here." * 2
     )
     try:
         with patch.object(agents_mod, "MYOS_FILES_DIR", files_dir):
@@ -325,6 +333,6 @@ def test_save_agent_output_skips_solo_agent_with_roadmap_in_name(tmp_path):
     finally:
         agents_mod.agent_metadata.pop(agent_name, None)
 
-    assert paths == []
-    if files_dir.exists():
-        assert list(files_dir.glob("*.md")) == []
+    assert len(paths) == 1
+    assert files_dir.exists()
+    assert len(list(files_dir.glob("*.md"))) == 1

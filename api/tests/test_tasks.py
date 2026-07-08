@@ -2654,7 +2654,8 @@ async def test_smoke_does_not_recreate_deleted_demo_tasks(client):
 
     # Write a roadmap file into a fake home so we never touch the real
     # ~/.youros/files/ directory during tests. The resolver uses
-    # Path.home(), so patching that redirects the lookup.
+    # youros_home() which reads YOUROS_HOME, so we override that env var.
+    import os as _os
     import tempfile as _tempfile
     from pathlib import Path as _Path
     with _tempfile.TemporaryDirectory() as fake_home:
@@ -2664,6 +2665,7 @@ async def test_smoke_does_not_recreate_deleted_demo_tasks(client):
         roadmap.write_text("# roadmap\n\n- Build basic homepage\n")
         try:
             with patch("services.tool_executor.Path.home", return_value=_Path(fake_home)), \
+                 patch.dict(_os.environ, {"YOUROS_HOME": str(_Path(fake_home) / ".youros")}), \
                  patch("services.tool_executor.ostk") as mock_ostk:
                 mock_ostk.list_tasks = AsyncMock(side_effect=fake_list_tasks)
                 mock_ostk.add_task = AsyncMock(side_effect=fake_add_task)

@@ -820,7 +820,8 @@ class TestBuildTasksFromFile:
              patch.object(tool_executor, "_LAST_BATCH_PATH", batch_path), \
              patch("services.task_labeling.schedule_auto_labels"), \
              patch("services.chat_providers._resolve_api_key", new=AsyncMock(return_value="")), \
-             patch("services.tool_executor.Path.home", return_value=fake_home):
+             patch("services.tool_executor.Path.home", return_value=fake_home), \
+             patch.dict(os.environ, {"YOUROS_HOME": str(fake_home / ".youros")}):
             second = await execute_tool(
                 "build_tasks_from_file",
                 {"file_path": "roadmap.md"},
@@ -868,7 +869,8 @@ class TestBuildTasksFromFile:
              patch.object(tool_executor, "_LAST_BATCH_PATH", batch_path), \
              patch("services.task_labeling.schedule_auto_labels"), \
              patch("services.chat_providers._resolve_api_key", new=AsyncMock(return_value="")), \
-             patch("services.tool_executor.Path.home", return_value=fake_home):
+             patch("services.tool_executor.Path.home", return_value=fake_home), \
+             patch.dict(os.environ, {"YOUROS_HOME": str(fake_home / ".youros")}):
             result = await execute_tool(
                 "build_tasks_from_file",
                 {"file_path": "roadmap.md"},

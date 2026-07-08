@@ -290,8 +290,11 @@ async def test_key_status_google_oauth_available_when_configured(client, tmp_pat
     """key-status should report google_oauth_available=true when client ID is set."""
     from unittest.mock import AsyncMock
 
+    # can_start_oauth() requires both CLIENT_ID and CLIENT_SECRET (CREDENTIALS_PATH
+    # points to conftest's tmpdir, so the file gate doesn't help here).
     with (
-        patch.dict("os.environ", {"GOOGLE_CLIENT_ID": "test-client-id"}),
+        patch.dict("os.environ", {"GOOGLE_CLIENT_ID": "test-client-id",
+                                  "GOOGLE_CLIENT_SECRET": "test-secret"}),
         patch("routers.secrets.ostk") as mock_ostk,
     ):
         mock_ostk.secret_list = AsyncMock(return_value=[])
@@ -817,6 +820,10 @@ async def test_drive_auth_url_return_to_uses_frontend_url(client):
 
     with (
         patch("routers.drive.can_start_oauth", return_value=True),
+        # get_auth_url calls _load_client_config which needs real credentials;
+        # mock it to avoid the credential-file requirement in test isolation.
+        patch("routers.drive.get_auth_url",
+              return_value="https://accounts.google.com/o/oauth2/auth?fake=1"),
         patch.dict("os.environ", env_without_frontend_url, clear=True),
     ):
         resp = await client.get("/api/drive/auth/url", follow_redirects=False)
