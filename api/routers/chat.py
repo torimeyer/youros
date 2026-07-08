@@ -1809,6 +1809,10 @@ async def chat_websocket(websocket: WebSocket):
                                     message=last_text if isinstance(last_text, str) else "",
                                     org_policy=org_policy,
                                     available_providers=available,
+                                    # The thread selector's model (resolved from the
+                                    # payload's ``model`` field) is the source of
+                                    # truth; cost heuristics must not override it (→2552).
+                                    user_selected=model,
                                 )
                         except Exception:
                             pass

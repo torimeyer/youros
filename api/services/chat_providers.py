@@ -4412,6 +4412,7 @@ def route_provider(
     message: str,
     org_policy: Optional[str],
     available_providers: list[str],
+    user_selected: Optional[str] = None,
 ) -> str:
     """Select a provider key based on org policy and message heuristics.
 
@@ -4420,6 +4421,15 @@ def route_provider(
       - "gemini_only": gemini, fallback to claude if unavailable
       - "prefer_gemini" / "auto": gemini for short simple messages, else claude
       - None / anything else: treated as "auto"
+
+    ``user_selected`` is the model the user picked in the chat panel's
+    thread selector (sent with every turn as the ``model`` field). The
+    selector is the source of truth for which AI answers: when the policy
+    is a cost heuristic ("auto" / "prefer_gemini") and the selection is an
+    available provider, it wins over the short-message heuristic (→2552 —
+    without this, every short plain-text turn silently went to Gemini even
+    with Claude selected, so the Claude warm chat process never ran).
+    Hard policies ("claude_only" / "gemini_only") still force a provider.
 
     Always falls back to "claude" if the preferred provider is not in
     available_providers.
@@ -4435,7 +4445,11 @@ def route_provider(
     if policy == "gemini_only":
         return "gemini" if _available("gemini") else "claude"
 
-    # "auto" or "prefer_gemini": use gemini for short, code-free messages
+    # "auto" or "prefer_gemini": an explicit, available user selection wins.
+    if user_selected and _available(user_selected):
+        return user_selected
+
+    # No usable selection: use gemini for short, code-free messages
     short = len(message) < 500
     has_code = bool(_CODE_BLOCK_RE.search(message)) or bool(_TOOL_INDICATOR_RE.search(message))
     if short and not has_code and _available("gemini"):

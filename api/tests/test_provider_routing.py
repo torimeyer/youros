@@ -73,6 +73,41 @@ class TestPreferGeminiPolicy:
         assert result == "claude"
 
 
+class TestUserSelectedModel:
+    """→2552: the thread's model selector is the source of truth.
+
+    The chat panel sends the selected model with every turn. When the org
+    policy is a cost heuristic ("auto" / "prefer_gemini"), that explicit
+    selection must win — otherwise every short plain-text message silently
+    goes to Gemini even though the user picked Claude, and the Claude
+    warm chat process (Phase E, →2468) never runs at all.
+    Hard policies ("claude_only" / "gemini_only") still force a provider.
+    """
+
+    def test_auto_policy_honors_user_selected_claude(self):
+        # Real-world →2552 condition: short message, dropdown on Claude.
+        assert route_provider("hi, reply with one word", "auto", ALL, user_selected="claude") == "claude"
+
+    def test_prefer_gemini_policy_honors_user_selected_claude(self):
+        assert route_provider("hi", "prefer_gemini", ALL, user_selected="claude") == "claude"
+
+    def test_auto_policy_honors_user_selected_gemini_for_long_message(self):
+        long_msg = "please help me " + "x" * 490
+        assert route_provider(long_msg, "auto", ALL, user_selected="gemini") == "gemini"
+
+    def test_claude_only_still_forces_claude_over_user_selection(self):
+        assert route_provider("hi", "claude_only", ALL, user_selected="gemini") == "claude"
+
+    def test_gemini_only_still_forces_gemini_over_user_selection(self):
+        assert route_provider("hi", "gemini_only", ALL, user_selected="claude") == "gemini"
+
+    def test_unavailable_user_selection_falls_back_to_heuristic(self):
+        assert route_provider("hi", "auto", CLAUDE_ONLY_PROVIDERS, user_selected="gemini") == "claude"
+
+    def test_no_user_selection_keeps_heuristic_behavior(self):
+        assert route_provider("what time is it?", "auto", ALL) == "gemini"
+
+
 class TestHeuristic:
     def test_bash_keyword_routes_to_claude(self):
         result = route_provider("run bash script", "auto", ALL)
