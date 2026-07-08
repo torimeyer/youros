@@ -80,7 +80,8 @@ echo "$INPUT" | TORIOS_API_BASE="http://127.0.0.1:${PORT}" \
     bash "$HOOK" 2>"$STDERR_FILE"
 RC=$?
 
-SPAWN_HITS=$(grep -c "/api/agents/spawn" "$HIT_LOG" 2>/dev/null || echo 0)
+SPAWN_HITS=$(grep "/api/agents/spawn" "$HIT_LOG" 2>/dev/null | wc -l | tr -d ' ')
+SPAWN_HITS="${SPAWN_HITS:-0}"
 
 if [ "$RC" -ne 0 ]; then
     echo "FAIL: expected exit 0 (evidence gate skip), got $RC" >&2
