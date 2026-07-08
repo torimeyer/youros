@@ -305,7 +305,9 @@ export function SpecBody({ body }: { body: string }) {
     flushCodeBlock();
   }
 
-  return <div className="space-y-0.5">{elements}</div>;
+  // break-words (overflow-wrap) is inherited, so setting it once on the root
+  // covers every paragraph, list item, and inline code child (→2554).
+  return <div className="space-y-0.5 break-words">{elements}</div>;
 }
 
 /** Render inline markdown: **bold**, `code` */
@@ -370,7 +372,9 @@ function AcceptanceCriteria({ criteria }: { criteria: AcceptanceCriterion[] }) {
                   : "bg-transparent border border-slate-500"
               }`}
             />
-            <span className={c.checked ? "text-slate-500 line-through" : "text-slate-700 dark:text-slate-300"}>
+            {/* min-w-0 lets this flex child shrink below the width of a long
+                unbroken token so break-words can wrap it inside the card (→2554) */}
+            <span className={`min-w-0 break-words ${c.checked ? "text-slate-500 line-through" : "text-slate-700 dark:text-slate-300"}`}>
               {c.text}
             </span>
           </li>

@@ -1401,6 +1401,33 @@ describe('Specs page', () => {
     }
   })
 
+  // →2554: AC text is a flex child; without min-w-0 + break-words a long
+  // unbroken token (pytest id, file path) forces the span past the card edge.
+  it('AC text spans wrap long unbroken tokens inside the card →2554', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find((c) => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('acceptance-criteria')).toBeInTheDocument()
+    })
+
+    const pills = screen.getAllByTestId('ac-status-pill')
+    expect(pills.length).toBeGreaterThan(0)
+    for (const pill of pills) {
+      const textSpan = pill.nextElementSibling as HTMLElement
+      expect(textSpan).not.toBeNull()
+      expect(textSpan.className).toContain('min-w-0')
+      expect(textSpan.className).toContain('break-words')
+    }
+  })
+
   // Wave 4 F5: one Verify button regardless of plan status.
   // Obsolete: the Verify button was removed. Previously this test
   // confirmed exactly one Verify button rendered per plan card.
@@ -1959,6 +1986,22 @@ describe('SpecBody', () => {
     const body = '| A | B |\n|---|---|\n| x | y |'
     render(<SpecBody body={body} />)
     expect(screen.queryByText(/---/)).toBeNull()
+  })
+
+  it('wraps long unbroken tokens so they cannot overflow the card →2554', () => {
+    // 120-char unbroken token, like a pytest identifier or a file path.
+    const longToken =
+      'test_pattern_watcher_v2.py::test_read_context_for_turn_calls_recall_fault_with_correct_args_' +
+      'x'.repeat(28)
+    expect(longToken.length).toBe(120)
+    const { container } = render(
+      <SpecBody body={`Paragraph with ${longToken}\n- list item ${longToken}`} />
+    )
+    // The wrapping class lives on the SpecBody root container so it covers
+    // every paragraph, list item, and inline code child at once.
+    const root = container.firstElementChild as HTMLElement
+    expect(root).not.toBeNull()
+    expect(root.className).toContain('break-words')
   })
 })
 
