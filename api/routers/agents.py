@@ -4671,6 +4671,34 @@ async def list_agents(
     daemon_running = snapshot.get("daemon_running", False)
     deleted_names = await asyncio.to_thread(_load_deleted_agents)
     agents = [a for a in all_agents if a.get("name") not in deleted_names]
+    # →2539: Dedupe helper spawns. When a working agent spawns helpers via
+    # the Agent tool, _link_session_jsonl links every helper to the same
+    # parent session JSONL (freshest *.jsonl in the project dir at register
+    # time). All those helper rows end up pointing at the same transcript.
+    # Fix: for each non-per-agent transcript_path, find the oldest running
+    # agent — the parent. Any running agent that shares the same path but
+    # registered later is a helper spawn. Tag it with is_helper_spawn=True
+    # so is_user_spawned_agent can filter it from the Agents page.
+    # Terminal agents are never suppressed so history is preserved.
+    _shared_path_earliest: dict[str, str] = {}
+    for _a in agents:
+        _tp = _a.get("transcript_path") or ""
+        if not _tp or _is_per_agent_transcript_path(_tp):
+            continue
+        if _a.get("status", "running") in _TERMINAL_STATUSES:
+            continue
+        _sa = _a.get("spawned_at") or ""
+        if _tp not in _shared_path_earliest or _sa < _shared_path_earliest[_tp]:
+            _shared_path_earliest[_tp] = _sa
+    for _a in agents:
+        _tp = _a.get("transcript_path") or ""
+        if not _tp or _is_per_agent_transcript_path(_tp):
+            continue
+        if _a.get("status", "running") in _TERMINAL_STATUSES:
+            continue
+        _earliest = _shared_path_earliest.get(_tp)
+        if _earliest is not None and (_a.get("spawned_at") or "") > _earliest:
+            _a["is_helper_spawn"] = True
     if user_spawned_only:
         from services.agent_filters import is_user_spawned_agent
         agents = [a for a in agents if is_user_spawned_agent(a)]

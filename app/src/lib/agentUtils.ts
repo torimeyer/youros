@@ -160,6 +160,7 @@ export function isUserSpawnedAgent(agent: {
   source?: string;
   model?: string;
   hook_preregister?: boolean;
+  is_helper_spawn?: boolean;
 }): boolean {
   if (isMainSession(agent)) return false;
   if (agent.name.startsWith("myos-api-")) return false;
@@ -177,6 +178,11 @@ export function isUserSpawnedAgent(agent: {
   // and inserts a row with hook_preregister=true. Hide it until the
   // subagent calls /register and the flag is cleared/merged.
   if (agent.hook_preregister) return false;
+  // Helper spawns: tiny sub-agents spawned by a working agent for small
+  // tasks (e.g. "register-agent-with-fresh-name", "run-curl-command").
+  // The backend detects them by shared session JSONL and tags is_helper_spawn
+  // so the Agents page only shows the top-level working agent (→2539).
+  if (agent.is_helper_spawn) return false;
   return true;
 }
 

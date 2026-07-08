@@ -122,4 +122,10 @@ def is_user_spawned_agent(agent: Mapping[str, Any]) -> bool:
     # cleared when the subagent calls /register and the row is merged.
     if agent.get("hook_preregister"):
         return False
+    # Helper spawns: agents spawned by a working agent for tiny sub-tasks share
+    # the parent's session JSONL as their transcript_path. The list endpoint
+    # detects this sharing and tags the newer agents with is_helper_spawn=True
+    # so they are hidden from the user-spawned count (→2539).
+    if agent.get("is_helper_spawn"):
+        return False
     return True
