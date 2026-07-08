@@ -10,6 +10,45 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.12.0
+  {
+    date: '2026-07-08',
+    label: 'July 8, 2026',
+    entries: [
+      {
+        title: 'Text yourOS: text a job in, get a text back',
+        description: 'You can now text yourOS from your phone. Ask it to do something, reply YES to confirm, and it starts the work. When the job finishes, you get one text back with the result. Turn it on from the new Text yourOS card in Settings, where you also control which phone numbers and emails it trusts.',
+      },
+      {
+        title: 'See what all your helpers are doing at a glance',
+        description: 'The Agents and Sessions pages now show what each working session is up to: a short label, its current activity, the files it touched recently, and a warning when one looks stuck. If two helpers are about to step on each other, a conflict alert appears before it becomes a problem. A daily digest panel sums up what happened across all of them.',
+      },
+      {
+        title: 'The "your feature is live" popup now speaks human',
+        description: 'When a build finishes, the celebration popup used to list the engineering checklist word for word. Now it shows a few short bullets about what you can actually do with the new feature, written in plain language.',
+      },
+      {
+        title: 'Select all your tasks at once',
+        description: 'The task list has a select-all button, so bulk actions like building several things in one go no longer require clicking each task one by one.',
+      },
+      {
+        title: 'Faster chat replies',
+        description: 'Each chat tab now keeps a warmed-up worker ready between turns, so replies start noticeably sooner instead of paying a cold start on every message.',
+      },
+      {
+        title: 'Clean up your inbox in one move',
+        description: 'In the Gmail view you can select a batch of emails and mark them all as read at once.',
+      },
+      {
+        title: 'Finished work is easier to find',
+        description: 'Cards for finished helpers now link straight to the documents and files they produced, and a small hint appears when yourOS notices a pattern in how you work that it can help with.',
+      },
+      {
+        title: 'No more surprise permission popup storms',
+        description: 'Helpers are now blocked from scanning private home folders they do not need, which stops the bursts of macOS permission popups some jobs used to trigger.',
+      },
+    ],
+  },
   // v5.11.0
   {
     date: '2026-06-18',
