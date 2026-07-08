@@ -254,6 +254,77 @@ async def test_tier3_approve_silent_succeeds(obs_dir, monkeypatch):
     assert stored.get("abc123") == 3
 
 
+# ---------------------------------------------------------------------------
+# End-to-end (spec Verification): five defers → cluster → Confirm → inline hint
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_e2e_defer_five_times_confirm_then_inline_hint(obs_dir, monkeypatch, tmp_path):
+    """Spec E2E item: a chat defers a P3 task five times, the panel cluster
+    appears with count=5, Confirm promotes it to tier 2, and the next relevant
+    turn's context includes the inline hint (recall daemon absent → hint path)."""
+    from unittest.mock import patch
+
+    import services.pattern_watcher as pw_mod
+
+    tiers_file = tmp_path / ".tiers.json"
+    monkeypatch.setattr(
+        patterns_mod, "load_tiers", lambda: pw_mod.load_tiers(tiers_path=tiers_file)
+    )
+    monkeypatch.setattr(
+        patterns_mod, "store_tier",
+        lambda cid, t, **kw: pw_mod.store_tier(cid, t, tiers_path=tiers_file, **kw),
+    )
+    monkeypatch.setattr(patterns_mod, "promote_tier", lambda cid, tier: True)
+
+    # 1. Simulate a chat that defers a P3 task five times (real writer path).
+    defer_messages = [
+        "I'll do the P3 formatting task later",
+        "defer the P3 badge cleanup",
+        "not now on the formatting fix",
+        "park that P3 styling task",
+        "hold off on the P3 formatting pass",
+    ]
+    for msg in defer_messages:
+        pw_mod.observe_turn(
+            msg, "Okay, deferred.",
+            tasks_path=obs_dir / "tasks.md",
+            vocab_path=obs_dir / "vocab.md",
+        )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 2. The panel cluster appears with all five defers.
+        resp = await client.get("/api/patterns/clusters")
+        assert resp.status_code == 200
+        defer_clusters = [c for c in resp.json()["clusters"] if c["kind"] == "task:defer"]
+        assert len(defer_clusters) == 1, f"expected 1 task:defer cluster: {resp.json()}"
+        cluster = defer_clusters[0]
+        assert cluster["count"] == 5
+        assert cluster["tier"] == 1
+
+        # 3. Click Confirm in the panel.
+        confirm = await client.post(
+            f"/api/patterns/clusters/{cluster['id']}/tier", json={"tier": 2}
+        )
+        assert confirm.status_code == 200
+
+        # The panel reflects the confirm on the next load.
+        resp2 = await client.get("/api/patterns/clusters")
+        updated = next(c for c in resp2.json()["clusters"] if c["id"] == cluster["id"])
+        assert updated["tier"] == 2
+
+    # 4. The next relevant turn includes the inline hint above the response
+    #    (recall unavailable → confirmed-cluster fallback supplies the hint).
+    with patch("services.pattern_watcher._call_recall_fault", return_value=None):
+        hint = pw_mod.read_context_for_turn(
+            "create a P3 task to fix the formatting", tiers_path=tiers_file
+        )
+    assert hint is not None
+    assert "WHAT MYOS HAS LEARNED" in hint
+    assert cluster["label"] in hint
+
+
 @pytest.mark.asyncio
 async def test_promote_tier_failure_still_returns_ok(obs_dir, monkeypatch):
     """If ostk decide (promote_tier) fails but store_tier succeeds, still return ok=True.

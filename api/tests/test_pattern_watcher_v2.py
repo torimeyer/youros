@@ -227,38 +227,83 @@ def test_read_context_returns_none_when_ostk_not_found() -> None:
 # ---------------------------------------------------------------------------
 
 def test_integration_recall_round_trip(tmp_path: Path) -> None:
-    """Write a bullet to a temp dir, wait up to 500ms for ingest, query via recall.
+    """→1837 — temp observations dir + temp ostk-recall corpus, real round trip.
 
-    This test requires ostk-recall to be running and configured. It is skipped if
-    the ostk-recall binary is not available.
+    Writes a uniquely-tagged bullet BEFORE any ingest runs (the queued backlog),
+    runs `ostk-recall scan` against an isolated config, and retrieves the chunk
+    back through `ostk-recall inspect`. Proves: bullet write → ingest → query
+    round trip, and that observations queued while no watcher was running
+    ingest on the next scan (the backlog half of the resilience AC).
+
+    Skipped only when the ostk-recall binary is not installed on this machine.
     """
     import shutil
+    import sqlite3
 
-    ostk_recall = shutil.which("ostk-recall") or "/Users/torimeyer/.local/bin/ostk-recall"
-    if not Path(ostk_recall).exists():
+    ostk_recall = shutil.which("ostk-recall")
+    if not ostk_recall:
         pytest.skip("ostk-recall not available")
 
-    # Write a uniquely-tagged observation bullet to the configured observations dir
-    obs_dir = Path.home() / "myos" / "observations"
-    obs_dir.mkdir(parents=True, exist_ok=True)
-    marker = f"integration-test-{int(time.time())}"
-    bullet = f"- {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} task:defer reason=\"{marker}\"\n"
-    test_file = obs_dir / "_test_round_trip.md"
-    test_file.write_text(bullet)
+    obs_dir = tmp_path / "observations"
+    obs_dir.mkdir()
+    corpus_root = tmp_path / "corpus-root"
+    corpus_root.mkdir()
 
+    # Reuse the machine's shared model cache so the test never downloads anything.
+    shared_models = Path.home() / ".local" / "share" / "ostk-recall" / "models"
+    if shared_models.exists():
+        (corpus_root / "models").symlink_to(shared_models)
+
+    config = tmp_path / "config.toml"
+    config.write_text(
+        "[corpus]\n"
+        f'root = "{corpus_root}"\n\n'
+        "[embedder]\n"
+        'model = "minishlab/potion-retrieval-32M"\n\n'
+        "[reranker]\n"
+        "enabled = false\n\n"
+        "[watch]\n"
+        "enabled = false\n\n"
+        "[[sources]]\n"
+        'kind = "markdown"\n'
+        'project = "observations"\n'
+        f'paths = ["{obs_dir}"]\n'
+    )
+
+    # Bullet written before any ingest runs — this is the queued backlog.
+    marker = f"integration-marker-{int(time.time())}"
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    (obs_dir / "tasks.md").write_text(f'- {ts} task:defer reason="{marker}"\n')
+
+    init = subprocess.run(
+        [ostk_recall, "init", "--config", str(config)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert init.returncode == 0, f"init failed:\n{init.stderr[-2000:]}"
+
+    scan = subprocess.run(
+        [ostk_recall, "scan", "--config", str(config)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert scan.returncode == 0, f"scan failed:\n{scan.stderr[-2000:]}"
+    scan_out = scan.stdout + scan.stderr
+    assert "upserted=1" in scan_out, f"bullet not ingested:\n{scan_out[-2000:]}"
+
+    conn = sqlite3.connect(corpus_root / "ingest.sqlite")
     try:
-        # Give the watcher up to 500ms to ingest
-        time.sleep(0.5)
-
-        # Query via ostk-recall (or via the read_context helper if daemon is running)
-        from services.pattern_watcher import read_context_for_turn
-        with patch("services.pattern_watcher._call_recall_fault") as mock_fault:
-            # We can't query the real daemon here without it running,
-            # so we verify the bullet file was written and the reader would be called
-            mock_fault.return_value = bullet.strip()
-            result = read_context_for_turn(marker)
-
-        assert result is not None
-        assert marker in result or "WHAT MYOS HAS LEARNED" in result
+        rows = conn.execute(
+            "select chunk_id from ingest_chunks where source_id='tasks.md'"
+        ).fetchall()
     finally:
-        test_file.unlink(missing_ok=True)
+        conn.close()
+    assert len(rows) == 1, f"expected 1 ingested chunk, got {rows}"
+
+    inspect = subprocess.run(
+        [ostk_recall, "inspect", rows[0][0], "--config", str(config)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert inspect.returncode == 0, f"inspect failed:\n{inspect.stderr[-2000:]}"
+    assert marker in inspect.stdout, (
+        f"round trip failed — marker not retrievable:\n{inspect.stdout[-2000:]}"
+    )
+    assert '"project": "observations"' in inspect.stdout
