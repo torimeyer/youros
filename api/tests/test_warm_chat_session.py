@@ -701,3 +701,49 @@ class TestWarmProcStrictMcpConfig:
         idx = captured_args.index("--input-format")
         assert captured_args[idx + 1] == "stream-json"
         assert "--strict-mcp-config" in captured_args
+
+    @pytest.mark.asyncio
+    async def test_warm_proc_cwd_is_home_not_repo_root(self):
+        """Warm process starts in home dir so CLAUDE.md boot protocol is suppressed.
+
+        With cwd=_REPO_ROOT the CLI auto-loads CLAUDE.md and executes the boot
+        protocol (ostk boot + file writes + ToolSearch) before answering, adding
+        ~19 s to every cold turn. Home dir has no CLAUDE.md so the model uses
+        the system-prompt framing ("already run, do not run again") instead.
+        """
+        from pathlib import Path as _Path
+        import services.claude_code_provider as _ccp
+
+        tab_id = "tab-cwd-check"
+        fake = FakeWarmProcess([_turn_lines("ok")])
+        captured_kwargs: dict = {}
+
+        async def _exec(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return fake
+
+        with patch(
+            "services.claude_code_provider.asyncio.create_subprocess_exec",
+            side_effect=_exec,
+        ):
+            patches = _patch_standard_deps()
+            for p in patches:
+                p.start()
+            try:
+                ws = FakeWebSocket()
+                await stream_chat(
+                    [{"role": "user", "content": "hello"}],
+                    ws,
+                    tab_id=tab_id,
+                )
+            finally:
+                for p in patches:
+                    p.stop()
+
+        cwd = captured_kwargs.get("cwd")
+        assert cwd == str(_Path.home()), (
+            f"warm process cwd must be home dir to suppress CLAUDE.md boot protocol; got {cwd!r}"
+        )
+        assert cwd != str(_ccp._REPO_ROOT), (
+            "warm process must NOT start in _REPO_ROOT (CLAUDE.md there triggers 19-s boot overhead)"
+        )

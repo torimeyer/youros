@@ -138,7 +138,19 @@ async def _get_or_start_warm_proc(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=_build_subprocess_env(),
-            cwd=str(_REPO_ROOT),
+            # Use home dir, NOT _REPO_ROOT. With cwd=_REPO_ROOT the CLI
+            # auto-loads CLAUDE.md as authoritative project instructions and
+            # runs the full boot protocol (ostk boot + file write + ostk
+            # version + ToolSearch) before answering — adding ~19 s to the
+            # first cold turn. The boot protocol instructions also appear in
+            # the --append-system-prompt (via _project_claude_md_context)
+            # but there they are framed by "already run, do not run again",
+            # so the model skips re-execution. The CLAUDE.md *file* in cwd
+            # overrides that note because Claude Code treats project files
+            # as higher-priority than the system prompt. Home dir contains
+            # no CLAUDE.md, so the model honours the system-prompt framing
+            # and the boot overhead disappears.
+            cwd=str(Path.home()),
             limit=32 * 1024 * 1024,
         )
         _warm_procs[tab_id] = proc
