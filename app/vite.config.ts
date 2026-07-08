@@ -55,6 +55,33 @@ const backendAgent = new https.Agent({
   rejectUnauthorized: false,
 })
 
+// →2521 console.error writes synchronously when vite's stderr is a TTY.
+// When 50+ ECONNRESET proxy errors fire simultaneously (backend restart),
+// the 4 KB PTY kernel buffer fills; subsequent writes block until the
+// terminal emulator reads. Under heavy background load (pytest + agents
+// competing for CPU), reads are slow — each blocked write holds the Node.js
+// event loop, new TLS handshakes queue up, and curl times out (exit 28,
+// http_code 000) even though the vite process stays alive and listening.
+// Fix: one log line per 5-second burst window; the suppressed count prints
+// at the start of the next window so nothing is silently discarded.
+let _proxyLogTs = 0
+let _proxyLogBurst = 0
+function proxyErrLog(prefix: string, err: unknown) {
+  const now = Date.now()
+  if (now - _proxyLogTs > 5_000) {
+    if (_proxyLogBurst > 1) {
+      // eslint-disable-next-line no-console
+      console.error(`${prefix} (${_proxyLogBurst - 1} similar suppressed)`)
+    }
+    // eslint-disable-next-line no-console
+    console.error(prefix, (err as Error)?.message || err)
+    _proxyLogTs = now
+    _proxyLogBurst = 1
+  } else {
+    _proxyLogBurst++
+  }
+}
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   // →1798 Vite 8 blank-page fix: three-part defence against CJS chunk hash
@@ -131,8 +158,7 @@ export default defineConfig({
             // sidebar health check can flip red in 2s (needle 286)
             // instead of waiting on the default 30 second client
             // timeout.
-            // eslint-disable-next-line no-console
-            console.error('[vite proxy /api] error:', err?.message || err)
+            proxyErrLog('[vite proxy /api] error:', err)
             try {
               if (res && 'writeHead' in res && !res.headersSent) {
                 res.writeHead(502, { 'Content-Type': 'text/plain' })
@@ -160,8 +186,7 @@ export default defineConfig({
         agent: backendAgent,
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {
-            // eslint-disable-next-line no-console
-            console.error('[vite proxy /ws] error:', err?.message || err)
+            proxyErrLog('[vite proxy /ws] error:', err)
             try {
               if (res && 'writeHead' in res && !res.headersSent) {
                 res.writeHead(502, { 'Content-Type': 'text/plain' })
