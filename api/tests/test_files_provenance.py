@@ -16,7 +16,7 @@ def client():
 
 
 def test_timeline_empty_dir(client, tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("YOUROS_HOME", str(tmp_path / ".youros"))
     (tmp_path / ".youros" / "files").mkdir(parents=True, exist_ok=True)
     resp = client.get("/api/files/timeline")
     assert resp.status_code == 200
@@ -24,14 +24,14 @@ def test_timeline_empty_dir(client, tmp_path, monkeypatch):
 
 
 def test_timeline_missing_dir(client, tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("YOUROS_HOME", str(tmp_path / ".youros"))
     resp = client.get("/api/files/timeline")
     assert resp.status_code == 200
     assert resp.json() == {"files": []}
 
 
 def test_timeline_returns_files(client, tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("YOUROS_HOME", str(tmp_path / ".youros"))
     files_dir = tmp_path / ".youros" / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     (files_dir / "report.md").write_text("# Report")
@@ -49,7 +49,7 @@ def test_timeline_returns_files(client, tmp_path, monkeypatch):
 
 
 def test_timeline_includes_sidecar(client, tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("YOUROS_HOME", str(tmp_path / ".youros"))
     files_dir = tmp_path / ".youros" / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     target = files_dir / "output.md"
@@ -72,7 +72,7 @@ def test_timeline_includes_sidecar(client, tmp_path, monkeypatch):
 
 
 def test_timeline_excludes_sidecar_files(client, tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("YOUROS_HOME", str(tmp_path / ".youros"))
     files_dir = tmp_path / ".youros" / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     (files_dir / "report.md").write_text("# Report")
@@ -85,7 +85,7 @@ def test_timeline_excludes_sidecar_files(client, tmp_path, monkeypatch):
 
 
 def test_timeline_sorted_newest_first(client, tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("YOUROS_HOME", str(tmp_path / ".youros"))
     files_dir = tmp_path / ".youros" / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     old_f = files_dir / "old.md"
@@ -101,7 +101,7 @@ def test_timeline_sorted_newest_first(client, tmp_path, monkeypatch):
 
 
 def test_timeline_limit(client, tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("YOUROS_HOME", str(tmp_path / ".youros"))
     files_dir = tmp_path / ".youros" / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     for i in range(5):
@@ -112,7 +112,7 @@ def test_timeline_limit(client, tmp_path, monkeypatch):
 
 
 def test_timeline_path_field_is_absolute(client, tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("YOUROS_HOME", str(tmp_path / ".youros"))
     files_dir = tmp_path / ".youros" / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     (files_dir / "report.md").write_text("hello")

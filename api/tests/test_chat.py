@@ -3243,7 +3243,8 @@ class TestGetPriorMessages:
 class TestBuildMemoryContext:
     """Tests for the build_memory_context function in chat.py."""
 
-    def test_returns_context_when_prior_messages_exist(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_returns_context_when_prior_messages_exist(self, tmp_path):
         from services.chat_history_store import ChatHistoryStore
         path = tmp_path / "chat_history.json"
         store = ChatHistoryStore(path=path)
@@ -3268,18 +3269,20 @@ class TestBuildMemoryContext:
         with patch("routers.chat.chat_history_store", store), \
              patch("routers.chat.settings_store") as mock_settings:
             mock_settings.get.return_value = True
-            result = build_memory_context(current_tab_id="tab-new")
+            result = await build_memory_context(current_tab_id="tab-new")
 
         # Tab isolation: build_memory_context must never inject cross-tab messages
         assert result == []
 
-    def test_returns_empty_when_disabled(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_disabled(self, tmp_path):
         with patch("routers.chat.settings_store") as mock_settings:
             mock_settings.get.return_value = False
-            result = build_memory_context(current_tab_id="tab-new")
+            result = await build_memory_context(current_tab_id="tab-new")
         assert result == []
 
-    def test_returns_empty_when_no_prior_tabs(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_no_prior_tabs(self, tmp_path):
         from services.chat_history_store import ChatHistoryStore
         path = tmp_path / "chat_history.json"
         store = ChatHistoryStore(path=path)
@@ -3296,7 +3299,7 @@ class TestBuildMemoryContext:
         with patch("routers.chat.chat_history_store", store), \
              patch("routers.chat.settings_store") as mock_settings:
             mock_settings.get.return_value = True
-            result = build_memory_context(current_tab_id="tab-only")
+            result = await build_memory_context(current_tab_id="tab-only")
         assert result == []
 
 

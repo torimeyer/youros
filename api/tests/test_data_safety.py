@@ -15,6 +15,20 @@ from pathlib import Path
 
 import pytest
 
+from services.youros_paths import youros_home
+
+
+@pytest.fixture(autouse=True)
+def _restore_settings_path_for_data_safety(monkeypatch):
+    """Override the per-test SETTINGS_PATH redirect from conftest (→2492/→2520).
+
+    conftest redirects SETTINGS_PATH to a per-test tmp dir for isolation.
+    The data-safety tests need to see the canonical session value
+    (youros_home() / 'settings.json') so the canonical-location check passes.
+    """
+    import services.settings_store as _ss
+    monkeypatch.setattr(_ss, "SETTINGS_PATH", youros_home() / "settings.json")
+
 # The repo root is three levels up from this file: api/tests/.. -> api -> repo
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -118,8 +132,7 @@ def test_task_suggestions_dismissed_path_is_outside_repo():
         f"task_suggestions.DISMISSED_PATH = {path} lives inside the repo. "
         "Move it under ~/.youros/ so user data is safe from git pull."
     )
-    home = Path.home().resolve()
-    expected_prefix = home / ".youros"
+    expected_prefix = youros_home().resolve()
     try:
         path.resolve().relative_to(expected_prefix)
     except ValueError:
@@ -177,8 +190,7 @@ def test_agent_patterns_proven_templates_path_is_outside_repo():
         f"agent_patterns.PROVEN_TEMPLATES_PATH = {path} lives inside the repo. "
         "Move it under ~/.youros/ so user data is safe from git pull."
     )
-    home = Path.home().resolve()
-    expected_prefix = home / ".youros"
+    expected_prefix = youros_home().resolve()
     try:
         path.resolve().relative_to(expected_prefix)
     except ValueError:
@@ -195,8 +207,7 @@ def test_myos_home_dir_is_the_canonical_location():
     you intentionally pick a different home-directory location (e.g.
     ~/.local/share/myos/), update this test.
     """
-    home = Path.home().resolve()
-    expected_prefix = home / ".youros"
+    expected_prefix = youros_home().resolve()
     for module_name, const_name in STORE_PATH_CONSTANTS.items():
         module = importlib.import_module(module_name)
         path: Path = getattr(module, const_name)

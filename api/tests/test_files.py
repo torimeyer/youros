@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -146,7 +147,8 @@ async def test_recent_files_includes_local_md_files(client):
         )
 
         with patch("routers.projects.TORIOS_DIR", workspace_path), \
-             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+             patch("routers.projects.Path.home", return_value=Path(fake_home)), \
+             patch.dict(os.environ, {"YOUROS_HOME": str(Path(fake_home) / ".youros")}):
             resp = await client.get("/api/docs/recent")
 
     assert resp.status_code == 200
@@ -200,7 +202,8 @@ async def test_recent_files_includes_agent_output_md_files(client):
         )
 
         with patch("routers.projects.TORIOS_DIR", workspace_path), \
-             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+             patch("routers.projects.Path.home", return_value=Path(fake_home)), \
+             patch.dict(os.environ, {"YOUROS_HOME": str(Path(fake_home) / ".youros")}):
             resp = await client.get("/api/docs/recent")
 
     assert resp.status_code == 200

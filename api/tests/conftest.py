@@ -141,6 +141,29 @@ def _isolate_settings_store(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _reset_text_bridge_pollers():
+    """Reset TextBridge singleton poller slots between tests (→2520).
+
+    test_settings.py::test_inbound_imessage_poller_gated_by_setting installs a
+    _FakePoller object that lacks .stop(), .is_self_chat(), and .mark_sent().
+    The →2505 change calls self.stop() on entry to start(), so any subsequent
+    test that calls text_bridge.start() hits an AttributeError on _FakePoller.
+    This fixture snapshots and restores the poller slots so the singleton is
+    always clean at the start of each test.
+    """
+    try:
+        import services.text_bridge as tb_mod
+        orig_imessage = tb_mod.text_bridge._imessage_poller
+        orig_telegram = tb_mod.text_bridge._telegram_poller
+    except Exception:
+        yield
+        return
+    yield
+    tb_mod.text_bridge._imessage_poller = orig_imessage
+    tb_mod.text_bridge._telegram_poller = orig_telegram
+
+
+@pytest.fixture(autouse=True)
 def _isolate_tasks_ostk(tmp_path, monkeypatch):
     """Redirect ostk.cwd and PROJECT_ROOT to a tmp path for every test (→1323).
 

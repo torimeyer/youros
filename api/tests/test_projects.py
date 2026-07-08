@@ -451,7 +451,8 @@ async def test_read_file_accepts_absolute_myos_files_path(client):
 
         try:
             with patch("routers.projects.TORIOS_DIR", tmppath), \
-                 patch("routers.projects.Path.home", return_value=Path(fake_home)):
+                 patch("routers.projects.Path.home", return_value=Path(fake_home)), \
+                 patch.dict(os.environ, {"YOUROS_HOME": str(Path(fake_home) / ".youros")}):
                 resp = await client.get(
                     f"/api/files/read?path={target}"
                 )
@@ -520,7 +521,8 @@ async def test_recent_docs_and_preview_are_consistent(client):
 
         try:
             with patch("routers.projects.TORIOS_DIR", tmppath), \
-                 patch("routers.projects.Path.home", return_value=Path(fake_home)):
+                 patch("routers.projects.Path.home", return_value=Path(fake_home)), \
+                 patch.dict(os.environ, {"YOUROS_HOME": str(Path(fake_home) / ".youros")}):
                 recent_resp = await client.get("/api/docs/recent")
                 assert recent_resp.status_code == 200
                 files = recent_resp.json()["files"]
@@ -575,7 +577,8 @@ async def test_automation_output_is_previewable(client):
 
         try:
             with patch("routers.projects.TORIOS_DIR", tmppath), \
-                 patch("routers.projects.Path.home", return_value=Path(fake_home)):
+                 patch("routers.projects.Path.home", return_value=Path(fake_home)), \
+                 patch.dict(os.environ, {"YOUROS_HOME": str(Path(fake_home) / ".youros")}):
                 resp = await client.get(f"/api/files/read?path={written}")
 
             assert resp.status_code == 200, resp.text
@@ -741,7 +744,8 @@ async def test_delete_recent_doc_in_myos_files(client):
         target.write_text("# Roadmap\n\nPlan.")
 
         with patch("routers.projects.TORIOS_DIR", tmppath), \
-             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+             patch("routers.projects.Path.home", return_value=Path(fake_home)), \
+             patch.dict(os.environ, {"YOUROS_HOME": str(Path(fake_home) / ".youros")}):
             resp = await client.delete(
                 f"/api/docs/recent?path={target}"
             )

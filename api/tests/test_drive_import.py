@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -127,6 +128,7 @@ class TestImportFromDrive:
                 side_effect=lambda buf, req: _FakeDownloader(buf, fake_bytes),
             ),
             patch("pathlib.Path.home", return_value=tmp_path),
+            patch.dict(os.environ, {"YOUROS_HOME": str(tmp_path / ".youros")}),
         ):
             resp = client.post(
                 "/api/files/import-from-drive",
