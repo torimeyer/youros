@@ -65,8 +65,17 @@ def install_nonblocking_logging() -> Optional[logging.handlers.QueueListener]:
                 sink_handlers.append(h)
                 seen.add(id(h))
 
+    # If no handlers exist anywhere (fresh interpreter, test with no prior
+    # setup), add a stderr sink so myos.chat.* records have somewhere to go.
+    # Without this the function returned None and never installed the queue,
+    # leaving the myos namespace with no sink at all.
     if not sink_handlers:
-        return None
+        fallback = logging.StreamHandler()
+        fallback.setFormatter(
+            logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
+        )
+        root.addHandler(fallback)
+        sink_handlers.append(fallback)
 
     # SimpleQueue is unbounded and thread-safe; put_nowait never blocks, so a
     # stalled stderr can never back-pressure onto the event loop.
@@ -80,6 +89,16 @@ def install_nonblocking_logging() -> Optional[logging.handlers.QueueListener]:
     )
     listener.start()
     _listener = listener
+
+    # myos.chat.* loggers emit at INFO level (e.g. claude_phase=first_token).
+    # The root logger in production has level=WARNING; without an explicit
+    # level on the "myos" namespace those INFO records are filtered before any
+    # handler sees them. Setting DEBUG here lets the effective level for all
+    # myos.* loggers resolve to DEBUG so timing diagnostics reach the log.
+    myos_log = logging.getLogger("myos")
+    if myos_log.level == logging.NOTSET:
+        myos_log.setLevel(logging.DEBUG)
+
     return listener
 
 
