@@ -47,10 +47,11 @@ SAA_KINDS: tuple[str, ...] = ("bug-fix", "feature", "cosmetic", "backend", "gene
 # ---------------------------------------------------------------------------
 
 _PREAMBLE = """\
-Use mcp__ostk__* tools (shell, fs_read, fs_write, edit, search). If deferred, \
-reload via ToolSearch. Prefer ostk over native Bash/Read/Edit/Write/Grep/Glob. \
-Never call grep — use mcp__ostk__search. Register, heartbeat every 60 s, \
-long-poll /nudges, post /reply for each nudge, call /complete when done.\
+Use mcp__ostk__bash (not native Bash), mcp__ostk__read, mcp__ostk__fs_ops, \
+mcp__ostk__search. If deferred, reload via ToolSearch. Run commands directly \
+with mcp__ostk__bash — do NOT spawn helper agents just to run a single command. \
+Register, heartbeat every 60 s, long-poll /nudges, post /reply for each nudge, \
+call /complete when done.\
 """
 
 # ---------------------------------------------------------------------------

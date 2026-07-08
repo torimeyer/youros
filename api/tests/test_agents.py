@@ -5236,10 +5236,13 @@ def _assert_has_full_envelope(decoded: str) -> None:
     assert "plan your approach" in decoded
     assert "Build the solution" in decoded
 
-    # TOOL list must appear.
-    assert "shell" in decoded
-    assert "file:read" in decoded
-    assert "file:write" in decoded
+    # TOOL list must appear with actual MCP names (→2522: abstract agentfile
+    # names like "shell" caused agents to spawn throwaway helpers).
+    assert "mcp__ostk__bash" in decoded
+    assert "mcp__ostk__read" in decoded
+    assert "mcp__ostk__fs_ops" in decoded
+    # Brief must tell agents NOT to spawn helper agents for single commands.
+    assert "do NOT spawn helper agents" in decoded or "Do NOT spawn helper agents" in decoded
 
     # LIMIT lines must appear in plain language.
     assert "200000" in decoded  # tokens

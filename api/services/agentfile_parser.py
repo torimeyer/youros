@@ -59,6 +59,24 @@ MANIFEST_PATH = AGENTS_DIR / "manifest.json"
 
 _manifest_cache: Optional[dict] = None
 
+# Maps agentfile TOOL directive names to their actual Claude Code / ostk MCP
+# tool names. Agentfile uses abstract short names (e.g. "shell", "file:read")
+# that look like intent declarations, not like callable tool identifiers.
+# When build_template_instructions emits these raw, agents try to call a tool
+# named "shell" — which doesn't exist — and fall back to spawning one-shot
+# helper agents (run-curl-command, execute-bash-command, etc.) to run single
+# commands. The mapping below translates to the real mcp__ostk__* names so
+# the generated brief is unambiguous. (→2522)
+_AGENTFILE_TOOL_TO_MCP: dict[str, str] = {
+    "shell": "mcp__ostk__bash",
+    "file:read": "mcp__ostk__read",
+    "file:write": "mcp__ostk__fs_ops",
+    "fs_read": "mcp__ostk__read",
+    "fs_write": "mcp__ostk__fs_ops",
+    "edit": "mcp__ostk__fs_ops",
+    "search": "mcp__ostk__search",
+}
+
 
 def _load_manifest() -> dict:
     """Load agents/manifest.json, cached after first read."""
@@ -854,10 +872,15 @@ def build_template_instructions(config: AgentfileConfig) -> str:
         )
 
     if config.tools:
-        tool_list = "\n".join(f"  - {tool}" for tool in config.tools)
+        tool_list = "\n".join(
+            f"  - {_AGENTFILE_TOOL_TO_MCP.get(tool, tool)}"
+            for tool in config.tools
+        )
         parts.append(
             "### Tools you can use\n\n"
-            f"{tool_list}"
+            f"{tool_list}\n\n"
+            "Run commands directly with these tools. "
+            "Do NOT spawn helper agents just to run a single command."
         )
 
     if config.mcp_servers:

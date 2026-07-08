@@ -174,3 +174,32 @@ class TestGenerateSaaBriefContract:
                 f"Kind '{kind}' brief must include ostk-first preamble so "
                 f"sub-agents use kernel tools, not native Bash/Read/Edit."
             )
+
+    def test_brief_uses_correct_tool_names_not_stale_aliases(self):
+        """The preamble must name the current mcp__ostk__bash tool, not stale aliases.
+
+        Before →2522, the preamble said 'mcp__ostk__shell' and 'fs_read/fs_write'
+        which are old/non-existent names. Agents tried to call those, failed, then
+        fell back to spawning one-shot helper agents to run single commands.
+        """
+        for kind in SAA_KINDS:
+            brief = generate_saa_brief(kind)
+            assert "mcp__ostk__bash" in brief, (
+                f"Kind '{kind}' brief must say mcp__ostk__bash not mcp__ostk__shell."
+            )
+            assert "mcp__ostk__shell" not in brief, (
+                f"Kind '{kind}' brief must not reference stale mcp__ostk__shell alias."
+            )
+
+    def test_brief_forbids_spawning_helpers_for_single_commands(self):
+        """The preamble must tell agents not to spawn helpers for single commands.
+
+        This is the fix for →2522: agents were spawning 'run-curl-command' etc.
+        because they could not find tools named 'shell' or 'mcp__ostk__shell'.
+        """
+        for kind in SAA_KINDS:
+            brief = generate_saa_brief(kind)
+            lower = brief.lower()
+            assert "do not spawn helper" in lower or "not spawn helper" in lower, (
+                f"Kind '{kind}' brief must forbid spawning helpers for single commands."
+            )

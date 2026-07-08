@@ -946,6 +946,76 @@ def test_build_template_instructions_omits_mcp_section_when_empty():
     assert "MCP servers" not in instructions
 
 
+# ---- Tool name mapping tests (→2522) ----------------------------------------
+# Root cause: abstract agentfile tool names ("shell", "file:read") were emitted
+# verbatim in the spawn brief. Agents tried to call a tool named "shell", found
+# nothing, and fell back to spawning one-shot helper agents to run single
+# commands (run-curl-command, execute-bash-command, etc.). The fix maps these
+# abstract names to their actual mcp__ostk__* equivalents.
+
+
+def test_build_template_instructions_maps_shell_to_mcp_ostk_bash():
+    """TOOL shell in the agentfile must appear as mcp__ostk__bash in the brief."""
+    config = AgentfileConfig()
+    config.tools = ["shell"]
+    instructions = build_template_instructions(config)
+    assert "mcp__ostk__bash" in instructions, (
+        "Brief must say mcp__ostk__bash so agents call the real tool. "
+        "Raw 'shell' causes agents to spawn throwaway helper agents (→2522)."
+    )
+    assert "shell" not in instructions.replace("mcp__ostk__bash", ""), (
+        "Raw 'shell' must not appear in the brief after mapping."
+    )
+
+
+def test_build_template_instructions_maps_file_read_to_mcp_ostk_read():
+    """TOOL file:read must appear as mcp__ostk__read in the brief."""
+    config = AgentfileConfig()
+    config.tools = ["file:read"]
+    instructions = build_template_instructions(config)
+    assert "mcp__ostk__read" in instructions
+
+
+def test_build_template_instructions_maps_file_write_to_mcp_ostk_fs_ops():
+    """TOOL file:write must appear as mcp__ostk__fs_ops in the brief."""
+    config = AgentfileConfig()
+    config.tools = ["file:write"]
+    instructions = build_template_instructions(config)
+    assert "mcp__ostk__fs_ops" in instructions
+
+
+def test_build_template_instructions_tool_section_includes_no_helper_warning():
+    """When a TOOL section is present, the brief must forbid helper-agent spawns."""
+    config = AgentfileConfig()
+    config.tools = ["shell", "file:read"]
+    instructions = build_template_instructions(config)
+    lower = instructions.lower()
+    assert "do not spawn helper" in lower or "not spawn helper" in lower, (
+        "Brief must explicitly tell agents not to spawn one-shot helpers (→2522)."
+    )
+
+
+def test_build_template_instructions_full_builder_tools():
+    """The full builder agentfile tool set maps correctly end-to-end."""
+    config = AgentfileConfig()
+    config.tools = ["shell", "file:read", "file:write"]
+    instructions = build_template_instructions(config)
+    assert "mcp__ostk__bash" in instructions
+    assert "mcp__ostk__read" in instructions
+    assert "mcp__ostk__fs_ops" in instructions
+    assert "mcp__ostk__shell" not in instructions, (
+        "mcp__ostk__shell is a stale non-existent alias — must not appear."
+    )
+
+
+def test_build_template_instructions_unknown_tool_passes_through():
+    """A TOOL name with no mapping is emitted unchanged."""
+    config = AgentfileConfig()
+    config.tools = ["custom-tool-xyz"]
+    instructions = build_template_instructions(config)
+    assert "custom-tool-xyz" in instructions
+
+
 # ---- Manifest sidecar tests (→1157) ----------------------------------------
 
 
