@@ -45,7 +45,8 @@ def _spec_with_bare_ref(path: Path) -> None:
         "## Solution\nFrontend: `SpecReview.tsx` reads the `github_pr` field.\n"
         "Full path also present: `app/src/components/SpecReview.tsx`.\n"
         "Page: `app/src/pages/GitHub.tsx`.\n"
-        "Backend: `api/routers/github.py`, `api/services/github.py`.\n\n"
+        "Backend: `api/routers/github.py`, `api/services/github.py`.\n"
+        "Tracked by →2163.\n\n"
         "## Success criteria\n- Badge shows PR state.\n\n"
         "## Acceptance criteria\n- [ ] Badge is read-only.\n"
     )
@@ -60,7 +61,8 @@ def test_bare_filename_does_not_block_shipped(repo: Path, tmp_path: Path) -> Non
     """
     spec = tmp_path / "spec.md"
     _spec_with_bare_ref(spec)
-    result = compute_shipped(spec, repo_root=repo, needle_statuses={})
+    # →2487: is_shipped requires at least one closed needle; added →2163 to the spec.
+    result = compute_shipped(spec, repo_root=repo, needle_statuses={"2163": "closed"})
     assert "SpecReview.tsx" not in result.missing_files, (
         f"Bare filename 'SpecReview.tsx' must not appear in missing_files. "
         f"Got: {result.missing_files}"

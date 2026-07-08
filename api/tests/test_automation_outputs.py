@@ -423,12 +423,12 @@ async def test_recent_docs_includes_fleet_artifact(tmp_path: Path):
                 )
             assert resp.status_code == 200
 
-            # Point Path.home() at the fake home so /docs/recent scans
+            # Point YOUROS_HOME at the fake home so /docs/recent scans
             # the same files_dir we just wrote to.
+            # /docs/recent uses youros_home() which reads YOUROS_HOME, not Path.home().
             import os as _os
-            with patch.dict(_os.environ, {"HOME": str(fake_home)}):
-                with patch("pathlib.Path.home", return_value=fake_home):
-                    resp2 = await client.get("/api/docs/recent")
+            with patch.dict(_os.environ, {"YOUROS_HOME": str(fake_home / ".youros")}):
+                resp2 = await client.get("/api/docs/recent")
             assert resp2.status_code == 200
             files = resp2.json().get("files", [])
             names = [f["name"] for f in files]

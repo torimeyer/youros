@@ -28,7 +28,11 @@ def test_demo_mode_inactive_by_default(monkeypatch):
 def test_demo_mode_active_via_flag_file(monkeypatch):
     m = _agents_mod()
     monkeypatch.delenv("MYOS_DEMO_MODE", raising=False)
-    flag = m.os.path.expanduser("~/.youros/.demo_mode")
+    # Production code uses youros_home() / ".demo_mode"; conftest sets
+    # YOUROS_HOME to a session temp dir, so we derive the expected path
+    # from youros_home() rather than expanduser("~/.youros/...").
+    from services.youros_paths import youros_home
+    flag = str(youros_home() / ".demo_mode")
     monkeypatch.setattr(m.os.path, "exists", lambda p: p == flag)
     assert m._demo_mode_active() is True
 
