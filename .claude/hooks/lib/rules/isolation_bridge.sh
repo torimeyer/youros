@@ -156,7 +156,18 @@ ${PROMPT}"
   _UG_MATCH=$(DESCRIPTION="$DESCRIPTION" PROMPT="$PROMPT" python3 -c "
 import os, re
 hay = os.environ.get('DESCRIPTION','') + ' ' + os.environ.get('PROMPT','')
-if re.search(r'\b(upstream|ostk|scott)\b', hay, re.IGNORECASE):
+# Real upstream-report intent only (→2538): bare 'ostk' appears in every
+# compliant brief (the mandatory Use-ostk-MCP-tools line, mcp__ostk__*,
+# .ostk/ paths) and 'upstream' shows up in benign phrases like 'upstream
+# dependency'. Trigger on: scott, ostk-kernel, a report-ish verb near
+# 'upstream', or 'upstream <task|bug|issue|report|draft>'.
+if re.search(
+    r'\bscott\b'
+    r'|\bostk-kernel\b'
+    r'|\b(report|file|send|escalate|draft)\w*\b[^.\n]{0,40}\bupstream\b'
+    r'|\bupstream\b[^.\n]{0,40}\b(task|bug|issue|report|draft)\b',
+    hay, re.IGNORECASE,
+):
     print('yes')
 " 2>/dev/null)
   if [ "${_UG_MATCH:-}" = "yes" ]; then
