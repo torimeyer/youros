@@ -14345,3 +14345,68 @@ async def test_ostk_run_force_custom_skips_ostk(monkeypatch):
     assert run_agentfile_called["n"] == 0, (
         "ostk.run_agentfile must NOT be called when YOUROS_SPAWN_FORCE_CUSTOM=1"
     )
+
+
+@pytest.mark.asyncio
+async def test_spawn_refuses_real_subprocess_under_pytest(monkeypatch):
+    """→2603: the bespoke spawn path must never exec a real claude subprocess
+    while running inside pytest.
+
+    Root cause of the throwaway-helper noise: the AC3 tests above mock
+    ostk.run_agentfile but not the bespoke subprocess launch, so every full
+    suite run launched a REAL `claude --print` process (named test-ac3-*)
+    from a pytest tmp dir. Tool-starved there (Bash blocked by hooks, no ostk
+    MCP, no ToolSearch), those processes delegated their register-via-curl
+    bootstrap to throwaway Agent helpers (run-curl-command-*,
+    register-agent-with-new-name, load-shell-tool-via-toolsearch), which the
+    global register-agent.sh hook then published to the live Agents page.
+
+    The guard: when PYTEST_CURRENT_TEST is set and asyncio's
+    create_subprocess_exec is UNPATCHED (a test that mocks it keeps full
+    access to the deeper spawn logic), the endpoint returns 503 instead of
+    launching a real process.
+    """
+    import routers.agents as agents_mod
+    from unittest.mock import patch
+
+    monkeypatch.setenv("YOUROS_SPAWN_FORCE_CUSTOM", "1")
+    monkeypatch.setenv("MYOS_SKIP_RETRO_AGENT_FILES_SAVE", "1")
+    monkeypatch.delenv("YOUROS_SPAWN_ALLOW_REAL_IN_TESTS", raising=False)
+
+    name = "test-2603-no-real-spawn"
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    try:
+        with (
+            patch("services.settings_store.settings_store.get", return_value=False),
+            patch("services.spawn_isolation.decide_isolation", return_value="none"),
+            patch(
+                "services.spawn_isolation.acquire_spawn_locks",
+                return_value=(True, [], []),
+            ),
+        ):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/agents/spawn",
+                    json={"name": name, "prompt": "hello"},
+                )
+
+        assert resp.status_code == 503, (
+            f"spawn must refuse with 503 under pytest, got {resp.status_code}: "
+            f"{resp.text[:300]}"
+        )
+        detail = str(resp.json().get("detail", ""))
+        assert "pytest" in detail.lower(), (
+            f"503 detail must explain the pytest guard, got: {detail[:300]}"
+        )
+    finally:
+        # Belt: if the guard is missing (RED phase) a real claude process was
+        # launched; kill it immediately so the run leaves no helper noise.
+        proc = agents_mod.active_agents.pop(name, None)
+        if proc is not None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
