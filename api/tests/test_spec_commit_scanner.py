@@ -17,7 +17,7 @@ import pytest
 def _make_commits(*messages: str) -> list[dict]:
     """Build a list of fake commit dicts."""
     return [
-        {"hash": f"abc{i:03d}", "author": "Tori Meyer", "message": msg}
+        {"hash": f"abc{i:03d}", "author": "Test User", "message": msg}
         for i, msg in enumerate(messages)
     ]
 

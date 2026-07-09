@@ -50,7 +50,7 @@ def _adf_to_plain(adf: dict | str | None) -> str:
 
     Handles the common node types:
       - text        → the text value
-      - mention     → attrs.text (e.g. "@Tori Meyer")
+      - mention     → attrs.text (e.g. "@Jane Doe")
       - hardBreak   → newline
       - inlineCard  → omitted (URL cards add no readable value)
       - all others  → recurse into 'content' children
