@@ -35,8 +35,8 @@ curl -fsSL https://ostk.ai/install | sh
 ```
 or via the yourOS `install.sh` which downloads from `os-tack/ostk.ai` releases.
 
-**tori's GitHub account** does not currently have collaborator access to `os-tack/haystack`
-(confirmed via `gh api repos/os-tack/haystack/collaborators/torimeyer` → 404).
+**The maintainer's GitHub account** does not currently have collaborator access to `os-tack/haystack`
+(confirmed via `gh api repos/os-tack/haystack/collaborators/OWNER` → 404).
 
 ---
 

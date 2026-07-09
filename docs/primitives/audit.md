@@ -46,7 +46,7 @@ By definition: every audit-emitting call IS the event. The stream contains:
 
 ```bash
 # Annotate the audit stream with a release marker
-ostk note "v3.18.1 cut, GH release URL: https://github.com/torimeyer/myos/releases/tag/v3.18.1"
+ostk note "v3.18.1 cut, GH release URL: https://github.com/OWNER/REPO/releases/tag/v3.18.1"
 
 # Search the audit stream for a specific actor's edits
 ostk search "actor:claude-code-4135" --scope=history
