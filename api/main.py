@@ -111,6 +111,12 @@ async def lifespan(app: FastAPI):
     await install_signal_shutdown_hook()
     from services.provider_detection import warm_provider_cache
     _keep(asyncio.create_task(warm_provider_cache()))
+    # Data-only seed loader (spec S009 Track 0.3): apply any starter
+    # content a downstream distribution dropped into ~/.myos/seeds/.
+    # Runs off the event loop and is fail-open, so a bad seed can only
+    # be logged and skipped, never break startup.
+    from services.seed_loader import apply_seeds
+    _keep(asyncio.create_task(asyncio.to_thread(apply_seeds)))
     from services.ostk import start_clock_refresher
     _keep(await start_clock_refresher())
     from services.reminders import start_reminder_scheduler
