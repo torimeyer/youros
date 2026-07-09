@@ -555,8 +555,13 @@ def _decode_attributed_body(blob: bytes | None) -> str | None:
 
     macOS stores recent message bodies in the attributedBody BLOB column using
     StreamTypedCoder encoding. The text column is NULL for these messages.
-    Format: find the NSString marker, skip 5 metadata bytes, read the length,
-    then decode the UTF-8 content.
+    Format: find the NSString marker, skip 5 metadata bytes, read the length
+    (using NSSerializer's variable-length integer encoding), then decode UTF-8.
+
+    NSSerializer integer encoding after the length indicator byte:
+      0x00–0x7F : direct value (1 byte total, lengths 0–127)
+      0x81 HH LL: 16-bit big-endian (3 bytes total, lengths 128–65535)
+      0x82 ...  : 32-bit big-endian (5 bytes total, lengths > 65535)
     """
     if not blob:
         return None
@@ -569,21 +574,23 @@ def _decode_attributed_body(blob: bytes | None) -> str | None:
         if len(after) < 7:
             return None
         # Skip 5 metadata bytes (class type tag + version + value header).
-        # The 6th byte encodes the string length.
+        # The 6th byte is the NSSerializer integer tag for the string length.
         length_byte = after[5]
         if length_byte <= 0x7F:
             n = length_byte
             text_bytes = after[6:6 + n]
         elif length_byte == 0x81:
+            # 16-bit big-endian: next 2 bytes are the length.
             if len(after) < 8:
-                return None
-            n = after[6]
-            text_bytes = after[7:7 + n]
-        elif length_byte == 0x82:
-            if len(after) < 9:
                 return None
             n = (after[6] << 8) | after[7]
             text_bytes = after[8:8 + n]
+        elif length_byte == 0x82:
+            # 32-bit big-endian: next 4 bytes are the length.
+            if len(after) < 10:
+                return None
+            n = (after[6] << 24) | (after[7] << 16) | (after[8] << 8) | after[9]
+            text_bytes = after[10:10 + n]
         else:
             return None
         text = text_bytes.decode("utf-8", errors="replace")

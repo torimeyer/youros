@@ -11,11 +11,17 @@ def _make_blob(text: str, use_0x81: bool = False) -> bytes:
     """Build a minimal StreamTypedCoder blob wrapping a plain string.
 
     Constructs the NSString section only — enough for the decoder to work.
+    Uses the NSSerializer variable-length integer encoding for the length field:
+      0x00–0x7F : direct (lengths 0–127)
+      0x81 HH LL: 16-bit big-endian (lengths 128–65535)
+      0x82 ...  : 32-bit big-endian (lengths > 65535)
     """
     encoded = text.encode("utf-8")
     n = len(encoded)
-    if use_0x81 or n >= 128:
-        length_field = bytes([0x81, n & 0xFF])
+    if n > 65535:
+        length_field = bytes([0x82, (n >> 24) & 0xFF, (n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF])
+    elif use_0x81 or n >= 128:
+        length_field = bytes([0x81, (n >> 8) & 0xFF, n & 0xFF])
     else:
         length_field = bytes([n])
     # 5 metadata bytes (class type tag + version + value header), then length, then text
@@ -65,6 +71,99 @@ def test_leading_control_chars_stripped():
 def test_truncated_blob_after_nsstring_returns_none():
     """Blob ends immediately after NSString — not enough metadata bytes."""
     assert _decode_attributed_body(b"NSString") is None
+
+
+def test_0x81_length_boundary_128():
+    """A 128-char string uses the 0x81 path with length 128 = 0x0080."""
+    text = "A" * 128
+    blob = _make_blob(text)
+    result = _decode_attributed_body(blob)
+    assert result == text
+
+
+def test_0x81_length_boundary_255():
+    """A 255-char string uses the 0x81 path with length 255 = 0x00FF."""
+    text = "B" * 255
+    blob = _make_blob(text)
+    result = _decode_attributed_body(blob)
+    assert result == text
+
+
+def test_0x81_length_boundary_256():
+    """A 256-char string uses the 0x81 path with length 256 = 0x0100."""
+    text = "C" * 256
+    blob = _make_blob(text)
+    result = _decode_attributed_body(blob)
+    assert result == text
+
+
+# -------------------------------------------------------------------
+# Regression: →2536 — real-format 0x81 blob decoded as garbage "He"
+#
+# Root cause: the 0x81 tag in NSSerializer encodes a 16-bit big-endian
+# length (2 bytes: HH LL). The old code read only 1 byte (HH) as the
+# length, so for a 584-char message it read n=HH=0x02=2 and extracted
+# after[7:9] = [0x48='H', first_text_byte='e'] = "He".
+#
+# Real blob structure for a 584-char message (length=0x0248):
+#   NSString + 5 metadata bytes + 0x81 0x02 0x48 + text...
+#              ^after[0..4]        ^[5]  ^[6]  ^[7]  ^[8..591]
+#
+# Buggy decoder: n = after[6] = 0x02 = 2
+#                text_bytes = after[7:9] = [0x48, text[0]='e'] = "He"
+# Fixed decoder: n = (after[6]<<8)|after[7] = 0x0248 = 584
+#                text_bytes = after[8:8+584] = full message text
+# -------------------------------------------------------------------
+
+# Real-format blob: uses the observed real metadata bytes \x01\x94\x84\x01\x2b
+# (from REAL_BLOB_ROWID5) rather than the synthetic helper's \x01\x95.
+# length = 584 = 0x0248 → tag=0x81, HH=0x02, LL=0x48
+# text starts at after[8]; first char 'e' was misread as part of "He" by old code.
+_REAL_FORMAT_0x81_TEXT = "e" + ("x" * 583)  # 584 chars
+REAL_FORMAT_0x81_BLOB = (
+    b"NSString\x01\x94\x84\x01\x2b"  # 5 observed real metadata bytes
+    b"\x81\x02\x48"                   # 0x81 tag + 16-bit big-endian length 0x0248=584
+    + _REAL_FORMAT_0x81_TEXT.encode("utf-8")
+)
+
+
+def test_real_format_0x81_full_decode():
+    """Real-format 0x81 blob (584 chars) decodes to the full text, not 'He'."""
+    result = _decode_attributed_body(REAL_FORMAT_0x81_BLOB)
+    assert result == _REAL_FORMAT_0x81_TEXT, (
+        f"Expected 584-char text starting with 'e', got {repr(result[:20]) if result else None}"
+    )
+
+
+def test_real_format_0x81_not_garbage():
+    """Decoded result is not the 2-char garbage 'He' from the old buggy path."""
+    result = _decode_attributed_body(REAL_FORMAT_0x81_BLOB)
+    assert result != "He", (
+        "Decoder returned 2-char garbage 'He' — 0x81 tag must read 2 bytes "
+        "big-endian, not 1 byte. The 0x48 at after[7] is the low byte of the "
+        "length 0x0248=584, not the character 'H'."
+    )
+    assert result is not None
+    assert len(result) == 584
+
+
+def test_real_format_0x81_length_512():
+    """A real-format 0x81 blob for a 512-char message decodes correctly.
+
+    length=512=0x0200: tag=0x81, HH=0x02, LL=0x00.
+    Old buggy decoder: n = HH = 2 → reads 2 chars.
+    Fixed decoder:     n = 0x0200 = 512 → reads all 512 chars.
+    """
+    text = "Hello " * 85 + "Hi"  # 510+2 = 512 chars
+    assert len(text) == 512
+    encoded = text.encode("utf-8")
+    blob = (
+        b"NSString\x01\x94\x84\x01\x2b"
+        b"\x81\x02\x00"  # length = 512 = 0x0200
+        + encoded
+    )
+    result = _decode_attributed_body(blob)
+    assert result == text, f"Expected 512-char text, got {repr(result[:30]) if result else None}"
 
 
 # -------------------------------------------------------------------
