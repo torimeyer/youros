@@ -171,7 +171,10 @@ if re.search(
     print('yes')
 " 2>/dev/null)
   if [ "${_UG_MATCH:-}" = "yes" ]; then
-    local _DRAFT_DIR="$HOME/.youros/drafts"
+    # Scott drafts must never land in ~/.youros/drafts or ~/.youros/specs:
+    # the specs API reads both, so they show up as Draft specs in the app
+    # (Tori, 2026-07-09: "keep them out of youros").
+    local _DRAFT_DIR="$HOME/scott-drafts"
     mkdir -p "$_DRAFT_DIR" 2>/dev/null || true
     local _DRAFT_SLUG _DRAFT_DATE _DRAFT_FILE
     _DRAFT_SLUG=$(DESC="$DESCRIPTION" python3 -c "
