@@ -1014,6 +1014,7 @@ _SLASH_HELP_TEXT = (
     "  /commit <message> . Commit with a message\n"
     "  /agents   . Show active and recent agents\n"
     "  /build-spec <slug> . Claim a spec and flip its status to Building\n"
+    "  /remind <what and when> . Set a reminder (e.g. /remind call the vet at 3pm)\n"
     "  /mcp      . Info about MCP server management\n"
     "  /help     . Show this list"
 )
@@ -1131,6 +1132,15 @@ async def _handle_slash_command(text: str, websocket: WebSocket, tab_id: str = "
                     )
             except Exception as exc:
                 result = f"Could not claim spec '{slug}': {exc}"
+
+    elif command == "/remind":
+        if not args.strip():
+            result = "Usage: /remind <what and when>\nExample: /remind call the vet at 3pm"
+        else:
+            handled_remind = await _handle_remind_me(f"remind me to {args}", websocket, tab_id=tab_id)
+            if handled_remind:
+                return True
+            result = "Could not create reminder. Try: /remind call the vet at 3pm"
 
     else:
         result = "Unknown command. Type /help for available commands."

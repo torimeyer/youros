@@ -308,6 +308,49 @@ async def test_chat_reminder_no_time_sends_clarification(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_slash_remind_command_creates_reminder(tmp_path, monkeypatch):
+    """AC2228: /remind <text> slash command creates a reminder, same as 'remind me to <text>'."""
+    import services.reminders as rem
+    store_path = tmp_path / "reminders.json"
+    monkeypatch.setattr(rem, "REMINDERS_PATH", store_path)
+
+    import services.settings_store as ss_mod
+    monkeypatch.setattr(ss_mod.settings_store, "get", lambda k, *a: "UTC" if k in ("time_zone", "timezone") else None)
+
+    from routers.chat import _handle_slash_command
+
+    ws = _FakeWS()
+    handled = await _handle_slash_command("/remind call the vet at 3pm", ws)
+
+    assert handled is True
+    rows = rem._load()
+    assert len(rows) == 1, "reminder should be persisted"
+    assert "call the vet" in rows[0]["text"].lower()
+    token_text = " ".join(ws.tokens())
+    assert "call the vet" in token_text.lower(), f"confirmation missing from reply: {token_text!r}"
+
+
+@pytest.mark.asyncio
+async def test_slash_remind_no_args_shows_usage(tmp_path, monkeypatch):
+    """/remind with no args returns a usage message, creates no reminder."""
+    import services.reminders as rem
+    store_path = tmp_path / "reminders.json"
+    monkeypatch.setattr(rem, "REMINDERS_PATH", store_path)
+
+    from routers.chat import _handle_slash_command
+
+    ws = _FakeWS()
+    handled = await _handle_slash_command("/remind", ws)
+
+    assert handled is True
+    rows = rem._load()
+    assert rows == [], "no reminder should be created for empty /remind"
+    # usage message should arrive on a text or token frame
+    all_data = " ".join(m.get("data", "") for m in ws.messages)
+    assert "usage" in all_data.lower() or "example" in all_data.lower()
+
+
+@pytest.mark.asyncio
 async def test_chat_reminder_no_timezone_notes_utc(tmp_path, monkeypatch):
     """AC21: when time_zone is missing from settings, confirmation mentions UTC."""
     import services.reminders as rem
