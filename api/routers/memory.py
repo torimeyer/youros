@@ -161,7 +161,7 @@ async def suggest_topics(body: SuggestTopicsRequest):
         ("agent-behavior", ["agent", "spawn", "subagent", "monitor", "task", "needle", "saa", "register"]),
         ("memory-and-recall", ["remember", "forget", "memory", "preference", "fact", "recall"]),
         ("ui-and-ux", ["ui", "ux", "button", "modal", "dialog", "frontend", "component", "toast", "banner"]),
-        ("project-context", ["torios", "ostk", "nr", "spec", "plan", "release", "v3", "wave"]),
+        ("project-context", ["ostk", "spec", "plan", "release", "v3", "wave"]),
     ]
 
     grouped: dict[str, list[str]] = {name: [] for name, _ in _THEME_KEYS}

@@ -58,10 +58,10 @@ def _receive_until_type(ws, target_type: str, *, max_frames: int = 15) -> dict:
     raise AssertionError(f"No {target_type!r} frame after {max_frames} frames")
 
 
-# Tori's exact message from the failing session. The second model is
+# The user's exact message from the failing session. The second model is
 # referenced by bare name, not @mention, which is the bug the earlier
 # agents missed. Keep this string byte-for-byte identical.
-TORI_MESSAGE = "@gemini chat with claude a few times about each of your shortcomings"
+USER_MESSAGE = "@gemini chat with claude a few times about each of your shortcomings"
 
 
 class _FakeStream:
@@ -151,7 +151,7 @@ def patched_streams(monkeypatch):
 def test_multi_ai_chat_with_bare_second_model_runs_full_back_and_forth(
     patched_streams,
 ):
-    """Tori's exact failing message must trigger the full orchestration.
+    """The user's exact failing message must trigger the full orchestration.
 
     Proves the bug where ``@gemini chat with claude`` was treated as a
     single-model call is fixed, and asserts every event the frontend
@@ -170,7 +170,7 @@ def test_multi_ai_chat_with_bare_second_model_runs_full_back_and_forth(
             {
                 "model": "@claude",
                 "messages": [
-                    {"role": "user", "content": TORI_MESSAGE},
+                    {"role": "user", "content": USER_MESSAGE},
                 ],
                 "tools": False,
             }
@@ -372,7 +372,7 @@ def test_two_mentions_conversation_intent_via_bare_word_threaded(
             {
                 "model": "@claude",
                 "messages": [
-                    {"role": "user", "content": TORI_MESSAGE},
+                    {"role": "user", "content": USER_MESSAGE},
                 ],
                 "tools": False,
             }
@@ -399,7 +399,7 @@ def test_multi_ai_chat_with_prior_user_history_does_not_blob_error(
 ):
     """Regression for the Gemini Content proto Blob error.
 
-    Tori hit this exact failure: after a long chat that included a GIF
+    The original session hit this exact failure: after a long chat that included a GIF
     reply, a follow up @gemini message produced a raw "Could not create
     Blob" traceback in the assistant bubble. The root cause was that
     ``transform_image_messages`` had rewritten the GIF message into a

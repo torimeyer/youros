@@ -483,7 +483,7 @@ describe('useAppStore — team mode gate (TEAM_MODE_VISIBLE=false)', () => {
   })
 
   it('displayOsName returns osName even when orgName is set and server had team mode', async () => {
-    useAppStore.setState({ osName: 'yourOS', orgName: 'Meyer', instanceMode: 'personal' })
+    useAppStore.setState({ osName: 'yourOS', orgName: 'Acme', instanceMode: 'personal' })
     // Simulate stale server returning team mode — hydration should neutralise it
     vi.mocked(api.get).mockResolvedValueOnce({ instance_mode: 'team', onboarded: true })
     await useAppStore.getState().hydrateFromServer()

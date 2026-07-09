@@ -27,7 +27,7 @@ MENTION_ADF = {
                     "type": "mention",
                     "attrs": {
                         "id": "60f7105a4c974d0069dcbe9c",
-                        "text": "@Tori Meyer",
+                        "text": "@Test User",
                         "accessLevel": "",
                         "localId": "1743529e-902b-4369-8b0b-3140008ed7db",
                     },
@@ -110,7 +110,7 @@ NESTED_ADF = {
 def test_mention_renders_as_display_name():
     """The fixture comment from the bug report must render to human text."""
     result = _adf_to_plain(MENTION_ADF)
-    assert result == "@Tori Meyer - Can you evaluate this requirement?"
+    assert result == "@Test User - Can you evaluate this requirement?"
 
 
 def test_plain_text_paragraph():

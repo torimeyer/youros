@@ -67,6 +67,6 @@ docs/superpowers/
 tori.zsh
 HUMANFILE
 
-# Plans are local-only, never committed (tori rule 2026-07-06)
+# Plans are local-only, never committed (standing rule 2026-07-06)
 docs/uat/
 docs/fix/*-plan.md

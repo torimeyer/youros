@@ -136,7 +136,7 @@ async def test_atlassian_connect_success(client):
     with patch("routers.atlassian.atlassian_service") as mock_svc:
         mock_svc.verify_creds = AsyncMock(return_value={
             "account_id": "abc123",
-            "display_name": "Tori Meyer",
+            "display_name": "Test User",
             "email": "user@example.com",
         })
         mock_svc.save_config = AsyncMock()
@@ -149,7 +149,7 @@ async def test_atlassian_connect_success(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is True
-    assert data["user"]["display_name"] == "Tori Meyer"
+    assert data["user"]["display_name"] == "Test User"
 
 
 @pytest.mark.asyncio
@@ -236,7 +236,7 @@ async def test_jira_get_issue_success(client):
         "status": "In Progress",
         "priority": "High",
         "type": "Bug",
-        "assignee": "Tori Meyer",
+        "assignee": "Test User",
         "reporter": "Alice",
         "created": "2026-01-01T00:00:00Z",
         "updated": "2026-04-30T00:00:00Z",
@@ -402,7 +402,7 @@ async def test_add_comment_success(client):
             "version": 1,
             "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Looks good"}]}],
         },
-        "author": {"displayName": "Tori Meyer"},
+        "author": {"displayName": "Test User"},
     }
     with patch("routers.atlassian.atlassian_service") as mock_svc:
         mock_svc.is_connected.return_value = True
