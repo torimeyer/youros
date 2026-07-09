@@ -622,7 +622,7 @@ def _prime_ostk_clock_cache():
     that background task races with the first request — the cache is cold until
     the first `ostk os clock` call completes (~500ms). Pre-priming it ensures
     the endpoint always responds in <1ms in tests so event-loop latency assertions
-    (e.g. test_websocket_round_trip_under_three_seconds_and_event_loop_stays_responsive)
+    (e.g. test_websocket_turn_keeps_event_loop_responsive)
     are not falsely tripped by the cold-cache subprocess fallback.
     """
     import services.ostk as ostk_mod
