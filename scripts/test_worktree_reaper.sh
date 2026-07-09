@@ -102,9 +102,11 @@ if ! git show-ref --verify --quiet refs/heads/worktree-agent-live01; then
   exit 1
 fi
 
-# 3. Reaper must log that it skipped due to unmerged commits.
-if ! printf '%s\n' "$APPLY_OUT" | grep -qi "unmerged commits"; then
-  echo "FAIL: reaper did not log 'unmerged commits' in output" >&2
+# 3. Reaper must log that it skipped due to unmerged commits. The reaper
+# phrases it as "N unmerged commit(s) ahead of main", so match the
+# singular stem, not the literal plural (→2605).
+if ! printf '%s\n' "$APPLY_OUT" | grep -qi "unmerged commit"; then
+  echo "FAIL: reaper did not log 'unmerged commit' in output" >&2
   echo "  Full output: $APPLY_OUT" >&2
   exit 1
 fi
