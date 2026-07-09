@@ -4134,11 +4134,14 @@ def test_mailbox_interval_constant_is_under_two_minutes():
     assert MAILBOX_CHECK_INTERVAL_SECONDS >= 10
 
 
-# Size budget for the compact mailbox block. Under 1.6 KB keeps the
+# Size budget for the compact mailbox block. Keeping it small keeps the
 # first prompt tokens predictable so demo-critical spawns start streaming
 # fast, while leaving room for the mid-task reply cues that make agents
 # respond warmly between tool calls instead of silently working.
-MAILBOX_SHORT_SIZE_BUDGET = 1600
+# Raised 1600 -> 1800 for →2522: the ToolSearch bootstrap line is
+# protocol-critical (without it agents have no shell and spawn throwaway
+# helper agents, which costs far more than ~170 chars of prompt).
+MAILBOX_SHORT_SIZE_BUDGET = 1800
 
 
 def test_mailbox_instruction_under_size_budget():

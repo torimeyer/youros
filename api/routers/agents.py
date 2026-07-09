@@ -752,10 +752,9 @@ def agent_mailbox_instruction_short(agent_name: str, model: str = "sonnet") -> s
     # other end" cue survives.
     ct = "-H 'Content-Type: application/json'"
     _bootstrap = (
-        "Bootstrap first (before Register): "
-        'ToolSearch(query="select:mcp__ostk__bash", max_results=1) — '
-        "Bash is blocked; mcp__ostk__bash is deferred until you call this. "
-        "Skipping causes throwaway helper-agent spawns.\n"
+        'First: ToolSearch(query="select:mcp__ostk__bash", max_results=1). '
+        "Bash is blocked and the shell tool is deferred; skipping this "
+        "causes throwaway helper-agent spawns.\n"
     )
     register_body = (
         '{"name":"' + agent_name + '","model":"' + model + '","status":"running",'
@@ -900,10 +899,10 @@ def agent_mailbox_instruction(
     slow = MAILBOX_SLOW_POLL_SECONDS
     return (
         "## Bootstrap (do this before ANYTHING else)\n\n"
-        "Load the shell tool now — it is deferred until you call ToolSearch:\n"
+        "Load the shell tool now, it is deferred until you call ToolSearch:\n"
         "   `ToolSearch(query=\"select:mcp__ostk__bash\", max_results=1)`\n\n"
         "The `Bash` tool is blocked globally. `mcp__ostk__bash` is your only "
-        "shell and it is deferred — calling it before ToolSearch loads it fails "
+        "shell and it is deferred; calling it before ToolSearch loads it fails "
         "with InputValidationError. Skipping this step leaves you with no working "
         "shell, which causes agents to spawn throwaway helper agents "
         "(run-curl-command, execute-bash-command) to run single commands. "
