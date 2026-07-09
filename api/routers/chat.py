@@ -1318,6 +1318,48 @@ async def _handle_add_task(text: str, websocket: WebSocket) -> bool:
         return False
 
 
+_GITHUB_PR_URL_RE = re.compile(
+    r"https?://github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)",
+    re.IGNORECASE,
+)
+
+
+async def _handle_pr_review(text: str, websocket: WebSocket) -> bool:
+    """Detect a GitHub PR URL and return a structured review via WebSocket.
+
+    Sends {"type": "pr_review", "data": <review dict>} then {"type": "done"}.
+    Returns False if no PR URL is found, so the message falls through to the
+    normal AI routing path.
+    """
+    m = _GITHUB_PR_URL_RE.search(text)
+    if not m:
+        return False
+
+    owner, repo, pr_number_str = m.group(1), m.group(2), m.group(3)
+    pr_number = int(pr_number_str)
+
+    await websocket.send_json({
+        "type": "token",
+        "data": f"Reviewing PR #{pr_number} in {owner}/{repo}...",
+    })
+
+    try:
+        from services.pr_review import review_pr
+        review = await review_pr(owner, repo, pr_number)
+        await websocket.send_json({"type": "pr_review", "data": review})
+        await websocket.send_json({"type": "done"})
+    except RuntimeError as exc:
+        await websocket.send_json({"type": "token", "data": str(exc)})
+        await websocket.send_json({"type": "done"})
+    except Exception as exc:
+        await websocket.send_json({
+            "type": "token",
+            "data": f"Could not review this PR. Please try again. ({exc})",
+        })
+        await websocket.send_json({"type": "done"})
+    return True
+
+
 async def _handle_list_tasks(text: str, websocket: WebSocket) -> bool:
     """Detect 'show my tasks' and return open tasks without hitting the AI."""
     if not any(p.search(text) for p in _LIST_TASKS_PATTERNS):
@@ -1498,6 +1540,12 @@ async def chat_websocket(websocket: WebSocket):
                 _remind_tab = data.get("tab_id", "")
                 _remind_handled = await _handle_remind_me(last_text.strip(), websocket, tab_id=_remind_tab, data=data)
                 if _remind_handled:
+                    continue
+
+            # --- PR review: detect a GitHub PR URL and trigger a structured review ---
+            if isinstance(last_text, str):
+                _pr_handled = await _handle_pr_review(last_text.strip(), websocket)
+                if _pr_handled:
                     continue
 
             # --- Add task: intercept "add task: X", "create task: X", etc. ---
