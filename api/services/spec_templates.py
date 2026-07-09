@@ -358,7 +358,7 @@ def canonical_spec_template_body() -> str:
         "## Acceptance criteria\n\n"
         "- [ ] \n\n"
         "## USER FEEDBACK\n\n"
-        "*(Reserved for tori's overrides and decisions.)*\n\n"
+        "*(Reserved for your overrides and decisions.)*\n\n"
         "## DECISION\n\n"
         "*(Final calls on open questions will be recorded here.)*\n\n"
         "## References\n\n"

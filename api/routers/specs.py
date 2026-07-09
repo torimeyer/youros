@@ -324,8 +324,8 @@ async def _delete_builder_task(task_id: str) -> bool:
 #
 # Grounds the AC-drafting LLM call in what myOS already ships, caps the
 # output at 3 criteria so a live Build is buildable in under two minutes,
-# and explicitly bans proposals that would pull in OpenAI/ChatGPT (Tori
-# only wants Claude and Gemini for now).
+# and explicitly bans proposals that would pull in OpenAI/ChatGPT (the
+# user only wants Claude and Gemini for now).
 #
 # Without this grounding the LLM happily proposes criteria like "users
 # can connect their own LLM API keys" or "integration works with three
@@ -675,7 +675,7 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                     _filtered_docs.append(_d)
             docs = _filtered_docs
             # Also exclude test-artifact specs (→1751) and agent-written audit/report
-            # docs. Tori's rule: specs are only created when she asks; agent reports
+            # docs. Standing rule: specs are only created when the user asks; agent reports
             # (cut audits, regression checks, root-cause writeups, date-stamped triage
             # files) must not appear here.
             docs = [
@@ -3358,7 +3358,7 @@ async def build_spec(spec_path: str, model: Optional[str] = None, preview: bool 
         # task row is a per-build artifact (the spec IS the source of
         # truth for this work), so we delete the row rather than close it.
         # Closing leaves a "completed" bullet behind on the Tasks page
-        # that Tori then has to hand-sweep after every demo run. DELETE
+        # that the user then has to hand-sweep after every demo run. DELETE
         # fires the same progress-bar update and keeps the Tasks page
         # clean of spec-build residue.
         # Use a task-specific lock so parallel builder spawns for different
