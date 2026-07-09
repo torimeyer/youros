@@ -176,6 +176,31 @@ async def delete_api_key(provider: str):
     raise HTTPException(status_code=404, detail="No key found for that provider")
 
 
+# --- Per-org configurable lists (spec S009 Track 0.1) ---
+
+class OrgListUpdate(BaseModel):
+    values: list[str]
+
+
+@router.get("/enterprise/lists")
+async def get_org_lists():
+    """Return the org's configurable lists (job roles and pillars).
+
+    Always available; a fresh install returns empty lists.
+    """
+    return enterprise_store.get_org_lists()
+
+
+@router.put("/enterprise/lists/{key}")
+async def set_org_list(key: str, body: OrgListUpdate):
+    """Replace one org list (job_roles or pillars) wholesale."""
+    try:
+        values = enterprise_store.set_org_list(key, body.values)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {key: values}
+
+
 # --- Org-level shared templates ---
 
 @router.get("/enterprise/templates")

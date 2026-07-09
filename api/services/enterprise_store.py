@@ -397,3 +397,36 @@ def delete_org_template(template_id: str) -> bool:
         _save(data)
         return True
     return False
+
+
+# --- Per-org configurable lists (spec S009 Track 0.1) ---
+
+# job_roles are job-function labels (distinct from members[].role, which is
+# the permission tier). pillars are the org's strategic theme names.
+ORG_LIST_KEYS = ("job_roles", "pillars")
+
+
+def get_org_lists() -> dict:
+    """Return the org's configurable lists, defaulting to empty.
+
+    Empty lists mean the current single-bucket behavior: no job roles
+    and no themes configured. Works with or without an org, so a
+    single-user install gets the same defaults.
+    """
+    data = _load()
+    lists = data.get("org_lists", {})
+    return {key: list(lists.get(key, [])) for key in ORG_LIST_KEYS}
+
+
+def set_org_list(key: str, values: list[str]) -> list[str]:
+    """Replace one org list wholesale. Key must be one of ORG_LIST_KEYS.
+
+    Blank entries are dropped. Returns the stored list.
+    """
+    if key not in ORG_LIST_KEYS:
+        raise ValueError(f"Unknown org list: {key}")
+    cleaned = [str(v).strip() for v in values if str(v).strip()]
+    data = _load()
+    data.setdefault("org_lists", {})[key] = cleaned
+    _save(data)
+    return cleaned
