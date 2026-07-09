@@ -14,6 +14,8 @@ interface Project {
   last_modified: string | null;
   description: string | null;
   project_type: string;
+  // Strategic theme this project belongs to, or null when untagged.
+  pillar?: string | null;
 }
 
 interface ProjectsResponse {
@@ -34,6 +36,10 @@ export default function Projects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Org theme list (spec S009 Track 0.2). Empty keeps the theme filter
+  // hidden so untagged installs behave exactly as before.
+  const [orgPillars, setOrgPillars] = useState<string[]>([]);
+  const [pillarFilter, setPillarFilter] = useState<string | null>(null);
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
@@ -53,6 +59,19 @@ export default function Projects() {
     fetchProjects();
   }, [fetchProjects]);
 
+  useEffect(() => {
+    api
+      .get<{ job_roles: string[]; pillars: string[] }>('/enterprise/lists')
+      .then((res) => setOrgPillars(res.pillars ?? []))
+      .catch(() => {
+        /* silent: no themes configured */
+      });
+  }, []);
+
+  const visibleProjects = pillarFilter
+    ? projects.filter((p) => p.pillar === pillarFilter)
+    : projects;
+
   return (
     <PageShell title="Projects">
         {/* Header */}
@@ -63,13 +82,39 @@ export default function Projects() {
               All directories in the yourOS workspace.
             </p>
           </div>
-          <button
-            onClick={fetchProjects}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-300 transition-colors"
-          >
-            <Icon name="refresh" size={16} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-3">
+            {orgPillars.length > 0 && (
+              <div data-testid="pillar-filter" className="flex items-center gap-2">
+                <label
+                  htmlFor="pillar-filter-select"
+                  className="text-xs text-slate-500 dark:text-slate-400"
+                >
+                  Theme
+                </label>
+                <select
+                  id="pillar-filter-select"
+                  data-testid="pillar-filter-select"
+                  value={pillarFilter ?? ''}
+                  onChange={(e) => setPillarFilter(e.target.value || null)}
+                  className="bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1.5 text-sm text-slate-700 dark:text-slate-300 focus:outline-none focus:border-slate-600"
+                >
+                  <option value="">All themes</option>
+                  {orgPillars.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <button
+              onClick={fetchProjects}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-300 transition-colors"
+            >
+              <Icon name="refresh" size={16} />
+              Refresh
+            </button>
+          </div>
         </div>
 
         {/* Loading state */}
@@ -97,9 +142,9 @@ export default function Projects() {
         )}
 
         {/* Project cards */}
-        {projects.length > 0 && (
+        {visibleProjects.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {projects.map((project) => {
+            {visibleProjects.map((project) => {
               const cfg = typeConfig[project.project_type] || typeConfig.folder;
               return (
                 <Card key={project.name} hover padding="lg">
@@ -131,6 +176,16 @@ export default function Projects() {
                     >
                       {cfg.label}
                     </span>
+
+                    {/* Theme chip, only when the project is tagged */}
+                    {project.pillar && (
+                      <span
+                        data-testid={`pillar-chip-${project.name}`}
+                        className="px-2 py-0.5 rounded-full font-medium bg-teal-500/20 text-teal-600 dark:text-teal-400"
+                      >
+                        {project.pillar}
+                      </span>
+                    )}
 
                     {/* File count */}
                     <span className="flex items-center gap-1">

@@ -2,11 +2,13 @@ import base64
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from services import platform_helpers, recent_deletes
+from services.pillar_store import pillar_store
 from services.youros_paths import youros_home
 
 router = APIRouter(tags=["projects"])
@@ -121,6 +123,9 @@ async def list_projects():
     if not projects_dir.exists():
         return {"projects": []}
 
+    # Theme tags (spec S009 Track 0.2). Loaded once for the whole listing.
+    project_pillars = pillar_store.get_all("projects")
+
     for entry in sorted(projects_dir.iterdir()):
         name = entry.name
 
@@ -178,9 +183,24 @@ async def list_projects():
             "last_modified": last_modified,
             "description": description,
             "project_type": project_type,
+            # Theme this project belongs to, or null when untagged.
+            "pillar": project_pillars.get(name),
         })
 
     return {"projects": projects}
+
+
+class ProjectPillarUpdate(BaseModel):
+    # Theme name from the org pillars list. Null or blank clears the tag.
+    pillar: Optional[str] = None
+
+
+@router.put("/projects/{name}/pillar")
+async def set_project_pillar(name: str, body: ProjectPillarUpdate):
+    """Tag a project with a theme, or clear the tag with null."""
+    value = (body.pillar or "").strip() or None
+    pillar_store.set("projects", name, value)
+    return {"name": name, "pillar": value}
 
 
 @router.get("/projects/browse")

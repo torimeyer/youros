@@ -240,3 +240,56 @@ describe('Projects page', () => {
     expect(screen.getByText('/home/user/my-scripts')).toBeInTheDocument()
   })
 })
+
+describe('Theme (pillar) chips and filter', () => {
+  const pillarProjects = {
+    projects: [
+      { ...mockProjectsResponse.projects[0], pillar: 'Growth' },
+      { ...mockProjectsResponse.projects[1], pillar: null },
+    ],
+  }
+
+  function mockWithPillars(pillars: string[]) {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/projects') return Promise.resolve(pillarProjects)
+      if (path === '/enterprise/lists') return Promise.resolve({ job_roles: [], pillars })
+      return Promise.resolve({})
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ chatOpen: false, osName: 'yourOS', darkMode: true })
+    mockWithPillars(['Growth', 'Trust'])
+  })
+
+  it('renders a theme chip on projects that have a pillar', async () => {
+    renderProjects()
+    await waitFor(() => {
+      expect(screen.getByText('torios')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('pillar-chip-torios')).toHaveTextContent('Growth')
+    expect(screen.queryByTestId('pillar-chip-api-server')).not.toBeInTheDocument()
+  })
+
+  it('hides the theme filter when the org pillars list is empty', async () => {
+    mockWithPillars([])
+    renderProjects()
+    await waitFor(() => {
+      expect(screen.getByText('torios')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('pillar-filter')).not.toBeInTheDocument()
+  })
+
+  it('filtering by a theme hides projects that are not tagged with it', async () => {
+    renderProjects()
+    await waitFor(() => {
+      expect(screen.getByTestId('pillar-filter')).toBeInTheDocument()
+    })
+    fireEvent.change(screen.getByTestId('pillar-filter-select'), { target: { value: 'Growth' } })
+    await waitFor(() => {
+      expect(screen.queryByText('api-server')).not.toBeInTheDocument()
+    })
+    expect(screen.getByText('torios')).toBeInTheDocument()
+  })
+})

@@ -18,6 +18,9 @@ class TaskCreate(BaseModel):
     source: Optional[str] = None
     # Opaque identifier from the source system, max 500 chars.
     source_ref: Optional[str] = None
+    # Strategic theme this task belongs to, from the org pillars list.
+    # Null means untagged, which is the default and matches today's behavior.
+    pillar: Optional[str] = None
 
 
 class TaskClose(BaseModel):
@@ -41,6 +44,8 @@ class TaskUpdate(BaseModel):
     # pausing are handled by dedicated endpoints so they are intentionally
     # excluded from the set accepted here.
     status: Optional[str] = None
+    # Strategic theme tag. Set to empty string to clear, same as notes.
+    pillar: Optional[str] = None
 
 
 class TaskReorder(BaseModel):

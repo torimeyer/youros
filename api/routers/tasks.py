@@ -19,6 +19,7 @@ from services.labels_store import labels_store, LABEL_COLORS
 from services.task_labels_store import task_labels_store
 from services.task_order_store import task_order_store
 from services.task_source_store import task_source_store
+from services.pillar_store import pillar_store
 from services.threads_store import threads_store
 from services.task_labeling import (
     apply_auto_labels,
@@ -92,6 +93,7 @@ def _enrich_task(
     task_thread_map: Optional[dict] = None,
     session_task_map_pairs: Optional[dict] = None,
     children_counts: Optional[dict] = None,
+    pillar_map: Optional[dict] = None,
 ) -> dict:
     """Add 'goal', 'label_ids', 'auto_label_ids', 'thread_id', and
     session-linked fields ('session_id', 'child_task_count') so the
@@ -178,6 +180,13 @@ def _enrich_task(
     task["source"] = source_entry["source"]
     task["source_ref"] = source_entry["source_ref"]
 
+    # Strategic theme tag (spec S009 Track 0.2). None means untagged and
+    # keeps the row behaving exactly as before pillars existed.
+    if pillar_map is not None:
+        task["pillar"] = pillar_map.get(task_id)
+    else:
+        task["pillar"] = pillar_store.get("tasks", task_id)
+
     return task
 
 
@@ -246,6 +255,7 @@ async def list_tasks(
         # without re-reading the JSON for each task.
         session_pairs = session_task_map.all_session_task_pairs()
         children_counts = session_task_map.all_children_counts()
+        pillar_map = pillar_store.get_all("tasks")
         tasks = [
             _enrich_task(
                 t,
@@ -253,6 +263,7 @@ async def list_tasks(
                 task_thread_map,
                 session_task_map_pairs=session_pairs,
                 children_counts=children_counts,
+                pillar_map=pillar_map,
             )
             for t in tasks
         ]
@@ -1326,6 +1337,9 @@ async def create_task(body: TaskCreate, include_test_data: bool = False):
     if new_id and (body.source is not None or body.source_ref is not None):
         task_source_store.set_source(new_id, body.source, body.source_ref)
 
+    if new_id and body.pillar:
+        pillar_store.set("tasks", new_id, body.pillar)
+
     trace_event("task_created", task_id=new_id, title=clean_title, priority=body.priority)
 
     # Silently apply any tier-3 approved patterns (never blocks task creation).
@@ -1377,6 +1391,10 @@ async def update_task(task_id: str, body: TaskUpdate):
             results.append(
                 await ostk.update_task_status(task_id, body.status)
             )
+        if body.pillar is not None:
+            # Empty string clears the tag, mirroring the notes convention.
+            pillar_store.set("tasks", task_id, body.pillar)
+            results.append("pillar updated")
         if not results:
             raise HTTPException(status_code=400, detail="No update fields provided")
         return {"result": "; ".join(results)}
@@ -1478,6 +1496,7 @@ async def delete_task(task_id: str):
     threads_store.remove_task_from_all_threads(task_id)
     task_order_store.remove_task(task_id)
     task_source_store.remove_task(task_id)
+    pillar_store.remove("tasks", task_id)
     trace_event("task_deleted", task_id=task_id, title=deleted_title)
     return {"result": result}
 

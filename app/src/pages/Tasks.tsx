@@ -58,6 +58,9 @@ interface Task {
   goal?: string | null;
   label_ids?: string[];
   auto_label_ids?: string[];
+  // Strategic theme this task belongs to, from the org pillars list.
+  // Null or absent means untagged, which renders exactly as before.
+  pillar?: string | null;
   blocks?: string[];
   depends_on?: string[];
   unblocks?: number;
@@ -275,6 +278,10 @@ export default function Tasks() {
   // this as soon as fresh data arrives. See needle 299.
   const [tasks, setTasks] = useState<Task[]>(() => readTasksCache());
   const [labels, setLabels] = useState<Label[]>([]);
+  // Org theme list (spec S009 Track 0.2). Empty means no themes are
+  // configured, so the theme filter stays hidden and nothing changes.
+  const [orgPillars, setOrgPillars] = useState<string[]>([]);
+  const [pillarFilter, setPillarFilter] = useState<string | null>(null);
   // Start in the non-loading state when we have cached rows to show,
   // otherwise start loading so the first-ever visit still renders the
   // "Loading tasks..." hint.
@@ -493,6 +500,11 @@ export default function Tasks() {
     api.get<{ assignments: Record<string, number> }>('/tasks/waves/assignments')
       .then((res) => setWaveAssignments(res.assignments ?? {}))
       .catch(() => { /* silent — no assignments yet */ });
+    // Org theme list drives the theme filter. Missing or empty means the
+    // control stays hidden (fresh installs behave exactly as before).
+    api.get<{ job_roles: string[]; pillars: string[] }>('/enterprise/lists')
+      .then((res) => setOrgPillars(res.pillars ?? []))
+      .catch(() => { /* silent: no themes configured */ });
   }, [fetchTasks, fetchLabels]);
 
   // Poll running agents every 3s to drive the per-row in-progress indicator
@@ -1382,6 +1394,12 @@ export default function Tasks() {
     }
   }
 
+  // Theme filter (spec S009 Track 0.2). Inactive when no theme is chosen,
+  // so installs without themes see no change in behavior.
+  if (pillarFilter) {
+    filteredTasks = filteredTasks.filter((t) => t.pillar === pillarFilter);
+  }
+
   const onlyClosedSelected = !isLegacyView && selectedStatus === "closed";
 
   if (!isLegacyView && selectedStatus === "all") {
@@ -2027,6 +2045,32 @@ export default function Tasks() {
               onSortByChange={setSortBy}
 />
 
+            {/* Theme filter, only when the org has themes configured */}
+            {orgPillars.length > 0 && (
+              <div data-testid="pillar-filter" className="flex items-center gap-2 mb-4">
+                <label
+                  htmlFor="pillar-filter-select"
+                  className="text-xs text-slate-500 dark:text-slate-400"
+                >
+                  Theme
+                </label>
+                <select
+                  id="pillar-filter-select"
+                  data-testid="pillar-filter-select"
+                  value={pillarFilter ?? ""}
+                  onChange={(e) => setPillarFilter(e.target.value || null)}
+                  className="bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:border-slate-600"
+                >
+                  <option value="">All themes</option>
+                  {orgPillars.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Select all affordance — shown when nothing is selected and list is non-empty */}
             {selectedTaskIds.size === 0 && filteredTasks.length > 0 && statusFilter !== "recurring" && (
               <div className="flex justify-end mb-2">
@@ -2323,6 +2367,14 @@ export default function Tasks() {
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/25"
                           >
                             W{waveAssignments[task.id]}
+                          </span>
+                        )}
+                        {task.pillar && (
+                          <span
+                            data-testid={`pillar-chip-${task.id}`}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-500/15 text-teal-600 dark:text-teal-400 border border-teal-500/25"
+                          >
+                            {task.pillar}
                           </span>
                         )}
                         {renderDependencyPills(task)}

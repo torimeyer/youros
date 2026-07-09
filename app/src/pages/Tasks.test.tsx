@@ -3794,3 +3794,59 @@ describe('Create Spec action (→1942)', () => {
     })
   })
 })
+
+describe('Theme (pillar) chips and filter', () => {
+  const pillarTasks = [
+    { id: 'p1', title: 'Grow signups', priority: 'P1', status: 'open', created_at: '2026-05-11T12:00:03.000Z', label_ids: [], pillar: 'Growth' },
+    { id: 'p2', title: 'Harden auth', priority: 'P1', status: 'open', created_at: '2026-05-11T12:00:02.000Z', label_ids: [], pillar: null },
+  ]
+
+  function mockWithPillars(pillars: string[]) {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: pillarTasks })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/enterprise/lists') return Promise.resolve({ job_roles: [], pillars })
+      return Promise.resolve({})
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
+    mockWithPillars(['Growth', 'Trust'])
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  it('renders a theme chip on tasks that have a pillar', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Grow signups')).toBeInTheDocument())
+    expect(screen.getByTestId('pillar-chip-p1')).toHaveTextContent('Growth')
+  })
+
+  it('renders no chip when the task has no pillar', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Harden auth')).toBeInTheDocument())
+    expect(screen.queryByTestId('pillar-chip-p2')).not.toBeInTheDocument()
+  })
+
+  it('shows the theme filter when the org has pillars configured', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByTestId('pillar-filter')).toBeInTheDocument())
+  })
+
+  it('hides the theme filter when the org pillars list is empty', async () => {
+    mockWithPillars([])
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Grow signups')).toBeInTheDocument())
+    expect(screen.queryByTestId('pillar-filter')).not.toBeInTheDocument()
+  })
+
+  it('filtering by a theme hides tasks that are not tagged with it', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByTestId('pillar-filter')).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('pillar-filter-select'), { target: { value: 'Growth' } })
+    await waitFor(() => expect(screen.queryByText('Harden auth')).not.toBeInTheDocument())
+    expect(screen.getByText('Grow signups')).toBeInTheDocument()
+  })
+})
