@@ -203,12 +203,13 @@ async def test_unlock_not_called_on_heartbeat(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-# NOTE: "stalled" is deliberately absent. agents.py defines
-# _TERMINAL_STATUSES twice at module level; the second definition
-# (currently line ~521, without "stalled") shadows the first (line 36,
-# with "stalled"), so at runtime "stalled" has never been treated as a
-# terminal status by _set_agent_status. This test pins the EFFECTIVE
-# runtime set; the shadowing itself is a separate pre-existing issue.
+# NOTE: "stalled" is deliberately absent (→2615). It is set only by
+# lib/agent_reaper.detect_stalled_agents, which fires while the agent's
+# PID is still ALIVE, and stalled agents can recover (/heartbeat accepts
+# their pings, /register lets them come back as running), so a terminal
+# flip would wrongly release the agent's needles and unlock its worktree
+# mid-run. agents.py now has exactly one module-level definition pinning
+# this decision; see test_terminal_status_set_is_single_and_deliberate.
 @pytest.mark.parametrize(
     "terminal_status",
     [
@@ -236,6 +237,30 @@ def test_unlock_fires_for_every_terminal_status(tmp_path, terminal_status):
         assert kwargs.get("wt_path") == wt_path
     finally:
         agent_metadata.pop(name, None)
+
+
+def test_terminal_status_set_is_single_and_deliberate():
+    """→2615: agents.py used to define _TERMINAL_STATUSES twice at module
+    level; the second definition silently shadowed the first, so "stalled"
+    was never terminal at runtime by accident. That is now the deliberate
+    set (stalled agents have an alive PID and can recover). Pin both the
+    contents and the single-definition invariant so a stray re-definition,
+    or an accidental "stalled" re-add, fails loudly."""
+    import inspect
+    import re
+
+    import routers.agents as agents_router
+
+    assert agents_router._TERMINAL_STATUSES == frozenset({
+        "completed", "failed", "cancelled", "terminated_stale",
+        "killed", "stopped", "abandoned", "completed_timeout",
+    })
+    src = inspect.getsource(agents_router)
+    module_level_defs = re.findall(r"(?m)^_TERMINAL_STATUSES\s*=", src)
+    assert len(module_level_defs) == 1, (
+        "expected exactly one module-level _TERMINAL_STATUSES definition "
+        f"in routers/agents.py, found {len(module_level_defs)}"
+    )
 
 
 def test_no_worktree_metadata_means_no_unlock_call():

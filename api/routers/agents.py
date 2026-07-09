@@ -33,9 +33,20 @@ _grants_bus: GrantsEventBus = GrantsEventBus()
 logger = logging.getLogger(__name__)
 
 
+# The single module-level terminal set (→2615). This used to be defined
+# twice; the second copy (without "stalled") shadowed this one, so
+# "stalled" was never terminal at runtime. That behavior is now the
+# deliberate decision: "stalled" is NOT terminal. It is set only by
+# lib/agent_reaper.detect_stalled_agents, which fires while the agent's
+# PID is still ALIVE (transcript/step just flatlined), and stalled agents
+# can recover — /heartbeat accepts their pings (see _HEARTBEAT_TERMINAL),
+# /register lets them come back as running, and the kernel-fleet merge in
+# the snapshot loop can flip them back to "running". A terminal flip here
+# would wrongly release the agent's needles (→2039) and unlock its
+# worktree (→2612) while the process may still be working.
 _TERMINAL_STATUSES = frozenset({
     "completed", "failed", "cancelled", "terminated_stale",
-    "killed", "stopped", "abandoned", "completed_timeout", "stalled",
+    "killed", "stopped", "abandoned", "completed_timeout",
 })
 
 
@@ -518,10 +529,6 @@ def _save_deleted_agents(names: set[str]) -> None:
 
 
 _PRUNE_TTL_DAYS = 7
-_TERMINAL_STATUSES = frozenset({
-    "completed", "failed", "cancelled", "terminated_stale",
-    "killed", "stopped", "abandoned", "completed_timeout",
-})
 _last_prune_time: float = -999999.0
 _PRUNE_INTERVAL_SECONDS = 300
 
