@@ -75,9 +75,35 @@ if [ ! -d .claude/worktrees/agent-unique01 ]; then
   exit 1
 fi
 
-# --- Apply ---
+# --- Apply without fleet signal: →947 fail-safe must refuse ---
+# The reaper refuses --apply removals unless it can load the active-agent
+# fleet from YOUROS_ACTIVE_AGENTS or .ostk/agent_state.json. This fixture
+# repo provides neither, so the run must exit 1 and remove nothing (→2605).
+echo "--- apply without fleet signal (947 fail-safe) ---"
+set +e
+FAILSAFE_OUT="$(env -u YOUROS_ACTIVE_AGENTS bash "$REAPER" --apply 2>&1)"
+failsafe_rc=$?
+set -e
+echo "$FAILSAFE_OUT"
+if [ "$failsafe_rc" -ne 1 ]; then
+  echo "FAIL: --apply without fleet signal should exit 1 (fail-safe), got $failsafe_rc" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$FAILSAFE_OUT" | grep -q 'skipping all removals'; then
+  echo "FAIL: fail-safe did not log 'skipping all removals'" >&2
+  exit 1
+fi
+if [ ! -d .claude/worktrees/agent-absorbed01 ]; then
+  echo "FAIL: fail-safe run removed the absorbed worktree" >&2
+  exit 1
+fi
+
+# --- Apply (with fleet signal) ---
+# Set-but-empty YOUROS_ACTIVE_AGENTS means "fleet loaded, zero active
+# agents", which lets removals proceed. Same convention as
+# test_worktree_reaper_orphan.sh (→2605).
 echo "--- apply ---"
-APPLY_OUT="$(bash "$REAPER" --apply 2>&1)"
+APPLY_OUT="$(YOUROS_ACTIVE_AGENTS='' bash "$REAPER" --apply 2>&1)"
 echo "$APPLY_OUT"
 
 if [ -d .claude/worktrees/agent-absorbed01 ]; then

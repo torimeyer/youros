@@ -82,7 +82,12 @@ if [ ! -d .claude/worktrees/agent-live01 ]; then
 fi
 
 echo "--- apply (must skip unmerged worktree) ---"
-APPLY_OUT="$(bash "$REAPER" --apply 2>&1)"
+# →947 fail-safe: --apply refuses all removals unless the active-agent fleet
+# can be loaded from YOUROS_ACTIVE_AGENTS or .ostk/agent_state.json. This
+# fixture repo provides neither, so pass an explicitly empty fleet
+# (set-but-empty = zero active agents), same convention as
+# test_worktree_reaper_orphan.sh (→2605).
+APPLY_OUT="$(YOUROS_ACTIVE_AGENTS='' bash "$REAPER" --apply 2>&1)"
 echo "$APPLY_OUT"
 
 # 1. Worktree with unmerged commits must survive.
