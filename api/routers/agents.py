@@ -63,6 +63,13 @@ _snapshot_lock: asyncio.Lock = asyncio.Lock()
 # stampede _compute_agents_snapshot_async() and wedge the loop (→1687/→1738).
 _snapshot_compute_lock: asyncio.Lock = asyncio.Lock()
 
+# →2224: hard timeout for each scan cycle so a wedged scan can't block the loop forever.
+_SCAN_TIMEOUT_SECONDS: float = 5.0
+# →2225: how many agents were processed before the last timeout fired (used in log).
+_scan_agents_processed: int = 0
+# →2226: True while a scan is in flight; next cycle skips rather than queuing behind.
+_snapshot_scan_active: bool = False
+
 # Merge-debt cache (→1555): the merge_debt_tick_loop refreshes every 60 s.
 _cached_merge_debt: dict = {"count": 0, "items": []}
 _merge_debt_lock: asyncio.Lock = asyncio.Lock()
@@ -4110,6 +4117,8 @@ async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
     transcript-based CC-session inference, and enrich pipeline — runs
     here rather than on the request path.
     """
+    global _scan_agents_processed
+    _scan_agents_processed = 0
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _prune_stale_completed_agents)
     await loop.run_in_executor(None, _prune_reaped_worktree_agents)
@@ -4136,6 +4145,7 @@ async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
     _audit_i = 0
     for agent in audit_agents_list:
         _audit_i += 1
+        _scan_agents_processed += 1
         if _audit_i % 10 == 0:
             await asyncio.sleep(0)
         if agent.get("status") in ("spawned", "running"):
@@ -4150,6 +4160,7 @@ async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
 
     # 2. In-memory agents (spawned via API this session)
     for name in list(active_agents.keys()):
+        _scan_agents_processed += 1
         proc = active_agents[name]
         meta = agent_metadata.get(name, {})
         if hasattr(proc, 'returncode') and proc.returncode is not None:
@@ -4192,6 +4203,7 @@ async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
     # which starves the snapshot loop and wedges /api/agents under load.
     for name, meta in list(agent_metadata.items()):
         _meta_i += 1
+        _scan_agents_processed += 1
         if _meta_i % 10 == 0:
             await asyncio.sleep(0)
         if name in active_agents:
@@ -4533,19 +4545,54 @@ async def _agents_snapshot_loop() -> None:
     sweep is throttled to once per _AUTOCOMPLETE_MIN_INTERVAL here so the 2/sec
     cadence does not starve the event loop (→2018). The reconcile loop (60 s)
     is the slower backstop for the same sweep.
+
+    →2224: each scan is wrapped in a _SCAN_TIMEOUT_SECONDS hard timeout so a
+    wedged scan cannot block the loop forever.
+    →2225: when the timeout fires, logs the ISO timestamp and how many agents
+    were processed before cancellation.
+    →2226: if the previous scan is still in flight, the current cycle marks
+    itself skipped instead of queuing behind it.
     """
-    global _cached_snapshot, _last_autocomplete_mono
+    global _cached_snapshot, _last_autocomplete_mono, _snapshot_scan_active
     while True:
         try:
-            now = asyncio.get_running_loop().time()
-            do_autocomplete = (now - _last_autocomplete_mono) >= _AUTOCOMPLETE_MIN_INTERVAL
-            snapshot = await _compute_agents_snapshot_async(run_autocomplete=do_autocomplete)
-            if do_autocomplete:
-                _last_autocomplete_mono = now
-            async with _snapshot_lock:
-                _cached_snapshot = snapshot
+            # →2226: skip this cycle if the previous scan hasn't finished.
+            if _snapshot_scan_active:
+                logger.warning(
+                    "scan.skipped ts=%s reason=previous_scan_running",
+                    datetime.now(timezone.utc).isoformat(),
+                )
+                await asyncio.sleep(0.5)
+                continue
+
+            _snapshot_scan_active = True
+            try:
+                now = asyncio.get_running_loop().time()
+                do_autocomplete = (now - _last_autocomplete_mono) >= _AUTOCOMPLETE_MIN_INTERVAL
+                # →2224: cancel the scan if it exceeds the hard timeout.
+                snapshot = await asyncio.wait_for(
+                    _compute_agents_snapshot_async(run_autocomplete=do_autocomplete),
+                    timeout=_SCAN_TIMEOUT_SECONDS,
+                )
+                if do_autocomplete:
+                    _last_autocomplete_mono = now
+                async with _snapshot_lock:
+                    _cached_snapshot = snapshot
+            except asyncio.TimeoutError:
+                # →2225: log timestamp and how many agents were reached before cancel.
+                logger.warning(
+                    "scan.timeout ts=%s agents_processed=%d timeout_s=%.1f",
+                    datetime.now(timezone.utc).isoformat(),
+                    _scan_agents_processed,
+                    _SCAN_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                logger.exception("agents snapshotter iteration failed")
+            finally:
+                _snapshot_scan_active = False
         except Exception:
-            logger.exception("agents snapshotter iteration failed")
+            logger.exception("agents snapshotter outer loop failed")
+            _snapshot_scan_active = False
         await asyncio.sleep(0.5)
 
 
