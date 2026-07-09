@@ -846,16 +846,15 @@ async def get_recent_specs():
 async def spec_counts():
     """Return a count of unfinished specs for the sidebar badge.
 
-    A spec is "unfinished" when its computed status is anything other
+    A spec is "unfinished" when its computed stage is anything other
     than ``complete``. That covers ``draft``, ``ready``, ``in-progress``,
-    and any future status we have not yet named. Mirrors the shape of
-    /tasks/counts so the Sidebar can treat both badges the same way.
+    and any future stage we have not yet named. This is exactly the set
+    the Specs page tabs show as not done (Draft + Ready + In Progress),
+    so the sidebar badge always adds up to the same number as the page
+    (→2623). Mirrors the shape of /tasks/counts so the Sidebar can
+    treat both badges the same way.
 
-    Returns ``{"unfinished": N, "total": M}``. A spec counts as
-    unfinished as soon as it exists in docs/draft or docs/spec and has
-    not been verified complete (Verify flipped all acceptance criteria
-    and all its tasks are closed). This matches the definition the
-    Specs page uses for its default "not yet done" view.
+    Returns ``{"unfinished": N, "total": M}``.
 
     Plan transcripts (status="plan") are excluded so the badge matches
     what the Specs page shows. They are agent-generated plan files, not
@@ -865,7 +864,7 @@ async def spec_counts():
         docs = await ostk.list_docs()
         real_specs = [d for d in docs if d.get("status") != "plan"]
         total = len(real_specs)
-        # →1561: 3-stage model — unfinished = Ready + In Progress only
+        # Map raw statuses onto the stage buckets the Specs page tabs use.
         _status_to_stage = {
             "draft": "draft",
             "ready": "ready",
@@ -887,8 +886,15 @@ async def spec_counts():
             if raw_status == "complete":
                 stage = "complete"
             by_stage[stage] = by_stage.get(stage, 0) + 1
-        # complete docs are done; only ready + in_progress are unfinished
-        unfinished = by_stage.get("ready", 0) + by_stage.get("in_progress", 0)
+        # →2623: unfinished = every spec that is not done. The Specs page
+        # tabs count Draft + Ready + In Progress as "not done"; the badge
+        # must equal that sum. (→1561 excluded drafts here, which made the
+        # sidebar badge show 3 while the page tabs added up to 6.)
+        unfinished = (
+            by_stage.get("draft", 0)
+            + by_stage.get("ready", 0)
+            + by_stage.get("in_progress", 0)
+        )
         return {"unfinished": unfinished, "total": total, "by_stage": by_stage}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))

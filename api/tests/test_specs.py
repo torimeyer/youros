@@ -1284,12 +1284,12 @@ def test_ac_prompt_from_roadmap_reframes_subject():
 async def test_spec_counts_returns_unfinished_and_total(
     client, tmp_path, monkeypatch
 ):
-    """GET /api/specs/counts returns unfinished = ready + in_progress only.
+    """GET /api/specs/counts returns unfinished = every spec that is not done.
 
-    Anchors the Sidebar badge semantics for the →1561 3-stage model:
-    ready and in_progress count as unfinished; draft does not. Specs that
-    meet the auto-archive condition (formerly "complete") are moved off the
-    board before list_docs returns them, so they do not affect either count.
+    →2623: the sidebar badge must add up to exactly what the Specs page
+    tabs show as not done: Draft + Ready + In Progress. Complete specs
+    are the only ones excluded. (→1561 previously excluded drafts too,
+    which made the badge show 3 while the page tabs added up to 6.)
     If this ever drifts the Sidebar badge will diverge from the Specs page.
     """
     from services import ostk as ostk_module
@@ -1299,6 +1299,7 @@ async def test_spec_counts_returns_unfinished_and_total(
             {"path": "docs/draft/a.md", "status": "draft"},
             {"path": "docs/spec/b.md", "status": "ready"},
             {"path": "docs/spec/c.md", "status": "in-progress"},
+            {"path": "docs/spec/d.md", "status": "complete"},
         ]
 
     monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
@@ -1306,9 +1307,9 @@ async def test_spec_counts_returns_unfinished_and_total(
     res = await client.get("/api/specs/counts")
     assert res.status_code == 200
     body = res.json()
-    # →1561: unfinished = ready + in_progress only; draft not counted
-    assert body["total"] == 3
-    assert body["unfinished"] == 2  # ready + in_progress; draft excluded
+    assert body["total"] == 4
+    # →2623: draft + ready + in-progress all count; only complete is done
+    assert body["unfinished"] == 3
     assert "by_stage" in body
 
 
@@ -3068,7 +3069,8 @@ async def test_spec_counts_by_stage_breakdown(client, monkeypatch):
     assert res.status_code == 200
     body = res.json()
     assert body["total"] == 3
-    assert body["unfinished"] == 2  # ready + in_progress
+    # →2623: drafts count as unfinished too; only complete is done
+    assert body["unfinished"] == 3
     assert body["by_stage"]["draft"] == 1
     assert body["by_stage"]["ready"] == 1
     assert body["by_stage"]["in_progress"] == 1

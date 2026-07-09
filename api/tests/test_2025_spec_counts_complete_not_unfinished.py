@@ -28,7 +28,13 @@ def _count_stages(docs: list[dict]) -> dict:
         if raw_status == "complete":
             stage = "complete"
         by_stage[stage] = by_stage.get(stage, 0) + 1
-    unfinished = by_stage.get("ready", 0) + by_stage.get("in_progress", 0)
+    # →2623: unfinished = every spec that is not done (draft + ready +
+    # in_progress), matching the Specs page tabs.
+    unfinished = (
+        by_stage.get("draft", 0)
+        + by_stage.get("ready", 0)
+        + by_stage.get("in_progress", 0)
+    )
     return {"by_stage": by_stage, "unfinished": unfinished, "total": len(docs)}
 
 
@@ -76,8 +82,8 @@ def test_mixed_set_counts_correctly():
         {"status": "in-progress"},
     ]
     result = _count_stages(docs)
-    # complete is excluded from unfinished
-    assert result["unfinished"] == 3  # spec + building + in-progress
+    # complete is excluded from unfinished; draft counts too (→2623)
+    assert result["unfinished"] == 4  # spec + building + draft + in-progress
     assert result["by_stage"]["complete"] == 1
     assert result["by_stage"]["ready"] == 1
     assert result["by_stage"]["in_progress"] == 2
