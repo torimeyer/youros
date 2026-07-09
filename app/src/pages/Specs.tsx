@@ -44,6 +44,7 @@ interface Spec {
   filename: string;
   title: string;
   spec_id?: string;
+  journey_id?: string;
   status: "draft" | "ready" | "in-progress" | "complete";
   created_at: string;
   promoted_at: string;
@@ -578,7 +579,8 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const [buildingSpec, setBuildingSpec] = useState<string | null>(null);
   const [promotingPath, setPromotingPath] = useState<string | null>(null);
   const [promoteStatus, setPromoteStatus] = useState<Record<string, { tried: number, error: string | null, ok: boolean }>>({});
-  const [buildResult, setBuildResult] = useState<Record<string, { agents: string[]; message: string; has_unchecked_acs?: boolean }>>({});
+  const [buildResult, setBuildResult] = useState<Record<string, { agents: string[]; message: string; has_unchecked_acs?: boolean; journey_id?: string; built_at?: string }>>({});
+  const [journeyModal, setJourneyModal] = useState<{ specPath: string; journeyId: string; specTitle: string } | null>(null);
   const [templates, setTemplates] = useState<SpecTemplate[]>([]);
   const [templateLoading, setTemplateLoading] = useState<string | null>(null);
   // The template the user picked from the grid. Holding it in state
@@ -977,6 +979,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
       // the kernel's 409 lock_conflict into a {status:'conflict'} result
       // instead of throwing, so we can surface it as a real error rather
       // than the generic "backend may not support this" toast.
+      const buildStartedAt = new Date().toISOString();
       const result = await buildSpec(path);
       if (result.status === 'conflict') {
         const names = result.conflicts.map((c) => c.held_by_spawn).filter(Boolean);
@@ -991,12 +994,15 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
       }
       await fetchDocs();
       const agents = result.agents;
+      const journeyId = result.status === 'ok' ? result.journey_id : undefined;
       setBuildResult((prev) => ({
         ...prev,
         [path]: {
           agents,
           message: result.message,
           has_unchecked_acs: result.has_unchecked_acs,
+          journey_id: journeyId,
+          built_at: buildStartedAt,
         },
       }));
       if (agents.length > 0) {
@@ -1697,6 +1703,17 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                         <span className="font-mono">{doc.path}</span>
                       </div>
 
+                      {/* Journey ID (→2516) */}
+                      {doc.journey_id && (
+                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-1" data-testid="journey-id-row">
+                          <Icon name="route" className="text-sm" />
+                          <span className="text-slate-400">Journey</span>
+                          <span className="font-mono text-slate-300 bg-slate-800/60 px-1.5 py-0.5 rounded" data-testid="journey-id-value">
+                            {doc.journey_id}
+                          </span>
+                        </div>
+                      )}
+
                       {/* Guided next step + action buttons */}
                       <div className="mt-4 space-y-3">
                         {/* Step guidance */}
@@ -1893,9 +1910,15 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                             className="mt-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-slate-800 dark:text-slate-200"
                             data-testid="build-result"
                           >
+                            {/* →2549: build confirmation card */}
                             <div className="mb-1 font-semibold text-blue-700 dark:text-blue-300">
-                              Started {buildResult[doc.path].agents.length} agent
-                              {buildResult[doc.path].agents.length === 1 ? "" : "s"}.
+                              Build started — {doc.title}
+                            </div>
+                            <div className="text-slate-500 dark:text-slate-400 mb-2">
+                              {buildResult[doc.path].built_at && (
+                                <span>{new Date(buildResult[doc.path].built_at!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })} · </span>
+                              )}
+                              {buildResult[doc.path].agents.length} agent{buildResult[doc.path].agents.length === 1 ? "" : "s"} spawned
                             </div>
                             <div className="mb-2 flex flex-wrap gap-1.5">
                               {buildResult[doc.path].agents.map((name) => (
@@ -1908,16 +1931,36 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                                 </span>
                               ))}
                             </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate("/agents");
-                              }}
-                              className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
-                              data-testid="build-agents-link"
-                            >
-                              Watch in the Agents tab -&gt;
-                            </button>
+                            <div className="flex items-center gap-3">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate("/agents");
+                                }}
+                                className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                                data-testid="build-agents-link"
+                              >
+                                Watch in the Agents tab →
+                              </button>
+                              {/* →2550: View Journey button */}
+                              {buildResult[doc.path].journey_id && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setJourneyModal({
+                                      specPath: doc.path,
+                                      journeyId: buildResult[doc.path].journey_id!,
+                                      specTitle: doc.title,
+                                    });
+                                  }}
+                                  className="flex items-center gap-1 font-semibold text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300"
+                                  data-testid="view-journey-button"
+                                >
+                                  <Icon name="route" size={12} />
+                                  View Journey
+                                </button>
+                              )}
+                            </div>
                           </div>
                         )}
                         {buildResult[doc.path] &&
@@ -2027,6 +2070,148 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
         onSubmit={handleApplyTemplate}
       />
 
+      {/* →2550: Journey Timeline modal */}
+      {journeyModal && (
+        <JourneyTimelineModal
+          specTitle={journeyModal.specTitle}
+          journeyId={journeyModal.journeyId}
+          specPath={journeyModal.specPath}
+          onClose={() => setJourneyModal(null)}
+          onRerun={() => {
+            setJourneyModal(null);
+            handleBuild(journeyModal.specPath);
+          }}
+        />
+      )}
+
     </>
+  );
+}
+
+
+// ─── Journey Timeline Modal (→2550) ──────────────────────────────────────────
+
+interface JourneyEvent {
+  timestamp: string;
+  event: string;
+  label: string;
+  detail: string;
+  journey_id?: string;
+}
+
+interface JourneyTimelineModalProps {
+  specTitle: string;
+  journeyId: string;
+  specPath: string;
+  onClose: () => void;
+  onRerun: () => void;
+}
+
+function JourneyTimelineModal({ specTitle, journeyId, specPath, onClose, onRerun }: JourneyTimelineModalProps) {
+  const [events, setEvents] = useState<JourneyEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await api.get<{ events: JourneyEvent[] }>(
+          `/activity?last=200&journey_id=${encodeURIComponent(journeyId)}`
+        );
+        setEvents(res.events || []);
+      } catch {
+        setEvents([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [journeyId]);
+
+  const STEP_ICONS: Record<string, string> = {
+    "spec_build_started": "build",
+    "spec_built_start": "build",
+    "spec_journey_started": "route",
+    "agent.spawned": "smart_toy",
+    "agent.completed": "check_circle",
+    "agent.failed": "error",
+    "task.added": "add_task",
+    "task.closed": "task_alt",
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      data-testid="journey-timeline-modal"
+      onClick={onClose}
+    >
+      <div
+        className="relative bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between p-5 border-b border-slate-800">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Icon name="route" size={18} className="text-violet-400" />
+              <span className="text-sm font-semibold text-white">Journey</span>
+              <span className="font-mono text-xs text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded" data-testid="journey-modal-id">
+                {journeyId}
+              </span>
+            </div>
+            <p className="text-slate-300 text-sm font-medium">{specTitle}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-slate-500 hover:text-slate-300 transition-colors"
+            data-testid="journey-modal-close"
+          >
+            <Icon name="close" size={20} />
+          </button>
+        </div>
+
+        {/* Timeline body */}
+        <div className="flex-1 overflow-y-auto p-5">
+          {loading ? (
+            <div className="text-slate-500 text-sm text-center py-8">Loading journey…</div>
+          ) : events.length === 0 ? (
+            <div className="text-slate-500 text-sm text-center py-8">
+              No events recorded yet for this journey. They appear here as agents run.
+            </div>
+          ) : (
+            <ol className="relative border-l border-slate-700 space-y-4 ml-3">
+              {[...events].reverse().map((ev, i) => (
+                <li key={i} className="ml-6" data-testid="journey-event-row">
+                  <div className="absolute -left-3 w-6 h-6 rounded-full bg-slate-800 border border-slate-600 flex items-center justify-center">
+                    <Icon name={STEP_ICONS[ev.event] || "fiber_manual_record"} size={12} className="text-violet-400" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-slate-200">{ev.label}</p>
+                    {ev.detail && (
+                      <p className="text-xs text-slate-400 mt-0.5 font-mono truncate">{ev.detail}</p>
+                    )}
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      {new Date(ev.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+
+        {/* Footer: re-run button (→2551) */}
+        <div className="flex items-center justify-between px-5 py-4 border-t border-slate-800">
+          <p className="text-[11px] text-slate-500 font-mono">{specPath}</p>
+          <button
+            onClick={onRerun}
+            className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+            data-testid="journey-rerun-button"
+          >
+            <Icon name="replay" size={14} />
+            Re-run build
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

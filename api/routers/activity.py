@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Query
 
 from config import OSTK_DIR
-from services.ostk import ostk, invalidate_audit_cache
+from services.ostk import ostk, invalidate_audit_cache, read_audit_entries
 
 router = APIRouter(tags=["activity"])
 
@@ -67,6 +67,7 @@ HIDDEN_EVENTS = {
 async def get_activity(
     last: int = Query(default=50, ge=1, le=500),
     target: Optional[str] = Query(default=None),
+    journey_id: Optional[str] = Query(default=None),
 ):
     """Return a chronological feed of everything that happened.
 
@@ -88,6 +89,49 @@ async def get_activity(
     except Exception:
         pass
 
+    # Build a timestamp-keyed index from audit.jsonl entries that carry a
+    # journey_id field so we can (a) enrich activity events with their journey_id
+    # and (b) filter by journey_id when the query param is set.
+    # The audit.jsonl "ts" field is the authoritative ISO timestamp; ostk history
+    # lines use a compatible format so the first 19 chars match closely enough.
+    journey_index: dict[str, str] = {}  # ts_prefix -> journey_id
+    journey_detail_index: dict[str, dict] = {}  # ts_prefix -> full audit entry
+    if journey_id or True:  # always build; cost is amortised by read_audit_entries cache
+        try:
+            audit_entries = read_audit_entries(OSTK_DIR / "audit.jsonl")
+            for entry in audit_entries:
+                jid = entry.get("journey_id")
+                if jid:
+                    ts = entry.get("ts", "")
+                    if ts:
+                        # Use first 19 chars (YYYY-MM-DDTHH:MM:SS) as key
+                        key = ts[:19]
+                        journey_index[key] = jid
+                        journey_detail_index[key] = entry
+        except Exception:
+            pass
+
+    # When journey_id is requested but audit has matching entries, also include
+    # those trace events directly (they may not appear in ostk history output).
+    extra_events: list[dict] = []
+    if journey_id:
+        for entry in journey_detail_index.values():
+            if entry.get("journey_id") == journey_id:
+                ev_type = entry.get("event", "")
+                ts = entry.get("ts", "")
+                detail_parts = []
+                for k, v in entry.items():
+                    if k not in ("ts", "trace_id", "event", "journey_id"):
+                        detail_parts.append(f"{k}={v}")
+                extra_events.append({
+                    "timestamp": ts,
+                    "event": ev_type,
+                    "label": EVENT_LABELS.get(ev_type, ev_type.replace(".", " ").title()),
+                    "category": EVENT_CATEGORIES.get(ev_type, "other"),
+                    "detail": " ".join(detail_parts),
+                    "journey_id": journey_id,
+                })
+
     events = []
     for ev in raw_events:
         event_type = ev.get("event", "")
@@ -102,23 +146,42 @@ async def get_activity(
             # Strip the meaningless "reason: none" / "reason: null" suffix so
             # the feed shows the task ID and title only.
             detail = re.sub(r"\s+reason:\s*(none|null)\s*$", "", detail, flags=re.IGNORECASE).strip()
-            
+
             # Enrich with title if detail is just an ID (e.g. "→2203")
             if detail.startswith("→") and " " not in detail:
                 title = task_map.get(detail)
                 if title:
                     detail = f"{detail} {title}"
 
-        events.append({
+        # Attach journey_id from audit index when the timestamp prefix matches.
+        ts_key = ev.get("timestamp", "")[:19]
+        ev_journey_id = journey_index.get(ts_key)
+
+        entry = {
             "timestamp": ev.get("timestamp", ""),
             "event": event_type,
             "label": EVENT_LABELS.get(event_type, event_type.replace(".", " ").title()),
             "category": EVENT_CATEGORIES.get(event_type, "other"),
             "detail": detail,
-        })
+        }
+        if ev_journey_id:
+            entry["journey_id"] = ev_journey_id
+
+        # Filter by journey_id when requested (→2518).
+        if journey_id and ev_journey_id != journey_id:
+            continue
+
+        events.append(entry)
+
+    # Merge trace-only events (from audit.jsonl) that weren't in ostk history.
+    if journey_id and extra_events:
+        existing_ts = {e["timestamp"][:19] for e in events}
+        for ex in extra_events:
+            if ex["timestamp"][:19] not in existing_ts:
+                events.append(ex)
 
     # Return newest first for the feed
-    events.reverse()
+    events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
 
     return {"events": events, "count": len(events)}
 

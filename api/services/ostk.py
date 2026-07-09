@@ -7,6 +7,7 @@ import os
 import re
 import signal
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
@@ -2642,12 +2643,24 @@ class OstkService:
             ]
             _existing_spec_id = self._next_spec_id(_scan_dirs)
 
-        # Flip status and add promoted_at + spec_id in front matter.
+        # Assign a unique journey_id unless the draft already has one.
+        # Format: jrn-<8 hex chars> — short enough to display, unique enough for traceability.
+        _existing_journey_id = ""
+        for _line in file_lines:
+            _s = _line.strip()
+            if _s.startswith("journey_id:"):
+                _existing_journey_id = _s[len("journey_id:"):].strip()
+                break
+        if not _existing_journey_id:
+            _existing_journey_id = "jrn-" + uuid.uuid4().hex[:8]
+
+        # Flip status and add promoted_at + spec_id + journey_id in front matter.
         promoted_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         new_lines: list[str] = []
         status_written = False
         promoted_at_written = False
         spec_id_written = False
+        journey_id_written = False
         in_front_matter = bool(file_lines and file_lines[0].strip() == "---")
 
         for idx, line in enumerate(file_lines):
@@ -2656,13 +2669,16 @@ class OstkService:
                 new_lines.append(line)
                 continue
             if in_front_matter and stripped == "---" and idx > 0:
-                # End of front matter: inject promoted_at / spec_id if not already present.
+                # End of front matter: inject promoted_at / spec_id / journey_id if not present.
                 if not promoted_at_written:
                     new_lines.append(f"promoted_at: {promoted_at}")
                     promoted_at_written = True
                 if not spec_id_written:
                     new_lines.append(f"spec_id: {_existing_spec_id}")
                     spec_id_written = True
+                if not journey_id_written:
+                    new_lines.append(f"journey_id: {_existing_journey_id}")
+                    journey_id_written = True
                 in_front_matter = False
                 new_lines.append(line)
                 continue
@@ -2678,6 +2694,10 @@ class OstkService:
                 new_lines.append(f"spec_id: {_existing_spec_id}")
                 spec_id_written = True
                 continue
+            if in_front_matter and stripped.startswith("journey_id:"):
+                new_lines.append(f"journey_id: {_existing_journey_id}")
+                journey_id_written = True
+                continue
             new_lines.append(line)
 
         # No front matter (or missing status): prepend one.
@@ -2687,6 +2707,7 @@ class OstkService:
                 "status: spec",
                 f"promoted_at: {promoted_at}",
                 f"spec_id: {_existing_spec_id}",
+                f"journey_id: {_existing_journey_id}",
                 "---",
             ] + new_lines
 
@@ -2993,6 +3014,7 @@ class OstkService:
             "created_at": "",
             "promoted_at": "",
             "spec_id": "",
+            "journey_id": "",
             "updated_at_ms": mtime_ms,
             "body": "",
             "task_ids": [],
@@ -3037,6 +3059,8 @@ class OstkService:
                             doc["promoted_at"] = val
                         elif key == "spec_id":
                             doc["spec_id"] = val
+                        elif key == "journey_id":
+                            doc["journey_id"] = val
                         elif key == "tasks":
                             # Inline format: tasks: ["407", "408"]
                             if val.startswith("["):

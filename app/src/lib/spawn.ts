@@ -7,13 +7,14 @@ export interface ConflictItem {
 }
 
 export type BuildResult =
-  | { status: 'ok'; agents: string[]; message: string; has_unchecked_acs?: boolean }
+  | { status: 'ok'; agents: string[]; message: string; has_unchecked_acs?: boolean; journey_id?: string }
   | { status: 'conflict'; conflicts: ConflictItem[] }
 
 interface BuildResponse {
   agents: string[]
   message: string
   has_unchecked_acs?: boolean
+  journey_id?: string
 }
 
 export interface BuildCallbacks {
@@ -44,6 +45,7 @@ export async function buildSpec(
       agents: res.agents || [],
       message: res.message || '',
       has_unchecked_acs: res.has_unchecked_acs,
+      journey_id: res.journey_id,
     }
     callbacks?.onSuccess?.(result)
     return result

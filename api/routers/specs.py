@@ -42,6 +42,11 @@ AC_DRAFT_MODEL = "claude-haiku-4-5"
 # unassigned rows cleanly.
 _task_assignments: dict[str, str] = {}
 
+# In-memory map: spec_path -> journey_id, populated by build_spec() when
+# the spec has a journey_id in its frontmatter. Used for cost attribution
+# (→2534) and activity feed filtering (→2518). Process-local / best-effort.
+_spec_journey_ids: dict[str, str] = {}
+
 
 # In-memory map: task_id -> spec_path, populated alongside _task_assignments
 # when /specs/{path}/build spawns per-task builder agents. Used by
@@ -3072,6 +3077,12 @@ async def build_spec(spec_path: str, model: Optional[str] = None, preview: bool 
         )
 
     spec_text = spec_full_path.read_text()
+
+    # Read journey_id from frontmatter and cache it for cost attribution (→2534).
+    _build_journey_id = _read_frontmatter_value(spec_text, "journey_id") or ""
+    if _build_journey_id:
+        _spec_journey_ids[spec_path] = _build_journey_id
+
     # Freeze/lock (phase 5): respect an explicit user lock. Informational, not
     # an error - the user unlocks the spec when they want to build.
     if (_read_frontmatter_value(spec_text, "frozen").lower() in ("true", "yes", "on")
@@ -3166,7 +3177,12 @@ async def build_spec(spec_path: str, model: Optional[str] = None, preview: bool 
     # the UI does not attach a broken builder to the row.
     try:
         from services.tracing import trace_event as _trace_event
-        _trace_event("spec_built_start", spec_path=str(spec_path), agent_count=len(agent_configs))
+        _trace_event(
+            "spec_built_start",
+            spec_path=str(spec_path),
+            agent_count=len(agent_configs),
+            journey_id=_build_journey_id or None,
+        )
     except Exception:
         pass
 
@@ -3325,9 +3341,26 @@ async def build_spec(spec_path: str, model: Optional[str] = None, preview: bool 
     if failures:
         message += f" {len(failures)} failed: {'; '.join(failures)}"
     message += builds_on_claude_note
-    return {"agents": spawned, "message": message, "task_ids": [
-        cfg.get("task_id") for cfg in agent_configs if cfg.get("task_id")
-    ]}
+
+    # Log journey event to the activity feed (→2551)
+    if _build_journey_id:
+        try:
+            from services.tracing import trace_event as _trace_event2
+            _trace_event2(
+                "spec_journey_started",
+                spec_path=str(spec_path),
+                journey_id=_build_journey_id,
+                agents=spawned,
+            )
+        except Exception:
+            pass
+
+    return {
+        "agents": spawned,
+        "message": message,
+        "task_ids": [cfg.get("task_id") for cfg in agent_configs if cfg.get("task_id")],
+        "journey_id": _build_journey_id or None,
+    }
 
 
 @router.delete("/specs/orphan-drafts")
