@@ -1228,7 +1228,14 @@ function ConnectStep({
         data-testid="connect-reassurance"
       >
         yourOS runs on your computer and uses your existing AI logins. It does not
-        change, replace, or sign into anything you already use.
+        change, replace, or sign into anything you already use.{' '}
+        <a
+          href="/privacy"
+          className="underline opacity-70 hover:opacity-100"
+          data-testid="connect-privacy-link"
+        >
+          Privacy details
+        </a>
       </p>
 
       {/* ── Which AI runs your chat ───────────────────────── */}
