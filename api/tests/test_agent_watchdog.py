@@ -46,7 +46,7 @@ def _make_worktree_transcript(fake_home: Path, agent_name: str, content: str) ->
         fake_home
         / ".claude"
         / "projects"
-        / f"-Users-torimeyer-claude-torios--claude-worktrees-agent-{agent_name}"
+        / f"-Users-example-claude-repo--claude-worktrees-agent-{agent_name}"
     )
     project_dir.mkdir(parents=True, exist_ok=True)
     transcript = project_dir / "sess-abc123.jsonl"

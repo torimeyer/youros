@@ -933,7 +933,7 @@ async def test_briefing_action_items_use_visible_task_filter(tmp_path):
             "title": "Session in torios",
             "priority": "P1",
             "status": "open",
-            "description": "session-task: Work happening in /Users/torimeyer/claude/torios.",
+            "description": "session-task: Work happening in /Users/example/claude/repo.",
             "created_at": "2026-04-15T00:00:00Z",
         },
         # An e2e smoke task. Must be hidden.
@@ -1017,7 +1017,7 @@ async def test_briefing_regen_after_all_tasks_closed_shows_no_top_task(tmp_path)
             "title": "Session in torios",
             "priority": "P1",
             "status": "open",
-            "description": "session-task: Work happening in /Users/torimeyer/claude/torios.",
+            "description": "session-task: Work happening in /Users/example/claude/repo.",
             "created_at": "2026-04-15T00:00:00Z",
         },
         # A previously closed task.

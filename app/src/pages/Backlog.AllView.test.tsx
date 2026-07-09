@@ -1,5 +1,4 @@
 // TDD — RED tests for AllView kanban redesign (→1478)
-// See plan: /Users/torimeyer/.claude/plans/this-isnt-very-user-twinkling-yeti.md
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'

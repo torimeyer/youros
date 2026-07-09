@@ -45,14 +45,14 @@ def test_distinct_long_names_produce_distinct_ids():
 
 def test_capped_path_fits_under_sun_path_max():
     """Simulated worktree path with a capped id must fit under SUN_PATH_MAX."""
-    # Worst-case real-world project root we ship on:
-    #   /Users/torimeyer/claude/torios = 32 chars
+    # Worst-case representative project root:
+    #   /Users/exampleuser/claude/repo = 30 chars
     # plus /.claude/worktrees/agent- = 25 chars
     # plus capped id (≤ WORKTREE_ID_MAX_LEN)
     # plus /.ostk/ostk.sock (SOCK_SUFFIX_LEN = 16)
     pathological_name = "x" * 200  # any over-length input
     short = short_worktree_id(pathological_name)
-    project_root_len = len("/Users/torimeyer/claude/torios")
+    project_root_len = len("/Users/exampleuser/claude/repo")
     fixed_prefix_len = len("/.claude/worktrees/agent-")
     total = (
         project_root_len + fixed_prefix_len + len(short) + SOCK_SUFFIX_LEN

@@ -4050,7 +4050,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
   it('isMainSession returns true for inferred session with Claude Code session description', () => {
     expect(isMainSession({
       name: 'claude-code-31808c4b-5',
-      description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
+      description: 'Claude Code session (cwd: /Users/example/claude/repo)',
       source: 'claude-code',
     })).toBe(true)
   })
@@ -4099,7 +4099,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
     expect(isUserSpawnedAgent({
       name: 'claude-code-31808c4b-5',
       source: 'claude-code',
-      description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
+      description: 'Claude Code session (cwd: /Users/example/claude/repo)',
     })).toBe(false)
   })
 
@@ -4142,7 +4142,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
         last_heartbeat_at: MOCK_HEARTBEAT,
         source: 'claude-code',
         model: 'claude-opus-4-6[1m]',
-        description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
+        description: 'Claude Code session (cwd: /Users/example/claude/repo)',
         spawned_at: TS,
       },
       {
@@ -4182,7 +4182,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
       last_heartbeat_at: MOCK_HEARTBEAT,
       source: 'claude-code',
       model: 'claude-opus-4-6[1m]',
-      description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
+      description: 'Claude Code session (cwd: /Users/example/claude/repo)',
       spawned_at: TS,
     }])
     render(<MemoryRouter><Agents /></MemoryRouter>)
@@ -4200,7 +4200,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
   it('agentTitleParts returns "Your chat with Claude" for main session', () => {
     const result = agentTitleParts({
       name: 'claude-code-31808c4b-5',
-      description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
+      description: 'Claude Code session (cwd: /Users/example/claude/repo)',
       model: 'claude-opus-4-6[1m]',
       source: 'claude-code',
       spawned_at: TS,
@@ -4212,7 +4212,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
   it('agentTitleParts does not leak "Claude Code session (cwd:..." as a title', () => {
     const result = agentTitleParts({
       name: 'claude-code-31808c4b-5',
-      description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
+      description: 'Claude Code session (cwd: /Users/example/claude/repo)',
       source: 'claude-code',
       spawned_at: TS,
     })
@@ -4228,7 +4228,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
       last_heartbeat_at: MOCK_HEARTBEAT,
       source: 'claude-code',
       model: 'claude-opus-4-6[1m]',
-      description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
+      description: 'Claude Code session (cwd: /Users/example/claude/repo)',
       spawned_at: TS,
     }])
     render(<MemoryRouter><Agents /></MemoryRouter>)
@@ -4253,7 +4253,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
         last_heartbeat_at: MOCK_HEARTBEAT,
         source: 'claude-code',
         model: 'claude-opus-4-6[1m]',
-        description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
+        description: 'Claude Code session (cwd: /Users/example/claude/repo)',
         spawned_at: TS,
       },
       {
@@ -4305,7 +4305,7 @@ describe('agent filtering (only user-spawned agents on Agents tab)', () => {
       last_heartbeat_at: MOCK_HEARTBEAT,
       source: 'audit',
       model: 'claude-sonnet-4-6',
-      description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)',
+      description: 'Claude Code session (cwd: /Users/example/claude/repo)',
       spawned_at: TS,
     }])
     render(<MemoryRouter><Agents /></MemoryRouter>)

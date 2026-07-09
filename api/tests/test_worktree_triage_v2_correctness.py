@@ -8,10 +8,17 @@ Rules:
   DUPLICATE — git log main..<branch> non-empty AND git cherry main <branch> has ZERO + lines
   UNIQUE    — git cherry main <branch> has at least one + line
 """
+import os
 import subprocess
 import pytest
 
-REPO = "/Users/torimeyer/claude/torios"
+# Repo root is derived at runtime (env override first, then git) so the
+# test is checkout-agnostic instead of pinning one machine's path.
+REPO = os.environ.get("YOUROS_REPO_ROOT") or subprocess.run(
+    ["git", "rev-parse", "--show-toplevel"],
+    capture_output=True,
+    text=True,
+).stdout.strip() or "."
 
 
 def _run(cmd):

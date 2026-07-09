@@ -3643,7 +3643,7 @@ class TestChatAuthorshipGrounding:
 
     These tests assert both defenses are in place. Do not loosen them
     without reading
-    ``/Users/torimeyer/.claude/projects/-Users-torimeyer-claude-torios/memory/MEMORY.md``
+    ``~/.claude/projects/<project-label>/memory/MEMORY.md``
     first to understand why this matters for the demo.
     """
 
@@ -3700,7 +3700,7 @@ class TestChatAuthorshipGrounding:
             {
                 "event": "file.written",
                 "name": "roadmap.md",
-                "path": "/Users/torimeyer/.youros/files/roadmap.md",
+                "path": "/Users/example/.youros/files/roadmap.md",
                 "timestamp": "2026-04-20T12:05:00Z",
             },
         ]
