@@ -326,3 +326,72 @@ describe('Fill all gaps button', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// →2626: when the backend cannot be reached, the panel shows plain language
+// plus a Retry control, never the raw proxy text "Upstream unavailable".
+// ---------------------------------------------------------------------------
+
+describe('AI suggest when the backend cannot be reached (→2626)', () => {
+  beforeEach(() => {
+    mockApiPost.mockReset()
+    mockApiPatch.mockReset()
+  })
+
+  function openModalAndSuggest() {
+    render(<NeedsClarityChip checks={oneFailingCheck} specPath="docs/spec/foo.md" />)
+    fireEvent.click(screen.getByTestId('needs-clarity-chip'))
+    fireEvent.click(screen.getByTestId('clarity-suggest-has_ac_checkboxes'))
+  }
+
+  it('shows a plain-language message instead of the raw proxy error', async () => {
+    mockApiPost.mockRejectedValue(new Error('Upstream unavailable'))
+    openModalAndSuggest()
+    await waitFor(() => {
+      expect(screen.getByTestId('clarity-suggest-error-has_ac_checkboxes')).toBeInTheDocument()
+    })
+    const err = screen.getByTestId('clarity-suggest-error-has_ac_checkboxes')
+    expect(err).toHaveTextContent("Couldn't reach the backend. It may be busy. Try again.")
+    expect(err).not.toHaveTextContent('Upstream unavailable')
+  })
+
+  it('offers a Retry control that re-runs the suggestion', async () => {
+    mockApiPost
+      .mockRejectedValueOnce(new Error('Upstream unavailable'))
+      .mockResolvedValueOnce({ proposed_fix: '- [ ] concrete step', rationale: 'why' })
+    openModalAndSuggest()
+    await waitFor(() => {
+      expect(screen.getByTestId('clarity-suggest-retry-has_ac_checkboxes')).toBeInTheDocument()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('clarity-suggest-retry-has_ac_checkboxes'))
+    })
+    await waitFor(() => {
+      const textarea = screen.getByTestId('clarity-input-has_ac_checkboxes') as HTMLTextAreaElement
+      expect(textarea.value).toBe('- [ ] concrete step')
+    })
+    expect(mockApiPost).toHaveBeenCalledTimes(2)
+  })
+
+  it('maps a request timeout to the same plain-language message', async () => {
+    mockApiPost.mockRejectedValue(new Error('Request timed out after 30000 ms'))
+    openModalAndSuggest()
+    await waitFor(() => {
+      expect(screen.getByTestId('clarity-suggest-error-has_ac_checkboxes')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('clarity-suggest-error-has_ac_checkboxes')).toHaveTextContent(
+      "Couldn't reach the backend. It may be busy. Try again."
+    )
+  })
+
+  it('keeps the API-key error message untouched (not mapped to backend-busy)', async () => {
+    mockApiPost.mockRejectedValue(new Error('No Anthropic API key configured'))
+    openModalAndSuggest()
+    await waitFor(() => {
+      expect(screen.getByTestId('clarity-suggest-error-has_ac_checkboxes')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('clarity-suggest-error-has_ac_checkboxes')).toHaveTextContent(
+      'No API key configured.'
+    )
+  })
+})

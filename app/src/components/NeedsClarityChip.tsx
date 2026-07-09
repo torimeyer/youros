@@ -65,6 +65,20 @@ function mergeAcChecks(checks: ReadinessCheck[]): ReadinessCheck[] {
 // Checks dropped from the task rubric by Clarity-1; filter from render to be safe
 const TASK_MODE_HIDDEN = new Set(['plan_path_present', 'file_exists', 'has_ac_checkboxes', 'ac_count_threshold'])
 
+// →2626: when the backend cannot be reached the user must never see the raw
+// dev-proxy text "Upstream unavailable". The proxy answers 502 with that body
+// when its request to the backend errors or times out; fetch throws "Failed
+// to fetch" when the server is down; the api client throws "Request timed
+// out…" after 30s. All of these mean the same thing to the user.
+const BACKEND_BUSY_MSG = "Couldn't reach the backend. It may be busy. Try again."
+
+function isBackendUnreachable(err: unknown): boolean {
+  const status = (err as { status?: number })?.status
+  if (status === 502 || status === 503 || status === 504) return true
+  const msg = err instanceof Error ? err.message : String(err)
+  return /upstream unavailable|failed to fetch|network\s?error|timed out/i.test(msg)
+}
+
 export function NeedsClarityChip({
   checks,
   specPath,
@@ -133,6 +147,7 @@ export function NeedsClarityChip({
 
   async function handleSuggest(checkName: string) {
     setSuggesting(checkName)
+    setSuggestErrors((e) => ({ ...e, [checkName]: '' }))
     try {
       let res: { proposed_fix: string; rationale: string }
       if (mode === 'task' && taskId) {
@@ -145,8 +160,9 @@ export function NeedsClarityChip({
       setDrafts((d) => ({ ...d, [checkName]: res.proposed_fix }))
       setRationales((r) => ({ ...r, [checkName]: res.rationale }))
     } catch (err) {
-      const msg =
-        err instanceof Error
+      const msg = isBackendUnreachable(err)
+        ? BACKEND_BUSY_MSG
+        : err instanceof Error
           ? err.message
           : (err as { detail?: string })?.detail ?? String(err)
       setSuggestErrors((e) => ({ ...e, [checkName]: msg }))
@@ -326,7 +342,19 @@ export function NeedsClarityChip({
                                 data-testid={`clarity-suggest-error-${check.name}`}
                                 className="mt-1 text-[10px] text-red-400"
                               >
-                                {suggestErrors[check.name].includes('No Anthropic API key') ? (
+                                {suggestErrors[check.name] === BACKEND_BUSY_MSG ? (
+                                  <>
+                                    {BACKEND_BUSY_MSG}{' '}
+                                    <button
+                                      type="button"
+                                      data-testid={`clarity-suggest-retry-${check.name}`}
+                                      onClick={() => handleSuggest(check.name)}
+                                      className="underline text-red-300 hover:text-red-200"
+                                    >
+                                      Retry
+                                    </button>
+                                  </>
+                                ) : suggestErrors[check.name].includes('No Anthropic API key') ? (
                                   <>
                                     No API key configured.{' '}
                                     <a href="/settings" className="underline">

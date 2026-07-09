@@ -135,6 +135,39 @@ export default defineConfig({
     // occupied we WANT to know immediately.
     strictPort: true,
     proxy: {
+      // →2626: AI "suggest" endpoints (spec clarity, task clarify, spec
+      // wizard) call Claude and legitimately take 5-30s before the FIRST
+      // byte arrives — measured 5.3-6.4s for a healthy call on an idle
+      // machine. http-proxy's proxyTimeout is a socket-inactivity timer and
+      // FastAPI sends nothing until the handler returns, so the blanket 5s
+      // timeout on '/api' below killed every one of those requests with a
+      // 502 "Upstream unavailable". Give AI routes a 120s window; the
+      // frontend's own 30s REQUEST_TIMEOUT_MS stays the effective UI
+      // ceiling. Keys starting with "^" are RegExps in vite, and this entry
+      // must sit ABOVE '/api' because vite picks the first matching key in
+      // insertion order.
+      '^/api/.+/suggest(\\?|$)': {
+        target: 'https://127.0.0.1:8000',
+        secure: false,
+        changeOrigin: true,
+        proxyTimeout: 120_000,
+        agent: backendAgent,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, res) => {
+            // Dead sockets (backend restart) still fail fast: ECONNRESET
+            // fires immediately regardless of proxyTimeout.
+            proxyErrLog('[vite proxy /api ai-suggest] error:', err)
+            try {
+              if (res && 'writeHead' in res && !res.headersSent) {
+                res.writeHead(502, { 'Content-Type': 'text/plain' })
+                res.end('Upstream unavailable')
+              }
+            } catch {
+              // response already torn down
+            }
+          })
+        },
+      },
       '/api': {
         // Use 127.0.0.1 instead of localhost. Node resolves localhost
         // to both ::1 (IPv6) and 127.0.0.1 (IPv4), tries IPv6 first.
