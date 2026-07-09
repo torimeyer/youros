@@ -38,7 +38,7 @@ _warn() { echo -e "${YELLOW}⚠${NC} $1"; }
 # ── 1. Backend reachable ──────────────────────────────────────────────────────
 _http() {
     curl -sk --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "$1" 2>/dev/null \
-        || echo "000"
+        || true
 }
 
 backend_code="$(_http "$DOCTOR_BACKEND_URL/api/status")"
