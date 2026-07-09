@@ -30,6 +30,10 @@ EVENT_LABELS = {
     "needle.refined": "Task refined",
     "request.submitted": "Request submitted",
     "request.denied": "Request denied",
+    "spec_built_start": "Build started",
+    "spec_built_complete": "Build finished",
+    "spec_journey_started": "Journey started",
+    "spec_journey_complete": "Journey completed",
 }
 
 EVENT_CATEGORIES = {

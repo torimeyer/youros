@@ -255,3 +255,245 @@ def test_journey_id_in_spec_journey_map():
     # The module-level map should be accessible
     assert hasattr(specs_mod, "_spec_journey_ids"), \
         "routers.specs must expose _spec_journey_ids dict for cost lookups"
+
+
+# ─── →2600 / →2588: journey completion on spec finish ────────────────────────
+
+
+def _write_completable_spec(tmp_path, monkeypatch, *, journey_id: str | None):
+    """Create a spec whose two builder tasks are both closed, wired so the
+    advance helper will fire. Returns (specs_mod, spec_file)."""
+    from routers import specs as specs_mod
+    from services import youros_paths
+    from services import ostk as ostk_module
+
+    specs_dir = tmp_path / "specs"
+    specs_dir.mkdir(exist_ok=True)
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir(exist_ok=True)
+    jid_line = f"journey_id: {journey_id}\n" if journey_id else ""
+    spec_file = specs_dir / "journey-done.md"
+    spec_file.write_text(
+        "---\ntitle: journey done\nstatus: building\n"
+        + jid_line
+        + 'tasks:\n  - "71"\n  - "72"\n---\n\n- [ ] step one\n- [ ] step two\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(youros_paths, "specs_dir", lambda: specs_dir)
+    monkeypatch.setattr(youros_paths, "drafts_dir", lambda: drafts_dir)
+    monkeypatch.setattr(
+        specs_mod,
+        "_spec_task_origin",
+        {"71": str(spec_file), "72": str(spec_file)},
+    )
+
+    async def fake_list_tasks():
+        return [
+            {"id": "71", "status": "closed", "title": "step one"},
+            {"id": "72", "status": "closed", "title": "step two"},
+        ]
+
+    monkeypatch.setattr(ostk_module.ostk, "list_tasks", fake_list_tasks)
+    return specs_mod, spec_file
+
+
+@pytest.mark.asyncio
+async def test_advance_writes_journey_complete_timestamp(tmp_path, monkeypatch):
+    """→2600: flipping a spec to complete writes journey_complete: <ISO ts>
+    into the spec's frontmatter."""
+    from datetime import datetime
+
+    specs_mod, spec_file = _write_completable_spec(
+        tmp_path, monkeypatch, journey_id="jrn-done1"
+    )
+
+    result = await specs_mod._advance_spec_status_if_all_builder_tasks_closed_async("71")
+
+    assert result == str(spec_file)
+    text = spec_file.read_text()
+    assert "status: complete" in text
+    stamps = [
+        line.split(":", 1)[1].strip()
+        for line in text.splitlines()
+        if line.startswith("journey_complete:")
+    ]
+    assert len(stamps) == 1, f"exactly one journey_complete key, got:\n{text}"
+    # Must be a parseable ISO timestamp
+    parsed = datetime.fromisoformat(stamps[0].replace("Z", "+00:00"))
+    assert parsed.year >= 2026
+
+
+@pytest.mark.asyncio
+async def test_advance_journey_complete_in_frontmatter_block(tmp_path, monkeypatch):
+    """→2600: journey_complete lands INSIDE the frontmatter block, not the body."""
+    specs_mod, spec_file = _write_completable_spec(
+        tmp_path, monkeypatch, journey_id="jrn-done2"
+    )
+
+    await specs_mod._advance_spec_status_if_all_builder_tasks_closed_async("71")
+
+    lines = spec_file.read_text().split("\n")
+    assert lines[0].strip() == "---"
+    close_idx = next(i for i, l in enumerate(lines[1:], 1) if l.strip() == "---")
+    fm = lines[1:close_idx]
+    assert any(l.startswith("journey_complete:") for l in fm), (
+        f"journey_complete must be inside frontmatter, got fm={fm}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_advance_traces_spec_journey_complete(tmp_path, monkeypatch):
+    """→2588: completion emits a spec_journey_complete trace event carrying
+    journey_id, completed_at, and the last agent's name."""
+    specs_mod, spec_file = _write_completable_spec(
+        tmp_path, monkeypatch, journey_id="jrn-trace9"
+    )
+    monkeypatch.setattr(
+        specs_mod, "_task_assignments",
+        {"71": "spec-journey-done-71", "72": "spec-journey-done-72"},
+    )
+
+    traced = []
+
+    def fake_trace(name, **kwargs):
+        traced.append({"event": name, **kwargs})
+
+    monkeypatch.setattr(specs_mod, "trace_event", fake_trace)
+
+    await specs_mod._advance_spec_status_if_all_builder_tasks_closed_async("72")
+
+    done_events = [e for e in traced if e["event"] == "spec_journey_complete"]
+    assert len(done_events) == 1, f"expected one spec_journey_complete, got {traced}"
+    ev = done_events[0]
+    assert ev["journey_id"] == "jrn-trace9"
+    assert ev.get("completed_at"), "spec_journey_complete must carry completed_at"
+    assert ev.get("last_agent") == "spec-journey-done-72"
+
+
+@pytest.mark.asyncio
+async def test_advance_no_journey_event_without_journey_id(tmp_path, monkeypatch):
+    """A spec without journey_id still gets journey_complete metadata, but no
+    spec_journey_complete activity event is emitted (there is no journey)."""
+    specs_mod, spec_file = _write_completable_spec(
+        tmp_path, monkeypatch, journey_id=None
+    )
+
+    traced = []
+    monkeypatch.setattr(
+        specs_mod, "trace_event",
+        lambda name, **kw: traced.append({"event": name, **kw}),
+    )
+
+    result = await specs_mod._advance_spec_status_if_all_builder_tasks_closed_async("71")
+
+    assert result == str(spec_file)
+    assert "journey_complete:" in spec_file.read_text()
+    assert not [e for e in traced if e["event"] == "spec_journey_complete"]
+
+
+@pytest.mark.asyncio
+async def test_activity_feed_shows_journey_completed(client, monkeypatch):
+    """→2588: GET /activity?journey_id= surfaces the spec_journey_complete
+    event with its timestamp and a plain-language label."""
+    from routers import activity as activity_mod
+
+    audit_events = [
+        {"ts": "2026-07-09T01:00:00+00:00", "event": "spec_built_start",
+         "spec_path": "docs/spec/j.md", "journey_id": "jrn-feed1"},
+        {"ts": "2026-07-09T01:30:00+00:00", "event": "spec_journey_complete",
+         "spec_path": "docs/spec/j.md", "journey_id": "jrn-feed1",
+         "completed_at": "2026-07-09T01:30:00+00:00", "last_agent": "spec-j-9"},
+    ]
+
+    monkeypatch.setattr(activity_mod, "read_audit_entries", lambda _p: audit_events)
+    with patch("routers.activity.ostk") as mock_ostk:
+        mock_ostk.get_history = AsyncMock(return_value=[])
+        mock_ostk.list_tasks = AsyncMock(return_value=[])
+        resp = await client.get("/api/activity?journey_id=jrn-feed1")
+
+    assert resp.status_code == 200
+    events = resp.json()["events"]
+    done = [e for e in events if e["event"] == "spec_journey_complete"]
+    assert len(done) == 1, f"expected spec_journey_complete in feed, got {events}"
+    assert done[0]["timestamp"] == "2026-07-09T01:30:00+00:00"
+    assert done[0]["label"] == "Journey completed"
+
+
+# ─── →2532: artifact registry ─────────────────────────────────────────────────
+
+
+def test_record_artifact_appends_record(tmp_path, monkeypatch):
+    """record_artifact writes {artifact_path, spec_path, journey_id, created_at}
+    as one JSONL row."""
+    from datetime import datetime
+    import routers.specs as specs_mod
+
+    registry = tmp_path / "artifact_registry.jsonl"
+    monkeypatch.setattr(specs_mod, "ARTIFACT_REGISTRY_PATH", registry)
+
+    rec = specs_mod.record_artifact(
+        "out/report.pdf", "docs/spec/a.md", journey_id="jrn-art1"
+    )
+
+    assert rec["artifact_path"] == "out/report.pdf"
+    assert rec["spec_path"] == "docs/spec/a.md"
+    assert rec["journey_id"] == "jrn-art1"
+    datetime.fromisoformat(rec["created_at"].replace("Z", "+00:00"))
+
+    rows = [json.loads(l) for l in registry.read_text().splitlines() if l.strip()]
+    assert rows == [rec]
+
+
+def test_record_artifact_resolves_journey_from_cache(tmp_path, monkeypatch):
+    """When journey_id is not passed, record_artifact looks it up in
+    _spec_journey_ids (populated by build_spec)."""
+    import routers.specs as specs_mod
+
+    registry = tmp_path / "artifact_registry.jsonl"
+    monkeypatch.setattr(specs_mod, "ARTIFACT_REGISTRY_PATH", registry)
+    monkeypatch.setitem(specs_mod._spec_journey_ids, "docs/spec/b.md", "jrn-cached2")
+
+    rec = specs_mod.record_artifact("out/deck.pptx", "docs/spec/b.md")
+
+    assert rec["journey_id"] == "jrn-cached2"
+
+
+@pytest.mark.asyncio
+async def test_artifact_endpoints_roundtrip(client, tmp_path, monkeypatch):
+    """POST /specs/{path}/artifacts registers a record; GET /specs/artifacts
+    filters by journey_id and spec_path."""
+    import routers.specs as specs_mod
+
+    registry = tmp_path / "artifact_registry.jsonl"
+    monkeypatch.setattr(specs_mod, "ARTIFACT_REGISTRY_PATH", registry)
+
+    resp = await client.post(
+        "/api/specs/docs/spec/report-spec.md/artifacts",
+        json={"artifact_path": "out/q3-report.pdf", "journey_id": "jrn-rt3"},
+    )
+    assert resp.status_code == 200
+    rec = resp.json()
+    assert rec["artifact_path"] == "out/q3-report.pdf"
+    assert rec["journey_id"] == "jrn-rt3"
+
+    resp2 = await client.post(
+        "/api/specs/docs/spec/other-spec.md/artifacts",
+        json={"artifact_path": "out/other.html", "journey_id": "jrn-other"},
+    )
+    assert resp2.status_code == 200
+
+    listing = await client.get("/api/specs/artifacts?journey_id=jrn-rt3")
+    assert listing.status_code == 200
+    body = listing.json()
+    assert body["count"] == 1
+    assert body["artifacts"][0]["artifact_path"] == "out/q3-report.pdf"
+    assert body["artifacts"][0]["spec_path"] == "docs/spec/report-spec.md"
+
+    by_spec = await client.get("/api/specs/artifacts?spec_path=docs/spec/other-spec.md")
+    assert by_spec.status_code == 200
+    assert by_spec.json()["count"] == 1
+    assert by_spec.json()["artifacts"][0]["journey_id"] == "jrn-other"
+
+    everything = await client.get("/api/specs/artifacts")
+    assert everything.json()["count"] == 2

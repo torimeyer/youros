@@ -67,6 +67,73 @@ _spec_claims: dict[str, list[dict]] = {}
 
 SPEC_ASSIGNMENTS_PATH = youros_home() / "spec_assignments.json"
 
+# Artifact registry (→2532): append-only JSONL mapping every produced
+# artifact back to the spec and journey that created it. One record per
+# line: {artifact_path, spec_path, journey_id, created_at}. Lives in the
+# user-local data root (never the repo) alongside spec_assignments.json.
+ARTIFACT_REGISTRY_PATH = youros_home() / "artifact_registry.jsonl"
+
+
+def _resolve_spec_journey_id(spec_path: str) -> str:
+    """Return the journey_id for a spec, from the in-memory cache first
+    (populated by build_spec) and the spec's frontmatter as fallback."""
+    jid = _spec_journey_ids.get(spec_path, "")
+    if jid:
+        return jid
+    try:
+        full = Path(config.PROJECT_ROOT) / os.path.expanduser(spec_path)
+        if full.exists():
+            return _read_frontmatter_value(full.read_text(), "journey_id")
+    except OSError:
+        pass
+    return ""
+
+
+def record_artifact(
+    artifact_path: str, spec_path: str, journey_id: Optional[str] = None
+) -> dict:
+    """Append one artifact record to the registry (→2532).
+
+    journey_id resolves from the argument, then _spec_journey_ids, then the
+    spec's frontmatter, so callers on the artifact-agent path do not need to
+    know the journey. Best-effort on IO: a failed append is logged, and the
+    record is still returned so the caller's response stays useful.
+    """
+    from datetime import datetime, timezone as _tz
+
+    record = {
+        "artifact_path": artifact_path,
+        "spec_path": spec_path,
+        "journey_id": journey_id or _resolve_spec_journey_id(spec_path) or None,
+        "created_at": datetime.now(_tz.utc).isoformat(),
+    }
+    try:
+        ARTIFACT_REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with ARTIFACT_REGISTRY_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except OSError as exc:
+        logger.warning("artifact registry append failed: %s", exc)
+    return record
+
+
+def _read_artifact_registry() -> list[dict]:
+    """Return every artifact record, skipping blank or corrupt lines."""
+    if not ARTIFACT_REGISTRY_PATH.exists():
+        return []
+    records: list[dict] = []
+    try:
+        for line in ARTIFACT_REGISTRY_PATH.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    except OSError:
+        return []
+    return records
+
 
 def _save_assignments() -> None:
     """Atomically persist _spec_task_origin and _spec_claims to disk."""
@@ -835,6 +902,39 @@ async def get_specs_audit():
     JSON report with per-spec details and an aggregate summary.
     """
     return audit_all_specs()
+
+
+@router.get("/specs/artifacts")
+async def list_artifacts(
+    journey_id: Optional[str] = None, spec_path: Optional[str] = None
+):
+    """List artifact records, optionally filtered by journey or spec (→2532)."""
+    records = _read_artifact_registry()
+    if journey_id:
+        records = [r for r in records if r.get("journey_id") == journey_id]
+    if spec_path:
+        records = [r for r in records if r.get("spec_path") == spec_path]
+    return {"artifacts": records, "count": len(records)}
+
+
+class ArtifactRegisterBody(BaseModel):
+    artifact_path: str
+    journey_id: Optional[str] = None
+
+
+@router.post("/specs/{spec_path:path}/artifacts")
+async def register_artifact(spec_path: str, body: ArtifactRegisterBody):
+    """Record an artifact produced for this spec (→2532).
+
+    Called by artifact-drafter agents when they finish writing their output
+    file, so "which files did journey jrn-xxx produce" stays answerable
+    after the agents are gone.
+    """
+    _validate_doc_path(spec_path)
+    artifact_path = body.artifact_path.strip()
+    if not artifact_path:
+        raise HTTPException(status_code=422, detail="artifact_path is required")
+    return record_artifact(artifact_path, spec_path, journey_id=body.journey_id)
 
 
 @router.post("/specs/draft")
@@ -2703,8 +2803,18 @@ async def _advance_spec_status_if_all_builder_tasks_closed_async(
                 in_fm = False
         new_lines.append(line)
     if flipped:
+        from datetime import datetime as _dt, timezone as _tz
+
+        completed_at = _dt.now(_tz.utc).isoformat()
+        # →2600: stamp the completion timestamp into the spec's own
+        # frontmatter (journey_complete). The spec file is the existing
+        # persistence layer for build state, so the flag survives restarts
+        # without a new store.
+        new_text = _frontmatter_set_key(
+            "\n".join(new_lines), "journey_complete", completed_at
+        )
         try:
-            full.write_text("\n".join(new_lines))
+            full.write_text(new_text)
         except OSError:
             return None
         # Fire the "Your feature is live" persistent notification here,
@@ -2717,11 +2827,29 @@ async def _advance_spec_status_if_all_builder_tasks_closed_async(
         # notification; dedup in services/notifications.py on the
         # ``target`` key collapses repeat emits for the same spec.
         _fire_spec_complete_notification(spec_path)
+        journey_id = (
+            _read_frontmatter_value(text, "journey_id")
+            or _spec_journey_ids.get(spec_path, "")
+        )
         trace_event(
             "spec_built_complete",
             spec_path=spec_path,
             task_count=len(sibling_ids),
+            journey_id=journey_id or None,
         )
+        # →2588: record journey completion in the activity feed the moment
+        # the final agent run finishes. last_agent is the builder tied to
+        # the task whose close triggered this advance — the journey's last
+        # step — so the UI can pull that agent's output later.
+        if journey_id:
+            trace_event(
+                "spec_journey_complete",
+                spec_path=spec_path,
+                journey_id=journey_id,
+                completed_at=completed_at,
+                last_agent=_task_assignments.get(norm_tid) or None,
+                task_count=len(sibling_ids),
+            )
         return spec_path
     return None
 
@@ -2859,6 +2987,12 @@ async def _build_artifact_agent(
         "Read the spec above and produce the requested artifact. "
         "Ground your work in any attached Library sources (KNOWLEDGE directive). "
         "Return the output file path in your final message.\n"
+        "When the artifact file is written, register it so the artifact "
+        "registry links it to this spec's journey (→2532): "
+        f"`curl -sSk --connect-timeout 3 -m 5 -X POST "
+        f"https://127.0.0.1:8000/api/specs/{spec_path}/artifacts "
+        "-H 'Content-Type: application/json' "
+        '-d \'{"artifact_path": "<path/to/artifact>"}\'`\n'
     )
 
     body = AgentSpawn(
