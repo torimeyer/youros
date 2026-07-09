@@ -4907,6 +4907,40 @@ _LIVE_AGENT_STATUSES = {"running", "spawned", "in_progress"}
 # Observable at runtime: routers.agents._ostk_run_fallback_count["count"].
 _ostk_run_fallback_count: dict = {"count": 0}
 
+# →2603: captured at import time so the guard below can tell a REAL
+# asyncio.create_subprocess_exec apart from a test's mock. Every existing
+# test that exercises the bespoke spawn path patches the attribute on the
+# asyncio module (patch("asyncio.create_subprocess_exec", ...) or
+# monkeypatch.setattr(agents_mod.asyncio, ...)), so identity with this
+# capture means "nothing intercepts the exec".
+_REAL_CREATE_SUBPROCESS_EXEC = asyncio.create_subprocess_exec
+
+
+def _pytest_blocks_real_spawn() -> bool:
+    """→2603: True when the bespoke spawn path must NOT exec a real process.
+
+    Backend tests drive POST /api/agents/spawn in-process (ASGITransport),
+    so an unmocked run of the bespoke path execs a real `claude --print`
+    from inside pytest. Those processes start in a pytest tmp cwd with no
+    working shell (Bash blocked by hooks, no ostk MCP, no ToolSearch), and
+    their mailbox bootstrap tells them to register via curl — so they
+    delegate to throwaway Agent helpers (run-curl-command-*,
+    register-agent-with-new-name, load-shell-tool-via-toolsearch) that the
+    global register-agent.sh hook publishes to the live Agents page.
+
+    Blocks only when ALL of:
+      * PYTEST_CURRENT_TEST is set (pytest sets it per test, cleared after);
+      * asyncio.create_subprocess_exec is unpatched (tests that mock the
+        exec keep exercising the deeper spawn logic unchanged);
+      * YOUROS_SPAWN_ALLOW_REAL_IN_TESTS is not set (escape hatch for a
+        deliberate end-to-end test).
+    """
+    return bool(
+        os.environ.get("PYTEST_CURRENT_TEST")
+        and asyncio.create_subprocess_exec is _REAL_CREATE_SUBPROCESS_EXEC
+        and not os.environ.get("YOUROS_SPAWN_ALLOW_REAL_IN_TESTS")
+    )
+
 
 def _is_agent_genuinely_live(meta: dict) -> bool:
     """Return True only when the agent row has evidence of being alive.
@@ -6153,6 +6187,26 @@ async def _legacy_bespoke_spawn(body: AgentSpawn, request: Request, response: Re
             logger.info(
                 "spawn.worktree_cwd_header.injected name=%s worktree=%s",
                 body.name, _worktree_path,
+            )
+        # →2603: never exec a real claude subprocess from inside pytest.
+        # Raised before any on-disk artifact (transcript, prompt temp file)
+        # is created. The HTTPException propagates via the explicit
+        # `except HTTPException: raise` handler below, so callers see the
+        # 503 and its detail unchanged.
+        if _pytest_blocks_real_spawn():
+            logger.warning(
+                "spawn.blocked_in_pytest name=%s — bespoke path reached with an "
+                "unmocked create_subprocess_exec under pytest (→2603)",
+                body.name,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Refusing to launch a real agent subprocess inside pytest "
+                    "(→2603). Mock asyncio.create_subprocess_exec in the test, "
+                    "or set YOUROS_SPAWN_ALLOW_REAL_IN_TESTS=1 for a "
+                    "deliberate end-to-end run."
+                ),
             )
         # Create the transcript file immediately so the resolver can find it
         # even before the subprocess writes its first byte. The _drain_stdout
