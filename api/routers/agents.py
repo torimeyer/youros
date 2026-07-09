@@ -1938,6 +1938,41 @@ def _attach_near_noop_signal(name: str, meta: dict) -> None:
         logger.debug("_attach_near_noop_signal: error name=%s err=%s", name, _exc)
 
 
+def _sweep_close_verified(meta: dict) -> bool:
+    """→2620: True only when the idle sweep has landing evidence for the agent.
+
+    The sweep (``_autocomplete_exited_subagents``) flips dead agents to
+    "completed" from liveness inference alone — process gone plus an idle
+    transcript, or a stale heartbeat. That inference is fine for the agent
+    ROW, but closing the agent's TASK on it is how →2618 got closed for an
+    agent that died on a dropped model connection with zero commits: by
+    liveness signals a crashed agent is indistinguishable from a finished
+    one.
+
+    Verified success for an agent that never called /complete means its
+    isolated worktree has at least one commit ahead of main — committed
+    work is the only landing evidence available here. Everything else
+    (no worktree metadata, missing path, zero commits, git errors) reads
+    as unverified and the task stays open; ``_set_agent_status`` has
+    already reset the needle from in_progress back to open via
+    ``_fire_release_needle_if_orphaned`` (→2039). Explicit success paths
+    are unaffected: POST /complete (mark_agent_complete) and the verified
+    auto-merge path close their needles themselves.
+    """
+    try:
+        if not isinstance(meta, dict):
+            return False
+        if meta.get("isolation") != "worktree":
+            return False
+        wt_path = meta.get("worktree_path")
+        if not wt_path:
+            return False
+        ws = _compute_worktree_work_size(wt_path)
+        return int(ws.get("commits") or 0) > 0
+    except Exception:  # noqa: BLE001 — verification must never break the sweep
+        return False
+
+
 def _is_ghost_completion(meta: dict, name: str) -> tuple:
     """Return (True, reason) if this agent completed with zero real work.
 
@@ -2372,15 +2407,25 @@ def _autocomplete_exited_subagents() -> bool:
                     _attach_near_noop_signal(name, meta)
                     _set_agent_status(name, "completed", completed_at=_flip_ts, summary=_stale_sweep_summary_for(name))
                     _emit_audit_event("agent.completed", {"name": name})
-                    # Queue needle closes for the async drain (→2207).
-                    _nid = meta.get("needle_id")
-                    _extra_nids = list(meta.get("needle_ids") or [])
-                    if _nid:
-                        _pending_needle_closes.append(str(_nid))
-                    for _extra in _extra_nids:
-                        _s = str(_extra)
-                        if _s not in _pending_needle_closes:
-                            _pending_needle_closes.append(_s)
+                    # Queue needle closes for the async drain (→2207) — but
+                    # ONLY on verified success (→2620). This flip was inferred
+                    # from liveness (dead PID + idle transcript); a crashed
+                    # agent looks identical to a finished one, so without
+                    # landing evidence the task stays open.
+                    if _sweep_close_verified(meta):
+                        _nid = meta.get("needle_id")
+                        _extra_nids = list(meta.get("needle_ids") or [])
+                        if _nid:
+                            _pending_needle_closes.append(str(_nid))
+                        for _extra in _extra_nids:
+                            _s = str(_extra)
+                            if _s not in _pending_needle_closes:
+                                _pending_needle_closes.append(_s)
+                    elif meta.get("needle_id") or meta.get("needle_ids"):
+                        logger.info(
+                            "sweep.task_close_skipped name=%s reason=no_verified_work (→2620)",
+                            name,
+                        )
                 changed = True
             # Either idle (just completed/failed above) or still active.
             # Either way, skip Path B -- transcript is the authority.
@@ -2430,15 +2475,24 @@ def _autocomplete_exited_subagents() -> bool:
             _attach_near_noop_signal(name, meta)
             _set_agent_status(name, "completed", completed_at=_flip_ts_b, summary=_stale_sweep_summary_for(name))
             _emit_audit_event("agent.completed", {"name": name})
-            # Queue needle closes for the async drain (→2207).
-            _nid = meta.get("needle_id")
-            _extra_nids = list(meta.get("needle_ids") or [])
-            if _nid:
-                _pending_needle_closes.append(str(_nid))
-            for _extra in _extra_nids:
-                _s = str(_extra)
-                if _s not in _pending_needle_closes:
-                    _pending_needle_closes.append(_s)
+            # Queue needle closes for the async drain (→2207) — but ONLY on
+            # verified success (→2620). Path B is even weaker inference than
+            # Path A (no transcript at all, just a stale heartbeat); a task
+            # must never close on it without landing evidence.
+            if _sweep_close_verified(meta):
+                _nid = meta.get("needle_id")
+                _extra_nids = list(meta.get("needle_ids") or [])
+                if _nid:
+                    _pending_needle_closes.append(str(_nid))
+                for _extra in _extra_nids:
+                    _s = str(_extra)
+                    if _s not in _pending_needle_closes:
+                        _pending_needle_closes.append(_s)
+            elif meta.get("needle_id") or meta.get("needle_ids"):
+                logger.info(
+                    "sweep.task_close_skipped name=%s reason=no_verified_work (→2620)",
+                    name,
+                )
         changed = True
     return changed
 

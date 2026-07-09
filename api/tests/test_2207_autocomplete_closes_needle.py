@@ -8,6 +8,12 @@ task stuck open.
 Fix: populate _pending_needle_closes in _autocomplete_exited_subagents and
 drain it asynchronously in the reconcile loop (same pattern as
 _pending_ghost_retries).
+
+→2620 amendment: the sweep queues a close ONLY on verified success — the
+agent's worktree has at least one commit ahead of main. These tests now
+carry that landing evidence (worktree metadata + mocked
+_compute_worktree_work_size); the no-evidence cases live in
+test_2620_no_close_on_agent_failure.py.
 """
 from __future__ import annotations
 
@@ -59,9 +65,13 @@ class TestAutocompletePendingNeedleCloses:
                 "source": "claude-code",
                 "needle_id": "42",
                 "spawned_at": _stale_iso(),
+                # →2620: closes require landing evidence (worktree commits).
+                "isolation": "worktree",
+                "worktree_path": str(tmp_path / "wt-idle-agent"),
             }
 
             with (
+                patch("routers.agents._compute_worktree_work_size", return_value={"commits": 1, "insertions": 5, "deletions": 0, "files_changed": 1}),
                 patch("routers.agents._resolve_transcript_source", return_value=transcript),
                 patch("routers.agents._transcript_grew_recently", return_value=False),
                 patch("routers.agents._is_ghost_completion", return_value=(False, "")),
@@ -108,9 +118,13 @@ class TestAutocompletePendingNeedleCloses:
                 "needle_id": "10",
                 "needle_ids": ["11", "12"],
                 "spawned_at": _stale_iso(),
+                # →2620: closes require landing evidence (worktree commits).
+                "isolation": "worktree",
+                "worktree_path": str(tmp_path / "wt-multi-needle"),
             }
 
             with (
+                patch("routers.agents._compute_worktree_work_size", return_value={"commits": 2, "insertions": 40, "deletions": 3, "files_changed": 4}),
                 patch("routers.agents._resolve_transcript_source", return_value=transcript),
                 patch("routers.agents._transcript_grew_recently", return_value=False),
                 patch("routers.agents._is_ghost_completion", return_value=(False, "")),
@@ -134,7 +148,7 @@ class TestAutocompletePendingNeedleCloses:
             agents_mod._pending_needle_closes.clear()
             agents_mod._pending_needle_closes.extend(saved_closes)
 
-    def test_path_b_queues_needle_id(self):
+    def test_path_b_queues_needle_id(self, tmp_path):
         """Path B: no-transcript agent past heartbeat threshold queues needle_id."""
         import routers.agents as agents_mod
 
@@ -148,9 +162,13 @@ class TestAutocompletePendingNeedleCloses:
                 "source": "claude-code",
                 "needle_id": "99",
                 "spawned_at": _stale_iso(),
+                # →2620: closes require landing evidence (worktree commits).
+                "isolation": "worktree",
+                "worktree_path": str(tmp_path / "wt-no-transcript"),
             }
 
             with (
+                patch("routers.agents._compute_worktree_work_size", return_value={"commits": 1, "insertions": 12, "deletions": 1, "files_changed": 2}),
                 patch("routers.agents._resolve_transcript_source", return_value=None),
                 patch("routers.agents._is_ghost_completion", return_value=(False, "")),
                 patch("routers.agents._proc_handle_is_alive", return_value=False),
