@@ -26,7 +26,8 @@ const localStorageMock = (() => {
 })()
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
-// Navigate to Tracking step (index 5 in PERSONAL_STEPS_NO_FORK)
+// Navigate to Tracking step (index 6 in PERSONAL_STEPS_NO_FORK:
+// ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Showcase', 'Ready'])
 function clickNext(n: number) {
   for (let i = 0; i < n; i++) {
     fireEvent.click(screen.getByTestId('next-button'))
@@ -138,7 +139,7 @@ describe('OnboardingWizard - Tracking step', () => {
     fireEvent.click(screen.getByTestId('tracking-option-everywhere'))
 
     // Advance to Ready then finish
-    clickNext(2) // Tracking -> Connect -> Ready
+    clickNext(3) // Tracking -> Connect -> Showcase -> Ready
     fireEvent.click(screen.getByTestId('finish-button'))
 
     await waitFor(() => {
@@ -157,7 +158,7 @@ describe('OnboardingWizard - Tracking step', () => {
     const input = screen.getByTestId('tracking-folder-input')
     fireEvent.change(input, { target: { value: 'workproject' } })
 
-    clickNext(2) // Tracking -> Connect -> Ready
+    clickNext(3) // Tracking -> Connect -> Showcase -> Ready
     fireEvent.click(screen.getByTestId('finish-button'))
 
     await waitFor(() => {
@@ -173,7 +174,7 @@ describe('OnboardingWizard - Tracking step', () => {
     goToTrackingStep()
     fireEvent.click(screen.getByTestId('tracking-option-myos-only'))
 
-    clickNext(2) // Tracking -> Connect -> Ready
+    clickNext(3) // Tracking -> Connect -> Showcase -> Ready
     fireEvent.click(screen.getByTestId('finish-button'))
 
     await waitFor(() => {
@@ -188,7 +189,7 @@ describe('OnboardingWizard - Tracking step', () => {
     render(<OnboardingWizard />)
     goToTrackingStep()
     // Skip tracking step without picking anything
-    clickNext(2) // Tracking -> Connect -> Ready
+    clickNext(3) // Tracking -> Connect -> Showcase -> Ready
     fireEvent.click(screen.getByTestId('finish-button'))
 
     await waitFor(() => {

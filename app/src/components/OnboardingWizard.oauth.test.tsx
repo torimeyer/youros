@@ -111,7 +111,7 @@ describe('GithubSetupCard OAuth branching', () => {
 })
 
 // Connect step index in PERSONAL_STEPS_NO_FORK (TEAM_MODE_VISIBLE=false):
-// ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready']
+// ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Showcase', 'Ready']
 const CONNECT_STEP_IDX = 7
 
 function setupWizardStore() {
@@ -174,8 +174,8 @@ describe('OnboardingWizard restore-step after OAuth', () => {
   })
 
   it('restores to the Ready step from backend settings on OAuth return', async () => {
-    // index 8 = 'Ready' (last step) in PERSONAL_STEPS_NO_FORK (0-indexed)
-    mockGetResponses['/settings'] = { onboarding_step: 8 }
+    // index 9 = 'Ready' (last step) in PERSONAL_STEPS_NO_FORK (0-indexed)
+    mockGetResponses['/settings'] = { onboarding_step: 9 }
     window.history.pushState({}, '', '/?connected=true')
 
     render(<OnboardingWizard />)
