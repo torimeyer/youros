@@ -10,6 +10,37 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.13.0
+  {
+    date: '2026-07-09',
+    label: 'July 9, 2026',
+    entries: [
+      {
+        title: 'Portfolio shows your real work and lets you set up themes',
+        description: 'The Portfolio page now pulls the same task list you see on the Tasks page instead of internal checklist noise, and a new card lets you name the goals your work supports, like customer trust, so tasks and projects can roll up under them. Status labels are plain words now: past due, waiting on other work, no activity for a week.',
+      },
+      {
+        title: 'Finished specs move into a history view',
+        description: 'The Specs page shows only work still in play. Everything marked done lives behind a Show history button, so the list stays focused without losing anything.',
+      },
+      {
+        title: 'The specs badge counts what is actually open',
+        description: 'The sidebar badge next to Specs now counts every spec that is not done, matching what the page shows, instead of skipping drafts.',
+      },
+      {
+        title: 'AI suggest works now, and asks you to retry when it cannot',
+        description: 'The AI suggest button in the clarity panel used to fail every single time with a cryptic error, because the app stopped waiting after 5 seconds while a normal answer takes about 6. It now waits as long as it needs, and if the backend really is busy it says so in plain words with a Retry button.',
+      },
+      {
+        title: 'A crashed helper can no longer mark its work as finished',
+        description: 'If a background helper dies mid-job, its task now stays open instead of being quietly marked complete. Only real saved work closes a task.',
+      },
+      {
+        title: 'Both test suites fully green',
+        description: 'All 7,089 backend checks and 3,237 frontend checks pass, including a fix for a hidden hang that wasted a full minute of every backend test run.',
+      },
+    ],
+  },
   // v5.12.0
   {
     date: '2026-07-08',
