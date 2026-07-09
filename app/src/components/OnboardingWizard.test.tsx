@@ -1769,3 +1769,87 @@ describe('OnboardingWizard - GitHub step functional (→1693)', () => {
     }))
   })
 })
+
+describe('OnboardingWizard - Atlassian per-product detection (→2611)', () => {
+  function navigateToConnect() {
+    fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
+    for (let i = 0; i < 6; i++) {
+      fireEvent.click(screen.getByTestId('skip-button'))
+    }
+  }
+
+  const disconnectedProduct = { connected: false, site: '', method: null, authenticated_today: false }
+
+  function mockStatus(atlassianStatus: unknown) {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/github/status') return Promise.resolve({ connected: false })
+      if (path === '/atlassian/status') return Promise.resolve(atlassianStatus)
+      return Promise.resolve({})
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.history.replaceState({}, '', '/')
+    useAppStore.setState({ onboarded: false, osName: '', darkMode: false })
+  })
+
+  it('shows per-product lines when only Jira is connected', async () => {
+    mockStatus({
+      connected: true,
+      products: {
+        jira: { connected: true, site: 'company.atlassian.net', method: 'api_key', authenticated_today: true },
+        confluence: disconnectedProduct,
+      },
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('atlassian-product-jira')).toBeInTheDocument())
+    expect(screen.getByTestId('atlassian-product-jira')).toHaveTextContent('Connected: Jira')
+    expect(screen.getByTestId('atlassian-product-jira')).toHaveTextContent('company.atlassian.net')
+    expect(screen.getByTestId('atlassian-product-confluence')).toHaveTextContent(/not connected yet/i)
+    expect(screen.queryByTestId('atlassian-already-connected')).not.toBeInTheDocument()
+  })
+
+  it('shows one line per product with its own site when the sites differ', async () => {
+    mockStatus({
+      connected: true,
+      products: {
+        jira: { connected: true, site: 'jira.acme.net', method: 'oauth', authenticated_today: false },
+        confluence: { connected: true, site: 'wiki.acme.com', method: 'oauth', authenticated_today: false },
+      },
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('atlassian-product-jira')).toBeInTheDocument())
+    expect(screen.getByTestId('atlassian-product-jira')).toHaveTextContent('Connected: Jira')
+    expect(screen.getByTestId('atlassian-product-jira')).toHaveTextContent('jira.acme.net')
+    expect(screen.getByTestId('atlassian-product-confluence')).toHaveTextContent('Connected: Confluence')
+    expect(screen.getByTestId('atlassian-product-confluence')).toHaveTextContent('wiki.acme.com')
+    expect(screen.queryByTestId('atlassian-already-connected')).not.toBeInTheDocument()
+  })
+
+  it('keeps the single Atlassian badge when both products share one site', async () => {
+    mockStatus({
+      connected: true,
+      products: {
+        jira: { connected: true, site: 'company.atlassian.net', method: 'oauth', authenticated_today: true },
+        confluence: { connected: true, site: 'company.atlassian.net', method: 'oauth', authenticated_today: true },
+      },
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('atlassian-already-connected')).toBeInTheDocument())
+    expect(screen.queryByTestId('atlassian-product-jira')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('atlassian-product-confluence')).not.toBeInTheDocument()
+  })
+
+  it('falls back to the single badge when the response has no products field', async () => {
+    mockStatus({ connected: true })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('atlassian-already-connected')).toBeInTheDocument())
+    expect(screen.queryByTestId('atlassian-product-jira')).not.toBeInTheDocument()
+  })
+})

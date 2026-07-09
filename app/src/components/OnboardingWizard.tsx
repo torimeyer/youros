@@ -1199,7 +1199,10 @@ function ConnectStep({
 }) {
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
   const [googleConnected, setGoogleConnected] = useState(false)
+  type AtlassianProductInfo = { connected?: boolean; site?: string; method?: string | null; authenticated_today?: boolean }
+  type AtlassianProducts = { jira?: AtlassianProductInfo; confluence?: AtlassianProductInfo }
   const [atlassianConnected, setAtlassianConnected] = useState<boolean | null>(null)
+  const [atlassianProducts, setAtlassianProducts] = useState<AtlassianProducts | null>(null)
 
   useEffect(() => {
     api.get<{ google_oauth_available?: boolean; google_connected?: boolean }>('/secrets/key-status')
@@ -1211,8 +1214,11 @@ function ConnectStep({
   }, [])
 
   useEffect(() => {
-    api.get<{ connected?: boolean }>('/atlassian/status')
-      .then((data) => setAtlassianConnected(data.connected ?? false))
+    api.get<{ connected?: boolean; products?: AtlassianProducts }>('/atlassian/status')
+      .then((data) => {
+        setAtlassianConnected(data.connected ?? false)
+        setAtlassianProducts(data.products ?? null)
+      })
       .catch(() => setAtlassianConnected(false))
   }, [])
 
@@ -1222,6 +1228,17 @@ function ConnectStep({
   ]
 
   const sectionDivider = `text-xs font-semibold uppercase tracking-wider mb-3 pb-1 border-b ${darkMode ? 'text-slate-500 border-slate-800' : 'text-slate-400 border-gray-200'}`
+
+  // →2611: show one line per product when Jira and Confluence live on different
+  // sites or only one of them is set up. When both share one site (or the
+  // backend sends no per-product detail), keep the single combined badge.
+  const atlassianJira = atlassianProducts?.jira
+  const atlassianConfluence = atlassianProducts?.confluence
+  const atlassianOneSite = Boolean(
+    atlassianJira?.connected && atlassianConfluence?.connected && atlassianJira.site === atlassianConfluence.site,
+  )
+  const atlassianShowPerProduct =
+    Boolean(atlassianJira?.connected || atlassianConfluence?.connected) && !atlassianOneSite
 
   return (
     <div data-testid="step-connect">
@@ -1544,6 +1561,29 @@ function ConnectStep({
         <p className={sectionDivider}>Atlassian</p>
         {atlassianConnected === null ? (
           <p className={`text-xs ${subtextCls} mt-2`}>Checking connection…</p>
+        ) : atlassianShowPerProduct ? (
+          <div data-testid="atlassian-product-status" className="mt-2 space-y-1.5">
+            {([['jira', 'Jira'], ['confluence', 'Confluence']] as const).map(([key, label]) => {
+              const product = key === 'jira' ? atlassianJira : atlassianConfluence
+              return product?.connected ? (
+                <div
+                  key={key}
+                  data-testid={`atlassian-product-${key}`}
+                  className="flex items-center gap-1.5 w-fit px-3 py-1.5 rounded-full text-sm font-medium bg-green-500/15 text-green-400 border border-green-500/30"
+                >
+                  <span>Connected: {label}{product.site ? ` (${product.site})` : ''}</span>
+                </div>
+              ) : (
+                <div
+                  key={key}
+                  data-testid={`atlassian-product-${key}`}
+                  className={`flex items-center gap-1.5 w-fit px-3 py-1.5 rounded-full text-sm font-medium border ${darkMode ? 'border-slate-700 text-slate-400' : 'border-gray-300 text-slate-500'}`}
+                >
+                  <span>{label}: not connected yet{product?.site ? ` (${product.site})` : ''}</span>
+                </div>
+              )
+            })}
+          </div>
         ) : atlassianConnected ? (
           <div
             data-testid="atlassian-already-connected"
