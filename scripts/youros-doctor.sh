@@ -95,8 +95,16 @@ if [[ $BACKEND_UP -eq 1 ]]; then
         # An empty marker directory means the tool was never connected: skip, not fail.
         [[ -n "$marker" && -d "$marker" && -z "$(ls -A "$marker" 2>/dev/null)" ]] && continue
 
+        # →2627: never hide a curl failure behind a silent empty-string
+        # fallback. Capture the exit code, say what happened on stderr,
+        # then treat the tool as not connected (doctor keeps going).
         response="$(curl -sk --connect-timeout 3 -m 5 \
-            "$DOCTOR_BACKEND_URL$endpoint" 2>/dev/null || echo "")"
+            "$DOCTOR_BACKEND_URL$endpoint")"
+        curl_rc=$?
+        if [[ $curl_rc -ne 0 ]]; then
+            echo "note: $tool_name status probe failed (curl exit $curl_rc); treating as not connected" >&2
+            response=""
+        fi
         connected="$(echo "$response" | \
             python3 -c "import json,sys; d=json.load(sys.stdin); print('true' if (d.get('connected') or d.get('authenticated')) else 'false')" \
             2>/dev/null || echo "false")"

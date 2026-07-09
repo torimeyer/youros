@@ -36,6 +36,7 @@ Fix
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
@@ -334,9 +335,17 @@ async def test_mark_agent_complete_normal_flow_unaffected(tmp_path):
             patch("routers.agents._emit_audit_event"),
             patch("routers.agents.trace_event"),
             patch("routers.agents._terminated_without_work", return_value=False),
+            # →2627: the terminal status flip fires a real fire-and-forget
+            # unlock_worktree() task (→2612). Mock the git call and drain
+            # the task before the test ends, or it outlives this test's
+            # event loop and pytest-asyncio hangs >60s closing the loop.
+            patch("services.spawn_isolation.unlock_worktree", new_callable=AsyncMock),
             patch.dict(os.environ, {"HOME": str(tmp_path)}),
         ):
             result = await mark_agent_complete(agent_name, AgentComplete(summary="real fix done"))
+            from routers.agents import _unlock_worktree_tasks
+            if _unlock_worktree_tasks:
+                await asyncio.gather(*list(_unlock_worktree_tasks), return_exceptions=True)
 
         assert result.get("scaffold_premature_close") is None, (
             f"Normal completion must NOT be blocked: {result}"

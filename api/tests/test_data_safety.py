@@ -67,6 +67,7 @@ STORE_PATH_CONSTANTS = {
     "services.user_memory_store": "_MEMORY_PATH",
     "services.parked_tasks_store": "PARKED_TASKS_PATH",
     "services.turn_audit_store": "DATA_DIR",
+    "services.pillar_store": "PILLARS_PATH",
 }
 
 _IN_MEMORY_STORES = frozenset({

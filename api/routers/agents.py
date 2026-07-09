@@ -66,6 +66,13 @@ def _fire_delta(name: str, status: str) -> None:
         pass  # no running loop (startup / test context)
 
 
+# →2627: strong references to in-flight unlock tasks. Untracked
+# fire-and-forget tasks can be garbage-collected mid-flight, and tests
+# that drive a terminal status flip need a handle to await so the task
+# never outlives the test's event loop (loop close hangs otherwise).
+_unlock_worktree_tasks: set = set()
+
+
 def _fire_unlock_worktree(name: str, meta: dict) -> None:
     """→2612: unlock the agent's git worktree on a terminal transition.
 
@@ -90,7 +97,9 @@ def _fire_unlock_worktree(name: str, meta: dict) -> None:
             project_root=str(_ul_root), wt_path=str(wt_path),
         )
         try:
-            asyncio.get_running_loop().create_task(coro)
+            _task = asyncio.get_running_loop().create_task(coro)
+            _unlock_worktree_tasks.add(_task)
+            _task.add_done_callback(_unlock_worktree_tasks.discard)
         except RuntimeError:
             # No running loop. Run inline — `git worktree unlock` is a
             # fast metadata-only operation.
