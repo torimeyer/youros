@@ -309,6 +309,16 @@ async def atlassian_status():
             expired = not await asyncio.wait_for(atlassian_service.probe_token_validity(), timeout=3.0)
         except Exception:
             expired = False
+    # →2611: per-product detail. Falls back to "both disconnected" if the
+    # service call fails so the legacy fields above are never disturbed.
+    products = {
+        "jira": {"connected": False, "site": "", "method": None, "authenticated_today": False},
+        "confluence": {"connected": False, "site": "", "method": None, "authenticated_today": False},
+    }
+    try:
+        products = await atlassian_service.get_product_status()
+    except Exception:
+        pass
     return {
         "connected": connected,
         "email": email,
@@ -319,6 +329,7 @@ async def atlassian_status():
         "confluence_url": confluence_url,
         "expired": expired,
         "confluence_available": atlassian_sync.confluence_is_available(),
+        "products": products,
     }
 
 

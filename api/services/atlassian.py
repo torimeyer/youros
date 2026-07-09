@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -39,6 +40,9 @@ _response_cache: dict[tuple, tuple[float, object]] = {}
 
 _config_cache: dict | None = None
 _config_cache_mtime: float = 0.0
+
+# →2611: cached result of the keychain lookup behind get_product_status().
+_method_cache: tuple[float, Optional[str]] | None = None
 
 
 def _adf_to_plain(adf: dict | str | None) -> str:
@@ -124,6 +128,40 @@ def _migrate_atlassian_config(cfg: dict) -> dict:
 
 def _ensure_dirs() -> None:
     MYOS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _now_iso() -> str:
+    """Current UTC time in ISO 8601, used for the token_saved_at stamp (→2611)."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _token_saved_within_24h(config: dict) -> bool:
+    """True when the stored credential was saved or refreshed in the last 24 hours."""
+    ts = config.get("token_saved_at") or ""
+    if not ts:
+        return False
+    try:
+        saved = datetime.fromisoformat(ts)
+    except (TypeError, ValueError):
+        return False
+    if saved.tzinfo is None:
+        saved = saved.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - saved <= timedelta(hours=24)
+
+
+def _touch_token_timestamp() -> None:
+    """Stamp token_saved_at = now on the saved config (called after a token refresh)."""
+    global _config_cache, _config_cache_mtime
+    if not CONFIG_PATH.exists():
+        return
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text())
+    except (OSError, ValueError):
+        return
+    cfg["token_saved_at"] = _now_iso()
+    atomic_write_json(CONFIG_PATH, cfg)
+    _config_cache = None
+    _config_cache_mtime = 0.0
 
 
 def is_connected() -> bool:
@@ -248,6 +286,7 @@ async def _refresh_atlassian_token() -> bool:
         await ostk.secret_set(ATLASSIAN_ACCESS_TOKEN_KEY, new_access)
         if new_refresh:
             await ostk.secret_set(ATLASSIAN_REFRESH_TOKEN_KEY, new_refresh)
+        _touch_token_timestamp()
         return True
     except httpx.HTTPError:
         return False
@@ -338,6 +377,60 @@ async def probe_token_validity() -> bool:
     return result
 
 
+async def _detect_auth_method() -> Optional[str]:
+    """Return which credential kind exists in the keychain: "oauth", "api_key", or None.
+
+    Mirrors the runtime auth preference in _get_auth_and_base (OAuth wins when
+    both exist). Cached for 60s because each lookup shells out to the keychain
+    and /atlassian/status is polled by the UI.
+    """
+    global _method_cache
+    now = time.time()
+    if _method_cache is not None and now < _method_cache[0]:
+        return _method_cache[1]
+    method: Optional[str] = None
+    if await ostk.secret_get(ATLASSIAN_ACCESS_TOKEN_KEY):
+        method = "oauth"
+    elif await ostk.secret_get(ATLASSIAN_TOKEN_KEY):
+        method = "api_key"
+    _method_cache = (now + _STATUS_PROBE_TTL, method)
+    return method
+
+
+async def get_product_status() -> dict:
+    """Per-product (Jira, Confluence) connection detail for /atlassian/status (→2611).
+
+    A product counts as connected when its site is configured AND a credential
+    exists (an OAuth access token or an API token in the keychain). Legacy
+    single ``site`` configs count for both products. ``authenticated_today``
+    is True when the credential was saved or refreshed within the last 24 hours.
+    """
+    def _empty() -> dict:
+        return {"connected": False, "site": "", "method": None, "authenticated_today": False}
+
+    if not is_connected():
+        return {"jira": _empty(), "confluence": _empty()}
+    try:
+        config = get_config()
+    except RuntimeError:
+        return {"jira": _empty(), "confluence": _empty()}
+
+    method = await _detect_auth_method()
+    fresh = _token_saved_within_24h(config)
+
+    products: dict = {}
+    for product in ("jira", "confluence"):
+        site = _site_host(config, product=product)
+        connected = bool(site) and method is not None
+        products[product] = {
+            "connected": connected,
+            "site": site,
+            "method": method if connected else None,
+            "authenticated_today": fresh if connected else False,
+        }
+    return products
+
+
 async def verify_creds(email: str, api_token: str, site: str) -> dict:
     """Verify credentials by calling /rest/api/3/myself.
 
@@ -380,17 +473,26 @@ async def save_config(
     tenant case). Writes the new {jira_site, confluence_site} schema; the
     legacy ``site`` key is not written so reads always get the migrated form.
     """
-    global _config_cache, _config_cache_mtime
+    global _config_cache, _config_cache_mtime, _method_cache
     _ensure_dirs()
     jira_site = jira_site.replace("https://", "").replace("http://", "").rstrip("/")
     if confluence_site is None:
         confluence_site = jira_site
     else:
         confluence_site = confluence_site.replace("https://", "").replace("http://", "").rstrip("/")
-    atomic_write_json(CONFIG_PATH, {"email": email, "jira_site": jira_site, "confluence_site": confluence_site})
+    atomic_write_json(
+        CONFIG_PATH,
+        {
+            "email": email,
+            "jira_site": jira_site,
+            "confluence_site": confluence_site,
+            "token_saved_at": _now_iso(),
+        },
+    )
     await ostk.secret_set(ATLASSIAN_TOKEN_KEY, api_token)
     _config_cache = None
     _config_cache_mtime = 0.0
+    _method_cache = None
     _cache_clear()
 
 
@@ -410,7 +512,7 @@ async def save_oauth_config(
     ``jira_site`` and ``confluence_site`` default to ``site`` when omitted so
     OAuth-flow callers that have not been updated yet keep working unchanged.
     """
-    global _config_cache, _config_cache_mtime
+    global _config_cache, _config_cache_mtime, _method_cache
     _ensure_dirs()
     site = site.replace("https://", "").replace("http://", "").rstrip("/")
     jira_host = (jira_site or site).replace("https://", "").replace("http://", "").rstrip("/")
@@ -425,6 +527,7 @@ async def save_oauth_config(
             "jira_cloud_id": jira_cloud_id or cloud_id,
             "confluence_cloud_id": confluence_cloud_id or cloud_id,
             "auth_method": "oauth",
+            "token_saved_at": _now_iso(),
         },
     )
     await ostk.secret_set(ATLASSIAN_ACCESS_TOKEN_KEY, access_token)
@@ -432,6 +535,7 @@ async def save_oauth_config(
         await ostk.secret_set(ATLASSIAN_REFRESH_TOKEN_KEY, refresh_token)
     _config_cache = None
     _config_cache_mtime = 0.0
+    _method_cache = None
     _cache_clear()
 
 
@@ -463,7 +567,7 @@ async def verify_confluence_creds(email: str, api_token: str, site: str) -> bool
 
 async def disconnect() -> None:
     """Remove config file and clear keychain entries (PAT and OAuth)."""
-    global _config_cache, _config_cache_mtime
+    global _config_cache, _config_cache_mtime, _method_cache
     if CONFIG_PATH.exists():
         CONFIG_PATH.unlink(missing_ok=True)
     for key in (ATLASSIAN_TOKEN_KEY, ATLASSIAN_ACCESS_TOKEN_KEY, ATLASSIAN_REFRESH_TOKEN_KEY):
@@ -473,6 +577,7 @@ async def disconnect() -> None:
             pass
     _config_cache = None
     _config_cache_mtime = 0.0
+    _method_cache = None
     _cache_clear()
 
 
