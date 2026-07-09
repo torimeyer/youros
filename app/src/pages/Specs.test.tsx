@@ -2737,3 +2737,157 @@ describe('SpecReview fresh verify (E4)', () => {
     expect(screen.getByTestId('fresh-verify-result').textContent).toContain('All requirements tested.')
   })
 })
+
+
+// →2231-→2234: done with unchecked criteria. The board never blocks marking
+// done; it shows the spec as fully done only when every criterion is checked,
+// and the review step lets the person tick the criteria they confirm.
+describe('Done with unchecked criteria (→2231-→2234)', () => {
+  const mockedApiPatch = vi.mocked(api.patch)
+
+  const doneDocsResponse = {
+    docs: [
+      {
+        path: 'docs/spec/half-done.md',
+        filename: 'half-done.md',
+        title: 'half done spec',
+        status: 'complete',
+        created_at: '2026-07-01T00:00:00Z',
+        promoted_at: '2026-07-02T00:00:00Z',
+        body: '## Acceptance criteria\n- [x] first thing works\n- [ ] second thing works\n- [ ] third thing works',
+        acceptance_criteria: [
+          { text: 'first thing works', checked: true },
+          { text: 'second thing works', checked: false },
+          { text: 'third thing works', checked: false },
+        ],
+        task_summary: { total: 3, open: 0, closed: 3 },
+      },
+      {
+        path: 'docs/spec/all-done.md',
+        filename: 'all-done.md',
+        title: 'all done spec',
+        status: 'complete',
+        created_at: '2026-07-01T00:00:00Z',
+        promoted_at: '2026-07-02T00:00:00Z',
+        body: '## Acceptance criteria\n- [x] alpha works\n- [x] beta works',
+        acceptance_criteria: [
+          { text: 'alpha works', checked: true },
+          { text: 'beta works', checked: true },
+        ],
+        task_summary: { total: 2, open: 0, closed: 2 },
+      },
+    ],
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(doneDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+    mockedApiPatch.mockResolvedValue({ ok: true })
+  })
+
+  async function expandCard(title: string) {
+    await waitFor(() => {
+      expect(screen.getByText(title)).toBeInTheDocument()
+    })
+    const cards = screen.getAllByTestId('spec-card')
+    const card = cards.find((c) => c.textContent?.includes(title))!
+    fireEvent.click(card)
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+    return card
+  }
+
+  // →2232: fully done only when every criterion is checked.
+  it('shows done-with-unchecked info, not the fully-done banner, when criteria remain (→2232)', async () => {
+    renderSpecs()
+    await expandCard('half done spec')
+
+    expect(screen.getByTestId('done-unchecked-info')).toBeInTheDocument()
+    expect(screen.queryByTestId('spec-fully-done')).toBeNull()
+
+    // The unchecked criteria are listed as information.
+    const info = screen.getByTestId('done-unchecked-info')
+    expect(info.textContent).toContain('second thing works')
+    expect(info.textContent).toContain('third thing works')
+    expect(info.textContent).not.toContain('first thing works')
+  })
+
+  it('shows the fully-done banner only when all criteria are checked (→2232)', async () => {
+    renderSpecs()
+    await expandCard('all done spec')
+
+    expect(screen.getByTestId('spec-fully-done')).toBeInTheDocument()
+    expect(screen.queryByTestId('done-unchecked-info')).toBeNull()
+  })
+
+  it('collapsed card shows an unconfirmed count chip only for done-with-unchecked (→2232)', async () => {
+    renderSpecs()
+    await waitFor(() => {
+      expect(screen.getByText('half done spec')).toBeInTheDocument()
+    })
+    const cards = screen.getAllByTestId('spec-card')
+    const halfCard = cards.find((c) => c.textContent?.includes('half done spec'))!
+    const allCard = cards.find((c) => c.textContent?.includes('all done spec'))!
+
+    const chip = halfCard.querySelector('[data-testid="done-unchecked-chip"]')
+    expect(chip).not.toBeNull()
+    expect(chip!.textContent).toContain('2')
+    expect(allCard.querySelector('[data-testid="done-unchecked-chip"]')).toBeNull()
+  })
+
+  // →2234: information, never a refusal. The spec still reads as Done.
+  it('stage chip still says Done even with unchecked criteria (→2234)', async () => {
+    renderSpecs()
+    await waitFor(() => {
+      expect(screen.getByText('half done spec')).toBeInTheDocument()
+    })
+    const cards = screen.getAllByTestId('spec-card')
+    const halfCard = cards.find((c) => c.textContent?.includes('half done spec'))!
+    const chip = halfCard.querySelector('[data-testid="stage-chip"]')
+    expect(chip).not.toBeNull()
+    expect(chip!.textContent).toBe('Done')
+  })
+
+  // →2233: the review step lets the person tick the criteria they confirm.
+  it('review step renders one tickable checkbox per criterion (→2233)', async () => {
+    renderSpecs()
+    await expandCard('half done spec')
+
+    const review = screen.getByTestId('criteria-review')
+    expect(review).toBeInTheDocument()
+    const boxes = screen.getAllByTestId('criteria-review-checkbox') as HTMLInputElement[]
+    expect(boxes).toHaveLength(3)
+    expect(boxes[0].checked).toBe(true)
+    expect(boxes[1].checked).toBe(false)
+    expect(boxes[2].checked).toBe(false)
+  })
+
+  it('ticking a criterion PATCHes /criteria and leaves the rest unchecked (→2233)', async () => {
+    renderSpecs()
+    await expandCard('half done spec')
+
+    const boxes = screen.getAllByTestId('criteria-review-checkbox') as HTMLInputElement[]
+    fireEvent.click(boxes[1])
+
+    await waitFor(() => {
+      expect(mockedApiPatch).toHaveBeenCalledWith(
+        '/specs/docs/spec/half-done.md/criteria',
+        { text: 'second thing works', checked: true }
+      )
+    })
+    // Exactly one PATCH: the untouched third criterion stays unchecked.
+    expect(mockedApiPatch).toHaveBeenCalledTimes(1)
+    await waitFor(() => {
+      const after = screen.getAllByTestId('criteria-review-checkbox') as HTMLInputElement[]
+      expect(after[1].checked).toBe(true)
+      expect(after[2].checked).toBe(false)
+    })
+  })
+})

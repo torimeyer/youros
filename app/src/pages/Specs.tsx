@@ -651,6 +651,46 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
       .catch((e) => reportError("copy spec", e));
   };
 
+  // →2233: the review step lets the person tick the criteria they confirm
+  // and leave the rest unchecked. Persists one checkbox flip to the spec
+  // body, then mirrors the flip locally so pills, the progress strip, and
+  // the done banner react immediately.
+  const handleToggleCriterion = async (
+    doc: Spec,
+    criterion: AcceptanceCriterion,
+    checked: boolean
+  ) => {
+    try {
+      await api.patch(`/specs/${encodeDocPath(doc.path)}/criteria`, {
+        text: criterion.text,
+        checked,
+      });
+      const from = checked ? `- [ ] ${criterion.text}` : `- [x] ${criterion.text}`;
+      const to = checked ? `- [x] ${criterion.text}` : `- [ ] ${criterion.text}`;
+      setDocs((prev) =>
+        prev.map((d) => {
+          if (d.path !== doc.path) return d;
+          const nextCriteria =
+            d.acceptance_criteria && d.acceptance_criteria.length > 0
+              ? d.acceptance_criteria.map((c) =>
+                  c.text === criterion.text ? { ...c, checked } : c
+                )
+              : d.acceptance_criteria;
+          const nextBody = d.body
+            ? d.body
+                .split("\n")
+                .map((line) => (line.trim() === from ? line.replace(from, to) : line))
+                .join("\n")
+            : d.body;
+          return { ...d, acceptance_criteria: nextCriteria, body: nextBody };
+        })
+      );
+    } catch (e) {
+      reportError("toggle criterion", e);
+      showMessage("Could not save that check. Try again.", "error");
+    }
+  };
+
   const handleToggleNoAcNeeded = async (doc: Spec, val: boolean) => {
     try {
       const encodedPath = doc.path.split("/").map(encodeURIComponent).join("/");
@@ -1393,6 +1433,19 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                           .map((c, i) => (
                             <ClaimSourceChip key={i} agent={c.agent} source={c.source} started_at={c.started_at} />
                           ))}
+                        {/* →2232: the board marks a spec fully done only when every
+                            criterion is checked. A done spec with unchecked criteria
+                            keeps its Done chip (nothing blocks, →2234) and gains this
+                            informational count. */}
+                        {doc.status === "complete" && criteria.some((c) => !c.checked) && (
+                          <span
+                            className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/20 text-amber-600 dark:text-amber-400 flex-shrink-0"
+                            data-testid="done-unchecked-chip"
+                            title="Marked done with criteria left unchecked. Informational only, nothing is blocked."
+                          >
+                            {criteria.filter((c) => !c.checked).length} unconfirmed
+                          </span>
+                        )}
                         {doc.needs_clarity && (
                           <NeedsClarityChip
                             mode="spec"
@@ -1594,6 +1647,41 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                         <AcceptanceCriteria criteria={criteria} />
                       )}
 
+                      {/* →2233: review step. The person ticks the criteria they
+                          confirmed themselves and leaves the rest unchecked. This
+                          lives apart from the read-only status pills above: the
+                          pills report what Verify proved, these boxes record what
+                          a human confirmed. */}
+                      {doc.status === "complete" && criteria.length > 0 && (
+                        <div className="mt-4" data-testid="criteria-review">
+                          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                            Review: confirm criteria
+                          </h4>
+                          <p className="text-xs text-slate-500 mb-2">
+                            Tick what you have confirmed yourself, leave the rest unchecked. Unchecked items never block anything.
+                          </p>
+                          <ul className="space-y-1.5">
+                            {criteria.map((c, i) => (
+                              <li key={i}>
+                                <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    data-testid="criteria-review-checkbox"
+                                    checked={c.checked}
+                                    onChange={(e) => handleToggleCriterion(doc, c, e.target.checked)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="mt-0.5 w-4 h-4 rounded border-slate-500 bg-transparent text-green-500 focus:ring-green-500 flex-shrink-0"
+                                  />
+                                  <span className={`min-w-0 break-words ${c.checked ? "text-slate-500" : "text-slate-700 dark:text-slate-300"}`}>
+                                    {c.text}
+                                  </span>
+                                </label>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
                       {/* Linked tasks */}
                       {tasks.length > 0 && (
                         <LinkedTasksList
@@ -1647,12 +1735,38 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                             </p>
                           </div>
                         )}
-                        {doc.status === "complete" && (
-                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/20">
+                        {/* →2232: fully done banner only when every criterion is
+                            checked. Otherwise the spec is still done (→2234), and the
+                            unchecked criteria are listed as plain information. */}
+                        {doc.status === "complete" && !criteria.some((c) => !c.checked) && (
+                          <div
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/20"
+                            data-testid="spec-fully-done"
+                          >
                             <Icon name="check_circle" size={16} className="text-green-600 dark:text-green-400" />
                             <p className="text-xs text-green-700 dark:text-green-300">
                               <span className="font-bold">Done.</span> Every task closed and the feature is live.
                             </p>
+                          </div>
+                        )}
+                        {doc.status === "complete" && criteria.some((c) => !c.checked) && (
+                          <div
+                            className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20"
+                            data-testid="done-unchecked-info"
+                          >
+                            <Icon name="info" size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                            <div className="min-w-0">
+                              <p className="text-xs text-amber-700 dark:text-amber-300">
+                                <span className="font-bold">Done, with {criteria.filter((c) => !c.checked).length} unconfirmed {criteria.filter((c) => !c.checked).length === 1 ? "criterion" : "criteria"}.</span> These were never checked off. Nothing is blocked, this is just so you know:
+                              </p>
+                              <ul className="mt-1 space-y-0.5">
+                                {criteria.filter((c) => !c.checked).map((c, i) => (
+                                  <li key={i} className="text-xs text-amber-700 dark:text-amber-300 min-w-0 break-words">
+                                    • {c.text}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
                           </div>
                         )}
 
