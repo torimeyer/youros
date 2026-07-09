@@ -253,6 +253,48 @@ _WS_HEARTBEAT_INTERVAL_S: float = 10.0
 _detection_cache: dict[str, Any] = {"result": None, "expires_at": 0.0}
 
 
+# ---------------------------------------------------------------------------
+# Chat model pinning (→2555)
+#
+# stream_chat historically passed no --model, so every chat subprocess
+# inherited the user-level ~/.claude/settings.json default: claude-fable-5
+# at effortLevel xhigh — a deep-reasoning coding model. Measured effect
+# (session transcript 1b86da65..., 2026-07-08): 6.0 s user→answer for a
+# 6-token reply with input=2 uncached tokens and cache_read=16171; warm
+# T3/T4 turns 4.4-4.6 s TTFT with 2 uncached tokens. Backend pre-spawn
+# overhead was 4-14 ms (claude_phase=warm_turn_start) and the
+# UserPromptSubmit hook 35 ms, so effectively the whole warm-turn latency
+# was the model's own time to first token. Prompt caching already worked;
+# context size was NOT the cost.
+#
+# Fix: pin an explicit fast chat model and low effort on every chat spawn.
+# claude-sonnet-4-6 has near-frontier chat quality with ~1-1.5 s TTFT on a
+# cached prefix; effort low keeps adaptive thinking from adding seconds on
+# casual turns. Overridable per-install via env; set the env var to an
+# empty string to fall back to the CLI's own default.
+# ---------------------------------------------------------------------------
+
+_CHAT_MODEL_DEFAULT: str = "claude-sonnet-4-6"
+_CHAT_EFFORT_DEFAULT: str = "low"
+
+
+def _chat_model_args() -> list[str]:
+    """Return the --model/--effort argv fragment for chat subprocesses.
+
+    Env overrides: MYOS_CLAUDE_CHAT_MODEL, MYOS_CLAUDE_CHAT_EFFORT.
+    An empty-string override drops that flag entirely (CLI default wins).
+    """
+    import os
+    model = os.environ.get("MYOS_CLAUDE_CHAT_MODEL", _CHAT_MODEL_DEFAULT).strip()
+    effort = os.environ.get("MYOS_CLAUDE_CHAT_EFFORT", _CHAT_EFFORT_DEFAULT).strip()
+    frag: list[str] = []
+    if model:
+        frag.extend(["--model", model])
+    if effort:
+        frag.extend(["--effort", effort])
+    return frag
+
+
 def _strip_blocked_env(source: dict[str, str]) -> dict[str, str]:
     """Return a copy of ``source`` with Anthropic auth vars removed.
 
@@ -842,6 +884,11 @@ async def stream_chat(
         "--include-partial-messages",
         "--dangerously-skip-permissions",
     ]
+    # Pin a fast chat model + low effort (→2555). Without an explicit
+    # --model the CLI inherits the user's coding-session default from
+    # ~/.claude/settings.json (claude-fable-5, effort xhigh), whose TTFT
+    # alone was 4.4-6 s per warm turn even with a fully cached prompt.
+    args.extend(_chat_model_args())
     # Disable every tool for plain-text chat turns (e.g. All pill
     # broadcast). Without this, the CLI runs its full agent loop even
     # for casual questions because --dangerously-skip-permissions gives

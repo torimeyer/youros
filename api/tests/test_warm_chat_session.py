@@ -747,3 +747,104 @@ class TestWarmProcStrictMcpConfig:
         assert cwd != str(_ccp._REPO_ROOT), (
             "warm process must NOT start in _REPO_ROOT (CLAUDE.md there triggers 19-s boot overhead)"
         )
+
+
+# ---------------------------------------------------------------------------
+# 7. Explicit --model / --effort on chat spawns (→2555 warm latency fix)
+# ---------------------------------------------------------------------------
+
+class TestChatModelArgs:
+    """Chat spawns must pin a fast model and low effort explicitly.
+
+    Root cause of the residual 4.4-6 s warm TTFT (→2555): stream_chat passed
+    no --model, so the CLI inherited the user-level ~/.claude/settings.json
+    default — claude-fable-5 at effortLevel xhigh, a deep-reasoning coding
+    model. Session transcripts show 6.0 s user→answer for a 6-token reply
+    with input=2 uncached tokens and a fully cached prefix; hooks cost 35 ms
+    and backend pre-spawn overhead 4-14 ms, so the entire residual was model
+    TTFT. Pinning --model/--effort for chat removes the inheritance.
+    """
+
+    async def _run_and_capture(self, tab_id: str) -> list:
+        fake = FakeWarmProcess([_turn_lines("hi")])
+        captured_args: list = []
+
+        async def _exec(*args, **kwargs):
+            captured_args.extend(args)
+            return fake
+
+        with patch(
+            "services.claude_code_provider.asyncio.create_subprocess_exec",
+            side_effect=_exec,
+        ):
+            patches = _patch_standard_deps()
+            for p in patches:
+                p.start()
+            try:
+                ws = FakeWebSocket()
+                await stream_chat(
+                    [{"role": "user", "content": "hello"}],
+                    ws,
+                    tab_id=tab_id,
+                )
+            finally:
+                for p in patches:
+                    p.stop()
+        return captured_args
+
+    @pytest.mark.asyncio
+    async def test_warm_args_pin_default_chat_model_and_effort(self):
+        """Warm args include --model claude-sonnet-4-6 and --effort low by default."""
+        import os
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("MYOS_CLAUDE_CHAT_MODEL", "MYOS_CLAUDE_CHAT_EFFORT")}
+        with patch.dict("os.environ", env, clear=True):
+            args = await self._run_and_capture("tab-model-default")
+
+        assert "--model" in args, (
+            "chat spawns must pass --model explicitly; without it the CLI "
+            "inherits the user's coding model (claude-fable-5 xhigh) and warm "
+            "TTFT is 4.4-6 s"
+        )
+        assert args[args.index("--model") + 1] == "claude-sonnet-4-6"
+        assert "--effort" in args
+        assert args[args.index("--effort") + 1] == "low"
+
+    @pytest.mark.asyncio
+    async def test_chat_model_and_effort_env_override(self):
+        """MYOS_CLAUDE_CHAT_MODEL / MYOS_CLAUDE_CHAT_EFFORT override the defaults."""
+        with patch.dict("os.environ", {
+            "MYOS_CLAUDE_CHAT_MODEL": "claude-haiku-4-5",
+            "MYOS_CLAUDE_CHAT_EFFORT": "medium",
+        }):
+            args = await self._run_and_capture("tab-model-override")
+
+        assert args[args.index("--model") + 1] == "claude-haiku-4-5"
+        assert args[args.index("--effort") + 1] == "medium"
+
+    @pytest.mark.asyncio
+    async def test_empty_env_override_disables_flag(self):
+        """Setting the env var to empty string drops the flag (CLI default wins)."""
+        with patch.dict("os.environ", {
+            "MYOS_CLAUDE_CHAT_MODEL": "",
+            "MYOS_CLAUDE_CHAT_EFFORT": "",
+        }):
+            args = await self._run_and_capture("tab-model-empty")
+
+        assert "--model" not in args
+        assert "--effort" not in args
+
+    @pytest.mark.asyncio
+    async def test_model_flags_precede_prompt_and_survive_warm_slicing(self):
+        """--model appears exactly once and is not the trailing positional arg."""
+        import os
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("MYOS_CLAUDE_CHAT_MODEL", "MYOS_CLAUDE_CHAT_EFFORT")}
+        with patch.dict("os.environ", env, clear=True):
+            args = await self._run_and_capture("tab-model-position")
+
+        assert args.count("--model") == 1
+        assert args.count("--effort") == 1
+        # The warm-args slicing (args[2:-1]) drops the trailing prompt; if
+        # --model or its value were last they would be cut off.
+        assert args[-1] not in ("--model", "claude-sonnet-4-6", "--effort", "low")
