@@ -812,6 +812,46 @@ def short_cwd_for_worktree(wt_path) -> str:
     return str(short)
 
 
+async def unlock_worktree(
+    *,
+    project_root,
+    wt_path,
+    timeout: float = 10.0,
+) -> bool:
+    """Unlock a git worktree created with ``--lock`` (→2612).
+
+    Called when the owning agent reaches a terminal status so finished
+    agents' worktrees stop piling up locked forever — the cleanup reaper
+    (scripts/worktree-reaper.sh, →2608 guard) deliberately skips locked
+    worktrees, so without this unlock the pile can only grow.
+
+    Tolerant by design: an already-unlocked worktree, an unregistered or
+    missing path, or a git failure is logged and reported as False —
+    never raised. Returns True only when git exits 0.
+    """
+    cwd = str(project_root)
+    try:
+        rc, _, err = await _run_git(
+            "worktree", "unlock", str(wt_path),
+            cwd=cwd, timeout=timeout,
+        )
+    except Exception as exc:
+        logger.warning(
+            "spawn.worktree.unlock_failed path=%s err=%s", wt_path, exc,
+        )
+        return False
+    if rc == 0:
+        logger.info("spawn.worktree.unlocked path=%s", wt_path)
+        return True
+    # Non-zero exit: already unlocked ("not locked") or not a registered
+    # worktree — both are acceptable end states for a finished agent.
+    logger.info(
+        "spawn.worktree.unlock_noop path=%s rc=%s err=%s",
+        wt_path, rc, err.decode(errors="replace")[:120],
+    )
+    return False
+
+
 async def remove_worktree(
     *,
     project_root,

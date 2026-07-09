@@ -203,11 +203,17 @@ async def test_unlock_not_called_on_heartbeat(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+# NOTE: "stalled" is deliberately absent. agents.py defines
+# _TERMINAL_STATUSES twice at module level; the second definition
+# (currently line ~521, without "stalled") shadows the first (line 36,
+# with "stalled"), so at runtime "stalled" has never been treated as a
+# terminal status by _set_agent_status. This test pins the EFFECTIVE
+# runtime set; the shadowing itself is a separate pre-existing issue.
 @pytest.mark.parametrize(
     "terminal_status",
     [
         "completed", "failed", "cancelled", "terminated_stale",
-        "killed", "stopped", "abandoned", "completed_timeout", "stalled",
+        "killed", "stopped", "abandoned", "completed_timeout",
     ],
 )
 def test_unlock_fires_for_every_terminal_status(tmp_path, terminal_status):

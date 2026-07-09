@@ -55,6 +55,41 @@ def _fire_delta(name: str, status: str) -> None:
         pass  # no running loop (startup / test context)
 
 
+def _fire_unlock_worktree(name: str, meta: dict) -> None:
+    """→2612: unlock the agent's git worktree on a terminal transition.
+
+    Worktrees are created with ``git worktree add --lock``
+    (services/spawn_isolation.create_worktree) and nothing unlocked them
+    when the agent finished, so parked worktrees piled up locked forever
+    and the cleanup reaper (→2608 guard) rightly refused all of them.
+
+    Called from _set_agent_status when an agent transitions INTO a
+    terminal status. Fire-and-forget: scheduled on the running loop when
+    there is one, run inline otherwise (the idle sweep runs in a
+    to_thread worker; unit tests call _set_agent_status directly). Any
+    failure is logged and must never break the status flip.
+    """
+    try:
+        wt_path = (meta or {}).get("worktree_path")
+        if not wt_path:
+            return
+        from config import PROJECT_ROOT as _ul_root
+        from services import spawn_isolation as _spawn_iso
+        coro = _spawn_iso.unlock_worktree(
+            project_root=str(_ul_root), wt_path=str(wt_path),
+        )
+        try:
+            asyncio.get_running_loop().create_task(coro)
+        except RuntimeError:
+            # No running loop. Run inline — `git worktree unlock` is a
+            # fast metadata-only operation.
+            asyncio.run(coro)
+    except Exception as exc:
+        logger.warning(
+            "agent.worktree_unlock_failed name=%s err=%s", name, exc,
+        )
+
+
 # Background snapshot cache (→1219): the snapshotter loop writes here every 500 ms;
 # list_agents reads directly from it so every GET /agents completes in <10 ms.
 _cached_snapshot: dict = {"agents": [], "computed_at": None, "daemon_running": False}
@@ -94,6 +129,10 @@ def _set_agent_status(name: str, new_status: str, **extra_fields) -> None:
         for _extra_nid in meta.get("needle_ids") or []:
             if _extra_nid:
                 _fire_release_needle_if_orphaned(_extra_nid)
+        # →2612: the agent is finished — unlock its worktree so the
+        # cleanup reaper can triage it (absorbed → removed, unique →
+        # parked) instead of refusing it forever as locked.
+        _fire_unlock_worktree(name, meta)
 
 
 class AgentMemorySave(BaseModel):
