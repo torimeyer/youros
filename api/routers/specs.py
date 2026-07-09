@@ -1491,6 +1491,59 @@ async def patch_spec_no_ac_needed(spec_path: str, body: SpecNoAcNeededUpdate):
     return {"ok": True, "no_ac_needed": body.no_ac_needed}
 
 
+class SpecCriterionUpdate(BaseModel):
+    text: str
+    checked: bool
+
+
+# Matches any markdown checkbox bullet, checked or not, splitting it into
+# the bullet prefix, the checkbox state, and the criterion text so a single
+# criterion can be flipped in place without disturbing indentation (→2233).
+_AC_CHECKBOX_LINE_RE = re.compile(r"^(\s*[-*]\s*)\[( |x|X)\](\s+)(.+)$")
+
+
+@router.patch("/specs/{spec_path:path}/criteria")
+async def patch_spec_criterion(spec_path: str, body: SpecCriterionUpdate):
+    """Tick or untick one acceptance criterion in the spec body (→2233).
+
+    The review step lets the person confirm the criteria they checked
+    themselves and leave the rest unchecked. Matching is by the bullet's
+    exact text so edits elsewhere in the file cannot flip the wrong box.
+    404 when the spec or the criterion text cannot be found.
+    """
+    _validate_doc_path(spec_path)
+
+    abs_path = (
+        spec_path
+        if spec_path.startswith("/") or spec_path.startswith("~")
+        else str(Path(config.PROJECT_ROOT) / spec_path)
+    )
+    abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
+
+    if not Path(abs_path).exists():
+        raise HTTPException(status_code=404, detail="Spec file not found")
+
+    target = body.text.strip()
+    marker = "x" if body.checked else " "
+    lines = Path(abs_path).read_text(encoding="utf-8").split("\n")
+    flipped = False
+    for i, line in enumerate(lines):
+        m = _AC_CHECKBOX_LINE_RE.match(line)
+        if not m or m.group(4).strip() != target:
+            continue
+        lines[i] = f"{m.group(1)}[{marker}]{m.group(3)}{m.group(4)}"
+        flipped = True
+        break
+    if not flipped:
+        raise HTTPException(status_code=404, detail="Criterion not found in spec")
+
+    Path(abs_path).write_text("\n".join(lines), encoding="utf-8")
+    trace_event(
+        "spec_criterion_toggle", spec_path=spec_path, checked=body.checked
+    )
+    return {"ok": True, "text": target, "checked": body.checked}
+
+
 class SpecTitleUpdate(BaseModel):
     title: str
 
@@ -3939,7 +3992,18 @@ async def patch_spec_status(spec_path: str, body: SpecStatusUpdate):
     result = _set_spec_status(spec_path, new_status)
     if result is None:
         raise HTTPException(status_code=404, detail="Spec not found or has no status line")
-    return {"ok": True, "status": new_status}
+    response: dict = {"ok": True, "status": new_status}
+    if new_status in ("done", "complete"):
+        # →2231 →2234: marking done with unchecked criteria always succeeds;
+        # the unchecked list rides along as information, never a refusal.
+        # The status flip above already happened unconditionally.
+        full = Path(config.PROJECT_ROOT) / os.path.expanduser(spec_path)
+        try:
+            spec_text = full.read_text()
+        except OSError:
+            spec_text = ""
+        response["unchecked_criteria"] = _parse_unchecked_ac_bullets(spec_text)
+    return response
 
 
 # --- Backward-compatible aliases for /api/docs/* ---
