@@ -1272,7 +1272,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
           <div className="flex items-center gap-3">
             <h1 className="text-xl sm:text-2xl font-bold text-white">Specs</h1>
             <span className="bg-blue-500 text-white text-xs rounded-full px-2">
-              {docs.length}
+              {notDoneDocs.length}
             </span>
           </div>
         </div>

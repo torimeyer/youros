@@ -58,13 +58,21 @@ const riskStyles: Record<string, string> = {
   quiet: 'bg-slate-500/15 text-slate-500 dark:text-slate-400',
 };
 
+// What each flag means, in everyday words. The API keeps the short
+// internal names; only the label shown to the user changes here.
+const riskLabels: Record<string, string> = {
+  overdue: 'past due',
+  blocked: 'waiting on other work',
+  quiet: 'no activity for a week',
+};
+
 function RiskBadge({ risk }: { risk: string }) {
   if (!risk || risk === 'none') return null;
   return (
     <span
       className={`px-2 py-0.5 rounded-full text-xs font-medium ${riskStyles[risk] ?? riskStyles.quiet}`}
     >
-      {risk}
+      {riskLabels[risk] ?? risk}
     </span>
   );
 }
@@ -150,8 +158,8 @@ function ThemeManagerCard({
           <div className="mb-3">
             <h2 className="text-lg font-semibold mb-1">Set up your themes</h2>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              Themes are the big goals your work supports, like Customer trust
-              or Faster onboarding. Add a few here, then give your tasks and
+              Themes are the big goals your work supports, like customer trust
+              or faster onboarding. Add a few here, then give your tasks and
               projects a theme from their own pages, and this view will group
               everything for you.
             </p>
@@ -188,7 +196,7 @@ function ThemeManagerCard({
             onKeyDown={(e) => {
               if (e.key === 'Enter') onAdd();
             }}
-            placeholder="A goal your work supports, like Customer trust"
+            placeholder="A goal your work supports, like customer trust"
             data-testid="theme-input"
             className="flex-1 min-w-0 px-3 py-2 rounded-lg text-sm bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
           />

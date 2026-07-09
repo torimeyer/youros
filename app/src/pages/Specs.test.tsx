@@ -155,13 +155,15 @@ describe('Specs page', () => {
     expect(banner.className).toMatch(/text-slate-900/)
   })
 
-  it('count badge shows correct total', async () => {
+  it('count badge shows specs that are not done', async () => {
     renderSpecs()
 
+    // 4 docs in the fixture, 1 of them done: the header pill counts only
+    // the 3 still in play, matching the All tab (→2624).
     await waitFor(() => {
       const badge = document.querySelector('.bg-blue-500.text-white.text-xs.rounded-full')
       expect(badge).not.toBeNull()
-      expect(badge!.textContent).toBe('4')
+      expect(badge!.textContent).toBe('3')
     })
   })
 

@@ -119,8 +119,8 @@ describe('PortfolioPage', () => {
     expect(screen.getByText('Write the launch note')).toBeInTheDocument()
     // Risk flags in plain words (the bucket repeats its worst row's word,
     // so "overdue" and "quiet" can appear more than once)
-    expect(screen.getAllByText('overdue').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('quiet').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('past due').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('no activity for a week').length).toBeGreaterThan(0)
     // Untagged work stays visible under the catch-all bucket
     expect(screen.getByText('No theme yet')).toBeInTheDocument()
     expect(screen.getByText('Sort the inbox')).toBeInTheDocument()
