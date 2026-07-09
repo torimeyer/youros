@@ -2,6 +2,10 @@
 
 Your personal AI operating system. A local web app that gives you a workspace with AI chat, background agents, task management, and more. Built on [ostk](https://ostk.ai).
 
+## Why yourOS if you already have Claude Code?
+
+yourOS adds a persistent workspace on top of Claude Code. Your tasks, agents, and chat history carry across sessions, and your connected tools work together in one conversation instead of in separate tabs. Claude Code powers the AI. yourOS gives it memory and context.
+
 ## How it works
 
 yourOS runs entirely on your computer. You open it in your browser at localhost, no account or login needed. All your data lives in `~/.youros/` and never leaves your machine unless you connect an integration like Gmail or Slack, in which case those requests go directly from your machine to the provider. yourOS is not a cloud service.
