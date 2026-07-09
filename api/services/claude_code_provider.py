@@ -268,10 +268,11 @@ _detection_cache: dict[str, Any] = {"result": None, "expires_at": 0.0}
 # context size was NOT the cost.
 #
 # Fix: pin an explicit fast chat model and low effort on every chat spawn.
-# claude-sonnet-4-6 has near-frontier chat quality with ~1-1.5 s TTFT on a
-# cached prefix; effort low keeps adaptive thinking from adding seconds on
-# casual turns. Overridable per-install via env; set the env var to an
-# empty string to fall back to the CLI's own default.
+# Verified 2026-07-09 on the exact warm argv (/tmp/2555-verify.log): with
+# --model claude-sonnet-4-6 --effort low, warm-turn first_token=1019 ms
+# (cache_read=20427, in=3) vs 5452 ms before on the inherited fable-5 —
+# under the 2 s spec bar. Overridable per-install via env; set the env var
+# to an empty string to fall back to the CLI's own default.
 # ---------------------------------------------------------------------------
 
 _CHAT_MODEL_DEFAULT: str = "claude-sonnet-4-6"
