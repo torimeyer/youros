@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from services.youros_paths import youros_home
 
 router = APIRouter(tags=["costs"])
@@ -648,14 +648,112 @@ def _get_costs_cached(period: Optional[str], audit_path: Optional[Path] = None) 
     return result
 
 
+def _iso_epoch(ts: str) -> Optional[float]:
+    """Parse an ISO timestamp string to a unix epoch, or None if unparseable."""
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+# Events that open a journey's cost window (earliest wins) and events that
+# close it (latest wins). Written by routers/specs.py via trace_event with a
+# journey_id field; the kernel's chat.completion lines never carry one, so
+# attribution is by timestamp window (→2534).
+_JOURNEY_START_EVENTS = {"spec_built_start", "spec_journey_started"}
+_JOURNEY_END_EVENTS = {"spec_journey_complete", "spec_built_complete"}
+
+
+def _get_journey_costs(journey_id: str, audit_path: Optional[Path] = None) -> Optional[dict]:
+    """Aggregate chat.completion costs attributable to one spec journey (→2534).
+
+    Window start: the earliest spec_built_start / spec_journey_started audit
+    entry carrying this journey_id. Window end: the latest
+    spec_journey_complete / spec_built_complete entry for the journey, else
+    the last agent.completed event naming one of the journey's agents, else
+    now (build still running). Every chat.completion event inside the window
+    is attributed to the journey. Returns None when the journey_id is unknown.
+    """
+    if audit_path is None:
+        audit_path = AUDIT_PATH
+    entries = read_audit_entries(audit_path)
+
+    start_epochs: list[float] = []
+    end_epoch: Optional[float] = None
+    journey_agents: set[str] = set()
+    for e in entries:
+        if e.get("journey_id") != journey_id:
+            continue
+        ev = e.get("event", "")
+        ep = _iso_epoch(e.get("ts") or e.get("timestamp") or "")
+        if ep is None:
+            continue
+        if ev in _JOURNEY_START_EVENTS:
+            start_epochs.append(ep)
+            for name in e.get("agents") or []:
+                journey_agents.add(name)
+        elif ev in _JOURNEY_END_EVENTS:
+            end_epoch = ep if end_epoch is None else max(end_epoch, ep)
+
+    if not start_epochs:
+        return None
+    start_epoch = min(start_epochs)
+
+    if end_epoch is None and journey_agents:
+        # Fall back to the last completion of one of the journey's agents.
+        for e in entries:
+            if e.get("event") != "agent.completed":
+                continue
+            if e.get("name") not in journey_agents:
+                continue
+            ep = _iso_epoch(e.get("timestamp") or e.get("ts") or "")
+            if ep is not None and ep >= start_epoch:
+                end_epoch = ep if end_epoch is None else max(end_epoch, ep)
+    if end_epoch is None:
+        # Journey still running: attribute everything up to now.
+        end_epoch = datetime.now(timezone.utc).timestamp()
+
+    # Cost events (audit chat.completion plus merged CLI transcript usage),
+    # already _epoch-enriched by the shared raw-events cache.
+    events, _, _ = _get_raw_events_cached(audit_path)
+    window = [
+        ev for ev in events
+        if ev.get("event") == "chat.completion"
+        and ev.get("_epoch") is not None
+        and start_epoch <= ev["_epoch"] <= end_epoch
+    ]
+    result = dict(_aggregate(window))
+    result["journey_id"] = journey_id
+    result["window_start"] = datetime.fromtimestamp(start_epoch, tz=timezone.utc).isoformat()
+    result["window_end"] = datetime.fromtimestamp(end_epoch, tz=timezone.utc).isoformat()
+    return result
+
+
 @router.get("/costs")
-async def get_costs(period: Optional[str] = Query(None, description="Time filter: today, week, month, all")):
+async def get_costs(
+    period: Optional[str] = Query(None, description="Time filter: today, week, month, all"),
+    journey_id: Optional[str] = Query(None, description="Attribute costs to one spec journey (jrn-...)"),
+):
     """Return aggregated cost/budget data from all cost-related audit events.
 
     Includes agent spawns, chat completions, and any future cost event types.
     Results are cached by (period, file_size, file_mtime_ns) so repeated
     requests with an unchanged audit file return instantly.
+
+    With ?journey_id=jrn-..., returns only the chat.completion costs inside
+    that journey's build window (→2534); 404 when the journey is unknown.
     """
+    if journey_id:
+        result = await asyncio.to_thread(_get_journey_costs, journey_id)
+        if result is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No journey events found for journey_id {journey_id}",
+            )
+        result["period"] = period or "all"
+        return result
     result = await asyncio.to_thread(_get_costs_cached, period)
     result = dict(result)
     result["period"] = period or "all"
