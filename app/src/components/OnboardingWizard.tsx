@@ -598,7 +598,6 @@ export default function OnboardingWizard() {
                 await finish()
               }}
               subtextCls={subtextCls}
-              cardCls={cardCls}
               darkMode={effectiveDark}
             />
           )}
@@ -1978,12 +1977,10 @@ export function GithubSetupCard({
 function ShowcaseStep({
   onTryPrompt,
   subtextCls,
-  cardCls,
   darkMode,
 }: {
   onTryPrompt: (prompt: string) => void
   subtextCls: string
-  cardCls: string
   darkMode: boolean
 }) {
   const [googleConnected, setGoogleConnected] = useState(false)
@@ -2035,7 +2032,7 @@ function ShowcaseStep({
         <button
           data-testid="showcase-prompt-btn"
           onClick={() => onTryPrompt(prompt)}
-          className={`w-full text-left p-5 rounded-xl border-2 border-blue-500 bg-blue-500/10 hover:bg-blue-500/20 transition-colors`}
+          className="w-full text-left p-5 rounded-xl border-2 border-blue-500 bg-blue-500/10 hover:bg-blue-500/20 transition-colors"
         >
           <p className="font-semibold mb-1">{promptLabel}</p>
           <p className={`text-sm mb-3 ${subtextCls}`}>{promptDescription}</p>
