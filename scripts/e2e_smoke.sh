@@ -1578,6 +1578,16 @@ print(msgs[0].get('id','') if msgs else '')
         fi
 
 
+        # --- Cross-source search (→2088 / →2102) ---
+        cs_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/cross-source" \
+            -H 'Content-Type: application/json' \
+            -d '{"query":"test","limit":3}' 2>/dev/null)
+        if echo "$cs_resp" | grep -q '"results"\|"providers_used"\|"providers_skipped"'; then
+            phase_pass "cross-source: POST /api/cross-source returns expected shape"
+        else
+            phase_fail "cross-source: POST /api/cross-source unexpected body: $cs_resp"
+        fi
+
         # =================================================================
         # END USER JOURNEY TESTS
         # =================================================================
