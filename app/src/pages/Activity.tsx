@@ -27,7 +27,16 @@ interface ActivityResponse {
   count: number;
 }
 
-type Tab = "events" | "transcripts" | "learned";
+type Tab = "events" | "transcripts" | "learned" | "reminders";
+
+interface ReminderRow {
+  id: string;
+  text: string;
+  fire_at_utc: string;
+  created_at?: string;
+  status: "scheduled" | "delivered" | "cancelled";
+  channel?: string;
+}
 
 function formatTime(iso: string): string {
   try {
@@ -261,6 +270,99 @@ function DaySection({ group, expandedKeys, onToggle, disableBundling }: DaySecti
 
 // ─── Main page ──────────────────────────────────────────────────────────────
 
+function formatDateTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return iso;
+  }
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  scheduled: "Pending",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+};
+
+const SNOOZE_OPTIONS = [
+  { label: "15 min", minutes: 15, testSuffix: "15m" },
+  { label: "1 hour", minutes: 60, testSuffix: "1h" },
+  { label: "1 day", minutes: 1440, testSuffix: "1d" },
+] as const;
+
+interface RemindersTabProps {
+  reminders: ReminderRow[];
+  loading: boolean;
+  onSnooze: (id: string, minutes: number) => Promise<void>;
+  snoozingId: string | null;
+}
+
+function RemindersTab({ reminders, loading, onSnooze, snoozingId }: RemindersTabProps) {
+  if (loading) {
+    return <LoadingState variant="spinner" message="Loading reminders..." />;
+  }
+  if (reminders.length === 0) {
+    return (
+      <div data-testid="reminders-empty" className="py-16 text-center text-slate-500 text-sm">
+        No reminders yet. Say "remind me to..." in chat to create one.
+      </div>
+    );
+  }
+  return (
+    <ul data-testid="reminders-list" className="space-y-2">
+      {reminders.map((r) => {
+        const isPending = r.status === "scheduled";
+        return (
+          <li
+            key={r.id}
+            data-testid={`reminder-row-${r.id}`}
+            data-status={r.status}
+            className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 rounded-lg bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800"
+          >
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{r.text}</p>
+              <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-slate-500">
+                {r.created_at && (
+                  <span>Created {formatDateTime(r.created_at)}</span>
+                )}
+                <span>Fires {formatDateTime(r.fire_at_utc)}</span>
+                <span
+                  className={`font-medium ${
+                    r.status === "scheduled"
+                      ? "text-amber-500"
+                      : r.status === "delivered"
+                      ? "text-emerald-500"
+                      : "text-slate-400"
+                  }`}
+                >
+                  {STATUS_LABELS[r.status] ?? r.status}
+                </span>
+              </div>
+            </div>
+            {isPending && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-xs text-slate-500 mr-1">Snooze:</span>
+                {SNOOZE_OPTIONS.map(({ label, minutes, testSuffix }) => (
+                  <button
+                    key={testSuffix}
+                    data-testid={`snooze-${testSuffix}-${r.id}`}
+                    onClick={() => onSnooze(r.id, minutes)}
+                    disabled={snoozingId === r.id}
+                    className="text-xs px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 hover:text-blue-700 dark:hover:text-blue-300 transition-colors disabled:opacity-50"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export default function Activity() {
   const [tab, setTab] = useState<Tab>("events");
   const [rawEvents, setRawEvents] = useState<RawActivityEvent[]>([]);
@@ -270,6 +372,33 @@ export default function Activity() {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [deduping, setDeduping] = useState(false);
   const [dedupeResult, setDedupeResult] = useState<string | null>(null);
+  const [reminders, setReminders] = useState<ReminderRow[]>([]);
+  const [remindersLoading, setRemindersLoading] = useState(false);
+  const [snoozingId, setSnoozingId] = useState<string | null>(null);
+
+  const fetchReminders = useCallback(async () => {
+    setRemindersLoading(true);
+    try {
+      const data = await api.get<ReminderRow[]>("/reminders?upcoming_only=false");
+      setReminders(data ?? []);
+    } catch (e) {
+      reportError('Failed to fetch reminders', e);
+    } finally {
+      setRemindersLoading(false);
+    }
+  }, []);
+
+  const handleSnooze = useCallback(async (id: string, minutes: number) => {
+    setSnoozingId(id);
+    try {
+      await api.post(`/reminders/${id}/snooze`, { minutes });
+      await fetchReminders();
+    } catch (e) {
+      reportError('Failed to snooze reminder', e);
+    } finally {
+      setSnoozingId(null);
+    }
+  }, [fetchReminders]);
 
   const fetchActivity = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -300,6 +429,11 @@ export default function Activity() {
   useEffect(() => {
     fetchActivity();
   }, [fetchActivity]);
+
+  // Fetch reminders when the reminders tab is activated.
+  useEffect(() => {
+    if (tab === "reminders") fetchReminders();
+  }, [tab, fetchReminders]);
 
   // Keep the events tab live with a 10-second refresh.
   // Pass silent=true so the background poll doesn't flip the page back
@@ -400,6 +534,17 @@ export default function Activity() {
               >
                 What I learned
               </button>
+              <button
+                data-testid="reminders-tab"
+                onClick={() => setTab("reminders")}
+                className={`px-3 py-2 text-sm font-medium transition-colors border-b-2 ${
+                  tab === "reminders"
+                    ? "border-blue-500 text-white"
+                    : "border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+                }`}
+              >
+                Reminders
+              </button>
             </div>
           </div>
 
@@ -460,7 +605,14 @@ export default function Activity() {
 
 
         {/* Tab content */}
-        {tab === "learned" ? (
+        {tab === "reminders" ? (
+          <RemindersTab
+            reminders={reminders}
+            loading={remindersLoading}
+            onSnooze={handleSnooze}
+            snoozingId={snoozingId}
+          />
+        ) : tab === "learned" ? (
           <PatternPanel />
         ) : tab === "transcripts" ? (
           <Suspense fallback={<div className="text-slate-500 text-center py-12">Loading transcripts...</div>}>

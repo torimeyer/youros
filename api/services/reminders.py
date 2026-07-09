@@ -188,6 +188,7 @@ def create_reminder(
     time_zone: str = "UTC",
     channel: str = "default",
     repeat: Optional[dict] = None,
+    conversation_tab_id: Optional[str] = None,
 ) -> dict:
     rows = _load()
     r: dict = {
@@ -200,6 +201,8 @@ def create_reminder(
         "status": "scheduled",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    if conversation_tab_id:
+        r["conversation_tab_id"] = conversation_tab_id
     rows.append(r)
     _save(rows)
     return r
@@ -225,14 +228,14 @@ def cancel_reminder(reminder_id: str) -> bool:
     return found
 
 
-def snooze_reminder(reminder_id: str, *, now: Optional[datetime] = None) -> Optional[dict]:
-    """Re-queue a reminder 15 minutes from now. Returns the updated row or None if not found."""
+def snooze_reminder(reminder_id: str, *, now: Optional[datetime] = None, minutes: int = 15) -> Optional[dict]:
+    """Re-queue a reminder N minutes from now. Returns the updated row or None if not found."""
     if now is None:
         now = datetime.now(timezone.utc)
     rows = _load()
     for r in rows:
         if r["id"] == reminder_id:
-            r["fire_at_utc"] = (now + timedelta(minutes=15)).isoformat()
+            r["fire_at_utc"] = (now + timedelta(minutes=minutes)).isoformat()
             r["status"] = "scheduled"
             r.pop("delivered_at", None)
             _save(rows)
@@ -370,10 +373,13 @@ async def dispatch_reminder(reminder: dict, *, settings: dict) -> dict:
     if channel == "default":
         channel = _select_default_channel(settings)
 
+    tab_id = reminder.get("conversation_tab_id")
+    action_url = f"/?tab={tab_id}" if tab_id else None
     notif.notifications_service.add(
         type="reminder",
         title=f"Reminder: {text}",
         body=text,
+        action_url=action_url,
         metadata={"reminder_id": reminder.get("id"), "channel": channel},
     )
 

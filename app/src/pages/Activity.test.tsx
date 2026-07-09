@@ -700,6 +700,183 @@ describe('Activity page - bundling', () => {
   })
 })
 
+// ─── Reminders tab tests ──────────────────────────────────────────────────────
+
+describe('Activity page – Reminders tab', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
+  })
+
+  it('shows a Reminders tab button', async () => {
+    mockedApiGet.mockResolvedValue({ events: [], count: 0 })
+    renderActivity()
+    await waitFor(() => {
+      expect(screen.getByTestId('reminders-tab')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('reminders-tab')).toHaveTextContent('Reminders')
+  })
+
+  it('clicking Reminders tab fetches and shows reminders list', async () => {
+    const remindersData = [
+      {
+        id: 'r1',
+        text: 'Call the vet',
+        fire_at_utc: '2026-07-09T15:00:00Z',
+        created_at: '2026-07-09T09:00:00Z',
+        status: 'scheduled',
+        channel: 'in_app',
+      },
+    ]
+    mockedApiGet
+      .mockResolvedValueOnce({ events: [], count: 0 }) // initial activity fetch
+      .mockResolvedValueOnce(remindersData)             // reminders fetch when tab clicked
+
+    const user = userEvent.setup()
+    renderActivity()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('reminders-tab')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByTestId('reminders-tab'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('reminders-list')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Call the vet')).toBeInTheDocument()
+  })
+
+  it('shows snooze buttons (15 min, 1 hour, 1 day) for pending reminders', async () => {
+    const remindersData = [
+      {
+        id: 'r1',
+        text: 'Call the vet',
+        fire_at_utc: '2026-07-09T15:00:00Z',
+        created_at: '2026-07-09T09:00:00Z',
+        status: 'scheduled',
+        channel: 'in_app',
+      },
+    ]
+    mockedApiGet
+      .mockResolvedValueOnce({ events: [], count: 0 })
+      .mockResolvedValueOnce(remindersData)
+
+    const user = userEvent.setup()
+    renderActivity()
+
+    await waitFor(() => expect(screen.getByTestId('reminders-tab')).toBeInTheDocument())
+    await user.click(screen.getByTestId('reminders-tab'))
+
+    await waitFor(() => expect(screen.getByTestId('reminders-list')).toBeInTheDocument())
+
+    expect(screen.getByTestId('snooze-15m-r1')).toBeInTheDocument()
+    expect(screen.getByTestId('snooze-1h-r1')).toBeInTheDocument()
+    expect(screen.getByTestId('snooze-1d-r1')).toBeInTheDocument()
+  })
+
+  it('clicking snooze 1h calls POST /reminders/{id}/snooze with minutes=60', async () => {
+    const remindersData = [
+      {
+        id: 'r1',
+        text: 'Call the vet',
+        fire_at_utc: '2026-07-09T15:00:00Z',
+        created_at: '2026-07-09T09:00:00Z',
+        status: 'scheduled',
+        channel: 'in_app',
+      },
+    ]
+    const snoozedReminder = {
+      ...remindersData[0],
+      fire_at_utc: '2026-07-09T16:00:00Z',
+      status: 'scheduled',
+    }
+    mockedApiGet
+      .mockResolvedValueOnce({ events: [], count: 0 })
+      .mockResolvedValueOnce(remindersData)
+      .mockResolvedValueOnce([snoozedReminder]) // re-fetch after snooze
+    vi.mocked(api.post).mockResolvedValueOnce(snoozedReminder)
+
+    const user = userEvent.setup()
+    renderActivity()
+
+    await waitFor(() => expect(screen.getByTestId('reminders-tab')).toBeInTheDocument())
+    await user.click(screen.getByTestId('reminders-tab'))
+    await waitFor(() => expect(screen.getByTestId('snooze-1h-r1')).toBeInTheDocument())
+
+    await user.click(screen.getByTestId('snooze-1h-r1'))
+
+    expect(api.post).toHaveBeenCalledWith('/reminders/r1/snooze', { minutes: 60 })
+  })
+
+  it('shows creation time and trigger time for each reminder', async () => {
+    const remindersData = [
+      {
+        id: 'r1',
+        text: 'Take meds',
+        fire_at_utc: '2026-07-09T15:00:00Z',
+        created_at: '2026-07-09T09:00:00Z',
+        status: 'scheduled',
+        channel: 'in_app',
+      },
+    ]
+    mockedApiGet
+      .mockResolvedValueOnce({ events: [], count: 0 })
+      .mockResolvedValueOnce(remindersData)
+
+    const user = userEvent.setup()
+    renderActivity()
+
+    await waitFor(() => expect(screen.getByTestId('reminders-tab')).toBeInTheDocument())
+    await user.click(screen.getByTestId('reminders-tab'))
+
+    await waitFor(() => expect(screen.getByTestId('reminder-row-r1')).toBeInTheDocument())
+    const row = screen.getByTestId('reminder-row-r1')
+    expect(row).toHaveAttribute('data-status', 'scheduled')
+  })
+
+  it('does not show snooze buttons for delivered reminders', async () => {
+    const remindersData = [
+      {
+        id: 'r2',
+        text: 'Old reminder',
+        fire_at_utc: '2026-07-08T15:00:00Z',
+        created_at: '2026-07-08T09:00:00Z',
+        status: 'delivered',
+        channel: 'in_app',
+      },
+    ]
+    mockedApiGet
+      .mockResolvedValueOnce({ events: [], count: 0 })
+      .mockResolvedValueOnce(remindersData)
+
+    const user = userEvent.setup()
+    renderActivity()
+
+    await waitFor(() => expect(screen.getByTestId('reminders-tab')).toBeInTheDocument())
+    await user.click(screen.getByTestId('reminders-tab'))
+
+    await waitFor(() => expect(screen.getByTestId('reminders-list')).toBeInTheDocument())
+    expect(screen.queryByTestId('snooze-15m-r2')).not.toBeInTheDocument()
+  })
+
+  it('shows empty state when no reminders exist', async () => {
+    mockedApiGet
+      .mockResolvedValueOnce({ events: [], count: 0 })
+      .mockResolvedValueOnce([])
+
+    const user = userEvent.setup()
+    renderActivity()
+
+    await waitFor(() => expect(screen.getByTestId('reminders-tab')).toBeInTheDocument())
+    await user.click(screen.getByTestId('reminders-tab'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('reminders-empty')).toBeInTheDocument()
+    })
+  })
+})
+
 // ─── WebSocket live update tests ─────────────────────────────────────────────
 
 describe('Activity page – WebSocket live updates', () => {

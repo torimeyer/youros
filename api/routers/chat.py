@@ -1373,6 +1373,7 @@ async def _handle_remind_me(text: str, websocket: WebSocket, tab_id: str = "", d
             fire_at_utc=parsed["fire_at_utc"],
             time_zone=tz,
             channel=parsed.get("channel", "default"),
+            conversation_tab_id=tab_id or None,
         )
         fire_local = parsed["fire_at_utc"].astimezone(__import__("zoneinfo").ZoneInfo(tz))
         time_str = fire_local.strftime("%-I:%M %p on %a, %b %-d")

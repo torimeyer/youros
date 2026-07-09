@@ -75,11 +75,19 @@ async def cancel_reminder(reminder_id: str):
     return {"ok": True}
 
 
+class SnoozeRequest(BaseModel):
+    minutes: int = 15
+
+
 @router.post("/reminders/{reminder_id}/snooze")
-async def snooze_reminder(reminder_id: str):
-    """Snooze a reminder by 15 minutes. Re-queues it and removes the current notification."""
+async def snooze_reminder(reminder_id: str, body: Optional[SnoozeRequest] = None):
+    """Snooze a reminder. Re-queues it and removes the current notification.
+
+    Pass {minutes: 15} (default), {minutes: 60} (1 hour), or {minutes: 1440} (1 day).
+    """
     import services.notifications as notif_svc
-    updated = reminders_svc.snooze_reminder(reminder_id)
+    minutes = (body.minutes if body else None) or 15
+    updated = reminders_svc.snooze_reminder(reminder_id, minutes=minutes)
     if updated is None:
         raise HTTPException(404, "Reminder not found")
     # Remove the existing in-app notification for this reminder so it doesn't stay visible.

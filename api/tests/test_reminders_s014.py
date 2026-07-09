@@ -372,6 +372,168 @@ async def test_chat_reminder_no_timezone_notes_utc(tmp_path, monkeypatch):
     )
 
 
+# ---------------------------------------------------------------------------
+# →2229: conversation_tab_id stored + action_url built in dispatch
+# ---------------------------------------------------------------------------
+
+
+def test_create_reminder_stores_conversation_tab_id(reminders):
+    """create_reminder with conversation_tab_id stores it on the row."""
+    from datetime import datetime, timezone
+    fire = datetime.now(timezone.utc)
+    r = reminders.create_reminder(
+        text="Call the vet",
+        fire_at_utc=fire,
+        time_zone="UTC",
+        channel="in_app",
+        conversation_tab_id="tab-abc123",
+    )
+    assert r.get("conversation_tab_id") == "tab-abc123"
+    # Verify persisted
+    rows = reminders._load()
+    assert rows[0].get("conversation_tab_id") == "tab-abc123"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_reminder_passes_action_url_when_tab_id_set(reminders, monkeypatch):
+    """dispatch_reminder builds action_url from conversation_tab_id and passes it to notifications."""
+    import services.notifications as notif
+    added = []
+    monkeypatch.setattr(
+        notif.notifications_service, "add",
+        lambda **k: added.append(k) or type("N", (), {"id": "n"})()
+    )
+    reminder = {
+        "id": "r1",
+        "text": "Call the vet",
+        "channel": "in_app",
+        "time_zone": "UTC",
+        "fire_at_utc": datetime.now(timezone.utc).isoformat(),
+        "conversation_tab_id": "tab-abc123",
+    }
+    await reminders.dispatch_reminder(reminder, settings={})
+    assert added, "notification must be created"
+    action_url = added[0].get("action_url")
+    assert action_url is not None, "action_url must be set when conversation_tab_id is present"
+    assert "tab-abc123" in action_url, f"action_url should reference the tab id, got: {action_url!r}"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_reminder_no_action_url_when_no_tab_id(reminders, monkeypatch):
+    """dispatch_reminder passes no action_url when conversation_tab_id is absent."""
+    import services.notifications as notif
+    added = []
+    monkeypatch.setattr(
+        notif.notifications_service, "add",
+        lambda **k: added.append(k) or type("N", (), {"id": "n"})()
+    )
+    reminder = {
+        "id": "r2",
+        "text": "Stretch",
+        "channel": "in_app",
+        "time_zone": "UTC",
+        "fire_at_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    await reminders.dispatch_reminder(reminder, settings={})
+    assert added
+    # action_url should be None or absent
+    assert not added[0].get("action_url")
+
+
+@pytest.mark.asyncio
+async def test_handle_remind_me_passes_tab_id_to_reminder(tmp_path, monkeypatch):
+    """_handle_remind_me stores tab_id as conversation_tab_id on the reminder row."""
+    import services.reminders as rem
+    store_path = tmp_path / "reminders.json"
+    monkeypatch.setattr(rem, "REMINDERS_PATH", store_path)
+
+    import services.settings_store as ss_mod
+    monkeypatch.setattr(ss_mod.settings_store, "get", lambda k, *a: "UTC" if k in ("time_zone", "timezone") else None)
+
+    from routers.chat import _handle_remind_me
+
+    ws = _FakeWS()
+    handled = await _handle_remind_me("remind me to call the vet at 3pm", ws, tab_id="tab-xyz789")
+
+    assert handled is True
+    rows = rem._load()
+    assert len(rows) == 1
+    assert rows[0].get("conversation_tab_id") == "tab-xyz789"
+
+
+# ---------------------------------------------------------------------------
+# →2230: snooze with custom duration (1h / 1d)
+# ---------------------------------------------------------------------------
+
+
+def test_snooze_reminder_custom_duration_1h(reminders):
+    """snooze_reminder(minutes=60) reschedules 60 min from now."""
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
+    fire = now - timedelta(minutes=5)
+    r = reminders.create_reminder(
+        text="Check in", fire_at_utc=fire, time_zone="UTC", channel="in_app"
+    )
+    snoozed = reminders.snooze_reminder(r["id"], now=now, minutes=60)
+    assert snoozed is not None
+    new_fire = datetime.fromisoformat(snoozed["fire_at_utc"])
+    if new_fire.tzinfo is None:
+        new_fire = new_fire.replace(tzinfo=timezone.utc)
+    diff = (new_fire - now).total_seconds()
+    assert 59 * 60 < diff <= 61 * 60, f"Expected ~60 min snooze, got {diff}s"
+
+
+def test_snooze_reminder_custom_duration_1d(reminders):
+    """snooze_reminder(minutes=1440) reschedules 24h from now."""
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
+    fire = now - timedelta(minutes=5)
+    r = reminders.create_reminder(
+        text="Check in", fire_at_utc=fire, time_zone="UTC", channel="in_app"
+    )
+    snoozed = reminders.snooze_reminder(r["id"], now=now, minutes=1440)
+    assert snoozed is not None
+    new_fire = datetime.fromisoformat(snoozed["fire_at_utc"])
+    if new_fire.tzinfo is None:
+        new_fire = new_fire.replace(tzinfo=timezone.utc)
+    diff = (new_fire - now).total_seconds()
+    assert 23 * 3600 < diff <= 25 * 3600, f"Expected ~24h snooze, got {diff}s"
+
+
+@pytest.mark.asyncio
+async def test_snooze_endpoint_accepts_duration_param(tmp_path, monkeypatch):
+    """POST /reminders/{id}/snooze with {minutes: 60} reschedules 60 min from now."""
+    from fastapi.testclient import TestClient
+    from main import app
+
+    import services.reminders as rem
+    store_path = tmp_path / "reminders.json"
+    monkeypatch.setattr(rem, "REMINDERS_PATH", store_path)
+
+    now = datetime.now(timezone.utc)
+    r = rem.create_reminder(
+        text="Test", fire_at_utc=now - timedelta(minutes=1),
+        time_zone="UTC", channel="in_app"
+    )
+    # mark delivered
+    rows = rem._load()
+    for row in rows:
+        if row["id"] == r["id"]:
+            row["status"] = "delivered"
+    rem._save(rows)
+
+    import services.notifications as notif_svc
+    monkeypatch.setattr(notif_svc.notifications_service, "list_all", lambda: [])
+
+    client = TestClient(app)
+    res = client.post(f"/api/reminders/{r['id']}/snooze", json={"minutes": 60})
+    assert res.status_code == 200
+    data = res.json()
+    new_fire = datetime.fromisoformat(data["fire_at_utc"])
+    if new_fire.tzinfo is None:
+        new_fire = new_fire.replace(tzinfo=timezone.utc)
+    diff = (new_fire - now).total_seconds()
+    assert 59 * 60 < diff <= 61 * 60, f"Expected ~60 min snooze, got {diff}s"
+
+
 @pytest.mark.asyncio
 async def test_context_rebuild_includes_focus_reminders(tmp_path, monkeypatch):
     """GET /adhd/context-rebuild includes reminders due within next 60 min when focus_mode=True."""
