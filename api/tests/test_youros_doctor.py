@@ -31,6 +31,8 @@ class _MockBackendHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/status":
             body = b'{"ok":true}'
+        elif self.path == "/api/gmail/auth/status":
+            body = b'{"authenticated":true,"needs_reauth":false}'
         else:
             body = b'{"connected":false}'
         self.send_response(200)
@@ -82,6 +84,32 @@ def test_all_green(tmp_path):
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     assert "All checks passed" in result.stdout
+
+
+def test_authenticated_shape_and_empty_slack_dir(tmp_path):
+    """Gmail reports {authenticated:true} not {connected:true}; doctor must read
+    both shapes. An empty slack_workspaces dir means never connected, which is
+    skipped, not failed (→2568 regression: live run showed false reds)."""
+    server, port = _make_mock_server()
+    try:
+        youros_dir, sock_path = _make_fixtures(tmp_path)
+        (youros_dir / "google_token.json").write_text("{}")
+        (youros_dir / "slack_workspaces").mkdir()
+        result = run_doctor(
+            DOCTOR_BACKEND_URL=f"http://127.0.0.1:{port}",
+            DOCTOR_FRONTEND_URL=f"http://127.0.0.1:{port}",
+            DOCTOR_YOUROS_DIR=str(youros_dir),
+            DOCTOR_SOCK_PATH=str(sock_path),
+        )
+    finally:
+        server.shutdown()
+
+    assert result.returncode == 0, (
+        f"Expected exit 0, got {result.returncode}\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "Google (Gmail, Calendar, Drive) connected" in result.stdout
+    assert "Slack" not in result.stdout
 
 
 def test_backend_down_shows_red_with_fix(tmp_path):

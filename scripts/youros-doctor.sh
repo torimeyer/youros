@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# youros-doctor.sh — one-command health check for yourOS (→2567)
+# youros-doctor.sh: one-command health check for yourOS (→2567)
 #
 # Prints a green ✓ or red ✗ line per check with the fix command next to each
 # red. Exits 0 when all hard checks pass, 1 otherwise.
@@ -55,7 +55,7 @@ frontend_code="$(_http "$DOCTOR_FRONTEND_URL")"
 if [[ "$frontend_code" =~ ^2 ]]; then
     _pass "Frontend reachable ($DOCTOR_FRONTEND_URL)"
 else
-    _warn "Frontend not reachable ($DOCTOR_FRONTEND_URL) — run scripts/dev-frontend.sh to start it"
+    _warn "Frontend not reachable ($DOCTOR_FRONTEND_URL). Run scripts/dev-frontend.sh to start it"
 fi
 
 # ── 3. Settings file ──────────────────────────────────────────────────────────
@@ -92,11 +92,13 @@ if [[ $BACKEND_UP -eq 1 ]]; then
     for entry in "${OAUTH_TOOLS[@]}"; do
         IFS='|' read -r tool_name endpoint marker <<< "$entry"
         [[ -n "$marker" && ! -e "$marker" ]] && continue
+        # An empty marker directory means the tool was never connected: skip, not fail.
+        [[ -n "$marker" && -d "$marker" && -z "$(ls -A "$marker" 2>/dev/null)" ]] && continue
 
         response="$(curl -sk --connect-timeout 3 -m 5 \
             "$DOCTOR_BACKEND_URL$endpoint" 2>/dev/null || echo "")"
         connected="$(echo "$response" | \
-            python3 -c "import json,sys; d=json.load(sys.stdin); print('true' if d.get('connected') else 'false')" \
+            python3 -c "import json,sys; d=json.load(sys.stdin); print('true' if (d.get('connected') or d.get('authenticated')) else 'false')" \
             2>/dev/null || echo "false")"
 
         if [[ "$connected" == "true" ]]; then
@@ -125,6 +127,6 @@ if [[ $FAILED -eq 0 ]]; then
     echo -e "${GREEN}All checks passed.${NC}"
     exit 0
 else
-    echo -e "${RED}One or more checks failed — see fix commands above.${NC}"
+    echo -e "${RED}One or more checks failed. See fix commands above.${NC}"
     exit 1
 fi

@@ -12,7 +12,7 @@ Prints a green or red line for each check: backend, frontend, settings file, ker
 
 ## 2. Save your setup
 
-Before anything big changes — new machine, fresh install, major update — pack your current setup to a file:
+Before anything big changes (new machine, fresh install, major update), pack your current setup to a file:
 
 ```bash
 scripts/youros-bail.sh pack ~/youros-backup.yourosbail
