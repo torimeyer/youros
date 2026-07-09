@@ -56,7 +56,7 @@ interface NavGroup {
 // Value is a JSON object: { [groupId]: boolean }
 const COLLAPSED_KEY = 'sidebar-group-collapsed'
 
-export const TOP_LEVEL_ROUTES = new Set(['/', '/agents', '/tasks', '/specs'])
+export const TOP_LEVEL_ROUTES = new Set(['/', '/agents', '/tasks', '/specs', '/portfolio'])
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -86,6 +86,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks', tasksBadge: true, iconColor: 'text-emerald-600 dark:text-emerald-400' },
   { to: '/specs', icon: 'article', label: 'Specs', featureLabel: 'Specs', specsBadge: true, iconColor: 'text-violet-600 dark:text-violet-400' },
   { to: '/executive-summary', icon: 'insights', label: 'Executive Summary', featureLabel: 'Executive Summary', iconColor: 'text-amber-600 dark:text-amber-400' },
+  { to: '/portfolio', icon: 'donut_small', label: 'Portfolio', featureLabel: 'Portfolio', iconColor: 'text-orange-600 dark:text-orange-400' },
   { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents', iconColor: 'text-sky-600 dark:text-sky-400' },
   ...NAV_GROUPS.flatMap((g) => g.items),
 ]
@@ -662,7 +663,7 @@ export function Sidebar() {
 
   // Top-level items (Home + Tasks + Agents) that are not in any group
   const topLevelItems = ALL_NAV_ITEMS.filter((i) => TOP_LEVEL_ROUTES.has(i.to) && isEnabled(i)).sort((a, b) => {
-    const order = ['/', '/tasks', '/specs', '/agents']
+    const order = ['/', '/tasks', '/specs', '/portfolio', '/agents']
     return order.indexOf(a.to) - order.indexOf(b.to)
   })
 

@@ -16,6 +16,7 @@ import Backlog from './pages/Backlog'
 import Tasks from './pages/Tasks'
 import Specs from './pages/Specs'
 import ExecutiveSummary from './pages/ExecutiveSummary'
+import PortfolioPage from './pages/PortfolioPage'
 import SpecImport from './pages/SpecImport'
 import SpecFaq from './pages/SpecFaq'
 import DocsRedirect from './pages/DocsRedirect'
@@ -172,6 +173,7 @@ export default function App() {
           <Route path="break" element={<BreakRoom />} />
           <Route path="specs" element={<Specs />} />
           <Route path="executive-summary" element={<ExecutiveSummary />} />
+          <Route path="portfolio" element={<PortfolioPage />} />
           <Route path="specs/import" element={<SpecImport />} />
           <Route path="specs/faq" element={<SpecFaq />} />
           <Route path="files" element={<Files />} />
