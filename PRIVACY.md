@@ -59,7 +59,7 @@ The app loads Material Symbols icons from `fonts.googleapis.com` at startup. Thi
 
 ### Telemetry
 
-**There is no telemetry.** No usage analytics, no crash reports, no error tracking. The codebase was searched for posthog, mixpanel, segment, amplitude, sentry, and datadog. None are present. The app's own in-app Privacy Policy page (`app/src/pages/PrivacyPolicy.tsx:74`) states the same.
+**There is no telemetry.** No usage analytics, no crash reports, no error tracking. The codebase was searched for posthog, mixpanel, segment, amplitude, sentry, and datadog. None are present. The app's own in-app Privacy Policy page (`app/src/pages/PrivacyPolicy.tsx`) states the same.
 
 ---
 
