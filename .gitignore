@@ -35,8 +35,8 @@ e2e-screenshots/*.png
 # Use `ostk doc promote` to write there; never commit docs/spec/ contents.
 docs/spec/
 
-# NR-internal strategy content should live outside the repo (~/.youros/) — never commit
-nr-workspaces-saved/
+# workspace-export bundles live outside the repo (~/.youros/) — never commit
+*workspaces-saved/
 frontend/test-results/
 
 # ostk-cache local telemetry — never committed

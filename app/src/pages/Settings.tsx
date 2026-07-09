@@ -1991,7 +1991,6 @@ export default function Settings() {
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-2">Trusted Contacts</label>
                     <p className="text-xs text-slate-500 mb-3">
                       Only messages from these identifiers will be processed.
-                      <span className="ml-1 text-blue-600 dark:text-blue-400">Identity 'vmeyer' is automatically trusted.</span>
                     </p>
                     
                     <div className="space-y-2 mb-3">

@@ -69,7 +69,7 @@ These are correctly called out in the spec. No implementation should start until
 - `api/tests/test_text_bridge.py` exists. Covers: trusted_contacts survival under partial update, trusted_sender gate, telegram polling integration, mocked `get_ai_client` routing.
 - `api/main.py:1090-1097` wires `text_bridge.start()` in the lifespan function and registers the router at line 245.
 - `app/src/pages/Settings.tsx:1921-1926` has the "Text yourOS" section with enable toggle, channel checkboxes, iMessage contact picker state (lines 201-205), Telegram token + chat id state, and `confirm_commands` bound to a control (lines 210-216).
-- Trusted-sender gate: settings-based `trusted_contacts` is the primary path (text_bridge.py:65); the `vmeyer` substring match is an additional convenience shortcut, not a bypass of the configurable gate.
+- Trusted-sender gate: settings-based `trusted_contacts` is the primary path (text_bridge.py:65).
 - The cursor advances per-message (text_bridge.py:255-257) and Telegram offset persists to `text_bridge_state.json`.
 - Classification uses `ai_backend.get_ai_client()` (text_bridge.py:77), preserving subscription auth.
 

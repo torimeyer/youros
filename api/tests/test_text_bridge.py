@@ -20,7 +20,7 @@ async def test_classify_and_dispatch_task_creation():
          patch("services.text_bridge.resolve_ai_backend", AsyncMock(return_value={"provider": "anthropic"})), \
          patch("services.tool_executor.execute_tool", AsyncMock()) as mock_execute:
         
-        reply = await classify_and_dispatch("remind me to call the dentist", "vmeyer")
+        reply = await classify_and_dispatch("remind me to call the dentist", "test_sender")
         
         assert "Task created" in reply
         assert "Call the dentist" in reply
@@ -40,7 +40,7 @@ async def test_classify_and_dispatch_chat():
     
     with patch("services.text_bridge.get_ai_client", AsyncMock(return_value=mock_client)), \
          patch("services.text_bridge.resolve_ai_backend", AsyncMock(return_value={"provider": "anthropic"})):
-        reply = await classify_and_dispatch("what's running?", "vmeyer")
+        reply = await classify_and_dispatch("what's running?", "test_sender")
         assert reply == "I will remember that."
 
 def test_trusted_contacts_survive_partial_text_bridge_update(tmp_path, monkeypatch):
@@ -99,21 +99,21 @@ async def test_handle_inbound_telegram_message():
         "service": "Telegram",
         "id": "1",
         "chat_id": "12345",
-        "sender": "tori_user",
+        "sender": "test_user",
         "text": "hello",
         "date": 123456789.0
     }
     
     with patch("services.text_bridge.is_trusted_sender", return_value=True), \
-         patch("services.text_bridge.classify_and_dispatch", AsyncMock(return_value="Hi Tori!")) as mock_classify, \
+         patch("services.text_bridge.classify_and_dispatch", AsyncMock(return_value="Hi there!")) as mock_classify, \
          patch("services.text_bridge.append_chat_interaction") as mock_append:
         
         text_bridge._telegram_poller = AsyncMock()
         await text_bridge.handle_inbound_message(msg)
         
-        mock_classify.assert_called_once_with("hello", "tori_user", chat_id="12345")
+        mock_classify.assert_called_once_with("hello", "test_user", chat_id="12345")
         assert mock_append.call_count == 2
-        text_bridge._telegram_poller.send_message.assert_called_once_with("12345", "Hi Tori!")
+        text_bridge._telegram_poller.send_message.assert_called_once_with("12345", "Hi there!")
 
 @pytest.mark.asyncio
 async def test_imessage_reply_uses_sync_sender():
@@ -156,7 +156,7 @@ async def test_classify_and_dispatch_list_tasks():
          patch("services.text_bridge.resolve_ai_backend", AsyncMock(return_value={"provider": "anthropic"})), \
          patch("services.tool_executor.execute_tool", AsyncMock(return_value="→2163 [P2|open] Spec promoted...")) as mock_execute:
         
-        reply = await classify_and_dispatch("view task list", "vmeyer")
+        reply = await classify_and_dispatch("view task list", "test_sender")
         
         assert "→2163" in reply
         mock_execute.assert_called_once_with("list_tasks", {})

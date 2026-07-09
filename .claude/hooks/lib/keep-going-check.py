@@ -69,4 +69,4 @@ for t in top:
     pri   = t.get("priority") or "?"
     print(f"  [{pri}] {tid}: {title}")
 print()
-print("  Rule: ostk decides when to go. You are torios. Fire the next task now.")
+print("  Rule: ostk decides when to go. You are yourOS. Fire the next task now.")

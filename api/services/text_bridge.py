@@ -5,8 +5,9 @@ background loop that polls for new messages from trusted senders,
 classifies them using the auth-aware AI client, and dispatches them to
 tasks, commands, or chat history.
 
-Trusted-sender gate: trusts any sender with 'vmeyer' in their identifier,
-or a specific contact configured in Settings.
+Trusted-sender gate: trusts only identifiers configured in Settings
+(text_bridge.trusted_contacts), plus the configured Telegram chat_id
+for Telegram messages. Nothing is trusted by default.
 """
 
 from __future__ import annotations
@@ -123,7 +124,7 @@ async def classify_and_dispatch(text: str, sender_id: str, chat_id: Optional[int
         "3. If it's a long-running project or research (e.g. 'build a feature', 'investigate a bug'), use spawn_agent.\n"
         "4. If it's a to-do item for later (e.g. 'remind me', 'add a task', 'don't forget'), use create_task.\n"
         "5. If they are just asking a question or chatting, do NOT use any tools. Just reply helpfully.\n\n"
-        "The user is Tori. Your identity is postk (personal ostk)."
+        "Your identity is yourOS, the user's personal assistant."
     )
 
     try:

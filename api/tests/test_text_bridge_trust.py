@@ -7,10 +7,10 @@ from services.settings_store import settings_store
 
 
 def test_hardcoded_identifier_not_trusted():
-    # vmeyer is no longer hardcoded — trust comes only from configured contacts
-    assert is_trusted_sender("vmeyer") is False
-    assert is_trusted_sender("Tori.VMeyer@example.com") is False
-    assert is_trusted_sender("vmeyer_phone") is False
+    # no identifier is hardcoded — trust comes only from configured contacts
+    assert is_trusted_sender("some_handle") is False
+    assert is_trusted_sender("Some.Handle@example.com") is False
+    assert is_trusted_sender("some_handle_phone") is False
 
     # Unknown identifiers are not trusted by default
     assert is_trusted_sender("someone_else") is False
