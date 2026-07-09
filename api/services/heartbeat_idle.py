@@ -3,17 +3,25 @@ Transcript-idle detection for the subagent heartbeat loop.
 
 The shell hook's heartbeat loop calls this as a subprocess:
     python3 /path/to/api/services/heartbeat_idle.py <agent_name> \
-            [threshold_seconds] [spawned_at_epoch]
+            [threshold_seconds] [spawned_at_epoch] [pid] [last_heartbeat]
 
 Exit codes:
-    0  keep going (transcript is active, file missing, or first-iteration grace)
-    1  auto-complete (transcript idle beyond threshold, or spawn-age ceiling
-       hit regardless of transcript signal)
+    0  keep going (transcript is active, file missing, first-iteration grace,
+       or ANY liveness signal says the agent is alive)
+    1  auto-complete (transcript idle beyond threshold or spawn-age ceiling
+       hit, AND no liveness signal contradicts it)
+
+→2607: silence alone is never sufficient to complete an agent. Overnight on
+2026-07-09 this module flipped live agents to completed because it decided
+from transcript mtime and spawn age only. Completion now requires a liveness
+probe to FAIL: a live pid, transcript growth since the previous check, or a
+recent heartbeat each veto completion — including the spawn-age ceiling.
 
 Pure functions are exported for direct import by tests.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -173,6 +181,93 @@ def find_transcript(name: str, repo_root: Optional[Path] = None) -> Optional[Pat
     return None
 
 
+def _pid_is_alive(pid) -> Optional[bool]:
+    """POSIX existence probe, same pattern as services/ghost_reaper.py.
+
+    Returns True when the process exists (including EPERM — it exists but
+    is not ours; keep safe), False when it is confirmed gone, and None when
+    no usable pid was supplied (no signal either way).
+    """
+    if pid is None:
+        return None
+    try:
+        pid_int = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if pid_int <= 0:
+        return None
+    try:
+        os.kill(pid_int, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, owned by someone else — alive
+    except OSError:
+        return True  # unknown state — keep safe, never flip on ambiguity
+
+
+def _idle_state_dir() -> Path:
+    return _tasks_root() / "heartbeat-idle-state"
+
+
+def transcript_grew_since_last_check(
+    name: str,
+    transcript_path: Optional[Path],
+    state_dir: Optional[Path] = None,
+) -> bool:
+    """Return True when the transcript changed since the previous check.
+
+    Persists ``{path, size}`` per agent under ``state_dir`` (default:
+    ``<tasks_root>/heartbeat-idle-state``). Any change — growth, shrink
+    (rotation), or a different file resolved by find_transcript — counts as
+    activity. The FIRST observation also returns True: with no baseline,
+    growth cannot be ruled out, so one full check interval must pass with a
+    stable size before "no growth" can be asserted (→2607: silence alone is
+    never sufficient).
+
+    A missing transcript returns False — there is nothing to measure, and
+    the caller's transcript-idle signal cannot fire without a file anyway.
+    """
+    if transcript_path is None:
+        return False
+    try:
+        size = transcript_path.stat().st_size
+    except OSError:
+        return False
+
+    sdir = state_dir if state_dir is not None else _idle_state_dir()
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", name)[:200] or "_"
+    state_file = sdir / f"{safe}.json"
+
+    prev: Optional[dict] = None
+    try:
+        with open(state_file, "r") as fh:
+            prev = json.load(fh)
+    except (OSError, ValueError):
+        prev = None
+
+    changed = (
+        prev is None
+        or prev.get("path") != str(transcript_path)
+        or prev.get("size") != size
+    )
+
+    try:
+        sdir.mkdir(parents=True, exist_ok=True)
+        tmp = state_file.with_suffix(".json.tmp")
+        with open(tmp, "w") as fh:
+            json.dump(
+                {"path": str(transcript_path), "size": size, "checked_at": time.time()},
+                fh,
+            )
+        os.replace(tmp, state_file)
+    except OSError:
+        pass  # best-effort state; a write failure must not break the probe
+
+    return changed
+
+
 def decide_to_complete(
     transcript_path: Optional[Path],
     threshold_seconds: int = TRANSCRIPT_IDLE_SECONDS,
@@ -180,27 +275,56 @@ def decide_to_complete(
     _now: Optional[float] = None,
     spawned_at_epoch: Optional[float] = None,
     spawn_age_ceiling_seconds: int = SPAWN_AGE_CEILING_SECONDS,
+    pid: Optional[int] = None,
+    last_heartbeat_epoch: Optional[float] = None,
+    heartbeat_grace_seconds: Optional[int] = None,
+    transcript_grew: Optional[bool] = None,
 ) -> bool:
     """Return True if the agent has been idle long enough to auto-complete.
 
-    Two independent signals can trigger completion:
+    →2607 liveness gate (checked FIRST, vetoes everything below including
+    the spawn-age ceiling — silence alone is never sufficient):
+
+    - ``pid``: when supplied and the process is alive (``os.kill(pid, 0)``),
+      never complete. A live process is ground truth.
+    - ``transcript_grew``: caller-observed transcript size growth since the
+      previous check (see :func:`transcript_grew_since_last_check`). Growth
+      means the agent is issuing tool calls; never complete.
+    - ``last_heartbeat_epoch``: a heartbeat POST within
+      ``heartbeat_grace_seconds`` (default: ``threshold_seconds``) means the
+      agent is alive between tool calls; never complete.
+
+    Two independent signals can then trigger completion:
 
     1. Transcript-idle (primary): ``transcript_path`` exists and its mtime is
-       at least ``threshold_seconds`` seconds old. Unchanged from the original
-       behavior.
+       at least ``threshold_seconds`` seconds old.
     2. Spawn-age ceiling (belt-and-suspenders): ``spawned_at_epoch`` is at
-       least ``spawn_age_ceiling_seconds`` seconds old. Fires REGARDLESS of
-       transcript state. Protects against find_transcript latching onto an
-       unrelated busy JSONL whose mtime keeps refreshing forever, which was
-       the zombie-agent root cause before this change.
+       least ``spawn_age_ceiling_seconds`` seconds old. Fires regardless of
+       transcript state — but never past a live pid, transcript growth, or a
+       recent heartbeat.
 
     Returns False when:
+    - any liveness signal above says the agent is alive.
     - transcript_path is None or missing AND spawned_at_epoch is also None or
       still within the spawn-age ceiling (fresh-spawn grace period).
     - transcript_path exists and its mtime is within threshold_seconds.
     - spawned_at_epoch exists but is within the ceiling.
     """
     now = _now if _now is not None else time.time()
+
+    # ---- Liveness gate (→2607) --------------------------------------------
+    if _pid_is_alive(pid):
+        return False
+    if transcript_grew:
+        return False
+    if last_heartbeat_epoch is not None:
+        grace = (
+            heartbeat_grace_seconds
+            if heartbeat_grace_seconds is not None
+            else threshold_seconds
+        )
+        if (now - last_heartbeat_epoch) < grace:
+            return False
 
     # Signal 2: spawn-age ceiling. Pure age check, independent of file state.
     if spawned_at_epoch is not None and spawn_age_ceiling_seconds > 0:
@@ -239,10 +363,22 @@ def _parse_epoch_arg(arg: str) -> Optional[float]:
         return None
 
 
+def _parse_pid_arg(arg: str) -> Optional[int]:
+    """Parse a pid CLI arg. Returns None for empty/"-"/non-numeric/<=0."""
+    if not arg or arg == "-":
+        return None
+    try:
+        pid = int(arg)
+    except ValueError:
+        return None
+    return pid if pid > 0 else None
+
+
 def main(argv: list) -> int:
     if len(argv) < 2:
         print(
-            "usage: heartbeat_idle.py <agent_name> [threshold_seconds] [spawned_at_epoch]",
+            "usage: heartbeat_idle.py <agent_name> [threshold_seconds] "
+            "[spawned_at_epoch] [pid] [last_heartbeat]",
             file=sys.stderr,
         )
         return 2
@@ -254,12 +390,18 @@ def main(argv: list) -> int:
         threshold = TRANSCRIPT_IDLE_SECONDS
 
     spawned_at_epoch = _parse_epoch_arg(argv[3]) if len(argv) > 3 else None
+    pid = _parse_pid_arg(argv[4]) if len(argv) > 4 else None
+    last_heartbeat_epoch = _parse_epoch_arg(argv[5]) if len(argv) > 5 else None
 
     transcript_path = find_transcript(name)
+    grew = transcript_grew_since_last_check(name, transcript_path)
     if decide_to_complete(
         transcript_path,
         threshold,
         spawned_at_epoch=spawned_at_epoch,
+        pid=pid,
+        last_heartbeat_epoch=last_heartbeat_epoch,
+        transcript_grew=grew,
     ):
         return 1
     return 0

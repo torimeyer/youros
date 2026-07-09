@@ -2114,8 +2114,10 @@ def _sweep_stale_running_agents() -> bool:
         # Check if we should attempt recovery instead of terminating
         recovery_count = meta.get("recovery_count", 0)
         handoff_note = _read_handoff_note(name)
+        # →2607: each flip gets its own timestamp, never the sweep's shared `now`.
+        _stale_flip_ts = datetime.now(timezone.utc).isoformat()
         if handoff_note and recovery_count < MAX_RECOVERY_ATTEMPTS:
-            _set_agent_status(name, "recovering", recovery_count=recovery_count + 1, last_recovery_at=now.isoformat())
+            _set_agent_status(name, "recovering", recovery_count=recovery_count + 1, last_recovery_at=_stale_flip_ts)
             changed = True
         else:
             reason = (
@@ -2126,7 +2128,7 @@ def _sweep_stale_running_agents() -> bool:
                 reason += (
                     f". Recovery exhausted ({recovery_count}/{MAX_RECOVERY_ATTEMPTS})"
                 )
-            _set_agent_status(name, "terminated_stale", terminated_at=now.isoformat(), terminated_reason=reason)
+            _set_agent_status(name, "terminated_stale", terminated_at=_stale_flip_ts, terminated_reason=reason)
             changed = True
     return changed
 
@@ -2306,11 +2308,15 @@ def _autocomplete_exited_subagents() -> bool:
                     continue
             if not _transcript_grew_recently(name, now):
                 # Transcript exists and is idle: agent finished.
+                # →2607: stamp each flip with its OWN timestamp. Batch-stamping
+                # the sweep's shared `now` gave saa-reaper-fixtures-r2 and
+                # saa-phantom-rows-r2 microsecond-identical completed_at values.
+                _flip_ts = datetime.now(timezone.utc).isoformat()
                 # Ghost check: if transcript is 0 bytes and no tokens were
                 # used, this is likely a quota-cap silent failure.
                 _ghost, _ghost_reason = _is_ghost_completion(meta, name)
                 if _ghost:
-                    _set_agent_status(name, "failed", failed_at=now.isoformat(), fail_reason=_ghost_reason, summary=_stale_sweep_summary_for(name))
+                    _set_agent_status(name, "failed", failed_at=_flip_ts, fail_reason=_ghost_reason, summary=_stale_sweep_summary_for(name))
                     _pending_ghost_retries.append(name)
                     logger.warning(
                         "ghost.detected path=A name=%s reason=%s",
@@ -2318,7 +2324,7 @@ def _autocomplete_exited_subagents() -> bool:
                     )
                 else:
                     _attach_near_noop_signal(name, meta)
-                    _set_agent_status(name, "completed", completed_at=now.isoformat(), summary=_stale_sweep_summary_for(name))
+                    _set_agent_status(name, "completed", completed_at=_flip_ts, summary=_stale_sweep_summary_for(name))
                     _emit_audit_event("agent.completed", {"name": name})
                     # Queue needle closes for the async drain (→2207).
                     _nid = meta.get("needle_id")
@@ -2363,10 +2369,12 @@ def _autocomplete_exited_subagents() -> bool:
         if age_seconds <= STALE_AGENT_AUTOCOMPLETE_SECONDS:
             continue
         # All checks passed: agent exited without calling /complete.
+        # →2607: per-flip timestamp, never the sweep's shared `now`.
+        _flip_ts_b = datetime.now(timezone.utc).isoformat()
         # Ghost check: transcript absent + no tokens = quota cap.
         _ghost_b, _ghost_reason_b = _is_ghost_completion(meta, name)
         if _ghost_b:
-            _set_agent_status(name, "failed", failed_at=now.isoformat(), fail_reason=_ghost_reason_b, summary=_stale_sweep_summary_for(name))
+            _set_agent_status(name, "failed", failed_at=_flip_ts_b, fail_reason=_ghost_reason_b, summary=_stale_sweep_summary_for(name))
             _pending_ghost_retries.append(name)
             logger.warning(
                 "ghost.detected path=B name=%s reason=%s",
@@ -2374,7 +2382,7 @@ def _autocomplete_exited_subagents() -> bool:
             )
         else:
             _attach_near_noop_signal(name, meta)
-            _set_agent_status(name, "completed", completed_at=now.isoformat(), summary=_stale_sweep_summary_for(name))
+            _set_agent_status(name, "completed", completed_at=_flip_ts_b, summary=_stale_sweep_summary_for(name))
             _emit_audit_event("agent.completed", {"name": name})
             # Queue needle closes for the async drain (→2207).
             _nid = meta.get("needle_id")
@@ -8044,17 +8052,25 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
         except (ValueError, TypeError):
             pass  # Malformed PID in metadata — ignore safeguard
 
+    # →2607: unknown name = 404. /complete used to upsert unregistered names
+    # as brand-new completed rows; the →2606 containment work traced phantom
+    # rows on the live Agents page (identical-task, foo-bar,
+    # register-endpoint-contract) to exactly this path. Completion is a state
+    # transition on an EXISTING row, never a row factory.
+    if name not in agent_metadata:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Unknown agent '{name}'. /complete does not create agent "
+                "rows; register first via POST /api/agents/register."
+            ),
+        )
+
     # Set a "completing" sentinel status BEFORE any awaits so concurrent
     # requests see a non-None status and are turned away by the guard above.
     # This closes the race window where two simultaneous /complete calls
     # both passed the guard while the first was still awaiting the AC gate.
     now_iso = datetime.now(timezone.utc).isoformat()
-    if name not in agent_metadata:
-        agent_metadata[name] = {
-            "spawned_at": now_iso,
-            "status": "completing",
-            "source": "claude-code",
-        }
     _set_agent_status(name, "completing")
     # Persist the sentinel so even a server restart within the AC window
     # does not create a second completion event.
@@ -8209,15 +8225,13 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
         if _tpl and _completion_summary:
             agent_metadata[name]["actionable_doc"] = _completion_summary
     else:
-        # Agent was deleted from metadata before /complete arrived (deleted
-        # agents are blocked above, so this branch is an unlikely edge case
-        # where metadata was cleared mid-flight). Recreate a minimal record.
-        agent_metadata[name] = {
-            "spawned_at": completed_at,
-            "completed_at": completed_at,
-            "status": "completed",
-            "source": "claude-code",
-        }
+        # Metadata row vanished while the AC gate ran (cleared mid-flight).
+        # →2607: never recreate it — /complete must not upsert rows. The
+        # deleted-agents guard above already answers explicit deletions.
+        logger.warning(
+            "mark_agent_complete.row_vanished_mid_flight name=%s — not recreated",
+            name,
+        )
     await _save_agent_state_async()
 
     # Scaffold-only + dirty worktree guard (→1346).

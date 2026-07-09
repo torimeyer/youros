@@ -6516,7 +6516,15 @@ async def test_complete_twice_emits_only_one_audit_event(tmp_path):
     from unittest.mock import patch, AsyncMock, MagicMock, call
 
     agent_name = f"dupe-guard-{uuid.uuid4().hex[:8]}"
-    agent_metadata.pop(agent_name, None)
+    # →2607: /complete now 404s on unknown names (it no longer upserts rows),
+    # so seed a registered running row — the real dupe-storm scenario always
+    # involved rows that existed. The idempotency contract under test is
+    # unchanged: two /complete calls, exactly one agent.completed emit.
+    agent_metadata[agent_name] = {
+        "spawned_at": datetime.now(timezone.utc).isoformat(),
+        "status": "running",
+        "source": "claude-code",
+    }
 
     emit_calls: list = []
 

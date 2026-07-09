@@ -105,16 +105,19 @@ for a in d.get('agents', []) or []:
     if a.get('status') == 'running':
         n = a.get('name') or ''
         if n:
-            print(f\"{n}\t{a.get('spawned_at') or ''}\")
+            # →2607: pass pid and last_heartbeat_at so heartbeat_idle.py can
+            # run its liveness gate (live pid / recent heartbeat = never flip).
+            print(f\"{n}\t{a.get('spawned_at') or '-'}\t{a.get('pid') or '-'}\t{a.get('last_heartbeat_at') or '-'}\")
 " 2>/dev/null)
 
     if [ -z "$running_names" ]; then
         exit 0
     fi
 
-    while IFS=$'\t' read -r agent_name agent_spawned_at; do
+    while IFS=$'\t' read -r agent_name agent_spawned_at agent_pid agent_last_hb; do
         [ -z "$agent_name" ] && continue
-        python3 "$HEARTBEAT_IDLE_PY" "$agent_name" "$IDLE_COMPLETE_SECONDS" "$agent_spawned_at" >/dev/null 2>&1
+        python3 "$HEARTBEAT_IDLE_PY" "$agent_name" "$IDLE_COMPLETE_SECONDS" \
+            "${agent_spawned_at:--}" "${agent_pid:--}" "${agent_last_hb:--}" >/dev/null 2>&1
         rc=$?
         if [ $rc -eq 1 ]; then
             if curl -sSk --connect-timeout 1 -m 3 \
