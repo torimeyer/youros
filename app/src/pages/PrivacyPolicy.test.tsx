@@ -1,7 +1,20 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import PrivacyPolicy from './PrivacyPolicy'
+
+// Root PRIVACY.md is the single source of truth for this page. Read it from
+// disk so any future edit to PRIVACY.md that the page does not reflect makes
+// this suite fail (anti-drift guarantee). Vitest runs with cwd = app/, but
+// also handle a repo-root cwd for direct invocations.
+const privacyMdPath = [
+  resolve(process.cwd(), '..', 'PRIVACY.md'),
+  resolve(process.cwd(), 'PRIVACY.md'),
+].find((candidate) => existsSync(candidate))
+if (!privacyMdPath) throw new Error('PRIVACY.md not found next to app/')
+const privacyMd = readFileSync(privacyMdPath, 'utf8')
 
 vi.mock('../lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
 
@@ -97,5 +110,25 @@ describe('PrivacyPolicy page', () => {
     expect(screen.getByTestId('privacy-section-telemetry')).toBeTruthy()
     expect(screen.getByTestId('privacy-section-your-control')).toBeTruthy()
     expect(screen.getByTestId('privacy-section-contact')).toBeTruthy()
+  })
+})
+
+describe('PrivacyPolicy stays aligned with root PRIVACY.md', () => {
+  const headings = privacyMd
+    .split('\n')
+    .filter((line) => /^#{1,3} /.test(line))
+    .map((line) => line.replace(/^#+ /, '').trim())
+
+  it('sanity: PRIVACY.md still has its headings', () => {
+    // 1 title + 4 numbered sections + 5 subsections under "What leaves"
+    expect(headings.length).toBeGreaterThanOrEqual(10)
+  })
+
+  it('renders the text of every PRIVACY.md heading', () => {
+    const { container } = renderPage()
+    const text = container.textContent ?? ''
+    for (const heading of headings) {
+      expect(text, `page is missing PRIVACY.md heading: "${heading}"`).toContain(heading)
+    }
   })
 })
