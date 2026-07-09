@@ -113,7 +113,9 @@ fi
 # --- APPLY ---
 echo
 echo "=== apply ==="
-APPLY_OUT="$(YOUROS_ACTIVE_AGENTS='' bash "$REAPER" --apply 2>&1)"
+# REAPER_MIN_AGE_MINUTES=0 disables the →2608 recent-activity guard so this
+# fixture (freshly created, young mtimes) still exercises the removal path.
+APPLY_OUT="$(YOUROS_ACTIVE_AGENTS='' REAPER_MIN_AGE_MINUTES=0 bash "$REAPER" --apply 2>&1)"
 echo "$APPLY_OUT"
 
 # Orphan dirs must be gone after apply.

@@ -91,6 +91,61 @@ cd "$PRIMARY"
 
 WORKTREE_BASE="$PRIMARY/.claude/worktrees"
 
+# ------------------------------------------------------------------
+# Live-agent guards (→2608)
+#
+# The backend service runs this script with --apply every 15 minutes.
+# A LIVE agent that has just merged main and not yet committed is
+# diff-empty against main, so the absorbed/cherry-picked paths classify
+# its worktree as removable while the agent is mid-run. Two guards keep
+# removal away from live checkouts:
+#
+#   1. git lock : a worktree marked `locked` in `git worktree list
+#      --porcelain` is never removed.
+#   2. recent activity : a worktree whose dir or anything inside it was
+#      modified within REAPER_MIN_AGE_MINUTES (default 30) is never
+#      removed. Set REAPER_MIN_AGE_MINUTES=0 to disable this guard.
+# ------------------------------------------------------------------
+REAPER_MIN_AGE_MINUTES="${REAPER_MIN_AGE_MINUTES:-30}"
+
+# $1 = worktree path. Exit 0 if git reports that worktree as locked.
+_wt_is_locked() {
+  git worktree list --porcelain 2>/dev/null | awk -v p="$1" '
+    /^worktree / { cur = substr($0, 10) }
+    /^locked/    { if (cur == p) found = 1 }
+    END          { exit found ? 0 : 1 }
+  '
+}
+
+# $1 = worktree path. Exit 0 (young) if the dir itself or anything inside
+# it was modified within the last REAPER_MIN_AGE_MINUTES minutes.
+_wt_is_young() {
+  local pa="$1" now threshold m stamp ref hit
+  case "$REAPER_MIN_AGE_MINUTES" in
+    ''|0) return 1 ;;      # 0 or empty disables the guard
+    *[!0-9]*) return 1 ;;  # non-numeric: treat as disabled
+  esac
+  now=$(date +%s)
+  threshold=$((now - REAPER_MIN_AGE_MINUTES * 60))
+  # Cheap check first: the worktree dir's own mtime.
+  m=$(stat -f %m "$pa" 2>/dev/null || stat -c %Y "$pa" 2>/dev/null || echo 0)
+  if [ "$m" -ge "$threshold" ]; then
+    return 0
+  fi
+  # Reliable check: any entry modified after the threshold. `-print -quit`
+  # short-circuits on the first young entry, so live trees return fast.
+  # BSD date (-r epoch) first for macOS, GNU date (-d @epoch) fallback.
+  stamp=$(date -r "$threshold" +%Y%m%d%H%M.%S 2>/dev/null || date -d "@$threshold" +%Y%m%d%H%M.%S 2>/dev/null) || return 0
+  ref=$(mktemp "${TMPDIR:-/tmp}/reaper-age-ref-XXXXXX" 2>/dev/null) || return 0
+  if ! touch -t "$stamp" "$ref" 2>/dev/null; then
+    rm -f "$ref"
+    return 0  # cannot build the reference file: fail safe, treat as young
+  fi
+  hit=$(find "$pa" -newer "$ref" -print -quit 2>/dev/null)
+  rm -f "$ref"
+  [ -n "$hit" ]
+}
+
 printf '%-48s %-10s %s\n' "BRANCH" "STATUS" "UNIQUE_FILES"
 printf '%-48s %-10s %s\n' "------" "------" "------------"
 
@@ -341,6 +396,7 @@ fi
 
 i=0
 protected_count=0
+skipped_count=0
 while [ "$i" -lt "${#absorbed_branches[@]}" ]; do
   br="${absorbed_branches[$i]}"
   pa="${absorbed_paths[$i]}"
@@ -382,8 +438,25 @@ PYEOF
     fi
   fi
 
-  # Unlock if locked (ignore failure; it may not be locked).
-  git worktree unlock "$pa" >/dev/null 2>&1 || true
+  # →2608 guard 1: never remove a locked worktree. A live agent's checkout
+  # is protected by its git lock; locked + absorbed = park, not delete.
+  # This reverts the →2063 "--force --force for locked worktrees" override
+  # for registered worktrees (rm -rf on orphan dirs in phase 2 is
+  # unaffected; orphan dirs have no lock concept).
+  if _wt_is_locked "$pa"; then
+    echo "  skipped (locked): $br"
+    skipped_count=$((skipped_count + 1))
+    continue
+  fi
+
+  # →2608 guard 2: never remove a worktree with recent activity. A live
+  # agent that just merged main is diff-empty (classified absorbed) even
+  # though its tree was modified seconds ago.
+  if _wt_is_young "$pa"; then
+    echo "  skipped (active <${REAPER_MIN_AGE_MINUTES}m): $br"
+    skipped_count=$((skipped_count + 1))
+    continue
+  fi
 
   if git worktree remove --force "$pa" >/dev/null 2>&1; then
     if git branch -D "$br" >/dev/null 2>&1; then
@@ -392,18 +465,16 @@ PYEOF
       echo "  error: worktree gone but branch $br could not be deleted" >&2
       removal_fail=$((removal_fail + 1))
     fi
-  elif git worktree remove --force --force "$pa" >/dev/null 2>&1; then
-    # --force --force is required for worktrees that were created with --lock
-    # or that git still considers locked after the unlock attempt above.
-    if git branch -D "$br" >/dev/null 2>&1; then
-      echo "  removed $br (locked worktree, used --force --force)"
-    else
-      echo "  error: worktree gone but branch $br could not be deleted" >&2
-      removal_fail=$((removal_fail + 1))
-    fi
   else
-    # Both git worktree remove attempts failed (e.g. .ostk/ sockets or state
-    # files that git won't touch). Fall back to rm -rf then prune.
+    # git worktree remove failed (e.g. .ostk/ sockets or state files that
+    # git won't touch). Re-check the lock before the rm -rf fallback: a
+    # locked tree is one of the ways `git worktree remove --force` fails,
+    # and rm -rf must never override a live agent's lock (→2608).
+    if _wt_is_locked "$pa"; then
+      echo "  skipped (locked): $br"
+      skipped_count=$((skipped_count + 1))
+      continue
+    fi
     if rm -rf "$pa" 2>/dev/null; then
       git worktree prune >/dev/null 2>&1 || true
       if git branch -D "$br" >/dev/null 2>&1; then
@@ -419,9 +490,9 @@ PYEOF
   fi
 done
 
-_actually_removed=$((absorbed_count - removal_fail - protected_count))
+_actually_removed=$((absorbed_count - removal_fail - protected_count - skipped_count))
 echo
-echo "done. removed=$_actually_removed protected=$protected_count failed=$removal_fail"
+echo "done. removed=$_actually_removed protected=$protected_count skipped=$skipped_count failed=$removal_fail"
 
   fi  # end: absorbed_count > 0 branch
 fi  # end: APPLY == 1 block

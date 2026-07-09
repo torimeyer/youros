@@ -103,7 +103,9 @@ fi
 # agents", which lets removals proceed. Same convention as
 # test_worktree_reaper_orphan.sh (→2605).
 echo "--- apply ---"
-APPLY_OUT="$(YOUROS_ACTIVE_AGENTS='' bash "$REAPER" --apply 2>&1)"
+# REAPER_MIN_AGE_MINUTES=0 disables the →2608 recent-activity guard so this
+# fixture (freshly created, young mtimes) still exercises the removal path.
+APPLY_OUT="$(YOUROS_ACTIVE_AGENTS='' REAPER_MIN_AGE_MINUTES=0 bash "$REAPER" --apply 2>&1)"
 echo "$APPLY_OUT"
 
 if [ -d .claude/worktrees/agent-absorbed01 ]; then

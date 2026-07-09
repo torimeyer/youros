@@ -87,7 +87,9 @@ echo "--- apply (must skip unmerged worktree) ---"
 # fixture repo provides neither, so pass an explicitly empty fleet
 # (set-but-empty = zero active agents), same convention as
 # test_worktree_reaper_orphan.sh (→2605).
-APPLY_OUT="$(YOUROS_ACTIVE_AGENTS='' bash "$REAPER" --apply 2>&1)"
+# REAPER_MIN_AGE_MINUTES=0 disables the →2608 recent-activity guard so this
+# fixture (freshly created, young mtimes) still exercises the removal path.
+APPLY_OUT="$(YOUROS_ACTIVE_AGENTS='' REAPER_MIN_AGE_MINUTES=0 bash "$REAPER" --apply 2>&1)"
 echo "$APPLY_OUT"
 
 # 1. Worktree with unmerged commits must survive.
