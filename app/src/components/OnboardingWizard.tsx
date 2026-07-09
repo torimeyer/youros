@@ -15,8 +15,8 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
-const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Showcase', 'Ready'] as const
+const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Showcase', 'Ready'] as const
 
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
@@ -44,6 +44,7 @@ export default function OnboardingWizard() {
   const setInstanceMode = useAppStore((s) => s.setInstanceMode)
   const setOrgName = useAppStore((s) => s.setOrgName)
   const setAgentsLastViewed = useAppStore((s) => s.setAgentsLastViewed)
+  const setChatPrefill = useAppStore((s) => s.setChatPrefill)
 
   // Local state
   const [userName, setUserName] = useState('')
@@ -590,6 +591,17 @@ export default function OnboardingWizard() {
               onRecheck={runProviderDetect}
             />
           )}
+          {step === 'Showcase' && (
+            <ShowcaseStep
+              onTryPrompt={async (prompt) => {
+                setChatPrefill(prompt)
+                await finish()
+              }}
+              subtextCls={subtextCls}
+              cardCls={cardCls}
+              darkMode={effectiveDark}
+            />
+          )}
           {step === 'Ready' && (
             <ReadyStep
               userName={userName}
@@ -904,7 +916,10 @@ function WelcomeStep() {
       </div>
       <p className="text-xl italic font-medium text-center tracking-wide whitespace-nowrap text-slate-700 dark:text-slate-300">an operating system for how <span className="font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-orange-500 bg-clip-text text-transparent">you</span> operate.</p>
       <p className="text-[28px] italic font-bold text-center mb-6 bg-gradient-to-r from-pink-500 via-purple-500 to-orange-500 bg-clip-text text-transparent">this is your OS.</p>
-      <p className="text-[15px] italic text-slate-500 dark:text-slate-400 leading-relaxed mt-2">
+      <p className="text-[15px] text-slate-600 dark:text-slate-300 leading-relaxed mt-2 mb-3" data-testid="welcome-positioning">
+        yourOS adds a persistent workspace on top of Claude Code. Your tasks, agents, and chat history carry across sessions, and your connected tools work together in one conversation.
+      </p>
+      <p className="text-[13px] italic text-slate-500 dark:text-slate-400 leading-relaxed">
         Let's get you set up. It takes about two minutes, and you can change anything later.
       </p>
     </div>
@@ -1957,6 +1972,77 @@ export function GithubSetupCard({
       </div>
     </div>
     </>
+  )
+}
+
+function ShowcaseStep({
+  onTryPrompt,
+  subtextCls,
+  cardCls,
+  darkMode,
+}: {
+  onTryPrompt: (prompt: string) => void
+  subtextCls: string
+  cardCls: string
+  darkMode: boolean
+}) {
+  const [googleConnected, setGoogleConnected] = useState(false)
+  const [atlassianConnected, setAtlassianConnected] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    Promise.all([
+      api.get<{ google_connected?: boolean }>('/secrets/key-status'),
+      api.get<{ connected?: boolean }>('/atlassian/status'),
+    ])
+      .then(([keyStatus, atlStatus]) => {
+        setGoogleConnected(keyStatus.google_connected ?? false)
+        setAtlassianConnected(atlStatus.connected ?? false)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const connectedCount = (googleConnected ? 1 : 0) + (atlassianConnected ? 1 : 0)
+
+  let prompt: string
+  let promptLabel: string
+  let promptDescription: string
+
+  if (connectedCount >= 2) {
+    prompt = 'Search across my connected tools for anything about our last product launch and summarize what you find.'
+    promptLabel = 'Search across your tools'
+    promptDescription = 'yourOS can search your connected tools at the same time and bring back one answer.'
+  } else if (googleConnected) {
+    prompt = 'What meetings do I have today, and what should I prepare for each one?'
+    promptLabel = 'Prep for today\'s meetings'
+    promptDescription = 'yourOS reads your calendar and helps you walk into every meeting ready.'
+  } else {
+    prompt = 'Show me the tasks and agents I have running right now.'
+    promptLabel = 'See your tasks and agents'
+    promptDescription = 'Every task and agent you start stays here between sessions. Nothing disappears when you close the tab.'
+  }
+
+  return (
+    <div data-testid="step-showcase">
+      <h2 className="text-2xl font-bold mb-2">One thing to try right now</h2>
+      <p className={`mb-6 ${subtextCls}`}>
+        This prompt uses what you just set up. Click it to start a real chat.
+      </p>
+      {loading ? (
+        <div className={`animate-pulse h-32 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-gray-100'}`} data-testid="showcase-loading" />
+      ) : (
+        <button
+          data-testid="showcase-prompt-btn"
+          onClick={() => onTryPrompt(prompt)}
+          className={`w-full text-left p-5 rounded-xl border-2 border-blue-500 bg-blue-500/10 hover:bg-blue-500/20 transition-colors`}
+        >
+          <p className="font-semibold mb-1">{promptLabel}</p>
+          <p className={`text-sm mb-3 ${subtextCls}`}>{promptDescription}</p>
+          <p className="text-sm text-blue-400 italic" data-testid="showcase-prompt-text">&ldquo;{prompt}&rdquo;</p>
+        </button>
+      )}
+    </div>
   )
 }
 
