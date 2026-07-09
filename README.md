@@ -200,6 +200,10 @@ yourOS covers the full ostk surface area:
 | Cmd+N | New task |
 | Cmd+1-8 | Navigate pages |
 
+## Privacy
+
+yourOS runs on your laptop. Your data stays there. For a full breakdown of what is stored where, what leaves the machine and when, and how to revoke a connected tool's access: [docs/PRIVACY.md](docs/PRIVACY.md).
+
 ## Connecting AI Providers
 
 If you have `gcloud auth application-default login` set up, Gemini calls automatically route through Vertex AI. No API key required.
