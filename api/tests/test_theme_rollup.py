@@ -177,6 +177,32 @@ def test_build_rollup_bucket_risk_is_worst_row():
     assert risk_by_id == {"→1": "overdue", "→2": "quiet"}
 
 
+# ── task source (→2621) ─────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_load_tasks_reuses_tasks_page_handler():
+    """_load_tasks must go through the Tasks page handler (with its default
+    filters), not the raw kernel work log. The raw log leaks
+    acceptance-criteria checklist rows and session bookkeeping rows that
+    the Tasks page never shows (→2621)."""
+    from routers import theme_rollup
+
+    sentinel = [{"id": "→42", "title": "A real task", "status": "open"}]
+    with patch("routers.tasks.list_tasks",
+               AsyncMock(return_value={"tasks": list(sentinel)})):
+        assert await theme_rollup._load_tasks() == sentinel
+
+
+@pytest.mark.asyncio
+async def test_load_tasks_degrades_to_empty_when_handler_errors():
+    """The rollup must render even when the Tasks page handler fails."""
+    from routers import theme_rollup
+
+    with patch("routers.tasks.list_tasks",
+               AsyncMock(side_effect=RuntimeError("kernel offline"))):
+        assert await theme_rollup._load_tasks() == []
+
+
 # ── HTTP endpoint ────────────────────────────────────────────────────────────
 
 def _endpoint_patches(tasks=None, projects=None, pillars=None, task_pillars=None,

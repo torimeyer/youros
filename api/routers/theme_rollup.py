@@ -29,7 +29,6 @@ from fastapi import APIRouter
 
 from services import atlassian
 from services import enterprise_store
-from services.ostk import ostk
 from services.pillar_store import pillar_store
 
 _log = logging.getLogger(__name__)
@@ -175,9 +174,15 @@ def build_rollup(
 # ── data loading seams (patched directly in tests) ──────────────────────────
 
 async def _load_tasks() -> list:
-    """Open tasks from the kernel. Empty on any failure so the page still renders."""
+    """Open tasks as the Tasks page serves them, reusing the Tasks page
+    handler so its default filters (no session bookkeeping rows, no
+    acceptance-criteria checklist rows, no test data) stay consistent
+    between pages. Empty on any failure so the page still renders."""
+    from routers.tasks import list_tasks
+
     try:
-        return await ostk.list_tasks(status="open")
+        payload = await list_tasks()
+        return payload.get("tasks", [])
     except Exception as exc:  # noqa: BLE001 - rollup must degrade, never fail
         _log.warning("theme rollup: could not list tasks: %s", exc)
         return []

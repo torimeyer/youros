@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import PortfolioPage from './PortfolioPage'
 
 vi.mock('../lib/api', () => ({
   api: {
     get: vi.fn(),
+    put: vi.fn(),
   },
 }))
 
@@ -28,6 +29,18 @@ Object.defineProperty(window, 'matchMedia', {
 import { api } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
+const mockedApiPut = vi.mocked(api.put)
+
+const listsEmpty = { job_roles: [], pillars: [] }
+
+// Route api.get by path: the page fetches both the rollup and the
+// org theme list on load.
+function mockGets(rollup: unknown, lists: unknown = listsEmpty) {
+  mockedApiGet.mockImplementation((path: string) => {
+    if (path === '/enterprise/lists') return Promise.resolve(lists)
+    return Promise.resolve(rollup)
+  })
+}
 
 const themedResponse = {
   themes: [
@@ -89,6 +102,7 @@ function renderPage() {
 
 beforeEach(() => {
   mockedApiGet.mockReset()
+  mockedApiPut.mockReset()
 })
 
 describe('PortfolioPage', () => {
@@ -161,5 +175,58 @@ describe('PortfolioPage', () => {
         screen.getByText(/Could not load your portfolio/i)
       ).toBeInTheDocument()
     })
+  })
+
+  it('shows the theme setup card with plain copy when no themes exist', async () => {
+    mockGets(emptyResponse)
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('theme-setup-card')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Set up your themes')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Themes are the big goals your work supports/i)
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('theme-input')).toBeInTheDocument()
+    expect(screen.getByTestId('theme-add')).toBeInTheDocument()
+  })
+
+  it('adds a theme: typing a name and clicking Add saves it', async () => {
+    mockGets(themedResponse, { job_roles: ['PM'], pillars: ['Growth'] })
+    mockedApiPut.mockResolvedValue({ pillars: ['Growth', 'Customer trust'] })
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('theme-input')).toBeInTheDocument()
+    })
+    // With themes already saved, the card shows the short label and a
+    // removable chip instead of the setup copy.
+    expect(screen.getByText('Your themes')).toBeInTheDocument()
+    expect(screen.queryByText('Set up your themes')).not.toBeInTheDocument()
+    expect(screen.getByTestId('theme-remove-Growth')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByTestId('theme-input'), {
+      target: { value: 'Customer trust' },
+    })
+    fireEvent.click(screen.getByTestId('theme-add'))
+
+    await waitFor(() => {
+      expect(mockedApiPut).toHaveBeenCalledWith('/enterprise/lists/pillars', {
+        values: ['Growth', 'Customer trust'],
+      })
+    })
+  })
+
+  it('does not mark open tasks with a done checkmark icon', async () => {
+    mockGets(themedResponse)
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Growth')).toBeInTheDocument()
+    })
+    // Icon renders its name as the element text; check_circle is the
+    // green "looks done" icon and must not appear on open task rows.
+    expect(screen.queryByText('check_circle')).not.toBeInTheDocument()
   })
 })
