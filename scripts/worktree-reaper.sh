@@ -166,12 +166,52 @@ while IFS= read -r line; do
                     absorbed_count=$((absorbed_count + 1))
                   fi
                 else
-                  printf '%-48s %-10s %s\n' "$wt_branch" "unique" "$ahead"
-                  echo "  [reaper] REFUSING to delete $wt_branch: $ahead unmerged commit(s) ahead of main -- cherry-pick before removing" >&2
-                  git log --oneline -n 5 "$BASE..$wt_branch" 2>/dev/null | while IFS= read -r oneline; do
-                    echo "    commit: $oneline" >&2
-                  done
-                  unique_count=$((unique_count + 1))
+                  # Non-empty content diff. The orchestrator lands agent
+                  # work by cherry-pick, which rewrites the SHA (→2590);
+                  # once main advances past the pick, the branch stays
+                  # ahead by rev-list with a non-empty diff even though
+                  # every commit's PATCH already exists on main.
+                  # `git cherry $BASE $wt_branch` compares by patch-id:
+                  # '-' = an equivalent commit exists on $BASE,
+                  # '+' = genuinely unmerged. Only when ALL ahead commits
+                  # are patch-equivalent may the branch count as absorbed.
+                  _cherry_unmatched="$ahead"
+                  if _cherry_out=$(git cherry "$BASE" "$wt_branch" 2>/dev/null) && [ -n "$_cherry_out" ]; then
+                    _cherry_unmatched=$(printf '%s\n' "$_cherry_out" | grep -c '^+' || true)
+                  fi
+                  if [ "$_cherry_unmatched" -eq 0 ]; then
+                    # All commits patch-equivalent to main. Same dirty-tree
+                    # guard as the squashed path (→1665, →2466): never
+                    # absorb a worktree with uncommitted or untracked work.
+                    wt_dirty=0
+                    if [ -d "$wt_path" ]; then
+                      if ! git -C "$wt_path" diff --quiet 2>/dev/null || \
+                         ! git -C "$wt_path" diff --cached --quiet 2>/dev/null; then
+                        wt_dirty=1
+                      fi
+                      if [ "$wt_dirty" -eq 0 ]; then
+                        _wt_untracked=$(git -C "$wt_path" ls-files --others --exclude-standard 2>/dev/null | head -1)
+                        [ -n "$_wt_untracked" ] && wt_dirty=1
+                      fi
+                    fi
+                    if [ "$wt_dirty" -eq 1 ]; then
+                      printf '%-48s %-10s %s\n' "$wt_branch" "unique" "dirty (cherry-picked)"
+                      echo "  [reaper] $wt_branch has uncommitted work over cherry-picked commits, skipping (→2590)" >&2
+                      unique_count=$((unique_count + 1))
+                    else
+                      printf '%-48s %-10s %s\n' "$wt_branch" "absorbed" "$ahead (cherry-picked)"
+                      absorbed_branches+=("$wt_branch")
+                      absorbed_paths+=("$wt_path")
+                      absorbed_count=$((absorbed_count + 1))
+                    fi
+                  else
+                    printf '%-48s %-10s %s\n' "$wt_branch" "unique" "$ahead"
+                    echo "  [reaper] REFUSING to delete $wt_branch: $ahead unmerged commit(s) ahead of main -- cherry-pick before removing" >&2
+                    git log --oneline -n 5 "$BASE..$wt_branch" 2>/dev/null | while IFS= read -r oneline; do
+                      echo "    commit: $oneline" >&2
+                    done
+                    unique_count=$((unique_count + 1))
+                  fi
                 fi
               else
                 # No commits ahead of main. Also guard against uncommitted
