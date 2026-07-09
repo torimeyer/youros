@@ -195,6 +195,11 @@ async def test_reaper_skips_running_agent_worktree(tmp_path, monkeypatch):
     # temp repo which doesn't have scripts/).
     monkeypatch.setenv("MYOS_REAPER_SCRIPT", str(reaper))
 
+    # →2608 added a recent-activity guard (default 30 min). The fixture
+    # worktree is seconds old, so the guard would skip it and mask the
+    # behavior under test. Disable it here like the shell fixtures do.
+    monkeypatch.setenv("REAPER_MIN_AGE_MINUTES", "0")
+
     # Set up a minimal git repo.
     repo = tmp_path / "repo"
     repo.mkdir(exist_ok=True)

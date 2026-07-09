@@ -24,6 +24,53 @@ set -euo pipefail
 APPLY=0
 BASE=main
 
+# →2616: the set of agent statuses that count as "finished" is defined ONCE,
+# in the backend: _TERMINAL_STATUSES in api/routers/agents.py. The reaper
+# reads that file textually (importing the router would pull FastAPI and the
+# whole services graph, which the standalone/launchd reaper cannot assume).
+# agents.py is resolved relative to THIS SCRIPT's repo, not the repo being
+# reaped, so fixture repos still see the real list. Override for tests via
+# REAPER_AGENTS_ROUTER_FILE.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AGENTS_ROUTER_FILE="${REAPER_AGENTS_ROUTER_FILE:-$SCRIPT_DIR/../api/routers/agents.py}"
+
+# Print the effective terminal-status list, one per line.
+# Falls back to a hardcoded snapshot when the live parse fails; a parse
+# failure must degrade conservatively, never crash the reaper.
+# api/tests/test_2616_reaper_terminal_status_drift.py fails if either the
+# effective list or the FALLBACK snapshot drifts from the backend constant.
+_terminal_statuses() {
+  AGENTS_ROUTER_FILE="$AGENTS_ROUTER_FILE" python3 <<'PYEOF'
+import os, re
+
+# Snapshot of api/routers/agents.py _TERMINAL_STATUSES (→2616).
+# Used only when the live parse fails.
+FALLBACK = {
+    "completed", "failed", "cancelled", "terminated_stale",
+    "killed", "stopped", "abandoned", "completed_timeout",
+}
+
+def _parse(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        # Anchored at column 0 so _LOCK_SWEEP_TERMINAL_STATUSES never matches.
+        m = re.search(
+            r"^_TERMINAL_STATUSES\s*=\s*frozenset\(\s*\{(.*?)\}\s*\)",
+            src, re.S | re.M,
+        )
+        if not m:
+            return None
+        names = set(re.findall(r"['\"]([^'\"]+)['\"]", m.group(1)))
+        return names or None
+    except Exception:
+        return None
+
+terminal = _parse(os.environ.get("AGENTS_ROUTER_FILE", "")) or FALLBACK
+print("\n".join(sorted(terminal)))
+PYEOF
+}
+
 usage() {
   cat <<EOF
 Usage: scripts/worktree-reaper.sh [--apply] [--base <branch>] [-h|--help]
@@ -34,6 +81,7 @@ absorbed (diff against <branch> is empty) or unique (has changes not on <branch>
 Without --apply: dry-run. Prints a table and exits 0.
 With --apply:    removes absorbed worktrees and their agent-* branches.
 --base <branch>: base branch to diff against (default: main).
+--print-terminal-statuses: print the effective terminal agent statuses and exit.
 EOF
 }
 
@@ -51,6 +99,10 @@ while [ $# -gt 0 ]; do
         exit 2
       fi
       shift 2
+      ;;
+    --print-terminal-statuses)
+      _terminal_statuses
+      exit 0
       ;;
     -h|--help)
       usage
@@ -341,10 +393,11 @@ if [ "$APPLY" -eq 1 ]; then
 #   2. $PRIMARY/.ostk/agent_state.json (used when called standalone,
 #      e.g. via launchd / scripts/scheduled/reaper.sh).
 #
-# Terminal statuses (safe to remove):
-#   stopped, completed, completed_timeout, failed, cancelled,
-#   abandoned, terminated_stale.
-# Anything else (running, pending, spawned, queued, unknown) is active.
+# Terminal statuses (safe to remove) come from the backend's
+# _TERMINAL_STATUSES in api/routers/agents.py via _terminal_statuses()
+# (→2616; a local copy here used to omit "killed", so killed agents'
+# worktrees were never cleaned). Anything else (running, pending,
+# spawned, queued, unknown) is active.
 #
 # If the state file exists but cannot be parsed, we fail safe: skip
 # all removals rather than risk deleting an active agent's checkout.
@@ -356,12 +409,13 @@ if [ "${YOUROS_ACTIVE_AGENTS+set}" = "set" ]; then
   ACTIVE_AGENT_NAMES="${YOUROS_ACTIVE_AGENTS}"
   _ACTIVE_NAMES_LOADED=1
 elif [ -f "$PRIMARY/.ostk/agent_state.json" ]; then
-  _state_out=$(STATE_FILE="$PRIMARY/.ostk/agent_state.json" python3 -c "
+  # Effective terminal set (backend-parsed, or fallback snapshot). If this
+  # somehow comes back empty, the embedded python treats EVERY status as
+  # active -- conservative: no removals rather than wrong removals.
+  _terminal_csv="$(_terminal_statuses 2>/dev/null | tr '\n' ',' || true)"
+  _state_out=$(STATE_FILE="$PRIMARY/.ostk/agent_state.json" TERMINAL_CSV="$_terminal_csv" python3 -c "
 import json, os, sys
-TERMINAL = {
-    'stopped','completed','completed_timeout','failed',
-    'cancelled','abandoned','terminated_stale',
-}
+TERMINAL = {s for s in os.environ.get('TERMINAL_CSV', '').split(',') if s}
 try:
     d = json.load(open(os.environ['STATE_FILE']))
     active = [k for k, v in d.items()
