@@ -30,6 +30,7 @@ Object.defineProperty(window, 'matchMedia', {
 })
 
 import { api } from '../lib/api'
+import { useAppStore } from '../stores/app'
 
 const mockedApiGet = vi.mocked(api.get)
 const mockedApiPost = vi.mocked(api.post)
@@ -2889,5 +2890,97 @@ describe('Done with unchecked criteria (→2231-→2234)', () => {
       expect(after[1].checked).toBe(true)
       expect(after[2].checked).toBe(false)
     })
+  })
+})
+
+// →2601: completed specs offer "Resume from end", which pre-loads the last
+// step's output into the chat input (via the store's chatPrefill, the same
+// cross-route mechanism the What's Next buttons use) and opens the chat.
+describe('→2601: Resume from end on completed specs', () => {
+  const completedSpec = {
+    path: 'docs/spec/settings-page.md',
+    filename: 'settings-page.md',
+    title: 'settings page',
+    status: 'complete',
+    journey_id: 'jrn-resume1',
+    created_at: '2026-01-05T00:00:00Z',
+    promoted_at: '2026-01-10T00:00:00Z',
+    body: '- [x] user preferences\n- [x] theme toggle',
+    task_summary: { total: 2, open: 0, closed: 2 },
+    acceptance_criteria: [
+      { text: 'user preferences', checked: true },
+      { text: 'theme toggle', checked: true },
+    ],
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ chatPrefill: null, chatOpen: false })
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve({ docs: [completedSpec] })
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.startsWith('/activity')) return Promise.resolve({
+        events: [
+          {
+            timestamp: '2026-07-09T01:30:00+00:00',
+            event: 'spec_journey_complete',
+            label: 'Journey completed',
+            detail: 'spec_path=docs/spec/settings-page.md completed_at=2026-07-09T01:30:00+00:00 last_agent=spec-settings-page-42 task_count=2',
+            journey_id: 'jrn-resume1',
+          },
+        ],
+      })
+      if (path.includes('/transcript-tail')) return Promise.resolve({
+        lines: ['I finished the settings page.', 'Final output: preferences persisted to settings.json'],
+      })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+  })
+
+  async function expandCompletedCard() {
+    renderSpecs()
+    fireEvent.click(screen.getByTestId('stage-filter-all'))
+    await waitFor(() => expect(screen.getByText('settings page')).toBeInTheDocument())
+    const cards = screen.getAllByTestId('spec-card')
+    const card = cards.find(c => c.textContent?.includes('settings page'))!
+    fireEvent.click(card)
+    await waitFor(() => expect(screen.getByTestId('spec-detail')).toBeInTheDocument())
+  }
+
+  it('shows a Resume from end button on completed specs', async () => {
+    await expandCompletedCard()
+    expect(screen.getByTestId('resume-from-end-button')).toBeInTheDocument()
+  })
+
+  it('clicking Resume pre-loads the last step output into chat and opens it', async () => {
+    await expandCompletedCard()
+    fireEvent.click(screen.getByTestId('resume-from-end-button'))
+
+    await waitFor(() => {
+      const prefill = useAppStore.getState().chatPrefill
+      expect(prefill).toBeTruthy()
+      expect(prefill).toContain('Final output: preferences persisted to settings.json')
+    })
+    expect(useAppStore.getState().chatOpen).toBe(true)
+    // The journey feed identified the final agent; its transcript is the output.
+    expect(mockedApiGet).toHaveBeenCalledWith(expect.stringContaining('journey_id=jrn-resume1'))
+    expect(mockedApiGet).toHaveBeenCalledWith(expect.stringContaining('/agents/spec-settings-page-42/transcript-tail'))
+  })
+
+  it('falls back to a plain resume message when the spec has no journey', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve({ docs: [{ ...completedSpec, journey_id: undefined }] })
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+    await expandCompletedCard()
+    fireEvent.click(screen.getByTestId('resume-from-end-button'))
+
+    await waitFor(() => {
+      expect(useAppStore.getState().chatPrefill).toContain('settings page')
+    })
+    expect(useAppStore.getState().chatOpen).toBe(true)
   })
 })

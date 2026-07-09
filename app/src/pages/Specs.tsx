@@ -45,6 +45,7 @@ interface Spec {
   title: string;
   spec_id?: string;
   journey_id?: string;
+  journey_complete?: string;
   status: "draft" | "ready" | "in-progress" | "complete";
   created_at: string;
   promoted_at: string;
@@ -565,6 +566,46 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   // spec appears in docs.
   const pendingSpecsMap = useAppStore((s) => s.pendingSpecs);
   const removePendingSpec = useAppStore((s) => s.removePendingSpec);
+  // →2601: cross-route chat pre-fill, the same mechanism the What's Next
+  // action buttons use (ChatPanel consumes chatPrefill into its input).
+  const setChatPrefill = useAppStore((s) => s.setChatPrefill);
+  const setChatOpen = useAppStore((s) => s.setChatOpen);
+
+  // →2601: "Resume from end" on a completed spec pre-loads the last step's
+  // output into chat. The journey feed's spec_journey_complete event names
+  // the agent that ran the final step; its transcript tail is that output.
+  const handleResumeFromEnd = async (doc: Spec) => {
+    let prefill = `Resume from the end of "${doc.title}" (${doc.path}). The build is complete; pick up from the last step.`;
+    try {
+      if (doc.journey_id) {
+        const res = await api.get<{ events: { event: string; label: string; detail: string; timestamp: string }[] }>(
+          `/activity?last=200&journey_id=${encodeURIComponent(doc.journey_id)}`
+        );
+        const events = res.events || []; // newest first
+        const last = events[0];
+        const doneEvent = events.find((e) => e.event === "spec_journey_complete");
+        const agentMatch = doneEvent ? /last_agent=([\w.-]+)/.exec(doneEvent.detail || "") : null;
+        let output = "";
+        if (agentMatch) {
+          try {
+            const tail = await api.get<{ lines: string[] }>(
+              `/agents/${encodeURIComponent(agentMatch[1])}/transcript-tail?lines=40`
+            );
+            output = (tail.lines || []).join("\n").trim();
+          } catch { /* transcript gone; the event summary below still works */ }
+        }
+        if (last) {
+          prefill =
+            `Resume from the end of "${doc.title}". Last step: ${last.label}` +
+            (last.detail ? ` (${last.detail})` : "") +
+            (output ? `\n\nLast step output:\n${output}` : "") +
+            `\n\nContinue from here.`;
+        }
+      }
+    } catch { /* keep the fallback message */ }
+    setChatPrefill(prefill);
+    setChatOpen(true);
+  };
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
   const [decomposeToast, setDecomposeToast] = useState<{ count: number } | null>(null);
@@ -1861,6 +1902,17 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                                     Unlock and edit
                                   </button>
                                 )}
+                                {doc.status === "complete" && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleResumeFromEnd(doc); }}
+                                    className="bg-violet-500/20 text-violet-600 dark:text-violet-400 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-violet-500/30 transition-colors flex items-center gap-1.5"
+                                    data-testid="resume-from-end-button"
+                                    title="Open chat pre-filled with the final step's output so you can continue from where the build finished."
+                                  >
+                                    <Icon name="play_arrow" size={16} />
+                                    Resume from end
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -2131,6 +2183,7 @@ function JourneyTimelineModal({ specTitle, journeyId, specPath, onClose, onRerun
     "spec_build_started": "build",
     "spec_built_start": "build",
     "spec_journey_started": "route",
+    "spec_journey_complete": "flag",
     "agent.spawned": "smart_toy",
     "agent.completed": "check_circle",
     "agent.failed": "error",
