@@ -205,16 +205,19 @@ def _load_task_pillars() -> dict:
 
 
 async def _jira_lane() -> dict:
-    """Read-only Jira section. Never raises.
+    """Read-only Jira section: the current user's assigned tickets.
 
-    Local-only build: reports disconnected until the read-only lane
-    lands in the next piece. With zero Atlassian configuration the
-    portfolio returns the local rollup untouched.
+    Reuses the existing atlassian.list_assigned_issues() reader; no new
+    Jira query (the spec's DECISION section pins scope to "my tickets"
+    until Team Mode lands). Never raises: with zero Atlassian
+    configuration, or when Jira errors mid-request, the portfolio
+    returns the local rollup with an empty, disconnected section.
     """
     try:
         if not atlassian.is_connected():
             return {"connected": False, "tickets": []}
-        return {"connected": True, "tickets": []}
+        tickets = await atlassian.list_assigned_issues()
+        return {"connected": True, "tickets": tickets}
     except Exception as exc:  # noqa: BLE001 - degrade, never fail
         _log.warning("theme rollup: Jira section unavailable: %s", exc)
         return {"connected": False, "tickets": []}

@@ -253,3 +253,67 @@ async def test_rollup_jira_not_connected_still_returns_local_rollup(client):
     assert data["jira"]["connected"] is False
     assert data["jira"]["tickets"] == []
     assert data["themes"][0]["task_count"] == 1
+
+
+# ── Jira lane (read-only, current user's tickets only) ───────────────────────
+
+_TICKETS = [
+    {
+        "key": "PROJ-7",
+        "summary": "Fix the login flow",
+        "status": "In Progress",
+        "priority": "High",
+        "type": "Bug",
+        "updated": "2026-07-08T09:00:00.000+0000",
+        "url": "https://example.atlassian.net/browse/PROJ-7",
+    },
+    {
+        "key": "PROJ-9",
+        "summary": "Draft the Q3 plan",
+        "status": "To Do",
+        "priority": "Medium",
+        "type": "Task",
+        "updated": "2026-07-01T09:00:00.000+0000",
+        "url": "https://example.atlassian.net/browse/PROJ-9",
+    },
+]
+
+
+@pytest.mark.asyncio
+async def test_rollup_jira_lane_returns_my_tickets_when_connected(client):
+    """Connected: the current user's assigned tickets pass straight through."""
+    with ExitStack() as stack:
+        for p in _endpoint_patches(jira_connected=True):
+            stack.enter_context(p)
+        stack.enter_context(
+            patch("routers.theme_rollup.atlassian.list_assigned_issues",
+                  AsyncMock(return_value=list(_TICKETS)))
+        )
+        resp = await client.get("/api/themes/rollup")
+
+    assert resp.status_code == 200
+    jira = resp.json()["jira"]
+    assert jira["connected"] is True
+    assert [t["key"] for t in jira["tickets"]] == ["PROJ-7", "PROJ-9"]
+    assert jira["tickets"][0]["summary"] == "Fix the login flow"
+
+
+@pytest.mark.asyncio
+async def test_rollup_jira_lane_degrades_when_service_errors(client):
+    """Jira reachable-but-broken: the local rollup still comes back whole."""
+    tasks = [_task(id="→1")]
+    with ExitStack() as stack:
+        for p in _endpoint_patches(tasks=tasks, pillars=["Growth"],
+                                   task_pillars={"→1": "Growth"},
+                                   jira_connected=True):
+            stack.enter_context(p)
+        stack.enter_context(
+            patch("routers.theme_rollup.atlassian.list_assigned_issues",
+                  AsyncMock(side_effect=RuntimeError("Atlassian credentials expired.")))
+        )
+        resp = await client.get("/api/themes/rollup")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["jira"] == {"connected": False, "tickets": []}
+    assert data["themes"][0]["task_count"] == 1
