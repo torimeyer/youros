@@ -1331,10 +1331,12 @@ class TestChatReachesFrontendWithNonEmptyToken:
 class TestChatWebSocketHandshakeNeverBlocksEventLoop:
     """Regression guard for needle 307.
 
-    The WebSocket handshake and a follow-up HTTP request must both
-    complete in well under a second, even when a real chat turn has
-    just finished. This proves the event loop is not being blocked by
-    any sync subprocess call made during or after the chat turn.
+    The invariant: nothing in the chat pipeline may block the event
+    loop with synchronous work. The original bug was a five second
+    ``subprocess.run(['ostk', 'boot'])`` on the loop, which starved a
+    fresh WebSocket handshake past its open timeout. These tests assert
+    loop responsiveness directly instead of wall-clock speed, so they
+    hold on a busy machine too (→2614).
     """
 
     @pytest.mark.asyncio
@@ -1413,12 +1415,48 @@ class TestChatWebSocketHandshakeNeverBlocksEventLoop:
         assert called["count"] == 1
         assert result == "sync boot ctx"
 
-    def test_websocket_round_trip_under_three_seconds_and_event_loop_stays_responsive(self):
-        """Full integration: connect, send, receive a token and done, and
-        immediately make an HTTP request to /api/status/clock. The whole
-        thing must complete in under three seconds.
+    @staticmethod
+    def _measure_baseline_tick_gap(samples: int = 25, interval: float = 0.02) -> float:
+        """Measure this machine's event-loop scheduling jitter right now.
+
+        Runs a bare asyncio loop with nothing else on it and records how
+        late each ``asyncio.sleep(interval)`` wakeup arrives. Under CPU
+        load the OS delays wakeups for every process, so this captures
+        the noise floor the responsiveness assertion must tolerate.
+        Returns the worst observed gap in seconds.
         """
-        import json
+        import asyncio
+
+        async def run() -> float:
+            loop = asyncio.get_running_loop()
+            worst = 0.0
+            for _ in range(samples):
+                t0 = loop.time()
+                await asyncio.sleep(interval)
+                worst = max(worst, loop.time() - t0 - interval)
+            return worst
+
+        return asyncio.run(run())
+
+    def test_websocket_turn_keeps_event_loop_responsive(self):
+        """Full integration: connect, send, receive a token and done, while
+        a ticker coroutine on the SAME event loop watches for stalls.
+
+        The invariant is "the chat pipeline never blocks the event loop",
+        not "the machine is fast today". The old version of this test
+        asserted a fixed wall-clock budget on the whole round trip, which
+        conflates the two: with cold caches the turn legitimately spawns
+        subprocesses (ostk boot, provider detection) whose duration scales
+        with machine load (→2614: 0.27s solo, 30.14s during a loaded
+        full-suite run, against a 30s budget). Instead, a ticker runs on
+        the app's event loop for the whole connection (handshake included)
+        and no single tick may be delayed much beyond this machine's
+        measured scheduling jitter. The needle-307 regression (a sync
+        subprocess on the loop, up to 5s) shows up as a multi-second tick
+        gap; a slow machine does not, because the allowance is derived
+        from a baseline measured in the same run.
+        """
+        import asyncio
         import time
 
         from fastapi.testclient import TestClient
@@ -1433,11 +1471,19 @@ class TestChatWebSocketHandshakeNeverBlocksEventLoop:
         chat_providers._BOOT_CONTEXT_CACHE = None
         chat_providers._BOOT_CONTEXT_REFRESH_IN_FLIGHT = False
 
+        # Noise floor for THIS run: worst wakeup delay on an otherwise
+        # idle loop. 10x headroom, never tighter than 250 ms. A blocking
+        # call on the loop stalls it for seconds, so the two populations
+        # stay far apart even on a badly loaded machine.
+        baseline_gap = self._measure_baseline_tick_gap()
+        allowed_gap = max(0.25, 10.0 * baseline_gap)
+
+        tick_interval = 0.02
+        tick_gaps: list[float] = []
+
         async def fake_stream_anthropic(self, messages, websocket, tab_id="", claude_tier=""):
-            # Mock: send two tokens and rely on the caller to send done.
-            # The real stream_anthropic does NOT send done itself on
-            # success, the websocket handler trusts the provider to emit
-            # the done. So we emit it here to match production shape.
+            # Mock: send two tokens and the done event to match the shape
+            # production emits on success.
             await websocket.send_json({"type": "token", "data": "hi "})
             await websocket.send_json({"type": "token", "data": "there"})
             await websocket.send_json({
@@ -1446,12 +1492,46 @@ class TestChatWebSocketHandshakeNeverBlocksEventLoop:
             })
             return "hi there"
 
+        async def ticking_app(scope, receive, send):
+            # Wrap the real app: for websocket connections, run a ticker
+            # on the same event loop for the lifetime of the connection
+            # (handshake included). If anything in the chat pipeline
+            # blocks the loop, a tick gap records for exactly how long.
+            if scope["type"] != "websocket":
+                await app(scope, receive, send)
+                return
+            loop = asyncio.get_running_loop()
+            stop = asyncio.Event()
+
+            async def ticker():
+                while not stop.is_set():
+                    t0 = loop.time()
+                    await asyncio.sleep(tick_interval)
+                    tick_gaps.append(loop.time() - t0 - tick_interval)
+
+            ticker_task = loop.create_task(ticker())
+            try:
+                await app(scope, receive, send)
+            finally:
+                stop.set()
+                await ticker_task
+
         with patch.object(
             ChatService, "stream_anthropic", new=fake_stream_anthropic
         ):
-            client = TestClient(app)
+            client = TestClient(ticking_app)
 
-            t0 = time.monotonic()
+            # Per-machine baseline for the post-turn HTTP probe: median
+            # of three trivial requests, after one warmup.
+            client.get("/api/status/clock")
+            http_samples = []
+            for _ in range(3):
+                s0 = time.monotonic()
+                warm = client.get("/api/status/clock")
+                http_samples.append(time.monotonic() - s0)
+                assert warm.status_code == 200
+            http_baseline = sorted(http_samples)[1]
+
             with client.websocket_connect("/ws/chat") as ws:
                 ws.send_json({
                     "messages": [{"role": "user", "content": "say hi"}],
@@ -1470,26 +1550,35 @@ class TestChatWebSocketHandshakeNeverBlocksEventLoop:
                         break
                     if et == "error":
                         pytest.fail(f"unexpected error: {event.get('data')}")
-            ws_elapsed = time.monotonic() - t0
 
             assert got_token, "no token event arrived"
             assert got_done, "no done event arrived"
-            assert ws_elapsed < 30.0, (
-                f"WebSocket round trip took {ws_elapsed:.2f}s, should be < 30s"
+
+            # The actual invariant: the app's event loop stayed responsive
+            # for the entire connection, no matter how long the turn took.
+            assert tick_gaps, "ticker never ran on the app event loop"
+            worst_gap = max(tick_gaps)
+            assert worst_gap < allowed_gap, (
+                f"event loop was unresponsive for {worst_gap:.3f}s during "
+                f"the chat turn (allowed {allowed_gap:.3f}s = 10x this "
+                f"machine's measured jitter of {baseline_gap:.3f}s). "
+                "Something in the chat pipeline is making a blocking call "
+                "on the event loop."
             )
 
-            # Immediately fire an HTTP request. If the event loop was
-            # blocked by any sync call in the chat handler, this will
-            # time out or return slowly.
+            # Post-turn probe: a fresh request must not be slowed by state
+            # the chat turn left behind. Bounded by the baseline measured
+            # above rather than a fixed constant.
             t1 = time.monotonic()
             resp = client.get("/api/status/clock")
             http_elapsed = time.monotonic() - t1
 
             assert resp.status_code == 200
-            assert http_elapsed < 0.5, (
-                f"HTTP request after WebSocket took {http_elapsed:.2f}s. "
-                "The event loop is being blocked by a sync call in the "
-                "chat pipeline."
+            allowed_http = max(0.5, 5.0 * http_baseline)
+            assert http_elapsed < allowed_http, (
+                f"HTTP request after the chat turn took {http_elapsed:.3f}s "
+                f"(allowed {allowed_http:.3f}s, baseline {http_baseline:.3f}s). "
+                "The chat pipeline left something blocking behind."
             )
 
 
