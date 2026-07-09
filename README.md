@@ -202,7 +202,7 @@ yourOS covers the full ostk surface area:
 
 ## Privacy
 
-yourOS runs on your laptop. Your data stays there. For a full breakdown of what is stored where, what leaves the machine and when, and how to revoke a connected tool's access: [docs/PRIVACY.md](docs/PRIVACY.md).
+yourOS runs on your laptop. Your data stays there. For a full breakdown of what is stored where, what leaves the machine and when, and how to revoke a connected tool's access: [PRIVACY.md](PRIVACY.md).
 
 ## Connecting AI Providers
 
