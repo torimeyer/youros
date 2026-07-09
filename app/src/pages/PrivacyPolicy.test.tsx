@@ -5,6 +5,8 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import PrivacyPolicy from './PrivacyPolicy'
 
+vi.mock('../lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
+
 // Root PRIVACY.md is the single source of truth for this page. Read it from
 // disk so any future edit to PRIVACY.md that the page does not reflect makes
 // this suite fail (anti-drift guarantee). Vitest runs with cwd = app/, but
@@ -15,8 +17,6 @@ const privacyMdPath = [
 ].find((candidate) => existsSync(candidate))
 if (!privacyMdPath) throw new Error('PRIVACY.md not found next to app/')
 const privacyMd = readFileSync(privacyMdPath, 'utf8')
-
-vi.mock('../lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
 
 beforeAll(() => {
   Object.defineProperty(window, 'matchMedia', {
@@ -43,59 +43,39 @@ function renderPage() {
 describe('PrivacyPolicy page', () => {
   it('renders without crashing', () => {
     renderPage()
-    expect(screen.getByTestId('privacy-section-what-we-store')).toBeTruthy()
+    expect(screen.getByTestId('privacy-content')).toBeTruthy()
   })
 
-  it('shows the "what we store" section', () => {
-    renderPage()
-    expect(screen.getByTestId('privacy-section-what-we-store')).toBeTruthy()
-    expect(screen.getByTestId('privacy-heading-what-we-store').textContent).toContain(
-      'What we store'
-    )
+  it('shows what stays on the laptop, including the storage table', () => {
+    const { container } = renderPage()
+    const text = container.textContent ?? ''
+    expect(text).toContain('What lives on your laptop')
+    // Table content from PRIVACY.md section 1.
+    expect(text).toContain('~/.youros/settings.json')
+    expect(text).toContain('Theme, model preference, API keys')
   })
 
-  it('shows the third-party calls section', () => {
-    renderPage()
-    expect(screen.getByTestId('privacy-section-third-party-calls')).toBeTruthy()
-    expect(screen.getByTestId('privacy-heading-third-party-calls').textContent).toContain(
-      'leaves your machine'
-    )
+  it('shows what leaves the laptop', () => {
+    const { container } = renderPage()
+    const text = container.textContent ?? ''
+    expect(text).toContain('What leaves your laptop')
+    expect(text).toContain('api.anthropic.com')
   })
 
-  it('shows the telemetry section', () => {
-    renderPage()
-    expect(screen.getByTestId('privacy-section-telemetry')).toBeTruthy()
-    expect(screen.getByTestId('privacy-heading-telemetry').textContent).toContain(
-      'do not collect'
-    )
+  it('states there is no telemetry', () => {
+    const { container } = renderPage()
+    expect(container.textContent).toContain('There is no telemetry.')
   })
 
-  it('shows the user control section', () => {
-    renderPage()
-    expect(screen.getByTestId('privacy-section-your-control')).toBeTruthy()
-    expect(screen.getByTestId('privacy-heading-your-control').textContent).toContain(
-      'Your control'
-    )
+  it('explains disconnecting a tool', () => {
+    const { container } = renderPage()
+    expect(container.textContent).toContain('Disconnecting a tool')
   })
 
-  it('shows the contact section', () => {
-    renderPage()
-    expect(screen.getByTestId('privacy-section-contact')).toBeTruthy()
-    expect(screen.getByTestId('privacy-heading-contact').textContent).toContain('Questions')
-  })
-
-  it('renders all five sections', () => {
-    renderPage()
-    const sections = [
-      'what-we-store',
-      'third-party-calls',
-      'telemetry',
-      'your-control',
-      'contact',
-    ]
-    for (const id of sections) {
-      expect(screen.getByTestId(`privacy-section-${id}`)).toBeTruthy()
-    }
+  it('shows the data-flow diagram', () => {
+    const { container } = renderPage()
+    expect(container.textContent).toContain('Your keyboard')
+    expect(container.querySelector('pre')).toBeTruthy()
   })
 
   it('route is reachable: MemoryRouter at /privacy renders PrivacyPolicy', () => {
@@ -106,10 +86,7 @@ describe('PrivacyPolicy page', () => {
         </Routes>
       </MemoryRouter>
     )
-    expect(screen.getByTestId('privacy-section-what-we-store')).toBeTruthy()
-    expect(screen.getByTestId('privacy-section-telemetry')).toBeTruthy()
-    expect(screen.getByTestId('privacy-section-your-control')).toBeTruthy()
-    expect(screen.getByTestId('privacy-section-contact')).toBeTruthy()
+    expect(screen.getByTestId('privacy-content')).toBeTruthy()
   })
 })
 
