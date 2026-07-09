@@ -177,6 +177,9 @@ describe('Specs page', () => {
 
   it('complete spec renders StageChip with "Done" not "In Progress"', async () => {
     renderSpecs()
+    // Done specs live behind the history button (→2624).
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('show-history-button'))
     await waitFor(() => expect(screen.getByText('settings page')).toBeInTheDocument())
     const cards = screen.getAllByTestId('spec-card')
     const settingsCard = cards.find(c => c.textContent?.includes('settings page'))!
@@ -186,10 +189,11 @@ describe('Specs page', () => {
     expect(chip!.textContent).not.toBe('In Progress')
   })
 
-  it('shows stage-filter-complete pill for filtering completed specs', async () => {
+  it('replaces the Done filter pill with the history button (→2624)', async () => {
     renderSpecs()
     await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
-    expect(screen.getByTestId('stage-filter-complete')).toBeInTheDocument()
+    expect(screen.queryByTestId('stage-filter-complete')).not.toBeInTheDocument()
+    expect(screen.getByTestId('show-history-button')).toBeInTheDocument()
   })
 
   it('New Spec button is always enabled', async () => {
@@ -242,7 +246,10 @@ describe('Specs page', () => {
   it('strip shows Ready label when all criteria are verified', async () => {
     renderSpecs()
 
-    // settings page has all criteria checked
+    // settings page has all criteria checked; it is done, so it lives
+    // behind the history button (→2624)
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    fireEvent.click(screen.getByTestId('show-history-button'))
     await waitFor(() => expect(screen.getByText('settings page')).toBeInTheDocument())
     const cards = screen.getAllByTestId('spec-card')
     const settingsCard = cards.find(c => c.textContent?.includes('settings page'))!
@@ -357,7 +364,8 @@ describe('Specs page', () => {
     // now render no action button at all.
     renderSpecs()
     await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
-    fireEvent.click(screen.getByTestId('stage-filter-all'))
+    // Done specs live behind the history button (→2624).
+    fireEvent.click(screen.getByTestId('show-history-button'))
     await waitFor(() => {
       expect(screen.getByText('settings page')).toBeInTheDocument()
     })
@@ -797,11 +805,12 @@ describe('Specs page', () => {
     renderSpecs()
     await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
 
-    // Default "all" filter shows every spec
+    // Default "all" filter shows every spec that is not done; done specs
+    // live behind the history button (→2624)
     await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
     expect(screen.getByText('dashboard redesign')).toBeInTheDocument()
     expect(screen.getByText('onboarding flow')).toBeInTheDocument()
-    expect(screen.getByText('settings page')).toBeInTheDocument()
+    expect(screen.queryByText('settings page')).not.toBeInTheDocument()
 
     // Click Draft stage pill
     fireEvent.click(screen.getByTestId('stage-filter-draft'))
@@ -819,12 +828,12 @@ describe('Specs page', () => {
     await waitFor(() => expect(screen.getByText('dashboard redesign')).toBeInTheDocument())
     expect(screen.queryByText('auth system')).not.toBeInTheDocument()
 
-    // Click All stage pill
+    // Click All stage pill: still no done specs (→2624)
     fireEvent.click(screen.getByTestId('stage-filter-all'))
     await waitFor(() => expect(screen.getByText('onboarding flow')).toBeInTheDocument())
     expect(screen.getByText('auth system')).toBeInTheDocument()
     expect(screen.getByText('dashboard redesign')).toBeInTheDocument()
-    expect(screen.getByText('settings page')).toBeInTheDocument()
+    expect(screen.queryByText('settings page')).not.toBeInTheDocument()
   })
 
   it('handles API error on initial load gracefully', async () => {
@@ -2793,6 +2802,8 @@ describe('Done with unchecked criteria (→2231-→2234)', () => {
   })
 
   async function expandCard(title: string) {
+    // Done specs live behind the history button (→2624).
+    fireEvent.click(await screen.findByTestId('show-history-button'))
     await waitFor(() => {
       expect(screen.getByText(title)).toBeInTheDocument()
     })
@@ -2830,6 +2841,7 @@ describe('Done with unchecked criteria (→2231-→2234)', () => {
 
   it('collapsed card shows an unconfirmed count chip only for done-with-unchecked (→2232)', async () => {
     renderSpecs()
+    fireEvent.click(await screen.findByTestId('show-history-button'))
     await waitFor(() => {
       expect(screen.getByText('half done spec')).toBeInTheDocument()
     })
@@ -2846,6 +2858,7 @@ describe('Done with unchecked criteria (→2231-→2234)', () => {
   // →2234: information, never a refusal. The spec still reads as Done.
   it('stage chip still says Done even with unchecked criteria (→2234)', async () => {
     renderSpecs()
+    fireEvent.click(await screen.findByTestId('show-history-button'))
     await waitFor(() => {
       expect(screen.getByText('half done spec')).toBeInTheDocument()
     })
@@ -2940,7 +2953,8 @@ describe('→2601: Resume from end on completed specs', () => {
 
   async function expandCompletedCard() {
     renderSpecs()
-    fireEvent.click(screen.getByTestId('stage-filter-all'))
+    // Done specs live behind the history button (→2624).
+    fireEvent.click(await screen.findByTestId('show-history-button'))
     await waitFor(() => expect(screen.getByText('settings page')).toBeInTheDocument())
     const cards = screen.getAllByTestId('spec-card')
     const card = cards.find(c => c.textContent?.includes('settings page'))!
@@ -2982,5 +2996,75 @@ describe('→2601: Resume from end on completed specs', () => {
       expect(useAppStore.getState().chatPrefill).toContain('settings page')
     })
     expect(useAppStore.getState().chatOpen).toBe(true)
+  })
+})
+
+// →2624: done specs live behind a history button. The default tabs only
+// show work that is not done, so "All" adds up to Draft + Ready +
+// In Progress, the same set the sidebar badge counts (→2623).
+describe('→2624: done specs behind the history button', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ result: 'ok', task_ids: [] })
+  })
+
+  it('All tab excludes done specs and shows only draft + ready + in progress', async () => {
+    renderSpecs()
+    await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
+    // The done spec is hidden from the default All view.
+    expect(screen.queryByText('settings page')).not.toBeInTheDocument()
+    // All = draft + ready + in progress: 3 cards, not 4.
+    expect(screen.getAllByTestId('spec-card')).toHaveLength(3)
+  })
+
+  it('the Done filter tab is gone from the tab row', async () => {
+    renderSpecs()
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith('/specs'))
+    expect(screen.queryByTestId('stage-filter-complete')).not.toBeInTheDocument()
+  })
+
+  it('Show history reveals done specs and flips to Hide history', async () => {
+    renderSpecs()
+    await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
+    const btn = screen.getByTestId('show-history-button')
+    expect(btn.textContent).toContain('Show history')
+
+    fireEvent.click(btn)
+    await waitFor(() => expect(screen.getByText('settings page')).toBeInTheDocument())
+    // Only done specs render while history is shown.
+    expect(screen.queryByText('auth system')).not.toBeInTheDocument()
+    // The same button now offers the way back.
+    expect(btn.textContent).toContain('Hide history')
+
+    fireEvent.click(btn)
+    await waitFor(() => expect(screen.getByText('auth system')).toBeInTheDocument())
+    expect(screen.queryByText('settings page')).not.toBeInTheDocument()
+  })
+
+  it('deep link (?focus=) to a done spec opens the history view automatically', async () => {
+    render(
+      <MemoryRouter initialEntries={['/specs?focus=docs%2Fspec%2Fsettings-page.md']}>
+        <Specs />
+      </MemoryRouter>
+    )
+    await waitFor(() => expect(screen.getByText('settings page')).toBeInTheDocument())
+    expect(screen.getByTestId('show-history-button').textContent).toContain('Hide history')
+  })
+
+  it('deep link (?expand=) to a done spec opens history and expands it', async () => {
+    render(
+      <MemoryRouter initialEntries={['/specs?expand=docs%2Fspec%2Fsettings-page.md']}>
+        <Specs />
+      </MemoryRouter>
+    )
+    await waitFor(() => expect(screen.getByText('settings page')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('spec-detail')).toBeInTheDocument())
+    expect(screen.getByTestId('show-history-button').textContent).toContain('Hide history')
   })
 })

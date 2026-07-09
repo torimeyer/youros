@@ -132,7 +132,9 @@ export function displayStatus(backendStatus: string): "Draft" | "Ready" | "Build
   return "Draft";
 }
 
-type StageFilter = "all" | "draft" | "ready" | "in_progress" | "complete";
+// →2624: "complete" is no longer a tab. Done specs render behind the
+// history button instead of a Done filter pill.
+type StageFilter = "all" | "draft" | "ready" | "in_progress";
 
 function getDocStage(doc: Spec): string {
   if (doc.stage) return doc.stage;
@@ -556,6 +558,8 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const specRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const hasScrolledForFocusRef = useRef<string | null>(null);
   const [stageFilter, setStageFilter] = useState<StageFilter>("all");
+  // →2624: done specs live behind the history button, not in the tabs.
+  const [showHistory, setShowHistory] = useState(false);
   const [spawnAgentSpec, setSpawnAgentSpec] = useState<{ path: string; title: string; checks?: ReadinessCheck[] } | null>(null);
   const [docs, setDocs] = useState<Spec[]>(() => readSpecsCache());
   // Pending specs that were optimistically navigated here from
@@ -838,9 +842,10 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
 
   useEffect(() => {
     fetchDocs();
-    // Check for URL parameter to expand a specific spec
-    const params = new URLSearchParams(window.location.search);
-    const expandParam = params.get('expand') || params.get('highlight');
+    // Check for URL parameter to expand a specific spec. Read through the
+    // router's search params (not window.location) so MemoryRouter-based
+    // tests and in-app navigation both see the value (→2624).
+    const expandParam = searchParams.get("expand") || searchParams.get("highlight");
     if (expandParam) {
       setExpandedPath(decodeURIComponent(expandParam));
     }
@@ -868,7 +873,25 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
       el.classList.add("ring-2", "ring-emerald-400");
       setTimeout(() => el.classList.remove("ring-2", "ring-emerald-400"), 1500);
     }, 60);
-  }, [focusParam, docs]);
+    // showHistory is a dep so the scroll fires once the history view
+    // mounts the row of a done spec targeted by a link (→2624).
+  }, [focusParam, docs, showHistory]);
+
+  // →2624: a link can point straight at a done spec (?focus=, ?expand=,
+  // ?highlight=). Done specs only render inside the history view, so
+  // opening one from a link turns history on automatically; otherwise
+  // the target row would never appear on screen.
+  useEffect(() => {
+    const targets = [
+      focusParam ? decodeURIComponent(focusParam) : null,
+      expandedPath,
+    ].filter((t): t is string => !!t);
+    if (targets.length === 0) return;
+    const hit = docs.find(
+      (d) => targets.includes(d.path) && getDocStage(d) === "complete"
+    );
+    if (hit) setShowHistory(true);
+  }, [focusParam, expandedPath, docs]);
 
   useEffect(() => {
     api
@@ -1063,6 +1086,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
         // spec's status flips to "in-progress" on the backend when
         // agents spawn, so leaving the user on "all" or "drafts"
         // would hide the card they were just interacting with.
+        setShowHistory(false);
         setStageFilter("in_progress");
         // Fetch immediately so spinners and agent chips appear without
         // waiting for the first poll tick. Then fetch once more at
@@ -1202,15 +1226,20 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
 
   const pendingList = Object.values(pendingSpecsMap);
 
-  // Stage-based filtering
-  const stageFiltered =
-    stageFilter === "all"
-      ? docs
+  // Stage-based filtering. Done specs never show in the tabs: they live
+  // behind the history button, and "All" adds up to Draft + Ready +
+  // In Progress, the same set the sidebar badge counts (→2624, →2623).
+  const notDoneDocs = docs.filter((d) => getDocStage(d) !== "complete");
+  const doneDocs = docs.filter((d) => getDocStage(d) === "complete");
+  const stageFiltered = showHistory
+    ? doneDocs
+    : stageFilter === "all"
+      ? notDoneDocs
       : docs.filter((d) => getDocStage(d) === stageFilter);
 
   const stageCountByKey = (key: string) =>
     key === "all"
-      ? docs.length
+      ? notDoneDocs.length
       : docs.filter((d) => getDocStage(d) === key).length;
 
   const stagePills: { key: StageFilter; label: string }[] = [
@@ -1218,7 +1247,6 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
     { key: "draft",       label: "Draft" },
     { key: "ready",       label: "Ready" },
     { key: "in_progress", label: "In Progress" },
-    { key: "complete",    label: "Done" },
   ];
 
   // Husks in the current stage-filtered view
@@ -1249,28 +1277,51 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
           </div>
         </div>
 
-        {/* Stage filter pills */}
-        <div className="flex gap-1 mb-4 bg-white/60 dark:bg-slate-900/60 rounded-lg p-1 w-fit flex-wrap">
-          {stagePills.map((p) => {
-            const count = stageCountByKey(p.key);
-            return (
-              <button
-                key={p.key}
-                data-testid={`stage-filter-${p.key}`}
-                onClick={() => setStageFilter(p.key)}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  stageFilter === p.key
-                    ? "bg-blue-500 text-white"
-                    : "text-slate-600 dark:text-slate-400 hover:text-white"
-                }`}
-              >
-                {p.label}
-                {count > 0 && p.key !== "all" && (
-                  <span className="ml-2 text-xs opacity-80">{count}</span>
-                )}
-              </button>
-            );
-          })}
+        {/* Stage filter pills + history toggle */}
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <div className="flex gap-1 bg-white/60 dark:bg-slate-900/60 rounded-lg p-1 w-fit flex-wrap">
+            {stagePills.map((p) => {
+              const count = stageCountByKey(p.key);
+              return (
+                <button
+                  key={p.key}
+                  data-testid={`stage-filter-${p.key}`}
+                  onClick={() => { setShowHistory(false); setStageFilter(p.key); }}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    !showHistory && stageFilter === p.key
+                      ? "bg-blue-500 text-white"
+                      : "text-slate-600 dark:text-slate-400 hover:text-white"
+                  }`}
+                >
+                  {p.label}
+                  {count > 0 && p.key !== "all" && (
+                    <span className="ml-2 text-xs opacity-80">{count}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {/* →2624: finished specs live here, out of the way of active work. */}
+          <button
+            type="button"
+            data-testid="show-history-button"
+            onClick={() => setShowHistory((v) => !v)}
+            title={
+              showHistory
+                ? "Go back to the specs you are still working on."
+                : "See the specs you already finished."
+            }
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              showHistory
+                ? "bg-blue-500 text-white"
+                : "bg-white/60 dark:bg-slate-900/60 text-slate-600 dark:text-slate-400 hover:text-white"
+            }`}
+          >
+            {showHistory ? "Hide history" : "Show history"}
+            {doneDocs.length > 0 && (
+              <span className="ml-2 text-xs opacity-80">{doneDocs.length}</span>
+            )}
+          </button>
         </div>
 
         {/* Bulk empty-draft delete — appears when 2+ empty drafts are visible */}
@@ -1408,8 +1459,12 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
         {stageFiltered.length === 0 && pendingList.length === 0 ? (
           <EmptyState
             icon="description"
-            title="No specs yet"
-            description="Create a draft to start planning."
+            title={showHistory ? "No finished specs yet" : "No specs yet"}
+            description={
+              showHistory
+                ? "Specs you finish will show up here."
+                : "Create a draft to start planning."
+            }
           />
         ) : stageFiltered.length === 0 ? null : (
           <div className="space-y-3">
