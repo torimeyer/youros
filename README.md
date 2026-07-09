@@ -247,6 +247,8 @@ If you already have a local pre-commit hook, the installer preserves it as `.git
 
 ## Troubleshooting
 
+Run `scripts/youros-doctor.sh` for a guided diagnostic with fix commands. See [docs/recovery.md](docs/recovery.md) for the full recovery guide (check health, save your setup, restore it).
+
 **Icons render as text labels ("home", "checklist", "drag_indicator", etc.)**
 The Material Symbols font failed to load. Usually a stale browser cache after an update — hard refresh with Cmd+Shift+R (Mac) or Ctrl+Shift+R (Linux). If it persists, rebuild the frontend: `cd app && npm run build`, then restart. If your browser's DevTools console shows `Content-Security-Policy` errors for `fonts.googleapis.com`, pull the latest — this was fixed by allowing Google Fonts in the CSP.
 
