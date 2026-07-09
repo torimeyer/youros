@@ -256,6 +256,30 @@ async def github_push(task_id: str, req: GitHubPushRequest):
     return {"ok": True, "issue": result}
 
 
+class PRReviewRequest(BaseModel):
+    owner: str
+    repo: str
+    pr_number: int
+
+
+@router.post("/github/pr-review")
+async def github_pr_review(req: PRReviewRequest):
+    """Return a structured review for the given pull request.
+
+    Fetches the PR diff and metadata via the connected GitHub token, then
+    asks the model to produce a summary, per-file walkthrough, and risk flags.
+    A PR the token cannot see returns a plain-language error, not a stack trace.
+    """
+    if not github_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to GitHub.")
+    try:
+        from services.pr_review import review_pr
+        result = await review_pr(req.owner, req.repo, req.pr_number)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
+
+
 @router.delete("/github/disconnect")
 async def github_disconnect():
     """Remove GitHub token and disconnect."""

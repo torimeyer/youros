@@ -10,6 +10,7 @@ import { useRunningAgentsStore } from '../stores/runningAgents'
 import { useMemoryToastStore } from '../stores/memoryToast'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { renderMarkdown, renderTextWithMarkdown } from '../lib/markdown'
+import { PRReviewCard, type PRReviewData } from './PRReviewCard'
 import { formatTime, formatElapsed, formatTokenCount } from '../lib/time'
 import { api } from '../lib/api'
 import { bumpAgents, bumpCalendar } from '../lib/sidebarBus'
@@ -153,6 +154,8 @@ interface Message {
   fileChanges?: FileChange[]
   /** ISO timestamp of when this message was created, used for →1734 bubble timestamps. */
   timestamp?: string
+  /** Structured PR review payload from the pr_review WebSocket message type. */
+  prReview?: PRReviewData
 }
 
 interface GiphyResult {
@@ -1075,6 +1078,21 @@ export function ChatPanel() {
         }
       }
       currentBubbleIdRef.current = null
+    } else if (lastMessage.type === 'pr_review') {
+      const reviewData = lastMessage.data as unknown as PRReviewData
+      setIsStreaming(false)
+      setPlaceholderAwaitingServer(false)
+      setMessages(prev => {
+        const last = prev[prev.length - 1]
+        if (last && last.role === 'assistant') {
+          return prev.map(m =>
+            m.id === last.id
+              ? { ...m, content: m.content.replace(/^Reviewing PR #\d+.*\n?/, ''), prReview: reviewData }
+              : m,
+          )
+        }
+        return [...prev, { id: genId(), role: 'assistant', content: '', prReview: reviewData }]
+      })
     } else if (lastMessage.type === 'structured_picker') {
       const data = lastMessage as unknown as {
         question: string
@@ -2837,7 +2855,7 @@ export function ChatPanel() {
             isThread: boolean,
             inBroadcastColumn: boolean = false,
           ) => {
-            const isEmpty = !msg.content?.trim() && !msg.toolCalls?.length && !msg.gifUrl && !msg.imageUrl
+            const isEmpty = !msg.content?.trim() && !msg.toolCalls?.length && !msg.gifUrl && !msg.imageUrl && !msg.prReview
             if (isEmpty && msg.role === 'assistant' && multiAiStatus && globalIdx === messages.length - 1) return null
             // Suppress empty assistant bubbles once both streaming flags are clear.
             // isStreaming=false means the stream ended; placeholderAwaitingServer=false
@@ -2938,7 +2956,8 @@ export function ChatPanel() {
                         {msg.toolCalls && msg.toolCalls.length > 0 && (
                           <ToolCallGroup calls={msg.toolCalls} msgId={msg.id} />
                         )}
-                        {msg.content?.trim() && (
+                        {msg.prReview && <PRReviewCard data={msg.prReview} />}
+                        {msg.content?.trim() && !msg.prReview && (
                           <CollapsibleText
                             text={msg.content}
                             isLast={globalIdx === messages.length - 1}
