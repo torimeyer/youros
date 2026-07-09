@@ -137,7 +137,7 @@ async def test_build_spec_returns_journey_id(client, tmp_path, monkeypatch):
     from services import ostk as ostk_module
     import routers.specs as specs_mod
 
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
@@ -148,19 +148,14 @@ async def test_build_spec_returns_journey_id(client, tmp_path, monkeypatch):
         "- [ ] Build this\n"
     )
 
-    async def fake_spec_build(*a, **kw):
-        return "→901 Build this"
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", AsyncMock(return_value={"agents": [
+        {"name": "spec-journey-build-901", "task_id": "→901", "task_title": "Build this", "prompt": "build"},
+    ]}))
 
-    monkeypatch.setattr(ostk_module.ostk, "spec_build", AsyncMock(return_value="→901 Build this"))
-    monkeypatch.setattr(ostk_module.ostk, "list_tasks", AsyncMock(return_value=[
-        {"id": "→901", "title": "Build this", "status": "open", "priority": "P1"},
-    ]))
-
-    with patch("routers.specs.spawn_agent", new_callable=AsyncMock):
-        with patch("routers.agents.spawn_agent", new_callable=AsyncMock):
-            resp = await client.post(
-                "/api/specs/docs/spec/journey-build.md/build"
-            )
+    with patch("routers.agents.spawn_agent", new_callable=AsyncMock):
+        resp = await client.post(
+            "/api/specs/docs/spec/journey-build.md/build"
+        )
 
     assert resp.status_code == 200
     data = resp.json()
@@ -173,7 +168,7 @@ async def test_build_spec_traces_journey_id(client, tmp_path, monkeypatch):
     """build_spec emits a trace event containing journey_id."""
     from services import ostk as ostk_module
 
-    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
 
@@ -184,20 +179,18 @@ async def test_build_spec_traces_journey_id(client, tmp_path, monkeypatch):
         "- [ ] Trace me\n"
     )
 
-    monkeypatch.setattr(ostk_module.ostk, "spec_build", AsyncMock(return_value="→902 Trace me"))
-    monkeypatch.setattr(ostk_module.ostk, "list_tasks", AsyncMock(return_value=[
-        {"id": "→902", "title": "Trace me", "status": "open", "priority": "P1"},
-    ]))
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", AsyncMock(return_value={"agents": [
+        {"name": "spec-trace-test-902", "task_id": "→902", "task_title": "Trace me", "prompt": "trace"},
+    ]}))
 
     traced_events = []
 
     def fake_trace(name, **kwargs):
         traced_events.append({"event": name, **kwargs})
 
-    with patch("routers.specs.trace_event", side_effect=fake_trace):
-        with patch("routers.specs.spawn_agent", new_callable=AsyncMock):
-            with patch("routers.agents.spawn_agent", new_callable=AsyncMock):
-                resp = await client.post("/api/specs/docs/spec/trace-test.md/build")
+    with patch("services.tracing.trace_event", side_effect=fake_trace):
+        with patch("routers.agents.spawn_agent", new_callable=AsyncMock):
+            resp = await client.post("/api/specs/docs/spec/trace-test.md/build")
 
     assert resp.status_code == 200
     journey_events = [e for e in traced_events if e.get("journey_id") == "jrn-tracetest1"]
@@ -241,7 +234,7 @@ async def test_activity_filter_by_journey_id(client, tmp_path, monkeypatch):
     with patch("routers.activity.ostk") as mock_ostk:
         mock_ostk.get_history = AsyncMock(return_value=mock_events)
         with patch("services.ostk.read_audit_entries", return_value=events):
-            resp = await client.get("/activity?journey_id=jrn-abc1")
+            resp = await client.get("/api/activity?journey_id=jrn-abc1")
 
     assert resp.status_code == 200
     data = resp.json()
