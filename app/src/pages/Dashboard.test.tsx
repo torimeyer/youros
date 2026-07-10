@@ -153,15 +153,16 @@ describe('Dashboard Day Summary', () => {
     })
   })
 
-  it('has a Refresh option in the Day Summary widget menu', async () => {
+  it("has a Refresh summary option in the Today's Focus widget menu", async () => {
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByText('Day Summary')).toBeInTheDocument()
     })
-    // Refresh is now in the three-dot menu, not inline
-    fireEvent.click(screen.getByTestId('widget-menu-trigger-day_summary'))
+    // Refresh lives in the Today's Focus three-dot menu now that the
+    // Day Summary card is folded into Today's Focus
+    fireEvent.click(screen.getByTestId('widget-menu-trigger-todays_focus'))
     await waitFor(() => {
-      expect(screen.getByTestId('widget-menu-day-summary-refresh')).toBeInTheDocument()
+      expect(screen.getByTestId('widget-menu-todays-focus-refresh')).toBeInTheDocument()
     })
   })
 
@@ -175,12 +176,12 @@ describe('Dashboard Day Summary', () => {
       (c) => c[0] === '/dashboard/summary'
     ).length
 
-    // Refresh is now in the three-dot menu
-    fireEvent.click(screen.getByTestId('widget-menu-trigger-day_summary'))
+    // Refresh lives in the Today's Focus three-dot menu
+    fireEvent.click(screen.getByTestId('widget-menu-trigger-todays_focus'))
     await waitFor(() => {
-      expect(screen.getByTestId('widget-menu-day-summary-refresh')).toBeInTheDocument()
+      expect(screen.getByTestId('widget-menu-todays-focus-refresh')).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByTestId('widget-menu-day-summary-refresh'))
+    fireEvent.click(screen.getByTestId('widget-menu-todays-focus-refresh'))
 
     await waitFor(() => {
       const summaryCallsAfter = mockedApiGet.mock.calls.filter(
@@ -555,7 +556,6 @@ describe('Dashboard widget customization', () => {
       'widget-todays-focus',
       'widget-quick-launch',
       'widget-next-meeting',
-      'widget-day-summary',
     ]
     for (const testId of expectedTestIds) {
       // eslint-disable-next-line no-await-in-loop
@@ -573,28 +573,29 @@ describe('Dashboard widget customization', () => {
     await waitFor(() => {
       expect(screen.getByText("Today's Focus")).toBeInTheDocument()
     })
-    // Quick Launch and Day Summary should be gone.
+    // Quick Launch should be gone. Day Summary renders inside Today's
+    // Focus now, so it stays visible whenever that card is on.
     expect(screen.queryByText('Quick Launch')).toBeNull()
-    expect(screen.queryByText('Day Summary')).toBeNull()
+    expect(screen.getByText('Day Summary')).toBeInTheDocument()
   })
 
   it('renders visible grid widgets in the saved order', async () => {
     useAppStore.setState({
-      dashboardWidgets: ['quick_launch', 'todays_focus', 'day_summary'],
+      dashboardWidgets: ['quick_launch', 'todays_focus', 'next_meeting'],
     })
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByTestId('widget-quick-launch')).toBeInTheDocument()
       expect(screen.getByTestId('widget-todays-focus')).toBeInTheDocument()
-      expect(screen.getByTestId('widget-day-summary')).toBeInTheDocument()
+      expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument()
     })
 
     // DOM order must match the saved preference order.
-    const cards = screen.getAllByTestId(/^widget-(quick-launch|todays-focus|day-summary)$/)
+    const cards = screen.getAllByTestId(/^widget-(quick-launch|todays-focus|next-meeting)$/)
     expect(cards.map((el) => el.dataset.testid)).toEqual([
       'widget-quick-launch',
       'widget-todays-focus',
-      'widget-day-summary',
+      'widget-next-meeting',
     ])
   })
 
@@ -1389,7 +1390,7 @@ describe('Widget three-dot menu and header overlap fix', () => {
   it('renders a three-dot menu trigger for each visible grid widget', async () => {
     renderDashboard()
     await waitFor(() => {
-      expect(screen.getByTestId('widget-menu-trigger-day_summary')).toBeInTheDocument()
+      expect(screen.getByTestId('widget-menu-trigger-todays_focus')).toBeInTheDocument()
     })
     expect(screen.getByTestId('widget-menu-trigger-adventure')).toBeInTheDocument()
   })
@@ -1407,16 +1408,16 @@ describe('Widget three-dot menu and header overlap fix', () => {
     expect(screen.getByText('Hide widget')).toBeInTheDocument()
   })
 
-  it('day_summary widget menu contains Refresh and Hide widget options', async () => {
+  it('todays_focus widget menu contains Refresh summary and Hide widget options', async () => {
     renderDashboard()
     await waitFor(() => {
-      expect(screen.getByTestId('widget-menu-trigger-day_summary')).toBeInTheDocument()
+      expect(screen.getByTestId('widget-menu-trigger-todays_focus')).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByTestId('widget-menu-trigger-day_summary'))
+    fireEvent.click(screen.getByTestId('widget-menu-trigger-todays_focus'))
     await waitFor(() => {
-      expect(screen.getByTestId('widget-menu-day-summary-refresh')).toBeInTheDocument()
+      expect(screen.getByTestId('widget-menu-todays-focus-refresh')).toBeInTheDocument()
     })
-    expect(screen.getByText('Refresh')).toBeInTheDocument()
+    expect(screen.getByText('Refresh summary')).toBeInTheDocument()
     expect(screen.getByText('Hide widget')).toBeInTheDocument()
   })
 
