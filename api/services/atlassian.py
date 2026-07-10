@@ -671,6 +671,7 @@ async def get_issue_links(key: str) -> dict:
     }
 
 
+async def get_issue(key: str) -> dict:
     """Return full issue detail including rendered description and comments."""
     async def call_issue(client, auth_kwargs, base_url, site):
         return await client.get(

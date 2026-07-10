@@ -1320,3 +1320,41 @@ class TestListBlockedIssuesMerged:
 
         source = Path(svc.__file__).read_text()
         assert source.count("async def list_blocked_issues") == 1
+
+
+class TestGetIssueRestored:
+    """get_issue lost its def line in 2a36a925, leaving its body orphaned
+    inside get_issue_links. The issue-detail endpoint and the promote
+    endpoint both call it, so the service must define it and it must
+    fetch real detail."""
+
+    @pytest.mark.asyncio
+    async def test_get_issue_exists_and_returns_detail(self, fresh_atlassian_cache):
+        from services import atlassian
+
+        assert hasattr(atlassian, "get_issue"), "services.atlassian must define get_issue"
+
+        issue_payload = {
+            "key": "JIRA-7",
+            "fields": {
+                "summary": "Detail row",
+                "status": {"name": "To Do"},
+                "priority": {"name": "High"},
+                "issuetype": {"name": "Bug"},
+                "assignee": {"displayName": "Tori"},
+                "reporter": {"displayName": "Sam"},
+                "created": "2026-07-01T00:00:00Z",
+                "updated": "2026-07-02T00:00:00Z",
+            },
+            "renderedFields": {"description": "<p>hello</p>"},
+        }
+        mock_client = _http_client_mock(_json_resp(issue_payload), method="get")
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                issue = await atlassian.get_issue("JIRA-7")
+
+        assert issue["key"] == "JIRA-7"
+        assert issue["summary"] == "Detail row"
+        assert issue["description_html"] == "<p>hello</p>"
+        assert issue["url"].endswith("/browse/JIRA-7")
+        assert issue["comments"] == []
