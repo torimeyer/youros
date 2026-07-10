@@ -584,6 +584,22 @@ describe('widget list invariants', () => {
     }
   })
 
+  it('ships the six saved-view presets in the registry, off for first-run users', () => {
+    const presetIds = [
+      'jira_due_soon',
+      'jira_new_on_plate',
+      'jira_stale_mine',
+      'jira_activity_on_mine',
+      'conf_edited_by_me',
+      'conf_stale_docs_i_own',
+    ]
+    for (const id of presetIds) {
+      expect(DEFAULT_DASHBOARD_WIDGETS).toContain(id)
+      expect(DASHBOARD_WIDGET_LABELS[id]).toBeTruthy()
+      expect(FIRST_RUN_DASHBOARD_WIDGETS).not.toContain(id)
+    }
+  })
+
   it('a brand-new user (no saved widgets) starts with the calm first-run set (G4)', () => {
     localStorage.removeItem('myos-dashboard-widgets')
     expect(readInitialDashboardWidgets()).toEqual(FIRST_RUN_DASHBOARD_WIDGETS)

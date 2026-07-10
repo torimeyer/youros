@@ -20,6 +20,12 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
   'competitive_intel',
   'blockers_widget',
   'dependency_map_widget',
+  'jira_due_soon',
+  'jira_new_on_plate',
+  'jira_stale_mine',
+  'jira_activity_on_mine',
+  'conf_edited_by_me',
+  'conf_stale_docs_i_own',
 ]
 
 // Human readable labels for each dashboard widget id. Keep this in sync
@@ -39,6 +45,12 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   competitive_intel: 'Competitor Signals',
   blockers_widget: 'Cross-team Blockers',
   dependency_map_widget: 'Dependency Map',
+  jira_due_soon: 'Jira: due soon',
+  jira_new_on_plate: 'Jira: new on my plate',
+  jira_stale_mine: 'Jira: stale on my plate',
+  jira_activity_on_mine: 'Jira: activity on my issues',
+  conf_edited_by_me: 'Confluence: pages I edited',
+  conf_stale_docs_i_own: 'Confluence: my stale docs',
 }
 
 // Calm starter set shown to a brand-new user who has no saved dashboard yet

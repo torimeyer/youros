@@ -11,6 +11,8 @@ import ConfluenceWidget from '../components/ConfluenceWidget';
 import CompetitiveIntelWidget from '../components/CompetitiveIntelWidget';
 import BlockersWidget from '../components/BlockersWidget';
 import DependencyMapWidget from '../components/DependencyMapWidget';
+import QueryWidget from '../components/QueryWidget';
+import { QUERY_PRESETS } from '../components/queryPresets';
 import { Card, SkeletonLine } from '../components/ui';
 import { api } from '../lib/api';
 import { reportError } from '../lib/reportError';
@@ -1064,6 +1066,10 @@ export default function Dashboard() {
     competitive_intel: renderCompetitiveIntel,
     blockers_widget: renderBlockersWidget,
     dependency_map_widget: renderDependencyMapWidget,
+    // Saved-view preset cards all render through the one QueryWidget.
+    ...Object.fromEntries(
+      QUERY_PRESETS.map((p) => [p.id, () => <QueryWidget key={p.id} preset={p} />]),
+    ),
   };
 
   const [widgetMenuOpen, setWidgetMenuOpen] = useState<string | null>(null);
