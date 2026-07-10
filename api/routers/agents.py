@@ -987,6 +987,12 @@ def agent_mailbox_instruction(
         f"   `curl -sSk -X POST https://127.0.0.1:8000/api/agents/register "
         "-H 'Content-Type: application/json' "
         f"-d '{{\"name\": \"{agent_name}\", \"model\": \"{model}\", \"task\": \"<one line description of your task>\", \"source\": \"claude-code\"}}'`\n\n"
+        "### CRITICAL ENV NOTE\n\n"
+        "mcp__ostk__bash and mcp__ostk__fs_ops are workspace-sandboxed: "
+        "they run relative to the project root only. Paths outside the workspace "
+        "(such as ~/.claude, ~/.config, or /dev/null) fail or hang silently "
+        "inside these tools. Use native Bash, Read, Edit, or Write for any "
+        "paths that live outside the project directory.\n\n"
         f"### Heartbeat (every {slow} seconds, CRITICAL for long tasks)\n\n"
         "The Agents page marks you as stopped if it does not hear from "
         f"you for more than {STALE_AGENT_TIMEOUT_SECONDS} seconds (15 min). "
@@ -2710,7 +2716,23 @@ def _recover_stale_agents():
         # Case 3: backend-managed spawn (ui/api/chat) or stale claude-code
         # session with no liveness signals. Worker is dead. Mark abandoned so
         # the Active Sessions list does not show phantoms.
-        _set_agent_status(name, "abandoned", abandoned_at=now.isoformat())
+        # →2640 fix 6(b): build a reason, send SIGTERM to reap any zombie,
+        # and record the outcome in terminated_reason so the user can see why.
+        import signal as _signal
+        _stale_reason = "backend restart: no liveness signals"
+        if pid:
+            try:
+                os.kill(pid, _signal.SIGTERM)
+                _stale_reason = f"backend restart: SIGTERM sent to pid={pid}"
+            except ProcessLookupError:
+                _stale_reason = f"backend restart: pid={pid} already dead"
+            except OSError as _ke:
+                _stale_reason = f"backend restart: kill pid={pid} error={_ke}"
+        _set_agent_status(
+            name, "abandoned",
+            abandoned_at=now.isoformat(),
+            terminated_reason=_stale_reason,
+        )
         changed = True
     if changed:
         _save_agent_state()
