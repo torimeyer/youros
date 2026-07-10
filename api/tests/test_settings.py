@@ -958,3 +958,209 @@ async def test_os_name_defaults_to_yourOS_when_absent_from_file(client, tmp_path
 
     assert resp.status_code == 200
     assert resp.json()["os_name"] == "yourOS"
+
+
+# --- API key masking (→2684) ---
+# GET /api/settings used to return the raw settings file, including the
+# full Anthropic API key, to the browser. Any page script, extension, or
+# captured log could read it. These tests lock in the fix: secret-shaped
+# fields are masked in the response (last 4 characters only) and treated
+# as write-only on PATCH/PUT so a masked or empty value coming back in
+# never overwrites the stored one.
+
+_REAL_KEY = "sk-ant-api03-verylongsecretvalue-Ab12Cd34"
+
+
+@pytest.mark.asyncio
+async def test_get_settings_masks_anthropic_api_key(client, settings_file):
+    """The response shows only the last 4 characters, never the full key."""
+    data = json.loads(settings_file.read_text())
+    data["anthropic_api_key"] = _REAL_KEY
+    settings_file.write_text(json.dumps(data))
+
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.get("/api/settings")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["anthropic_api_key"] == "****Cd34"
+    assert body["has_anthropic_api_key"] is True
+    # The full key must not appear anywhere in the response.
+    assert _REAL_KEY not in json.dumps(body)
+
+
+@pytest.mark.asyncio
+async def test_get_settings_has_flag_false_when_no_key_saved(client, settings_file):
+    """Without a saved key the has-flag is False so the UI can say 'not set'."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.get("/api/settings")
+
+    assert resp.status_code == 200
+    assert resp.json()["has_anthropic_api_key"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_settings_masks_other_secret_shaped_fields(client, settings_file):
+    """Every field whose name looks like a key, token, or secret is masked,
+    including ones nested inside dicts and lists."""
+    data = json.loads(settings_file.read_text())
+    data["gemini_api_key"] = "AIzaSyFakeGeminiKeyValue-Wx89"
+    data["telegram"] = {"token": "123456:AAFakeTelegramTokenValue", "chat_id": "42"}
+    data["mcp_servers"] = [
+        {"name": "Slack", "url": "https://mcp.example.com", "auth_token": "tok-secret-value-Zz77"},
+    ]
+    settings_file.write_text(json.dumps(data))
+
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.get("/api/settings")
+
+    body = resp.json()
+    assert body["gemini_api_key"] == "****Wx89"
+    assert body["has_gemini_api_key"] is True
+    assert body["telegram"]["token"].startswith("****")
+    assert "AAFakeTelegramTokenValue" not in json.dumps(body)
+    assert body["mcp_servers"][0]["auth_token"] == "****Zz77"
+    assert "tok-secret-value-Zz77" not in json.dumps(body)
+    # Non-secret fields are untouched.
+    assert body["telegram"]["chat_id"] == "42"
+    assert body["mcp_servers"][0]["name"] == "Slack"
+
+
+@pytest.mark.asyncio
+async def test_get_settings_empty_secret_stays_empty(client, settings_file):
+    """An empty stored secret is returned as-is with a False has-flag."""
+    data = json.loads(settings_file.read_text())
+    data["gemini_oauth_access_token"] = ""
+    settings_file.write_text(json.dumps(data))
+
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.get("/api/settings")
+
+    body = resp.json()
+    assert body["gemini_oauth_access_token"] == ""
+    assert body["has_gemini_oauth_access_token"] is False
+
+
+@pytest.mark.asyncio
+async def test_patch_new_anthropic_key_saves(client, settings_file):
+    """A genuinely new full key value saves to disk as before."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch(
+            "/api/settings", json={"anthropic_api_key": _REAL_KEY}
+        )
+        assert resp.status_code == 200
+
+    saved = json.loads(settings_file.read_text())
+    assert saved["anthropic_api_key"] == _REAL_KEY
+
+
+@pytest.mark.asyncio
+async def test_patch_masked_value_leaves_stored_key_untouched(client, settings_file):
+    """A masked value echoed back in a PATCH must not overwrite the real key."""
+    data = json.loads(settings_file.read_text())
+    data["anthropic_api_key"] = _REAL_KEY
+    settings_file.write_text(json.dumps(data))
+
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch(
+            "/api/settings", json={"anthropic_api_key": "****Cd34", "dark_mode": False}
+        )
+        assert resp.status_code == 200
+
+    saved = json.loads(settings_file.read_text())
+    assert saved["anthropic_api_key"] == _REAL_KEY
+    # Other fields in the same PATCH still apply.
+    assert saved["dark_mode"] is False
+
+
+@pytest.mark.asyncio
+async def test_patch_empty_string_leaves_stored_key_untouched(client, settings_file):
+    """An empty string in a PATCH must not wipe the stored key."""
+    data = json.loads(settings_file.read_text())
+    data["anthropic_api_key"] = _REAL_KEY
+    settings_file.write_text(json.dumps(data))
+
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch(
+            "/api/settings", json={"anthropic_api_key": ""}
+        )
+        assert resp.status_code == 200
+
+    saved = json.loads(settings_file.read_text())
+    assert saved["anthropic_api_key"] == _REAL_KEY
+
+
+@pytest.mark.asyncio
+async def test_put_masked_value_leaves_stored_key_untouched(client, settings_file):
+    """PUT gets the same write-only treatment as PATCH."""
+    data = json.loads(settings_file.read_text())
+    data["anthropic_api_key"] = _REAL_KEY
+    settings_file.write_text(json.dumps(data))
+
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.put(
+            "/api/settings", json={"anthropic_api_key": "****Cd34", "accent_color": "red"}
+        )
+        assert resp.status_code == 200
+
+    saved = json.loads(settings_file.read_text())
+    assert saved["anthropic_api_key"] == _REAL_KEY
+    assert saved["accent_color"] == "red"
+
+
+@pytest.mark.asyncio
+async def test_patch_has_flag_is_never_persisted(client, settings_file):
+    """A client echoing the whole GET response back must not write the
+    response-only has_ flags into the settings file."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch(
+            "/api/settings", json={"has_anthropic_api_key": True, "dark_mode": False}
+        )
+        assert resp.status_code == 200
+
+    saved = json.loads(settings_file.read_text())
+    assert "has_anthropic_api_key" not in saved
+    assert saved["dark_mode"] is False
+
+
+@pytest.mark.asyncio
+async def test_patch_mcp_servers_with_masked_token_keeps_stored_token(client, settings_file):
+    """The MCP installer reads mcp_servers from GET /settings and patches the
+    whole list back. A masked auth_token in that round trip must be replaced
+    with the stored real token, not saved as the mask."""
+    data = json.loads(settings_file.read_text())
+    data["mcp_servers"] = [
+        {"name": "Slack", "url": "https://mcp.example.com", "auth_token": "tok-secret-value-Zz77", "enabled": True},
+    ]
+    settings_file.write_text(json.dumps(data))
+
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        # Echo the masked entry back with a changed non-secret field, the
+        # way the installer's enable/disable toggle does.
+        resp = await client.patch(
+            "/api/settings",
+            json={"mcp_servers": [
+                {"name": "Slack", "url": "https://mcp.example.com", "auth_token": "****Zz77", "enabled": False},
+            ]},
+        )
+        assert resp.status_code == 200
+
+    saved = json.loads(settings_file.read_text())
+    assert saved["mcp_servers"][0]["auth_token"] == "tok-secret-value-Zz77"
+    assert saved["mcp_servers"][0]["enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_patch_mcp_servers_new_entry_with_real_token_saves(client, settings_file):
+    """Adding a brand new server with a real token still saves normally."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch(
+            "/api/settings",
+            json={"mcp_servers": [
+                {"name": "Linear", "url": "https://linear.example.com", "auth_token": "tok-new-real-Qq55", "enabled": True},
+            ]},
+        )
+        assert resp.status_code == 200
+
+    saved = json.loads(settings_file.read_text())
+    assert saved["mcp_servers"][0]["auth_token"] == "tok-new-real-Qq55"
