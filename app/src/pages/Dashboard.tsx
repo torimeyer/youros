@@ -827,6 +827,24 @@ export default function Dashboard() {
           ))
         )}
       </div>
+      <hr className="border-slate-200 dark:border-slate-700 my-4" />
+      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Day Summary</p>
+      <div className="space-y-2">
+        {summaryLoading && summaryBullets.length === 0 ? (
+          <p className="text-sm text-slate-500">Loading summary...</p>
+        ) : summaryBullets.length === 0 ? (
+          <p className="text-sm text-slate-500">Nothing to summarize yet. Once you start using yourOS, a daily recap will appear here.</p>
+        ) : (
+          <ul className="space-y-2">
+            {summaryBullets.map((bullet, i) => (
+              <li key={i} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
+                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+                <span className="min-w-0 line-clamp-2 leading-snug">{bullet}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </Card>
     </div>
   );
@@ -916,42 +934,6 @@ export default function Dashboard() {
       </div>
     );
   };
-
-  const renderDaySummary = () => {
-    // When a widget is in the user's dashboard list it should always
-    // render. The briefing banner and Day Summary are now independent
-    // cards the user controls via Customize.
-    return (
-      <div key="day_summary" data-testid="widget-day-summary">
-      <Card hover padding="sm" className="sm:p-6">
-        <div className="flex items-center mb-4 pr-8">
-          <div className="flex items-center gap-2">
-            <Icon name="calendar_today" className="text-cyan-600 dark:text-cyan-400" size={20} />
-            <h2 className="text-lg font-semibold">Day Summary</h2>
-          </div>
-        </div>
-        <div className="space-y-2">
-          {summaryLoading && summaryBullets.length === 0 ? (
-            <p className="text-sm text-slate-500">Loading summary...</p>
-          ) : summaryBullets.length === 0 ? (
-            <p className="text-sm text-slate-500">Nothing to summarize yet. Once you start using yourOS, a daily recap will appear here.</p>
-          ) : (
-            <ul className="space-y-2">
-              {summaryBullets.map((bullet, i) => (
-                <li key={i} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
-                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
-                  {/* UAT item 5: clamp so a long task title never becomes a wall of text */}
-                  <span className="min-w-0 line-clamp-2 leading-snug">{bullet}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </Card>
-      </div>
-    );
-  };
-
 
   const renderAdventure = () => {
     if (adventureDismissed) return null;
@@ -1076,7 +1058,6 @@ export default function Dashboard() {
     todays_focus: renderTodaysFocus,
     quick_launch: renderQuickLaunch,
     next_meeting: renderNextMeeting,
-    day_summary: renderDaySummary,
     recent_specs: renderRecentSpecs,
     jira: renderJira,
     confluence: renderConfluence,
@@ -1166,15 +1147,15 @@ export default function Dashboard() {
                         Dismiss
                       </button>
                     )}
-                    {id === 'day_summary' && (
+                    {id === 'todays_focus' && (
                       <button
                         onClick={() => { fetchSummary(); setWidgetMenuOpen(null); }}
                         disabled={summaryLoading}
-                        data-testid="widget-menu-day-summary-refresh"
+                        data-testid="widget-menu-todays-focus-refresh"
                         className="w-full text-left px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors flex items-center gap-2"
                       >
                         <Icon name="refresh" size={14} className={summaryLoading ? 'animate-spin' : ''} />
-                        Refresh
+                        Refresh summary
                       </button>
                     )}
                     <button
