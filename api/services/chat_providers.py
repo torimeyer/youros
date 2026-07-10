@@ -2366,15 +2366,17 @@ class ChatService:
         # available, but it also handles the no-key case gracefully.
         import time as _time
         _t0 = _time.perf_counter()
-        api_key = await _resolve_api_key("anthropic_api_key")
 
-        # Resolve backend and send backend_active BEFORE template matching.
-        # The AI classifier in _maybe_match_template makes a blocking
-        # Anthropic call that can stall 30+ seconds when the API is slow,
-        # preventing any event from reaching the frontend and causing the
-        # dead-backend timer to fire. Sending backend_active first clears
-        # that timer immediately so the UI stays responsive.
+        # Resolve backend first (fast) and signal the frontend immediately so
+        # the "thinking" indicator appears before the slow keychain lookup.
         backend = await _resolve_chat_backend()
+        _initial_backend = backend
+        await _send_backend_active(websocket, backend)
+
+        # Key lookup is slow (keychain round-trip). It happens after the
+        # signal so a cold reload does not delay the thinking indicator or
+        # allow the dead-backend timer to fire.
+        api_key = await _resolve_api_key("anthropic_api_key")
 
         # Broadcast ("All" pill) path: skip the Claude Code CLI in favor
         # of the direct Anthropic API when a key is available. The CLI
@@ -2395,7 +2397,8 @@ class ChatService:
             if api_key:
                 backend = "anthropic_api"
 
-        await _send_backend_active(websocket, backend)
+        if backend != _initial_backend:
+            await _send_backend_active(websocket, backend)
 
         matched_template = await _maybe_match_template(messages, websocket, api_key)
         _t_template = _time.perf_counter()
