@@ -67,14 +67,20 @@ export default function OnboardingWizard() {
   // an empty "Name your OS" field. This prevents stale values from
   // localStorage or prior test runs (e.g. e2e_browser.sh writes
   // "e2e-browser-os" via the Settings page and e2e_smoke.sh writes
-  // "e2e-test-os" via PATCH) from pre-filling the field. The wizard only
-  // mounts when onboarded=false, so the user has not confirmed a name yet
-  // and nothing of theirs is being clobbered.
+  // "e2e-test-os" via PATCH) from pre-filling the field.
+  //
+  // →2777: blank the field LOCALLY only, never through setOsName. That
+  // setter PATCHes its value to the server, and the wizard is not only
+  // mounted for genuinely new users: while hydration is still deciding
+  // onboarded (slow backend, failed first fetch), the wizard mounts
+  // transiently on any page and the old code wiped the user's real
+  // stored name with os_name:"" on every such mount. Reading the store
+  // via getState() also keeps StrictMode's second effect run from
+  // firing twice off a stale closure.
   useEffect(() => {
-    if (osName !== '') {
-      setOsName('')
+    if (useAppStore.getState().osName !== '') {
+      useAppStore.setState({ osName: '' })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const runProviderDetect = useCallback(() => {

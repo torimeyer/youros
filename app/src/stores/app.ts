@@ -748,6 +748,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     // raise onboarded (dismissing the wizard) but must never lower it, see
     // ignoreServerReset below.
     const isRetry = hydrationRetryAttempt > 0
+    // →2777: snapshot before the request so a reply that raced a user edit
+    // can be detected. On a busy backend this fetch (or a →2687 retry) can
+    // resolve seconds after the user renamed their OS; applying the stale
+    // reply reverts the input and the next blur/Enter save then writes the
+    // reverted name to disk.
+    const osNameAtFetchStart = get().osName
     let server: Record<string, unknown> = {}
     try {
       server = await api.get<Record<string, unknown>>('/settings', { timeoutMs: HYDRATION_SETTINGS_TIMEOUT_MS })
@@ -818,11 +824,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       backfill.onboarded = state.onboarded
     }
 
-    // os_name
+    // os_name. Only apply the server's value if the user has not renamed
+    // their OS while this request was in flight; the newer local value
+    // wins and the user's own save (already on the wire) will bring the
+    // server up to date (→2777).
     if (hasValue(server.os_name)) {
-      const v = String(server.os_name)
-      updates.osName = v
-      lsSet(LS_KEYS.osName, v)
+      if (state.osName === osNameAtFetchStart) {
+        const v = String(server.os_name)
+        updates.osName = v
+        lsSet(LS_KEYS.osName, v)
+      }
     } else if (state.osName && state.osName !== 'yourOS') {
       backfill.os_name = state.osName
     }

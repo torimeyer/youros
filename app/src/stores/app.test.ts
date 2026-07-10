@@ -386,6 +386,39 @@ describe('useAppStore', () => {
       )
     })
 
+    // →2777: on a busy backend the settings reply (or a →2687 retry) can
+    // land seconds after the user already renamed their OS. Applying that
+    // stale reply reverts the input, and the next blur/Enter save then
+    // faithfully writes the reverted name to disk: "OS name did not
+    // persist" in the browser pre-release check.
+    it('a late settings reply never overwrites an os_name edited while it was in flight (→2777)', async () => {
+      try {
+        let resolveSettings: (v: unknown) => void = () => {}
+        vi.mocked(api.get).mockImplementationOnce(
+          () => new Promise((r) => { resolveSettings = r })
+        )
+
+        const hydration = useAppStore.getState().hydrateFromServer()
+        // The user renames their OS while GET /settings is still in flight.
+        useAppStore.getState().setOsName('freshOS')
+        resolveSettings({ onboarded: true, os_name: 'staleOS' })
+        await hydration
+
+        // The typed name wins, in the store and on the wire.
+        expect(useAppStore.getState().osName).toBe('freshOS')
+        const staleEchoes = vi.mocked(api.patch).mock.calls.filter(
+          ([, body]) => (body as { os_name?: string })?.os_name === 'staleOS'
+        )
+        expect(staleEchoes).toHaveLength(0)
+      } finally {
+        // →2687 pattern: never leave a hydration retry timer armed past the
+        // end of the test. The retry chain re-arms itself forever with real
+        // timers, so a leaked one fires during later tests and steals their
+        // queued mock responses.
+        cancelHydrationRetry()
+      }
+    })
+
     it('does not overwrite local values when the server fetch fails', async () => {
       useAppStore.setState({ onboarded: true, osName: 'LocalOS' })
       vi.mocked(api.get).mockRejectedValueOnce(new Error('network down'))
@@ -395,6 +428,11 @@ describe('useAppStore', () => {
       const state = useAppStore.getState()
       expect(state.onboarded).toBe(true)
       expect(state.osName).toBe('LocalOS')
+      // The failed fetch above armed a real 2s self-re-arming retry timer.
+      // Cancel it here instead of relying on the next test's beforeEach:
+      // on a slow machine the timer fires first, calls hydrateFromServer,
+      // and consumes mock responses queued for whichever test is running.
+      cancelHydrationRetry()
     })
 
     it('treats null server values as silent and falls back to local', async () => {

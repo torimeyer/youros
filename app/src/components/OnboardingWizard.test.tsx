@@ -518,6 +518,28 @@ describe('OnboardingWizard', () => {
     expect(useAppStore.getState().osName).toBe('')
   })
 
+  // →2777: the wizard can mount transiently on any page while hydration is
+  // still deciding onboarded (a slow backend leaves onboarded=false from
+  // localStorage for a few seconds). Blanking the name field must stay a
+  // local affair: going through setOsName PATCHed os_name:"" to the live
+  // backend on every such mount, wiping the user's real stored name.
+  it('blanks the name field locally without PATCHing os_name to the server (→2777)', () => {
+    useAppStore.setState({ osName: 'toriOS' })
+    vi.mocked(api.patch).mockClear()
+    render(<OnboardingWizard />)
+    // The field still starts empty for a new user...
+    expect(useAppStore.getState().osName).toBe('')
+    // ...but nothing may have written that blank to the server.
+    const osNamePatches = vi.mocked(api.patch).mock.calls.filter(
+      ([path, body]) =>
+        path === '/settings' &&
+        !!body &&
+        typeof body === 'object' &&
+        'os_name' in (body as Record<string, unknown>)
+    )
+    expect(osNamePatches).toHaveLength(0)
+  })
+
   it('does not show Back button on Ready step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
