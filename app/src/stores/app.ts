@@ -14,7 +14,6 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
   'todays_focus',
   'quick_launch',
   'next_meeting',
-  'day_summary',
   'recent_specs',
   'jira',
   'confluence',
@@ -34,7 +33,6 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   todays_focus: "Today's Focus",
   quick_launch: 'Quick Launch',
   next_meeting: 'Next Event',
-  day_summary: 'Day Summary',
   recent_specs: 'Recent Specs',
   jira: 'Jira Issues',
   confluence: 'Confluence Pages',
@@ -379,7 +377,7 @@ const initialCustomAgentTemplates = readInitialCustomTemplates()
 function migrateBriefingWidgetId(ids: string[]): string[] {
   const out: string[] = []
   for (const id of ids) {
-    if (id === 'ostk_files') continue // removed widget, drop it
+    if (id === 'ostk_files' || id === 'day_summary') continue // removed widget, drop it
     const mapped = id === 'morning_briefing' ? 'briefing' : id
     if (!out.includes(mapped)) out.push(mapped)
   }
