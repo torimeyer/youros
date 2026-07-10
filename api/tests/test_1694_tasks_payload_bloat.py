@@ -5,11 +5,20 @@ Before the fix, GET /api/tasks called ostk.list_tasks(status=None) which ran
 producing a 1.4 MB payload on every 3-second poll. This bloat aggravated the
 Vite proxy wedge (→1684) and chat slowness (→1699).
 
-After the fix:
+After the original →1694 fix:
   - Default: calls ostk.list_tasks(status="open") → only active needles
   - ?status=closed: calls ostk.list_tasks(status="closed") → closed only
   - ?include_closed=true: calls ostk.list_tasks(status=None) → everything
   - Explicit ?status=open still works unchanged
+
+→2640 update: the payload guard moved. ostk.list_tasks now reconciles the
+daemon output against the active store (issues.jsonl) internally, dropping
+the ~1400 rotated-archive closed entries no matter what status argument it
+receives (→2477). Forcing status="open" in the router was therefore only
+hiding stored in_progress tasks, so the router now passes status=None on
+the default path and strips closed rows in Python. The contract this file
+guards is unchanged: no closed needles in the default response, closed
+history fully retrievable on demand.
 
 No needle store is mutated. This is a read-path filter only.
 """
@@ -46,18 +55,27 @@ def _patch_ostk_and_labels(**ostk_attrs):
 
 
 @pytest.mark.asyncio
-async def test_default_list_tasks_requests_only_open_from_ostk(client):
-    """GET /api/tasks (no params) must call ostk with status='open', not None.
+async def test_default_list_tasks_passes_status_none_and_strips_closed(client):
+    """GET /api/tasks (no params) calls ostk with status=None and strips closed.
 
-    The root cause of →1694: the router called list_tasks(status=None) which
-    forwarded no --status flag to the CLI, so ostk returned ALL needles
-    including 1426 closed ones.
+    →2640: the router no longer forces status="open" (that hid stored
+    in_progress tasks). The →1694 archive-bloat guard lives inside
+    ostk.list_tasks now (active-store reconcile, →2477), and the router
+    keeps the no-closed-by-default contract by dropping closed rows in
+    Python before responding.
     """
-    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=[])) as ctx:
+    closed_task = _make_task(id="c-1", status="closed")
+    open_task = _make_task(id="o-1", status="open")
+    with _patch_ostk_and_labels(
+        list_tasks=AsyncMock(return_value=[closed_task, open_task])
+    ) as ctx:
         resp = await client.get("/api/tasks")
 
     assert resp.status_code == 200
-    ctx.mock_ostk.list_tasks.assert_called_once_with(status="open", priority=None)
+    ctx.mock_ostk.list_tasks.assert_called_once_with(status=None, priority=None)
+    ids = {t["id"] for t in resp.json()["tasks"]}
+    assert "c-1" not in ids, "closed task must not appear in the default view"
+    assert "o-1" in ids
 
 
 @pytest.mark.asyncio
@@ -91,13 +109,21 @@ async def test_status_open_explicit_still_works(client):
 
 
 @pytest.mark.asyncio
-async def test_include_closed_false_still_requests_open_only(client):
-    """?include_closed=false (explicit false) must behave same as default (open only)."""
-    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=[])) as ctx:
+async def test_include_closed_false_behaves_same_as_default(client):
+    """?include_closed=false (explicit false) must behave same as default:
+    status=None to the service, closed rows stripped from the response."""
+    closed_task = _make_task(id="c-1", status="closed")
+    open_task = _make_task(id="o-1", status="open")
+    with _patch_ostk_and_labels(
+        list_tasks=AsyncMock(return_value=[closed_task, open_task])
+    ) as ctx:
         resp = await client.get("/api/tasks?include_closed=false")
 
     assert resp.status_code == 200
-    ctx.mock_ostk.list_tasks.assert_called_once_with(status="open", priority=None)
+    ctx.mock_ostk.list_tasks.assert_called_once_with(status=None, priority=None)
+    ids = {t["id"] for t in resp.json()["tasks"]}
+    assert "c-1" not in ids, "closed task must not appear with include_closed=false"
+    assert "o-1" in ids
 
 
 @pytest.mark.asyncio

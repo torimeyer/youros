@@ -71,9 +71,10 @@ async def test_list_tasks_with_priority_filter(client):
         resp = await client.get("/api/tasks?priority=P0")
 
     assert resp.status_code == 200
-    # →1694: default request now passes status="open" (not None) to avoid
-    # shipping closed needles. Priority filter stacks on top.
-    ctx.mock_ostk.list_tasks.assert_called_once_with(status="open", priority="P0")
+    # →2640: status passes through as None on the default path (closed rows
+    # are stripped in the router; the →1694 archive guard lives inside
+    # ostk.list_tasks). Priority filter stacks on top.
+    ctx.mock_ostk.list_tasks.assert_called_once_with(status=None, priority="P0")
 
 
 # --- Regression: e2e smoke task filter on GET /api/tasks ---
@@ -575,8 +576,9 @@ async def test_list_tasks_closed_sorted_by_closed_at_desc(client):
         {**_make_task(id="t-new", status="closed"), "closed_at": "2026-04-20T12:00:00Z"},
         {**_make_task(id="t-mid", status="closed"), "closed_at": "2026-03-15T06:00:00Z"},
     ]
+    # →2640: closed rows only appear when the caller opts in.
     with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
-        resp = await client.get("/api/tasks")
+        resp = await client.get("/api/tasks?include_closed=true")
 
     assert resp.status_code == 200
     ids = [t["id"] for t in resp.json()["tasks"]]
@@ -590,7 +592,7 @@ async def test_list_tasks_open_before_closed(client):
         _make_task(id="t-open", status="open"),
     ]
     with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
-        resp = await client.get("/api/tasks")
+        resp = await client.get("/api/tasks?include_closed=true")
 
     assert resp.status_code == 200
     ids = [t["id"] for t in resp.json()["tasks"]]
@@ -604,7 +606,7 @@ async def test_list_tasks_closed_without_closed_at_sorts_last(client):
         {**_make_task(id="t-with-date", status="closed"), "closed_at": "2026-04-01T00:00:00Z"},
     ]
     with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
-        resp = await client.get("/api/tasks")
+        resp = await client.get("/api/tasks?include_closed=true")
 
     assert resp.status_code == 200
     ids = [t["id"] for t in resp.json()["tasks"]]
@@ -4605,8 +4607,9 @@ async def test_list_tasks_overlay_skips_terminal_closed_tasks(client):
         "task_id": "task-closed",
     }
     try:
+        # →2640: closed rows only appear when the caller opts in.
         with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
-            resp = await client.get("/api/tasks")
+            resp = await client.get("/api/tasks?include_closed=true")
         assert resp.status_code == 200
         returned = resp.json()["tasks"]
         # Closed must stay closed regardless of live agents.
@@ -4904,7 +4907,8 @@ async def test_closed_tasks_skip_readiness_check(client):
         list_tasks=AsyncMock(return_value=[closed, open_task])
     ):
         with patch("services.gemini_ready.compute_task_readiness", side_effect=fake_readiness):
-            resp = await client.get("/api/tasks")
+            # →2640: closed rows only appear when the caller opts in.
+            resp = await client.get("/api/tasks?include_closed=true")
 
     assert resp.status_code == 200
     tasks = {t["id"]: t for t in resp.json()["tasks"]}
@@ -4925,7 +4929,8 @@ async def test_closed_tasks_clear_to_build_false_even_if_readiness_import_fails(
 
     with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=[closed])):
         with patch("services.gemini_ready.compute_task_readiness", side_effect=ImportError("no module")):
-            resp = await client.get("/api/tasks")
+            # →2640: closed rows only appear when the caller opts in.
+            resp = await client.get("/api/tasks?include_closed=true")
 
     assert resp.status_code == 200
     tasks = resp.json()["tasks"]

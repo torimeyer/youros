@@ -236,15 +236,16 @@ async def list_tasks(
     include_closed: bool = False,
 ):
     try:
-        # Default to active-only to avoid shipping ~1400 closed needles on
-        # every 3s poll (→1694). Callers opt into closed history via
-        # ?status=closed or ?include_closed=true.
-        if status is None and not include_closed:
-            ostk_status = "open"
-        elif include_closed:
-            ostk_status = None
-        else:
-            ostk_status = status
+        # →2640: pass the status filter through untouched (None on the
+        # default path). The old code forced status="open" here as the
+        # →1694 payload guard, which also hid tasks stored as in_progress.
+        # That guard now lives inside ostk.list_tasks: it reconciles the
+        # daemon output against the active store (issues.jsonl) no matter
+        # what status it receives, so the ~1400 rotated-archive closed
+        # needles never reach this handler (→2477). Closed rows still in
+        # the active store are stripped below unless the caller opts in
+        # via ?status=closed or ?include_closed=true.
+        ostk_status = None if include_closed else status
         tasks = await ostk.list_tasks(status=ostk_status, priority=priority)
         # Apply custom sort order within each priority group
         tasks = task_order_store.apply_order(tasks)
@@ -347,7 +348,14 @@ async def list_tasks(
         open_tasks = [t for t in tasks if t.get("status") != "closed"]
         closed_tasks = [t for t in tasks if t.get("status") == "closed"]
         closed_tasks.sort(key=lambda t: t.get("closed_at") or "", reverse=True)
-        all_tasks = open_tasks + closed_tasks
+        # Default view is active work only: with status passed through as
+        # None, closed rows still present in the active store would leak
+        # into every 3s poll. Drop them here unless the caller asked for
+        # closed history (→1694 contract, →2640 mechanism).
+        if status is None and not include_closed:
+            all_tasks = open_tasks
+        else:
+            all_tasks = open_tasks + closed_tasks
         for t in all_tasks:
             _attach_plan_path(t)
         # Gemini-ready enrichment: compute readiness and attach to each task.
