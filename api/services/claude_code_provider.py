@@ -40,6 +40,8 @@ _REPO_ROOT: Path = Path(__file__).parent.parent.parent
 
 from fastapi import WebSocket
 
+from services.settings_store import settings_store
+
 
 _claude_log = logging.getLogger("myos.chat.claude_code")
 
@@ -109,17 +111,31 @@ _warm_procs: dict[str, Any] = {}
 _warm_proc_locks: dict[str, asyncio.Lock] = {}
 _warm_proc_reap_handles: dict[str, Any] = {}
 
+# Approved-servers fingerprint per warm process (→2650). Records the
+# --mcp-config JSON (or "" when nothing is approved) that each warm
+# worker was built with. When the user changes the approved list in
+# Settings, the next turn sees a different fingerprint and the stale
+# worker is discarded and rebuilt, so no turn ever runs with more or
+# fewer tools than settings say.
+_warm_proc_fingerprints: dict[str, str] = {}
+
 _WARM_PROC_IDLE_REAP_SECONDS: float = 1800.0
 
 
 async def _get_or_start_warm_proc(
     tab_id: str,
     warm_args: list[str],
+    config_fingerprint: str = "",
 ) -> Optional[Any]:
     """Return the live warm process for tab_id, starting one if needed.
 
     warm_args is the full argv for ``claude -p --input-format stream-json ...``
     without a prompt positional arg (each turn's message goes to stdin as JSON).
+
+    config_fingerprint identifies the approved-servers config baked into
+    warm_args (→2650). A live process whose stored fingerprint differs is
+    killed and rebuilt so a stale warm worker never serves a turn with an
+    outdated tool set.
 
     Returns None only when create_subprocess_exec raises.
     """
@@ -129,8 +145,15 @@ async def _get_or_start_warm_proc(
     async with _warm_proc_locks[tab_id]:
         existing = _warm_procs.get(tab_id)
         if existing is not None and existing.returncode is None:
-            return existing
-        # Dead or missing — start fresh.
+            if _warm_proc_fingerprints.get(tab_id, "") == config_fingerprint:
+                return existing
+            # The approved-servers list changed since this worker started.
+            # Discard it so the new tool set takes effect on this turn.
+            try:
+                existing.kill()
+            except (AttributeError, ProcessLookupError, OSError):
+                pass
+        # Dead, missing, or stale config — start fresh.
         _warm_procs.pop(tab_id, None)
         proc = await asyncio.create_subprocess_exec(
             *warm_args,
@@ -154,6 +177,7 @@ async def _get_or_start_warm_proc(
             limit=32 * 1024 * 1024,
         )
         _warm_procs[tab_id] = proc
+        _warm_proc_fingerprints[tab_id] = config_fingerprint
         return proc
 
 
@@ -161,6 +185,7 @@ def _reap_warm_proc(tab_id: str) -> None:
     """Terminate and remove the warm process for tab_id (idle reaper callback)."""
     proc = _warm_procs.pop(tab_id, None)
     _warm_proc_reap_handles.pop(tab_id, None)
+    _warm_proc_fingerprints.pop(tab_id, None)
     if proc is not None:
         try:
             if proc.returncode is None:
@@ -193,6 +218,7 @@ def evict_warm_proc(tab_id: str) -> None:
     """
     proc = _warm_procs.pop(tab_id, None)
     handle = _warm_proc_reap_handles.pop(tab_id, None)
+    _warm_proc_fingerprints.pop(tab_id, None)
     if handle is not None:
         try:
             handle.cancel()
@@ -204,6 +230,18 @@ def evict_warm_proc(tab_id: str) -> None:
                 proc.kill()
         except (AttributeError, ProcessLookupError, OSError):
             pass
+
+
+def evict_all_warm_procs() -> None:
+    """Evict every warm chat process across all tabs.
+
+    Called when the approved-servers list changes in Settings (→2650) so
+    no warm worker keeps serving with an outdated tool set. The per-turn
+    fingerprint check in _get_or_start_warm_proc covers changes that
+    bypass the settings API (e.g. editing settings.json by hand).
+    """
+    for tab_id in list(_warm_procs.keys()):
+        evict_warm_proc(tab_id)
 
 
 # Per-tab response cache — keyed by tab_id, value is the last full response
@@ -294,6 +332,123 @@ def _chat_model_args() -> list[str]:
     if effort:
         frag.extend(["--effort", effort])
     return frag
+
+
+# ---------------------------------------------------------------------------
+# Approved-servers list for chat (→2650)
+#
+# Chat blocks every remote tool server by default: the helper is launched
+# with --strict-mcp-config and no server list. Each entry in the settings
+# mcp_servers list can carry allowed_in_chat (default false, absent means
+# false). When at least one server is approved, the helper is ALSO given an
+# explicit --mcp-config containing exactly the approved servers. Strict
+# plus explicit list means exactly those servers and nothing else. An empty
+# approved list changes nothing: the launch is identical to before.
+# ---------------------------------------------------------------------------
+
+
+def _cli_registered_servers() -> dict[str, dict]:
+    """Server definitions from the Claude CLI's own config (~/.claude.json).
+
+    Servers installed through ``claude mcp add`` are stored by the CLI, not
+    in yourOS settings: user-scope servers under the top-level "mcpServers"
+    key and local-scope servers under projects[<dir>].mcpServers. Settings
+    entries that carry only a name are resolved here so the definition can
+    be re-passed explicitly via --mcp-config. User scope wins over any
+    project scope; project scopes are scanned in sorted-path order so the
+    result is deterministic.
+    """
+    try:
+        raw = json.loads((Path.home() / ".claude.json").read_text())
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    found: dict[str, dict] = {}
+    projects = raw.get("projects")
+    if isinstance(projects, dict):
+        for project_path in sorted(projects):
+            project = projects[project_path]
+            servers = project.get("mcpServers") if isinstance(project, dict) else None
+            if isinstance(servers, dict):
+                for name, cfg in servers.items():
+                    if isinstance(cfg, dict):
+                        found.setdefault(name, cfg)
+    top = raw.get("mcpServers")
+    if isinstance(top, dict):
+        for name, cfg in top.items():
+            if isinstance(cfg, dict):
+                found[name] = cfg
+    return found
+
+
+def _chat_mcp_config() -> Optional[str]:
+    """Return the --mcp-config JSON for chat-approved servers, or None.
+
+    Reads the settings mcp_servers list and keeps only entries the user
+    explicitly marked allowed_in_chat. Each kept entry becomes a Claude
+    CLI server definition:
+
+    - entries with a "command" become stdio servers,
+    - entries with a "url" become http (or entry["transport"]) servers,
+    - name-only entries (installed via ``claude mcp add``) are resolved
+      against the CLI's own config; unresolvable names are skipped with a
+      warning, so the launch fails closed rather than open.
+
+    Returns None when nothing is approved or nothing resolves, so callers
+    add no flags and an empty approved list launches identically to today.
+    The JSON is emitted with sorted keys so the same settings always
+    produce the same string (it doubles as the warm-worker fingerprint).
+    """
+    try:
+        entries = settings_store.get("mcp_servers", []) or []
+    except Exception:
+        return None
+    approved = [
+        e for e in entries
+        if isinstance(e, dict) and e.get("allowed_in_chat") is True
+    ]
+    if not approved:
+        return None
+
+    cli_servers: Optional[dict[str, dict]] = None
+    servers: dict[str, dict] = {}
+    for entry in approved:
+        name = str(entry.get("name") or entry.get("url") or "").strip()
+        if not name:
+            continue
+        if isinstance(entry.get("config"), dict):
+            servers[name] = entry["config"]
+        elif entry.get("command"):
+            definition: dict = {"type": "stdio", "command": entry["command"]}
+            if isinstance(entry.get("args"), list):
+                definition["args"] = entry["args"]
+            if isinstance(entry.get("env"), dict):
+                definition["env"] = entry["env"]
+            servers[name] = definition
+        elif entry.get("url"):
+            definition = {
+                "type": entry.get("transport") or "http",
+                "url": entry["url"],
+            }
+            if isinstance(entry.get("headers"), dict):
+                definition["headers"] = entry["headers"]
+            servers[name] = definition
+        else:
+            if cli_servers is None:
+                cli_servers = _cli_registered_servers()
+            cfg = cli_servers.get(name)
+            if cfg:
+                servers[name] = cfg
+            else:
+                _claude_log.warning(
+                    "chat_mcp_allowlist: no definition found for %r; "
+                    "it stays blocked in chat",
+                    name,
+                )
+    if not servers:
+        return None
+    return json.dumps({"mcpServers": servers}, sort_keys=True)
 
 
 def _strip_blocked_env(source: dict[str, str]) -> dict[str, str]:
@@ -918,6 +1073,17 @@ async def stream_chat(
         # the CLI layer here instead. Bash, Edit, Write stay available so
         # the model can still run shell commands and modify files.
         args.append("--disallowed-tools=Grep,Read,Glob")
+    # Approved-servers list (→2650). With nothing approved this adds no
+    # flags and the launch is identical to before. When the user approved
+    # servers in Settings, pass an explicit --mcp-config carrying exactly
+    # those servers; on the warm path below --strict-mcp-config is always
+    # present, so the helper loads exactly the approved set and nothing
+    # else. Plain-text turns (disable_tools) never load any server.
+    _mcp_allowlist_cfg: Optional[str] = None
+    if not kwargs.get("disable_tools"):
+        _mcp_allowlist_cfg = _chat_mcp_config()
+        if _mcp_allowlist_cfg:
+            args.extend(["--mcp-config", _mcp_allowlist_cfg])
     # Session persistence flags
     if session_uuid:
         if is_resume:
@@ -981,7 +1147,9 @@ async def stream_chat(
         if "--strict-mcp-config" not in _warm_args:
             _warm_args.append("--strict-mcp-config")
         try:
-            _wproc = await _get_or_start_warm_proc(tab_id, _warm_args)
+            _wproc = await _get_or_start_warm_proc(
+                tab_id, _warm_args, config_fingerprint=_mcp_allowlist_cfg or ""
+            )
             _msg_json = (
                 json.dumps({
                     "type": "user",

@@ -75,6 +75,10 @@ async def update_settings(body: dict):
     if "mcp_servers" in body:
         _validate_mcp_servers(body["mcp_servers"])
     settings_store.update(body)
+    if "mcp_servers" in body:
+        # The approved-servers list for chat may have changed; discard warm
+        # chat workers so no turn runs with a stale tool set (→2650).
+        claude_code_provider.evict_all_warm_procs()
     return {"result": "saved"}
 
 
@@ -104,6 +108,10 @@ async def patch_settings(body: dict, request: Request = None):
             ua[:80],
         )
     settings_store.update(body)
+    if "mcp_servers" in body:
+        # The approved-servers list for chat may have changed; discard warm
+        # chat workers so no turn runs with a stale tool set (→2650).
+        claude_code_provider.evict_all_warm_procs()
     try:
         from services.tracing import trace_event as _trace_event
         _trace_event("settings_patch", keys=list(body.keys()))
