@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Settings from './Settings'
 import { useAppStore } from '../stores/app'
@@ -1566,5 +1566,73 @@ describe('Settings: Memory split suggestions (→1820)', () => {
         topic_name: 'coding'
       })
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// →2777: loading the Settings page must never write the fetched os_name back
+// to the server. fetchSettings used to apply the GET value through setOsName,
+// whose store setter PATCHes /settings with whatever it is given. On a busy
+// backend that GET can resolve AFTER the user already saved a new name, and
+// the echo then overwrote the just-saved name on disk with the stale
+// pre-save value. The browser pre-release check saw this as "OS name did not
+// persist" while direct backend PATCHes kept working.
+// ---------------------------------------------------------------------------
+describe('Settings load path never echoes os_name back to the server (→2777)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ osName: 'yourOS', darkMode: true })
+  })
+
+  function osNamePatchCalls() {
+    return mockedApiPatch.mock.calls.filter(
+      ([path, body]) =>
+        path === '/settings' &&
+        !!body &&
+        typeof body === 'object' &&
+        'os_name' in (body as Record<string, unknown>)
+    )
+  }
+
+  it('applies the fetched os_name to the input without PATCHing it back', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      path === '/settings' ? Promise.resolve({ os_name: 'savedOS' }) : Promise.resolve({})
+    )
+    renderSettings()
+    // The fetched name reaches the input...
+    expect(await screen.findByDisplayValue('savedOS')).toBeInTheDocument()
+    // ...but reading must never write: no os_name PATCH may fire on load.
+    expect(osNamePatchCalls()).toHaveLength(0)
+  })
+
+  it('a slow settings fetch never overwrites a name typed while it was loading', async () => {
+    let resolveSettings: (v: unknown) => void = () => {}
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      path === '/settings'
+        ? new Promise((r) => {
+            resolveSettings = r
+          })
+        : Promise.resolve({})
+    )
+    renderSettings()
+
+    // The user renames their OS while GET /settings is still in flight.
+    const input = screen.getByDisplayValue('yourOS')
+    fireEvent.change(input, { target: { value: 'freshOS' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(useAppStore.getState().osName).toBe('freshOS')
+
+    // The stale reply lands after the save.
+    await act(async () => {
+      resolveSettings({ os_name: 'staleOS' })
+    })
+
+    // The typed name wins, in the store and on the wire: nothing may have
+    // PATCHed the stale name back to the server.
+    expect(useAppStore.getState().osName).toBe('freshOS')
+    const staleEchoes = osNamePatchCalls().filter(
+      ([, body]) => (body as { os_name?: string }).os_name === 'staleOS'
+    )
+    expect(staleEchoes).toHaveLength(0)
   })
 })

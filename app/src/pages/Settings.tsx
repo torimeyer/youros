@@ -235,10 +235,23 @@ export default function Settings() {
 
   useEffect(() => {
     const fetchSettings = async () => {
+      // Snapshot before the request so a reply that raced a user edit can
+      // be detected below (→2777).
+      const osNameBeforeFetch = useAppStore.getState().osName;
       try {
         const data = await api.get<SettingsData>('/settings');
         if (data.accent_color) setAccentColor(data.accent_color as AccentColor);
-        if (data.os_name) setOsName(data.os_name);
+        if (data.os_name && useAppStore.getState().osName === osNameBeforeFetch) {
+          // Apply the fetched name directly to the store, never through
+          // setOsName: that setter PATCHes its value straight back to the
+          // server, and when this GET resolves after the user saved a new
+          // name (slow backend), the echo overwrote the just-saved name on
+          // disk with the stale one (→2777). The snapshot guard keeps a
+          // reply that arrives mid-edit from clobbering what the user
+          // typed while the request was in flight.
+          localStorage.setItem('myos-os-name', data.os_name);
+          useAppStore.setState({ osName: data.os_name });
+        }
         if (data.dark_mode !== undefined && data.dark_mode !== darkMode) {
           // Set directly via store to avoid a toggle flash
           localStorage.setItem('myos-dark-mode', String(data.dark_mode));
