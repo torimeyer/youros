@@ -541,6 +541,28 @@ async def _run_git(
     return proc.returncode or 0, out, err
 
 
+async def _resolve_base_ref(cwd: str) -> str:
+    """Return the repo's current branch to use as the worktree start-point.
+
+    Uses ``git symbolic-ref --short HEAD``. Falls back to ``"main"`` when
+    that fails (detached HEAD). Worktrees must start from the branch the
+    repo is actually on: a hardcoded "main" base means that on any
+    non-main working branch every spawned-agent worktree starts from
+    stale main, so agent diffs are based on the wrong tree and clobber
+    recent work on merge-back (→2640 fix 1).
+    """
+    try:
+        rc, out, _ = await _run_git(
+            "symbolic-ref", "--short", "HEAD", cwd=cwd, timeout=5.0,
+        )
+        ref = out.decode(errors="replace").strip()
+        if rc == 0 and ref:
+            return ref
+    except Exception:
+        pass
+    return "main"
+
+
 async def _check_worktree_reuse_safe(
     wt_path: str,
     branch: str,
@@ -672,11 +694,14 @@ async def create_worktree(
         )
         # rc != 0 just means the branch didn't exist; that's fine.
 
-        # 3. Create the worktree on a fresh branch pinned to main.
+        # 3. Create the worktree on a fresh branch pinned to the repo's
+        #    current branch (falls back to "main" on detached HEAD), so
+        #    agents working on a non-main branch never start from stale main.
+        base_ref = await _resolve_base_ref(cwd)
         wt.parent.mkdir(parents=True, exist_ok=True)
         rc, out, err = await _run_git(
             "worktree", "add", "--lock",
-            str(wt), "-b", branch, "main",
+            str(wt), "-b", branch, base_ref,
             cwd=cwd, timeout=timeout,
         )
         if rc != 0:
