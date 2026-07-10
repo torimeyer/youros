@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import { useAppStore } from './stores/app'
 
 vi.mock('./lib/api', () => ({
@@ -101,6 +101,22 @@ describe('App routing', () => {
     useAppStore.setState({ hydrated: true, onboarded: false })
     render(<App />)
     expect(screen.queryByTestId('footer')).not.toBeInTheDocument()
+  })
+
+  // →2687: the wizard decision is live, not a one-shot. When the first
+  // settings fetch fails, the store keeps retrying in the background and
+  // flips onboarded=true when the server finally answers. This pins the
+  // React side of that contract: the moment the store flips, the wizard
+  // unmounts and the real app renders in its place.
+  it('swaps the wizard for the app the moment onboarded flips to true', () => {
+    useAppStore.setState({ hydrated: true, onboarded: false })
+    render(<App />)
+    expect(screen.getByTestId('onboarding')).toBeInTheDocument()
+
+    act(() => { useAppStore.setState({ onboarded: true }) })
+
+    expect(screen.queryByTestId('onboarding')).not.toBeInTheDocument()
+    expect(screen.getByTestId('page-dashboard')).toBeInTheDocument()
   })
 
   // OAuth callback cleanup: when Atlassian's callback redirects back to

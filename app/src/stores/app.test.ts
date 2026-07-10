@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useAppStore, TEAM_MODE_VISIBLE, DEFAULT_DASHBOARD_WIDGETS, FIRST_RUN_DASHBOARD_WIDGETS, readInitialDashboardWidgets, DASHBOARD_WIDGET_LABELS, HYDRATION_SETTINGS_TIMEOUT_MS, HYDRATION_ENTERPRISE_TIMEOUT_MS } from './app'
+import { useAppStore, TEAM_MODE_VISIBLE, DEFAULT_DASHBOARD_WIDGETS, FIRST_RUN_DASHBOARD_WIDGETS, readInitialDashboardWidgets, DASHBOARD_WIDGET_LABELS, HYDRATION_SETTINGS_TIMEOUT_MS, HYDRATION_ENTERPRISE_TIMEOUT_MS, HYDRATION_RETRY_DELAYS_MS, cancelHydrationRetry } from './app'
 import { api } from '../lib/api'
 
 // Mock the api module so no real network calls fire and we can assert
@@ -19,6 +19,9 @@ describe('useAppStore', () => {
     // Reset mocks so each test starts with a clean call history
     vi.mocked(api.get).mockReset().mockResolvedValue({})
     vi.mocked(api.patch).mockReset().mockResolvedValue({})
+    // Kill any settings-retry timer a previous test's failed hydration
+    // left behind so it cannot fire mid-test and mutate the store.
+    cancelHydrationRetry()
     // Reset store to initial state before each test
     useAppStore.setState({
       onboarded: false,
@@ -450,6 +453,7 @@ describe('useAppStore — team mode gate (TEAM_MODE_VISIBLE=false)', () => {
   beforeEach(() => {
     vi.mocked(api.get).mockReset().mockResolvedValue({})
     vi.mocked(api.patch).mockReset().mockResolvedValue({})
+    cancelHydrationRetry()
     useAppStore.setState({ instanceMode: 'personal', orgName: '' })
     try { localStorage.clear() } catch { /* noop */ }
   })
@@ -566,6 +570,122 @@ describe('useAppStore — team mode gate (TEAM_MODE_VISIBLE=false)', () => {
       '/enterprise/me',
       expect.objectContaining({ timeoutMs: HYDRATION_ENTERPRISE_TIMEOUT_MS }),
     )
+  })
+})
+
+// →2687: a slow or failed first settings fetch must not trap an already
+// set up user behind the welcome wizard. The store keeps asking the server
+// in the background and applies the answer whenever it lands.
+describe('hydration retry after a failed settings fetch (→2687)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.mocked(api.get).mockReset()
+    vi.mocked(api.patch).mockReset().mockResolvedValue({})
+    cancelHydrationRetry()
+    useAppStore.setState({ hydrated: false, onboarded: false })
+    try { localStorage.clear() } catch { /* noop */ }
+  })
+
+  afterEach(() => {
+    cancelHydrationRetry()
+    vi.useRealTimers()
+  })
+
+  const settingsCalls = () =>
+    vi.mocked(api.get).mock.calls.filter((c) => c[0] === '/settings').length
+
+  it('dismisses the wizard when a late retry answer says onboarded=true', async () => {
+    vi.mocked(api.get)
+      .mockRejectedValueOnce(new Error('timeout'))   // first /settings attempt
+      .mockResolvedValueOnce({ onboarded: true })    // background retry
+      .mockResolvedValue({ authenticated: false })   // /enterprise/me and later calls
+
+    await useAppStore.getState().hydrateFromServer()
+
+    // First attempt failed: the app falls back to localStorage, which in a
+    // fresh browser profile says onboarded=false, so the wizard is showing.
+    expect(useAppStore.getState().hydrated).toBe(true)
+    expect(useAppStore.getState().onboarded).toBe(false)
+
+    // The background retry fires and the server's answer wins.
+    await vi.advanceTimersByTimeAsync(HYDRATION_RETRY_DELAYS_MS[0])
+    expect(useAppStore.getState().onboarded).toBe(true)
+  })
+
+  it('keeps retrying with growing delays until the server answers', async () => {
+    vi.mocked(api.get)
+      .mockRejectedValueOnce(new Error('timeout'))   // initial attempt
+      .mockRejectedValueOnce(new Error('timeout'))   // retry 1
+      .mockRejectedValueOnce(new Error('timeout'))   // retry 2
+      .mockResolvedValueOnce({ onboarded: true })    // retry 3
+      .mockResolvedValue({ authenticated: false })
+
+    await useAppStore.getState().hydrateFromServer()
+    expect(useAppStore.getState().onboarded).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(HYDRATION_RETRY_DELAYS_MS[0]) // retry 1 fails
+    expect(useAppStore.getState().onboarded).toBe(false)
+    await vi.advanceTimersByTimeAsync(HYDRATION_RETRY_DELAYS_MS[1]) // retry 2 fails
+    expect(useAppStore.getState().onboarded).toBe(false)
+    await vi.advanceTimersByTimeAsync(HYDRATION_RETRY_DELAYS_MS[2]) // retry 3 succeeds
+    expect(useAppStore.getState().onboarded).toBe(true)
+    expect(settingsCalls()).toBe(4)
+  })
+
+  it('stops retrying once the server has answered', async () => {
+    vi.mocked(api.get)
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce({ onboarded: true })
+      .mockResolvedValue({ authenticated: false })
+
+    await useAppStore.getState().hydrateFromServer()
+    await vi.advanceTimersByTimeAsync(HYDRATION_RETRY_DELAYS_MS[0])
+    const callsAfterAnswer = settingsCalls()
+
+    await vi.advanceTimersByTimeAsync(120000)
+    expect(settingsCalls()).toBe(callsAfterAnswer)
+  })
+
+  it('a genuinely new user still sees the wizard when the late answer says onboarded=false', async () => {
+    vi.mocked(api.get)
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce({ onboarded: false })
+      .mockResolvedValue({ authenticated: false })
+
+    await useAppStore.getState().hydrateFromServer()
+    await vi.advanceTimersByTimeAsync(HYDRATION_RETRY_DELAYS_MS[0])
+    expect(useAppStore.getState().onboarded).toBe(false)
+  })
+
+  it('a late retry answer never yanks a locally onboarded user back into the wizard', async () => {
+    vi.mocked(api.get)
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce({ onboarded: false })
+      .mockResolvedValue({ authenticated: false })
+
+    await useAppStore.getState().hydrateFromServer()
+    // The user finishes the wizard while the backend is unreachable.
+    useAppStore.getState().setOnboarded(true)
+    // The setter itself patches the server; clear that call so the
+    // assertion below only watches what the background retry does.
+    vi.mocked(api.patch).mockClear()
+
+    await vi.advanceTimersByTimeAsync(HYDRATION_RETRY_DELAYS_MS[0])
+    expect(useAppStore.getState().onboarded).toBe(true)
+    // And we do not push the local value over the server's explicit answer:
+    // the next full page load applies the server's decision.
+    expect(api.patch).not.toHaveBeenCalledWith(
+      '/settings',
+      expect.objectContaining({ onboarded: true }),
+    )
+  })
+
+  it('does not schedule retries when the first fetch succeeds', async () => {
+    vi.mocked(api.get).mockResolvedValue({})
+    await useAppStore.getState().hydrateFromServer()
+    const calls = settingsCalls()
+    await vi.advanceTimersByTimeAsync(120000)
+    expect(settingsCalls()).toBe(calls)
   })
 })
 

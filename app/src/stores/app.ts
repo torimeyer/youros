@@ -265,6 +265,43 @@ const LS_KEYS = {
 export const HYDRATION_SETTINGS_TIMEOUT_MS = 5000
 export const HYDRATION_ENTERPRISE_TIMEOUT_MS = 5000
 
+// →2687: when the first settings fetch fails or times out, keep asking the
+// server in the background with growing delays instead of giving up. Without
+// this, a cold or busy backend that misses the 5s window leaves the wizard
+// decision to localStorage alone, which says onboarded=false in a fresh
+// browser profile, trapping an already set up user behind the welcome wizard
+// until a lucky reload. After the last entry the delay stays at the cap.
+export const HYDRATION_RETRY_DELAYS_MS = [2000, 4000, 8000, 16000, 30000]
+
+let hydrationRetryTimer: ReturnType<typeof setTimeout> | null = null
+let hydrationRetryAttempt = 0
+
+function scheduleHydrationRetry(run: () => void): void {
+  // One pending retry at a time. A second failed hydration call (e.g. React
+  // StrictMode double-running the boot effect) must not stack timers.
+  if (hydrationRetryTimer !== null) return
+  const delay =
+    HYDRATION_RETRY_DELAYS_MS[
+      Math.min(hydrationRetryAttempt, HYDRATION_RETRY_DELAYS_MS.length - 1)
+    ] ?? 30000
+  hydrationRetryAttempt += 1
+  hydrationRetryTimer = setTimeout(() => {
+    hydrationRetryTimer = null
+    run()
+  }, delay)
+}
+
+// Clears any pending settings retry and resets the backoff. Called by the
+// store when the server finally answers, and exported so tests can keep
+// timers from leaking between cases.
+export function cancelHydrationRetry(): void {
+  if (hydrationRetryTimer !== null) {
+    clearTimeout(hydrationRetryTimer)
+    hydrationRetryTimer = null
+  }
+  hydrationRetryAttempt = 0
+}
+
 // Chat panel resize bounds.
 // MIN keeps the chat usable (message list still readable, input still wide
 // enough to type a sentence). MAX reserves room for the sidebar (224px)
@@ -706,14 +743,35 @@ export const useAppStore = create<AppState>((set, get) => ({
     return s.osName
   },
   hydrateFromServer: async () => {
+    // Calls scheduled by the retry timer (attempt > 0) land after the app
+    // has already decided what to show from local values. Their answer may
+    // raise onboarded (dismissing the wizard) but must never lower it, see
+    // ignoreServerReset below.
+    const isRetry = hydrationRetryAttempt > 0
     let server: Record<string, unknown> = {}
     try {
       server = await api.get<Record<string, unknown>>('/settings', { timeoutMs: HYDRATION_SETTINGS_TIMEOUT_MS })
     } catch (e) {
       console.error('settings hydration failed:', e)
       set({ hydrated: true })
+      // →2687: fall back to localStorage for now, but keep asking the
+      // server in the background. The moment a retry lands, the answer is
+      // applied and App.tsx re-renders: a user the server knows is already
+      // onboarded gets the wizard dismissed without touching reload.
+      scheduleHydrationRetry(() => { void get().hydrateFromServer() })
       return
     }
+    cancelHydrationRetry()
+
+    // →2687: a background retry answer must never pull a locally onboarded
+    // user back under the wizard. Between the failed first fetch and this
+    // late answer the user may have finished the wizard (the PATCH that
+    // records it can have died in the same outage), and yanking a working
+    // session back into the wizard is the exact trap the retry exists to
+    // remove. We also do not push the local value back: a genuine admin
+    // reset still applies on the next full page load.
+    const state = get()
+    const ignoreServerReset = isRetry && state.onboarded && server.onboarded === false
 
     // Fresh-start sweep: when the server reports onboarded=false, any
     // localStorage flag carrying the ``myos-ephemeral-`` prefix is
@@ -727,7 +785,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // pulse dedup is cleared, and any future ephemeral flag added
     // with this prefix auto-clears on reset without needing another
     // edit here.
-    if (server.onboarded === false) {
+    if (server.onboarded === false && !ignoreServerReset) {
       try {
         for (const key of Object.keys(window.localStorage)) {
           if (key.startsWith('myos-ephemeral-')) {
@@ -744,7 +802,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     // If the server is silent (null or undefined), keep the current local
     // value and write it back to the server so future loads have it. This
     // is a one time migration from localStorage to server storage.
-    const state = get()
     const updates: Partial<AppState> = {}
     const backfill: Record<string, unknown> = {}
 
@@ -753,8 +810,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     // onboarded
     if (hasValue(server.onboarded)) {
       const v = Boolean(server.onboarded)
-      updates.onboarded = v
-      lsSet(LS_KEYS.onboarded, String(v))
+      if (!ignoreServerReset) {
+        updates.onboarded = v
+        lsSet(LS_KEYS.onboarded, String(v))
+      }
     } else if (state.onboarded) {
       backfill.onboarded = state.onboarded
     }

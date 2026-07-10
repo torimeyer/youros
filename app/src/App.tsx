@@ -116,6 +116,12 @@ export default function App() {
   // hydrated=true both on success AND on fetch error (see
   // stores/app.ts), so an unreachable backend falls through to
   // localStorage within the same tick instead of hanging here.
+  //
+  // →2687: a failed first fetch is not final. The store keeps retrying
+  // in the background with growing delays and applies the server's
+  // answer whenever it lands. Because this component subscribes to
+  // onboarded, a late "onboarded=true" dismisses the wizard below and
+  // mounts the real app without a reload.
   if (!hydrated) {
     // Render a minimal loading screen instead of a blank page so the user
     // sees something during the brief server hydration window after hard
