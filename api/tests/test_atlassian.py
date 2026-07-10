@@ -678,3 +678,437 @@ class TestAtlassianServiceActions:
         body = call_args.kwargs["json"]
         assert "jql" in body, "Body must contain 'jql'"
         assert isinstance(body["fields"], list), "fields must be a list, not a comma-separated string"
+
+
+# --- Widget query readers (spec jira-and-confluence-dashboard-widgets, →2651) ---
+
+
+def _http_client_mock(resp, method="post"):
+    """Build an httpx.AsyncClient stand-in whose ``method`` returns ``resp``."""
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    setattr(mock_client, method, AsyncMock(return_value=resp))
+    return mock_client
+
+
+def _json_resp(payload, status_code=200):
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = payload
+    return resp
+
+
+def _auth_ok():
+    return patch("services.atlassian._get_auth_and_base", AsyncMock(
+        return_value=({"auth": MagicMock()}, "https://example.atlassian.net", "example.atlassian.net")
+    ))
+
+
+def _auth_disconnected():
+    return patch("services.atlassian._get_auth_and_base", AsyncMock(
+        side_effect=RuntimeError("Not connected to Atlassian.")
+    ))
+
+
+@pytest.fixture()
+def fresh_atlassian_cache():
+    from services import atlassian as svc
+    svc._response_cache.clear()
+    yield
+    svc._response_cache.clear()
+
+
+class TestAssignedIssuesDueDate:
+    """→2651a: list_assigned_issues carries the due date through."""
+
+    @pytest.mark.asyncio
+    async def test_due_date_passthrough(self, fresh_atlassian_cache):
+        from services.atlassian import list_assigned_issues
+
+        payload = {"issues": [{
+            "key": "JIRA-1",
+            "fields": {"summary": "Fix it", "duedate": "2026-07-15",
+                       "updated": "2026-07-01T00:00:00Z"},
+        }]}
+        mock_client = _http_client_mock(_json_resp(payload))
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                rows = await list_assigned_issues()
+
+        assert rows[0]["due"] == "2026-07-15"
+        sent = mock_client.post.call_args.kwargs["json"]
+        assert "duedate" in sent["fields"]
+
+    @pytest.mark.asyncio
+    async def test_due_empty_when_missing(self, fresh_atlassian_cache):
+        from services.atlassian import list_assigned_issues
+
+        payload = {"issues": [{"key": "JIRA-2", "fields": {"summary": "No due"}}]}
+        mock_client = _http_client_mock(_json_resp(payload))
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                rows = await list_assigned_issues()
+
+        assert rows[0]["due"] == ""
+
+
+class TestRunJql:
+    """→2651b: generic capped JQL reader for dashboard widgets."""
+
+    @pytest.mark.asyncio
+    async def test_happy_row_shape(self, fresh_atlassian_cache):
+        from services.atlassian import run_jql
+
+        payload = {"issues": [{
+            "key": "JIRA-9",
+            "fields": {
+                "summary": "Widget row",
+                "status": {"name": "In Progress"},
+                "priority": {"name": "High"},
+                "issuetype": {"name": "Bug"},
+                "updated": "2026-07-01T00:00:00Z",
+                "duedate": "2026-07-12",
+            },
+        }]}
+        mock_client = _http_client_mock(_json_resp(payload))
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                rows = await run_jql("assignee = currentUser()")
+
+        assert rows == [{
+            "key": "JIRA-9",
+            "summary": "Widget row",
+            "status": "In Progress",
+            "priority": "High",
+            "type": "Bug",
+            "updated": "2026-07-01T00:00:00Z",
+            "due": "2026-07-12",
+            "url": "https://example.atlassian.net/browse/JIRA-9",
+        }]
+        sent = mock_client.post.call_args.kwargs["json"]
+        assert sent["jql"] == "assignee = currentUser()"
+        assert sent["maxResults"] == 10
+        assert "duedate" in sent["fields"]
+
+    @pytest.mark.asyncio
+    async def test_limit_capped_at_25(self, fresh_atlassian_cache):
+        from services.atlassian import run_jql
+
+        mock_client = _http_client_mock(_json_resp({"issues": []}))
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                await run_jql("order by updated", limit=100)
+
+        assert mock_client.post.call_args.kwargs["json"]["maxResults"] == 25
+
+    @pytest.mark.asyncio
+    async def test_api_error_returns_empty(self, fresh_atlassian_cache):
+        from services.atlassian import run_jql
+
+        mock_client = _http_client_mock(_json_resp({}, status_code=500))
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                assert await run_jql("q1") == []
+
+    @pytest.mark.asyncio
+    async def test_network_error_returns_empty(self, fresh_atlassian_cache):
+        import httpx
+        from services.atlassian import run_jql
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("boom"))
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                assert await run_jql("q2") == []
+
+    @pytest.mark.asyncio
+    async def test_disconnected_returns_empty(self, fresh_atlassian_cache):
+        from services.atlassian import run_jql
+
+        with _auth_disconnected():
+            assert await run_jql("q3") == []
+
+    @pytest.mark.asyncio
+    async def test_no_matches_returns_empty(self, fresh_atlassian_cache):
+        from services.atlassian import run_jql
+
+        mock_client = _http_client_mock(_json_resp({"issues": []}))
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                assert await run_jql("q4") == []
+
+    @pytest.mark.asyncio
+    async def test_result_cached_by_query_and_limit(self, fresh_atlassian_cache):
+        from services.atlassian import run_jql
+
+        mock_client = _http_client_mock(_json_resp({"issues": []}))
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                await run_jql("q5", limit=5)
+                await run_jql("q5", limit=5)
+
+        assert mock_client.post.await_count == 1
+
+
+class TestRunCql:
+    """→2651c: generic capped CQL reader for dashboard widgets."""
+
+    @pytest.mark.asyncio
+    async def test_happy_row_shape(self, fresh_atlassian_cache):
+        from services.atlassian import run_cql
+
+        payload = {"results": [{
+            "id": 111,
+            "title": "Team doc",
+            "type": "page",
+            "space": {"key": "ENG"},
+            "version": {"when": "2026-07-02T00:00:00Z"},
+        }]}
+        mock_client = _http_client_mock(_json_resp(payload), method="get")
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                rows = await run_cql("mention = currentUser()")
+
+        assert rows == [{
+            "id": "111",
+            "title": "Team doc",
+            "type": "page",
+            "updated": "2026-07-02T00:00:00Z",
+            "url": "https://example.atlassian.net/wiki/spaces/ENG/pages/111",
+        }]
+        sent = mock_client.get.call_args.kwargs["params"]
+        assert sent["cql"] == "mention = currentUser()"
+        assert sent["limit"] == 10
+
+    @pytest.mark.asyncio
+    async def test_limit_capped_at_25(self, fresh_atlassian_cache):
+        from services.atlassian import run_cql
+
+        mock_client = _http_client_mock(_json_resp({"results": []}), method="get")
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                await run_cql("type=page", limit=99)
+
+        assert mock_client.get.call_args.kwargs["params"]["limit"] == 25
+
+    @pytest.mark.asyncio
+    async def test_missing_space_and_version(self, fresh_atlassian_cache):
+        from services.atlassian import run_cql
+
+        payload = {"results": [{"id": 222, "title": "Bare", "type": "page"}]}
+        mock_client = _http_client_mock(_json_resp(payload), method="get")
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                rows = await run_cql("c1")
+
+        assert rows[0]["updated"] == ""
+        assert rows[0]["url"] == ""
+
+    @pytest.mark.asyncio
+    async def test_api_error_returns_empty(self, fresh_atlassian_cache):
+        from services.atlassian import run_cql
+
+        mock_client = _http_client_mock(_json_resp({}, status_code=403), method="get")
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                assert await run_cql("c2") == []
+
+    @pytest.mark.asyncio
+    async def test_disconnected_returns_empty(self, fresh_atlassian_cache):
+        from services.atlassian import run_cql
+
+        with _auth_disconnected():
+            assert await run_cql("c3") == []
+
+    @pytest.mark.asyncio
+    async def test_no_matches_returns_empty(self, fresh_atlassian_cache):
+        from services.atlassian import run_cql
+
+        mock_client = _http_client_mock(_json_resp({"results": []}), method="get")
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                assert await run_cql("c4") == []
+
+
+class TestConfluenceAccountId:
+    """→2651d: account id lookup, cached for an hour, empty on failure."""
+
+    @pytest.mark.asyncio
+    async def test_happy_returns_and_caches(self, fresh_atlassian_cache):
+        from services.atlassian import _get_confluence_account_id
+
+        mock_client = _http_client_mock(_json_resp({"accountId": "acc-1"}), method="get")
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                with patch("services.atlassian._cache_set") as mock_set:
+                    result = await _get_confluence_account_id()
+
+        assert result == "acc-1"
+        mock_set.assert_called_once_with(("confluence_account_id",), "acc-1", ttl=3600)
+        url = mock_client.get.call_args.args[0]
+        assert url.endswith("/wiki/rest/api/user/current")
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_skips_http(self, fresh_atlassian_cache):
+        from services import atlassian as svc
+
+        svc._cache_set(("confluence_account_id",), "cached-acc", ttl=3600)
+        # No auth or HTTP patches: a cache miss would degrade to "" here.
+        assert await svc._get_confluence_account_id() == "cached-acc"
+
+    @pytest.mark.asyncio
+    async def test_api_error_returns_empty(self, fresh_atlassian_cache):
+        from services.atlassian import _get_confluence_account_id
+
+        mock_client = _http_client_mock(_json_resp({}, status_code=500), method="get")
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                assert await _get_confluence_account_id() == ""
+
+    @pytest.mark.asyncio
+    async def test_disconnected_returns_empty(self, fresh_atlassian_cache):
+        from services.atlassian import _get_confluence_account_id
+
+        with _auth_disconnected():
+            assert await _get_confluence_account_id() == ""
+
+
+class TestMyConfluenceTasks:
+    """→2651e: my incomplete Confluence action items."""
+
+    @pytest.mark.asyncio
+    async def test_happy_storage_body(self, fresh_atlassian_cache):
+        from services.atlassian import list_my_confluence_tasks
+
+        payload = {"results": [{
+            "id": 42,
+            "body": {"storage": {"value": "<p>Review <b>the</b> doc</p>",
+                                 "representation": "storage"}},
+            "dueAt": "2026-07-20",
+            "pageId": 777,
+        }]}
+        mock_client = _http_client_mock(_json_resp(payload), method="get")
+        with patch("services.atlassian._get_confluence_account_id",
+                   AsyncMock(return_value="acc-1")):
+            with _auth_ok():
+                with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                    rows = await list_my_confluence_tasks()
+
+        assert rows == [{
+            "id": "42",
+            "text": "Review the doc",
+            "due": "2026-07-20",
+            "page_id": "777",
+            "url": "https://example.atlassian.net/wiki/pages/viewpage.action?pageId=777",
+        }]
+        sent = mock_client.get.call_args.kwargs["params"]
+        assert sent == {"assigned-to": "acc-1", "status": "incomplete", "limit": 10}
+
+    @pytest.mark.asyncio
+    async def test_adf_body_uses_plain_text(self, fresh_atlassian_cache):
+        from services.atlassian import list_my_confluence_tasks
+
+        payload = {"results": [{
+            "id": 43,
+            "body": {"type": "doc", "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "Ship it"}]},
+            ]},
+            "dueAt": None,
+            "pageId": 778,
+        }]}
+        mock_client = _http_client_mock(_json_resp(payload), method="get")
+        with patch("services.atlassian._get_confluence_account_id",
+                   AsyncMock(return_value="acc-1")):
+            with _auth_ok():
+                with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                    rows = await list_my_confluence_tasks()
+
+        assert rows[0]["text"] == "Ship it"
+        assert rows[0]["due"] == ""
+
+    @pytest.mark.asyncio
+    async def test_no_account_id_returns_empty_without_http(self, fresh_atlassian_cache):
+        from services.atlassian import list_my_confluence_tasks
+
+        with patch("services.atlassian._get_confluence_account_id",
+                   AsyncMock(return_value="")):
+            with patch("services.atlassian.httpx.AsyncClient") as mock_client_cls:
+                assert await list_my_confluence_tasks() == []
+
+        mock_client_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_api_error_returns_empty(self, fresh_atlassian_cache):
+        from services.atlassian import list_my_confluence_tasks
+
+        mock_client = _http_client_mock(_json_resp({}, status_code=500), method="get")
+        with patch("services.atlassian._get_confluence_account_id",
+                   AsyncMock(return_value="acc-1")):
+            with _auth_ok():
+                with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                    assert await list_my_confluence_tasks() == []
+
+    @pytest.mark.asyncio
+    async def test_disconnected_returns_empty(self, fresh_atlassian_cache):
+        from services.atlassian import list_my_confluence_tasks
+
+        with patch("services.atlassian._get_confluence_account_id",
+                   AsyncMock(return_value="acc-1")):
+            with _auth_disconnected():
+                assert await list_my_confluence_tasks() == []
+
+    @pytest.mark.asyncio
+    async def test_no_tasks_returns_empty(self, fresh_atlassian_cache):
+        from services.atlassian import list_my_confluence_tasks
+
+        mock_client = _http_client_mock(_json_resp({"results": []}), method="get")
+        with patch("services.atlassian._get_confluence_account_id",
+                   AsyncMock(return_value="acc-1")):
+            with _auth_ok():
+                with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                    assert await list_my_confluence_tasks() == []
+
+
+class TestCompleteConfluenceTask:
+    """→2651f: checking off a Confluence action item."""
+
+    @pytest.mark.asyncio
+    async def test_success_puts_complete_status(self, fresh_atlassian_cache):
+        from services.atlassian import complete_confluence_task
+
+        mock_client = _http_client_mock(_json_resp({"id": "42", "status": "complete"}),
+                                        method="put")
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                await complete_confluence_task("42")
+
+        url = mock_client.put.call_args.args[0]
+        assert url.endswith("/wiki/api/v2/tasks/42")
+        assert mock_client.put.call_args.kwargs["json"]["status"] == "complete"
+
+    @pytest.mark.asyncio
+    async def test_non_2xx_raises_plain_message(self, fresh_atlassian_cache):
+        from services.atlassian import complete_confluence_task
+
+        mock_client = _http_client_mock(_json_resp({}, status_code=409), method="put")
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                with pytest.raises(RuntimeError, match="Could not check off the item"):
+                    await complete_confluence_task("42")
+
+    @pytest.mark.asyncio
+    async def test_network_error_raises_plain_message(self, fresh_atlassian_cache):
+        import httpx
+        from services.atlassian import complete_confluence_task
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.put = AsyncMock(side_effect=httpx.ConnectError("down"))
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                with pytest.raises(RuntimeError, match="Could not check off the item"):
+                    await complete_confluence_task("42")
