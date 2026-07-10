@@ -5485,6 +5485,38 @@ def _build_spec_ac_block(task_id: str, docs: list[dict]) -> str:
     return ""
 
 
+# →2640 fix 5: per-process cache for the subscription check. Dict used so it
+# can be cleared in tests without monkey-patching the function itself.
+_HOST_SUBSCRIPTION_CACHE: dict = {}
+
+
+def _host_has_claude_subscription() -> bool:
+    """Return True if this host authenticates via a claude.ai subscription.
+
+    Reads ~/.claude/settings.json once per process (result cached in
+    _HOST_SUBSCRIPTION_CACHE). If the file contains an "apiKeyHelper" field,
+    the host uses an external credential program and is NOT a subscription
+    host: return False so the caller preserves ANTHROPIC_API_KEY in the
+    spawn env. Any read/parse error defaults to True (subscription) so the
+    existing strip behaviour is preserved on unknown hosts.
+    """
+    if "result" in _HOST_SUBSCRIPTION_CACHE:
+        return _HOST_SUBSCRIPTION_CACHE["result"]
+
+    result = True  # safe default: strip the key (existing behaviour)
+    try:
+        settings_path = Path("~/.claude/settings.json").expanduser()
+        if settings_path.exists():
+            data = json.loads(settings_path.read_text())
+            if "apiKeyHelper" in data:
+                result = False
+    except Exception:
+        pass
+
+    _HOST_SUBSCRIPTION_CACHE["result"] = result
+    return result
+
+
 @router.post("/agents/spawn")
 async def spawn_agent(body: AgentSpawn, request: Request = None, response: Response = None):
     # TODO(→1895, →2145): wire DefaultRuntimeProvider.spawn_subagent() here so
@@ -6176,9 +6208,15 @@ async def _legacy_bespoke_spawn(body: AgentSpawn, request: Request, response: Re
 
     try:
         _spawn_env = {**os.environ}
-        # Drop the API key so subagents authenticate via the stored claude.ai
-        # subscription instead of billing against the key's spending limit.
-        _spawn_env.pop("ANTHROPIC_API_KEY", None)
+        # →2640 fix 5: only drop the API key when the host authenticates via
+        # the stored claude.ai subscription. On hosts that use an apiKeyHelper
+        # (external credential program in ~/.claude/settings.json), stripping
+        # the key leaves the subagent with no auth signal and it dies before
+        # registering, creating another ghost source.
+        if _host_has_claude_subscription():
+            # Drop the API key so subagents authenticate via the stored claude.ai
+            # subscription instead of billing against the key's spending limit.
+            _spawn_env.pop("ANTHROPIC_API_KEY", None)
         try:
             from services.tracing import get_trace_id as _get_trace_id
             _tid = _get_trace_id()
