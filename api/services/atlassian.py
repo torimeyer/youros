@@ -742,65 +742,6 @@ async def get_issue_links(key: str) -> dict:
     }
 
 
-async def list_blocked_issues() -> list[dict]:
-    """Return Jira issues that are blocked or cross-team flagged.
-
-    Criteria: status=Blocked OR labels="cross-team" OR flagged=true.
-    Returns list of dicts with key, summary, status, priority, updated, url,
-    assignee (display name), reporter (display name).
-    """
-    cache_key = ("list_blocked_issues",)
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached  # type: ignore[return-value]
-
-    jql = (
-        '(status = Blocked OR labels = "cross-team" OR flagged = true) '
-        "AND statusCategory != Done ORDER BY updated DESC"
-    )
-    fields = ["summary", "status", "priority", "issuetype", "updated", "assignee", "reporter", "labels"]
-
-    async def call(client, auth_kwargs, base_url, site):
-        return await client.post(
-            f"{base_url}/rest/api/3/search/jql",
-            **auth_kwargs,
-            json={"jql": jql, "fields": fields, "maxResults": 50},
-        )
-
-    try:
-        resp, base_url, site = await _request_with_refresh("jira", call)
-    except httpx.HTTPError as exc:
-        raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
-    if resp.status_code == 401:
-        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
-    if resp.status_code == 403:
-        raise RuntimeError("Access denied. Check your API token permissions.")
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Jira API error ({resp.status_code}).")
-    data = resp.json()
-
-    issues = []
-    for item in data.get("issues", []):
-        fields_data = item.get("fields", {})
-        status_obj = fields_data.get("status") or {}
-        priority_obj = fields_data.get("priority") or {}
-        assignee_obj = fields_data.get("assignee") or {}
-        reporter_obj = fields_data.get("reporter") or {}
-        issues.append({
-            "key": item.get("key", ""),
-            "summary": fields_data.get("summary", ""),
-            "status": status_obj.get("name", ""),
-            "priority": priority_obj.get("name", ""),
-            "updated": fields_data.get("updated", ""),
-            "url": f"https://{site}/browse/{item.get('key', '')}",
-            "assignee": assignee_obj.get("displayName", ""),
-            "reporter": reporter_obj.get("displayName", ""),
-        })
-
-    _cache_set(cache_key, issues)
-    return issues
-
-
 async def list_recent_pages(limit: int = 25, space_key: str = "") -> list[dict]:
     """Return recently-updated Confluence pages.
 
@@ -1043,7 +984,9 @@ async def update_issue_fields(issue_key: str, fields: dict) -> None:
 async def list_blocked_issues() -> list[dict]:
     """Return Jira issues that are blocked, flagged, or labeled cross-team.
 
-    JQL: status = "Blocked" OR labels = "cross-team" OR flagged = impediment
+    JQL: (status = "Blocked" OR labels = "cross-team" OR flagged = impediment)
+    AND statusCategory != Done, oldest activity first. Merged from the two
+    definitions this module used to carry (→2653).
     Returns each issue with: key, summary, status, priority, updated, url,
     assignee (display name or ""), reporter (display name or "").
     Returns empty list on any API error so callers never get 500.
@@ -1054,8 +997,8 @@ async def list_blocked_issues() -> list[dict]:
         return cached  # type: ignore[return-value]
 
     jql = (
-        'status = "Blocked" OR labels = "cross-team" OR flagged = impediment '
-        "ORDER BY updated ASC"
+        '(status = "Blocked" OR labels = "cross-team" OR flagged = impediment) '
+        "AND statusCategory != Done ORDER BY updated ASC"
     )
     fields = [
         "summary", "status", "priority", "issuetype",

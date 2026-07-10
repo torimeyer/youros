@@ -1266,3 +1266,57 @@ async def test_confluence_complete_task_failure_returns_502(client):
 
     assert resp.status_code == 502
     assert resp.json()["detail"] == message
+
+
+# --- list_blocked_issues dedupe (→2653) ---
+
+
+class TestListBlockedIssuesMerged:
+    """→2653: one definition, merged JQL, degrade to [] on any error."""
+
+    MERGED_JQL = (
+        '(status = "Blocked" OR labels = "cross-team" OR flagged = impediment) '
+        "AND statusCategory != Done ORDER BY updated ASC"
+    )
+
+    @pytest.mark.asyncio
+    async def test_merged_jql_pinned(self, fresh_atlassian_cache):
+        from services.atlassian import list_blocked_issues
+
+        mock_client = _http_client_mock(_json_resp({"issues": []}))
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                await list_blocked_issues()
+
+        sent = mock_client.post.call_args.kwargs["json"]
+        assert sent["jql"] == self.MERGED_JQL
+
+    @pytest.mark.asyncio
+    async def test_api_error_returns_empty(self, fresh_atlassian_cache):
+        from services.atlassian import list_blocked_issues
+
+        mock_client = _http_client_mock(_json_resp({}, status_code=500))
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                assert await list_blocked_issues() == []
+
+    @pytest.mark.asyncio
+    async def test_network_error_returns_empty(self, fresh_atlassian_cache):
+        import httpx
+        from services.atlassian import list_blocked_issues
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("down"))
+        with _auth_ok():
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                assert await list_blocked_issues() == []
+
+    def test_exactly_one_definition(self):
+        from pathlib import Path
+
+        import services.atlassian as svc
+
+        source = Path(svc.__file__).read_text()
+        assert source.count("async def list_blocked_issues") == 1
