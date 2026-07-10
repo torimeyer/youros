@@ -1112,3 +1112,157 @@ class TestCompleteConfluenceTask:
             with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
                 with pytest.raises(RuntimeError, match="Could not check off the item"):
                     await complete_confluence_task("42")
+
+
+# --- Widget query endpoints (spec jira-and-confluence-dashboard-widgets, →2652) ---
+
+
+@pytest.mark.asyncio
+async def test_jira_query_success(client):
+    rows = [{
+        "key": "JIRA-9", "summary": "Widget row", "status": "In Progress",
+        "priority": "High", "type": "Bug", "updated": "2026-07-01T00:00:00Z",
+        "due": "2026-07-12", "url": "https://example.atlassian.net/browse/JIRA-9",
+    }]
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.run_jql = AsyncMock(return_value=rows)
+        resp = await client.get(
+            "/api/atlassian/jira/query",
+            params={"jql": "assignee = currentUser()", "limit": 5},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"rows": rows}
+    mock_svc.run_jql.assert_awaited_once_with("assignee = currentUser()", limit=5)
+
+
+@pytest.mark.asyncio
+async def test_jira_query_not_connected(client):
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = False
+        resp = await client.get("/api/atlassian/jira/query", params={"jql": "x"})
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_jira_query_degrades_to_empty_rows(client):
+    """The reader returns [] on errors; the endpoint stays a quiet 200."""
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.run_jql = AsyncMock(return_value=[])
+        resp = await client.get("/api/atlassian/jira/query", params={"jql": "x"})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"rows": []}
+
+
+@pytest.mark.asyncio
+async def test_confluence_query_success(client):
+    rows = [{
+        "id": "111", "title": "Team doc", "type": "page",
+        "updated": "2026-07-02T00:00:00Z",
+        "url": "https://example.atlassian.net/wiki/spaces/ENG/pages/111",
+    }]
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.run_cql = AsyncMock(return_value=rows)
+        resp = await client.get(
+            "/api/atlassian/confluence/query",
+            params={"cql": "mention = currentUser()"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"rows": rows}
+    mock_svc.run_cql.assert_awaited_once_with("mention = currentUser()", limit=10)
+
+
+@pytest.mark.asyncio
+async def test_confluence_query_not_connected(client):
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = False
+        resp = await client.get("/api/atlassian/confluence/query", params={"cql": "x"})
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_confluence_query_degrades_to_empty_rows(client):
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.run_cql = AsyncMock(return_value=[])
+        resp = await client.get("/api/atlassian/confluence/query", params={"cql": "x"})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"rows": []}
+
+
+@pytest.mark.asyncio
+async def test_confluence_my_tasks_success(client):
+    tasks = [{
+        "id": "42", "text": "Review the doc", "due": "2026-07-20",
+        "page_id": "777",
+        "url": "https://example.atlassian.net/wiki/pages/viewpage.action?pageId=777",
+    }]
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.list_my_confluence_tasks = AsyncMock(return_value=tasks)
+        resp = await client.get("/api/atlassian/confluence/my-tasks")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"tasks": tasks}
+    mock_svc.list_my_confluence_tasks.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_confluence_my_tasks_not_connected(client):
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = False
+        resp = await client.get("/api/atlassian/confluence/my-tasks")
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_confluence_my_tasks_degrades_to_empty(client):
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.list_my_confluence_tasks = AsyncMock(return_value=[])
+        resp = await client.get("/api/atlassian/confluence/my-tasks")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"tasks": []}
+
+
+@pytest.mark.asyncio
+async def test_confluence_complete_task_success(client):
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.complete_confluence_task = AsyncMock(return_value=None)
+        resp = await client.post("/api/atlassian/confluence/task/42/complete")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    mock_svc.complete_confluence_task.assert_awaited_once_with("42")
+
+
+@pytest.mark.asyncio
+async def test_confluence_complete_task_not_connected(client):
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = False
+        resp = await client.post("/api/atlassian/confluence/task/42/complete")
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_confluence_complete_task_failure_returns_502(client):
+    message = "Could not check off the item. It may have changed in Confluence."
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.complete_confluence_task = AsyncMock(side_effect=RuntimeError(message))
+        resp = await client.post("/api/atlassian/confluence/task/42/complete")
+
+    assert resp.status_code == 502
+    assert resp.json()["detail"] == message

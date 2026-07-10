@@ -542,3 +542,51 @@ async def jira_promote_to_task(body: JiraPromoteRequest) -> dict:
         )
     )
     return {"ok": True, **result}
+
+
+# --- Dashboard widget queries (spec jira-and-confluence-dashboard-widgets) ---
+
+
+@router.get("/atlassian/jira/query")
+async def jira_query(jql: str, limit: int = 10):
+    """Run a JQL query and return widget-shaped rows.
+
+    The reader degrades to an empty list on API errors, so this endpoint
+    only fails when Atlassian is not connected at all.
+    """
+    if not atlassian_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Atlassian.")
+
+    return {"rows": await atlassian_service.run_jql(jql, limit=limit)}
+
+
+@router.get("/atlassian/confluence/query")
+async def confluence_query(cql: str, limit: int = 10):
+    """Run a CQL query and return widget-shaped rows."""
+    if not atlassian_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Atlassian.")
+
+    return {"rows": await atlassian_service.run_cql(cql, limit=limit)}
+
+
+@router.get("/atlassian/confluence/my-tasks")
+async def confluence_my_tasks():
+    """Return my incomplete Confluence action items."""
+    if not atlassian_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Atlassian.")
+
+    return {"tasks": await atlassian_service.list_my_confluence_tasks()}
+
+
+@router.post("/atlassian/confluence/task/{task_id}/complete")
+async def confluence_complete_task(task_id: str):
+    """Check off one Confluence action item."""
+    if not atlassian_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Atlassian.")
+
+    try:
+        await atlassian_service.complete_confluence_task(task_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {"ok": True}
