@@ -6,11 +6,16 @@ vi.mock('../lib/api', () => ({
   api: {
     get: vi.fn(),
     post: vi.fn(),
+    patch: vi.fn(),
   },
 }));
 
 import { api } from '../lib/api';
-const mockApi = api as { get: ReturnType<typeof vi.fn>; post: ReturnType<typeof vi.fn> };
+const mockApi = api as {
+  get: ReturnType<typeof vi.fn>;
+  post: ReturnType<typeof vi.fn>;
+  patch: ReturnType<typeof vi.fn>;
+};
 
 const CATALOG = [
   { name: 'GitHub', description: 'Access repos, issues, and pull requests', icon: 'code', npm_package: '@modelcontextprotocol/server-github', requires_auth: true, auth_hint: 'Needs a GitHub access key.' },
@@ -116,5 +121,85 @@ describe('McpInstaller', () => {
 
     fireEvent.click(screen.getByLabelText('Close'));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('McpInstaller allow in chat', () => {
+  const settingsWith = (servers: unknown[]) => {
+    mockApi.get.mockImplementation((url: string) => {
+      if (url === '/api/mcp/catalog') return Promise.resolve({ catalog: CATALOG });
+      if (url === '/api/mcp/installed') return Promise.resolve({ installed: ['Slack'] });
+      if (url === '/api/settings') return Promise.resolve({ mcp_servers: servers });
+      return Promise.resolve({});
+    });
+  };
+
+  it('shows an Allow in chat toggle for installed servers only', async () => {
+    settingsWith([]);
+    render(<McpInstaller />);
+    await waitFor(() => screen.getByTestId('mcp-allow-chat-Slack'));
+    expect(screen.queryByTestId('mcp-allow-chat-GitHub')).toBeNull();
+    expect(screen.queryByTestId('mcp-allow-chat-Memory')).toBeNull();
+  });
+
+  it('toggle is off by default', async () => {
+    settingsWith([]);
+    render(<McpInstaller />);
+    await waitFor(() => screen.getByTestId('mcp-allow-chat-Slack'));
+    const box = screen.getByTestId('mcp-allow-chat-Slack') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+  });
+
+  it('shows the plain-language warning sentence', async () => {
+    settingsWith([]);
+    render(<McpInstaller />);
+    await waitFor(() => screen.getByTestId('mcp-allow-chat-warning'));
+    expect(screen.getByTestId('mcp-allow-chat-warning').textContent).toContain(
+      'chat can read from and act on'
+    );
+  });
+
+  it('reflects an already-approved server from settings', async () => {
+    settingsWith([{ name: 'Slack', allowed_in_chat: true }]);
+    render(<McpInstaller />);
+    await waitFor(() => {
+      const box = screen.getByTestId('mcp-allow-chat-Slack') as HTMLInputElement;
+      expect(box.checked).toBe(true);
+    });
+  });
+
+  it('turning the toggle on saves allowed_in_chat true for that server', async () => {
+    settingsWith([{ name: 'GitHub', url: 'https://gh.example/mcp' }]);
+    mockApi.patch.mockResolvedValue({ result: 'updated' });
+    render(<McpInstaller />);
+    await waitFor(() => screen.getByTestId('mcp-allow-chat-Slack'));
+
+    fireEvent.click(screen.getByTestId('mcp-allow-chat-Slack'));
+
+    await waitFor(() => {
+      expect(mockApi.patch).toHaveBeenCalledWith('/api/settings', {
+        mcp_servers: [
+          { name: 'GitHub', url: 'https://gh.example/mcp' },
+          { name: 'Slack', allowed_in_chat: true },
+        ],
+      });
+    });
+  });
+
+  it('turning the toggle off saves allowed_in_chat false, keeping the entry', async () => {
+    settingsWith([{ name: 'Slack', allowed_in_chat: true }]);
+    mockApi.patch.mockResolvedValue({ result: 'updated' });
+    render(<McpInstaller />);
+    await waitFor(() => {
+      expect((screen.getByTestId('mcp-allow-chat-Slack') as HTMLInputElement).checked).toBe(true);
+    });
+
+    fireEvent.click(screen.getByTestId('mcp-allow-chat-Slack'));
+
+    await waitFor(() => {
+      expect(mockApi.patch).toHaveBeenCalledWith('/api/settings', {
+        mcp_servers: [{ name: 'Slack', allowed_in_chat: false }],
+      });
+    });
   });
 });

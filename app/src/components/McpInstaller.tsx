@@ -11,6 +11,16 @@ interface CatalogEntry {
   auth_hint?: string;
 }
 
+// One entry in the settings mcp_servers list. Entries are free-form dicts
+// on the backend; allowed_in_chat is the only field this screen changes.
+// Absent means not allowed, so chat stays locked until the user opts in.
+interface McpServerEntry {
+  name?: string;
+  url?: string;
+  allowed_in_chat?: boolean;
+  [key: string]: unknown;
+}
+
 interface McpInstallerProps {
   onClose?: () => void;
 }
@@ -21,6 +31,7 @@ export default function McpInstaller({ onClose }: McpInstallerProps) {
   const [installing, setInstalling] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null);
   const [search, setSearch] = useState('');
+  const [mcpServers, setMcpServers] = useState<McpServerEntry[]>([]);
 
   useEffect(() => {
     api.get<{ catalog: CatalogEntry[] }>('/api/mcp/catalog').then(data => {
@@ -28,6 +39,9 @@ export default function McpInstaller({ onClose }: McpInstallerProps) {
     });
     api.get<{ installed: string[] }>('/api/mcp/installed').then(data => {
       setInstalled(new Set(data.installed ?? []));
+    });
+    api.get<{ mcp_servers?: McpServerEntry[] }>('/api/settings').then(data => {
+      setMcpServers(data.mcp_servers ?? []);
     });
   }, []);
 
@@ -50,6 +64,26 @@ export default function McpInstaller({ onClose }: McpInstallerProps) {
       showToast('Something went wrong. Please try again.', false);
     } finally {
       setInstalling(null);
+    }
+  };
+
+  const isAllowedInChat = (name: string) =>
+    mcpServers.some(s => s.name === name && s.allowed_in_chat === true);
+
+  const handleToggleChat = async (name: string) => {
+    const exists = mcpServers.some(s => s.name === name);
+    const next = exists
+      ? mcpServers.map(s =>
+          s.name === name ? { ...s, allowed_in_chat: !(s.allowed_in_chat === true) } : s
+        )
+      : [...mcpServers, { name, allowed_in_chat: true }];
+    const previous = mcpServers;
+    setMcpServers(next);
+    try {
+      await api.patch('/api/settings', { mcp_servers: next });
+    } catch {
+      setMcpServers(previous);
+      showToast('Could not save that change. Please try again.', false);
     }
   };
 
@@ -89,6 +123,12 @@ export default function McpInstaller({ onClose }: McpInstallerProps) {
         />
       </div>
 
+      {installed.size > 0 && (
+        <p className="mcp-installer__chat-warning" data-testid="mcp-allow-chat-warning">
+          Allowing a tool in chat means chat can read from and act on that service.
+        </p>
+      )}
+
       <ul className="mcp-installer__list" data-testid="mcp-installer-list">
         {filtered.map(entry => {
           const isInstalled = installed.has(entry.name);
@@ -108,12 +148,23 @@ export default function McpInstaller({ onClose }: McpInstallerProps) {
               </div>
               <div className="mcp-installer__item-action">
                 {isInstalled ? (
-                  <span
-                    className="mcp-installer__badge mcp-installer__badge--installed"
-                    data-testid={`mcp-badge-${entry.name}`}
-                  >
-                    Installed
-                  </span>
+                  <>
+                    <span
+                      className="mcp-installer__badge mcp-installer__badge--installed"
+                      data-testid={`mcp-badge-${entry.name}`}
+                    >
+                      Installed
+                    </span>
+                    <label className="mcp-installer__chat-toggle">
+                      <input
+                        type="checkbox"
+                        checked={isAllowedInChat(entry.name)}
+                        onChange={() => handleToggleChat(entry.name)}
+                        data-testid={`mcp-allow-chat-${entry.name}`}
+                      />
+                      Allow in chat
+                    </label>
+                  </>
                 ) : (
                   <button
                     className="mcp-installer__install-btn"

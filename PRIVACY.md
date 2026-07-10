@@ -49,6 +49,8 @@ When you ask yourOS to do something that requires a connected tool (read a GitHu
 
 These calls happen only when you actively use those tools. yourOS does not poll or sync in the background on its own schedule.
 
+Chat cannot use any of these tools until you switch on "Allow in chat" for a tool in Settings; once allowed, chat can send requests to that tool's service, and those requests leave your laptop the same way.
+
 ### Version check
 
 When you open the Settings upgrade panel, yourOS checks `api.github.com/repos/os-tack/ostk.ai/releases/latest` to see if a newer version of ostk is available. The result is cached in `~/.youros/upgrade_cache.json` for one hour. No information about your installation is sent outbound in that request.
