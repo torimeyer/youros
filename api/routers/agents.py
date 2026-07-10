@@ -72,6 +72,16 @@ def _fire_delta(name: str, status: str) -> None:
 # never outlives the test's event loop (loop close hangs otherwise).
 _unlock_worktree_tasks: set = set()
 
+# →2640 fix 4: strong references to in-flight startup-deadline watchdog tasks.
+# Same rationale as _unlock_worktree_tasks: asyncio GC drops unreferenced tasks.
+_startup_watchdog_tasks: set = set()
+
+# Seconds after spawn before the watchdog kills a process with a 0-byte transcript.
+STARTUP_DEADLINE_SECONDS = 45
+# Grace window: watchdog does nothing while elapsed < this (agent may still be
+# initializing the Claude Code CLI and has not written any output yet).
+STARTUP_GRACE_SECONDS = 30
+
 
 def _fire_unlock_worktree(name: str, meta: dict) -> None:
     """→2612: unlock the agent's git worktree on a terminal transition.
@@ -1421,6 +1431,94 @@ async def _terminate_pid_with_sigkill_fallback(pid: int) -> bool:
     asyncio.create_task(_ensure_dead_pid())
     return True
 
+
+
+async def _startup_deadline_watchdog(
+    proc,
+    name: str,
+    transcript_path: "Path",
+    deadline_seconds: int = STARTUP_DEADLINE_SECONDS,
+    grace_seconds: int = STARTUP_GRACE_SECONDS,
+) -> None:
+    """Kill a spawned process that never writes any transcript output.
+
+    Sleeps for ``deadline_seconds``, then checks: if the agent is still in a
+    non-terminal status AND the transcript is still 0 bytes, sends SIGTERM and
+    marks the agent failed with error="startup_deadline_exceeded".
+
+    The grace window (``grace_seconds``) is the portion of the deadline during
+    which we do nothing even if the transcript is empty: the Claude Code CLI
+    takes a few seconds to boot and write its first token, so we must not kill
+    too eagerly. In practice: deadline=45s, grace=30s means the watchdog fires
+    only if the transcript is still empty at t=45s.
+    """
+    import time as _time
+    _spawn_monotonic = _time.monotonic()
+    try:
+        await asyncio.sleep(deadline_seconds)
+    except asyncio.CancelledError:
+        return
+
+    # Already terminal: agent completed, cancelled, etc. Nothing to do.
+    meta = agent_metadata.get(name) or {}
+    if meta.get("status") in _TERMINAL_STATUSES:
+        return
+
+    # Check elapsed time against grace window (tests may patch time.monotonic)
+    elapsed = _time.monotonic() - _spawn_monotonic
+    if elapsed < grace_seconds:
+        return
+
+    # Check transcript size
+    try:
+        tsize = Path(transcript_path).stat().st_size if transcript_path else 0
+    except OSError:
+        tsize = 0
+
+    if tsize > 0:
+        return  # Agent produced output; let it run.
+
+    # Process still running with 0-byte transcript past deadline: kill it.
+    logger.warning(
+        "startup_deadline_watchdog.kill name=%s deadline=%ds transcript_bytes=0",
+        name, deadline_seconds,
+    )
+    try:
+        proc.terminate()
+    except (ProcessLookupError, OSError):
+        pass
+
+    # Wait up to 3s then SIGKILL
+    async def _ensure_dead_watchdog():
+        try:
+            await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: proc.wait() if callable(getattr(proc, "wait", None)) else None,
+                ),
+                timeout=3.0,
+            )
+        except (asyncio.TimeoutError, Exception):
+            try:
+                proc.kill()
+            except (ProcessLookupError, OSError):
+                pass
+
+    asyncio.create_task(_ensure_dead_watchdog())
+
+    _set_agent_status(
+        name, "failed",
+        failed_at=datetime.now(timezone.utc).isoformat(),
+        error="startup_deadline_exceeded",
+        fail_reason="startup_deadline_exceeded",
+    )
+    try:
+        await _save_agent_state_async()
+    except Exception:
+        try:
+            _save_agent_state()
+        except Exception:
+            pass
 
 
 def _now_iso() -> str:
@@ -6775,6 +6873,20 @@ async def _legacy_bespoke_spawn(body: AgentSpawn, request: Request, response: Re
             asyncio.create_task(
                 _drain_stdout(proc, body.name, transcript_path)
             )
+        except Exception:
+            pass
+        # →2640 fix 4: arm the startup-deadline watchdog so a process that
+        # hangs on a network call with a 0-byte transcript is killed after
+        # STARTUP_DEADLINE_SECONDS instead of ghosting as "running" forever.
+        # Strong-ref pattern mirrors _unlock_worktree_tasks (→2627): hold
+        # the task in a module-level set so asyncio GC cannot drop it mid-run,
+        # and discard on done so the set does not grow unboundedly.
+        try:
+            _wd_task = asyncio.create_task(
+                _startup_deadline_watchdog(proc, body.name, transcript_path)
+            )
+            _startup_watchdog_tasks.add(_wd_task)
+            _wd_task.add_done_callback(_startup_watchdog_tasks.discard)
         except Exception:
             pass
         # Kick off the ack bot so inline chat gets a warm acknowledgment
