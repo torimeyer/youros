@@ -589,7 +589,7 @@ async def list_assigned_issues() -> list[dict]:
         return cached  # type: ignore[return-value]
 
     jql = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
-    fields = ["summary", "status", "priority", "issuetype", "updated", "assignee", "reporter"]
+    fields = ["summary", "status", "priority", "issuetype", "updated", "duedate", "assignee", "reporter"]
 
     async def call(client, auth_kwargs, base_url, site):
         return await client.post(
@@ -623,6 +623,7 @@ async def list_assigned_issues() -> list[dict]:
             "priority": priority_obj.get("name", ""),
             "type": issuetype_obj.get("name", ""),
             "updated": fields_data.get("updated", ""),
+            "due": fields_data.get("duedate") or "",
             "url": f"https://{site}/browse/{item.get('key', '')}",
         })
 
@@ -739,65 +740,6 @@ async def get_issue_links(key: str) -> dict:
         "url": f"https://{site}/browse/{key}",
         "comments": comments,
     }
-
-
-async def list_blocked_issues() -> list[dict]:
-    """Return Jira issues that are blocked or cross-team flagged.
-
-    Criteria: status=Blocked OR labels="cross-team" OR flagged=true.
-    Returns list of dicts with key, summary, status, priority, updated, url,
-    assignee (display name), reporter (display name).
-    """
-    cache_key = ("list_blocked_issues",)
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached  # type: ignore[return-value]
-
-    jql = (
-        '(status = Blocked OR labels = "cross-team" OR flagged = true) '
-        "AND statusCategory != Done ORDER BY updated DESC"
-    )
-    fields = ["summary", "status", "priority", "issuetype", "updated", "assignee", "reporter", "labels"]
-
-    async def call(client, auth_kwargs, base_url, site):
-        return await client.post(
-            f"{base_url}/rest/api/3/search/jql",
-            **auth_kwargs,
-            json={"jql": jql, "fields": fields, "maxResults": 50},
-        )
-
-    try:
-        resp, base_url, site = await _request_with_refresh("jira", call)
-    except httpx.HTTPError as exc:
-        raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
-    if resp.status_code == 401:
-        raise RuntimeError("Atlassian credentials expired. Please reconnect.")
-    if resp.status_code == 403:
-        raise RuntimeError("Access denied. Check your API token permissions.")
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Jira API error ({resp.status_code}).")
-    data = resp.json()
-
-    issues = []
-    for item in data.get("issues", []):
-        fields_data = item.get("fields", {})
-        status_obj = fields_data.get("status") or {}
-        priority_obj = fields_data.get("priority") or {}
-        assignee_obj = fields_data.get("assignee") or {}
-        reporter_obj = fields_data.get("reporter") or {}
-        issues.append({
-            "key": item.get("key", ""),
-            "summary": fields_data.get("summary", ""),
-            "status": status_obj.get("name", ""),
-            "priority": priority_obj.get("name", ""),
-            "updated": fields_data.get("updated", ""),
-            "url": f"https://{site}/browse/{item.get('key', '')}",
-            "assignee": assignee_obj.get("displayName", ""),
-            "reporter": reporter_obj.get("displayName", ""),
-        })
-
-    _cache_set(cache_key, issues)
-    return issues
 
 
 async def list_recent_pages(limit: int = 25, space_key: str = "") -> list[dict]:
@@ -1042,7 +984,9 @@ async def update_issue_fields(issue_key: str, fields: dict) -> None:
 async def list_blocked_issues() -> list[dict]:
     """Return Jira issues that are blocked, flagged, or labeled cross-team.
 
-    JQL: status = "Blocked" OR labels = "cross-team" OR flagged = impediment
+    JQL: (status = "Blocked" OR labels = "cross-team" OR flagged = impediment)
+    AND statusCategory != Done, oldest activity first. Merged from the two
+    definitions this module used to carry (→2653).
     Returns each issue with: key, summary, status, priority, updated, url,
     assignee (display name or ""), reporter (display name or "").
     Returns empty list on any API error so callers never get 500.
@@ -1053,8 +997,8 @@ async def list_blocked_issues() -> list[dict]:
         return cached  # type: ignore[return-value]
 
     jql = (
-        'status = "Blocked" OR labels = "cross-team" OR flagged = impediment '
-        "ORDER BY updated ASC"
+        '(status = "Blocked" OR labels = "cross-team" OR flagged = impediment) '
+        "AND statusCategory != Done ORDER BY updated ASC"
     )
     fields = [
         "summary", "status", "priority", "issuetype",
@@ -1096,6 +1040,230 @@ async def list_blocked_issues() -> list[dict]:
 
     _cache_set(cache_key, issues)
     return issues
+
+
+# ---------------------------------------------------------------------------
+# Dashboard widget readers (spec jira-and-confluence-dashboard-widgets)
+# ---------------------------------------------------------------------------
+
+async def run_jql(jql: str, limit: int = 10) -> list[dict]:
+    """Run any JQL query and return rows shaped for dashboard widgets.
+
+    Rows: {key, summary, status, priority, type, updated, due, url}.
+    Results are capped at 25 and cached briefly. Returns [] instead of
+    raising when Atlassian is disconnected, unreachable, or errors, so
+    widget cards degrade to an empty state.
+    """
+    limit = min(limit, 25)
+    cache_key = ("run_jql", jql, limit)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
+    fields = ["summary", "status", "priority", "issuetype", "updated", "duedate"]
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.post(
+            f"{base_url}/rest/api/3/search/jql",
+            **auth_kwargs,
+            json={"jql": jql, "fields": fields, "maxResults": limit},
+        )
+
+    try:
+        resp, base_url, site = await _request_with_refresh("jira", call)
+    except Exception:
+        return []
+    if resp.status_code != 200:
+        return []
+
+    rows = []
+    for item in resp.json().get("issues", []):
+        fields_data = item.get("fields", {})
+        status_obj = fields_data.get("status") or {}
+        priority_obj = fields_data.get("priority") or {}
+        issuetype_obj = fields_data.get("issuetype") or {}
+        rows.append({
+            "key": item.get("key", ""),
+            "summary": fields_data.get("summary", ""),
+            "status": status_obj.get("name", ""),
+            "priority": priority_obj.get("name", ""),
+            "type": issuetype_obj.get("name", ""),
+            "updated": fields_data.get("updated", ""),
+            "due": fields_data.get("duedate") or "",
+            "url": f"https://{site}/browse/{item.get('key', '')}",
+        })
+
+    _cache_set(cache_key, rows)
+    return rows
+
+
+async def run_cql(cql: str, limit: int = 10) -> list[dict]:
+    """Run any CQL query and return rows shaped for dashboard widgets.
+
+    Rows: {id, title, type, updated, url}. ``updated`` and the space part
+    of ``url`` come from the payload when present, else "". Capped at 25,
+    cached briefly, and [] on any error so widget cards degrade quietly.
+    """
+    limit = min(limit, 25)
+    cache_key = ("run_cql", cql, limit)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.get(
+            f"{base_url}/wiki/rest/api/content/search",
+            **auth_kwargs,
+            params={"cql": cql, "limit": limit},
+        )
+
+    try:
+        resp, base_url, site = await _request_with_refresh("confluence", call)
+    except Exception:
+        return []
+    if resp.status_code >= 400:
+        return []
+
+    rows = []
+    for item in resp.json().get("results", []):
+        page_id = str(item.get("id", ""))
+        space_key = (item.get("space") or {}).get("key", "")
+        version_obj = item.get("version") or {}
+        rows.append({
+            "id": page_id,
+            "title": item.get("title", ""),
+            "type": item.get("type", ""),
+            "updated": version_obj.get("when", ""),
+            "url": (
+                f"https://{site}/wiki/spaces/{space_key}/pages/{page_id}"
+                if space_key else ""
+            ),
+        })
+
+    _cache_set(cache_key, rows)
+    return rows
+
+
+async def _get_confluence_account_id() -> str:
+    """Return the connected user's Confluence account id, cached for an hour.
+
+    Returns "" when Atlassian is disconnected or the lookup fails.
+    """
+    cache_key = ("confluence_account_id",)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.get(f"{base_url}/wiki/rest/api/user/current", **auth_kwargs)
+
+    try:
+        resp, _, _ = await _request_with_refresh("confluence", call)
+    except Exception:
+        return ""
+    if resp.status_code != 200:
+        return ""
+
+    account_id = resp.json().get("accountId", "") or ""
+    if account_id:
+        _cache_set(cache_key, account_id, ttl=3600)
+    return account_id
+
+
+def _strip_storage_html(value: str) -> str:
+    """Minimal storage-HTML to text: drop tags, unescape entities, tidy spaces."""
+    import html as html_lib
+    import re
+    text = re.sub(r"<[^>]+>", " ", value)
+    return " ".join(html_lib.unescape(text).split())
+
+
+def _task_body_to_text(body) -> str:
+    """Plain text from a Confluence v2 task body (ADF dict or storage HTML)."""
+    if body is None:
+        return ""
+    if isinstance(body, str):
+        return _strip_storage_html(body)
+    if isinstance(body, dict):
+        if "type" in body or "content" in body:
+            return _adf_to_plain(body).strip()
+        adf = body.get("atlas_doc_format")
+        if isinstance(adf, dict):
+            value = adf.get("value", "")
+            if isinstance(value, dict):
+                return _adf_to_plain(value).strip()
+            if isinstance(value, str) and value:
+                try:
+                    return _adf_to_plain(json.loads(value)).strip()
+                except ValueError:
+                    return value.strip()
+        storage = body.get("storage")
+        if isinstance(storage, dict):
+            return _strip_storage_html(storage.get("value", ""))
+    return ""
+
+
+async def list_my_confluence_tasks(limit: int = 10) -> list[dict]:
+    """Return my incomplete Confluence action items (inline tasks).
+
+    Rows: {id, text, due, page_id, url}. Returns [] when the account id
+    cannot be resolved, Atlassian is disconnected, or the call fails.
+    """
+    limit = min(limit, 25)
+    account_id = await _get_confluence_account_id()
+    if not account_id:
+        return []
+
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.get(
+            f"{base_url}/wiki/api/v2/tasks",
+            **auth_kwargs,
+            params={"assigned-to": account_id, "status": "incomplete", "limit": limit},
+        )
+
+    try:
+        resp, base_url, site = await _request_with_refresh("confluence", call)
+    except Exception:
+        return []
+    if resp.status_code != 200:
+        return []
+
+    rows = []
+    for item in resp.json().get("results", []):
+        page_id = str(item.get("pageId", "") or "")
+        rows.append({
+            "id": str(item.get("id", "") or ""),
+            "text": _task_body_to_text(item.get("body")),
+            "due": item.get("dueAt") or "",
+            "page_id": page_id,
+            "url": f"https://{site}/wiki/pages/viewpage.action?pageId={page_id}",
+        })
+    return rows
+
+
+async def complete_confluence_task(task_id: str) -> None:
+    """Mark one Confluence inline task complete (PUT /wiki/api/v2/tasks/{id}).
+
+    Raises RuntimeError with a plain-language message on any failure so
+    the router can return an actionable error to the card.
+    """
+    async def call(client, auth_kwargs, base_url, site):
+        return await client.put(
+            f"{base_url}/wiki/api/v2/tasks/{task_id}",
+            **auth_kwargs,
+            json={"status": "complete"},
+        )
+
+    try:
+        resp, _, _ = await _request_with_refresh("confluence", call)
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not check off the item. It may have changed in Confluence."
+        ) from exc
+    if not (200 <= resp.status_code < 300):
+        raise RuntimeError(
+            "Could not check off the item. It may have changed in Confluence."
+        )
 
 
 # ---------------------------------------------------------------------------
